@@ -4,7 +4,7 @@ import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
-import type { Accessor, Component } from "solid-js";
+import type { Accessor } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import { aboutDialog } from "./AboutDialog";
@@ -17,8 +17,7 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
-import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
-import { type DockSourceEntry, workspaceSearchText } from "./canvas/dockModel";
+import { workspaceSearchText } from "./canvas/dockModel";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
@@ -28,72 +27,90 @@ import {
   type ActionContext,
   actionPaletteCommand,
 } from "./input/actions";
+import { firstIntentLine } from "./intent/text";
 import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
 import { recentAgents, recentRepos } from "./hostScope/activeWire";
+import {
+  type FleetTerminalRow,
+  useFleetTerminalIndex,
+} from "./palette/fleetTerminals";
+import { rowSubline } from "./canvas/dock/rowSubline";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
+import { assignColors } from "./terminal/terminalDisplay";
 import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
 import { padiMap } from "./wire";
+import { terminalKey } from "kolu-common/terminalKey";
 
-/** Body component factory for the "Search workspaces" group. Captures
- *  the entries accessor + recency lookup in a closure so the palette
- *  engine only sees a `Component<{ query; closePalette }>` that the
- *  group's `body` slot accepts — no palette awareness of dock model
- *  internals. */
-function workspaceGridBody(
-  workspaceEntries: Accessor<DockSourceEntry[]>,
-  getRecency: (id: TerminalId) => number,
-  activate: (id: TerminalId) => void,
-): Component<{ query: string; closePalette: () => void }> {
-  return (props) => (
-    <WorkspaceGrid
-      entries={workspaceEntries()}
-      getRecency={getRecency}
-      query={props.query}
-      onSelect={(id) => {
-        activate(id);
-        props.closePalette();
-      }}
-    />
-  );
-}
-
-/** Root-level workspace actions — one row per live terminal, ranked by
- *  recency at the palette root. Selecting activates + pans (same verb as
- *  the workspace grid). Search corpus is the dock's multi-field text. */
-function workspaceRootActions(
-  entries: DockSourceEntry[],
-  getRecency: (id: TerminalId) => number,
+/** Terminal rows for the unified switcher — fleet-wide (every connected
+ *  host's terminals), ranked by recency. Selecting a row switches host if
+ *  needed then activates the terminal. */
+function terminalSwitchActions(
+  fleet: readonly FleetTerminalRow[],
+  active: HostKey,
+  switchHost: (host: HostKey) => void,
   activate: (id: TerminalId) => void,
 ): PaletteAction[] {
-  return entries.map((entry): PaletteAction => {
-    const repoName = entry.info.key.group;
-    const branchLabel = entry.info.key.label;
+  // One color sequence across the visible fleet so repo hues stay stable
+  // in a mixed multi-host result list.
+  const colors = assignColors(
+    fleet.flatMap((r) => {
+      const k = terminalKey(r.meta);
+      return [k.group, k.label];
+    }),
+  );
+  return fleet.map((row): PaletteAction => {
+    const k = terminalKey(row.meta);
+    const repoName = k.group;
+    const branchLabel = k.label;
+    const repoColor = colors.get(repoName) ?? "oklch(0.75 0.14 0)";
+    const hostName = hostLabel(row.host);
+    const onActive = sameHost(row.host, active);
+    const intentOrFg = row.meta.intent
+      ? firstIntentLine(row.meta.intent)
+      : rowSubline(row.meta);
+    const context = onActive
+      ? intentOrFg
+      : [intentOrFg, hostName].filter(Boolean).join(" · ");
     return {
       kind: "action",
+      // Name is branch for match highlighting; host is in searchText + row.
       name: branchLabel,
-      description: repoName,
-      onSelect: () => activate(entry.id),
+      description: onActive ? repoName : `${repoName} · ${hostName}`,
+      onSelect: () => {
+        if (!sameHost(row.host, active)) switchHost(row.host);
+        activate(row.id);
+      },
       row: {
-        kind: "workspace",
-        terminalId: entry.id,
+        kind: "terminal",
+        terminalId: row.id,
+        terminalMeta: row.meta,
+        hostKey: row.host,
         repoName,
-        repoColor: entry.info.repoColor,
+        repoColor,
         branchLabel,
-        recencyAt: getRecency(entry.id) || entry.meta.lastActivityAt,
-        searchText: workspaceSearchText({
-          repoName,
-          label: branchLabel,
-          suffix: entry.info.key.suffix,
-          meta: entry.meta,
-        }),
+        recencyAt: row.recencyAt,
+        context,
+        searchText: [
+          workspaceSearchText({
+            repoName,
+            label: branchLabel,
+            meta: row.meta,
+          }),
+          hostName,
+          encodeHostSearch(row.host),
+        ].join(" "),
       },
     };
   });
+}
+
+function encodeHostSearch(h: HostKey): string {
+  return h.kind === "local" ? "local" : h.target;
 }
 
 /** Root-level (and Switch-host group) host rows — status dot + label +
@@ -200,10 +217,8 @@ export interface CommandDeps extends ActionContext {
     initialCommand?: string,
   ) => void;
   handleClose: () => void;
-  // Workspace search — the live-terminal source list and recency
-  // accessor the "Search workspaces" group walks to populate its rows.
-  workspaceEntries: Accessor<DockSourceEntry[]>;
-  recencyOf: (id: TerminalId) => number;
+  // Terminal switcher — activate is enough; row list is useDockOrder (shared
+  // with the dock). Host pool still comes from deps.
   // Host switcher — the pool, the active host, and the switch writer the
   // "Switch host" group (⌘⇧H) walks to populate its rows.
   hostKeys: Accessor<HostKey[]>;
@@ -221,17 +236,6 @@ export interface CommandDeps extends ActionContext {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  // Stable component reference — created once per `createCommands` call so
-  // the `body` slot identity doesn't change on every reactive re-run of the
-  // memo below. A changing `body` reference would cause SolidJS's `<Dynamic>`
-  // to unmount/remount `WorkspaceGrid` on every terminal update, losing its
-  // `repoFilter` signal and scroll position.
-  const workspacesBody = workspaceGridBody(
-    deps.workspaceEntries,
-    deps.recencyOf,
-    deps.activate,
-  );
-
   // Canvas posture — same reactive reader pattern as ChromeBar/Dock. The
   // memo reads `mode()`/`canMaximize()` so the command's label and
   // visibility track posture reactively. The *write* path stays on
@@ -241,32 +245,37 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const posture = useViewPosture();
   const tileStore = useTileStore();
   const crud = useTerminalCrud();
+  // Fleet-wide terminal index — every connected host's terminals, ranked by
+  // recency. Active-host-only dock order is not enough for multi-host jump.
+  const fleet = useFleetTerminalIndex();
+  const terminalRows = () =>
+    terminalSwitchActions(
+      fleet(),
+      deps.activeHost(),
+      deps.switchHost,
+      deps.activate,
+    );
 
   return createMemo((): PaletteCommand[] => [
-    // --- Root index: live workspaces + hosts (filtered/ranked at root) ---
-    // Empty root caps workspaces to Recent (~3); a query surfaces all matches.
-    // ⌘⇧K / ⌘⇧H still deep-link into the scoped groups below.
-    ...workspaceRootActions(
-      deps.workspaceEntries(),
-      deps.recencyOf,
-      deps.activate,
-    ),
+    // --- Root index: terminals (all hosts) + hosts ---
+    // Empty root caps terminals to Recent (~3); a query surfaces all matches.
+    // ⌘⇧K / ⌘⇧H deep-link into the scoped groups below.
+    ...terminalRows(),
     ...(deps.hostKeys().length > 1
       ? hostRootActions(deps.hostKeys(), deps.activeHost(), deps.switchHost)
       : []),
 
-    // --- Workspaces (drill-ins) ---
-    ...(tileStore.tileCount() > 0
+    // --- Terminals (scoped ⌘⇧K — full fleet list, no Recent cap) ---
+    ...(fleet().length > 0
       ? [
           {
-            kind: "body-group" as const,
-            name: "Search workspaces",
-            description: "Browse by agent state",
+            kind: "group" as const,
+            name: "Search terminals",
+            description: "Jump to a live terminal on any host",
             section: "workspaces" as const,
             keybind: ACTIONS.openWorkspaceSwitcher.keybind,
-            body: workspacesBody,
-            bodyHint: "Pick a workspace to switch",
             row: { kind: "command" as const },
+            children: (): PaletteItem[] => terminalRows(),
           },
         ]
       : []),

@@ -9,7 +9,7 @@ import {
 
 function item(
   name: string,
-  kind: "workspace" | "host" | "command",
+  kind: "terminal" | "host" | "command",
   extras: Partial<IndexableItem> & {
     recencyAt?: number;
     searchText?: string;
@@ -32,7 +32,7 @@ function item(
 
 describe("kindRank", () => {
   it("orders workspaces above hosts above commands", () => {
-    expect(kindRank("workspace")).toBeLessThan(kindRank("host"));
+    expect(kindRank("terminal")).toBeLessThan(kindRank("host"));
     expect(kindRank("host")).toBeLessThan(kindRank("command"));
   });
 });
@@ -41,7 +41,7 @@ describe("searchCorpus", () => {
   it("prefers multi-field searchText over name/description", () => {
     expect(
       searchCorpus(
-        item("watch-edge", "workspace", {
+        item("watch-edge", "terminal", {
           description: "intent",
           searchText: "kolu watch-edge debounce",
         }),
@@ -58,16 +58,16 @@ describe("searchCorpus", () => {
 
 describe("filterAndRankPaletteItems", () => {
   const catalog: IndexableItem[] = [
-    item("old-ws", "workspace", { recencyAt: 100, searchText: "kolu old-ws" }),
-    item("fresh-ws", "workspace", {
+    item("old-ws", "terminal", { recencyAt: 100, searchText: "kolu old-ws" }),
+    item("fresh-ws", "terminal", {
       recencyAt: 500,
       searchText: "kolu fresh-ws edge",
     }),
-    item("mid-ws", "workspace", {
+    item("mid-ws", "terminal", {
       recencyAt: 300,
       searchText: "drishti master",
     }),
-    item("extra-ws", "workspace", {
+    item("extra-ws", "terminal", {
       recencyAt: 50,
       searchText: "odu venue",
     }),
@@ -124,11 +124,11 @@ describe("filterAndRankPaletteItems", () => {
         searchText: "toggle dock panel",
       }),
       item("builder", "host", { searchText: "srid@builder connected" }),
-      item("ws-a", "workspace", {
+      item("ws-a", "terminal", {
         recencyAt: 10,
         searchText: "kolu builder branch",
       }),
-      item("ws-b", "workspace", {
+      item("ws-b", "terminal", {
         recencyAt: 99,
         searchText: "odu builder venue",
       }),

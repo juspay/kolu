@@ -1,31 +1,33 @@
 /** Shared four-slot palette row — lead · identity · context · right rail.
  *
  *  Every result kind fills the same slots so a mixed root list stays scannable:
- *  workspace (StatePip + repo eyebrow + branch + intent + recency + `ws`),
+ *  terminal (StatePip + repo eyebrow + branch + intent + recency + `term`),
  *  host (connection dot + user@host + status + `host`),
  *  command (glyph/icon + name + description + keybind + drill chevron + `cmd`).
  *
  *  Kind tags appear only during cross-kind root search (`showKindTag`); scoped
  *  drill-ins drop them as noise. */
 
+import type { TerminalMetadata } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
-import type { HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import type { TerminalMetadata } from "@kolu/padi/surface";
-import { type Component, For, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
-import { rowSubline } from "../canvas/dock/rowSubline";
 import {
   dotClass,
   hostLabel,
   sameHost,
   statusLabelShort,
 } from "../host/hostChipTone";
-import { firstIntentLine } from "../intent/text";
+
+function encodeHostAttr(h: HostKey): string {
+  return encodeHostKey(h);
+}
 import { formatKeybind, type Keybind } from "../input/keyboard";
-import { useStatePip } from "../terminal/statePipBind";
+import { bindStatePip, useStatePip } from "../terminal/statePipBind";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { compactDelta } from "../time/duration";
 import Kbd from "../ui/Kbd";
@@ -35,10 +37,14 @@ import type { ResultKind } from "./rootIndex";
 
 export type PaletteRowMeta = {
   kind: ResultKind;
-  /** Multi-field AND-token corpus (workspace dock fields / host label+status). */
+  /** Multi-field AND-token corpus (terminal dock fields / host label+status). */
   searchText?: string;
   recencyAt?: number | null;
   terminalId?: TerminalId;
+  /** Meta snapshot for fleet rows (may be off the active host). */
+  terminalMeta?: TerminalMetadata;
+  /** Precomputed context (intent / foreground / host tag). */
+  context?: string;
   repoName?: string;
   repoColor?: string;
   branchLabel?: string;
@@ -53,15 +59,9 @@ function compactRecency(ts: number | null | undefined): string {
   return `${value}${unit}`;
 }
 
-function workspaceContext(meta: TerminalMetadata | undefined): string {
-  if (!meta) return "";
-  if (meta.intent) return firstIntentLine(meta.intent);
-  return rowSubline(meta);
-}
-
 const KindTag: Component<{ kind: ResultKind }> = (props) => {
   const label =
-    props.kind === "workspace" ? "ws" : props.kind === "host" ? "host" : "cmd";
+    props.kind === "terminal" ? "term" : props.kind === "host" ? "host" : "cmd";
   return (
     <span
       data-testid="palette-kind-tag"
@@ -73,27 +73,36 @@ const KindTag: Component<{ kind: ResultKind }> = (props) => {
   );
 };
 
-const WorkspaceLeadBound: Component<{
+/** StatePip lead — live activity when the terminal is on the active host;
+ *  pure bind from the row's meta snapshot for other hosts (activity store is
+ *  active-host-only). */
+const TerminalLead: Component<{
   id: TerminalId;
   meta: TerminalMetadata;
+  hostKey?: HostKey;
 }> = (props) => {
   const store = useTerminalStore();
-  // Unread folds into the StatePip amber corner badge — same binder as dock.
-  const pip = useStatePip(
+  const onActiveHost = () =>
+    !props.hostKey || sameHost(props.hostKey, activeHost());
+  // Active-host path: full activity/unread bind.
+  const livePip = useStatePip(
     () => props.id,
     () => props.meta,
-    () => store.isUnread(props.id),
+    () => (onActiveHost() ? store.isUnread(props.id) : false),
   );
-  return <StatePip {...pip()} class={TITLE_PIP_BOX} />;
-};
-
-const WorkspaceLead: Component<{ id: TerminalId }> = (props) => {
-  const store = useTerminalStore();
-  const meta = () => store.getMetadata(props.id);
+  const staticPip = createMemo(() =>
+    bindStatePip({
+      meta: props.meta,
+      isLive: false,
+      isFinished: false,
+      unread: false,
+    }),
+  );
   return (
-    <Show when={meta()}>
-      {(m) => <WorkspaceLeadBound id={props.id} meta={m()} />}
-    </Show>
+    <StatePip
+      {...(onActiveHost() ? livePip() : staticPip())}
+      class={TITLE_PIP_BOX}
+    />
   );
 };
 
@@ -138,21 +147,22 @@ const PaletteRow: Component<{
   onSelect: () => void;
   onHover: () => void;
 }> = (props) => {
-  const store = useTerminalStore();
   const row = () => props.cmd.row;
   const kind = (): ResultKind => row()?.kind ?? "command";
 
   const identityPrimary = (): string => {
     const r = row();
-    if (r?.kind === "workspace") return r.branchLabel ?? props.cmd.name;
+    if (r?.kind === "terminal") return r.branchLabel ?? props.cmd.name;
     if (r?.kind === "host" && r.hostKey) return hostLabel(r.hostKey);
     return props.cmd.name;
   };
 
   const contextLine = (): string => {
     const r = row();
-    if (r?.kind === "workspace" && r.terminalId) {
-      return workspaceContext(store.getMetadata(r.terminalId));
+    if (r?.kind === "terminal") {
+      // Prefer precomputed context (includes host tag for cross-host rows).
+      if (r.context) return r.context;
+      return props.cmd.description ?? "";
     }
     if (r?.kind === "host" && r.hostKey) {
       if (sameHost(r.hostKey, activeHost())) return "active";
@@ -162,8 +172,17 @@ const PaletteRow: Component<{
   };
 
   const recencyLabel = (): string => {
-    if (kind() !== "workspace") return "";
+    if (kind() !== "terminal") return "";
     return compactRecency(row()?.recencyAt);
+  };
+
+  const showHostChip = (): boolean => {
+    const r = row();
+    return (
+      r?.kind === "terminal" &&
+      !!r.hostKey &&
+      !sameHost(r.hostKey, activeHost())
+    );
   };
 
   return (
@@ -173,9 +192,8 @@ const PaletteRow: Component<{
       aria-selected={props.selected}
       data-selected={props.selected || undefined}
       data-palette-kind={kind()}
-      // Exact command/row name for e2e — free of lead glyph / context text so
-      // "Search workspaces" and "Nord" vs "One Nord" stay unambiguous.
       data-palette-name={props.cmd.name}
+      data-host={row()?.hostKey ? encodeHostAttr(row()!.hostKey!) : undefined}
       class="flex items-center gap-2.5 px-2.5 py-1.5 text-[0.86rem] rounded-lg cursor-pointer transition-colors duration-100 min-w-0"
       classList={{
         "bg-accent/[0.14] text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_38%,transparent)]":
@@ -193,8 +211,16 @@ const PaletteRow: Component<{
     >
       {/* 1 · Lead — always occupied so identity columns align. */}
       <span class="shrink-0 w-4 inline-flex items-center justify-center">
-        <Show when={kind() === "workspace" && row()?.terminalId}>
-          {(id) => <WorkspaceLead id={id()} />}
+        <Show
+          when={
+            kind() === "terminal" && row()?.terminalId && row()?.terminalMeta
+          }
+        >
+          <TerminalLead
+            id={row()!.terminalId!}
+            meta={row()!.terminalMeta!}
+            hostKey={row()?.hostKey}
+          />
         </Show>
         <Show when={kind() === "host" && row()?.hostKey}>
           {(host) => <HostLead host={host()} />}
@@ -206,7 +232,7 @@ const PaletteRow: Component<{
 
       {/* 2 · Identity */}
       <div class="flex items-baseline gap-1.5 min-w-0 shrink">
-        <Show when={kind() === "workspace" && row()?.repoName}>
+        <Show when={kind() === "terminal" && row()?.repoName}>
           <span
             class="font-mono text-[0.72rem] font-semibold truncate max-w-[7rem]"
             style={{ color: row()?.repoColor }}
@@ -217,6 +243,11 @@ const PaletteRow: Component<{
         <span class="truncate min-w-0">
           <HighlightedText text={identityPrimary()} query={props.query} />
         </span>
+        <Show when={showHostChip()}>
+          <span class="font-mono text-[0.65rem] text-fg-3 truncate max-w-[6rem]">
+            {hostLabel(row()!.hostKey!)}
+          </span>
+        </Show>
       </div>
 
       {/* 3 · Context — one truncating line, never wraps. */}

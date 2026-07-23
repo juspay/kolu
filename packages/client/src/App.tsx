@@ -34,7 +34,6 @@ import CommandPalette from "./CommandPalette";
 import CompactTileView from "./CompactTileView";
 import Dock from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
-import { buildWorkspaceEntries } from "./canvas/dockModel";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
@@ -132,21 +131,8 @@ const App: Component = () => {
   // the deferred-effect shape lost re-fires under the production Solid
   // build (see `openInCodeTab.ts`'s header for the canary scenario).
 
-  // Workspace search feeds — the live-terminal source list and recency
-  // accessor consumed by the unified command palette's "Search
-  // workspaces" group. `useDockOrder` is the same singleton memo the
-  // desktop dock and mobile drawer read, so `Cmd+1..9` targets the
-  // exact row the dock paints (group-bucketed, parked rows filtered).
-  const workspaceEntries = createMemo(() =>
-    buildWorkspaceEntries(
-      tileStore.tileIds(),
-      store.getDisplayInfo,
-      store.getMetadata,
-      tileStore.getLayout,
-    ),
-  );
-  const recencyOf = (id: TerminalId): number =>
-    store.getMetadata(id)?.lastActivityAt ?? 0;
+  // Dock row order for Cmd+1..9 (active host). The switcher indexes the
+  // fleet separately via useFleetTerminalIndex in createCommands.
   const dockTree = useDockOrder();
   // `dockTree` is already a singleton memo and `.flatRows` is a stable
   // projection per memo run; the id-only view is computed at read time so the
@@ -188,7 +174,7 @@ const App: Component = () => {
    *  and the one TerminalCanvas owns) so the wiring lives in one place. */
   const dockPalette = {
     onCreate: () => commandPalette.openGroup("New terminal"),
-    onOpenWorkspaceSearch: () => commandPalette.openGroup("Search workspaces"),
+    onOpenWorkspaceSearch: () => commandPalette.openGroup("Search terminals"),
   };
 
   /** Close a terminal. Top-level terminals show a confirmation dialog;
@@ -255,8 +241,6 @@ const App: Component = () => {
     simulateAlert: attention.simulateAlert,
     canvasCenterActive: arrange.centerActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
-    workspaceEntries,
-    recencyOf,
     hostKeys,
     activeHost,
     switchHost: setActiveHost,

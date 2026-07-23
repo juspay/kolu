@@ -113,7 +113,7 @@ const MobileKeyBar: Component = () => {
         // exactly two rows, so every key is reachable without the horizontal
         // scroll the old single overflow-x row forced. Inline grid-template
         // because the column count is data-derived — a dynamic Tailwind class
-        // would be purged. Mirrors WorkspaceGrid.tsx's data-driven columns.
+        // would be purged. Data-driven columns (same spirit as the dock).
         class="grid gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge"
         style={{ "grid-template-columns": `repeat(${COLS}, minmax(0, 1fr))` }}
         data-testid="mobile-key-bar"

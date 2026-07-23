@@ -52,11 +52,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-workspace-switcher-shortcut",
-    text: `${formatKeybind(ACTIONS.openWorkspaceSwitcher.keybind)} deep-links into the workspace grid (agent-state columns); ${formatKeybind(ACTIONS.commandPalette.keybind)} at root finds the same terminals by name`,
+    text: `${formatKeybind(ACTIONS.openWorkspaceSwitcher.keybind)} deep-links into the terminal switcher; ${formatKeybind(ACTIONS.commandPalette.keybind)} at root finds the same terminals by name`,
   },
   {
     id: "amb-palette-finds-everything",
-    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} finds workspaces and hosts too — type a branch, repo, or machine name without opening a separate switcher`,
+    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} finds terminals and hosts too — type a branch, repo, or machine name without opening a separate switcher`,
     doc: "switcher",
   },
   {

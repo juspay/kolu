@@ -1,6 +1,6 @@
 /** Root-index ranking + filter for the unified command palette.
  *
- *  Pure helpers so the cross-kind order (workspaces → hosts → commands,
+ *  Pure helpers so the cross-kind order (terminals → hosts → commands,
  *  recency within workspaces, recent-cap on empty root) is unit-tested
  *  without mounting the palette. The dock's AND-token matcher
  *  (`matchesAllTokens` / `tokenize`) is the single filter implementation —
@@ -8,12 +8,12 @@
 
 import { matchesAllTokens, tokenize } from "../search";
 
-export type ResultKind = "workspace" | "host" | "command";
+export type ResultKind = "terminal" | "host" | "command";
 
 /** Rank so workspaces float above hosts above commands in a mixed root search. */
 export function kindRank(kind: ResultKind): number {
   switch (kind) {
-    case "workspace":
+    case "terminal":
       return 0;
     case "host":
       return 1;
@@ -71,7 +71,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
   if (tokens.length === 0) {
     // Empty root: Recent (top N workspaces by recency) · Hosts · Commands.
     const workspaces = matched
-      .filter((item) => itemKind(item) === "workspace")
+      .filter((item) => itemKind(item) === "terminal")
       .sort((a, b) => recencyOf(b) - recencyOf(a))
       .slice(0, RECENT_WORKSPACE_LIMIT);
     const hosts = matched.filter((item) => itemKind(item) === "host");
@@ -85,7 +85,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
   return matched.sort((a, b) => {
     const kr = kindRank(itemKind(a)) - kindRank(itemKind(b));
     if (kr !== 0) return kr;
-    if (itemKind(a) === "workspace") {
+    if (itemKind(a) === "terminal") {
       const delta = recencyOf(b) - recencyOf(a);
       if (delta !== 0) return delta;
     }

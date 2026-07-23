@@ -22,7 +22,6 @@ import {
   on,
   Show,
 } from "solid-js";
-import { Dynamic } from "solid-js/web";
 import { match } from "ts-pattern";
 import type { Keybind } from "./input/keyboard";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
@@ -68,7 +67,7 @@ const SECTION_LABELS: Record<SectionId, string> = {
   recent: "Recent",
   hosts: "Hosts",
   commands: "Commands",
-  workspaces: "Workspaces",
+  workspaces: "Terminals",
   "active-terminal": "Active Terminal",
   canvas: "Canvas",
   ui: "UI",
@@ -129,22 +128,6 @@ export interface PaletteGroup extends PaletteBase {
   children: PaletteItem[] | (() => PaletteItem[]);
 }
 
-/** A drill-in group that renders a custom body component instead of a
- *  filtered list. Body groups are leaves — they cannot host nested
- *  groups, and the engine never resolves children for them. The palette
- *  still owns the search input (the body reads `query` as a prop) and
- *  the breadcrumb / bottom action bar; the body decides how to paint
- *  its rows. Use this for grids that don't fit a single column of
- *  items (e.g. agent-state columns + facet sidebar). */
-export interface PaletteBodyGroup extends PaletteBase {
-  kind: "body-group";
-  body: Component<{ query: string; closePalette: () => void }>;
-  /** Hint string shown in the bottom action bar when drilled in —
-   *  describes what clicking inside the body does (e.g. "Pick a
-   *  workspace to switch"). */
-  bodyHint?: string;
-}
-
 /** A group whose drill-in switches the input from a filter to a free-text
  *  value field — pre-filled with `prefill()` and auto-selected on focus.
  *  Children are passive label rows: their own `onSelect` (if any) is
@@ -185,37 +168,28 @@ export interface PaletteHint {
   text: string;
 }
 
-/** Top-level commands — action, group, body-group, or value-input.
+/** Top-level commands — action, group, or value-input.
  *  Labels are not permitted at the top level; they appear only as
  *  `PaletteValueInput` children. */
-export type PaletteCommand =
-  | PaletteAction
-  | PaletteGroup
-  | PaletteBodyGroup
-  | PaletteValueInput;
+export type PaletteCommand = PaletteAction | PaletteGroup | PaletteValueInput;
 
 /** Anything renderable at a palette level. */
 export type PaletteItem = PaletteCommand | PaletteLabel | PaletteHint;
 
-/** Any drillable kind — group with children, body group, or value input. */
-type DrillableKind = PaletteGroup | PaletteValueInput | PaletteBodyGroup;
+/** Any drillable kind — group with children, or value input. */
+type DrillableKind = PaletteGroup | PaletteValueInput;
 
 /** Discriminated UI mode driven by the deepest path segment. Filter
  *  mode: input narrows the children list. Value mode: input is a
- *  free-text field; children render as passive labels. Body mode:
- *  the body component renders its own custom JSX in place of the
- *  list (the input still drives a query the body reads). Exported so
+ *  free-text field; children render as passive labels. Exported so
  *  child components (e.g. ActionBar) reference the same union the
  *  engine dispatches on — a future arm forces both ends to update. */
 export type PaletteMode =
   | { kind: "filter" }
-  | { kind: "value"; leaf: PaletteValueInput }
-  | { kind: "body"; leaf: PaletteBodyGroup };
+  | { kind: "value"; leaf: PaletteValueInput };
 
 function isDrillable(item: PaletteItem): item is DrillableKind {
-  return (
-    item.kind === "group" || item.kind === "value" || item.kind === "body-group"
-  );
+  return item.kind === "group" || item.kind === "value";
 }
 
 /** Resolve children, handling both static arrays and accessors. Body
@@ -268,8 +242,6 @@ const CommandPalette: Component<{
     const p = path();
     const last = p.at(-1);
     if (last === undefined) return props.commands();
-    // Body groups are leaves — the body owns rendering, no children.
-    if (last.kind === "body-group") return [];
     let level: PaletteItem[] = props.commands();
     for (const segment of p) {
       const match = level.find(
@@ -300,17 +272,8 @@ const CommandPalette: Component<{
   const mode = createMemo<PaletteMode>(() => {
     const last = path().at(-1);
     if (last?.kind === "value") return { kind: "value", leaf: last };
-    if (last?.kind === "body-group") return { kind: "body", leaf: last };
     return { kind: "filter" };
   });
-
-  /** Narrow `mode()` to the body leaf for the `<Show>` render branch.
-   *  Plain function — the only consumer is the JSX below, so a memo
-   *  would just add a signal node for one read site. */
-  function bodyLeaf(): PaletteBodyGroup | undefined {
-    const m = mode();
-    return m.kind === "body" ? m.leaf : undefined;
-  }
 
   /** Validation error for the current value-input query. `null` outside
    *  value mode or when the value passes. */
@@ -325,27 +288,26 @@ const CommandPalette: Component<{
   function placeholder(): string {
     const m = mode();
     if (m.kind === "value") return m.leaf.placeholder ?? "Type a command...";
-    if (m.kind === "body") return "Filter workspaces…";
     const last = path().at(-1);
+    if (last?.name === "Search terminals") return "Filter terminals…";
     if (last?.name === "Switch host") return "Filter hosts…";
     if (path().length === 0) return "Search everything…";
     return "Type a command...";
   }
 
   /** Interactive rows at the current level (filter is bypassed in
-   *  value and body modes). Filter mode produces `PaletteCommand[]`;
-   *  value mode produces `PaletteLabel[]`; body mode skips the list
-   *  entirely. The union covers all three without dynamic typing.
+   *  value mode). Filter mode produces `PaletteCommand[]`;
+   *  value mode produces `PaletteLabel[]`.
    *
-   *  AND-token multi-field match — the same matcher the dock workspace
-   *  grid uses (`matchesAllTokens` / `tokenize`), so typing a branch or
-   *  host name at root finds it. Root ranks workspaces → hosts →
-   *  commands (recency within workspaces; recent-cap on empty root). */
+   *  AND-token multi-field match — the same matcher the dock uses
+   *  (`matchesAllTokens` / `tokenize`), so typing a branch or host
+   *  name at root finds it. Root ranks terminals → hosts → commands
+   *  (recency within workspaces; recent-cap on empty root). */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     const items = partitioned().interactive;
     if (mode().kind !== "filter") {
-      // Value/body modes don't search — preserve registration order with
-      // a stable section sort for any tagged labels.
+      // Value mode doesn't search — preserve registration order with a
+      // stable section sort for any tagged labels.
       return [...items].sort(
         (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
       );
@@ -389,7 +351,7 @@ const CommandPalette: Component<{
     if (!atRootFilter()) return cmd.section;
     const kind: ResultKind = itemKind(cmd);
     const hasQuery = query().trim().length > 0;
-    if (kind === "workspace") return hasQuery ? "workspaces" : "recent";
+    if (kind === "terminal") return hasQuery ? "workspaces" : "recent";
     if (kind === "host") return "hosts";
     if (hasQuery) return "commands";
     return cmd.section;
@@ -470,12 +432,7 @@ const CommandPalette: Component<{
     // .exhaustive() forces a compile error if a future kind is added
     // without an arm here.
     match(cmd)
-      .with(
-        { kind: "group" },
-        { kind: "value" },
-        { kind: "body-group" },
-        (group) => drillInto(group),
-      )
+      .with({ kind: "group" }, { kind: "value" }, (group) => drillInto(group))
       .with({ kind: "action" }, (action) => {
         // Close first so the highlight effect stops tracking filtered(),
         // preventing onSelect's state changes from re-triggering a preview.
@@ -488,12 +445,6 @@ const CommandPalette: Component<{
 
   function handleKeyDown(e: KeyboardEvent) {
     if (!props.open) return;
-    // Body mode (custom group renderer): the body owns its own
-    // selection/activation. The engine still handles Backspace for
-    // drilling out (so the input being empty still pops the path)
-    // and lets Escape fall through to Corvu Dialog. Arrow/Tab/Enter
-    // pass to the body's own listener.
-    if (mode().kind === "body" && e.key !== "Backspace") return;
     const items = filtered();
     const isCtrl = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
     const key = (isCtrl && CTRL_KEY_MAP[e.key]) || e.key;
@@ -714,92 +665,77 @@ const CommandPalette: Component<{
             </div>
           )}
         </Show>
-        <Show
-          when={bodyLeaf()}
-          fallback={
-            <div
-              ref={(el) => {
-                listEl = el;
-                // mousemove is incidental UI state, not a real interactive event
-                // on this scroll container — attach via addEventListener so the
-                // div stays a plain layout element (Biome's
-                // noStaticElementInteractions would flag a JSX onMouseMove).
-                el.addEventListener("mousemove", () => setMouseActive(true), {
-                  passive: true,
-                });
-              }}
-              class="flex-1 min-h-0 overflow-y-auto"
-            >
-              <Show
-                when={filtered().length > 0}
-                fallback={
-                  <div class="flex flex-col items-center justify-center gap-1 px-5 py-10 text-center">
-                    <span
-                      aria-hidden="true"
-                      class="font-mono text-base text-fg-3/60 select-none"
-                    >
-                      ⏵
-                    </span>
-                    <span class="text-sm text-fg-2">No matches</span>
-                    <span class="text-xs text-fg-3/70">
-                      Try a different search
-                    </span>
-                  </div>
-                }
-              >
-                <div class="py-1 px-1.5" role="listbox">
-                  <For each={displayed()}>
-                    {(entry) =>
-                      entry.kind === "header" ? (
-                        <div
-                          data-testid="palette-section-header"
-                          data-section={entry.section}
-                          class="flex items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1"
-                        >
-                          {SECTION_LABELS[entry.section]}
-                        </div>
-                      ) : (
-                        <PaletteRow
-                          cmd={entry.cmd}
-                          selected={selectedIndex() === entry.index}
-                          query={query()}
-                          showKindTag={showKindTag()}
-                          drillable={isDrillable(entry.cmd)}
-                          onHover={() =>
-                            mouseActive() && setSelectedIndex(entry.index)
-                          }
-                          onSelect={() => execute(entry.cmd)}
-                        />
-                      )
-                    }
-                  </For>
-                </div>
-              </Show>
-              <Show when={partitioned().hints.length > 0}>
-                <ul class="py-1 px-2">
-                  <For each={partitioned().hints}>
-                    {(hint) => (
-                      <li
-                        data-testid="palette-hint"
-                        class="px-3 py-2 text-xs text-fg-3/80 italic"
-                      >
-                        {hint.text}
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </Show>
-            </div>
-          }
+        <div
+          ref={(el) => {
+            listEl = el;
+            // mousemove is incidental UI state, not a real interactive event
+            // on this scroll container — attach via addEventListener so the
+            // div stays a plain layout element (Biome's
+            // noStaticElementInteractions would flag a JSX onMouseMove).
+            el.addEventListener("mousemove", () => setMouseActive(true), {
+              passive: true,
+            });
+          }}
+          class="flex-1 min-h-0 overflow-y-auto"
         >
-          {(group) => (
-            <Dynamic
-              component={group().body}
-              query={query()}
-              closePalette={closeForSelection}
-            />
-          )}
-        </Show>
+          <Show
+            when={filtered().length > 0}
+            fallback={
+              <div class="flex flex-col items-center justify-center gap-1 px-5 py-10 text-center">
+                <span
+                  aria-hidden="true"
+                  class="font-mono text-base text-fg-3/60 select-none"
+                >
+                  ⏵
+                </span>
+                <span class="text-sm text-fg-2">No matches</span>
+                <span class="text-xs text-fg-3/70">Try a different search</span>
+              </div>
+            }
+          >
+            <div class="py-1 px-1.5" role="listbox">
+              <For each={displayed()}>
+                {(entry) =>
+                  entry.kind === "header" ? (
+                    <div
+                      data-testid="palette-section-header"
+                      data-section={entry.section}
+                      class="flex items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1"
+                    >
+                      {SECTION_LABELS[entry.section]}
+                    </div>
+                  ) : (
+                    <PaletteRow
+                      cmd={entry.cmd}
+                      selected={selectedIndex() === entry.index}
+                      query={query()}
+                      showKindTag={showKindTag()}
+                      drillable={isDrillable(entry.cmd)}
+                      onHover={() =>
+                        mouseActive() && setSelectedIndex(entry.index)
+                      }
+                      onSelect={() => execute(entry.cmd)}
+                    />
+                  )
+                }
+              </For>
+            </div>
+          </Show>
+          <Show when={partitioned().hints.length > 0}>
+            <ul class="py-1 px-2">
+              <For each={partitioned().hints}>
+                {(hint) => (
+                  <li
+                    data-testid="palette-hint"
+                    class="px-3 py-2 text-xs text-fg-3/80 italic"
+                  >
+                    {hint.text}
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </div>
         <ActionBar
           mode={mode()}
           drilled={path().length > 0}
@@ -823,10 +759,9 @@ const CommandPalette: Component<{
 };
 
 /** Bottom action bar — Raycast-style hint strip showing what `⏎` will
- *  do for the currently highlighted row (or what clicking inside the
- *  body does, in body mode), plus an `esc Back` affordance when the
- *  path is drilled. Border-top separates it from the scrollable list
- *  above; the ambient tip (when present) renders below this bar. */
+ *  do for the currently highlighted row, plus an `esc Back` affordance
+ *  when the path is drilled. Border-top separates it from the scrollable
+ *  list above; the ambient tip (when present) renders below this bar. */
 const ActionBar: Component<{
   mode: PaletteMode;
   drilled: boolean;
@@ -834,14 +769,13 @@ const ActionBar: Component<{
 }> = (props) => {
   function primaryLabel(): string {
     return match(props.mode)
-      .with({ kind: "body" }, (m) => m.leaf.bodyHint ?? "Pick an item")
       .with({ kind: "value" }, () => "Submit")
       .with({ kind: "filter" }, () => {
         const h = props.highlighted;
         if (!h) return "";
         if (isDrillable(h)) return "Open";
-        // Workspace / host root rows switch context; plain commands run.
-        if (h.row?.kind === "workspace" || h.row?.kind === "host")
+        // Terminal / host root rows switch context; plain commands run.
+        if (h.row?.kind === "terminal" || h.row?.kind === "host")
           return "Switch";
         return "Run";
       })

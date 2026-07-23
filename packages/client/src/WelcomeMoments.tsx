@@ -218,7 +218,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
             testId="welcome-moment-search"
             emoji="⌕"
             title="Search everything"
-            body="One box finds workspaces, hosts, and commands — type a branch or machine name, no separate switcher."
+            body="One box finds terminals, hosts, and commands — type a branch or machine name, no separate switcher."
             docSlug="switcher"
             trailing={
               <button

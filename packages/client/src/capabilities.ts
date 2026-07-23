@@ -27,7 +27,7 @@ import { isDesktop } from "./useMobile";
  *  `CompactTileView` instead, and the canvas isn't present to target. */
 export const supportsSpatialCanvas = () => isDesktop();
 
-/** Whether the workspace switcher (the palette's "Search workspaces" group) is
+/** Whether the terminal switcher (the palette's "Search terminals" group) is
  *  offered. Touch layouts navigate terminals through their dock instead. */
 export const showsWorkspaceSwitcher = () => isDesktop();
 

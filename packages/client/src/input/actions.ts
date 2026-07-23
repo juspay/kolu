@@ -203,14 +203,14 @@ const _ACTIONS = {
     handler: (ctx) => ctx.togglePalette(),
   },
   openWorkspaceSwitcher: {
-    label: "Workspace grid",
+    label: "Terminal switcher",
     keybind: { key: "K", code: "KeyK", mod: true, shift: true },
     handler: (ctx) => ctx.openWorkspaceSwitcher(),
   },
   openHostSwitcher: {
     label: "Switch host",
     // `⌘⇧H` (Ctrl+Shift+H elsewhere) — deep-links into the host list group of
-    // the unified palette, mirroring `⌘⇧K`'s workspace grid and following the
+    // the unified palette, mirroring `⌘⇧K`'s terminal switcher and following the
     // `Mod+Shift+<letter>` convention. `H` = host; free of the terminal chords,
     // and (unlike a bare `mod`+letter) never collapses to a terminal-colliding
     // chord off-mac.

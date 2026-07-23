@@ -1,0 +1,152 @@
+/** Fleet-wide terminal index for the unified switcher.
+ *
+ *  The Dock is active-host only. The switcher must also find terminals on
+ *  other connected hosts in the padi pool. For every membership host that is
+ *  `connected`, this module opens that host's `terminals.keys` stream + the
+ *  composed terminals collection (same shape as `createHostWire`) and flattens
+ *  them into ranked rows carrying the host key.
+ *
+ *  Ranking: recency-desc across the whole fleet (`rowRecencyAt`). Parked
+ *  (activity-window) rows are dropped the same way the Dock drops them. */
+
+import type { TerminalMetadata } from "@kolu/padi/surface";
+import { unenrolledStreamCall } from "@kolu/surface/client";
+import {
+  createReactiveSubscription,
+  type Subscription,
+} from "@kolu/surface/solid";
+import {
+  decodeHostKey,
+  encodeHostKey,
+  type HostKey,
+} from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
+import { type Accessor, createComputed, createMemo, mapArray } from "solid-js";
+import { rowRecencyAt } from "../canvas/dock/dockRowRanking";
+import { createSharedRoot } from "../createSharedRoot";
+import { isParked } from "../terminal/useTerminalMetadata";
+import { useStaleCheck } from "../terminal/staleness";
+import { hostKeys, interpretClientError, padiMap } from "../wire";
+
+export type FleetTerminalRow = {
+  host: HostKey;
+  id: TerminalId;
+  meta: TerminalMetadata;
+  recencyAt: number | null;
+};
+
+/** Pure merge + rank — unit-tested without Solid. Higher recency first;
+ *  never-active (`null`) last. Host encoding is a stable secondary key. */
+export function rankFleetTerminalRows(
+  rows: readonly FleetTerminalRow[],
+): FleetTerminalRow[] {
+  return [...rows].sort((a, b) => {
+    const ra = a.recencyAt ?? Number.NEGATIVE_INFINITY;
+    const rb = b.recencyAt ?? Number.NEGATIVE_INFINITY;
+    if (ra !== rb) return rb - ra;
+    return encodeHostKey(a.host).localeCompare(encodeHostKey(b.host));
+  });
+}
+
+/** Reproject padi-stamped epochs onto the browser clock using THIS host's
+ *  measured offset. Same 0-sentinel rule as useTerminalMetadata. */
+function reprojectOnHost(
+  host: HostKey,
+  record: TerminalMetadata,
+): TerminalMetadata {
+  const { toLocal } = padiMap.entry(host).clock;
+  const lastActivityAt = record.lastActivityAt
+    ? (toLocal(record.lastActivityAt) ?? undefined)
+    : record.lastActivityAt;
+  const agent =
+    "agent" in record && typeof record.agent?.startedAt === "number"
+      ? {
+          ...record.agent,
+          startedAt: record.agent.startedAt
+            ? (toLocal(record.agent.startedAt) ?? 0)
+            : record.agent.startedAt,
+        }
+      : "agent" in record
+        ? record.agent
+        : undefined;
+  const sleptAt =
+    "sleptAt" in record && typeof record.sleptAt === "number"
+      ? record.sleptAt
+        ? (toLocal(record.sleptAt) ?? 0)
+        : record.sleptAt
+      : undefined;
+  return {
+    ...record,
+    lastActivityAt,
+    ...(agent === undefined ? {} : { agent }),
+    ...(sleptAt === undefined ? {} : { sleptAt }),
+  } as TerminalMetadata;
+}
+
+type PerHostHandle = {
+  rows: Accessor<FleetTerminalRow[]>;
+};
+
+/** App-lifetime fleet index — one shared root so the switcher opens per-host
+ *  streams once. */
+export const useFleetTerminalIndex = createSharedRoot(() => {
+  const isStale = useStaleCheck();
+
+  // Eager per-host roots over the FULL member set (same mapArray shape as
+  // useAttention). Each root opens that host's terminal list while connected.
+  const roots = mapArray(
+    () => hostKeys().map(encodeHostKey),
+    (encHost): PerHostHandle => {
+      const host = decodeHostKey(encHost);
+      const entry = padiMap.entry(host);
+      const connected = createMemo(() => entry.state().kind === "connected");
+
+      const terminalKeys: Subscription<TerminalId[]> =
+        createReactiveSubscription(
+          () => host,
+          (_h, signal) =>
+            unenrolledStreamCall(
+              entry.collections.terminals.unenrolledKeys,
+              undefined,
+              { signal },
+            ),
+          {
+            onError: (err) =>
+              interpretClientError(
+                { kind: "scopedSub", label: "Fleet terminal list error" },
+                err,
+                { key: host },
+              ),
+          },
+        );
+
+      const keys = createMemo<TerminalId[]>(() =>
+        connected() ? (terminalKeys() ?? []) : [],
+      );
+      const terminals = entry.collections.terminals.use({ keys });
+
+      const rows = createMemo((): FleetTerminalRow[] => {
+        if (!connected()) return [];
+        const out: FleetTerminalRow[] = [];
+        for (const id of keys()) {
+          // Bound collection: `byKey` is a method on the use() result (not a signal).
+          const raw = terminals.byKey(id)?.();
+          if (raw === undefined || isParked(raw)) continue;
+          const meta = reprojectOnHost(host, raw);
+          const recencyAt = rowRecencyAt(meta);
+          if (isStale(recencyAt)) continue;
+          out.push({ host, id, meta, recencyAt });
+        }
+        return out;
+      });
+
+      return { rows };
+    },
+  );
+  // mapArray is lazy until read.
+  createComputed(() => void roots());
+
+  return createMemo((): FleetTerminalRow[] =>
+    rankFleetTerminalRows(roots().flatMap((h) => h.rows())),
+  );
+});

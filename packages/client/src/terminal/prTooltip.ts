@@ -4,7 +4,7 @@
  *  natively across modern browsers, so the same string renders as a
  *  stacked tooltip on every surface that hangs it on the PR icon:
  *  dock pip (`RowPips`), tile title bar (`TerminalMeta`), workspace
- *  switcher (`WorkspaceGrid`), close-confirm dialog (`CloseConfirm`).
+ *  terminal switcher, close-confirm dialog (`CloseConfirm`).
  *  One source = one verdict everywhere.
  *
  *  Lives client-side rather than in `anyforge/schemas` so the

@@ -54,7 +54,7 @@ export function useActionContext(): ActionContext {
     openNewTerminalMenu: () => commandPalette.openGroup("New terminal"),
     openWorkspaceSwitcher: () => {
       if (showsWorkspaceSwitcher())
-        commandPalette.openGroup("Search workspaces");
+        commandPalette.openGroup("Search terminals");
     },
     openHostSwitcher: () => commandPalette.openGroup("Switch host"),
     togglePalette: commandPalette.toggle,
