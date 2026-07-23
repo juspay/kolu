@@ -34,14 +34,17 @@ is not in kolu, say the skill cannot run and stop.
 Parse the required `--agent <claude|codex|grok>` into `PEER` before doing any
 work. Reject a missing or unknown value rather than defaulting. Parse
 `--effort <low|medium|high|xhigh>` into `EFFORT`, defaulting to `high`.
+Set `PEER_EFFORT` to `EFFORT`, except map Grok's unsupported `xhigh` to
+`high`. This preserves a caller's "deep review" intent at the strongest level
+Grok exposes; never pass `xhigh` to Grok.
 
 Use the selected peer's exact preflight and interactive launch:
 
 | `PEER` | Preflight | Split command |
 | --- | --- | --- |
-| `claude` | `claude auth status` | `claude --dangerously-skip-permissions --effort "$EFFORT"` |
-| `codex` | `codex login status` | `codex --yolo --cd "$REPO" --config "model_reasoning_effort=\"$EFFORT\""` |
-| `grok` | `grok models` | `grok --always-approve --cwd "$REPO" --reasoning-effort "$EFFORT"` |
+| `claude` | `claude auth status` | `claude --dangerously-skip-permissions --effort "$PEER_EFFORT"` |
+| `codex` | `codex login status` | `codex --yolo --cd "$REPO" --config "model_reasoning_effort=\"$PEER_EFFORT\""` |
+| `grok` | `grok models` | `grok --always-approve --cwd "$REPO" --reasoning-effort "$PEER_EFFORT"` |
 
 Run Claude from a split whose cwd is already `$REPO`; its CLI has no cwd flag.
 If preflight reports an authentication failure, name the matching login command
@@ -64,14 +67,16 @@ the expected TUI is visible.
 
 **Keep both terminal references restart-safe and unambiguous.** Create a
 per-run label such as `agent-debate:<timestamp>-<pid>`. On the MCP path, read
-your author record from the `terminals` resource and require its stable `intent`
-to be non-empty and unique; stop if it is missing or duplicated. Create the peer
-with unique intent `<run-label>:<peer>`. Record both ids and intents. If `send`
-or `snapshot` reports "no terminal matching", list the resource and re-resolve
-by exact intent, requiring one match. On the CLI fallback, apply the same
-one-match rule to stable titles; if either side lacks a unique title, stop
-rather than guess. Put the author id plus its stable intent/title in every peer
-ask.
+your author record from the `terminals` resource. Record its current id and a
+unique restart-safe recovery key: prefer a non-empty unique `intent`; otherwise
+use the exact `(agent.sessionId, cwd)` pair when both fields exist and identify
+one terminal. Stop only when no available key identifies exactly one terminal.
+Create the peer with unique intent `<run-label>:<peer>` and record its id plus
+that intent. If `send` or `snapshot` reports "no terminal matching", list the
+resource and re-resolve the author by its recorded recovery key or the peer by
+exact intent, requiring one match. On the CLI fallback, apply the same one-match
+rule to stable titles; if either side lacks a unique title, stop rather than
+guess. Put the author id plus its recovery key in every peer ask.
 
 Keep one warm peer session for the whole debate. Round 1 receives the full ask;
 later rounds receive lean follow-ups and rely on the session's context.
@@ -82,7 +87,7 @@ writing and validating its output file, the peer calls kolu
 `AGENT-DEBATE <run-label> VERDICT-WRITTEN <round>`, waits for that terminal with
 `wait_outputSettled { idleMs: 250, timeoutMs: 10000 }`, then calls
 `lifecycle_sendInput` again with `key: "Enter"`. If the author id is stale, list
-terminals, require exactly one match for the recorded author intent/title, and
+terminals, require exactly one match for the recorded author recovery key, and
 use its new id. This full text→settle→Enter sequence avoids the dropped-submit
 race; the per-run payload cannot be confused for an ordinary prompt.
 
@@ -166,7 +171,8 @@ After the leading `review`, parse:
 - `<pr-number>` — check out that PR in `$REPO` and default the base from it.
 - `--base <branch>` — remote-tracking ref, defaulting to the PR base or remote
   default. Review from its merge-base with `HEAD`.
-- `--effort <level>` — peer reasoning effort; default `high`.
+- `--effort <level>` — requested peer reasoning effort; default `high`.
+  Grok maps `xhigh` to its strongest supported level, `high`.
 - `--no-commit` — leave author fixes uncommitted. Otherwise commit each round.
 - `--no-comment` — suppress the compact PR comment.
 - `--rationale <note>` — deliberate design decisions that the peer must receive
