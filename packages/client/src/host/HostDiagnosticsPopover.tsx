@@ -5,9 +5,8 @@
  *  unreachable), terminal + awaiting counts, the padi·kaval dual-daemon pair
  *  (diagnostics-on-demand), and remove-with-confirm for guest hosts.
  *
- *  Provisioning progress (#1962) is a deliberate seam: when the entry is
- *  warming we reserve a row so a MiB counter + bar can drop in once that
- *  plumbing lands — this file does NOT invent its own progress plumbing.
+ *  #1962 will supply provisioning copy progress; until then we show only the
+ *  honest state label — no fake progress bar (remote-hosts.mdx).
  */
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -28,7 +27,7 @@ import { resetBootDeadline } from "../kaval/bootDeadline";
 import { formatTimeAgo } from "../terminal/staleness";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
-import { client, padiMap } from "../wire";
+import { client, interpretClientError, padiMap } from "../wire";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import {
   dotClass,
@@ -37,20 +36,13 @@ import {
   statusLabelShort,
   statusTitle,
 } from "./hostChipTone";
+import { removeHost } from "./removeHost";
 
 const popoverChrome = surface({
   radius: "lg",
   shadow: "light",
   portalled: true,
 });
-
-const removeHost = (host: HostKey): void => {
-  client.hosts
-    .remove({ host })
-    .catch((err: Error) =>
-      toast.error(`Couldn't remove ${hostLabel(host)}: ${err.message}`),
-    );
-};
 
 /** Force-cycle this host's connector into a fresh dial — same recovery verb
  *  the host-down canvas uses, but keyed on the SPECIFIC host (the canvas
@@ -90,6 +82,14 @@ const PopoverRow: Component<{
   </div>
 );
 
+/** Nested portals owned by marks inside this panel (Padi/Kaval info dialogs).
+ *  Clicks there must not count as outside-dismiss — they live outside the
+ *  panel DOM but are opened from it. */
+function isOwnedNestedPortal(node: Node): boolean {
+  const el = node instanceof Element ? node : node.parentElement;
+  return el?.closest?.('[data-testid="info-popover"]') != null;
+}
+
 export const HostDiagnosticsPopover: Component<{
   host: HostKey;
   triggerRef: () => HTMLElement | undefined;
@@ -101,10 +101,12 @@ export const HostDiagnosticsPopover: Component<{
   const marks = hostMarks(encodeHostKey(props.host));
   const isLocal = () => props.host.kind === "local";
   const [confirmRemove, setConfirmRemove] = createSignal(false);
+  const label = () => hostLabel(props.host);
 
   // Lightweight keys stream only while the panel is open (`null` input tears
-  // it down). Floors to undefined (render "—") until the first frame lands —
-  // never a fake 0.
+  // it down). Floors to undefined until the first frame lands — never a fake 0.
+  // Errors surface via interpretClientError (toast) AND the subscription's
+  // `.error()` so the row can paint distinctly from "pending / no data".
   const terminalKeys = createReactiveSubscription<HostKey, TerminalId[]>(
     () => (props.open() ? props.host : null),
     (host, signal) =>
@@ -113,6 +115,14 @@ export const HostDiagnosticsPopover: Component<{
         undefined,
         { signal },
       ),
+    {
+      onError: (err) =>
+        interpretClientError(
+          { kind: "scopedSub", label: "Terminal list error" },
+          err,
+          { key: props.host },
+        ),
+    },
   );
   const keys = createMemo(() =>
     props.open() && state().kind === "connected" ? (terminalKeys() ?? []) : [],
@@ -125,12 +135,14 @@ export const HostDiagnosticsPopover: Component<{
 
   const terminalCount = (): string => {
     if (!props.open()) return "—";
+    if (terminalKeys.error()) return "error";
     const v = terminalKeys();
     return v === undefined ? "—" : String(v.length);
   };
 
   const lastActivity = (): string => {
     if (!props.open() || state().kind !== "connected") return "—";
+    if (terminalKeys.error()) return "error";
     const idList = terminalKeys();
     if (idList === undefined || idList.length === 0) return "—";
     let max = 0;
@@ -153,6 +165,7 @@ export const HostDiagnosticsPopover: Component<{
     onDismiss: props.onDismiss,
     anchor: props.anchor ?? "bottom-start",
     panelMinWidth: 280,
+    isInside: isOwnedNestedPortal,
   });
 
   const failureReason = (): string | undefined => {
@@ -165,6 +178,8 @@ export const HostDiagnosticsPopover: Component<{
       <Portal>
         <div
           ref={panelRef}
+          role="dialog"
+          aria-label={`Host diagnostics — ${label()}`}
           data-testid="host-diagnostics-popover"
           data-host={encodeHostKey(props.host)}
           class={`fixed z-50 w-[min(18rem,calc(100vw-1rem))] p-3 ${popoverChrome.class}`}
@@ -175,7 +190,7 @@ export const HostDiagnosticsPopover: Component<{
               class={`inline-block h-2 w-2 shrink-0 rounded-full ${dotClass(state())}`}
               aria-hidden="true"
             />
-            <span class="truncate">{hostLabel(props.host)}</span>
+            <span class="truncate">{label()}</span>
           </div>
 
           <PopoverRow label="state" danger={isHostDown(state())}>
@@ -194,21 +209,14 @@ export const HostDiagnosticsPopover: Component<{
             )}
           </Show>
 
-          {/* #1962 seam — reserve structure for copy progress; no fake plumbing. */}
-          <Show when={state().kind === "warming"}>
-            <div
-              class="mt-1 rounded-md border border-dashed border-edge/70 px-2 py-1.5"
-              data-testid="host-provision-progress"
-            >
-              <div class="flex items-center justify-between gap-3 text-[10px] text-fg-3">
-                <span>provisioning</span>
-                <span class="tabular-nums">…</span>
-              </div>
-              <div class="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
-                <div class="h-full w-0 bg-amber-400/80" />
-              </div>
-            </div>
-          </Show>
+          {/* #1962 drop-in: when progress facts exist, render them here.
+           *  Until then: state label only — no zero-width fake bar. */}
+          <div
+            data-testid="host-provision-progress"
+            data-ready="false"
+            class="hidden"
+            aria-hidden="true"
+          />
 
           <Show when={state().kind === "failed"}>
             <button
@@ -224,7 +232,9 @@ export const HostDiagnosticsPopover: Component<{
 
           <div class="my-2 border-t border-edge/60" />
 
-          <PopoverRow label="terminals">{terminalCount()}</PopoverRow>
+          <PopoverRow label="terminals" danger={Boolean(terminalKeys.error())}>
+            {terminalCount()}
+          </PopoverRow>
           <PopoverRow label="awaiting you">{marks.asking()}</PopoverRow>
 
           <div class="my-2 border-t border-edge/60" />
@@ -234,7 +244,12 @@ export const HostDiagnosticsPopover: Component<{
             <HostDualDaemonSlot host={props.host} mode="interactive" />
           </div>
 
-          <PopoverRow label="last activity">{lastActivity()}</PopoverRow>
+          <PopoverRow
+            label="last activity"
+            danger={Boolean(terminalKeys.error())}
+          >
+            {lastActivity()}
+          </PopoverRow>
 
           <Show when={!isLocal()}>
             <div class="my-2 border-t border-edge/60" />

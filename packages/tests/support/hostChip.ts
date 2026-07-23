@@ -17,22 +17,28 @@ export function identityChipSelector(testid: IdentityChipTestid): string {
   return `[data-testid="host-diagnostics-popover"] [data-testid="${testid}"]`;
 }
 
-/** Open the active host's diagnostics popover so Padi/Kaval marks mount. */
-export async function openActiveHostDiagnostics(page: {
+type PageLike = {
   locator: (sel: string) => {
     click: () => Promise<void>;
-    hover: () => Promise<void>;
+    count: () => Promise<number>;
   };
   waitForSelector: (
     sel: string,
-    opts?: { timeout?: number },
+    opts?: { timeout?: number; state?: "visible" | "attached" },
   ) => Promise<unknown>;
-}): Promise<void> {
-  const active = page.locator(
-    '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active] [data-testid="host-select"]',
-  );
-  await active.click();
-  await page.waitForSelector('[data-testid="host-diagnostics-popover"]', {
-    timeout: 10_000,
-  });
+};
+
+/** Idempotently open the active host's diagnostics popover so Padi/Kaval
+ *  marks mount. A second call is a no-op when the panel is already visible
+ *  (the chip click toggles — re-clicking would close it). */
+export async function openActiveHostDiagnostics(page: PageLike): Promise<void> {
+  const panel = '[data-testid="host-diagnostics-popover"]';
+  if ((await page.locator(panel).count()) > 0) {
+    await page.waitForSelector(panel, { timeout: 5_000, state: "visible" });
+    return;
+  }
+  const active =
+    '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active] [data-testid="host-select"]';
+  await page.locator(active).click();
+  await page.waitForSelector(panel, { timeout: 10_000, state: "visible" });
 }

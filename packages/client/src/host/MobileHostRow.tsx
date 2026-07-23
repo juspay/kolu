@@ -91,11 +91,16 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       // desaturate + strike the label (exception-based, matching desktop).
       class="flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors"
       classList={{
+        // Active hue fill is kept even when down so the selected failed host
+        // still reads as the one that owns the canvas.
         "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_18%,var(--color-surface-1))] text-fg":
           isActive() && !down(),
+        "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_12%,var(--color-surface-1))] text-fg-3 opacity-80":
+          isActive() && down(),
         "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
           !isActive() && !down(),
-        "border-danger/40 bg-surface-2 text-fg-3 opacity-70": down(),
+        "border-danger/40 bg-surface-2 text-fg-3 opacity-70":
+          !isActive() && down(),
       }}
       style={{ "--host-hue": hostHue(props.host) }}
       title={`${hostLabel(props.host)} — ${statusTitle(state())}`}

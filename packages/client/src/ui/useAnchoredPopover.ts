@@ -52,6 +52,10 @@ export type UseAnchoredPopoverOpts = {
    *  on for menus whose height is data-driven and whose trigger can sit near
    *  the viewport's bottom edge (the wikilink disambiguation list). */
   flip?: boolean;
+  /** Treat a mousedown on this node as still "inside" the popover — for owned
+   *  nested portals (e.g. a daemon info dialog opened from the diagnostics
+   *  panel) that live outside the panel DOM but must not dismiss it. */
+  isInside?: (node: Node) => boolean;
 };
 
 export type UseAnchoredPopover = {
@@ -124,6 +128,7 @@ export function useAnchoredPopover(
     const node = e.target as Node;
     const t = opts.triggerRef();
     if (panelEl?.contains(node) || t?.contains(node)) return;
+    if (opts.isInside?.(node)) return;
     opts.onDismiss();
   });
   createEventListener(docTarget, "keydown", (e) => {

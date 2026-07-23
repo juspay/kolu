@@ -62,7 +62,6 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
-import { toast } from "solid-sonner";
 import DocLink from "../ui/DocLink";
 import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
@@ -78,15 +77,22 @@ import {
   statusTitle,
 } from "./hostChipTone";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
+import {
+  closeDiagnostics,
+  isDiagnosticsOpen,
+  openDiagnostics,
+  toggleDiagnostics,
+} from "./hostDiagnosticsOpen";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { hostMarks } from "../attention/attentionMarks";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostFinishedDot } from "./HostFinishedDot";
+import { removeHost } from "./removeHost";
 import { useHostMembers } from "./useHostMembers";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import { activeHost, client, padiMap, setActiveHost } from "../wire";
+import { activeHost, padiMap, setActiveHost } from "../wire";
 
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Measurement is truth;
@@ -114,14 +120,6 @@ const labelForKey: (key: string) => string = (key) =>
 const statusLabel: (host: HostKey) => string = (host) =>
   statusLabelShort(padiMap.entry(host).state());
 
-const removeHost: (host: HostKey) => void = (host) => {
-  client.hosts
-    .remove({ host })
-    .catch((err: Error) =>
-      toast.error(`Couldn't remove ${hostLabel(host)}: ${err.message}`),
-    );
-};
-
 /** Hover-open delay so a chip sweep across the strip doesn't flash N panels. */
 const DIAGNOSTICS_HOVER_MS = 280;
 
@@ -135,15 +133,17 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // publishes (neither is the raw urgency count: a finished agent idles in
   // `waiting` forever). Bundled once; the host is fixed for this chip's lifetime,
   // so its key is encoded a single time.
-  const marks = hostMarks(encodeHostKey(props.host));
+  const encKey = encodeHostKey(props.host);
+  const marks = hostMarks(encKey);
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
   const isActive = () => sameHost(activeHost(), props.host);
   const down = () => isHostDown(state());
   const exceptionDot = () => exceptionDotClass(state());
+  // Strip-level open key — only ONE diagnostics panel mounts at a time.
+  const diagOpen = () => !props.measure && isDiagnosticsOpen(encKey);
 
-  const [diagOpen, setDiagOpen] = createSignal(false);
   let chipEl: HTMLDivElement | undefined;
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
   const clearHoverTimer = () => {
@@ -155,9 +155,9 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   onCleanup(clearHoverTimer);
 
   // Measure twins never open diagnostics (they're off-screen width probes).
-  const openDiagnostics = () => {
+  const openThisDiagnostics = () => {
     if (props.measure) return;
-    setDiagOpen(true);
+    openDiagnostics(encKey);
   };
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
@@ -167,30 +167,28 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
       ref={chipEl}
       class="group -mb-px flex items-center shrink-0 text-xs"
       data-testid="host-chip"
-      data-host={encodeHostKey(props.host)}
+      data-host={encKey}
       data-active={isActive() ? "" : undefined}
       data-down={down() ? "" : undefined}
       onPointerEnter={() => {
         if (props.measure) return;
         clearHoverTimer();
-        hoverTimer = setTimeout(openDiagnostics, DIAGNOSTICS_HOVER_MS);
+        hoverTimer = setTimeout(openThisDiagnostics, DIAGNOSTICS_HOVER_MS);
       }}
       onPointerLeave={() => {
         clearHoverTimer();
-        // Dismiss only when the pointer left the chip AND isn't over the
-        // portalled panel — the panel's outside-click handler owns the rest.
+        // Outside-click / strip-level open key owns dismiss; leave alone here
+        // so the pointer can travel into the portalled panel without a race.
       }}
     >
       <div
         // No outline box: active and inactive share the SAME geometry (no
-        // border, no 1px hop on selection), and selection is carried entirely
-        // by colour + a soft glow — `.host-tab-active` paints a hue-tinted
-        // belly. `--host-hue` is this host's identity colour (`hostHue`).
-        // Down hosts desaturate via `.host-tab-down` (exception signal).
+        // border, no 1px hop on selection). Active hue fill is kept even when
+        // down (selected-but-unreachable), with `.host-tab-down` layered on.
         class="host-tab relative flex h-8 items-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
         style={{ "--host-hue": hostHue(props.host) }}
         classList={{
-          "host-tab-active": isActive() && !down(),
+          "host-tab-active": isActive(),
           "host-tab-idle": !isActive() && !down(),
           "host-tab-down": down(),
         }}
@@ -199,6 +197,8 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           type="button"
           role="tab"
           aria-selected={isActive()}
+          aria-haspopup="dialog"
+          aria-expanded={diagOpen()}
           class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-xl pl-2.5 pr-2 transition-colors focus-visible:outline-none cursor-pointer"
           classList={{
             "text-fg": isActive() && !down(),
@@ -218,8 +218,8 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           onClick={() => {
             const wasActive = isActive();
             if (!wasActive) setActiveHost(props.host);
-            if (down()) openDiagnostics();
-            else if (wasActive) setDiagOpen((v) => !v);
+            if (down()) openThisDiagnostics();
+            else if (wasActive) toggleDiagnostics(encKey);
           }}
           title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
         >
@@ -270,12 +270,12 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           </button>
         </Show>
       </div>
-      <Show when={!props.measure && diagOpen()}>
+      <Show when={diagOpen()}>
         <HostDiagnosticsPopover
           host={props.host}
           triggerRef={() => chipEl}
           open={diagOpen}
-          onDismiss={() => setDiagOpen(false)}
+          onDismiss={closeDiagnostics}
         />
       </Show>
     </div>

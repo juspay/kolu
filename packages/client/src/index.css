@@ -104,15 +104,20 @@ body {
 .host-hue-ring {
   box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--host-hue) 24%, transparent);
 }
-/* Unreachable host — desaturate the whole tab; struck label is classed in JSX. */
+/* Unreachable host — desaturate the tab; struck label is classed in JSX.
+ * Active+down keeps the host-hue belly so the selected failed host is still
+ * the one that owns the canvas. */
 .host-tab-down {
-  opacity: 0.55;
+  opacity: 0.7;
   filter: grayscale(0.35);
 }
-.host-tab-down.host-tab-active,
-.host-tab-down:is(.host-tab-active) {
-  /* Active+down still shows a faint hue so you know which host is selected. */
-  background: color-mix(in oklch, var(--host-hue) 8%, var(--color-surface-0));
+.host-tab-active.host-tab-down {
+  background: color-mix(in oklch, var(--host-hue) 10%, var(--color-surface-0));
+  opacity: 0.85;
+  filter: grayscale(0.2);
+}
+:root.dark .host-tab-active.host-tab-down {
+  background: color-mix(in oklch, var(--host-hue) 22%, var(--color-surface-1));
 }
 /* Dark mode: a 13% hue mixed into the near-black surface collapses to a muddy
  * grey — every host tab then looks the same. Over the dark surface the hue
