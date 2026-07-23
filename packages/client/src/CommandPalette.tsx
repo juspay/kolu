@@ -130,6 +130,10 @@ export interface PaletteGroup extends PaletteBase {
   kind: "group";
   /** Static array or accessor for dynamic lists. */
   children: PaletteItem[] | (() => PaletteItem[]);
+  /** When true, the group is omitted from the empty-root interactive list
+   *  (its children may already be promoted as root leaves) but remains
+   *  addressable for `openGroup` / `initialPath` resolution. */
+  rootHidden?: boolean;
 }
 
 /** A group whose drill-in switches the input from a filter to a free-text
@@ -288,10 +292,12 @@ const CommandPalette: Component<{
    *  (the list and the hint footer). */
   const partitioned = createMemo(() => {
     const items = currentItems();
+    const atRoot = path().length === 0;
     const interactive: (PaletteCommand | PaletteLabel)[] = [];
     const hints: PaletteHint[] = [];
     for (const item of items) {
       if (item.kind === "hint") hints.push(item);
+      else if (atRoot && item.kind === "group" && item.rootHidden) continue;
       else interactive.push(item);
     }
     return { interactive, hints };
@@ -732,7 +738,19 @@ const CommandPalette: Component<{
           setClosingForSelection(false);
           setPath([]);
           const names = props.initialPath ?? [];
-          if (!(names.length > 0 && applyInitialPath(names))) {
+          if (names.length > 0) {
+            // Exact path first. On failure (missing host, etc.) land on the
+            // first segment alone when it is a known scope group — never
+            // silently widen a scoped deep-link into root "Search everything".
+            if (
+              !applyInitialPath(names) &&
+              !(names.length > 1 && applyInitialPath([names[0]!]))
+            ) {
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => inputRef.focus()),
+              );
+            }
+          } else {
             // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
             // only fires on first mount. Re-focus explicitly on every root open.
             // When a path is set, applyInitialPath is the sole focus owner —
@@ -748,6 +766,10 @@ const CommandPalette: Component<{
           if (!closingForSelection()) {
             for (const g of path()) g.onCancel?.();
           }
+          // Always clear leaf highlight lifecycle (theme preview, etc.) —
+          // path onCancel only covers drill segments.
+          lastHighlight?.onCancel?.();
+          lastHighlight = undefined;
           setClosingForSelection(false);
           setPath([]);
         }
@@ -771,12 +793,37 @@ const CommandPalette: Component<{
     ),
   );
 
-  // Notify highlighted item when selection changes. Tracks props.open so
-  // the effect re-fires on reopen with the same selection.
+  // Keep selectedIndex in range when the live list shrinks (terminal exit,
+  // host disconnect, activity-window age-out) without rebinding on every
+  // filtered() reference churn — track length only.
+  createEffect(
+    on(
+      () => filtered().length,
+      (len) => {
+        if (len === 0) {
+          setSelectedIndex(0);
+          return;
+        }
+        if (selectedIndex() >= len) setSelectedIndex(len - 1);
+      },
+    ),
+  );
+
+  // Notify highlighted item when selection changes. Cancels the previous
+  // leaf's onCancel first so root-flattened previews (theme) don't stick.
+  // Tracks props.open so the effect re-fires on reopen with the same selection.
+  let lastHighlight: (PaletteCommand | PaletteLabel) | undefined;
   createEffect(
     on([filtered, selectedIndex, () => props.open], ([items, idx, open]) => {
       if (!open) return;
-      items[idx]?.onHighlight?.();
+      const next = items[idx];
+      if (next === lastHighlight) {
+        next?.onHighlight?.();
+        return;
+      }
+      lastHighlight?.onCancel?.();
+      lastHighlight = next;
+      next?.onHighlight?.();
     }),
   );
 

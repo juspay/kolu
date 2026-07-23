@@ -31,9 +31,10 @@ const RESOLVER_SRC = readFileSync(
 );
 
 /** Reactive primitives the shell is allowed to hold. At the #1340 thin-shell
- *  baseline App.tsx holds exactly three: `closeConfirmTarget` (the one dialog
- *  whose open-state it owns), `workspaceEntries`, and the `canvasMode` memo —
- *  all layout / command wiring. Domain state goes in a singleton, not here. */
+ *  baseline App.tsx holds two: `closeConfirmTarget` (the one dialog whose
+ *  open-state it owns) and the `canvasMode` memo — layout / command wiring.
+ *  `workspaceEntries` left with the retired WorkspaceGrid switcher. Domain
+ *  state goes in a singleton, not here. */
 const REACTIVE_PRIMITIVE_BUDGET = 3;
 
 describe("App.tsx thin-shell invariant (#1340)", () => {

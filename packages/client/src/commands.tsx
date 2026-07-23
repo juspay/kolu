@@ -48,7 +48,20 @@ import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
 import { padiMap } from "./wire";
-import { terminalKey } from "kolu-common/terminalKey";
+import { computeTerminalKeys, terminalKey } from "kolu-common/terminalKey";
+
+/** Switch host when the row is foreign, then activate. Pure sequencing
+ *  extracted so unit tests can spy without mounting the palette. */
+export function selectFleetTerminal(
+  rowHost: HostKey,
+  rowId: TerminalId,
+  active: HostKey,
+  switchHost: (host: HostKey) => void,
+  activate: (id: TerminalId) => void,
+): void {
+  if (!sameHost(rowHost, active)) switchHost(rowHost);
+  activate(rowId);
+}
 
 /** Terminal rows for the unified switcher — fleet-wide (every connected
  *  host's terminals), ranked by recency. Selecting a row switches host if
@@ -56,39 +69,56 @@ import { terminalKey } from "kolu-common/terminalKey";
  *
  *  Identity/context paint lives in `PaletteRow` via the Dock's
  *  `annotationLine` / `rowSubline` pair — do not re-derive headline rules
- *  here. */
+ *  here. Collision suffixes are computed **per host** (host chip already
+ *  separates cross-host same-name rows). */
 function terminalSwitchActions(
   fleet: readonly FleetTerminalRow[],
   active: HostKey,
   switchHost: (host: HostKey) => void,
   activate: (id: TerminalId) => void,
 ): PaletteAction[] {
+  // Collision-aware keys per host — same-repo/same-branch on one machine
+  // get `#id` suffixes; identical names on different hosts stay bare.
+  const keysById = new Map(
+    groupFleetByHost(fleet).flatMap((g) => [
+      ...computeTerminalKeys(
+        g.rows.map((r) => ({
+          id: r.id,
+          git: r.meta.git,
+          cwd: r.meta.cwd,
+        })),
+      ),
+    ]),
+  );
   // One color sequence across the visible fleet so repo hues stay stable
   // in a mixed multi-host result list.
   const colors = assignColors(
     fleet.flatMap((r) => {
-      const k = terminalKey(r.meta);
+      const k = keysById.get(r.id) ?? terminalKey(r.meta);
       return [k.group, k.label];
     }),
   );
   return fleet.map((row): PaletteAction => {
-    const k = terminalKey(row.meta);
+    const k = keysById.get(row.id) ?? terminalKey(row.meta);
     const repoName = k.group;
-    const branchLabel = k.label;
-    const repoColor = colors.get(repoName) ?? "oklch(0.75 0.14 0)";
+    const branchLabel = k.suffix ? `${k.label} ${k.suffix}` : k.label;
+    const repoColor = colors.get(repoName);
+    if (repoColor === undefined) {
+      throw new Error(
+        `assignColors missing repo key "${repoName}" — map must cover every fleet group`,
+      );
+    }
     const hostName = hostLabel(row.host);
     // Host lives ONLY on the row's host chip (PaletteRow), never in context
     // or description — one deliberate place, no double "zest".
     return {
       kind: "action",
-      // Branch stays the stable name for e2e / data-palette-name; the
-      // painted identity follows Dock via annotationLine in PaletteRow.
+      // Branch (+ collision suffix) is the stable name for e2e /
+      // data-palette-name; painted identity follows Dock via annotationLine.
       name: branchLabel,
       description: repoName,
-      onSelect: () => {
-        if (!sameHost(row.host, active)) switchHost(row.host);
-        activate(row.id);
-      },
+      onSelect: () =>
+        selectFleetTerminal(row.host, row.id, active, switchHost, activate),
       row: {
         kind: "terminal",
         terminalId: row.id,
@@ -382,6 +412,9 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     },
 
     // --- Hosts scoped group (⌘⇧H) — same rows as root host index ---
+    // rootHidden: children are already promoted as root host rows, so the
+    // container stays addressable for openGroup/initialPath without a
+    // second Hosts band in the empty-root list.
     ...(deps.hostKeys().length > 1
       ? [
           {
@@ -390,6 +423,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             description: "Switch canvas host",
             section: "hosts" as const,
             keybind: ACTIONS.openHostSwitcher.keybind,
+            rootHidden: true,
             row: { kind: "command" as const },
             children: (): PaletteItem[] =>
               hostRootActions(
@@ -516,7 +550,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   (t): PaletteAction => ({
                     kind: "action",
                     name: t.name,
+                    // Cancel lives on the leaf too so root-flattened theme
+                    // hits (no path segment) still restore the committed theme.
                     onHighlight: () => deps.setPreviewThemeName(t.name),
+                    onCancel: () => deps.setPreviewThemeName(undefined),
                     onSelect: () =>
                       batch(() => {
                         deps.setPreviewThemeName(undefined);

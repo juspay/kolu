@@ -26,13 +26,9 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createComputed, createMemo, mapArray } from "solid-js";
 import { rowRecencyAt, tsRank } from "../canvas/dock/dockRowRanking";
 import { createSharedRoot } from "../createSharedRoot";
+import { readStoredActivityWindow } from "../hostScope/createHostPrefs";
 import { hostScopeOf } from "../hostScope/hostScopes";
-import {
-  type ActivityWindow,
-  DEFAULT_ACTIVITY_WINDOW,
-  isActivityWindow,
-  windowOption,
-} from "../terminal/activityWindow";
+import { windowOption } from "../terminal/activityWindow";
 import { reprojectTerminalClock } from "../terminal/reprojectClock";
 import { isParked } from "../terminal/useTerminalMetadata";
 import { isStale as isStaleAt } from "../terminal/staleness";
@@ -118,23 +114,12 @@ type PerHostHandle = {
 };
 
 /** Per-host activity-window threshold for the fleet index — THIS host's
- *  preference. Prefer the live HostScope when born; otherwise read the same
- *  `kolu-activityWindow:<host>` key createHostPrefs writes so a never-
- *  activated connected host still honours its persisted window (not DEFAULT). */
+ *  preference. Prefer the live HostScope when born; otherwise the canonical
+ *  non-reactive reader in createHostPrefs (same key + parse). */
 function thresholdMsForHost(host: HostKey): number | null {
   const scoped = hostScopeOf(host)?.prefs.activityWindow();
   if (scoped !== undefined) return windowOption(scoped).thresholdMs;
-  try {
-    const raw = localStorage.getItem(
-      `kolu-activityWindow:${encodeHostKey(host)}`,
-    );
-    if (raw !== null && isActivityWindow(raw)) {
-      return windowOption(raw as ActivityWindow).thresholdMs;
-    }
-  } catch {
-    // SSR / blocked storage — floor to default.
-  }
-  return windowOption(DEFAULT_ACTIVITY_WINDOW).thresholdMs;
+  return windowOption(readStoredActivityWindow(host)).thresholdMs;
 }
 
 /** App-lifetime fleet index — one shared root so the switcher opens per-host

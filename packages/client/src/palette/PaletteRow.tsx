@@ -27,6 +27,7 @@ import {
 } from "../host/hostChipTone";
 import { HostIdentityLabel } from "../host/HostIdentityLabel";
 import { formatKeybind, type Keybind } from "../input/keyboard";
+import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { bindStatePip, useStatePip } from "../terminal/statePipBind";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -288,7 +289,19 @@ const PaletteRow: Component<{
           </span>
         </Show>
         <span class="truncate min-w-0">
-          <HighlightedText text={identityPrimary()} query={props.query} />
+          <Show
+            when={
+              kind() === "terminal" &&
+              row()?.terminalMeta?.intent &&
+              props.query.trim().length === 0
+            }
+            fallback={
+              <HighlightedText text={identityPrimary()} query={props.query} />
+            }
+          >
+            {/* Dock's identity path — safe inline markdown for intent headlines. */}
+            <IntentMarkdownInline markdown={identityPrimary()} />
+          </Show>
         </span>
       </div>
 

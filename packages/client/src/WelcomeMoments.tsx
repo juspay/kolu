@@ -138,7 +138,12 @@ const PinMoment: Component<{
   </div>
 );
 
-const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
+const WelcomeMoments: Component<{
+  install: PwaInstall;
+  /** When moments render inside WelcomeDialog, close that overlay before
+   *  opening the palette so the two force-mounted dialogs don't stack. */
+  onBeforeOpenPalette?: () => void;
+}> = (props) => {
   const app = useSurfaceApp();
   const hosts = useHostMembers();
   const actions = useActionContext();
@@ -245,7 +250,10 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
                 data-testid="welcome-open-palette"
                 class="cursor-pointer"
                 title="Open search"
-                onClick={() => commandPalette.openDialog()}
+                onClick={() => {
+                  props.onBeforeOpenPalette?.();
+                  commandPalette.openDialog();
+                }}
               >
                 <Kbd>{formatKeybind(ACTIONS.commandPalette.keybind)}</Kbd>
               </button>
