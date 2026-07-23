@@ -309,7 +309,13 @@ export type GrokFoldEvent = {
  *      `turn_started` supersedes a dangling `ask_user_question`, so the
  *      session can't stick in `awaiting_user` forever after the turn that
  *      opened the prompt is over.
- *   2. Newest turn boundary / phase_changed (existing phase map).
+ *   2. Newest turn boundary / phase_changed / open `goal_planner_fired`
+ *      (existing phase map). `goal_planner_completed` is not an active
+ *      state — it closes the matching fire so a hang between completed
+ *      and `turn_started` falls through to the last real boundary
+ *      (stale `turn_ended` → waiting) instead of stranding the tile on
+ *      thinking. In the happy path `turn_started` lands in the same
+ *      append flush and wins on its own.
  */
 export function foldEventsState(
   events: ReadonlyArray<GrokFoldEvent>,
@@ -336,10 +342,25 @@ export function foldEventsState(
     return "awaiting_user";
   }
 
-  // Scan newest → oldest for the most recent turn boundary or phase.
+  // Scan newest → oldest for the most recent turn boundary, phase, or
+  // open /goal planner fire. A completed planner is not itself a state
+  // signal — it only closes the preceding fire so death between
+  // completed and turn_started self-corrects via the stale turn_ended.
+  let plannerClosed = false;
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
     if (!e) continue;
+    if (e.type === "goal_planner_completed") {
+      plannerClosed = true;
+      continue;
+    }
+    if (e.type === "goal_planner_fired") {
+      if (plannerClosed) {
+        plannerClosed = false;
+        continue;
+      }
+      return "thinking";
+    }
     if (e.type === "turn_ended") return "waiting";
     if (e.type === "turn_started") return "thinking"; // open turn, no phase yet
     if (e.type === "phase_changed" && typeof e.phase === "string") {
