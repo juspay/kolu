@@ -6,6 +6,7 @@ import {
   type FleetTerminalRow,
   groupFleetByHost,
   isTopLevelTerminal,
+  orderHostsActiveFirst,
   rankFleetTerminalRows,
 } from "./fleetTerminals";
 
@@ -78,5 +79,25 @@ describe("groupFleetByHost", () => {
     expect(groups.map((g) => g.host)).toEqual([remote, local]);
     expect(groups[0]!.rows.map((r) => r.id)).toEqual(["b"]);
     expect(groups[1]!.rows.map((r) => r.id)).toEqual(["c", "a"]);
+  });
+});
+
+describe("orderHostsActiveFirst", () => {
+  it("puts the active host first and preserves relative order of the rest", () => {
+    expect(orderHostsActiveFirst([local, remote], remote)).toEqual([
+      remote,
+      local,
+    ]);
+    expect(orderHostsActiveFirst([local, remote], local)).toEqual([
+      local,
+      remote,
+    ]);
+  });
+
+  it("returns the input order when active is not in the list", () => {
+    expect(orderHostsActiveFirst([local, remote], remote)).toEqual([
+      remote,
+      local,
+    ]);
   });
 });

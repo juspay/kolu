@@ -15,6 +15,7 @@ import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { rowSubline } from "../canvas/dock/rowSubline";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
 import {
   dotClass,
@@ -26,6 +27,7 @@ import {
 } from "../host/hostChipTone";
 import { HostIdentityLabel } from "../host/HostIdentityLabel";
 import { formatKeybind, type Keybind } from "../input/keyboard";
+import { annotationLine } from "../intent/text";
 import { bindStatePip, useStatePip } from "../terminal/statePipBind";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { compactDelta } from "../time/duration";
@@ -179,9 +181,16 @@ const PaletteRow: Component<{
   const row = () => props.cmd.row;
   const kind = (): ResultKind => row()?.kind ?? "command";
 
+  /** Same headline rule as Dock cards/list: intent line-1 when set, else
+   *  branch (`annotationLine` — the Dock's single derivation). */
   const identityPrimary = (): string => {
     const r = row();
-    if (r?.kind === "terminal") return r.branchLabel ?? props.cmd.name;
+    if (r?.kind === "terminal") {
+      return annotationLine(
+        r.terminalMeta?.intent,
+        r.branchLabel ?? props.cmd.name,
+      );
+    }
     if (r?.kind === "host" && r.hostKey) return hostLabel(r.hostKey);
     return props.cmd.name;
   };
@@ -189,11 +198,19 @@ const PaletteRow: Component<{
   const contextLine = (): string => {
     const r = row();
     if (r?.kind === "terminal") {
-      // Intent / foreground only — host is the right-rail chip, never here.
+      // Host is the right-rail chip only — never here.
+      // When intent owns the headline, demote branch into context (Dock
+      // keeps branch off the headline in the same case). Otherwise the
+      // Dock subline (agent summary / foreground).
+      if (r.terminalMeta?.intent) return r.branchLabel ?? "";
+      if (r.terminalMeta) return rowSubline(r.terminalMeta);
       if (r.context) return r.context;
       return props.cmd.description ?? "";
     }
     if (r?.kind === "host" && r.hostKey) {
+      // Explicit context (e.g. "3 terminals" under Terminals) wins over
+      // Switch-host status paint.
+      if (r.context !== undefined) return r.context;
       if (sameHost(r.hostKey, activeHost())) return "active";
       return statusLabelShort(padiMap.entry(r.hostKey).state());
     }

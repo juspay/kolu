@@ -124,10 +124,14 @@ Every result kind paints the same four slots so a mixed list stays scannable:
 
 1. **Lead** — agent-state pip (terminal; plain shells get the shell mark),
    connection dot (host), or glyph (command).
-2. **Identity** — repo colour + branch; `user@host` for host rows; or the
-   command name. Matched tokens bold in place.
-3. **Context** — one truncating line: intent / foreground, host status, or
-   command description. Never carries the host name on a terminal row.
+2. **Identity** — for terminals, the **same headline as the Dock**: repo
+   colour eyebrow + **intent first line** when one is set, otherwise the
+   branch. Host rows show `user@host`; commands show the command name.
+   Matched tokens bold in place.
+3. **Context** — one truncating line. When the identity is the intent, the
+   **branch** sits here; otherwise agent summary / foreground (Dock
+   subline). Host status or command description for other kinds. Never
+   carries the host name on a terminal row.
 4. **Right rail** — **host chip** (only when the terminal is on a non-active
    host — hue ring + label), recency, keybind, drill chevron, and a kind tag
    (`term` / `host` / `cmd`) **only at the mixed root**.

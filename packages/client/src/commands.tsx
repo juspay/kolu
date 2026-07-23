@@ -28,18 +28,18 @@ import {
   type ActionContext,
   actionPaletteCommand,
 } from "./input/actions";
-import { firstIntentLine } from "./intent/text";
 import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
 import { recentAgents, recentRepos } from "./hostScope/activeWire";
+import { encodeHostKey } from "kolu-common/hostKey";
 import {
   type FleetTerminalRow,
   groupFleetByHost,
+  orderHostsActiveFirst,
   useFleetTerminalIndex,
 } from "./palette/fleetTerminals";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
-import { rowSubline } from "./canvas/dock/rowSubline";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { assignColors } from "./terminal/terminalDisplay";
 import { useTileStore } from "./tile/useTileStore";
@@ -51,7 +51,11 @@ import { terminalKey } from "kolu-common/terminalKey";
 
 /** Terminal rows for the unified switcher — fleet-wide (every connected
  *  host's terminals), ranked by recency. Selecting a row switches host if
- *  needed then activates the terminal. */
+ *  needed then activates the terminal.
+ *
+ *  Identity/context paint lives in `PaletteRow` via the Dock's
+ *  `annotationLine` / `rowSubline` pair — do not re-derive headline rules
+ *  here. */
 function terminalSwitchActions(
   fleet: readonly FleetTerminalRow[],
   active: HostKey,
@@ -72,14 +76,12 @@ function terminalSwitchActions(
     const branchLabel = k.label;
     const repoColor = colors.get(repoName) ?? "oklch(0.75 0.14 0)";
     const hostName = hostLabel(row.host);
-    const intentOrFg = row.meta.intent
-      ? firstIntentLine(row.meta.intent)
-      : rowSubline(row.meta);
     // Host lives ONLY on the row's host chip (PaletteRow), never in context
     // or description — one deliberate place, no double "zest".
     return {
       kind: "action",
-      // Name is branch for match highlighting; host is in searchText + hostKey.
+      // Branch stays the stable name for e2e / data-palette-name; the
+      // painted identity follows Dock via annotationLine in PaletteRow.
       name: branchLabel,
       description: repoName,
       onSelect: () => {
@@ -95,7 +97,6 @@ function terminalSwitchActions(
         repoColor,
         branchLabel,
         recencyAt: row.recencyAt,
-        context: intentOrFg,
         searchText: [
           workspaceSearchText({
             repoName,
@@ -110,26 +111,41 @@ function terminalSwitchActions(
   });
 }
 
-/** Terminals-level browse: one drillable host group per host that has live
- *  top-level terminals, with a count in the description. Typing at this level
- *  pierces into a flat multi-host terminal list (CommandPalette). */
+/** Terminals tree: one drillable host group per **connected** pool member
+ *  (local included), even when that host has zero terminals. The palette
+ *  paints these as section headers over a flat terminal list — not as a
+ *  host-only gate. Optional host-scope (header click / dock deep-link) still
+ *  drills into the group. Active host's group is first; within each group
+ *  terminals stay recency-ranked. */
 function terminalHostGroups(
   fleet: readonly FleetTerminalRow[],
+  hosts: readonly HostKey[],
   active: HostKey,
   switchHost: (host: HostKey) => void,
   activate: (id: TerminalId) => void,
 ): PaletteGroup[] {
-  return groupFleetByHost(fleet).map(({ host, rows }) => {
-    const label = hostLabel(host);
+  const buckets = new Map(
+    groupFleetByHost(fleet).map(
+      (g) => [encodeHostKey(g.host), g.rows] as const,
+    ),
+  );
+  const connected = hosts.filter(
+    (h) => padiMap.entry(h).state().kind === "connected",
+  );
+  return orderHostsActiveFirst(connected, active).map((host) => {
+    const rows = buckets.get(encodeHostKey(host)) ?? [];
     const n = rows.length;
+    const countLabel = n === 1 ? "1 terminal" : `${n} terminals`;
+    const label = hostLabel(host);
     return {
       kind: "group" as const,
       name: label,
-      description: n === 1 ? "1 terminal" : `${n} terminals`,
+      description: countLabel,
       row: {
         kind: "host" as const,
         hostKey: host,
-        searchText: `${label} ${encodeHostSearch(host)}`,
+        context: countLabel,
+        searchText: `${label} ${countLabel} ${encodeHostSearch(host)}`,
       },
       children: (): PaletteItem[] =>
         terminalSwitchActions(rows, active, switchHost, activate),
@@ -287,28 +303,37 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const hostScopedTerminalGroups = () =>
     terminalHostGroups(
       fleet(),
+      deps.hostKeys(),
       deps.activeHost(),
       deps.switchHost,
       deps.activate,
     );
+  /** Terminals scope is available once any pool host is connected (even if
+   *  the fleet index is still empty — headers paint with 0 counts). */
+  const terminalsScopeOpen = () =>
+    deps
+      .hostKeys()
+      .some((h) => padiMap.entry(h).state().kind === "connected") ||
+    fleet().length > 0;
 
   return createMemo((): PaletteCommand[] => [
     // --- Root index: terminals (all hosts) + hosts ---
     // Empty root caps terminals to Recent (~3); a query surfaces all matches
-    // flat across hosts (host chip on each row). ⌘⇧K drills into Terminals
-    // (host list); the dock search deep-links Terminals › $activeHost.
+    // flat across hosts (host chip on each row). ⌘⇧K opens Terminals as a
+    // flat multi-host list under host headers; dock search deep-links
+    // Terminals › $activeHost.
     ...terminalRows(),
     ...(deps.hostKeys().length > 1
       ? hostRootActions(deps.hostKeys(), deps.activeHost(), deps.switchHost)
       : []),
 
-    // --- Terminals → $host → $terminal (browse by host; type to pierce) ---
-    ...(fleet().length > 0
+    // --- Terminals: flat terminals, grouped under host headers (optional host drill) ---
+    ...(terminalsScopeOpen()
       ? [
           {
             kind: "group" as const,
             name: TERMINALS_GROUP_NAME,
-            description: "Browse by host, or type to search every host",
+            description: "All hosts' terminals — type to filter",
             section: "workspaces" as const,
             keybind: ACTIONS.openWorkspaceSwitcher.keybind,
             row: { kind: "command" as const },

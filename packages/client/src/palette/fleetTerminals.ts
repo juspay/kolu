@@ -60,8 +60,8 @@ export function isTopLevelTerminal(meta: {
 }
 
 /** Group a recency-ranked fleet list by host, preserving first-seen host order
- *  (so the host of the most-recent terminal leads). Used by Terminals browse
- *  (one row per host) and unit-tested without Solid. */
+ *  and within-host recency (rows stay in input order). Used to fill each host
+ *  bucket under Terminals. */
 export function groupFleetByHost(
   rows: readonly FleetTerminalRow[],
 ): { host: HostKey; rows: FleetTerminalRow[] }[] {
@@ -78,6 +78,22 @@ export function groupFleetByHost(
     bucket.rows.push(row);
   }
   return order.map((key) => map.get(key)!);
+}
+
+/** Active host first, then the remaining hosts in their original order.
+ *  Terminals browse paints the active host's section at the top. */
+export function orderHostsActiveFirst(
+  hosts: readonly HostKey[],
+  active: HostKey,
+): HostKey[] {
+  const rest: HostKey[] = [];
+  let activeHost: HostKey | undefined;
+  const activeEnc = encodeHostKey(active);
+  for (const h of hosts) {
+    if (encodeHostKey(h) === activeEnc) activeHost = h;
+    else rest.push(h);
+  }
+  return activeHost === undefined ? [...hosts] : [activeHost, ...rest];
 }
 
 /** Reproject padi-stamped epochs onto the browser clock using THIS host's
