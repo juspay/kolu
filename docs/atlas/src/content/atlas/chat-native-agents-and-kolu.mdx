@@ -1,12 +1,11 @@
 ---
 title: Chat threads as terminals
-description: "Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only. CT1 is a padi surface stream; kolu conversation face first, then pesu."
+description: "Architectural wire: Xyne Spaces ↔ pesu ↔ padi — one thread per terminal. CT1+CH1 is a live multi-host message timeline (not Inspector chat). Then pesu."
 parents: [feature, comparison]
 status: proposed
 maturity: seedling
 updated: 2026-07-22
 ---
-
 
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
@@ -15,363 +14,232 @@ import Phase from "../../components/Phase.astro";
 import Svg from "../../components/Svg.astro";
 import wire from "../../diagrams/chat-native-agents-loop.svg?raw";
 
-**One conversation ↔ one kolu terminal.** User text → terminal input; agent
-**messages** (not tools/edits) → conversation. The chat surface can be the
-**kolu UI** first, then **Xyne Spaces via pesu** — same pipe, different face.
+**One conversation ↔ one kolu terminal** (for pesu later). **CT1+CH1** is the
+kolu-native face first: a **live timeline of human + AI messages across every
+agent on every connected host** — Twitter-style fleet skim, not a per-tile
+Inspector archive. Tools stay on the PTY; click a card to open that terminal.
 
 pesu is the XS bridge only; config is env/systemd next to pesu, not the web app.
 
 ## Components
 
-Three processes on the chat side of the wall; four on the machine side. The
-browser PWA is **not** on the critical path — same class of client as
-`padi-tui` / `kolu mcp`.
-
 | Component | Process | Job in this design |
 | --- | --- | --- |
-| **Xyne Spaces** | XS cloud | Threads, identity, @mention/DM delivery, message store |
-| **XS apps platform** | part of XS | Signed **webhook** out; **app API** in (`postMessage`, `updateMessage`, `user/info`) |
-| **pesu** | new daemon beside kolu (`packages/pesu`) | HTTP webhook receiver + bind store + padi client + XS API client |
-| **padi** | workspace daemon | `padiSurface`: `lifecycle.*`, loaders, **new chat transcript stream** |
-| **kaval** | PTY daemon under padi | Owns the live PTY; serializes writes |
-| **agent CLI** | child in the PTY | claude / codex / opencode / grok — writes its own session files |
-| **transcript loaders** | in-process in padi today | Vendor file → `transcript-core` IR (`user` · `assistant` · `tool_*` · …) |
-| **kolu PWA** | browser | Tile = PTY; CH1 = Conversation in Inspector; deep link |
+| **Xyne Spaces** | XS cloud | Threads, identity, @mention/DM delivery |
+| **XS apps platform** | part of XS | Signed webhook out; app API in |
+| **pesu** | daemon beside kolu (`packages/pesu`) | Webhook + binds + padi client + XS API |
+| **padi** | per-host workspace daemon | `lifecycle.*`; **forward-only `transcriptChat`** |
+| **kaval** | PTY daemon | Live PTYs |
+| **agent CLI** | child in PTY | Session files on disk (JSONL / SQLite) |
+| **kolu PWA** | browser | Multi-host map; **Feed** merges chat streams; tiles = depth |
 
 ```
-Xyne Spaces ──HTTPS──► pesu ──unix socket──► padi ──unix socket──► kaval ──PTY──► agent
-     ▲                   │                      │
-     │                   │                      └── loaders ← session files on disk
-     └──── HTTPS API ────┘                      └── streams.transcriptChat → chat frames
+hosts (padi each) ──transcriptChat (forward)──► kolu client ──merge──► Feed timeline
+                                                      │
+XS ◄──pesu (later)── same chat filter, one thread ↔ one terminal
 ```
 
-pesu dials padi with the same kit as other non-browser faces
-(`@kolu/padi/dial` → digest-keyed socket, control-core handshake, contract
-skew fail-fast). It does **not** go through kolu-server.
+pesu dials padi with `@kolu/padi/dial` (like `padi-tui` / `kolu mcp`) — not
+through kolu-server.
 
-<Svg svg={wire} caption="Process boundaries. Solid arrows: create + sendInput + postMessage. Dashed: chat transcript stream (CT1) from loaders through pesu." />
+<Svg svg={wire} caption="Process boundaries. Solid: create + sendInput + postMessage (pesu). Dashed: chat transcript streams into kolu Feed and later pesu." />
 
 ## Surface primitives (why CT1 is a stream)
 
-`padiSurface` is declared with the five `@kolu/surface` member kinds. The live
-conversation path has to pick one deliberately — a one-shot is not a stream.
+| Primitive | Fit for the fleet feed? |
+| --- | --- |
+| **`streams`** | **Yes — CT1.** Per terminal `{ id, after? }`, **forward-only** chat deltas. Optional cheap `{ kind: "live", cursor }` hello — **not** history snapshot. |
+| **`procedures`** | Export only (`transcript.exportHtml`). Not the live path. |
+| **`events`** | No backlog; wrong for continuous feed. |
+| **`cells` / `collections`** | Terminals stay the entity set; messages are a time-ordered fan-in on the client, not a second collection keyspace. |
 
-| Primitive | Shape | Fit for chat log? |
-| --- | --- | --- |
-| **`streams`** | input → async iterator; reconnect re-subscribes via `STREAM_RETRY` | **Yes — CT1.** Per-terminal `{ id }`, **forward-only** chat deltas (optional cheap live/cursor hello — **not** history snapshot) |
-| **`procedures`** | request → one response | One-shot only. Today's `transcript.exportHtml`. Fine for export/dump; live only if a consumer polls+diffs — not the product path |
-| **`events`** | discrete fires | No backlog on subscribe — wrong for conversation history |
-| **`cells`** | standing single value | Not per-terminal append-heavy log |
-| **`collections`** | keyed set + deltas | `terminals` is already the entity set; the message list is not a second keyspace |
+**Client consume (CH1):**
 
-**Client consume:**
+- For **each connected host**, for **each terminal with an agent** (or lazy as
+  agents appear), subscribe `transcriptChat` on that host’s padi surface.
+- **Tag** every event with `{ hostKey, terminalId, agentKind, … }`.
+- **Merge** into one timeline by arrival / agent timestamp (good enough for a
+  social feed; not a ledger).
+- Hard reload → empty feed; streams resume **forward only**.
 
-- Kolu UI (CT1+CH1, one PR): `client.streams.transcriptChat.use(() => ({ id: focusedTerminal() }))` — enrolled by default; **append deltas only** (empty after hard reload).
-- pesu (PE1): same stream; track a post **cursor**, not full session RAM.
+**Re-serve:** stream members **`delta`** (fail-through), same class as
+`terminalAttach` / `activity`.
 
-**Re-serve forwarding:** **`delta`** (fail-through) — same class as `activity` / `terminalAttach`.
-
-**Rejected alternatives (recorded):**
-
-- Procedure-first + poll — not live.
-- Full message list every stream frame — re-bloats every yield.
-- **History snapshot on subscribe/hard reload** — slow on long LLM sessions; use export for the past.
-- Cell of “last assistant text” — loses multi-bubble turns.
-- Event of “assistant said X” — no backlog on subscribe.
-- Unbounded Solid store of all chat events ever received in a multi-day open tab.
+**Rejected:** poll exportHtml; snapshot last *N* on subscribe; full list each
+frame; unbounded multi-day buffer without a ring.
 
 ## Bind state (pesu-local)
-
-pesu holds the only new durable fact:
 
 ```
 threadId  →  { terminalId, authorUserId, hostKey? }
 ```
 
-- **Create on miss** — first webhook for an unbound thread runs
-  `lifecycle.create` (+ agent launch), then stores the row.
-- **Author gate** — later webhooks must match `authorUserId` (v1: one
-  allowlisted operator). Mismatch → visible decline via `postMessage`, never
-  silence, never `sendInput`.
-- Not in kolu's conf store; not in XS. Survives pesu restart if persisted
-  next to pesu (file/env scope TBD; start with on-disk JSON beside the daemon).
+Create-on-miss, author gate (v1 allowlist), persist beside pesu — not kolu conf.
 
-## Interaction: first message
+## Interaction: first message (pesu)
 
-End-to-end create + first prompt.
-
-| Step | From → to | What moves |
-| --- | --- | --- |
-| 1 | User → XS | DM or `@bot` text in a channel |
-| 2 | XS → pesu | `POST` webhook: `APP_MENTIONED` or `DIRECT_MESSAGE`. Payload: `conversationId`, `userId`, `cleanContent`, `messageId`. Header: `X-Xyne-Signature` (HMAC of raw body) |
-| 3 | pesu | Verify HMAC (constant-time) → **200 immediately** → work async (XS does not retry) |
-| 4 | pesu → XS | optional `user/info` to resolve display name; cache |
-| 5 | pesu → padi | `lifecycle.create({ cwd? })` → `{ id: terminalId }` |
-| 6 | padi → kaval | spawn PTY (shell) |
-| 7 | pesu → padi | `lifecycle.sendInput({ id, data: "<agent argv>\\r" })` — same initial-command path as `padi-tui create -- claude …` |
-| 8 | pesu → padi | `lifecycle.sendInput({ id, data: "<user text>\\r" })` — first agent prompt |
-| 9 | pesu | persist bind `conversationId → { terminalId, authorUserId }` |
-| 10 | pesu → XS | `postMessage` into `conversationId`: ack + deep link to open that terminal in kolu |
-
-Agent is unaware of chat. It only sees PTY input.
-
-## Interaction: later user messages
-
-| Step | From → to | What moves |
-| --- | --- | --- |
-| 1 | XS → pesu | same webhook shape |
-| 2 | pesu | lookup bind by `conversationId`; reject if author ≠ stored |
-| 3 | pesu → padi | `lifecycle.sendInput({ id: terminalId, data: "<text>\\r" })` |
-| 4 | kaval | write bytes into that PTY (last-writer-wins at kaval) |
-
-No second terminal. No coordinator hop. Thread is the mailbox for one PTY.
-
-## Interaction: agent → conversation (transcript stream)
-
-Return half — **CT1 is the wire for this.** Today: loaders + `transcript.exportHtml`
-(procedure). Missing: a live surface stream of chat-filtered events.
-
-| Step | Component | What |
-| --- | --- | --- |
-| A | agent CLI | appends to vendor session store (Claude JSONL, Codex/OpenCode SQLite, …) |
-| B | padi | loaders → IR; filter to chat (`user` / `assistant` — same cut as HTML chat-log mode) |
-| C | **`streams.transcriptChat`** | input `{ id, after? }`; **forward-only** chat deltas from current offset / cursor |
-| D | CT1+CH1 / PE1 | Inspector appends live; pesu posts with a cursor |
-
-Hard reload / re-subscribe: **no history snapshot** — continue from last
-offset (or empty until next message). Full past → export.
-
-## What each API is (and is not)
-
-### Xyne Spaces → pesu (webhook)
-
-| Event | When |
+| Step | What |
 | --- | --- |
-| `APP_MENTIONED` | explicit @bot in a channel |
-| `DIRECT_MESSAGE` | every message in the bot DM |
+| 1–2 | User DMs/@mentions bot; XS webhook (HMAC) |
+| 3 | 200 immediately; work async |
+| 4–8 | Author gate → `lifecycle.create` + agent argv + first `sendInput` |
+| 9–10 | Store bind; ack + deep link |
 
-Plain channel messages without @ are **not** delivered to installed apps.
-pesu answers 200 first; failures after that are pesu's problem (post a visible
-error into the thread).
+Agent only sees PTY input.
 
-### pesu → Xyne Spaces (app API, bearer JWT)
+## Interaction: later user messages (pesu)
 
-| Call | Use |
+Webhook → bind lookup → author gate → `sendInput` on that terminal.
+
+## Interaction: agent → Feed / pesu (transcript stream)
+
+| Step | What |
 | --- | --- |
-| `POST …/chat/postMessage` | new bot turn (or first ack) |
-| `POST …/chat/updateMessage` | grow one message while an assistant turn streams |
-| `POST …/chat/agentProgress` | optional typing indicator during a turn |
-| `GET …/user/info` | resolve sender id → name |
+| A | Agent appends session files |
+| B | padi incremental parse; chat filter (`user` / `assistant` only — same as export chat mode) |
+| C | `streams.transcriptChat` — **forward-only** deltas |
+| D | **kolu Feed** merges all hosts; **PE1** posts bound terminal to XS |
 
-### pesu / kolu → padi (`padiSurface`)
+Hard reload: **no history snapshot**. Full past → export.
 
-| Member | Kind | Use |
-| --- | --- | --- |
-| `lifecycle.create` | procedure | new terminal (optional `cwd`) |
-| `lifecycle.sendInput` | procedure | agent launch line + every user message |
-| **`transcriptChat`** (name TBD) | **stream** | chat-filtered frames for one terminal — CT1 |
-| `transcript.exportHtml` | procedure | unchanged export path; not the live face |
+## APIs (pesu ↔ XS / padi)
 
-pesu does **not** call kaval directly. padi owns the terminal id space and
-awareness; kaval is an implementation detail behind `lifecycle.*`.
+**XS → pesu:** `APP_MENTIONED`, `DIRECT_MESSAGE` (HMAC).  
+**pesu → XS:** `postMessage`, `updateMessage`, `agentProgress`, `user/info`.  
+**padi:** `lifecycle.create` / `sendInput`; **`transcriptChat` stream**;
+`transcript.exportHtml` unchanged for archive.
 
-### Out of scope for this wire
+## Out of scope
 
-- Fleet board / who-needs-me in chat  
-- Coordinator multi-worker campaigns  
-- Routing chat traffic through kolu-server for pesu  
-- Bot secrets in the web UI  
+- Campaign board / hand-maintained bridge dashboard ([campaign surface](campaign-surface.html))
+- Chat write path redesign (Compose submit-on-send)
+- Bot secrets in the web UI
+- Replacing the tile PTY with a chat UI
 
-## pesu internal shape
+## pesu shape
 
 ```
 packages/pesu/
-  bin.ts          # listen + dial padi + load binds
-  webhook.ts      # HMAC verify, parse, 200, enqueue
-  xyneApi.ts      # postMessage · updateMessage · user/info
-  binds.ts        # threadId → terminalId (+ author)
-  turns.ts        # create-on-miss · author gate · sendInput
-  mirror.ts       # subscribe transcriptChat → postMessage
-  config.ts       # XS base URL, secrets via env, agent argv, cwd, allowlist
+  bin.ts webhook.ts xyneApi.ts binds.ts turns.ts mirror.ts config.ts log.ts
 ```
 
-Same layering idea as `padi-tui`: thin composition over existing padi surface
-members; no second terminal protocol.
+## Build order
 
-## Build order — not pesu first
-
-Full pesu needs XS credentials, webhooks, and a public URL. The **interesting
-half of the product** does not: live conversation in the Inspector over a
-**transcript stream** + `sendInput`. That is useful in kolu alone.
-
-| Do first | Why |
+| Phase | Why |
 | --- | --- |
-| **CT1+CH1** (one PR) | Live **read-only chat log** in Inspector (same filter as export); **forward-only** stream |
-| **PE0** | Chat can create/drive a terminal from XS (half duplex still useful) |
-| **PE1** | Same stream, second consumer (post into XS) |
-
-Not in this tree: multi-agent campaign board / bridge dashboard as product UI
-— that is a different note ([campaign surface](campaign-surface.html)). Here
-we only productize the **1:1 conversation** that pesu will also use.
+| **CT1+CH1** (one PR) | Forward-only chat stream + **multi-host Feed** in kolu |
+| **PE0** | XS → create + type (half duplex) |
+| **PE1** | Same stream → XS thread |
+| **PE2** | Deep link + turn UX polish |
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "CT1+CH1 · live read-only chat log in Inspector (one PR)", m: "forward-only · no history snapshot", h: "#ct1-ch1" },
+  { d: 0, g: "▶", c: "prog", l: "CT1+CH1 · multi-host message Feed (one PR)", m: "forward-only · fleet timeline", h: "#ct1-ch1" },
   { d: 0, g: "○", c: "last", l: "PE0 · pesu inbound — create + type", m: "needs CT1+CH1 · XS", h: "#pe0" },
   { d: 0, g: "○", c: "last", l: "PE1 · pesu outbound — stream → postMessage", m: "needs CT1+CH1 + PE0", h: "#pe1" },
   { d: 0, g: "○", c: "last", l: "PE2 · deep link + turn UX", m: "needs PE0", h: "#pe2" },
 ];
 
-<PhaseTree title="ROADMAP — conversation in kolu, then pesu" phases={PT} />
+<PhaseTree title="ROADMAP — fleet Feed in kolu, then pesu" phases={PT} />
 
 <a id="ct1-ch1"></a>
 <a id="ct1"></a>
 <a id="ch1"></a>
 
-### CT1+CH1 — one PR: live read-only chat log
+### CT1+CH1 — one PR: multi-host message timeline
 
-<Phase id="CT1+CH1" name="streams.transcriptChat + read-only Conversation in Inspector" status="next" />
+<Phase id="CT1+CH1" name="streams.transcriptChat + global Feed (Twitter-style, all hosts)" status="next" />
 
-**One PR.** Product first: the **same thing as Export → Chat log**, but live in
-the Inspector — human + AI messages only, **read-only**. Not a second agent
-UI, not a write path redesign.
-
-Compose already exists above/below it and stays as-is (insert, not submit).
-No “chat Send = submit” decision in this PR.
+**One PR.** Product: a **live, read-only timeline of human + AI messages from
+every agent on every connected host** — skim the fleet, click into depth.
+Same chat filter as **Export → Chat log**. Not Inspector Conversation. Not a
+write path. Not history rehydration on reload.
 
 #### What the user gets
 
-You already have an agent in a tile. Open the right panel → **Inspector**.
-Above Compose, a **Conversation** section shows the session as a chat log —
-exactly the cut export’s chat mode uses. As the agent works, the log follows
-the live edge (forward-only). Tools and edits stay on the **tile** PTY and out
-of this list.
+You run agents on **local** and a **remote** host. Open **Feed** (chrome
+control next to dock / inspector — global, not per-tile). Cards stream in as
+agents speak. Each card shows host · terminal · role · text. Click → focus
+that host + terminal (existing deep-link / attend path). Tiles stay real PTYs.
 
-<KoluShellMockup />
+Hard reload → Feed empty → only **new** messages after reload. Want the past →
+export that terminal’s chat log.
+
+#### UI prototype (real chrome)
+
+Grounded in shipped shell: top **chrome bar** (`data-testid="chrome-bar"`)
+with **host strip** + control cluster (dock · inspector · …); left **dock**;
+canvas tiles; Feed as a **global panel** (sibling of dock/inspector, not a
+right-panel Inspector section).
+
+<FleetFeedMockup />
 
 | You do | What happens |
 | --- | --- |
-| Open **Inspector** | Same **Inspector \| Code** tabs as today |
-| Read **Conversation** | Human / AI only — same filter as HTML chat log |
-| Leave it open while the agent runs | Tail updates live; stick-to-bottom when at the edge |
-| **Compose** / tile | Unchanged — write path is not this PR’s job |
+| Connect two hosts | Feed subscribes on **both** padi surfaces |
+| Agents emit chat lines | Cards appear in one scroll (newest orientation TBD — Twitter-up or log-down) |
+| Click a card | Focus that host + terminal on the canvas |
+| Mute / filter (v1 light) | Optional: this host only · needs-you only — noise control |
+| Hard reload | Feed empty; forward-only again |
+| Open Inspector / Compose | Unchanged — write path not this PR |
 
-#### Why read-only first
+#### Why this instead of Inspector chat log
 
-| In | Out of this PR |
+| Inspector log (rejected for CH1) | Fleet Feed (this PR) |
 | --- | --- |
-| See the conversation without export or tool spam | Changing Compose submit semantics |
-| Prove stream + Inspector placement + memory bounds | “Chat face replaces the tile” |
-| Same mental model as chat-log export | Multi-worker / bridge board |
+| One terminal | All agents × hosts |
+| Buried in per-tile chrome | Global skim (dock’s text channel) |
+| Weak for multi-host | Cross-host by construction |
+| Feels like a second chat app in the panel | Feels like attention **with words** |
 
-Write-from-chat (submit-on-send, etc.) can come later once the read path is
-honest. Compose remains available for insert as today.
-
-#### Wire (CT1) — live forward only, no history snapshot
-
-**Today:** loaders → IR; `transcript.exportHtml` with `mode: "chat"` is the
-offline document of the same filter (full session, O(S) — on demand only).
-
-**Ship:** `streams.transcriptChat` on `padiSurface` as a **live feed of new
-chat events**, not a history API:
+#### Wire (CT1) — live forward only
 
 ```
-input:  { id: terminalId, after?: Cursor }   // optional resume cursor
-output: chat-filtered events (deltas)         // no full-session payload
+input:  { id: terminalId, after?: Cursor }
+output: chat-filtered deltas only
 ```
 
-- Filter = **chat log** IR: `user` + `assistant` only (same definition as
-  export chat mode — one source of truth).
-- **No heavy snapshot** of the last *N* messages (and never the whole session)
-  on subscribe or hard reload. That path re-reads/parses long JSONL/SQLite and
-  is exactly what we refuse for multi-hour agents.
-- **Continue from last message:** the stream only emits **new** chat-visible
-  events after the current file/DB offset (or after `after` if supplied). A
-  hard reload **does not** rehydrate history into the panel.
-- Open Conversation after reload → **empty** until the next human/AI message.
-  Full history stays **Export → Chat log**.
-- Forwarding: **`delta`** (fail-through). Mid-chain drop terminates the
-  stream; client re-subscribes and resumes from **last seen cursor** (or from
-  "now" if none) — still no history dump.
-- Surface reconnect discipline: first frame may be a **cheap hello**
-  (`{ kind: "live", cursor }`) or empty ack — **not** a bounded transcript
-  window rebuild. Do not cargo-cult attach-style "first frame = full
-  scrollback."
+- Filter = export **chat** mode (`user` + `assistant`) — **one** definition.
+- **No** history snapshot on subscribe or hard reload (slow on long sessions).
+- Continue from file/DB offset / `after` cursor.
+- First frame: optional `{ kind: "live", cursor }` — **not** last-*N* dump.
+- Forwarding: **`delta`**.
+- Subscribe-driven per terminal (or host fan-in that still only runs for
+  live agents); client merges hosts.
 
-`exportHtml` remains the path for offline full history. The live panel is a
-**ticker**, not a browser for the archive.
+`exportHtml` stays the archive path.
 
-#### Memory: only what arrived this UI session
+#### Memory
 
 | Rule | Detail |
 | --- | --- |
-| **Append-only while open** | Client keeps messages received **since this subscribe** (optionally a small ring if the open tab runs for hours) |
-| **Hard reload** | Client RAM gone → Conversation starts **empty**; stream resumes **forward only** — no snapshot catch-up |
-| **Virtualized list** | Only near-viewport rows mount DOM for whatever is in the buffer |
-| **Stick to bottom** | Follow live edge when at bottom |
-| **Export stays separate** | Want the past → HTML chat log export, not the live panel |
+| **Append while open** | Only events received this Feed session; optional ring if open for hours |
+| **Hard reload** | Empty; forward-only resume |
+| **Virtualize** | Recycle card DOM |
+| **Per-host dispose** | Dropping a host drops its subs + its cards from the live buffer |
 
-#### Backend cost (why CT1 must not re-export)
+#### Backend cost
 
-Grounded in what padi already does — implementers must not invent a "poll
-exportHtml" stream **or** a "snapshot last N chat messages on subscribe."
-
-| Path today | Work per fire | Role |
-| --- | --- | --- |
-| **Export loaders** (`loadClaudeCodeTranscript`, Codex rollout, Grok JSONL) | `readFileSync` **whole** file → parse **all** lines → full IR | **O(S)** in session file bytes *S* — end-of-session / on-demand only |
-| **OpenCode loader** | SQL over the session DB | **O(M)** in messages — still full session, not live |
-| **Session watcher** (dock agent state) | `subscribeFileAppends` + **256 KB tail** (`TAIL_BYTES`) + **150 ms debounce** | **O(1)** amortized in *S* for *state* — not chat text |
-
-Claude's watcher comment is load-bearing: without debounce, token streaming
-fires the handler dozens–hundreds of times per second, each allocating a large
-tail buffer. Export is deliberately not that path.
-
-**Naïve stream (forbidden):** on every debounced append **or on every
-subscribe/reload**, call the full export loader (or rebuild last *N* chat
-messages by scanning *S*).
-
-| | Complexity |
+| Forbidden | Cost |
 | --- | --- |
-| Per update while the agent streams (full re-export) | **O(S)** CPU + peak memory |
-| Over a session of size *S* with *U* updates | **O(U · S)** → ~**O(S²)** when *U* tracks *S* |
-| Snapshot history on hard reload | **O(S)** or **O(scan)** — rejected; long LLM sessions make this the pain |
+| Re-export full transcript per tick / per subscribe | **O(S)** / ~**O(S²)** lifetime |
 
-**Sound stream (required):** same *shape* as the session watcher, not the
-export loader — **forward-only**.
-
-| Step | Cost |
+| Required | Cost |
 | --- | --- |
-| Detect append | **O(1)** — existing append subscribe / poll floor |
-| Debounce | ~150 ms (same idea as watcher) |
-| Read **new bytes only** from last file offset (or new SQLite rows by id) | **O(Δ)** |
-| Parse new lines / map to chat filter | **O(events in Δ)** — chat rows are sparse vs tools |
-| Emit delta(s) | **O(chat bytes out)** |
-| Subscribe / hard reload | **O(1)** — open at current end (or resume `after` cursor); **no** history materialization |
+| Append watch + debounce + parse **Δ** only | **O(Δ)** per tick |
+| Subscribe / hard reload | **O(1)** w.r.t. session size *S* |
+| Shared producer per terminal, fan-out to Feed | **O(Δ)** once, not × clients |
 
-Steady state (one agent streaming, one subscriber): **O(Δ) per debounced tick**.
-Lifetime of processed file: **O(S)** once as the session grows (each byte
-forward once). Reload does **not** re-walk *S*.
-
-| Extra factor | Rule |
-| --- | --- |
-| **Subscribers *N*** | One shared per-terminal producer + fan-out (**O(Δ)** once, cheap emit × *N*). Never *N* full reloads. |
-| **Terminals *T*** | Chat reducer is **subscribe-driven** — only open Inspector / pesu mirrors pay. |
-| **Wire** | Deltas only (plus optional tiny live/cursor hello). Never full list / never "last *N* messages" dump. |
-
-**Bottom line for implementers:** streaming is fine if CT1 is built like the
-**session watcher** (append + debounce + incremental, **continue from last
-offset**). It is **not** fine if it is **`exportHtml` on a timer** or
-**snapshot history on reconnect**. Hard reload = empty panel + forward feed;
-archive = export.
+Same shape as the Claude **session watcher** (append + debounce + incremental),
+not **export loaders** (`readFileSync` whole JSONL). See watcher
+`TRANSCRIPT_DEBOUNCE_MS` / `TAIL_BYTES` vs `loadClaudeCodeTranscript` full read.
 
 #### Done when (this one PR)
 
-- Focused terminal's **new** chat messages are **readable live** in Inspector
-  (human + AI only).
-- Same filter semantics as export chat log (one definition).
-- **Hard reload does not snapshot history** — panel restarts empty (or
-  cursor-resume only); full past stays export.
-- Backend: **incremental O(Δ)** per tick; subscribe/reload **O(1)** w.r.t. *S*.
-- Tile stays the PTY; Compose behavior unchanged.
+- Two hosts, two agents: **new** human/AI lines appear in **one** Feed.
+- Click card → correct host + terminal focused.
+- Chat filter matches export chat mode.
+- Hard reload does **not** re-scan sessions or snapshot history.
+- Backend incremental O(Δ); tiles remain PTYs; Compose unchanged.
 
 <a id="pe0"></a>
 
@@ -380,44 +248,36 @@ archive = export.
 <Phase id="PE0" name="XS webhook → create terminal + sendInput" status="todo" needs={["CT1+CH1"]} />
 
 **What you get:** first DM/@mention creates terminal+agent, stores
-`threadId → terminalId`, later messages (author only) go in via `sendInput`.
-Ack + deep link into kolu. Replies still read in kolu (CT1+CH1) until PE1.
+`threadId → terminalId`, later messages (author only) → `sendInput`.
+Ack + deep link. Replies visible in the **Feed** (and later PE1 in XS).
 
-**Done when:** phone → XS → agent is running on your machine; you can continue
-in the Inspector conversation.
+**Done when:** phone → XS → agent running; new AI lines show in the Feed;
+you can open the tile for depth.
 
 #### Prior art — PR #1810 (do not merge; port the leaf)
 
-An earlier draft PR — [#1810](https://github.com/juspay/kolu/pull/1810)
-(`pesu-b0`) — implemented the **old** B0: one XS thread bound to an **existing
-coordinator** (resolve terminal **by title**), FIFO write floor, attributed
-paste drive loop, growing reply via loaders + `updateMessage`. That product
-shape is **superseded** by this note (thread ↔ **one new terminal**,
-create-on-miss; CT1+CH1 first). **Do not merge #1810 onto master.** Open a
-**new** PE0 PR and **port** what still applies.
+[#1810](https://github.com/juspay/kolu/pull/1810) (`pesu-b0`) implemented the
+**old** B0: thread → **existing coordinator by title**, FIFO drive loop,
+growing reply via loaders. **Superseded.** Do not merge. New PE0 PR; **port**
+the XS leaf.
 
-| Port into PE0 (XS leaf) | Why it still fits |
+| Port | Why |
 | --- | --- |
-| `webhook.ts` + HMAC tests | Same XS events (`APP_MENTIONED` / `DIRECT_MESSAGE`); constant-time verify; 200-then-async |
-| `xyneApi.ts` + fake XS tests | `postMessage` / `updateMessage` / `user/info` (and later PE1/PE2) |
-| `config.ts` fail-fast env | Crashes if secrets / base URL / allowlist absent — no defaults |
-| `log.ts` (pino + Hono access log) | Always-on visibility; secrets never logged |
-| Author allowlist + visible decline | Same single-operator v1 gate (never silence) |
-| `nix run .#pesu` packaging | Deploy shell for the daemon |
+| `webhook.ts` + HMAC tests | Same XS events |
+| `xyneApi.ts` + fake XS tests | postMessage / user/info |
+| `config.ts` fail-fast env | No default secrets |
+| `log.ts` | Always-on visibility |
+| Allowlist + visible decline | Author gate |
+| `nix run .#pesu` | Deploy shell |
 
-| Leave behind (wrong model) | Why |
+| Leave behind | Why |
 | --- | --- |
-| `coordinator.ts` — title lookup + drive loop | PE0 does **not** bind a pre-existing coordinator; it **creates** a terminal |
-| “One thread → the campaign orchestrator” | One thread → one agent terminal; no multi-worker door |
-| FIFO inbox as the product | Optional later if concurrent webhooks hurt; not the core bind |
-| Growing-reply as B0’s main outbound | Outbound is **PE1** (`transcriptChat` → post); PE0 is inbound + ack |
-| Atlas B0 text / roadmap on that branch | This note is the plan of record |
+| `coordinator.ts` title bind + drive | PE0 **creates** a terminal |
+| Campaign orchestrator as the door | One thread ↔ one agent terminal |
+| Growing-reply as B0 outbound | PE1 + Feed use the chat stream |
 
-**Implement PE0 as:** webhook → author gate → bind miss ⇒ `lifecycle.create` +
-agent launch + store `conversationId → { terminalId, authorUserId }` →
-`sendInput` user text → ack `postMessage` (+ deep link). Dial padi like
-`padi-tui` (`@kolu/padi/dial`), not kolu-server. Cherry-pick or copy the
-salvage rows above; rewrite binds/turns for create-on-miss.
+**Implement:** webhook → gate → create-on-miss → `sendInput` → ack. Dial padi
+like `padi-tui`.
 
 <a id="pe1"></a>
 
@@ -425,13 +285,10 @@ salvage rows above; rewrite binds/turns for create-on-miss.
 
 <Phase id="PE1" name="subscribe transcriptChat → XS postMessage" status="todo" needs={["CT1+CH1", "PE0"]} />
 
-pesu subscribes to the **same** stream for the bound terminal; posts new
-`assistant` texts into the thread. pesu can track a **cursor** (last posted
-event id / hash) — it does not need to retain the full session in memory
-either. `updateMessage` / `agentProgress` optional here or PE2.
+Same stream as the Feed, for the **bound** terminal only; post new `assistant`
+texts; **cursor** so reconnect doesn’t double-post.
 
-**Done when:** agent replies appear in the XS thread without tools/edits, and
-survive pesu reconnect without duplicate posts (cursor / last-posted id).
+**Done when:** XS thread shows agent replies without tools/edits.
 
 <a id="pe2"></a>
 
@@ -439,70 +296,91 @@ survive pesu reconnect without duplicate posts (cursor / last-posted id).
 
 <Phase id="PE2" name="open terminal in PWA; growing reply; typing indicator" status="todo" needs={["PE0"]} />
 
-Polish only — no new architecture. Deep link on create; grow one bot message
-while a turn streams; `agentProgress` while working.
+Polish: deep link on create; `updateMessage` / `agentProgress` as needed.
 
 ## Done criterion (full tree)
 
-DM the bot → terminal under padi/kaval → first prompt is yours → assistant
-replies in the XS thread (messages only) **and** the same conversation is
-live forward in the Inspector Conversation over **one** padi stream (reload
-does not rehydrate history) → deep link opens that terminal.
+DM the bot → terminal exists → you type in XS → agent runs → **Feed** shows
+new messages from that agent **and** others on other hosts → click opens the
+tile → PE1 mirrors the bound thread in XS. Reload never rehydrates history.
 
-export const KoluShellMockup = () => (
+export const FleetFeedMockup = () => (
   <div
     role="img"
-    aria-label="Kolu desktop shell mockup. Left: canvas tile with title bar claude on kolu and a dark xterm body showing tool calls. Right: right panel tab bar Inspector and Code with Inspector active, new Conversation section with human and AI messages, then existing Compose section with draft textarea and Send button, then Directory section."
-    style="margin:1.25rem 0;max-width:44rem;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;background:#0e1014;box-shadow:0 6px 22px rgba(0,0,0,.35);font-family:ui-sans-serif,system-ui,sans-serif;display:flex;min-height:22rem"
+    aria-label="Kolu shell prototype of the multi-host message Feed. Top chrome bar with host tabs local and box-2, control cluster including Feed active. Left dock with agent rows. Center dim canvas. Right Feed panel with timeline cards: Claude on local, Codex on box-2, Human on local, each with host label and message text."
+    style="margin:1.25rem 0;max-width:48rem;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;background:#0e1014;box-shadow:0 6px 22px rgba(0,0,0,.35);font-family:ui-sans-serif,system-ui,sans-serif"
   >
-    <div style="flex:1.35;min-width:0;display:flex;flex-direction:column;border-right:1px solid #2a2e37">
-      <div style="display:flex;align-items:center;gap:.4rem;height:1.75rem;padding:0 .5rem;background:#161a20;border-bottom:1px solid #2a2e37">
-        <span style="width:6px;height:6px;border-radius:50%;background:#d6a35c;flex:none" />
-        <span style="font:600 .68rem/1 ui-monospace,Menlo,monospace;color:#c7ccd6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">claude · ~/code/kolu</span>
-        <span style="margin-left:auto;font:.58rem/1 ui-sans-serif;color:#5b626d">tile = PTY</span>
-      </div>
-      <div style="flex:1;padding:.55rem .6rem;background:#0a0c10;font:500 .62rem/1.55 ui-monospace,Menlo,monospace;color:#8b929d">
-        <div><span style="color:#5b626d">●</span> Edit <span style="color:#7eb0e8">ExportSessionDialog.tsx</span></div>
-        <div style="color:#5b626d">{"  "}picker — Chat log · Full · Both</div>
-        <div><span style="color:#6cc070">+</span> write mode.ts</div>
-        <div><span style="color:#5b626d">●</span> Bash just check</div>
-        <div style="color:#6cc070">✔ green</div>
-        <div style="margin-top:.5rem;color:#5b626d">agent TUI stays on the tile</div>
-      </div>
+    <div style="display:flex;align-items:center;gap:.5rem;height:2.25rem;padding:0 .55rem;background:#161a20;border-bottom:1px solid #2a2e37">
+      <span style="display:flex;flex-direction:column;gap:1px;width:14px">
+        <i style="display:block;height:2px;background:#7c3aed;border-radius:1px" />
+        <i style="display:block;height:2px;background:#2563eb;border-radius:1px" />
+        <i style="display:block;height:2px;background:#16a34a;border-radius:1px" />
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:.35rem;border:1px solid #2a2e37;border-radius:8px;padding:2px;background:rgba(22,26,32,.8)">
+        <span style="font:600 .62rem/1 ui-sans-serif;padding:.28rem .5rem;border-radius:6px;background:rgba(110,168,224,.2);color:#c7ccd6">local</span>
+        <span style="font:600 .62rem/1 ui-sans-serif;padding:.28rem .5rem;border-radius:6px;color:#8b929d">box-2</span>
+      </span>
+      <span style="flex:1" />
+      <span style="font:.58rem/1 ui-sans-serif;color:#5b626d">chrome-bar</span>
+      <span style="width:1.6rem;height:1.6rem;border-radius:8px;background:#1b1e24;border:1px solid #2a2e37" />
+      <span style="width:1.6rem;height:1.6rem;border-radius:8px;background:#1b1e24;border:1px solid #2a2e37" />
+      <span style="width:1.6rem;height:1.6rem;border-radius:8px;background:rgba(110,168,224,.25);border:1px solid rgba(110,168,224,.45);font:700 .55rem/1.6rem ui-sans-serif;color:#6ea8e0;text-align:center">F</span>
+      <span style="width:1.6rem;height:1.6rem;border-radius:8px;background:#1b1e24;border:1px solid #2a2e37" />
     </div>
-    <div style="flex:1;min-width:11.5rem;max-width:15.5rem;display:flex;flex-direction:column;background:#12151a">
-      <div style="display:flex;align-items:center;height:2rem;background:#161a20;border-bottom:1px solid #2a2e37;flex:none">
-        <span style="height:100%;padding:0 .75rem;font:500 .7rem/2rem ui-sans-serif;color:#c7ccd6;background:#12151a;border-bottom:2px solid #6ea8e0">Inspector</span>
-        <span style="height:100%;padding:0 .75rem;font:500 .7rem/2rem ui-sans-serif;color:#5b626d">Code</span>
+    <div style="display:flex;min-height:22rem">
+      <div style="width:3.2rem;background:#12151a;border-right:1px solid #2a2e37;padding:.4rem .25rem;display:flex;flex-direction:column;gap:.35rem">
+        <div style="height:2rem;border-radius:6px;background:#1b1e24;border:1px solid #2a2e37" />
+        <div style="height:2rem;border-radius:6px;background:#1b1e24;border:1px solid #2a2e37" />
+        <div style="height:2rem;border-radius:6px;background:#1b1e24;border:1px solid #2a2e37" />
+        <span style="margin-top:auto;font:.5rem/1 ui-sans-serif;color:#5b626d;text-align:center">dock</span>
       </div>
-      <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
-        <div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37;border-left:2px solid #6ea8e0">
-          <div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.45rem">Conversation</div>
-          <div style="font:.62rem/1.4 ui-sans-serif;color:#8b929d;margin-bottom:.35rem">
-            <span style="font:700 .55rem/1 ui-sans-serif;letter-spacing:.04em;color:#6ea8e0">HUMAN</span>
-            {" "}Make session export a lightweight chat log…
-          </div>
-          <div style="font:.62rem/1.4 ui-sans-serif;color:#c7ccd6;margin-bottom:.35rem">
-            <span style="font:700 .55rem/1 ui-sans-serif;letter-spacing:.04em;color:#6cc070">CLAUDE</span>
-            {" "}Picker + chat-only export. Opening PR when green.
-          </div>
-          <div style="font:.58rem/1 ui-sans-serif;color:#5b626d">live · tools omitted (CT1 filter)</div>
+      <div style="flex:1;min-width:0;background:#0a0c10;position:relative;padding:.6rem">
+        <div style="border:1px solid #2a2e37;border-radius:8px;height:100%;min-height:18rem;background:#0f1218;opacity:.55;padding:.45rem">
+          <div style="font:600 .62rem/1 ui-monospace,Menlo,monospace;color:#5b626d;margin-bottom:.4rem">claude · tile (PTY)</div>
+          <div style="font:500 .58rem/1.5 ui-monospace,Menlo,monospace;color:#3f444b">● Edit … tools stay here</div>
         </div>
-        <div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37">
-          <div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.45rem">Compose</div>
-          <div style="border:1px solid #2a2e37;border-radius:6px;background:rgba(22,26,32,.5);padding:.4rem .5rem;min-height:3.2rem;font:500 .62rem/1.4 ui-monospace,Menlo,monospace;color:#5b626d">
-            Draft a prompt for the agent… ⌘⏎ to send
+        <div style="position:absolute;left:.6rem;bottom:.6rem;font:.55rem/1 ui-sans-serif;color:#5b626d">canvas · depth on click</div>
+      </div>
+      <div style="width:15.5rem;background:#12151a;border-left:1px solid #2a2e37;display:flex;flex-direction:column">
+        <div style="height:2rem;display:flex;align-items:center;padding:0 .65rem;border-bottom:1px solid #2a2e37;background:#161a20">
+          <span style="font:700 .62rem/1 ui-sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#c7ccd6">Feed</span>
+          <span style="margin-left:auto;font:.55rem/1 ui-sans-serif;color:#5b626d">live · all hosts</span>
+        </div>
+        <div style="flex:1;overflow:hidden;padding:.45rem;display:flex;flex-direction:column;gap:.4rem">
+          <div style="border:1px solid #2a2e37;border-radius:8px;padding:.45rem .5rem;background:#161a20">
+            <div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.3rem">
+              <span style="width:6px;height:6px;border-radius:50%;background:#6cc070" />
+              <span style="font:700 .58rem/1 ui-sans-serif;color:#6cc070">CLAUDE</span>
+              <span style="font:.52rem/1 ui-monospace,Menlo,monospace;color:#5b626d">local</span>
+              <span style="margin-left:auto;font:.5rem/1 ui-sans-serif;color:#5b626d">now</span>
+            </div>
+            <div style="font:.62rem/1.4 ui-sans-serif;color:#c7ccd6">PR ready — chat log export is clean.</div>
+            <div style="margin-top:.3rem;font:.5rem/1 ui-monospace,Menlo,monospace;color:#5b626d">kolu · e7f2 →</div>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:.4rem;gap:.4rem">
-            <span style="font:.55rem/1.25 ui-sans-serif;color:#5b626d">Inserts into the terminal — press Enter there to submit</span>
-            <span style="flex:none;border:1px solid rgba(110,168,224,.3);background:rgba(110,168,224,.15);border-radius:6px;padding:.28rem .55rem;font:600 .62rem/1 ui-sans-serif;color:#6ea8e0">Send →</span>
+          <div style="border:1px solid #2a2e37;border-radius:8px;padding:.45rem .5rem;background:#161a20">
+            <div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.3rem">
+              <span style="width:6px;height:6px;border-radius:50%;background:#a78bfa" />
+              <span style="font:700 .58rem/1 ui-sans-serif;color:#a78bfa">CODEX</span>
+              <span style="font:.52rem/1 ui-monospace,Menlo,monospace;color:#5b626d">box-2</span>
+              <span style="margin-left:auto;font:.5rem/1 ui-sans-serif;color:#5b626d">12s</span>
+            </div>
+            <div style="font:.62rem/1.4 ui-sans-serif;color:#c7ccd6">Review passed on the XSS fix.</div>
+            <div style="margin-top:.3rem;font:.5rem/1 ui-monospace,Menlo,monospace;color:#5b626d">kolu · a91c →</div>
+          </div>
+          <div style="border:1px solid #2a2e37;border-radius:8px;padding:.45rem .5rem;background:#161a20">
+            <div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.3rem">
+              <span style="width:6px;height:6px;border-radius:50%;background:#6ea8e0" />
+              <span style="font:700 .58rem/1 ui-sans-serif;color:#6ea8e0">HUMAN</span>
+              <span style="font:.52rem/1 ui-monospace,Menlo,monospace;color:#5b626d">local</span>
+              <span style="margin-left:auto;font:.5rem/1 ui-sans-serif;color:#5b626d">1m</span>
+            </div>
+            <div style="font:.62rem/1.4 ui-sans-serif;color:#8b929d">lgtm — open the PR when green.</div>
+            <div style="margin-top:.3rem;font:.5rem/1 ui-monospace,Menlo,monospace;color:#5b626d">kolu · e7f2 →</div>
+          </div>
+          <div style="font:.55rem/1.35 ui-sans-serif;color:#5b626d;padding:.2rem .15rem">
+            forward-only · reload clears · tools never appear here
           </div>
         </div>
-        <div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37">
-          <div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.35rem">Directory</div>
-          <div style="font:500 .6rem/1.35 ui-monospace,Menlo,monospace;color:#c7ccd6;word-break:break-all">/home/srid/code/kolu</div>
-        </div>
-        <div style="padding:.5rem .7rem;font:.55rem/1.3 ui-sans-serif;color:#5b626d">Git · Agent · Attach… unchanged below</div>
       </div>
     </div>
   </div>

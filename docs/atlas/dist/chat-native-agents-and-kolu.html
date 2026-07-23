@@ -1,11 +1,9 @@
-<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chat threads as terminals · the kolu Atlas</title><meta name="description" content="Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only. CT1 is a padi surface stream; kolu conversation face first, then pesu."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Chat threads as terminals · the kolu Atlas"><meta property="og:description" content="Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only. CT1 is a padi surface stream; kolu conversation face first, then pesu."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-22T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Chat threads as terminals · the kolu Atlas"><meta name="twitter:description" content="Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only. CT1 is a padi surface stream; kolu conversation face first, then pesu."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-body[data-astro-cid-q2ml7llr]>:first-child{margin-top:0}.callout-body[data-astro-cid-q2ml7llr]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Chat threads as terminals</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-22T00:00:00.000Z">JUL 22, 2026</time></div><p class="note-sub">Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only. CT1 is a padi surface stream; kolu conversation face first, then pesu.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#components" data-astro-cid-rda6bqd5>Components</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#surface-primitives-why-ct1-is-a-stream" data-astro-cid-rda6bqd5>Surface primitives (why CT1 is a stream)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#bind-state-pesu-local" data-astro-cid-rda6bqd5>Bind state (pesu-local)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#interaction-first-message" data-astro-cid-rda6bqd5>Interaction: first message</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#interaction-later-user-messages" data-astro-cid-rda6bqd5>Interaction: later user messages</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#interaction-agent--conversation-transcript-stream" data-astro-cid-rda6bqd5>Interaction: agent → conversation (transcript stream)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-each-api-is-and-is-not" data-astro-cid-rda6bqd5>What each API is (and is not)</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#xyne-spaces--pesu-webhook" data-astro-cid-rda6bqd5>Xyne Spaces → pesu (webhook)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pesu--xyne-spaces-app-api-bearer-jwt" data-astro-cid-rda6bqd5>pesu → Xyne Spaces (app API, bearer JWT)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pesu--kolu--padi-padisurface" data-astro-cid-rda6bqd5>pesu / kolu → padi (padiSurface)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#out-of-scope-for-this-wire" data-astro-cid-rda6bqd5>Out of scope for this wire</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pesu-internal-shape" data-astro-cid-rda6bqd5>pesu internal shape</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#build-order--not-pesu-first" data-astro-cid-rda6bqd5>Build order — not pesu first</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#ct1ch1--one-pr-live-read-only-chat-log" data-astro-cid-rda6bqd5>CT1+CH1 — one PR: live read-only chat log</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pe0--pesu-inbound" data-astro-cid-rda6bqd5>PE0 — pesu inbound</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pe1--pesu-outbound" data-astro-cid-rda6bqd5>PE1 — pesu outbound</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pe2--deep-link--turn-ux" data-astro-cid-rda6bqd5>PE2 — deep link + turn UX</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#done-criterion-full-tree" data-astro-cid-rda6bqd5>Done criterion (full tree)</a></li></ul></nav></header><div class="prose"><p><strong>One conversation ↔ one kolu terminal.</strong> User text → terminal input; agent
-<strong>messages</strong> (not tools/edits) → conversation. The chat surface can be the
-<strong>kolu UI</strong> first, then <strong>Xyne Spaces via pesu</strong> — same pipe, different face.</p>
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chat threads as terminals · the kolu Atlas</title><meta name="description" content="Architectural wire: Xyne Spaces ↔ pesu ↔ padi — one thread per terminal. CT1+CH1 is a live multi-host message timeline (not Inspector chat). Then pesu."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Chat threads as terminals · the kolu Atlas"><meta property="og:description" content="Architectural wire: Xyne Spaces ↔ pesu ↔ padi — one thread per terminal. CT1+CH1 is a live multi-host message timeline (not Inspector chat). Then pesu."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-22T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Chat threads as terminals · the kolu Atlas"><meta name="twitter:description" content="Architectural wire: Xyne Spaces ↔ pesu ↔ padi — one thread per terminal. CT1+CH1 is a live multi-host message timeline (not Inspector chat). Then pesu."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-body[data-astro-cid-q2ml7llr]>:first-child{margin-top:0}.callout-body[data-astro-cid-q2ml7llr]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Chat threads as terminals</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-22T00:00:00.000Z">JUL 22, 2026</time></div><p class="note-sub">Architectural wire: Xyne Spaces ↔ pesu ↔ padi — one thread per terminal. CT1+CH1 is a live multi-host message timeline (not Inspector chat). Then pesu.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#components" data-astro-cid-rda6bqd5>Components</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#surface-primitives-why-ct1-is-a-stream" data-astro-cid-rda6bqd5>Surface primitives (why CT1 is a stream)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#bind-state-pesu-local" data-astro-cid-rda6bqd5>Bind state (pesu-local)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#interaction-first-message-pesu" data-astro-cid-rda6bqd5>Interaction: first message (pesu)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#interaction-later-user-messages-pesu" data-astro-cid-rda6bqd5>Interaction: later user messages (pesu)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#interaction-agent--feed--pesu-transcript-stream" data-astro-cid-rda6bqd5>Interaction: agent → Feed / pesu (transcript stream)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#apis-pesu--xs--padi" data-astro-cid-rda6bqd5>APIs (pesu ↔ XS / padi)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#out-of-scope" data-astro-cid-rda6bqd5>Out of scope</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pesu-shape" data-astro-cid-rda6bqd5>pesu shape</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#build-order" data-astro-cid-rda6bqd5>Build order</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#ct1ch1--one-pr-multi-host-message-timeline" data-astro-cid-rda6bqd5>CT1+CH1 — one PR: multi-host message timeline</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pe0--pesu-inbound" data-astro-cid-rda6bqd5>PE0 — pesu inbound</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pe1--pesu-outbound" data-astro-cid-rda6bqd5>PE1 — pesu outbound</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pe2--deep-link--turn-ux" data-astro-cid-rda6bqd5>PE2 — deep link + turn UX</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#done-criterion-full-tree" data-astro-cid-rda6bqd5>Done criterion (full tree)</a></li></ul></nav></header><div class="prose"><p><strong>One conversation ↔ one kolu terminal</strong> (for pesu later). <strong>CT1+CH1</strong> is the
+kolu-native face first: a <strong>live timeline of human + AI messages across every
+agent on every connected host</strong> — Twitter-style fleet skim, not a per-tile
+Inspector archive. Tools stay on the PTY; click a card to open that terminal.</p>
 <p>pesu is the XS bridge only; config is env/systemd next to pesu, not the web app.</p>
 <h2 id="components">Components</h2>
-<p>Three processes on the chat side of the wall; four on the machine side. The
-browser PWA is <strong>not</strong> on the critical path — same class of client as
-<code>padi-tui</code> / <code>kolu mcp</code>.</p>
 <table>
 <thead>
 <tr>
@@ -18,52 +16,45 @@ browser PWA is <strong>not</strong> on the critical path — same class of clien
 <tr>
 <td><strong>Xyne Spaces</strong></td>
 <td>XS cloud</td>
-<td>Threads, identity, @mention/DM delivery, message store</td>
+<td>Threads, identity, @mention/DM delivery</td>
 </tr>
 <tr>
 <td><strong>XS apps platform</strong></td>
 <td>part of XS</td>
-<td>Signed <strong>webhook</strong> out; <strong>app API</strong> in (<code>postMessage</code>, <code>updateMessage</code>, <code>user/info</code>)</td>
+<td>Signed webhook out; app API in</td>
 </tr>
 <tr>
 <td><strong>pesu</strong></td>
-<td>new daemon beside kolu (<code>packages/pesu</code>)</td>
-<td>HTTP webhook receiver + bind store + padi client + XS API client</td>
+<td>daemon beside kolu (<code>packages/pesu</code>)</td>
+<td>Webhook + binds + padi client + XS API</td>
 </tr>
 <tr>
 <td><strong>padi</strong></td>
-<td>workspace daemon</td>
-<td><code>padiSurface</code>: <code>lifecycle.*</code>, loaders, <strong>new chat transcript stream</strong></td>
+<td>per-host workspace daemon</td>
+<td><code>lifecycle.*</code>; <strong>forward-only <code>transcriptChat</code></strong></td>
 </tr>
 <tr>
 <td><strong>kaval</strong></td>
-<td>PTY daemon under padi</td>
-<td>Owns the live PTY; serializes writes</td>
+<td>PTY daemon</td>
+<td>Live PTYs</td>
 </tr>
 <tr>
 <td><strong>agent CLI</strong></td>
-<td>child in the PTY</td>
-<td>claude / codex / opencode / grok — writes its own session files</td>
-</tr>
-<tr>
-<td><strong>transcript loaders</strong></td>
-<td>in-process in padi today</td>
-<td>Vendor file → <code>transcript-core</code> IR (<code>user</code> · <code>assistant</code> · <code>tool_*</code> · …)</td>
+<td>child in PTY</td>
+<td>Session files on disk (JSONL / SQLite)</td>
 </tr>
 <tr>
 <td><strong>kolu PWA</strong></td>
 <td>browser</td>
-<td>Tile = PTY; CH1 = Conversation in Inspector; deep link</td>
+<td>Multi-host map; <strong>Feed</strong> merges chat streams; tiles = depth</td>
 </tr>
 </tbody>
 </table>
-<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>Xyne Spaces ──HTTPS──► pesu ──unix socket──► padi ──unix socket──► kaval ──PTY──► agent</span></span>
-<span class="line"><span>     ▲                   │                      │</span></span>
-<span class="line"><span>     │                   │                      └── loaders ← session files on disk</span></span>
-<span class="line"><span>     └──── HTTPS API ────┘                      └── streams.transcriptChat → chat frames</span></span></code></pre>
-<p>pesu dials padi with the same kit as other non-browser faces
-(<code>@kolu/padi/dial</code> → digest-keyed socket, control-core handshake, contract
-skew fail-fast). It does <strong>not</strong> go through kolu-server.</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>hosts (padi each) ──transcriptChat (forward)──► kolu client ──merge──► Feed timeline</span></span>
+<span class="line"><span>                                                      │</span></span>
+<span class="line"><span>XS ◄──pesu (later)── same chat filter, one thread ↔ one terminal</span></span></code></pre>
+<p>pesu dials padi with <code>@kolu/padi/dial</code> (like <code>padi-tui</code> / <code>kolu mcp</code>) — not
+through kolu-server.</p>
 <figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 400" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Architecture: Xyne Spaces talks HTTPS to pesu. pesu dials padi over a unix socket. padi owns kaval PTYs and loaders that read agent session files. Agent assistant events return through pesu to Xyne Spaces via postMessage. The kolu PWA is off the critical path and only used via deep link.">
   <defs>
     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -172,356 +163,174 @@ skew fail-fast). It does <strong>not</strong> go through kolu-server.</p>
 
   <text class="s" x="410" y="385" text-anchor="middle">threadId maps only inside pesu · agent never sees XS</text>
 </svg>
-<figcaption data-astro-cid-6cvztg6h>Process boundaries. Solid arrows: create + sendInput + postMessage. Dashed: chat transcript stream (CT1) from loaders through pesu.</figcaption></figure>
+<figcaption data-astro-cid-6cvztg6h>Process boundaries. Solid: create + sendInput + postMessage (pesu). Dashed: chat transcript streams into kolu Feed and later pesu.</figcaption></figure>
 <h2 id="surface-primitives-why-ct1-is-a-stream">Surface primitives (why CT1 is a stream)</h2>
-<p><code>padiSurface</code> is declared with the five <code>@kolu/surface</code> member kinds. The live
-conversation path has to pick one deliberately — a one-shot is not a stream.</p>
 <table>
 <thead>
 <tr>
 <th>Primitive</th>
-<th>Shape</th>
-<th>Fit for chat log?</th>
+<th>Fit for the fleet feed?</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong><code>streams</code></strong></td>
-<td>input → async iterator; reconnect re-subscribes via <code>STREAM_RETRY</code></td>
-<td><strong>Yes — CT1.</strong> Per-terminal <code>{ id }</code>, <strong>forward-only</strong> chat deltas (optional cheap live/cursor hello — <strong>not</strong> history snapshot)</td>
+<td><strong>Yes — CT1.</strong> Per terminal <code>{ id, after? }</code>, <strong>forward-only</strong> chat deltas. Optional cheap <code>{ kind: &quot;live&quot;, cursor }</code> hello — <strong>not</strong> history snapshot.</td>
 </tr>
 <tr>
 <td><strong><code>procedures</code></strong></td>
-<td>request → one response</td>
-<td>One-shot only. Today’s <code>transcript.exportHtml</code>. Fine for export/dump; live only if a consumer polls+diffs — not the product path</td>
+<td>Export only (<code>transcript.exportHtml</code>). Not the live path.</td>
 </tr>
 <tr>
 <td><strong><code>events</code></strong></td>
-<td>discrete fires</td>
-<td>No backlog on subscribe — wrong for conversation history</td>
+<td>No backlog; wrong for continuous feed.</td>
 </tr>
 <tr>
-<td><strong><code>cells</code></strong></td>
-<td>standing single value</td>
-<td>Not per-terminal append-heavy log</td>
-</tr>
-<tr>
-<td><strong><code>collections</code></strong></td>
-<td>keyed set + deltas</td>
-<td><code>terminals</code> is already the entity set; the message list is not a second keyspace</td>
+<td><strong><code>cells</code> / <code>collections</code></strong></td>
+<td>Terminals stay the entity set; messages are a time-ordered fan-in on the client, not a second collection keyspace.</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Client consume:</strong></p>
+<p><strong>Client consume (CH1):</strong></p>
 <ul>
-<li>Kolu UI (CT1+CH1, one PR): <code>client.streams.transcriptChat.use(() =&gt; ({ id: focusedTerminal() }))</code> — enrolled by default; <strong>append deltas only</strong> (empty after hard reload).</li>
-<li>pesu (PE1): same stream; track a post <strong>cursor</strong>, not full session RAM.</li>
+<li>For <strong>each connected host</strong>, for <strong>each terminal with an agent</strong> (or lazy as
+agents appear), subscribe <code>transcriptChat</code> on that host’s padi surface.</li>
+<li><strong>Tag</strong> every event with <code>{ hostKey, terminalId, agentKind, … }</code>.</li>
+<li><strong>Merge</strong> into one timeline by arrival / agent timestamp (good enough for a
+social feed; not a ledger).</li>
+<li>Hard reload → empty feed; streams resume <strong>forward only</strong>.</li>
 </ul>
-<p><strong>Re-serve forwarding:</strong> <strong><code>delta</code></strong> (fail-through) — same class as <code>activity</code> / <code>terminalAttach</code>.</p>
-<p><strong>Rejected alternatives (recorded):</strong></p>
-<ul>
-<li>Procedure-first + poll — not live.</li>
-<li>Full message list every stream frame — re-bloats every yield.</li>
-<li><strong>History snapshot on subscribe/hard reload</strong> — slow on long LLM sessions; use export for the past.</li>
-<li>Cell of “last assistant text” — loses multi-bubble turns.</li>
-<li>Event of “assistant said X” — no backlog on subscribe.</li>
-<li>Unbounded Solid store of all chat events ever received in a multi-day open tab.</li>
-</ul>
+<p><strong>Re-serve:</strong> stream members <strong><code>delta</code></strong> (fail-through), same class as
+<code>terminalAttach</code> / <code>activity</code>.</p>
+<p><strong>Rejected:</strong> poll exportHtml; snapshot last <em>N</em> on subscribe; full list each
+frame; unbounded multi-day buffer without a ring.</p>
 <h2 id="bind-state-pesu-local">Bind state (pesu-local)</h2>
-<p>pesu holds the only new durable fact:</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>threadId  →  { terminalId, authorUserId, hostKey? }</span></span></code></pre>
-<ul>
-<li><strong>Create on miss</strong> — first webhook for an unbound thread runs
-<code>lifecycle.create</code> (+ agent launch), then stores the row.</li>
-<li><strong>Author gate</strong> — later webhooks must match <code>authorUserId</code> (v1: one
-allowlisted operator). Mismatch → visible decline via <code>postMessage</code>, never
-silence, never <code>sendInput</code>.</li>
-<li>Not in kolu’s conf store; not in XS. Survives pesu restart if persisted
-next to pesu (file/env scope TBD; start with on-disk JSON beside the daemon).</li>
-</ul>
-<h2 id="interaction-first-message">Interaction: first message</h2>
-<p>End-to-end create + first prompt.</p>
+<p>Create-on-miss, author gate (v1 allowlist), persist beside pesu — not kolu conf.</p>
+<h2 id="interaction-first-message-pesu">Interaction: first message (pesu)</h2>
 <table>
 <thead>
 <tr>
 <th>Step</th>
-<th>From → to</th>
-<th>What moves</th>
+<th>What</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>1</td>
-<td>User → XS</td>
-<td>DM or <code>@bot</code> text in a channel</td>
-</tr>
-<tr>
-<td>2</td>
-<td>XS → pesu</td>
-<td><code>POST</code> webhook: <code>APP_MENTIONED</code> or <code>DIRECT_MESSAGE</code>. Payload: <code>conversationId</code>, <code>userId</code>, <code>cleanContent</code>, <code>messageId</code>. Header: <code>X-Xyne-Signature</code> (HMAC of raw body)</td>
+<td>1–2</td>
+<td>User DMs/@mentions bot; XS webhook (HMAC)</td>
 </tr>
 <tr>
 <td>3</td>
-<td>pesu</td>
-<td>Verify HMAC (constant-time) → <strong>200 immediately</strong> → work async (XS does not retry)</td>
+<td>200 immediately; work async</td>
 </tr>
 <tr>
-<td>4</td>
-<td>pesu → XS</td>
-<td>optional <code>user/info</code> to resolve display name; cache</td>
+<td>4–8</td>
+<td>Author gate → <code>lifecycle.create</code> + agent argv + first <code>sendInput</code></td>
 </tr>
 <tr>
-<td>5</td>
-<td>pesu → padi</td>
-<td><code>lifecycle.create({ cwd? })</code> → <code>{ id: terminalId }</code></td>
-</tr>
-<tr>
-<td>6</td>
-<td>padi → kaval</td>
-<td>spawn PTY (shell)</td>
-</tr>
-<tr>
-<td>7</td>
-<td>pesu → padi</td>
-<td><code>lifecycle.sendInput({ id, data: &quot;&lt;agent argv&gt;\\r&quot; })</code> — same initial-command path as <code>padi-tui create -- claude …</code></td>
-</tr>
-<tr>
-<td>8</td>
-<td>pesu → padi</td>
-<td><code>lifecycle.sendInput({ id, data: &quot;&lt;user text&gt;\\r&quot; })</code> — first agent prompt</td>
-</tr>
-<tr>
-<td>9</td>
-<td>pesu</td>
-<td>persist bind <code>conversationId → { terminalId, authorUserId }</code></td>
-</tr>
-<tr>
-<td>10</td>
-<td>pesu → XS</td>
-<td><code>postMessage</code> into <code>conversationId</code>: ack + deep link to open that terminal in kolu</td>
+<td>9–10</td>
+<td>Store bind; ack + deep link</td>
 </tr>
 </tbody>
 </table>
-<p>Agent is unaware of chat. It only sees PTY input.</p>
-<h2 id="interaction-later-user-messages">Interaction: later user messages</h2>
+<p>Agent only sees PTY input.</p>
+<h2 id="interaction-later-user-messages-pesu">Interaction: later user messages (pesu)</h2>
+<p>Webhook → bind lookup → author gate → <code>sendInput</code> on that terminal.</p>
+<h2 id="interaction-agent--feed--pesu-transcript-stream">Interaction: agent → Feed / pesu (transcript stream)</h2>
 <table>
 <thead>
 <tr>
 <th>Step</th>
-<th>From → to</th>
-<th>What moves</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td>XS → pesu</td>
-<td>same webhook shape</td>
-</tr>
-<tr>
-<td>2</td>
-<td>pesu</td>
-<td>lookup bind by <code>conversationId</code>; reject if author ≠ stored</td>
-</tr>
-<tr>
-<td>3</td>
-<td>pesu → padi</td>
-<td><code>lifecycle.sendInput({ id: terminalId, data: &quot;&lt;text&gt;\\r&quot; })</code></td>
-</tr>
-<tr>
-<td>4</td>
-<td>kaval</td>
-<td>write bytes into that PTY (last-writer-wins at kaval)</td>
-</tr>
-</tbody>
-</table>
-<p>No second terminal. No coordinator hop. Thread is the mailbox for one PTY.</p>
-<h2 id="interaction-agent--conversation-transcript-stream">Interaction: agent → conversation (transcript stream)</h2>
-<p>Return half — <strong>CT1 is the wire for this.</strong> Today: loaders + <code>transcript.exportHtml</code>
-(procedure). Missing: a live surface stream of chat-filtered events.</p>
-<table>
-<thead>
-<tr>
-<th>Step</th>
-<th>Component</th>
 <th>What</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>A</td>
-<td>agent CLI</td>
-<td>appends to vendor session store (Claude JSONL, Codex/OpenCode SQLite, …)</td>
+<td>Agent appends session files</td>
 </tr>
 <tr>
 <td>B</td>
-<td>padi</td>
-<td>loaders → IR; filter to chat (<code>user</code> / <code>assistant</code> — same cut as HTML chat-log mode)</td>
+<td>padi incremental parse; chat filter (<code>user</code> / <code>assistant</code> only — same as export chat mode)</td>
 </tr>
 <tr>
 <td>C</td>
-<td><strong><code>streams.transcriptChat</code></strong></td>
-<td>input <code>{ id, after? }</code>; <strong>forward-only</strong> chat deltas from current offset / cursor</td>
+<td><code>streams.transcriptChat</code> — <strong>forward-only</strong> deltas</td>
 </tr>
 <tr>
 <td>D</td>
-<td>CT1+CH1 / PE1</td>
-<td>Inspector appends live; pesu posts with a cursor</td>
+<td><strong>kolu Feed</strong> merges all hosts; <strong>PE1</strong> posts bound terminal to XS</td>
 </tr>
 </tbody>
 </table>
-<p>Hard reload / re-subscribe: <strong>no history snapshot</strong> — continue from last
-offset (or empty until next message). Full past → export.</p>
-<h2 id="what-each-api-is-and-is-not">What each API is (and is not)</h2>
-<h3 id="xyne-spaces--pesu-webhook">Xyne Spaces → pesu (webhook)</h3>
-<table>
-<thead>
-<tr>
-<th>Event</th>
-<th>When</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>APP_MENTIONED</code></td>
-<td>explicit @bot in a channel</td>
-</tr>
-<tr>
-<td><code>DIRECT_MESSAGE</code></td>
-<td>every message in the bot DM</td>
-</tr>
-</tbody>
-</table>
-<p>Plain channel messages without @ are <strong>not</strong> delivered to installed apps.
-pesu answers 200 first; failures after that are pesu’s problem (post a visible
-error into the thread).</p>
-<h3 id="pesu--xyne-spaces-app-api-bearer-jwt">pesu → Xyne Spaces (app API, bearer JWT)</h3>
-<table>
-<thead>
-<tr>
-<th>Call</th>
-<th>Use</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>POST …/chat/postMessage</code></td>
-<td>new bot turn (or first ack)</td>
-</tr>
-<tr>
-<td><code>POST …/chat/updateMessage</code></td>
-<td>grow one message while an assistant turn streams</td>
-</tr>
-<tr>
-<td><code>POST …/chat/agentProgress</code></td>
-<td>optional typing indicator during a turn</td>
-</tr>
-<tr>
-<td><code>GET …/user/info</code></td>
-<td>resolve sender id → name</td>
-</tr>
-</tbody>
-</table>
-<h3 id="pesu--kolu--padi-padisurface">pesu / kolu → padi (<code>padiSurface</code>)</h3>
-<table>
-<thead>
-<tr>
-<th>Member</th>
-<th>Kind</th>
-<th>Use</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>lifecycle.create</code></td>
-<td>procedure</td>
-<td>new terminal (optional <code>cwd</code>)</td>
-</tr>
-<tr>
-<td><code>lifecycle.sendInput</code></td>
-<td>procedure</td>
-<td>agent launch line + every user message</td>
-</tr>
-<tr>
-<td><strong><code>transcriptChat</code></strong> (name TBD)</td>
-<td><strong>stream</strong></td>
-<td>chat-filtered frames for one terminal — CT1</td>
-</tr>
-<tr>
-<td><code>transcript.exportHtml</code></td>
-<td>procedure</td>
-<td>unchanged export path; not the live face</td>
-</tr>
-</tbody>
-</table>
-<p>pesu does <strong>not</strong> call kaval directly. padi owns the terminal id space and
-awareness; kaval is an implementation detail behind <code>lifecycle.*</code>.</p>
-<h3 id="out-of-scope-for-this-wire">Out of scope for this wire</h3>
+<p>Hard reload: <strong>no history snapshot</strong>. Full past → export.</p>
+<h2 id="apis-pesu--xs--padi">APIs (pesu ↔ XS / padi)</h2>
+<p><strong>XS → pesu:</strong> <code>APP_MENTIONED</code>, <code>DIRECT_MESSAGE</code> (HMAC).<br/>
+<strong>pesu → XS:</strong> <code>postMessage</code>, <code>updateMessage</code>, <code>agentProgress</code>, <code>user/info</code>.<br/>
+<strong>padi:</strong> <code>lifecycle.create</code> / <code>sendInput</code>; <strong><code>transcriptChat</code> stream</strong>;
+<code>transcript.exportHtml</code> unchanged for archive.</p>
+<h2 id="out-of-scope">Out of scope</h2>
 <ul>
-<li>Fleet board / who-needs-me in chat</li>
-<li>Coordinator multi-worker campaigns</li>
-<li>Routing chat traffic through kolu-server for pesu</li>
+<li>Campaign board / hand-maintained bridge dashboard (<a href="campaign-surface.html">campaign surface</a>)</li>
+<li>Chat write path redesign (Compose submit-on-send)</li>
 <li>Bot secrets in the web UI</li>
+<li>Replacing the tile PTY with a chat UI</li>
 </ul>
-<h2 id="pesu-internal-shape">pesu internal shape</h2>
+<h2 id="pesu-shape">pesu shape</h2>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>packages/pesu/</span></span>
-<span class="line"><span>  bin.ts          # listen + dial padi + load binds</span></span>
-<span class="line"><span>  webhook.ts      # HMAC verify, parse, 200, enqueue</span></span>
-<span class="line"><span>  xyneApi.ts      # postMessage · updateMessage · user/info</span></span>
-<span class="line"><span>  binds.ts        # threadId → terminalId (+ author)</span></span>
-<span class="line"><span>  turns.ts        # create-on-miss · author gate · sendInput</span></span>
-<span class="line"><span>  mirror.ts       # subscribe transcriptChat → postMessage</span></span>
-<span class="line"><span>  config.ts       # XS base URL, secrets via env, agent argv, cwd, allowlist</span></span></code></pre>
-<p>Same layering idea as <code>padi-tui</code>: thin composition over existing padi surface
-members; no second terminal protocol.</p>
-<h2 id="build-order--not-pesu-first">Build order — not pesu first</h2>
-<p>Full pesu needs XS credentials, webhooks, and a public URL. The <strong>interesting
-half of the product</strong> does not: live conversation in the Inspector over a
-<strong>transcript stream</strong> + <code>sendInput</code>. That is useful in kolu alone.</p>
+<span class="line"><span>  bin.ts webhook.ts xyneApi.ts binds.ts turns.ts mirror.ts config.ts log.ts</span></span></code></pre>
+<h2 id="build-order">Build order</h2>
 <table>
 <thead>
 <tr>
-<th>Do first</th>
+<th>Phase</th>
 <th>Why</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>CT1+CH1</strong> (one PR)</td>
-<td>Live <strong>read-only chat log</strong> in Inspector (same filter as export); <strong>forward-only</strong> stream</td>
+<td>Forward-only chat stream + <strong>multi-host Feed</strong> in kolu</td>
 </tr>
 <tr>
 <td><strong>PE0</strong></td>
-<td>Chat can create/drive a terminal from XS (half duplex still useful)</td>
+<td>XS → create + type (half duplex)</td>
 </tr>
 <tr>
 <td><strong>PE1</strong></td>
-<td>Same stream, second consumer (post into XS)</td>
+<td>Same stream → XS thread</td>
+</tr>
+<tr>
+<td><strong>PE2</strong></td>
+<td>Deep link + turn UX polish</td>
 </tr>
 </tbody>
 </table>
-<p>Not in this tree: multi-agent campaign board / bridge dashboard as product UI
-— that is a different note (<a href="campaign-surface.html">campaign surface</a>). Here
-we only productize the <strong>1:1 conversation</strong> that pesu will also use.</p>
 
-<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">ROADMAP — conversation in kolu, then pesu</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">CT1+CH1 · live read-only chat log in Inspector (one PR)</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#ct1-ch1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">forward-only · no history snapshot</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE0 · pesu inbound — create + type</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe0" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs CT1+CH1 · XS</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE1 · pesu outbound — stream → postMessage</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs CT1+CH1 + PE0</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE2 · deep link + turn UX</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe2" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs PE0</a></span></div></div>
+<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">ROADMAP — fleet Feed in kolu, then pesu</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">CT1+CH1 · multi-host message Feed (one PR)</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#ct1-ch1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">forward-only · fleet timeline</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE0 · pesu inbound — create + type</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe0" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs CT1+CH1 · XS</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE1 · pesu outbound — stream → postMessage</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs CT1+CH1 + PE0</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE2 · deep link + turn UX</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe2" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs PE0</a></span></div></div>
 <a id="ct1-ch1"></a>
 <a id="ct1"></a>
 <a id="ch1"></a>
-<h3 id="ct1ch1--one-pr-live-read-only-chat-log">CT1+CH1 — one PR: live read-only chat log</h3>
-<div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">CT1+CH1</span><span style="color:#334155">· streams.transcriptChat + read-only Conversation in Inspector</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
-<p><strong>One PR.</strong> Product first: the <strong>same thing as Export → Chat log</strong>, but live in
-the Inspector — human + AI messages only, <strong>read-only</strong>. Not a second agent
-UI, not a write path redesign.</p>
-<p>Compose already exists above/below it and stays as-is (insert, not submit).
-No “chat Send = submit” decision in this PR.</p>
+<h3 id="ct1ch1--one-pr-multi-host-message-timeline">CT1+CH1 — one PR: multi-host message timeline</h3>
+<div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">CT1+CH1</span><span style="color:#334155">· streams.transcriptChat + global Feed (Twitter-style, all hosts)</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
+<p><strong>One PR.</strong> Product: a <strong>live, read-only timeline of human + AI messages from
+every agent on every connected host</strong> — skim the fleet, click into depth.
+Same chat filter as <strong>Export → Chat log</strong>. Not Inspector Conversation. Not a
+write path. Not history rehydration on reload.</p>
 <h4 id="what-the-user-gets">What the user gets</h4>
-<p>You already have an agent in a tile. Open the right panel → <strong>Inspector</strong>.
-Above Compose, a <strong>Conversation</strong> section shows the session as a chat log —
-exactly the cut export’s chat mode uses. As the agent works, the log follows
-the live edge (forward-only). Tools and edits stay on the <strong>tile</strong> PTY and out
-of this list.</p>
-<div role="img" aria-label="Kolu desktop shell mockup. Left: canvas tile with title bar claude on kolu and a dark xterm body showing tool calls. Right: right panel tab bar Inspector and Code with Inspector active, new Conversation section with human and AI messages, then existing Compose section with draft textarea and Send button, then Directory section." style="margin:1.25rem 0;max-width:44rem;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;background:#0e1014;box-shadow:0 6px 22px rgba(0,0,0,.35);font-family:ui-sans-serif,system-ui,sans-serif;display:flex;min-height:22rem"><div style="flex:1.35;min-width:0;display:flex;flex-direction:column;border-right:1px solid #2a2e37"><div style="display:flex;align-items:center;gap:.4rem;height:1.75rem;padding:0 .5rem;background:#161a20;border-bottom:1px solid #2a2e37"><span style="width:6px;height:6px;border-radius:50%;background:#d6a35c;flex:none"></span><span style="font:600 .68rem/1 ui-monospace,Menlo,monospace;color:#c7ccd6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">claude · ~/code/kolu</span><span style="margin-left:auto;font:.58rem/1 ui-sans-serif;color:#5b626d">tile = PTY</span></div><div style="flex:1;padding:.55rem .6rem;background:#0a0c10;font:500 .62rem/1.55 ui-monospace,Menlo,monospace;color:#8b929d"><div><span style="color:#5b626d">●</span> Edit <span style="color:#7eb0e8">ExportSessionDialog.tsx</span></div><div style="color:#5b626d">  picker — Chat log · Full · Both</div><div><span style="color:#6cc070">+</span> write mode.ts</div><div><span style="color:#5b626d">●</span> Bash just check</div><div style="color:#6cc070">✔ green</div><div style="margin-top:.5rem;color:#5b626d">agent TUI stays on the tile</div></div></div><div style="flex:1;min-width:11.5rem;max-width:15.5rem;display:flex;flex-direction:column;background:#12151a"><div style="display:flex;align-items:center;height:2rem;background:#161a20;border-bottom:1px solid #2a2e37;flex:none"><span style="height:100%;padding:0 .75rem;font:500 .7rem/2rem ui-sans-serif;color:#c7ccd6;background:#12151a;border-bottom:2px solid #6ea8e0">Inspector</span><span style="height:100%;padding:0 .75rem;font:500 .7rem/2rem ui-sans-serif;color:#5b626d">Code</span></div><div style="flex:1;overflow:hidden;display:flex;flex-direction:column"><div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37;border-left:2px solid #6ea8e0"><div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.45rem">Conversation</div><div style="font:.62rem/1.4 ui-sans-serif;color:#8b929d;margin-bottom:.35rem"><span style="font:700 .55rem/1 ui-sans-serif;letter-spacing:.04em;color:#6ea8e0">HUMAN</span> Make session export a lightweight chat log…</div><div style="font:.62rem/1.4 ui-sans-serif;color:#c7ccd6;margin-bottom:.35rem"><span style="font:700 .55rem/1 ui-sans-serif;letter-spacing:.04em;color:#6cc070">CLAUDE</span> Picker + chat-only export. Opening PR when green.</div><div style="font:.58rem/1 ui-sans-serif;color:#5b626d">live · tools omitted (CT1 filter)</div></div><div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37"><div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.45rem">Compose</div><div style="border:1px solid #2a2e37;border-radius:6px;background:rgba(22,26,32,.5);padding:.4rem .5rem;min-height:3.2rem;font:500 .62rem/1.4 ui-monospace,Menlo,monospace;color:#5b626d">Draft a prompt for the agent… ⌘⏎ to send</div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:.4rem;gap:.4rem"><span style="font:.55rem/1.25 ui-sans-serif;color:#5b626d">Inserts into the terminal — press Enter there to submit</span><span style="flex:none;border:1px solid rgba(110,168,224,.3);background:rgba(110,168,224,.15);border-radius:6px;padding:.28rem .55rem;font:600 .62rem/1 ui-sans-serif;color:#6ea8e0">Send →</span></div></div><div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37"><div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.35rem">Directory</div><div style="font:500 .6rem/1.35 ui-monospace,Menlo,monospace;color:#c7ccd6;word-break:break-all">/home/srid/code/kolu</div></div><div style="padding:.5rem .7rem;font:.55rem/1.3 ui-sans-serif;color:#5b626d">Git · Agent · Attach… unchanged below</div></div></div></div>
+<p>You run agents on <strong>local</strong> and a <strong>remote</strong> host. Open <strong>Feed</strong> (chrome
+control next to dock / inspector — global, not per-tile). Cards stream in as
+agents speak. Each card shows host · terminal · role · text. Click → focus
+that host + terminal (existing deep-link / attend path). Tiles stay real PTYs.</p>
+<p>Hard reload → Feed empty → only <strong>new</strong> messages after reload. Want the past →
+export that terminal’s chat log.</p>
+<h4 id="ui-prototype-real-chrome">UI prototype (real chrome)</h4>
+<p>Grounded in shipped shell: top <strong>chrome bar</strong> (<code>data-testid=&quot;chrome-bar&quot;</code>)
+with <strong>host strip</strong> + control cluster (dock · inspector · …); left <strong>dock</strong>;
+canvas tiles; Feed as a <strong>global panel</strong> (sibling of dock/inspector, not a
+right-panel Inspector section).</p>
+<div role="img" aria-label="Kolu shell prototype of the multi-host message Feed. Top chrome bar with host tabs local and box-2, control cluster including Feed active. Left dock with agent rows. Center dim canvas. Right Feed panel with timeline cards: Claude on local, Codex on box-2, Human on local, each with host label and message text." style="margin:1.25rem 0;max-width:48rem;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;background:#0e1014;box-shadow:0 6px 22px rgba(0,0,0,.35);font-family:ui-sans-serif,system-ui,sans-serif"><div style="display:flex;align-items:center;gap:.5rem;height:2.25rem;padding:0 .55rem;background:#161a20;border-bottom:1px solid #2a2e37"><span style="display:flex;flex-direction:column;gap:1px;width:14px"><i style="display:block;height:2px;background:#7c3aed;border-radius:1px"></i><i style="display:block;height:2px;background:#2563eb;border-radius:1px"></i><i style="display:block;height:2px;background:#16a34a;border-radius:1px"></i></span><span style="display:inline-flex;align-items:center;gap:.35rem;border:1px solid #2a2e37;border-radius:8px;padding:2px;background:rgba(22,26,32,.8)"><span style="font:600 .62rem/1 ui-sans-serif;padding:.28rem .5rem;border-radius:6px;background:rgba(110,168,224,.2);color:#c7ccd6">local</span><span style="font:600 .62rem/1 ui-sans-serif;padding:.28rem .5rem;border-radius:6px;color:#8b929d">box-2</span></span><span style="flex:1"></span><span style="font:.58rem/1 ui-sans-serif;color:#5b626d">chrome-bar</span><span style="width:1.6rem;height:1.6rem;border-radius:8px;background:#1b1e24;border:1px solid #2a2e37"></span><span style="width:1.6rem;height:1.6rem;border-radius:8px;background:#1b1e24;border:1px solid #2a2e37"></span><span style="width:1.6rem;height:1.6rem;border-radius:8px;background:rgba(110,168,224,.25);border:1px solid rgba(110,168,224,.45);font:700 .55rem/1.6rem ui-sans-serif;color:#6ea8e0;text-align:center">F</span><span style="width:1.6rem;height:1.6rem;border-radius:8px;background:#1b1e24;border:1px solid #2a2e37"></span></div><div style="display:flex;min-height:22rem"><div style="width:3.2rem;background:#12151a;border-right:1px solid #2a2e37;padding:.4rem .25rem;display:flex;flex-direction:column;gap:.35rem"><div style="height:2rem;border-radius:6px;background:#1b1e24;border:1px solid #2a2e37"></div><div style="height:2rem;border-radius:6px;background:#1b1e24;border:1px solid #2a2e37"></div><div style="height:2rem;border-radius:6px;background:#1b1e24;border:1px solid #2a2e37"></div><span style="margin-top:auto;font:.5rem/1 ui-sans-serif;color:#5b626d;text-align:center">dock</span></div><div style="flex:1;min-width:0;background:#0a0c10;position:relative;padding:.6rem"><div style="border:1px solid #2a2e37;border-radius:8px;height:100%;min-height:18rem;background:#0f1218;opacity:.55;padding:.45rem"><div style="font:600 .62rem/1 ui-monospace,Menlo,monospace;color:#5b626d;margin-bottom:.4rem">claude · tile (PTY)</div><div style="font:500 .58rem/1.5 ui-monospace,Menlo,monospace;color:#3f444b">● Edit … tools stay here</div></div><div style="position:absolute;left:.6rem;bottom:.6rem;font:.55rem/1 ui-sans-serif;color:#5b626d">canvas · depth on click</div></div><div style="width:15.5rem;background:#12151a;border-left:1px solid #2a2e37;display:flex;flex-direction:column"><div style="height:2rem;display:flex;align-items:center;padding:0 .65rem;border-bottom:1px solid #2a2e37;background:#161a20"><span style="font:700 .62rem/1 ui-sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#c7ccd6">Feed</span><span style="margin-left:auto;font:.55rem/1 ui-sans-serif;color:#5b626d">live · all hosts</span></div><div style="flex:1;overflow:hidden;padding:.45rem;display:flex;flex-direction:column;gap:.4rem"><div style="border:1px solid #2a2e37;border-radius:8px;padding:.45rem .5rem;background:#161a20"><div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.3rem"><span style="width:6px;height:6px;border-radius:50%;background:#6cc070"></span><span style="font:700 .58rem/1 ui-sans-serif;color:#6cc070">CLAUDE</span><span style="font:.52rem/1 ui-monospace,Menlo,monospace;color:#5b626d">local</span><span style="margin-left:auto;font:.5rem/1 ui-sans-serif;color:#5b626d">now</span></div><div style="font:.62rem/1.4 ui-sans-serif;color:#c7ccd6">PR ready — chat log export is clean.</div><div style="margin-top:.3rem;font:.5rem/1 ui-monospace,Menlo,monospace;color:#5b626d">kolu · e7f2 →</div></div><div style="border:1px solid #2a2e37;border-radius:8px;padding:.45rem .5rem;background:#161a20"><div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.3rem"><span style="width:6px;height:6px;border-radius:50%;background:#a78bfa"></span><span style="font:700 .58rem/1 ui-sans-serif;color:#a78bfa">CODEX</span><span style="font:.52rem/1 ui-monospace,Menlo,monospace;color:#5b626d">box-2</span><span style="margin-left:auto;font:.5rem/1 ui-sans-serif;color:#5b626d">12s</span></div><div style="font:.62rem/1.4 ui-sans-serif;color:#c7ccd6">Review passed on the XSS fix.</div><div style="margin-top:.3rem;font:.5rem/1 ui-monospace,Menlo,monospace;color:#5b626d">kolu · a91c →</div></div><div style="border:1px solid #2a2e37;border-radius:8px;padding:.45rem .5rem;background:#161a20"><div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.3rem"><span style="width:6px;height:6px;border-radius:50%;background:#6ea8e0"></span><span style="font:700 .58rem/1 ui-sans-serif;color:#6ea8e0">HUMAN</span><span style="font:.52rem/1 ui-monospace,Menlo,monospace;color:#5b626d">local</span><span style="margin-left:auto;font:.5rem/1 ui-sans-serif;color:#5b626d">1m</span></div><div style="font:.62rem/1.4 ui-sans-serif;color:#8b929d">lgtm — open the PR when green.</div><div style="margin-top:.3rem;font:.5rem/1 ui-monospace,Menlo,monospace;color:#5b626d">kolu · e7f2 →</div></div><div style="font:.55rem/1.35 ui-sans-serif;color:#5b626d;padding:.2rem .15rem">forward-only · reload clears · tools never appear here</div></div></div></div></div>
 <table>
 <thead>
 <tr>
@@ -531,129 +340,72 @@ of this list.</p>
 </thead>
 <tbody>
 <tr>
-<td>Open <strong>Inspector</strong></td>
-<td>Same <strong>Inspector | Code</strong> tabs as today</td>
+<td>Connect two hosts</td>
+<td>Feed subscribes on <strong>both</strong> padi surfaces</td>
 </tr>
 <tr>
-<td>Read <strong>Conversation</strong></td>
-<td>Human / AI only — same filter as HTML chat log</td>
+<td>Agents emit chat lines</td>
+<td>Cards appear in one scroll (newest orientation TBD — Twitter-up or log-down)</td>
 </tr>
 <tr>
-<td>Leave it open while the agent runs</td>
-<td>Tail updates live; stick-to-bottom when at the edge</td>
+<td>Click a card</td>
+<td>Focus that host + terminal on the canvas</td>
 </tr>
 <tr>
-<td><strong>Compose</strong> / tile</td>
-<td>Unchanged — write path is not this PR’s job</td>
+<td>Mute / filter (v1 light)</td>
+<td>Optional: this host only · needs-you only — noise control</td>
+</tr>
+<tr>
+<td>Hard reload</td>
+<td>Feed empty; forward-only again</td>
+</tr>
+<tr>
+<td>Open Inspector / Compose</td>
+<td>Unchanged — write path not this PR</td>
 </tr>
 </tbody>
 </table>
-<h4 id="why-read-only-first">Why read-only first</h4>
+<h4 id="why-this-instead-of-inspector-chat-log">Why this instead of Inspector chat log</h4>
 <table>
 <thead>
 <tr>
-<th>In</th>
-<th>Out of this PR</th>
+<th>Inspector log (rejected for CH1)</th>
+<th>Fleet Feed (this PR)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>See the conversation without export or tool spam</td>
-<td>Changing Compose submit semantics</td>
+<td>One terminal</td>
+<td>All agents × hosts</td>
 </tr>
 <tr>
-<td>Prove stream + Inspector placement + memory bounds</td>
-<td>“Chat face replaces the tile”</td>
+<td>Buried in per-tile chrome</td>
+<td>Global skim (dock’s text channel)</td>
 </tr>
 <tr>
-<td>Same mental model as chat-log export</td>
-<td>Multi-worker / bridge board</td>
+<td>Weak for multi-host</td>
+<td>Cross-host by construction</td>
+</tr>
+<tr>
+<td>Feels like a second chat app in the panel</td>
+<td>Feels like attention <strong>with words</strong></td>
 </tr>
 </tbody>
 </table>
-<p>Write-from-chat (submit-on-send, etc.) can come later once the read path is
-honest. Compose remains available for insert as today.</p>
-<h4 id="wire-ct1--live-forward-only-no-history-snapshot">Wire (CT1) — live forward only, no history snapshot</h4>
-<p><strong>Today:</strong> loaders → IR; <code>transcript.exportHtml</code> with <code>mode: &quot;chat&quot;</code> is the
-offline document of the same filter (full session, O(S) — on demand only).</p>
-<p><strong>Ship:</strong> <code>streams.transcriptChat</code> on <code>padiSurface</code> as a <strong>live feed of new
-chat events</strong>, not a history API:</p>
-<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>input:  { id: terminalId, after?: Cursor }   // optional resume cursor</span></span>
-<span class="line"><span>output: chat-filtered events (deltas)         // no full-session payload</span></span></code></pre>
+<h4 id="wire-ct1--live-forward-only">Wire (CT1) — live forward only</h4>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>input:  { id: terminalId, after?: Cursor }</span></span>
+<span class="line"><span>output: chat-filtered deltas only</span></span></code></pre>
 <ul>
-<li>Filter = <strong>chat log</strong> IR: <code>user</code> + <code>assistant</code> only (same definition as
-export chat mode — one source of truth).</li>
-<li><strong>No heavy snapshot</strong> of the last <em>N</em> messages (and never the whole session)
-on subscribe or hard reload. That path re-reads/parses long JSONL/SQLite and
-is exactly what we refuse for multi-hour agents.</li>
-<li><strong>Continue from last message:</strong> the stream only emits <strong>new</strong> chat-visible
-events after the current file/DB offset (or after <code>after</code> if supplied). A
-hard reload <strong>does not</strong> rehydrate history into the panel.</li>
-<li>Open Conversation after reload → <strong>empty</strong> until the next human/AI message.
-Full history stays <strong>Export → Chat log</strong>.</li>
-<li>Forwarding: <strong><code>delta</code></strong> (fail-through). Mid-chain drop terminates the
-stream; client re-subscribes and resumes from <strong>last seen cursor</strong> (or from
-“now” if none) — still no history dump.</li>
-<li>Surface reconnect discipline: first frame may be a <strong>cheap hello</strong>
-(<code>{ kind: &quot;live&quot;, cursor }</code>) or empty ack — <strong>not</strong> a bounded transcript
-window rebuild. Do not cargo-cult attach-style “first frame = full
-scrollback.”</li>
+<li>Filter = export <strong>chat</strong> mode (<code>user</code> + <code>assistant</code>) — <strong>one</strong> definition.</li>
+<li><strong>No</strong> history snapshot on subscribe or hard reload (slow on long sessions).</li>
+<li>Continue from file/DB offset / <code>after</code> cursor.</li>
+<li>First frame: optional <code>{ kind: &quot;live&quot;, cursor }</code> — <strong>not</strong> last-<em>N</em> dump.</li>
+<li>Forwarding: <strong><code>delta</code></strong>.</li>
+<li>Subscribe-driven per terminal (or host fan-in that still only runs for
+live agents); client merges hosts.</li>
 </ul>
-<p><code>exportHtml</code> remains the path for offline full history. The live panel is a
-<strong>ticker</strong>, not a browser for the archive.</p>
-<h4 id="hard-reload-browser-tab">Hard reload (browser tab)</h4>
-<p>A hard reload kills <strong>only the browser face</strong>. Daemons and agents keep running
-— same stack story as the rest of kolu.</p>
-<table>
-<thead>
-<tr>
-<th>Layer</th>
-<th>On hard reload</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>kaval PTYs</strong></td>
-<td>Still alive — agents keep working</td>
-</tr>
-<tr>
-<td><strong>padi</strong></td>
-<td>Registry, awareness, session files on disk unchanged</td>
-</tr>
-<tr>
-<td><strong>kolu-server</strong></td>
-<td>Still up; browser opens a <strong>new</strong> websocket</td>
-</tr>
-<tr>
-<td><strong>Client RAM</strong></td>
-<td>Gone — Solid stores, open streams, Conversation buffer</td>
-</tr>
-<tr>
-<td><strong>Compose draft</strong></td>
-<td>Survives — per-terminal <code>localStorage</code> (today)</td>
-</tr>
-<tr>
-<td><strong>Canvas / session</strong></td>
-<td>Restored from padi/server session when the client reconnects</td>
-</tr>
-<tr>
-<td><strong>Conversation (CT1+CH1)</strong></td>
-<td>Starts <strong>empty</strong>; re-subscribe is <strong>forward-only</strong> — no history snapshot</td>
-</tr>
-<tr>
-<td><strong>Full past</strong></td>
-<td>Still on disk → <strong>Export → Chat log</strong> (or the live PTY tile)</td>
-</tr>
-</tbody>
-</table>
-<p>Boot after reload: re-dial → re-subscribe surfaces → re-attach PTYs (PTY
-snapshot is fine — that path already exists). Conversation does <strong>not</strong> use
-the PTY-attach pattern of “first frame = full scrollback.” It only appends
-<strong>new</strong> chat events from the current offset. Empty until the next human/AI
-message is correct, not a bug.</p>
-<p>What does <strong>not</strong> happen: agents killed, transcripts wiped, full-session
-re-parse into the panel, or needing pesu for recovery.</p>
-<h4 id="memory-only-what-arrived-this-ui-session">Memory: only what arrived this UI session</h4>
+<p><code>exportHtml</code> stays the archive path.</p>
+<h4 id="memory">Memory</h4>
 <table>
 <thead>
 <tr>
@@ -663,264 +415,156 @@ re-parse into the panel, or needing pesu for recovery.</p>
 </thead>
 <tbody>
 <tr>
-<td><strong>Append-only while open</strong></td>
-<td>Client keeps messages received <strong>since this subscribe</strong> (optionally a small ring if the open tab runs for hours)</td>
+<td><strong>Append while open</strong></td>
+<td>Only events received this Feed session; optional ring if open for hours</td>
 </tr>
 <tr>
 <td><strong>Hard reload</strong></td>
-<td>Client RAM gone → Conversation starts <strong>empty</strong>; stream resumes <strong>forward only</strong> — no snapshot catch-up</td>
+<td>Empty; forward-only resume</td>
 </tr>
 <tr>
-<td><strong>Virtualized list</strong></td>
-<td>Only near-viewport rows mount DOM for whatever is in the buffer</td>
+<td><strong>Virtualize</strong></td>
+<td>Recycle card DOM</td>
 </tr>
 <tr>
-<td><strong>Stick to bottom</strong></td>
-<td>Follow live edge when at bottom</td>
-</tr>
-<tr>
-<td><strong>Export stays separate</strong></td>
-<td>Want the past → HTML chat log export, not the live panel</td>
+<td><strong>Per-host dispose</strong></td>
+<td>Dropping a host drops its subs + its cards from the live buffer</td>
 </tr>
 </tbody>
 </table>
-<h4 id="backend-cost-why-ct1-must-not-re-export">Backend cost (why CT1 must not re-export)</h4>
-<p>Grounded in what padi already does — implementers must not invent a “poll
-exportHtml” stream <strong>or</strong> a “snapshot last N chat messages on subscribe.”</p>
+<h4 id="backend-cost">Backend cost</h4>
 <table>
 <thead>
 <tr>
-<th>Path today</th>
-<th>Work per fire</th>
-<th>Role</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Export loaders</strong> (<code>loadClaudeCodeTranscript</code>, Codex rollout, Grok JSONL)</td>
-<td><code>readFileSync</code> <strong>whole</strong> file → parse <strong>all</strong> lines → full IR</td>
-<td><strong>O(S)</strong> in session file bytes <em>S</em> — end-of-session / on-demand only</td>
-</tr>
-<tr>
-<td><strong>OpenCode loader</strong></td>
-<td>SQL over the session DB</td>
-<td><strong>O(M)</strong> in messages — still full session, not live</td>
-</tr>
-<tr>
-<td><strong>Session watcher</strong> (dock agent state)</td>
-<td><code>subscribeFileAppends</code> + <strong>256 KB tail</strong> (<code>TAIL_BYTES</code>) + <strong>150 ms debounce</strong></td>
-<td><strong>O(1)</strong> amortized in <em>S</em> for <em>state</em> — not chat text</td>
-</tr>
-</tbody>
-</table>
-<p>Claude’s watcher comment is load-bearing: without debounce, token streaming
-fires the handler dozens–hundreds of times per second, each allocating a large
-tail buffer. Export is deliberately not that path.</p>
-<p><strong>Naïve stream (forbidden):</strong> on every debounced append <strong>or on every
-subscribe/reload</strong>, call the full export loader (or rebuild last <em>N</em> chat
-messages by scanning <em>S</em>).</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>Complexity</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Per update while the agent streams (full re-export)</td>
-<td><strong>O(S)</strong> CPU + peak memory</td>
-</tr>
-<tr>
-<td>Over a session of size <em>S</em> with <em>U</em> updates</td>
-<td><strong>O(U · S)</strong> → ~<strong>O(S²)</strong> when <em>U</em> tracks <em>S</em></td>
-</tr>
-<tr>
-<td>Snapshot history on hard reload</td>
-<td><strong>O(S)</strong> or <strong>O(scan)</strong> — rejected; long LLM sessions make this the pain</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Sound stream (required):</strong> same <em>shape</em> as the session watcher, not the
-export loader — <strong>forward-only</strong>.</p>
-<table>
-<thead>
-<tr>
-<th>Step</th>
+<th>Forbidden</th>
 <th>Cost</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Detect append</td>
-<td><strong>O(1)</strong> — existing append subscribe / poll floor</td>
-</tr>
-<tr>
-<td>Debounce</td>
-<td>~150 ms (same idea as watcher)</td>
-</tr>
-<tr>
-<td>Read <strong>new bytes only</strong> from last file offset (or new SQLite rows by id)</td>
-<td><strong>O(Δ)</strong></td>
-</tr>
-<tr>
-<td>Parse new lines / map to chat filter</td>
-<td><strong>O(events in Δ)</strong> — chat rows are sparse vs tools</td>
-</tr>
-<tr>
-<td>Emit delta(s)</td>
-<td><strong>O(chat bytes out)</strong></td>
-</tr>
-<tr>
-<td>Subscribe / hard reload</td>
-<td><strong>O(1)</strong> — open at current end (or resume <code>after</code> cursor); <strong>no</strong> history materialization</td>
+<td>Re-export full transcript per tick / per subscribe</td>
+<td><strong>O(S)</strong> / ~<strong>O(S²)</strong> lifetime</td>
 </tr>
 </tbody>
 </table>
-<p>Steady state (one agent streaming, one subscriber): <strong>O(Δ) per debounced tick</strong>.
-Lifetime of processed file: <strong>O(S)</strong> once as the session grows (each byte
-forward once). Reload does <strong>not</strong> re-walk <em>S</em>.</p>
 <table>
 <thead>
 <tr>
-<th>Extra factor</th>
-<th>Rule</th>
+<th>Required</th>
+<th>Cost</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Subscribers <em>N</em></strong></td>
-<td>One shared per-terminal producer + fan-out (<strong>O(Δ)</strong> once, cheap emit × <em>N</em>). Never <em>N</em> full reloads.</td>
+<td>Append watch + debounce + parse <strong>Δ</strong> only</td>
+<td><strong>O(Δ)</strong> per tick</td>
 </tr>
 <tr>
-<td><strong>Terminals <em>T</em></strong></td>
-<td>Chat reducer is <strong>subscribe-driven</strong> — only open Inspector / pesu mirrors pay.</td>
+<td>Subscribe / hard reload</td>
+<td><strong>O(1)</strong> w.r.t. session size <em>S</em></td>
 </tr>
 <tr>
-<td><strong>Wire</strong></td>
-<td>Deltas only (plus optional tiny live/cursor hello). Never full list / never “last <em>N</em> messages” dump.</td>
+<td>Shared producer per terminal, fan-out to Feed</td>
+<td><strong>O(Δ)</strong> once, not × clients</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Bottom line for implementers:</strong> streaming is fine if CT1 is built like the
-<strong>session watcher</strong> (append + debounce + incremental, <strong>continue from last
-offset</strong>). It is <strong>not</strong> fine if it is <strong><code>exportHtml</code> on a timer</strong> or
-<strong>snapshot history on reconnect</strong>. Hard reload = empty panel + forward feed;
-archive = export.</p>
+<p>Same shape as the Claude <strong>session watcher</strong> (append + debounce + incremental),
+not <strong>export loaders</strong> (<code>readFileSync</code> whole JSONL). See watcher
+<code>TRANSCRIPT_DEBOUNCE_MS</code> / <code>TAIL_BYTES</code> vs <code>loadClaudeCodeTranscript</code> full read.</p>
 <h4 id="done-when-this-one-pr">Done when (this one PR)</h4>
 <ul>
-<li>Focused terminal’s <strong>new</strong> chat messages are <strong>readable live</strong> in Inspector
-(human + AI only).</li>
-<li>Same filter semantics as export chat log (one definition).</li>
-<li><strong>Hard reload does not snapshot history</strong> — panel restarts empty (or
-cursor-resume only); full past stays export.</li>
-<li>Backend: <strong>incremental O(Δ)</strong> per tick; subscribe/reload <strong>O(1)</strong> w.r.t. <em>S</em>.</li>
-<li>Tile stays the PTY; Compose behavior unchanged.</li>
+<li>Two hosts, two agents: <strong>new</strong> human/AI lines appear in <strong>one</strong> Feed.</li>
+<li>Click card → correct host + terminal focused.</li>
+<li>Chat filter matches export chat mode.</li>
+<li>Hard reload does <strong>not</strong> re-scan sessions or snapshot history.</li>
+<li>Backend incremental O(Δ); tiles remain PTYs; Compose unchanged.</li>
 </ul>
 <a id="pe0"></a>
 <h3 id="pe0--pesu-inbound">PE0 — pesu inbound</h3>
 <div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">PE0</span><span style="color:#334155">· XS webhook → create terminal + sendInput</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> CT1+CH1</span></div></div>
 <p><strong>What you get:</strong> first DM/@mention creates terminal+agent, stores
-<code>threadId → terminalId</code>, later messages (author only) go in via <code>sendInput</code>.
-Ack + deep link into kolu. Replies still read in kolu (CT1+CH1) until PE1.</p>
-<p><strong>Done when:</strong> phone → XS → agent is running on your machine; you can continue
-in the Inspector conversation.</p>
+<code>threadId → terminalId</code>, later messages (author only) → <code>sendInput</code>.
+Ack + deep link. Replies visible in the <strong>Feed</strong> (and later PE1 in XS).</p>
+<p><strong>Done when:</strong> phone → XS → agent running; new AI lines show in the Feed;
+you can open the tile for depth.</p>
 <h4 id="prior-art--pr-1810-do-not-merge-port-the-leaf">Prior art — PR #1810 (do not merge; port the leaf)</h4>
-<p>An earlier draft PR — <a href="https://github.com/juspay/kolu/pull/1810">#1810</a>
-(<code>pesu-b0</code>) — implemented the <strong>old</strong> B0: one XS thread bound to an <strong>existing
-coordinator</strong> (resolve terminal <strong>by title</strong>), FIFO write floor, attributed
-paste drive loop, growing reply via loaders + <code>updateMessage</code>. That product
-shape is <strong>superseded</strong> by this note (thread ↔ <strong>one new terminal</strong>,
-create-on-miss; CT1+CH1 first). <strong>Do not merge #1810 onto master.</strong> Open a
-<strong>new</strong> PE0 PR and <strong>port</strong> what still applies.</p>
+<p><a href="https://github.com/juspay/kolu/pull/1810">#1810</a> (<code>pesu-b0</code>) implemented the
+<strong>old</strong> B0: thread → <strong>existing coordinator by title</strong>, FIFO drive loop,
+growing reply via loaders. <strong>Superseded.</strong> Do not merge. New PE0 PR; <strong>port</strong>
+the XS leaf.</p>
 <table>
 <thead>
 <tr>
-<th>Port into PE0 (XS leaf)</th>
-<th>Why it still fits</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>webhook.ts</code> + HMAC tests</td>
-<td>Same XS events (<code>APP_MENTIONED</code> / <code>DIRECT_MESSAGE</code>); constant-time verify; 200-then-async</td>
-</tr>
-<tr>
-<td><code>xyneApi.ts</code> + fake XS tests</td>
-<td><code>postMessage</code> / <code>updateMessage</code> / <code>user/info</code> (and later PE1/PE2)</td>
-</tr>
-<tr>
-<td><code>config.ts</code> fail-fast env</td>
-<td>Crashes if secrets / base URL / allowlist absent — no defaults</td>
-</tr>
-<tr>
-<td><code>log.ts</code> (pino + Hono access log)</td>
-<td>Always-on visibility; secrets never logged</td>
-</tr>
-<tr>
-<td>Author allowlist + visible decline</td>
-<td>Same single-operator v1 gate (never silence)</td>
-</tr>
-<tr>
-<td><code>nix run .#pesu</code> packaging</td>
-<td>Deploy shell for the daemon</td>
-</tr>
-</tbody>
-</table>
-<table>
-<thead>
-<tr>
-<th>Leave behind (wrong model)</th>
+<th>Port</th>
 <th>Why</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>coordinator.ts</code> — title lookup + drive loop</td>
-<td>PE0 does <strong>not</strong> bind a pre-existing coordinator; it <strong>creates</strong> a terminal</td>
+<td><code>webhook.ts</code> + HMAC tests</td>
+<td>Same XS events</td>
 </tr>
 <tr>
-<td>“One thread → the campaign orchestrator”</td>
-<td>One thread → one agent terminal; no multi-worker door</td>
+<td><code>xyneApi.ts</code> + fake XS tests</td>
+<td>postMessage / user/info</td>
 </tr>
 <tr>
-<td>FIFO inbox as the product</td>
-<td>Optional later if concurrent webhooks hurt; not the core bind</td>
+<td><code>config.ts</code> fail-fast env</td>
+<td>No default secrets</td>
 </tr>
 <tr>
-<td>Growing-reply as B0’s main outbound</td>
-<td>Outbound is <strong>PE1</strong> (<code>transcriptChat</code> → post); PE0 is inbound + ack</td>
+<td><code>log.ts</code></td>
+<td>Always-on visibility</td>
 </tr>
 <tr>
-<td>Atlas B0 text / roadmap on that branch</td>
-<td>This note is the plan of record</td>
+<td>Allowlist + visible decline</td>
+<td>Author gate</td>
+</tr>
+<tr>
+<td><code>nix run .#pesu</code></td>
+<td>Deploy shell</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Implement PE0 as:</strong> webhook → author gate → bind miss ⇒ <code>lifecycle.create</code> +
-agent launch + store <code>conversationId → { terminalId, authorUserId }</code> →
-<code>sendInput</code> user text → ack <code>postMessage</code> (+ deep link). Dial padi like
-<code>padi-tui</code> (<code>@kolu/padi/dial</code>), not kolu-server. Cherry-pick or copy the
-salvage rows above; rewrite binds/turns for create-on-miss.</p>
+<table>
+<thead>
+<tr>
+<th>Leave behind</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>coordinator.ts</code> title bind + drive</td>
+<td>PE0 <strong>creates</strong> a terminal</td>
+</tr>
+<tr>
+<td>Campaign orchestrator as the door</td>
+<td>One thread ↔ one agent terminal</td>
+</tr>
+<tr>
+<td>Growing-reply as B0 outbound</td>
+<td>PE1 + Feed use the chat stream</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Implement:</strong> webhook → gate → create-on-miss → <code>sendInput</code> → ack. Dial padi
+like <code>padi-tui</code>.</p>
 <a id="pe1"></a>
 <h3 id="pe1--pesu-outbound">PE1 — pesu outbound</h3>
 <div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">PE1</span><span style="color:#334155">· subscribe transcriptChat → XS postMessage</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> CT1+CH1 · PE0</span></div></div>
-<p>pesu subscribes to the <strong>same</strong> stream for the bound terminal; posts new
-<code>assistant</code> texts into the thread. pesu can track a <strong>cursor</strong> (last posted
-event id / hash) — it does not need to retain the full session in memory
-either. <code>updateMessage</code> / <code>agentProgress</code> optional here or PE2.</p>
-<p><strong>Done when:</strong> agent replies appear in the XS thread without tools/edits, and
-survive pesu reconnect without duplicate posts (cursor / last-posted id).</p>
+<p>Same stream as the Feed, for the <strong>bound</strong> terminal only; post new <code>assistant</code>
+texts; <strong>cursor</strong> so reconnect doesn’t double-post.</p>
+<p><strong>Done when:</strong> XS thread shows agent replies without tools/edits.</p>
 <a id="pe2"></a>
 <h3 id="pe2--deep-link--turn-ux">PE2 — deep link + turn UX</h3>
 <div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">PE2</span><span style="color:#334155">· open terminal in PWA; growing reply; typing indicator</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> PE0</span></div></div>
-<p>Polish only — no new architecture. Deep link on create; grow one bot message
-while a turn streams; <code>agentProgress</code> while working.</p>
+<p>Polish: deep link on create; <code>updateMessage</code> / <code>agentProgress</code> as needed.</p>
 <h2 id="done-criterion-full-tree">Done criterion (full tree)</h2>
-<p>DM the bot → terminal under padi/kaval → first prompt is yours → assistant
-replies in the XS thread (messages only) <strong>and</strong> the same conversation is
-live forward in the Inspector Conversation over <strong>one</strong> padi stream (reload
-does not rehydrate history) → deep link opens that terminal.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./campaign-surface.html" data-astro-cid-aziudkuj>The campaign surface — plain-file knowledge, an observed board, a graph of terminal-actors</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+<p>DM the bot → terminal exists → you type in XS → agent runs → <strong>Feed</strong> shows
+new messages from that agent <strong>and</strong> others on other hosts → click opens the
+tile → PE1 mirrors the bound thread in XS. Reload never rehydrates history.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./campaign-surface.html" data-astro-cid-aziudkuj>The campaign surface — plain-file knowledge, an observed board, a graph of terminal-actors</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(
       document.querySelectorAll(".fn[data-fn]"),
