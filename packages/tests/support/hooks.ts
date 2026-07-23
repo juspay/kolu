@@ -28,6 +28,14 @@ import { chromium } from "playwright";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
 import { padiFold } from "./padiEnvelope.ts";
+import {
+  BoundedErrorBody,
+  errorCodes,
+  HttpStatusError,
+  isTransientSetupError,
+  retryPadiScenarioReset,
+  retryTransient,
+} from "./scenarioSetupRetry.ts";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -464,75 +472,11 @@ let serverProcess: ChildProcess | undefined;
 // accumulation on macOS (see #334).
 const keepAliveAgent = new http.Agent({ keepAlive: true });
 
-const TRANSIENT_SETUP_ERRORS = [
-  "ECONNRESET",
-  "ECONNREFUSED",
-  "EPIPE",
-  "socket hang up",
-  "read ECONNRESET",
-  "ETIMEDOUT",
-  "EADDRNOTAVAIL",
-];
-
-/** Collect errno `code`s from an error tree. Node raises a dual-stack
- *  `AggregateError` for a refused connection (IPv4 + IPv6) whose own
- *  `.message` is empty and whose real errno lives on `.code` and on each
- *  `.errors[].code`. */
-function errorCodes(err: unknown, out: string[] = []): string[] {
-  if (err && typeof err === "object") {
-    const code = (err as { code?: unknown }).code;
-    if (typeof code === "string") out.push(code);
-    const cause = (err as { cause?: unknown }).cause;
-    if (cause !== undefined) errorCodes(cause, out);
-    const inner = (err as { errors?: unknown }).errors;
-    if (Array.isArray(inner)) for (const e of inner) errorCodes(e, out);
-  }
-  return out;
-}
-
-/** A setup POST/GET error worth retrying. Checks both the message AND the
- *  errno `code` tree: a server that briefly refuses connections (mid-restart,
- *  GC pause, the instant before it dies) surfaces as an `AggregateError` with
- *  an EMPTY message but `code: "ECONNREFUSED"`. The prior message-only check
- *  missed that, so `retryTransient` bailed on the FIRST attempt with no retry
- *  and rethrew an empty-tailed "failed after retries:" — and under parallel
- *  load a single such miss let one worker fail (and queue-drain) hundreds of
- *  scenarios. Matching on `code` restores the intended 3× retry. */
-function isTransientSetupError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (TRANSIENT_SETUP_ERRORS.some((needle) => msg.includes(needle)))
-    return true;
-  return errorCodes(err).some((code) => TRANSIENT_SETUP_ERRORS.includes(code));
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function retryTransient<T>(
-  label: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  let last: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      last = err;
-      if (!isTransientSetupError(err) || attempt === 3) break;
-      await sleep(100 * attempt);
-    }
-  }
-  // Append the errno code(s) so an empty-message AggregateError (the
-  // dual-stack ECONNREFUSED a dead server produces) still names its cause.
-  const codes = errorCodes(last);
-  const suffix = codes.length ? ` [${[...new Set(codes)].join(",")}]` : "";
-  throw last instanceof Error
-    ? new Error(`${label} failed after retries: ${last.message}${suffix}`, {
-        cause: last,
-      })
-    : new Error(`${label} failed after retries: ${String(last)}${suffix}`);
-}
+const MAX_ERROR_BODY_BYTES = 16 * 1024;
 
 /** POST JSON to a local URL, reusing TCP connections via keepAlive. */
 function postJSONOnce(url: string, body: object): Promise<void> {
@@ -548,16 +492,23 @@ function postJSONOnce(url: string, body: object): Promise<void> {
         headers: { "Content-Type": "application/json" },
       },
       (res) => {
-        res.resume();
+        const code = res.statusCode ?? 0;
+        if (code >= 200 && code < 300) {
+          res.resume();
+          res.on("end", resolve);
+          res.on("error", reject);
+          return;
+        }
+
+        const responseBody = new BoundedErrorBody(MAX_ERROR_BODY_BYTES);
+        res.on("data", (chunk: Buffer) => responseBody.push(chunk));
         res.on("end", () => {
           // Reject non-2xx so a reset the server actually rejected (it was
           // briefly unready, or an endpoint drifted) surfaces instead of
           // resolving as success and letting the scenario start against stale
           // state. Mirrors httpGet's status check; 2xx resolves exactly as
           // before, so green runs are unchanged.
-          const code = res.statusCode ?? 0;
-          if (code >= 200 && code < 300) resolve();
-          else reject(new Error(`POST ${url} -> HTTP ${code}`));
+          reject(new HttpStatusError(code, url, responseBody.text()));
         });
         res.on("error", reject);
       },
@@ -1067,6 +1018,25 @@ async function waitForPadiLive({
   );
 }
 
+/** Reset every padi-owned scenario domain as one retryable transaction.
+ *
+ * The re-serve reports a link-down edge as 503. If that edge lands after
+ * `killAll` but before either cell write, restart the whole idempotent sequence:
+ * a successful return therefore proves all three operations reached one live
+ * padi episode. Any other HTTP status is a real handler/contract failure and
+ * surfaces immediately with its response body. */
+async function resetPadiScenarioState(timeoutMs: number): Promise<void> {
+  await retryPadiScenarioReset(timeoutMs, async (remaining) => {
+    await waitForPadiLive({ announce: false, timeoutMs: remaining });
+    await postJSON(`${baseUrl}/rpc/surface/padi/activityFeed/test__set`, {
+      json: padiFold({ recentRepos: [], recentAgents: [] }),
+    });
+    await postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, {
+      json: padiFold(null),
+    });
+  });
+}
+
 BeforeAll(async () => {
   // KOLU_X11CAP: bring up the Xvfb virtual display BEFORE launching the (headful)
   // browser, and point DISPLAY at it so Chrome and ffmpeg share the framebuffer.
@@ -1152,20 +1122,10 @@ Before(
     // the evidence webm, the x11 grab, and the transcoded assets all key off the
     // same value, so it's computed here and read at every site below.
     x11Stem = slug(scenario.pickle.name);
-    // A live server can briefly lose its still-running padi under host load. Gate
-    // every scenario on the padi procedure itself, not only server boot: the
-    // successful killAll is both the liveness fact and the terminal reset. This
-    // prevents one reconnect window from queue-draining every later scenario
-    // through repeated "no live upstream link" 503s.
-    await waitForPadiLive({
-      announce: false,
-      timeoutMs: SCENARIO_PADI_LIVE_TIMEOUT,
-    });
-
-    // Reset the remaining state after killAll proves padi is live. After #577
-    // each domain owns its own reset endpoint; independent resets still run in
-    // parallel.
+    // Reset padi's terminals + cells as one retryable transaction. The local
+    // preferences store is independent, so it can reset alongside that sequence.
     await Promise.all([
+      resetPadiScenarioState(SCENARIO_PADI_LIVE_TIMEOUT),
       postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
         json: {
           // Reset all preferences to defaults (newTerminalTheme "inherit" so new
@@ -1201,12 +1161,6 @@ Before(
             codeTabTreeSize: 0.35,
           },
         },
-      }),
-      postJSON(`${baseUrl}/rpc/surface/padi/activityFeed/test__set`, {
-        json: padiFold({ recentRepos: [], recentAgents: [] }),
-      }),
-      postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, {
-        json: padiFold(null),
       }),
     ]);
 

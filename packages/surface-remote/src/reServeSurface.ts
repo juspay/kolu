@@ -241,6 +241,21 @@ export function reServeSurface<S extends SurfaceSpec>(
     return p;
   };
 
+  const upstreamUnavailable = (
+    member: string,
+    cause?: unknown,
+  ): ORPCError<"SERVICE_UNAVAILABLE", undefined> =>
+    new ORPCError("SERVICE_UNAVAILABLE", {
+      message: `reServeSurface: ${member} invoked with no live upstream link`,
+      cause,
+    });
+
+  const requireConnected = (member: string): void => {
+    if (session.currentState().phase !== "connected") {
+      throw upstreamUnavailable(member);
+    }
+  };
+
   // ── implementSurface deps, derived from the policy ────────────────────────
 
   // Cells — the re-serve is a READ mirror with WRITE-FORWARDING (#1661 candidate 8,
@@ -260,11 +275,12 @@ export function reServeSurface<S extends SurfaceSpec>(
   // is thus left to guard only the FOLD's publish (`ctx.cells.<key>.set`), not the
   // forward. A forward with no live upstream link throws loud (fail-fast), same
   // stance as `forwardProcedure`.
-  const forwardCellWrite = (
+  const forwardCellWrite = async (
     key: string,
     verb: "set" | "patch" | "test__set",
     input: unknown,
   ): Promise<unknown> => {
+    requireConnected(`cell "${key}.${verb}"`);
     const client = liveClient.current;
     if (client === null) {
       throw new ORPCError("SERVICE_UNAVAILABLE", {
@@ -281,7 +297,14 @@ export function reServeSurface<S extends SurfaceSpec>(
         `reServeSurface: live upstream client exposes no "${key}.${verb}" cell verb to forward to`,
       );
     }
-    return fn(input);
+    try {
+      return await fn(input);
+    } catch (err) {
+      if (session.currentState().phase !== "connected") {
+        throw upstreamUnavailable(`cell "${key}.${verb}"`, err);
+      }
+      throw err;
+    }
   };
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
@@ -359,12 +382,13 @@ export function reServeSurface<S extends SurfaceSpec>(
 
   // Procedures → forward every verb through the live spawn's stubs. A call while
   // the link is down throws loudly (fail-fast); the client retries.
-  const forwardProcedure = (
+  const forwardProcedure = async (
     ns: string,
     verb: string,
     input: unknown,
     signal: AbortSignal | undefined,
   ): Promise<unknown> => {
+    requireConnected(`procedure "${ns}.${verb}"`);
     const procs = liveProcedures.current as
       | Record<string, Record<string, ProcedureFn>>
       | null
@@ -375,7 +399,14 @@ export function reServeSurface<S extends SurfaceSpec>(
         message: `reServeSurface: procedure "${ns}.${verb}" invoked with no live upstream link`,
       });
     }
-    return fn(input, { signal });
+    try {
+      return await fn(input, { signal });
+    } catch (err) {
+      if (session.currentState().phase !== "connected") {
+        throw upstreamUnavailable(`procedure "${ns}.${verb}"`, err);
+      }
+      throw err;
+    }
   };
   const proceduresDeps: Record<string, Record<string, unknown>> = {};
   for (const [ns, verbs] of Object.entries(spec.procedures ?? {})) {
