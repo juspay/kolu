@@ -269,20 +269,11 @@ test: install
     # (silent EMFILE — no crash, just refused connections). Hard limit is
     # unlimited; this is free insurance on every platform.
     ulimit -n 65536 2>/dev/null || true
-    # Worker-count cap (the count itself is computed below, after the suite
-    # lock): 6 on darwin, 8 elsewhere. PAR=8 on the 24-core darwin host (rasam)
-    # maximizes throughput but its higher concurrent load pressures the
-    # slow-hydration tail — under load a handful of interaction waits
-    # (per-terminal Code-tab history enablement, content settle) intermittently
-    # miss their POLL budget and a scenario loses all its retries, which is
-    # fatal to a *consecutive*-green requirement. PAR=6 trades part of the
-    # speed win for markedly fewer load-correlated races (the report's PAR=6
-    # hardened runs were 0/3 catastrophic). Linux's watch/render stack is
-    # reliable, so it keeps 8. Past the cap the slowest-scenario tail dominates
-    # anyway (PAR=12 measured *slower* than PAR=8 on a 24-core host). See
-    # docs/ci-e2e-macos-ralph-report.md.
+    # Eight workers is the measured throughput knee: PAR=12 was slower on the
+    # 24-core darwin venue because the slowest-scenario tail dominates past
+    # eight. Clamp every platform at that same ceiling.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-    cap=8; [ "$(uname)" = Darwin ] && cap=6
+    cap=8
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
@@ -319,14 +310,12 @@ test: install
         fi
     fi
     # The odu venue pool leases each CI host exclusively, so external load is
-    # not an input to capacity. Size deterministically from hardware: roughly
-    # one browser+server+padi+kaval world per three online cores, rounding up
-    # so a dedicated 10-core venue uses four workers instead of leaving the
-    # remainder idle. Clamp by the measured platform cap above and a minimum of
-    # one. In particular, never sample the one-minute load average here: it
-    # trails the Nix build that runs before Cucumber and made an idle 10-core
-    # venue start just one worker.
-    par=$(( (cores + 2) / 3 ))
+    # not an input to capacity. Assign one worker per online core, capped at the
+    # measured knee above. This makes a dedicated 10-core venue use all eight
+    # useful workers, while smaller hosts scale down deterministically. Never
+    # sample load average here: it trails the preceding Nix build and made an
+    # otherwise idle venue under-report its capacity.
+    par=$cores
     if (( par < 1 )); then par=1; fi
     if (( par > cap )); then par=$cap; fi
     echo "e2e: workers=$par (cores=$cores cap=$cap)"
