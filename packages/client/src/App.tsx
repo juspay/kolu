@@ -28,6 +28,7 @@ import {
 import { Toaster } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
+import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
@@ -44,15 +45,16 @@ import EmptyState from "./EmptyState";
 import ExportSessionDialog, {
   exportSessionDialog,
 } from "./ExportSessionDialog";
+import BootStalledCanvas from "./host/BootStalledCanvas";
+import { ConnectCanvas } from "./host/ConnectCanvas";
+import HostDownCanvas from "./host/HostDownCanvas";
+import { hostHue } from "./host/hostChipTone";
+import { savedSession as serverSavedSession } from "./hostScope/activeWire";
 import { createImportSessionAction } from "./importSessionAction";
-import { useDeepLinks } from "./useDeepLinks";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
-import { ConnectCanvas } from "./host/ConnectCanvas";
 import DegradedCanvas from "./kaval/DegradedCanvas";
-import BootStalledCanvas from "./host/BootStalledCanvas";
-import HostDownCanvas from "./host/HostDownCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
@@ -70,7 +72,6 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
-import { useAttention } from "./attention/useAttention";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { realSizes } from "./ui/corvuResizable";
@@ -78,13 +79,12 @@ import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
+import { useDeepLinks } from "./useDeepLinks";
 import { isDesktop, layoutMode } from "./useMobile";
 import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { hostHue } from "./host/hostChipTone";
-import { savedSession as serverSavedSession } from "./hostScope/activeWire";
 import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
 
 const App: Component = () => {
@@ -308,22 +308,30 @@ const App: Component = () => {
       recordsAwaited: () => store.recordPhases().awaited,
     }),
   );
-  // Narrow the tagged union for the down/warming arms. Plain functions, not
+  // Payload accessors for thrash-sensitive canvas arms. Plain functions, not
   // memos — they don't add to the shell's reactive-primitive budget.
-  const downMode = () => {
+  // Key every Match on `mode().kind === "…"` (stable boolean): `mode()` is a
+  // fresh object every getMonotonicNow tick (boot-deadline accrual), so an
+  // object-valued `when` remounts the arm ~1 Hz and wipes local state (elapsed
+  // baseline on ConnectCanvas #1962; focus/action identity on BootStalledCanvas).
+  const downState = () => {
     const m = mode();
-    return m.kind === "down" ? m : undefined;
+    return m.kind === "down" ? m.down : undefined;
   };
-  const hostFailedMode = () => {
+  const hostFailedCause = () => {
     const m = mode();
-    return m.kind === "host-failed" ? m : undefined;
+    return m.kind === "host-failed" ? m.cause : undefined;
   };
-  const bootStalledMode = () => {
+  const hostFailedReason = () => {
     const m = mode();
-    return m.kind === "boot-stalled" ? m : undefined;
+    return m.kind === "host-failed" ? m.reason : undefined;
+  };
+  const bootStalledRecovery = () => {
+    const m = mode();
+    return m.kind === "boot-stalled" ? m.recovery : undefined;
   };
   // Warming arm's kaval restart state (undefined while a remote provision
-  // narrates off the connection cell). Named like the other mode accessors.
+  // narrates off the connection cell).
   const warmingDaemonState = () => {
     const m = mode();
     return m.kind === "warming" ? m.daemonState : undefined;
@@ -470,22 +478,29 @@ const App: Component = () => {
                 routing flap between the two modes produces identical pixels (no flicker). */}
             <ConnectCanvas daemonState={undefined} />
           </Match>
-          <Match when={downMode()}>
-            {(m) => <DegradedCanvas down={m().down} />}
+          <Match when={mode().kind === "down"}>
+            {/* Boolean kind key — same thrash rule as warming (#1962). Payload via
+                accessors (not object-valued `when`, which remounts ~1 Hz). Kind
+                narrows: when this arm is active the payload is defined. */}
+            <DegradedCanvas down={downState()!} />
           </Match>
-          <Match when={hostFailedMode()}>
+          <Match when={mode().kind === "host-failed"}>
             {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,
                 cause-typed) — distinct from `down` (a connected host's dead kaval).
                 Its own surface: cause-typed copy + [Switch to local], no Retry. */}
-            {(m) => <HostDownCanvas cause={m().cause} reason={m().reason} />}
+            <HostDownCanvas
+              cause={hostFailedCause()!}
+              reason={hostFailedReason()!}
+            />
           </Match>
-          <Match when={bootStalledMode()}>
+          <Match when={mode().kind === "boot-stalled"}>
             {/* #1763 + #1908 D2: a boot overlay held past its per-host ceiling, rendered off the
                 resolver's honest {@link BootStalledRecovery} verdict — a warming-remote campaign
                 the server connector still owns (non-terminal copy, [Retry connection] → recheck())
                 vs a genuinely client-side leg ([Reload]). A hung LOCAL kaval takes the down/dead
-                arm above instead (byte-identical #1713). */}
-            {(m) => <BootStalledCanvas recovery={m().recovery} />}
+                arm above instead (byte-identical #1713). Boolean kind key so focus/action
+                identity on BootStalledCanvas survives monotonic mode() thrash. */}
+            <BootStalledCanvas recovery={bootStalledRecovery()!} />
           </Match>
           <Match when={mode().kind === "warming"}>
             {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold

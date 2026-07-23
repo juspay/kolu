@@ -154,6 +154,23 @@ export interface RelayHoldOpenOptions<F> extends RelayStreamOptions {
  * so it would be classed as a link blip (held) today; a future one that needs
  * surfacing would report its per-input failure as a clean end.
  */
+/** Wait for the pump to (re)set the live client. Returns `true` when
+ *  `holder.current` changes, `false` on a downstream abort (the only rejection
+ *  `whenChanged` swallows — any other error surfaces). Shared by hold-open and
+ *  fail-through so the pre-spawn wait can't drift between the two cores. */
+async function waitForHolderChange(
+  holder: ObservableHolder<unknown>,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  try {
+    await holder.whenChanged(signal);
+    return true;
+  } catch (err) {
+    if (isAbortReason(err, signal)) return false;
+    throw err;
+  }
+}
+
 export function holdOpenStreamCore<Cl, I, F>(
   member: string,
   holder: ObservableHolder<Cl>,
@@ -163,20 +180,6 @@ export function holdOpenStreamCore<Cl, I, F>(
   const log = opts.log ?? (() => {});
   return async function* (input, signal) {
     const aborted = (): boolean => signal?.aborted === true;
-    // Wait for the pump to (re)set the live client. Returns `true` when it changed
-    // (rebind), `false` on a downstream abort (the ONLY thing `whenChanged` rejects
-    // with — a non-abort rejection must surface, not be swallowed, matching the
-    // sibling `failThroughStreamCore`; #1661 candidate 3a). A generator can't
-    // `return` from a helper, so callers do `if (!(await waitNextSpawn())) return`.
-    const waitNextSpawn = async (): Promise<boolean> => {
-      try {
-        await holder.whenChanged(signal);
-        return true;
-      } catch (err) {
-        if (isAbortReason(err, signal)) return false;
-        throw err;
-      }
-    };
     while (!aborted()) {
       const client = holder.current;
       if (client === null) {
@@ -184,7 +187,7 @@ export function holdOpenStreamCore<Cl, I, F>(
         // spawn). HOLD — don't complete the downstream — and wake on the next
         // `.current` change.
         log(`${member}: no live client — holding for next spawn`);
-        if (!(await waitNextSpawn())) return;
+        if (!(await waitForHolderChange(holder, signal))) return;
         continue;
       }
       // Resolve the member OUTSIDE the try — a client that doesn't expose it is a
@@ -219,7 +222,8 @@ export function holdOpenStreamCore<Cl, I, F>(
       // Don't busy-loop back onto the SAME just-dead client: wait for the pump to
       // swap in the next one before rebinding. (A clear to `null` needs no test
       // here — the loop head's `client === null` branch awaits `whenChanged`.)
-      if (holder.current === client && !(await waitNextSpawn())) return;
+      if (holder.current === client && !(await waitForHolderChange(holder, signal)))
+        return;
     }
   };
 }
@@ -250,9 +254,9 @@ export function relayHoldOpenStream<P extends RelayPolicy, Cl, I, F>(
 // ── relayFailThroughStream — the DELTA path (end downstream on upstream drop) ─
 
 /** The NAMED, RETRYABLE transport end a fail-through relay ends its downstream
- *  with when its UPSTREAM link to the agent is lost — either subscribed while no
- *  upstream is live, or a mid-stream link death (SR5 — one protocol across the
- *  wire). Ending the downstream LOUDLY (rather than a healthy-but-empty stream)
+ *  with on a mid-stream UPSTREAM link death (SR5 — one protocol across the wire).
+ *  Pre-spawn (no live upstream) waits for the next spawn instead of throwing
+ *  (#1963). Ending the downstream LOUDLY (rather than a healthy-but-empty stream)
  *  is what makes the client's retry re-subscribe once the link is back, so a
  *  snapshot only ever leads a FRESH stream.
  *
@@ -262,25 +266,14 @@ export function relayHoldOpenStream<P extends RelayPolicy, Cl, I, F>(
  *  to a generic non-retriable `INTERNAL_SERVER_ERROR`) and the browser's
  *  `STREAM_RETRY` re-subscribes end-to-end. A RAW re-throw of the upstream error
  *  would cross as a NON-retriable error and STRAND the downstream — the bug this
- *  named end fixes. The upstream error, when there is one, is carried on `cause`. */
+ *  named end fixes. The upstream error is carried on `cause`. */
 export class RelayTransportLostError extends ORPCError<
   typeof SURFACE_RELAY_TRANSPORT_LOST,
   unknown
 > {
-  constructor(
-    member: string,
-    /** Mid-stream link death is the only producer today (#1963: a subscribe with
-     *  no live upstream WAITS for the next spawn instead of throwing). The
-     *  `"no-live-upstream"` reason remains on the type for any residual caller
-     *  and for the error message vocabulary the fence tests pin. */
-    reason: "no-live-upstream" | "link-died",
-    cause?: unknown,
-  ) {
+  constructor(member: string, cause?: unknown) {
     super(SURFACE_RELAY_TRANSPORT_LOST, {
-      message:
-        reason === "no-live-upstream"
-          ? `relayFailThroughStream: "${member}" subscribed with no live upstream link — downstream ends (retryable) so the client re-subscribes end-to-end`
-          : `relayFailThroughStream: "${member}" lost its upstream link mid-stream — downstream ends (retryable) so the client re-subscribes end-to-end`,
+      message: `relayFailThroughStream: "${member}" lost its upstream link mid-stream — downstream ends (retryable) so the client re-subscribes end-to-end`,
       cause,
     });
     this.name = "RelayTransportLostError";
@@ -360,17 +353,6 @@ export function failThroughStreamCore<Cl, I, F>(
   let loggedWaiting = false;
   return async function* (input, signal) {
     const aborted = (): boolean => signal?.aborted === true;
-    // Wait for the pump to set a live client. Returns `true` on change, `false`
-    // on downstream abort (same helper shape as holdOpenStreamCore).
-    const waitNextSpawn = async (): Promise<boolean> => {
-      try {
-        await holder.whenChanged(signal);
-        return true;
-      } catch (err) {
-        if (isAbortReason(err, signal)) return false;
-        throw err;
-      }
-    };
 
     // Already-aborted subscribe — the downstream unsubscribed before the first
     // pull. Clean return, NOT a `RelayTransportLostError`: an abort is teardown, not a
@@ -396,7 +378,7 @@ export function failThroughStreamCore<Cl, I, F>(
           `${member}: no live upstream yet — waiting for spawn (expected while provisioning)`,
         );
       }
-      if (!(await waitNextSpawn())) return;
+      if (!(await waitForHolderChange(holder, signal))) return;
       if (aborted()) return;
       client = holder.current;
       // whenChanged also fires on clear-to-null; loop until a non-null spawn.
@@ -443,7 +425,7 @@ export function failThroughStreamCore<Cl, I, F>(
       log(
         `${member}: upstream link died — ending downstream: ${(err as Error).message}`,
       );
-      throw new RelayTransportLostError(member, "link-died", err);
+      throw new RelayTransportLostError(member, err);
     }
   };
 }
