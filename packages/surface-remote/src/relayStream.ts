@@ -222,7 +222,10 @@ export function holdOpenStreamCore<Cl, I, F>(
       // Don't busy-loop back onto the SAME just-dead client: wait for the pump to
       // swap in the next one before rebinding. (A clear to `null` needs no test
       // here — the loop head's `client === null` branch awaits `whenChanged`.)
-      if (holder.current === client && !(await waitForHolderChange(holder, signal)))
+      if (
+        holder.current === client &&
+        !(await waitForHolderChange(holder, signal))
+      )
         return;
     }
   };

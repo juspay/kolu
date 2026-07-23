@@ -92,7 +92,7 @@ describe("App canvas <Switch> covers every CanvasMode kind (#1763 — no blank f
   });
 
   it("routes the boot-stalled kind specifically to <BootStalledCanvas>", () => {
-    expect(APP_SRC).toMatch(/bootStalledMode\(\)/);
+    expect(APP_SRC).toMatch(/bootStalledRecovery\(\)/);
     expect(APP_SRC).toContain("<BootStalledCanvas");
   });
 });

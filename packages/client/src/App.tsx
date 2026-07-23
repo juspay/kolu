@@ -308,30 +308,35 @@ const App: Component = () => {
       recordsAwaited: () => store.recordPhases().awaited,
     }),
   );
-  // Payload accessors for thrash-sensitive canvas arms. Plain functions, not
+  // Payload readers for thrash-sensitive canvas arms. Plain functions, not
   // memos — they don't add to the shell's reactive-primitive budget.
   // Key every Match on `mode().kind === "…"` (stable boolean): `mode()` is a
   // fresh object every getMonotonicNow tick (boot-deadline accrual), so an
   // object-valued `when` remounts the arm ~1 Hz and wipes local state (elapsed
   // baseline on ConnectCanvas #1962; focus/action identity on BootStalledCanvas).
-  const downState = () => {
+  // Fail loud (not `!`) if the arm is active without its payload — unrepresentable.
+  const requireKind = <K extends CanvasMode["kind"], T>(
+    kind: K,
+    pick: (m: Extract<CanvasMode, { kind: K }>) => T,
+    label: string,
+  ): T => {
     const m = mode();
-    return m.kind === "down" ? m.down : undefined;
+    if (m.kind !== kind) {
+      throw new Error(
+        `canvas Match ${label}: expected kind ${kind}, got ${m.kind}`,
+      );
+    }
+    return pick(m as Extract<CanvasMode, { kind: K }>);
   };
-  const hostFailedCause = () => {
-    const m = mode();
-    return m.kind === "host-failed" ? m.cause : undefined;
-  };
-  const hostFailedReason = () => {
-    const m = mode();
-    return m.kind === "host-failed" ? m.reason : undefined;
-  };
-  const bootStalledRecovery = () => {
-    const m = mode();
-    return m.kind === "boot-stalled" ? m.recovery : undefined;
-  };
+  const downState = () => requireKind("down", (m) => m.down, "down");
+  const hostFailedCause = () =>
+    requireKind("host-failed", (m) => m.cause, "host-failed");
+  const hostFailedReason = () =>
+    requireKind("host-failed", (m) => m.reason, "host-failed");
+  const bootStalledRecovery = () =>
+    requireKind("boot-stalled", (m) => m.recovery, "boot-stalled");
   // Warming arm's kaval restart state (undefined while a remote provision
-  // narrates off the connection cell).
+  // narrates off the connection cell) — undefined is a valid payload here.
   const warmingDaemonState = () => {
     const m = mode();
     return m.kind === "warming" ? m.daemonState : undefined;
@@ -482,15 +487,15 @@ const App: Component = () => {
             {/* Boolean kind key — same thrash rule as warming (#1962). Payload via
                 accessors (not object-valued `when`, which remounts ~1 Hz). Kind
                 narrows: when this arm is active the payload is defined. */}
-            <DegradedCanvas down={downState()!} />
+            <DegradedCanvas down={downState()} />
           </Match>
           <Match when={mode().kind === "host-failed"}>
             {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,
                 cause-typed) — distinct from `down` (a connected host's dead kaval).
                 Its own surface: cause-typed copy + [Switch to local], no Retry. */}
             <HostDownCanvas
-              cause={hostFailedCause()!}
-              reason={hostFailedReason()!}
+              cause={hostFailedCause()}
+              reason={hostFailedReason()}
             />
           </Match>
           <Match when={mode().kind === "boot-stalled"}>
@@ -500,7 +505,7 @@ const App: Component = () => {
                 vs a genuinely client-side leg ([Reload]). A hung LOCAL kaval takes the down/dead
                 arm above instead (byte-identical #1713). Boolean kind key so focus/action
                 identity on BootStalledCanvas survives monotonic mode() thrash. */}
-            <BootStalledCanvas recovery={bootStalledRecovery()!} />
+            <BootStalledCanvas recovery={bootStalledRecovery()} />
           </Match>
           <Match when={mode().kind === "warming"}>
             {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold

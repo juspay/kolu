@@ -96,7 +96,10 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     const c = copy();
     const frame = info();
     const h = host();
-    if (c === null || frame === undefined) {
+    // Residual `connecting` mode can still have a live connection cell with a
+    // long-lived connected campaign (reload of a warm host). Title-only "Connecting…"
+    // is fine; elapsed/tail must not show that campaign's uptime as connect progress.
+    if (c === null || frame === undefined || !isConnectPhase(frame.phase)) {
       setAnchor(null);
       return;
     }
@@ -129,7 +132,11 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     return a === null ? null : a.ms + (clockNow() - a.at);
   };
 
-  const tail = createMemo(() => tailOf(info()?.log ?? []));
+  const tail = createMemo(() => {
+    const frame = info();
+    if (frame === undefined || !isConnectPhase(frame.phase)) return [];
+    return tailOf(frame.log);
+  });
 
   return (
     <Show

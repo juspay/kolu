@@ -136,8 +136,9 @@ export interface ProvisionBudgets {
   readonly copy: StepBudget;
   readonly build: StepBudget;
   /** Reset both step budgets when the campaign changes (a fresh episode / user verb).
-   *  Idempotent within a campaign — a no-op until `epoch` moves. Called by
-   *  `provisionAgent` at the top of every dial, so the connector needn't track it. */
+   *  Idempotent within a campaign — a no-op until `epoch` moves. The connector
+   *  (session↔nixCopy bridge) must call this with `ctx.campaignEpoch` before
+   *  `provisionAgent` — provisionAgent itself is campaign-ignorant. */
   onCampaign(epoch: number): void;
 }
 

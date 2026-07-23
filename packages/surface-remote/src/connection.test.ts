@@ -29,7 +29,12 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
     // — parse with only `log` + `sinceMs`, no error fields.
     for (const phase of ["probing", "copying", "building", "connecting"]) {
       expect(
-        ConnectionInfoSchema.parse({ phase, log: [], sinceMs: 0, campaignEpoch: 0 }),
+        ConnectionInfoSchema.parse({
+          phase,
+          log: [],
+          sinceMs: 0,
+          campaignEpoch: 0,
+        }),
       ).toEqual({ phase, log: [], sinceMs: 0, campaignEpoch: 0 });
     }
     // `connected` ALSO carries `clockOffset` (the admit `system.clockNow` reading),
@@ -43,7 +48,13 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
         sinceMs: 0,
         campaignEpoch: 0,
       }),
-    ).toEqual({ phase: "connected", clockOffset: null, log: [], sinceMs: 0, campaignEpoch: 0 });
+    ).toEqual({
+      phase: "connected",
+      clockOffset: null,
+      log: [],
+      sinceMs: 0,
+      campaignEpoch: 0,
+    });
     expect(
       ConnectionInfoSchema.parse({
         phase: "connected",

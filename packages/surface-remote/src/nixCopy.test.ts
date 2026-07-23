@@ -70,8 +70,9 @@ function mockNix(over?: {
       return over?.checkValidity ?? failOut; // cold: not on host yet
     if (args.includes("--add-root"))
       return over?.pin ?? okOut("/home/u/link\n");
-    // Cold realise is `nix build --print-out-paths --no-link` (structured-progress
-    // path, #1962) — not the classic `nix-store --realise` (that remains on the pin).
+    // Cold realise is `nix build -v --print-out-paths --no-link` (plain -v so
+    // per-path lines reach the connect tail, #1962) — not classic `nix-store
+    // --realise` (that remains on the pin).
     if (args.includes("--print-out-paths"))
       return over?.realise ?? okOut(`${STORE}\n`);
     if (args.includes("--realise")) return over?.realise ?? okOut(`${STORE}\n`);

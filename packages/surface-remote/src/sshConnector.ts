@@ -105,8 +105,8 @@ export function sshConnector<C extends AnyContractRouter>(
 ): Connector<AgentClient<C>, SshProv> {
   // The fused per-step progress-liveness budgets, owned HERE (the connector closure) so
   // their doubling + kill-budget persist across a campaign's retry-dials (#1908 C5). The
-  // campaign reset lives INSIDE the budgets (`onCampaign`, called by `provisionAgent`),
-  // so the connector holds ONE object and keeps no `lastCampaignEpoch` of its own.
+  // campaign reset is `budgets.onCampaign(ctx.campaignEpoch)` at the top of each dial
+  // (below) — provisionAgent is campaign-ignorant; the connector is the only caller.
   const budgets = makeProvisionBudgets();
 
   return async (ctx): Promise<Connection<AgentClient<C>>> => {

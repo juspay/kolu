@@ -36,12 +36,6 @@ const h = vi.hoisted(() => {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    /** Test-only version signal the mock reads so connectionInfo is reactive. */
-    version: 0,
-    bump() {
-      h.version += 1;
-      for (const l of [...listeners]) l();
-    },
   };
 });
 
