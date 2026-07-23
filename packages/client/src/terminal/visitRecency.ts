@@ -12,14 +12,25 @@
  *  Persistence is device-local (`localStorage` via {@link persistedPref});
  *  visits never leave the browser. */
 
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import type { TerminalId } from "kolu-common/surface";
+import {
+  isEncodedHostKey,
+  encodeHostKey,
+  type HostKey,
+} from "kolu-common/hostKey";
+import { TerminalIdSchema, type TerminalId } from "kolu-common/surface";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
 
 /** Hard cap on the MRU — enough trail for Recent + Ctrl+Tab, bounded storage. */
 export const VISIT_MRU_CAP = 50;
+
+/** Reject timestamps that would dominate ranking forever or predate the epoch. */
+const MIN_VISITED_AT = 0;
+/** 1 year past now at parse time — clock skew / corruption guard. */
+function maxAllowedVisitedAt(now: number = Date.now()): number {
+  return now + 365 * 24 * 60 * 60 * 1000;
+}
 
 export type VisitEntry = {
   /** Canonical host wire key (`encodeHostKey`). */
@@ -28,35 +39,56 @@ export type VisitEntry = {
   visitedAt: number;
 };
 
-function isVisitEntry(v: unknown): v is VisitEntry {
+function isVisitEntry(v: unknown, now: number): v is VisitEntry {
   if (v === null || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;
-  return (
-    typeof o.hostKey === "string" &&
-    o.hostKey.length > 0 &&
-    typeof o.terminalId === "string" &&
-    o.terminalId.length > 0 &&
-    typeof o.visitedAt === "number" &&
-    Number.isFinite(o.visitedAt)
-  );
+  if (typeof o.hostKey !== "string" || !isEncodedHostKey(o.hostKey))
+    return false;
+  if (typeof o.terminalId !== "string") return false;
+  const id = TerminalIdSchema.safeParse(o.terminalId);
+  if (!id.success) return false;
+  if (typeof o.visitedAt !== "number" || !Number.isFinite(o.visitedAt))
+    return false;
+  if (o.visitedAt < MIN_VISITED_AT || o.visitedAt > maxAllowedVisitedAt(now))
+    return false;
+  return true;
 }
 
 /** Validate persisted JSON — throws so {@link persistedPref} falls back to []. */
-export function parseVisitList(raw: string): VisitEntry[] {
+export function parseVisitList(
+  raw: string,
+  now: number = Date.now(),
+): VisitEntry[] {
   const data: unknown = JSON.parse(raw);
   if (!Array.isArray(data)) {
     throw new Error("visit recency: expected a JSON array");
   }
+  if (data.length > VISIT_MRU_CAP) {
+    throw new Error(`visit recency: exceeds cap ${VISIT_MRU_CAP}`);
+  }
+  const seen = new Set<string>();
+  const out: VisitEntry[] = [];
   for (const item of data) {
-    if (!isVisitEntry(item)) {
+    if (!isVisitEntry(item, now)) {
       throw new Error("visit recency: invalid entry shape");
     }
+    const key = visitLiveKey(item.hostKey, item.terminalId);
+    if (seen.has(key)) {
+      throw new Error("visit recency: duplicate host+terminal key");
+    }
+    seen.add(key);
+    out.push({
+      hostKey: item.hostKey,
+      terminalId: item.terminalId as TerminalId,
+      visitedAt: item.visitedAt,
+    });
   }
-  return data as VisitEntry[];
+  return out;
 }
 
 /** Upsert one visit to the front of the MRU, dedupe by (hostKey, terminalId),
- *  cap length. Pure — unit-tested without Solid. */
+ *  cap length. Timestamps are forced strictly monotonic so same-ms activations
+ *  still rank later-before-earlier. Pure — unit-tested without Solid. */
 export function upsertVisit(
   prev: readonly VisitEntry[],
   hostKey: string,
@@ -64,14 +96,23 @@ export function upsertVisit(
   visitedAt: number,
   cap: number = VISIT_MRU_CAP,
 ): VisitEntry[] {
-  const next: VisitEntry = { hostKey, terminalId, visitedAt };
   const rest = prev.filter(
     (e) => !(e.hostKey === hostKey && e.terminalId === terminalId),
   );
+  const maxOther = rest.reduce(
+    (m, e) => Math.max(m, e.visitedAt),
+    Number.NEGATIVE_INFINITY,
+  );
+  const at =
+    Number.isFinite(maxOther) && visitedAt <= maxOther
+      ? maxOther + 1
+      : visitedAt;
+  const next: VisitEntry = { hostKey, terminalId, visitedAt: at };
   return [next, ...rest].slice(0, cap);
 }
 
-/** Remove every entry for a terminal id on a host (tile kill). */
+/** Remove every entry for a terminal id on a host (tile kill). Does not
+ *  restamp survivors. */
 export function removeVisit(
   prev: readonly VisitEntry[],
   hostKey: string,
@@ -90,23 +131,54 @@ export function clearHostVisits(
   return prev.filter((e) => e.hostKey !== hostKey);
 }
 
-/** Replace a host's visit order with `ids` (most-recent first). Other hosts'
- *  visits are preserved. Used by session restore to seed the trail. */
-export function replaceHostVisitOrder(
+/**
+ * Reconcile one host's trail against live top-level ids:
+ * - drop ids no longer live
+ * - keep existing `visitedAt` for survivors (no restamp)
+ * - append missing live ids at the end with timestamps below all survivors
+ *
+ * When the host slice is empty, seeds `ids` most-recent-first (restore /
+ * first paint). Other hosts' visits are never touched.
+ */
+export function reconcileHostLiveIds(
   prev: readonly VisitEntry[],
   hostKey: string,
-  ids: readonly TerminalId[],
+  liveIds: readonly TerminalId[],
   now: number,
   cap: number = VISIT_MRU_CAP,
 ): VisitEntry[] {
   const others = prev.filter((e) => e.hostKey !== hostKey);
-  // Most-recent first: assign decreasing timestamps so order is stable.
-  const seeded: VisitEntry[] = ids.map((terminalId, i) => ({
+  const hostPrev = prev.filter((e) => e.hostKey === hostKey);
+  const liveSet = new Set(liveIds);
+
+  if (hostPrev.length === 0) {
+    // Empty host trail — seed only. Most-recent first: decreasing timestamps.
+    const seeded: VisitEntry[] = liveIds.map((terminalId, i) => ({
+      hostKey,
+      terminalId,
+      visitedAt: now - i,
+    }));
+    return [...seeded, ...others].slice(0, cap);
+  }
+
+  // Preserve order + timestamps for survivors; drop dead.
+  const survivors = hostPrev.filter((e) => liveSet.has(e.terminalId));
+  const survivorIds = new Set(survivors.map((e) => e.terminalId));
+  const missing = liveIds.filter((id) => !survivorIds.has(id));
+  const minSurvivor =
+    survivors.length === 0
+      ? now
+      : survivors.reduce(
+          (m, e) => Math.min(m, e.visitedAt),
+          survivors[0]!.visitedAt,
+        );
+  // Append missing below the oldest survivor so they don't outrank real visits.
+  const appended: VisitEntry[] = missing.map((terminalId, i) => ({
     hostKey,
     terminalId,
-    visitedAt: now - i,
+    visitedAt: minSurvivor - 1 - i,
   }));
-  return [...seeded, ...others].slice(0, cap);
+  return [...survivors, ...appended, ...others].slice(0, cap);
 }
 
 /** Active-host MRU ids (most-recent first) for Ctrl+Tab / WebGL budget. */
@@ -132,17 +204,6 @@ export function visitRankScore(
   return Math.max(visitedAt, activity);
 }
 
-/** Join visits to a live fleet id set — drop entries whose host/terminal is
- *  not currently present (disconnected host, killed tile). Pure. */
-export function joinVisitsToLive(
-  visits: readonly VisitEntry[],
-  liveKeys: ReadonlySet<string>,
-): VisitEntry[] {
-  return visits.filter((e) =>
-    liveKeys.has(visitLiveKey(e.hostKey, e.terminalId)),
-  );
-}
-
 export function visitLiveKey(hostKey: string, terminalId: TerminalId): string {
   return `${hostKey}\0${terminalId}`;
 }
@@ -158,7 +219,8 @@ type VisitRecencyApi = {
   noteVisit: (host: HostKey, terminalId: TerminalId, at?: number) => void;
   forgetVisit: (host: HostKey, terminalId: TerminalId) => void;
   clearHost: (host: HostKey) => void;
-  replaceHostOrder: (host: HostKey, ids: readonly TerminalId[]) => void;
+  /** Seed empty host trail, or reconcile live ids without restamping survivors. */
+  reconcileHost: (host: HostKey, liveIds: readonly TerminalId[]) => void;
   mruForHost: (host: HostKey) => TerminalId[];
 };
 
@@ -194,9 +256,9 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     setVisits((prev) => clearHostVisits(prev, encodeVisitHost(host)));
   }
 
-  function replaceHostOrder(host: HostKey, ids: readonly TerminalId[]): void {
+  function reconcileHost(host: HostKey, liveIds: readonly TerminalId[]): void {
     setVisits((prev) =>
-      replaceHostVisitOrder(prev, encodeVisitHost(host), ids, Date.now()),
+      reconcileHostLiveIds(prev, encodeVisitHost(host), liveIds, Date.now()),
     );
   }
 
@@ -209,7 +271,7 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     noteVisit,
     forgetVisit,
     clearHost,
-    replaceHostOrder,
+    reconcileHost,
     mruForHost,
   };
 });

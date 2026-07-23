@@ -158,17 +158,18 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         : serverActiveId && topIds.includes(serverActiveId as TerminalId)
           ? (serverActiveId as TerminalId)
           : (topIds[0] ?? null);
+    // Seed/reconcile the durable visit trail BEFORE activation. writeActive
+    // noteVisit's the pick; if we seed after, a non-empty one-entry trail
+    // would skip multi-id restore order (Ctrl+Tab would only see the pick).
+    store.setMruOrder(
+      picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
+    );
+
     // `setActiveSilently`: the canvas's first-mount fallback effect pans
     // the viewport to the picked active when restoring at default origin —
     // calling `activate` here would double-pan and racing the still-
     // assembling pendingLayouts.
     store.setActiveSilently(picked);
-
-    // Seed MRU with all top-level terminals (active first, rest in sidebar order).
-    const active = store.activeId();
-    store.setMruOrder(
-      active ? [active, ...topIds.filter((x) => x !== active)] : topIds,
-    );
   }
 
   // Re-fetch saved session when all terminals are killed mid-session,

@@ -146,8 +146,8 @@ Feature: Terminal switcher (unified palette)
     When I click workspace switcher branch 1
     And I click workspace switcher branch 2
     And I open the command palette
+    # visit-b is active → excluded from Recent; previous visit (A) is first.
     Then the first palette terminal row should be "visit-a-branch"
-    And palette terminal row "visit-a-branch" should appear before "visit-b-branch"
     And there should be no page errors
 
   Scenario: ⌘K then Enter toggles the previous terminal

@@ -51,9 +51,13 @@ export interface HostViewState {
    *  MRU, clears the tile's unread, and reports it to THIS host's server session.
    *  Named `writeActive` (the facade exposes it as `setActiveSilently`). */
   writeActive: (id: TerminalId | null) => void;
+  /** Seed empty host trail / reconcile live top-level ids without restamping
+   *  surviving visit timestamps. Prefer {@link forgetFromMru} for kill. */
   setMruOrder: (
     next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
   ) => void;
+  /** Drop one terminal from the durable visit trail (kill path). */
+  forgetFromMru: (id: TerminalId) => void;
   markUnread: (id: TerminalId) => void;
   isUnread: (id: TerminalId) => boolean;
   // ── Per-host VIEW POSTURE (W7 TIER A) ────────────────────────────────
@@ -130,9 +134,13 @@ export function createViewState(host: HostKey): HostViewState {
     next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
   ): void {
     const ids = typeof next === "function" ? next(mruOrder()) : next;
-    // Session restore / kill-filter write the host's trail through the same
-    // visit store rather than a parallel in-memory list.
-    visits.replaceHostOrder(host, ids);
+    // Empty → seed; non-empty → preserve timestamps, drop dead, append missing.
+    // Never restamps survivors (kill uses forgetFromMru instead).
+    visits.reconcileHost(host, ids);
+  }
+
+  function forgetFromMru(id: TerminalId): void {
+    visits.forgetVisit(host, id);
   }
 
   function markUnread(id: TerminalId): void {
@@ -163,6 +171,7 @@ export function createViewState(host: HostKey): HostViewState {
     mruOrder,
     writeActive,
     setMruOrder,
+    forgetFromMru,
     markUnread,
     isUnread,
     canvasMaximized,

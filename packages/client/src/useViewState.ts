@@ -80,6 +80,8 @@ export function useViewState() {
     next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
   ): void => view()?.setMruOrder(next);
 
+  const forgetFromMru = (id: TerminalId): void => view()?.forgetFromMru(id);
+
   function toggleCanvasMaximized() {
     view()?.setCanvasMaximized((prev) => !prev);
   }
@@ -103,6 +105,7 @@ export function useViewState() {
     toggleCanvasMaximized,
     mruOrder,
     setMruOrder,
+    forgetFromMru,
     centerActiveRequest,
     requestCenterActive,
     markUnread,
