@@ -159,7 +159,26 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(buildArgs).toContain("build");
     expect(buildArgs).toContain("--no-link");
     // Bare `$drv` would echo the .drv path (spawn ENOTDIR); `^*` realises outputs.
+    // Remote arm shell-quotes the installable so zsh/bash don't glob `*` (#1964).
+    expect(buildArgs).toContain(`'${DRV}^*'`);
+  });
+
+  it("localhost realise keeps the installable unquoted (direct spawn, no shell)", async () => {
+    mockNix();
+    await provisionAgent({
+      host: "localhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(),
+    });
+    const buildArgs = vi
+      .mocked(runCapture)
+      .mock.calls.map((c) => c[1])
+      .find((args) => args.includes("--print-out-paths"));
+    expect(buildArgs).toBeDefined();
+    // Localhost is spawn(argv) — no remote shell, so no quoting.
     expect(buildArgs).toContain(`${DRV}^*`);
+    expect(buildArgs).not.toContain(`'${DRV}^*'`);
   });
 
   it("returns the immutable store path, not the moving root link", async () => {
