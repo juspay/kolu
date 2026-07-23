@@ -8,19 +8,18 @@
  *    - `variant` — paint (agent state colour)
  *    - `motion` — activity channel (spin / glow / none); callers fold
  *      working∨live∨(waiting∧¬finished) into the kind
- *    - `live` — green plate behind the glyph (static live/active mark) plus
- *      accessible "live output" label; motion still layers on top
+ *    - `live` — folds into the accessible label as "live output" (no disc
+ *      behind the glyph — motion alone carries activity)
  *    - `alert` — unread obligation badge (amber)
  *
  *  Shape no longer encodes state. Under `prefers-reduced-motion` awaiting keeps
- *  a violet hollow outline and motion freezes; the plate stays (static green). */
+ *  a violet hollow outline and motion freezes. */
 
 import { type Component, createMemo, For, Show } from "solid-js";
 import {
   ALERT_BADGE_CLASS,
   GLYPH_SVG_CLASS,
   INDICATOR_BASE,
-  LIVE_RING_CLASS,
   PIP_BODY,
   PIP_MOTION_CLASS,
   PIP_TITLES,
@@ -60,8 +59,7 @@ export const StatePip: Component<{
    *  Default `"none"` (still). */
   motion?: PipMotionKind;
   /** Effectively active — working ∨ live output ∨ (waiting ∧ ¬EF2 finished).
-   *  Lights the green live plate (static presence; motion is separate) and
-   *  folds into the accessible label as "live output". */
+   *  Folds into the accessible label as "live output" (no painted plate). */
   live?: boolean;
   /** Unread obligation corner badge (amber). Needs-you is paint/glow, not this. */
   alert?: boolean;
@@ -108,10 +106,6 @@ export const StatePip: Component<{
       aria-label={label() || undefined}
       aria-hidden={label() ? undefined : "true"}
     >
-      {/* Live plate always when live — static green presence; motion on glyph. */}
-      <Show when={props.live}>
-        <span class={LIVE_RING_CLASS} aria-hidden="true" />
-      </Show>
       <Show when={coreClass()}>
         {(cls) => (
           <span class={`relative flex items-center justify-center ${cls()}`}>

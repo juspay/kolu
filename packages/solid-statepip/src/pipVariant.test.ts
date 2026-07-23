@@ -10,7 +10,6 @@ import {
   DOCK_ROW_PIP_BOX,
   GLYPH_SVG_CLASS,
   INDICATOR_BASE,
-  LIVE_RING_CLASS,
   NEEDS_YOU_PILL_CLASS,
   PIP_BODY,
   PIP_MOTION_CLASS,
@@ -147,11 +146,8 @@ describe("pipGlyph / agentGlyph — identity marks", () => {
   });
 });
 
-// The two OUTER axes the merged indicator folds around the core (R-activity-
-// merge): the green live PLATE (a faint disc behind the glyph) and the unread
-// ALERT (a small amber corner dot — a different shape, so it never competes
-// with the plate), drawn as overlay elements whose visuals live in
-// statepip.css. Both surfaces render the same component + import the same CSS.
+// Outer-axis overlays: unread ALERT badge (amber corner dot). Live plate was
+// retired (no disc behind the glyph). Class name kept for CSS contract tests.
 describe("the indicator wrapper + outer-axis overlays", () => {
   it("the leaf wrapper is a content-sized relative box (anchors the absolute overlays), no surface geometry", () => {
     const cls = INDICATOR_BASE.split(/\s+/);
@@ -177,11 +173,7 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     expect(cls).toContain("rounded-full");
   });
 
-  it("the live plate + alert badge are the shared statepip.css classes", () => {
-    // Export keeps LIVE_RING_CLASS for the live prop contract; CSS is the plate.
-    expect(LIVE_RING_CLASS).toBe("statepip-live-plate");
-    // a corner DOT, not a ring and not the host-tab count pill —
-    // Option C mockup's 7px attention pip.
+  it("the alert badge is the shared statepip.css class (corner amber dot)", () => {
     expect(ALERT_BADGE_CLASS).toBe("statepip-alert-badge");
   });
 

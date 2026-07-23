@@ -55,17 +55,11 @@
   animation: statepip-glow 2.2s ease-in-out infinite;
 }
 
-/* live plate — always on when StatePip mounts it (`live`). Static green
- * presence behind the identity glyph; motion (spin/glow) layers on the
- * glyph itself. Under reduced motion, animations freeze and the plate remains
- * the screenshot-surviving live cue. Contained disc (DOM order behind glyph). */
+/* live plate — retired. Motion (spin/glow) is the active channel; a green
+ * disc behind the glyph read as a muddy teal/chrome wash on identity marks.
+ * Class kept so a stale import does not 404; element is not mounted. */
 .statepip-live-plate {
-  display: block;
-  position: absolute;
-  inset: -1px;
-  border-radius: 9999px;
-  background: color-mix(in oklab, var(--color-ok) 13%, transparent);
-  pointer-events: none;
+  display: none;
 }
 
 /* alert badge = a fired notification a surface wants surfaced (the Dock's

@@ -7,7 +7,10 @@ function agent(state: AgentInfo["state"]): AgentInfo {
 }
 
 describe("pipIsActive", () => {
-  it("shell is active only while live", () => {
+  // RecencyCell uses this same predicate to hide "Xs ago" on active rows —
+  // active ⇒ "just now" by definition, so the label is noise. Keep the rule
+  // here so a recency show/hide change is forced to re-think the motion fold.
+  it("shell is active only while live (also gates recency hide)", () => {
     expect(pipIsActive({ agent: null, isLive: true, isFinished: false })).toBe(
       true,
     );

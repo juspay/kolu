@@ -205,7 +205,7 @@ function DockListRow(props: {
             // as one symbol.
             class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent data-[sleeping]:opacity-55`}
           >
-            {/* Identity status indicator — plate + motion. See Dock.tsx. */}
+            {/* Identity status indicator — motion only. See Dock.tsx. */}
             <span class="row-span-2 flex self-center">
               <StatePip
                 variant={variant()}
@@ -228,12 +228,11 @@ function DockListRow(props: {
               />
             </span>
             <SubCountCell subCount={c().info.subCount} />
-            {/* Recency cell — "Xs ago", same no-reflow width as the desktop
-             *  dock, shared via RecencyCell. Live signal rides the leading
-             *  StatePip's ring. */}
+            {/* Recency — hidden while active (`pipIsActive`); width reserved. */}
             <RecencyCell
               recencyAt={rowRecencyAt(c().meta)}
               textSize="text-[0.65rem]"
+              hidden={pipActive()}
             />
             {/* Second line — flex row spanning the branch column → end.
              *  PR pip on the left (anchored to the branch column's left

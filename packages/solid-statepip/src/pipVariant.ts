@@ -248,12 +248,6 @@ export const DOCK_ROW_PIP_BOX = "w-[20px] h-[20px] rounded-full";
  *  `DOCK_ROW_PIP_BOX`. */
 export const TITLE_PIP_BOX = "w-[16px] h-[16px] rounded-full";
 
-/** The live PLATE overlay class — a faint green disc behind the identity glyph
- *  while the terminal is moving bytes (presence only; agent state owns motion).
- *  Visuals in `statepip.css`; both surfaces import it. Export name kept for the
- *  `live` prop contract; the CSS class is `statepip-live-plate`. */
-export const LIVE_RING_CLASS = "statepip-live-plate";
-
 /** Needs-you / awaiting-you count pill — agents blocked on your input
  *  (`awaiting_user`). Cool violet (`bg-alert`), same family as StatePip
  *  awaiting paint/glow. Host tab (`HostAwaitingPill`) uses THIS.
