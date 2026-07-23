@@ -92,8 +92,9 @@ commit.
   take effect before trusting it.
 - **Debate peer** (unless `--tracks` excludes `debate`): require
   `--agent <claude|codex|grok>` and run `/agent-debate`'s matching auth
-  preflight. If it fails, name the matching login command and continue with the
-  remaining tracks; never select a fallback peer.
+  preflight. If it fails, name the matching login command or exact non-auth
+  error and stop the gauntlet; never skip a mandatory track or select a fallback
+  peer.
 
 ## Run the steps in order
 
@@ -174,18 +175,23 @@ only on the real signal (the lens notification, or peer ping), never a timer.
 
    ```bash
    workDir="$repoPath/.agent-debate"
-   rounds=$(git -C "$repoPath" rev-list --count "$DEBATE_START"..HEAD)
-   [ "$rounds" -ge 1 ] || { echo "agent debate: no debate commits — nothing to post" >&2; }
+   rounds=$(find "$workDir" -maxdepth 1 -type f -name 'verdict-[0-9][0-9][0-9].json' | wc -l)
+   commits=$(git -C "$repoPath" rev-list --count "$DEBATE_START"..HEAD)
+   [ "$rounds" -ge 1 ] || { echo "agent debate: no verdicts — no completed debate" >&2; }
    authorName="<actual invoking harness name>"
    peerName="<selected peer display name>"
    {
      printf '## %s ⇄ %s debate\n\n' "$peerName" "$authorName"
      printf '✅ Consensus in %s round(s) · peer effort: xhigh\n\n' "$rounds"
-     printf '| Round | Commit | Description |\n|---|---|---|\n'
-     git -C "$repoPath" log --reverse --format='%h	%s' "$DEBATE_START"..HEAD \
-       | nl -w1 -s'	' | while IFS=$'\t' read -r n sha subj; do
-           printf '| %s | %s | %s |\n' "$n" "$sha" "$subj"
-         done
+     if [ "$commits" -gt 0 ]; then
+       printf '| Fix commit | SHA | Description |\n|---|---|---|\n'
+       git -C "$repoPath" log --reverse --format='%h	%s' "$DEBATE_START"..HEAD \
+         | nl -w1 -s'	' | while IFS=$'\t' read -r n sha subj; do
+             printf '| %s | %s | %s |\n' "$n" "$sha" "$subj"
+           done
+     else
+       printf '_No fix commits: the peer approved after author disputes._\n'
+     fi
      printf '\n**Legend** — findings %s raised:\n\n' "$peerName"
      jq -rs '[.[].findings[]] | unique_by(.id) | sort_by(.id|ltrimstr("F")|tonumber)[]
              | "- **\(.id)** — \(.issue|split(". ")[0])"' "$workDir"/verdict-*.json

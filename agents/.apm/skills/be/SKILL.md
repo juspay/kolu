@@ -79,10 +79,11 @@ applies its own fixes directly — no snapshot, no apply pass. be-review pushes 
 at the end and *then* posts the PR comments (lens, agent-debate, and a code-police
 summary), so no comment advertises a local-only commit.
 
-**Unless `--skip-gauntlet` was passed, this phase is non-negotiable — and it costs
-you almost nothing:** the reviewers run OFF your context, as backgrounded
-`Workflow`s that notify you when they settle. So "this would balloon my context /
-budget" is **never** grounds to skip a reviewer, run fewer than all four, or
+**Unless `--skip-gauntlet` was passed, this phase is non-negotiable.** The
+Workflow-backed lens step runs off-context and notifies you when it settles;
+`/agent-debate` runs inline against a live split peer, while later passes follow
+their own skill contracts. Context or budget concern is **never** grounds to
+skip a reviewer, run fewer than all four, or
 substitute a hand-rolled review for the real gauntlet — that excuse doesn't
 survive ten seconds of scrutiny, and dropping a step you were told to run is the
 single worst gauntlet failure. `/be`'s autonomy means *don't ask permission for

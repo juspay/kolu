@@ -339,9 +339,9 @@ adding a sleep.</li>
 <li><strong>Reuse past de-flake PRs.</strong> Read how this suite was de-flaked before — start
 from <a href="#common-flake-classes">Common flake classes</a> below — and apply the
 established pattern instead of inventing one.</li>
-<li><strong>Code changes pass <code>/codex-debate</code> before the streak counts.</strong> Batch the fixes,
-then drive them through <code>/codex-debate</code> to consensus — a CI pass is only trusted
-on codex-debate-passed commits (docs are exempt, and the debate is expensive, so
+<li><strong>Code changes pass <code>/agent-debate</code> before the streak counts.</strong> Batch the fixes,
+then drive them through <code>/agent-debate</code> with an explicitly selected peer to
+consensus — a CI pass is only trusted on agent-debate-passed commits (docs are exempt, and the debate is expensive, so
 debate the batch, not each edit). The debate is read-only code review, so its
 consensus still needs <strong>CI verification</strong>: defend an empirically-grounded fix
 rather than concede a plausible-but-unverified simplification — a consensus that

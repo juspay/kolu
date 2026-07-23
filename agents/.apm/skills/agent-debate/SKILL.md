@@ -44,8 +44,10 @@ Use the selected peer's exact preflight and interactive launch:
 | `grok` | `grok models` | `grok --always-approve --cwd "$REPO" --reasoning-effort "$EFFORT"` |
 
 Run Claude from a split whose cwd is already `$REPO`; its CLI has no cwd flag.
-If preflight fails, name the matching login command (`claude auth login`,
-`codex login`, or `grok login`) and stop. Do not try another agent.
+If preflight reports an authentication failure, name the matching login command
+(`claude auth login`, `codex login`, or `grok login`) and stop. For any other
+failure — including network/model discovery failure from `grok models` — surface
+the exact error and stop. Do not mislabel it as auth trouble or try another agent.
 
 Provision the peer as a **split tile parented to your own terminal**, never as a
 detached terminal. Use /kolu's split-with-parent create
@@ -69,6 +71,15 @@ ping.
 
 Keep one warm peer session for the whole debate. Round 1 receives the full ask;
 later rounds receive lean follow-ups and rely on the session's context.
+
+**Make the reverse ping executable.** Put this exact protocol in every ask: after
+writing and validating its output file, the peer calls kolu
+`lifecycle_sendInput` on the author terminal with text
+`AGENT-DEBATE <peer-title> VERDICT-WRITTEN <round>`, then calls
+`lifecycle_sendInput` again with `key: "Enter"`. If the author id is stale, list
+terminals, match the recorded author title exactly, and use its new id. The
+unique `AGENT-DEBATE` payload wakes the author without being confused for an
+ordinary prompt.
 
 **Exchange files, not rendered screen text.** Write each round's instructions to
 `$REPO/.agent-debate/ask-NNN.md` and send only a short pointer to that file.
@@ -162,17 +173,22 @@ After the leading `review`, parse:
 
 1. **Resolve context.** Confirm kolu, `PEER`, `EFFORT`, and `$REPO`. Fetch
    origin. If a PR number was supplied, check it out from inside `$REPO`.
-   Discover an existing PR even when no number was passed with
-   `(cd "$REPO" && gh pr view --json number,baseRefName)`; distinguish no PR
-   from a command error. Resolve the remote base and merge-base. If merge-base
-   resolution fails, stop with the bad ref. Require either a non-empty diff or
-   untracked files in scope.
+   When a PR number was supplied, or when comments are enabled, discover the PR
+   with `(cd "$REPO" && gh pr view --json number,baseRefName)`. Treat "no PR"
+   as no comment target; treat auth/network/CLI errors as blocking because the
+   requested PR operation cannot be trusted. With `--no-comment` and no PR
+   number, skip `gh` entirely. Resolve the remote base and merge-base. If
+   merge-base resolution fails, stop with the bad ref. Require either a
+   non-empty diff or untracked files in scope.
 
    In commit mode, require a completely clean initial tree. Tell the user to
    commit/stash or rerun with `--no-commit`; do not sweep pre-existing changes
    into round commits. Run the selected peer preflight. Create the gitignored
-   `$REPO/.agent-debate/` and remove prior `verdict-*`, `section-*`, `ask-*`,
-   `answer-*`, `candidate.md`, and `comment.md` artifacts.
+   `$REPO/.agent-debate/`, then require
+   `git -C "$REPO" check-ignore -q .agent-debate/`. If it is not ignored, stop
+   and tell the target repo to ignore it; never edit that repo's ignore files as
+   a side effect of review. Remove prior `verdict-*`, `section-*`, `ask-*`,
+   `answer-*`, `candidate-*`, `candidate.md`, and `comment.md` artifacts.
 
 2. **Spawn the selected peer** using the engine above. Record id and title for
    both terminals.
@@ -262,17 +278,23 @@ Treat author and selected peer as equals:
 answer --agent <claude|codex|grok> [--effort <level>] -- <prompt>
 ```
 
-Require a non-empty prompt after `--`. Run the selected peer preflight, clear
-old answer artifacts from `.agent-debate/`, spawn the peer, and use the same
-ping loop. Both sides may read the repo for grounding but neither may edit it.
-The unrestricted peer is instructed read-only, not kernel-enforced. Make no
-commits and no PR writes.
+Require a non-empty prompt after `--`. Set `$REPO` to the current worktree root;
+answer mode has no cross-repo flag. Require this to be a trusted repo for the
+same reason as review mode: the unrestricted peer reads repository instructions
+that can induce command execution. Run the selected peer preflight, create
+`.agent-debate/`, and require
+`git -C "$REPO" check-ignore -q .agent-debate/`; stop if it is not ignored.
+Clear old answer/candidate artifacts, spawn the peer, and use the same ping loop.
+Both sides may read tracked/source files for grounding but may modify **only**
+the ignored `.agent-debate/` scratch. Make no tracked-file edits, commits, or PR
+writes.
 
 Use role-based files so the protocol is independent of either harness:
 
 - Author: `.agent-debate/answer-author-N.md`
 - Peer: `.agent-debate/answer-peer-N.md`
 - Peer verdict: `.agent-debate/answer-verdict-N.json`
+- Author candidate verdict: `.agent-debate/candidate-author-N.json`
 
 Run the answer rounds:
 
@@ -282,16 +304,26 @@ Run the answer rounds:
   record what changed, or object with a reason and `file:line` for repo-grounded
   claims. Put the author's explicit agreement/objections at the top of
   `answer-author-N.md`.
+- **Keep the peer files consistent.** In every answer round, require the peer's
+  `answer-peer-N.md` bytes to equal the `answer` string from
+  `answer-verdict-N.json` plus one trailing newline. Reject and re-ask on a
+  mismatch.
 - **Confirm one candidate.** Mutual agreement on evolving answers can be a swap
   false positive. Synthesize one `.agent-debate/candidate.md`, then have both
-  sides judge that identical text in a confirmation round. Both approve the
-  candidate → consensus. Either objects → remove the candidate and resume with
-  the objection folded in.
+  sides judge that identical text in a confirmation round. The author writes
+  `candidate-author-N.json` as
+  `{ "approved": true|false, "objections": ["..."] }`. The peer writes an
+  answer verdict with `phase: "candidate"`, copies the candidate byte-for-byte
+  into `answer`, and sets `agreesWithOther: true` with no objections only when
+  it approves that candidate. Author approval plus peer approval → consensus.
+  Either side objects → remove the candidate and resume with both objections
+  folded into the next answer round.
 
 Use this peer answer-verdict schema:
 
 ```json
 {
+  "phase": "answer|candidate",
   "answer": "peer's complete answer this round",
   "keyPoints": ["core claims"],
   "agreesWithOther": false,
@@ -305,14 +337,17 @@ Use this peer answer-verdict schema:
 }
 ```
 
-Count agreement only when `agreesWithOther` is true and `objections` is empty.
+Use `phase: "answer"` in ordinary rounds and `phase: "candidate"` only for
+candidate confirmation. Count peer agreement only when `agreesWithOther` is
+true and `objections` is empty.
 
 On consensus, tear down and present the confirmed candidate with peer, effort,
 and round count. Assemble `.agent-debate/answer-<slug>.md` deterministically:
 header, each round's `answer-author-N.md` and `answer-peer-N.md` in order, then
 `candidate.md`. Point the user to it. If the peer cannot produce a valid verdict
-or confirmation never converges, report failure; never present a half-debate as
-agreed.
+after a re-ask, report infrastructure failure; otherwise keep debating until
+confirmation succeeds or a human interrupts and tears down. Never present a
+half-debate as agreed.
 
 ## Files
 
@@ -325,6 +360,7 @@ clear it at the start of every run:
 - `answer-author-N.md`
 - `answer-peer-N.md`
 - `answer-verdict-N.json`
+- `candidate-author-N.json`
 - `candidate.md`
 - `answer-<slug>.md`
 - `comment.md`
