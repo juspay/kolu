@@ -151,6 +151,29 @@ describe("createDirFilenameWatcher async install", () => {
     expect(w._watcherCount()).toBe(0);
   });
 
+  it("a fresh subscribe after teardown installs a new watcher", async () => {
+    const w = createDirFilenameWatcher({
+      resolveDir: async (cwd) => cwd,
+      filename: "HEAD",
+      debounceMs: 10,
+      logLabel: "test",
+    });
+
+    const stop1 = w.watch(tmpDir, () => {});
+    await w._whenSettled();
+    expect(w._watcherCount()).toBe(1);
+    stop1();
+    expect(w._watcherCount()).toBe(0);
+
+    const stop2 = w.watch(tmpDir, () => {});
+    await w._whenSettled();
+    expect(w._watcherCount()).toBe(1);
+    stop2();
+    expect(w._watcherCount()).toBe(0);
+
+    expect(fs.watch).toHaveBeenCalledTimes(2);
+  });
+
   it("a resolveDir that rejects is caught and logged, never thrown", async () => {
     const { log, errors } = makeTestLog();
     const w = createDirFilenameWatcher({

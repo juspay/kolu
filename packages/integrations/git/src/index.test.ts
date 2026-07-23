@@ -860,20 +860,6 @@ describe("watchGitHead", () => {
     expect(_sharedHeadWatcherCount()).toBe(0);
   });
 
-  it("a fresh subscribe after teardown installs a new watcher", async () => {
-    const { dir } = await initRepo("rebuild-repo");
-    const stop1 = watchGitHead(dir, () => {});
-    await settleWatchers();
-    expect(_sharedHeadWatcherCount()).toBe(1);
-    stop1();
-    expect(_sharedHeadWatcherCount()).toBe(0);
-    const stop2 = watchGitHead(dir, () => {});
-    await settleWatchers();
-    expect(_sharedHeadWatcherCount()).toBe(1);
-    stop2();
-    expect(_sharedHeadWatcherCount()).toBe(0);
-  });
-
   it("double-cleanup from the same subscriber is a safe no-op", async () => {
     const { dir } = await initRepo("idempotent-repo");
     const stop1 = watchGitHead(dir, () => {});
