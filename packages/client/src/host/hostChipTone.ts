@@ -3,10 +3,10 @@
  * `EntryStatus`. Pure (no JSX, no `wire`), so strip/popover/mobile render with
  * them and unit pins import them without dragging in the live transport.
  *
- * Strip pips (via {@link chipStatusDot}):
- *   · **local** — exception-only (house glyph is identity; green "fine" is silent)
- *   · **remote** — always-on connection status (green/amber/red), fact-only
- * Diagnostics popover always uses {@link HostGlance.detailDot}.
+ * Strip pips ({@link chipStatusDot}): always-on for every host (green/amber/red),
+ * fact-only — the open control for the diagnostics popover. Identity is separate
+ * (Home + machine hostname for local; ssh target for remote). Diagnostics
+ * header uses {@link HostGlance.detailDot} (same palette).
  */
 
 import type { EntryState } from "@kolu/surface-map";
@@ -24,9 +24,21 @@ export function hostHue(host: HostKey): string {
   return hostHueFor(encodeHostKey(host));
 }
 
-/** Render a `HostKey` as its human display label. */
+/** Render a `HostKey` as its human display label.
+ *  Local is the literal `"local"` (key identity) — the strip paints the
+ *  machine hostname via {@link useServerIdentity} + Home icon instead. */
 export function hostLabel(h: HostKey): string {
   return h.kind === "local" ? "local" : h.target;
+}
+
+/** On-screen name for tooltips/aria: machine hostname when known for local,
+ *  else {@link hostLabel}. */
+export function hostDisplayName(
+  h: HostKey,
+  serverHostname: string | undefined,
+): string {
+  if (h.kind === "local") return serverHostname ?? hostLabel(h);
+  return hostLabel(h);
 }
 
 /** One glance fold of entry state — strip + detail + labels co-defined so a
@@ -109,16 +121,14 @@ export function hostGlance(
 }
 
 /**
- * Status pip class for a strip/mobile chip. Local is exception-only (null when
- * healthy — the house glyph carries identity). Remote is unconditional: green
- * when connected, amber pulse when warming, red when failed.
+ * Always-on status pip for strip/mobile chips: green when connected, amber
+ * pulse when warming, red when failed. Prefer `stripDot` so warming keeps its
+ * pulse; fall back to `detailDot` for the healthy green.
  */
 export function chipStatusDot(
-  host: HostKey,
+  _host: HostKey,
   status: EntryState<{ reason: string }> | EntryState,
-): string | null {
+): string {
   const g = hostGlance(status);
-  if (host.kind === "local") return g.stripDot;
-  // Remote: always paint. Prefer stripDot so warming keeps its pulse class.
   return g.stripDot ?? g.detailDot;
 }

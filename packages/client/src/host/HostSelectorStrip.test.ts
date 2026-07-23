@@ -1,6 +1,6 @@
 /**
  * Host chip status via {@link hostGlance} / {@link chipStatusDot}:
- * local is exception-only (house glyph); remote always shows connection status.
+ * every host always paints connection status (local and remote).
  */
 
 import type { EntryState } from "@kolu/surface-map";
@@ -106,7 +106,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
   });
 });
 
-describe("chipStatusDot — local exception-only, remote unconditional", () => {
+describe("chipStatusDot — always-on for every host", () => {
   const local = HostKeySchema.parse({ kind: "local" });
   const remote = HostKeySchema.parse({ kind: "remote", target: "srid@zest" });
   const connected = {
@@ -119,18 +119,20 @@ describe("chipStatusDot — local exception-only, remote unconditional", () => {
     membershipId: testMembershipId(),
   };
 
-  it("local healthy paints nothing (house glyph is identity)", () => {
-    expect(chipStatusDot(local, connected)).toBeNull();
+  it("local healthy paints green (same as remote)", () => {
+    expect(chipStatusDot(local, connected)).toBe(GREEN);
   });
 
-  it("remote healthy always paints green", () => {
+  it("remote healthy paints green", () => {
     expect(chipStatusDot(remote, connected)).toBe(GREEN);
   });
 
-  it("remote warming keeps the pulse class", () => {
-    const cls = chipStatusDot(remote, warming);
-    expect(cls).toContain("amber");
-    expect(cls).toContain("animate-pulse");
+  it("warming keeps the pulse class on local and remote", () => {
+    for (const host of [local, remote]) {
+      const cls = chipStatusDot(host, warming);
+      expect(cls).toContain("amber");
+      expect(cls).toContain("animate-pulse");
+    }
   });
 });
 

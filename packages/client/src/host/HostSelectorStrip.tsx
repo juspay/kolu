@@ -8,20 +8,16 @@
  *  (`KOLU_PADI_HOST` still works as an optional launch-time SEED — see
  *  `parseKoluPadiHostSeed`.)
  *
- *  Quiet by default (exception-based strip):
- *    · a healthy host is JUST the label (active host keeps its `--host-hue` fill);
- *    · connection dots appear ONLY as exceptions — amber pulse for warming/
- *      connecting, red + desaturated/struck label for failed/unreachable (green
- *      "fine" dots are deleted);
- *    · awaiting-count pill + finished-unseen amber dot stay on the strip (user-
- *      domain signals);
- *    · padi/kaval daemon marks live in the per-host diagnostics popover
- *      (`HostDiagnosticsPopover`), not on every chip;
- *    · remove ✕ is hover/focus-only on the chip; the primary remove path is in
- *      the popover with a confirm step.
- *  A click switches the canvas (a synchronous signal write — `useEntry(activeHost)`
- *  re-keys, no reload). A mini padi·kaval control opens the diagnostics
- *  popover on click (never hover — switching must not pop a dialog).
+ *  Host tab bar:
+ *    · each pool member is a tab (active host keeps its `--host-hue` belly);
+ *    · identity is Home + machine hostname (local) or ssh target (remote);
+ *    · always-on connection status pip (green/amber/red) — click opens the
+ *      per-host diagnostics popover; label only switches (never hover-open);
+ *    · awaiting-count pill + finished-unseen amber dot stay on the strip;
+ *    · padi/kaval detail lives in the diagnostics popover, not on the strip;
+ *    · remove is in the popover with a confirm step.
+ *  A click on the label switches the canvas (a synchronous signal write —
+ *  `useEntry(activeHost)` re-keys, no reload).
  *
  *  NARROW-WINDOW STAGES (window resize only, never a host switch). Note this
  *  component only ever LIVES at `>= sm` (640px) — `useMobile.ts`'s
@@ -64,20 +60,19 @@ import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
-import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
-import { useCommandPalette } from "../useCommandPalette";
+import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
-import { HostDiagnosticsTrigger } from "./HostDaemonChips";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostFinishedDot } from "./HostFinishedDot";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import {
   chipStatusDot,
+  hostDisplayName,
   hostGlance,
   hostHue,
   hostLabel,
@@ -90,8 +85,8 @@ import { useHostMembers } from "./useHostMembers";
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Measurement is truth;
  *  this only avoids dumping every chip into overflow on the very first paint.
- *  Quiet strip: label + status + pills + mini padi·kaval more control. */
-const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 128;
+ *  Tab: status pip + identity + attention pills. */
+const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 96;
 
 /** Tailwind `md` (768px) — chip row vs dropdown. Real Solid media signal so
  *  only ONE dual-daemon fill mounts (CSS `hidden` does not unmount). */
@@ -140,15 +135,17 @@ const HostChip: Component<{
   const isActive = () => sameHost(activeHost(), props.host);
   const glance = () => hostGlance(state());
   const down = () => glance().down;
-  // Local: house glyph + exception pip only. Remote: always-on connection status.
+  // Always-on connection status — also the diagnostics open control.
   const statusDot = () => chipStatusDot(props.host, state());
+  const { hostname } = useServerIdentity();
+  const name = () => hostDisplayName(props.host, hostname());
   // Strip-owned open key — only ONE diagnostics panel mounts at a time.
   const diagOpen = () => !props.measure && props.diagnostics.isOpen(encKey);
 
   let chipEl: HTMLDivElement | undefined;
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
-  // border/bg/text COLOR. Label switches; mini padi·kaval opens diagnostics.
+  // border/bg/text COLOR. Identity switches; status pip opens diagnostics.
   return (
     <div
       ref={chipEl}
@@ -159,9 +156,9 @@ const HostChip: Component<{
       data-down={down() ? "" : undefined}
     >
       <div
-        // No outline box: active and inactive share the SAME geometry (no
-        // border, no 1px hop on selection). Active hue fill is kept even when
-        // down (selected-but-unreachable), with `.host-tab-down` layered on.
+        // Tab geometry: rounded top, flush bottom into the canvas. Active and
+        // idle share the same size (no 1px hop). Active hue fill is kept even
+        // when down, with `.host-tab-down` layered on.
         class="host-tab relative flex h-8 items-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
         style={{ "--host-hue": hostHue(props.host) }}
         classList={{
@@ -170,38 +167,45 @@ const HostChip: Component<{
           "host-tab-down": down(),
         }}
       >
+        {/* Connection status pip — click opens diagnostics (not switch). */}
+        <button
+          type="button"
+          data-testid="host-diagnostics-open"
+          aria-haspopup="dialog"
+          aria-expanded={diagOpen()}
+          aria-label={`Details for ${name()} — ${glance().title}`}
+          title={`${glance().title} — click for details`}
+          class="pointer-events-auto ml-2 flex h-7 w-4 shrink-0 items-center justify-center rounded-tl-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (props.measure) return;
+            props.diagnostics.toggle(encKey);
+          }}
+        >
+          <span
+            class={`inline-block h-2 w-2 rounded-full shrink-0 ${statusDot()}`}
+            aria-hidden="true"
+          />
+        </button>
         <button
           type="button"
           role="tab"
           aria-selected={isActive()}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-l-xl pl-2.5 pr-1.5 transition-colors focus-visible:outline-none cursor-pointer"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 pl-1 pr-2.5 transition-colors focus-visible:outline-none cursor-pointer"
           classList={{
             "text-fg": isActive() && !down(),
             "text-fg-2 hover:text-fg": !isActive() && !down(),
             "text-fg-3": down(),
           }}
           data-testid="host-select"
-          // Switch only — diagnostics is the separate "more" control so a
-          // hover/switch never pops a full dialog. No-op on already-active
-          // (canonical-string guard; never re-write activeHost with a fresh key).
+          // Switch only. Diagnostics is the status pip.
           onClick={() => {
             if (!isActive()) setActiveHost(props.host);
           }}
-          title={`${hostLabel(props.host)} — ${glance().title}`}
+          title={`${name()} — ${glance().title}`}
         >
-          <Show when={statusDot()}>
-            {(cls) => (
-              <span
-                // Local: exception-only. Remote: unconditional connection status
-                // (green/amber/red). House glyph on local is HostIdentityLabel.
-                class={`inline-block h-2 w-2 rounded-full shrink-0 ${cls()}`}
-                aria-hidden="true"
-              />
-            )}
-          </Show>
-          {/* Ellipsizes to a NARROWER max-width below `lg` (narrow-window stage
-           *  2) — a pure CSS breakpoint, so it only ever moves on a window
-           *  resize, never a host switch. Down: struck-through label. */}
+          {/* Local: Home + machine hostname. Remote: ssh target (ellipsizes
+           *  tighter below `lg`). Down: struck-through label. */}
           <HostIdentityLabel
             host={props.host}
             labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${glance().labelDecoration}`}
@@ -216,22 +220,10 @@ const HostChip: Component<{
           <HostFinishedDot
             count={marks.unseenFinished()}
             active={isActive()}
-            hostLabel={hostLabel(props.host)}
+            hostLabel={name()}
             sizeClass="ml-0.5 h-1.5 w-1.5"
           />
         </button>
-        {/* Mini padi·kaval — the "there is more" control; click opens diagnostics. */}
-        <Show when={!props.measure}>
-          <HostDiagnosticsTrigger
-            host={props.host}
-            open={diagOpen()}
-            onToggle={() => props.diagnostics.toggle(encKey)}
-          />
-        </Show>
-        <Show when={props.measure}>
-          {/* Width twin for the trigger (no live daemon subs on measure row). */}
-          <span class="inline-block h-7 w-10 shrink-0" aria-hidden="true" />
-        </Show>
       </div>
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover
@@ -245,8 +237,8 @@ const HostChip: Component<{
   );
 };
 
-/** One row inside the overflow/narrow host switcher — same exception-based
- *  vocabulary as the strip (no always-on green dots, no dual-daemon marks). */
+/** One row inside the overflow/narrow host switcher — same vocabulary as the
+ *  strip (status pip + Home/hostname; no dual-daemon marks). */
 const HostSwitcherRow: Component<{
   hostKey: string;
   onPicked: () => void;
@@ -291,14 +283,10 @@ const HostSwitcherRow: Component<{
         class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         onClick={pickHost}
       >
-        <Show when={statusDot()}>
-          {(cls) => (
-            <span
-              class={`inline-block h-2 w-2 rounded-full shrink-0 ${cls()}`}
-              aria-hidden="true"
-            />
-          )}
-        </Show>
+        <span
+          class={`inline-block h-2 w-2 rounded-full shrink-0 ${statusDot()}`}
+          aria-hidden="true"
+        />
         <span class="min-w-0 flex-1">
           <span
             class="flex min-w-0 items-center gap-1.5 text-xs font-medium"
@@ -441,9 +429,8 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
   );
 };
 
-/** Narrow multi-host range (`sm..md`): one bordered unit — the active host
- *  label + exception pip, opening an anchored host switcher. Quiet by default
- *  (no dual-daemon fill on the trigger). */
+/** Narrow multi-host range (`sm..md`): one tab-shaped unit — the active host
+ *  status pip + identity, opening an anchored host switcher. */
 const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
@@ -459,11 +446,9 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
       <div
         role="tablist"
         aria-label="Hosts"
-        class="-mb-px flex h-8 items-center rounded-t-md border border-b-transparent text-fg shadow-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 shrink-0"
-        classList={{
-          "border-accent/55 bg-accent/12": !down(),
-          "border-danger/40 bg-danger/10": down(),
-        }}
+        class="host-tab host-tab-active -mb-px flex h-8 items-center shrink-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50"
+        classList={{ "host-tab-down": down() }}
+        style={{ "--host-hue": hostHue(active()) }}
         data-testid="host-dropdown-switcher"
         data-down={down() ? "" : undefined}
       >
@@ -473,20 +458,16 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
           aria-selected="true"
           aria-expanded={open()}
           ref={triggerEl}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-t-md pl-2 pr-2 text-xs transition-colors focus-visible:outline-none cursor-pointer"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 pl-2.5 pr-2 text-xs transition-colors focus-visible:outline-none cursor-pointer"
           classList={{ "text-fg": !down(), "text-fg-3": down() }}
           aria-label={`Switch host — currently ${hostLabel(active())}`}
           title={`Switch host — currently ${hostLabel(active())}`}
           onClick={() => setOpen((v) => !v)}
         >
-          <Show when={statusDot()}>
-            {(cls) => (
-              <span
-                class={`inline-block h-2 w-2 rounded-full shrink-0 ${cls()}`}
-                aria-hidden="true"
-              />
-            )}
-          </Show>
+          <span
+            class={`inline-block h-2 w-2 rounded-full shrink-0 ${statusDot()}`}
+            aria-hidden="true"
+          />
           <HostIdentityLabel
             host={active()}
             labelClass={`truncate max-w-[5rem] font-medium${glance().labelDecoration}`}
@@ -593,25 +574,6 @@ const AddHostAffordance: Component = () => {
         </Portal>
       </Show>
     </>
-  );
-};
-
-/** The host-bar search affordance — a magnifier that opens the `Switch host`
- *  palette group (the same `⌘⇧H` fuzzy picker), mirroring the Dock's workspace
- *  search button. Only rendered when the pool holds more than the local host. */
-const HostSearchButton: Component = () => {
-  const commandPalette = useCommandPalette();
-  return (
-    <button
-      type="button"
-      data-testid="host-search"
-      onClick={() => commandPalette.openGroup("Switch host")}
-      class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
-      aria-label="Switch host"
-      title="Switch host (⌘⇧H)"
-    >
-      <SearchIcon class="h-4 w-4" />
-    </button>
   );
 };
 
@@ -730,7 +692,7 @@ const HostSelectorStrip: Component = () => {
         <div
           role="tablist"
           aria-label="Hosts"
-          class="flex items-end gap-1.5 min-w-0 flex-nowrap"
+          class="host-tablist flex items-end gap-0.5 min-w-0 flex-nowrap"
           data-testid="host-chip-row"
         >
           <For each={hostFit().visible}>
@@ -776,13 +738,8 @@ const HostSelectorStrip: Component = () => {
         </For>
       </div>
 
-      {/* Search/switch host — mirrors the Dock's search button, opens the
-       *  `⌘⇧H` picker. Only meaningful with more than one host in the pool. */}
-      <Show when={renderableHosts().length > 1}>
-        <HostSearchButton />
-      </Show>
-
-      {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate). */}
+      {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate).
+       *  Host switching also stays on ⌘⇧H / the command palette. */}
       <AddHostAffordance />
     </div>
   );

@@ -1,8 +1,9 @@
 /** Locators for the multi-host chrome identity chips (Kolu · Padi · Kaval).
  *
- *  Quiet strip: Padi/Kaval full marks live in the diagnostics popover. Open it
- *  via the chip's mini "more" control (`host-diagnostics-open`). Kolu stays a
- *  single global mark on the identity rail.
+ *  Quiet strip: full Padi/Kaval marks live in the diagnostics popover. Open it
+ *  via the connection-status pip (`host-diagnostics-open`). Local identity is
+ *  a Home glyph; remotes show hostname. Kolu stays a single global mark on the
+ *  identity rail.
  */
 
 export type IdentityChipTestid =
@@ -34,9 +35,10 @@ type PageLike = {
 const PANEL = '[data-testid="host-diagnostics-popover"]';
 const ACTIVE_CHIP =
   '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]';
-const ACTIVE_MORE = `${ACTIVE_CHIP} [data-testid="host-diagnostics-open"]`;
+const ACTIVE_STATUS_PIP = `${ACTIVE_CHIP} [data-testid="host-diagnostics-open"]`;
 
-/** Idempotently open the ACTIVE host's diagnostics popover via the more control. */
+/** Idempotently open the ACTIVE host's diagnostics popover via its status pip.
+ *  Every host (including local healthy) has a pip. */
 export async function openActiveHostDiagnostics(page: PageLike): Promise<void> {
   const activeKey = await page.locator(ACTIVE_CHIP).getAttribute("data-host");
   if (!activeKey) {
@@ -55,7 +57,12 @@ export async function openActiveHostDiagnostics(page: PageLike): Promise<void> {
     return;
   }
 
-  await page.locator(ACTIVE_MORE).click();
+  const pipCount = await page.locator(ACTIVE_STATUS_PIP).count();
+  if (pipCount === 0) {
+    throw new Error("openActiveHostDiagnostics: active chip has no status pip");
+  }
+
+  await page.locator(ACTIVE_STATUS_PIP).click();
   await page.waitForSelector(PANEL, { timeout: 10_000, state: "visible" });
 
   const openedHost = await page.locator(PANEL).getAttribute("data-host");

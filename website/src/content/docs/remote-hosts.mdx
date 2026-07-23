@@ -96,21 +96,22 @@ over ssh**: it copies the padi closure to the machine with Nix. A cold copy can
 take **minutes**. You don't install anything on the host by hand — the closure
 carries everything.
 
-**Local** is quiet by default (house glyph + name; status only when something is
-wrong). **Remote** hosts always show a connection pip so you can see link health
-at a glance:
+Each host is a **tab**: **local** is a Home icon plus the machine hostname
+kolu is running on; remotes show the ssh target. Every tab carries a
+**connection pip** so link health is always visible:
 
-| on the chip | meaning |
+| on the tab | meaning |
 | --- | --- |
-| *(local only)* house + name | local is healthy — silence is fine |
-| green | remote connected and live |
-| amber (pulsing) | connecting or copying — coming up |
-| red + struck label | unreachable — open diagnostics for the real error and **retry** |
+| Home + hostname | this machine (local) |
+| `user@host` | a remote ssh target |
+| green pip | connected and live |
+| amber pip (pulsing) | connecting or copying — coming up |
+| red pip + struck label | unreachable — open diagnostics for the real error and **retry** |
 
-Each chip has a mini **padi · kaval** control — click it for the **diagnostics
-popover** (connection state, terminal and awaiting counts, full daemon detail,
-remove-with-confirm). Switching hosts is only the label click; diagnostics is
-never hover-opened.
+Click the **connection pip** for the **diagnostics popover** — connection
+state, terminal and awaiting counts, padi·kaval detail, remove-with-confirm.
+The **label** (Home or hostname) only switches hosts; diagnostics is never
+hover-opened.
 
 <Aside type="note" title="What a cold connect shows you">
   A first-time provisioning **narrates itself** on the canvas. It names the real

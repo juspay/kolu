@@ -8,15 +8,15 @@
  *  the top of `MobileChromeSheet`.
  *
  *  It is the mobile TWIN of `HostSelectorStrip`, not a restyle: a chip consumes
- *  the EXACT desktop vocabulary — exception-based connection dots (healthy =
- *  silent; amber pulse = connecting; red + struck label = unreachable),
- *  `hostHue` for the per-host identity accent, `HostAwaitingPill` (violet
- *  needs-you count) and `HostFinishedDot` (amber unseen-finished) — so a
- *  signal means the same thing on a phone as on a laptop. A tap calls
- *  `setActiveHost` (the identical write the desktop strip makes; W9 makes the
- *  switch instant). Adding a host reuses the shared `addHost` mechanism; only
- *  the CONTAINER differs from desktop — a full-width in-sheet section rather
- *  than an anchored popover (the popover clips at phone width).
+ *  the EXACT desktop vocabulary — always-on connection status pip (green /
+ *  amber pulse / red), Home glyph for local or hostname for remote, `hostHue`
+ *  for the per-host identity accent, `HostAwaitingPill` (violet needs-you
+ *  count) and `HostFinishedDot` (amber unseen-finished) — so a signal means
+ *  the same thing on a phone as on a laptop. A tap calls `setActiveHost` (the
+ *  identical write the desktop strip makes; W9 makes the switch instant).
+ *  Adding a host reuses the shared `addHost` mechanism; only the CONTAINER
+ *  differs from desktop — a full-width in-sheet section rather than an
+ *  anchored popover (the popover clips at phone width).
  *
  *  Touch ergonomics: every chip and the add trigger are ≥44px hit targets, and
  *  the chip row scrolls horizontally when hosts overflow the viewport width. */
@@ -64,7 +64,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
   const glance = createMemo(() => hostGlance(state()));
   const down = createMemo(() => glance().down);
-  // Local: house glyph + exception pip. Remote: always-on connection status.
+  // Always-on connection status (green / amber / red).
   const statusDot = createMemo(() => chipStatusDot(props.host, state()));
   // Both marks from the ONE store, bundled once (the host is fixed for this chip).
   const marks = hostMarks(encodeHostKey(props.host));
@@ -118,17 +118,13 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
         props.onSwitch();
       }}
     >
-      <Show when={statusDot()}>
-        {(cls) => (
-          <span
-            class={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${cls()}`}
-            aria-hidden="true"
-          />
-        )}
-      </Show>
+      <span
+        class={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${statusDot()}`}
+        aria-hidden="true"
+      />
       <HostIdentityLabel
         host={props.host}
-        glyphClass="h-3.5 w-3.5"
+        glyphClass="h-4 w-4"
         labelClass={`max-w-[10rem] truncate font-medium${glance().labelDecoration}`}
       />
       {/* Needs-you pill — shared violet `HostAwaitingPill` (roomier mobile).

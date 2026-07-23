@@ -1,9 +1,9 @@
 /** Per-host diagnostics popover — the detail that used to crowd every chip.
  *
- *  The strip is exception-based (healthy = silent). Hover/click a chip to open
- *  this panel: connection state (with the real error + reconnect when
- *  unreachable), terminal + awaiting counts, the padi·kaval dual-daemon pair
- *  (diagnostics-on-demand), and remove-with-confirm for guest hosts.
+ *  Opened by clicking the host tab's connection status pip. Shows connection
+ *  state (with the real error + reconnect when unreachable), terminal +
+ *  awaiting counts, the padi·kaval dual-daemon pair, and remove-with-confirm
+ *  for guest hosts.
  *
  *  #1962 will supply provisioning copy progress; until then we show only the
  *  honest state label — no fake progress bar (remote-hosts.mdx).
@@ -25,6 +25,7 @@ import { hostMarks } from "../attention/attentionMarks";
 import { formatTimeAgo } from "../terminal/staleness";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { useServerIdentity } from "../useServerIdentity";
 import { interpretClientError, padiMap } from "../wire";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
@@ -83,7 +84,10 @@ export const HostDiagnosticsPopover: Component<{
   const marks = hostMarks(encodeHostKey(props.host));
   const isLocal = () => props.host.kind === "local";
   const [confirmRemove, setConfirmRemove] = createSignal(false);
-  const label = () => hostLabel(props.host);
+  // Local: machine hostname when known (same as the tab label); remotes: target.
+  const { hostname } = useServerIdentity();
+  const label = () =>
+    isLocal() ? (hostname() ?? hostLabel(props.host)) : hostLabel(props.host);
 
   // Lightweight keys stream only while the panel is open (`null` input tears
   // it down). Floors to undefined until the first frame lands — never a fake 0.
