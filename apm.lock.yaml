@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-23T19:28:05.635924+00:00'
+generated_at: '2026-07-23T19:31:40.034799+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -133,7 +133,7 @@ dependencies:
 - repo_url: juspay/odu
   name: odu
   host: github.com
-  resolved_commit: 8fc154d456d975904b78ec0f92e0fa00dddc6437
+  resolved_commit: 04373fc31777555073ec8b6c3052bd67fd46b9c6
   version: 1.0.0
   package_type: apm_package
   deployed_files:
@@ -154,7 +154,7 @@ dependencies:
     .claude/skills/odu-mcp/SKILL.md: sha256:429d55a46af84fb231b47fc95fd65706ea2282ed05b5dc59d2acacba0a3c8765
     .claude/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
     .claude/skills/odu/SKILL.md: sha256:494f485abc756acfe504200c64b51605a1535edb266a75b1d47be853d61854a0
-  content_hash: sha256:8db2e7fb7f6330bb38f40bb42d6568623a09e35afbe952ae6e91b09dea4a67bd
+  content_hash: sha256:3aa5ce95fc838f61b544a1f1533f2206bf2d1983ff73ce8d2a73eb904707b09a
 - repo_url: juspay/project-unknown
   name: project-unknown
   host: github.com
