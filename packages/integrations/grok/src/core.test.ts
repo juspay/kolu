@@ -181,6 +181,58 @@ describe("foldEventsState", () => {
     ).toBe("waiting");
   });
 
+  // /goal planner window: between goal_planner_fired and the main
+  // turn_started there is no open turn, so without this recognition the
+  // fold would fall through to the stale turn_ended and paint waiting.
+  it("maps goal_planner_fired → thinking", () => {
+    expect(
+      foldEventsState([{ type: "turn_ended" }, { type: "goal_planner_fired" }]),
+    ).toBe("thinking");
+    // completed alone falls back to the last real boundary
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_completed" },
+      ]),
+    ).toBe("waiting");
+    // happy path: turn_started after the planner window wins on its own
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_completed" },
+        { type: "turn_started" },
+      ]),
+    ).toBe("thinking");
+    // sequential re-open: a later fire is active again
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_completed" },
+        { type: "goal_planner_fired" },
+      ]),
+    ).toBe("thinking");
+    // completed with no prior fire is a no-op closer
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_completed" },
+      ]),
+    ).toBe("waiting");
+    // nested multi-fire: stacked completes close every open fire
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_completed" },
+        { type: "goal_planner_completed" },
+      ]),
+    ).toBe("waiting");
+  });
+
   it("prefers the newest signal", () => {
     expect(
       foldEventsState([
