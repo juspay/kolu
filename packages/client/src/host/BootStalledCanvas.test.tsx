@@ -17,11 +17,11 @@ import type { HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
   bootStalledCopy,
   CONNECTOR_STALLED_COPY,
 } from "../kaval/bootStalledCopy";
+import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 
 const h = vi.hoisted(() => ({ host: { kind: "local" } as HostKey }));
 vi.mock("../wire", () => ({

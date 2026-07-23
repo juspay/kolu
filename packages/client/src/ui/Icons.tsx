@@ -49,9 +49,7 @@ export const ChevronUpIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** House glyph — marks the LOCAL host (the machine kolu runs on) as a role,
- *  not a hostname, so its chip doesn't read like a machine literally named
- *  "local". */
+/** Home glyph — the LOCAL host's tab identity (replaces the word "local"). */
 export const HomeIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}

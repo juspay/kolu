@@ -94,9 +94,8 @@ const ChromeBar: Component<{
         <IdentityRail status={props.status} />
       </div>
 
-      {/* Host tabs are primary nav. Every tab carries a fixed-width Padi/Kaval
-       *  slot so daemon health is visible before switching and a host switch
-       *  never reflows the strip — see HostDaemonChips.tsx. */}
+      {/* Host tab bar — Home/hostname + connection pip (+ awaiting). Padi/Kaval
+       *  live in the host diagnostics popover (click the status pip). */}
       <div class="flex-1 min-w-0 flex items-end pointer-events-none">
         <HostSelectorStrip />
       </div>

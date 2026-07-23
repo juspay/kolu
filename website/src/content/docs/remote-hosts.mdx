@@ -96,13 +96,22 @@ over ssh**: it copies the padi closure to the machine with Nix. A cold copy can
 take **minutes**. You don't install anything on the host by hand — the closure
 carries everything.
 
-The host's chip dot tells you where it is:
+Each host is a **tab**: **local** is a Home icon plus the machine hostname
+kolu is running on; remotes show the ssh target. Every tab carries a
+**connection pip** so link health is always visible:
 
-| dot | meaning |
+| on the tab | meaning |
 | --- | --- |
-| amber | connecting or copying — coming up |
-| green | connected and live (shown only over a real link — never green over a dead host) |
-| red | provisioning or the link failed |
+| Home + hostname | this machine (local) |
+| `user@host` | a remote ssh target |
+| green pip | connected and live |
+| amber pip (pulsing) | connecting or copying — coming up |
+| red pip + struck label | unreachable — open diagnostics for the real error and **retry** |
+
+Click the **connection pip** for the **diagnostics popover** — connection
+state, terminal and awaiting counts, padi·kaval detail, remove-with-confirm.
+The **label** (Home or hostname) only switches hosts; diagnostics is never
+hover-opened.
 
 <Aside type="note" title="What a cold connect shows you">
   A first-time provisioning **narrates itself** on the canvas. It names the real

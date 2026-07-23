@@ -20,13 +20,11 @@
  *  so it sits beside the shell it always renders into instead of forcing each caller to
  *  import a third file. */
 
-import { encodeHostKey } from "kolu-common/hostKey";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
-import { toast } from "solid-sonner";
-import { resetBootDeadline } from "../kaval/bootDeadline";
 import { WarningIcon } from "../ui/Icons";
-import { activeHost, client, setActiveHost } from "../wire";
+import { activeHost, setActiveHost } from "../wire";
+import { reconnectHost } from "./reconnectHost";
 
 /** One action button in the card's vertical stack. `tone: "primary"` is the warning-accented
  *  recovery verb (Reconnect / Reload); `"secondary"` is the neutral escape hatch (Switch to
@@ -76,15 +74,9 @@ export function reconnectAction(opts: {
     label: opts.label,
     testid: opts.testid,
     tone: "primary",
-    onClick: () => {
-      const host = activeHost();
-      client.hosts
-        .reconnect({ host })
-        .then(() => resetBootDeadline(encodeHostKey(host)))
-        .catch((err: Error) =>
-          toast.error(`Couldn't reconnect: ${err.message}`),
-        );
-    },
+    // Atomic verb lives in reconnectHost — this adapter only binds "active host"
+    // + the card's label/testid.
+    onClick: () => reconnectHost(activeHost()),
   };
 }
 
