@@ -21,7 +21,7 @@ const chrome = surface();
 const features = [
   { label: "New terminal", shortcut: advertisedNewTerminalKey },
   { label: "New terminal menu", shortcut: ACTIONS.newTerminalMenu.keybind },
-  { label: "Command palette", shortcut: ACTIONS.commandPalette.keybind },
+  { label: "Search everything", shortcut: ACTIONS.commandPalette.keybind },
   { label: "Cycle terminals", shortcut: ACTIONS.cycleTerminalMru.keybind },
 ];
 

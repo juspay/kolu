@@ -35,6 +35,7 @@ export const DOC_SLUGS = [
   "remote-hosts",
   "right-panel",
   "sessions",
+  "switcher",
   "terminal-ui",
   "theming",
   "tiles",

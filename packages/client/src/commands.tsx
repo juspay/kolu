@@ -1,13 +1,13 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
 import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
-import type { TerminalId } from "kolu-common/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
-import type { Accessor, Component } from "solid-js";
+import type { Accessor } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import { aboutDialog } from "./AboutDialog";
+import type { HostKey } from "kolu-common/hostKey";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -16,50 +16,32 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
-import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
-import type { DockSourceEntry } from "./canvas/dockModel";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
-import { hostLabel, sameHost } from "./host/hostChipTone";
 import {
   ACTIONS,
   type ActionContext,
   actionPaletteCommand,
 } from "./input/actions";
-import type { HostKey } from "kolu-common/hostKey";
-import { restartDaemon } from "./kaval/useDaemonRestart";
 import { offerRestartVerb } from "./kaval/daemonPresentation";
+import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
+import { recentAgents, recentRepos } from "./hostScope/activeWire";
+import {
+  hostRootActions,
+  terminalHostGroups,
+  terminalSwitchActions,
+} from "./palette/fleetActions";
+import { useFleetTerminalIndex } from "./palette/fleetTerminals";
+import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
+import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
-import { recentAgents, recentRepos } from "./hostScope/activeWire";
-
-/** Body component factory for the "Search workspaces" group. Captures
- *  the entries accessor + recency lookup in a closure so the palette
- *  engine only sees a `Component<{ query; closePalette }>` that the
- *  group's `body` slot accepts — no palette awareness of dock model
- *  internals. */
-function workspaceGridBody(
-  workspaceEntries: Accessor<DockSourceEntry[]>,
-  getRecency: (id: TerminalId) => number,
-  activate: (id: TerminalId) => void,
-): Component<{ query: string; closePalette: () => void }> {
-  return (props) => (
-    <WorkspaceGrid
-      entries={workspaceEntries()}
-      getRecency={getRecency}
-      query={props.query}
-      onSelect={(id) => {
-        activate(id);
-        props.closePalette();
-      }}
-    />
-  );
-}
+import { padiMap } from "./wire";
 
 /** Live worktree-name validator — reuses the server schema so the rule
  *  has one source of truth. Returns the first issue's message, or null
@@ -138,12 +120,10 @@ export interface CommandDeps extends ActionContext {
     initialCommand?: string,
   ) => void;
   handleClose: () => void;
-  // Workspace search — the live-terminal source list and recency
-  // accessor the "Search workspaces" group walks to populate its rows.
-  workspaceEntries: Accessor<DockSourceEntry[]>;
-  recencyOf: (id: TerminalId) => number;
-  // Host switcher — the pool, the active host, and the switch writer the
-  // "Switch host" group (⌘⇧H) walks to populate its rows.
+  // Terminal switcher — activate is enough; row list is useDockOrder (shared
+  // with the dock). Host pool still comes from deps.
+  // Host pool — root host rows and the Hosts scoped group (⌘⇧H) share
+  // hostRootActions so they cannot drift.
   hostKeys: Accessor<HostKey[]>;
   activeHost: Accessor<HostKey>;
   switchHost: (host: HostKey) => void;
@@ -159,17 +139,6 @@ export interface CommandDeps extends ActionContext {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  // Stable component reference — created once per `createCommands` call so
-  // the `body` slot identity doesn't change on every reactive re-run of the
-  // memo below. A changing `body` reference would cause SolidJS's `<Dynamic>`
-  // to unmount/remount `WorkspaceGrid` on every terminal update, losing its
-  // `repoFilter` signal and scroll position.
-  const workspacesBody = workspaceGridBody(
-    deps.workspaceEntries,
-    deps.recencyOf,
-    deps.activate,
-  );
-
   // Canvas posture — same reactive reader pattern as ChromeBar/Dock. The
   // memo reads `mode()`/`canMaximize()` so the command's label and
   // visibility track posture reactively. The *write* path stays on
@@ -179,26 +148,63 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const posture = useViewPosture();
   const tileStore = useTileStore();
   const crud = useTerminalCrud();
+  // Fleet-wide terminal index — every connected host's terminals, ranked by
+  // recency. Active-host-only dock order is not enough for multi-host jump.
+  // Split children are excluded at the source (same rule as Dock terminalIds).
+  const fleet = useFleetTerminalIndex();
+  const terminalRows = () =>
+    terminalSwitchActions(
+      fleet(),
+      deps.activeHost(),
+      deps.switchHost,
+      deps.activate,
+    );
+  const hostScopedTerminalGroups = () =>
+    terminalHostGroups(
+      fleet(),
+      deps.hostKeys(),
+      deps.activeHost(),
+      deps.switchHost,
+      deps.activate,
+    );
+  /** Terminals scope is available once any pool host is connected (even if
+   *  the fleet index is still empty — headers paint with 0 counts). */
+  const terminalsScopeOpen = () =>
+    deps
+      .hostKeys()
+      .some((h) => padiMap.entry(h).state().kind === "connected") ||
+    fleet().length > 0;
 
   return createMemo((): PaletteCommand[] => [
-    // --- Workspaces ---
-    ...(tileStore.tileCount() > 0
+    // --- Root index: terminals (all hosts) + hosts ---
+    // Empty root caps terminals to Recent (~3); a query surfaces all matches
+    // flat across hosts (host chip on each row). ⌘⇧K opens Terminals as a
+    // flat multi-host list under host headers; dock search deep-links
+    // Terminals › $activeHost.
+    ...terminalRows(),
+    ...(deps.hostKeys().length > 1
+      ? hostRootActions(deps.hostKeys(), deps.activeHost(), deps.switchHost)
+      : []),
+
+    // --- Terminals section: fleet list + new terminal ---
+    ...(terminalsScopeOpen()
       ? [
           {
-            kind: "body-group" as const,
-            name: "Search workspaces",
-            description: "Switch to a live terminal",
-            section: "workspaces" as const,
+            kind: "group" as const,
+            name: TERMINALS_GROUP_NAME,
+            description: "Type to filter",
+            section: "terminals" as const,
             keybind: ACTIONS.openWorkspaceSwitcher.keybind,
-            body: workspacesBody,
-            bodyHint: "Pick a workspace to switch",
+            row: { kind: "command" as const },
+            children: (): PaletteItem[] => hostScopedTerminalGroups(),
           },
         ]
       : []),
     {
       kind: "group",
       name: "New terminal",
-      section: "workspaces",
+      section: "terminals",
+      row: { kind: "command" },
       children: (): PaletteItem[] => {
         const repos = recentRepos();
         return [
@@ -236,27 +242,25 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       },
     },
 
-    // --- Switch host (⌘⇧H) — only once the pool holds more than local ---
+    // --- Hosts scoped group (⌘⇧H) — same rows as root host index ---
+    // rootHidden: children are already promoted as root host rows, so the
+    // container stays addressable for openGroup/initialPath without a
+    // second Hosts band in the empty-root list.
     ...(deps.hostKeys().length > 1
       ? [
           {
             kind: "group" as const,
-            name: "Switch host",
-            description: "Switch which machine the canvas views",
-            section: "workspaces" as const,
+            name: HOSTS_GROUP_NAME,
+            description: "Switch canvas host",
+            section: "hosts" as const,
             keybind: ACTIONS.openHostSwitcher.keybind,
+            rootHidden: true,
+            row: { kind: "command" as const },
             children: (): PaletteItem[] =>
-              deps.hostKeys().map(
-                (h): PaletteItem => ({
-                  kind: "action",
-                  name: hostLabel(h),
-                  description: sameHost(h, deps.activeHost())
-                    ? "active"
-                    : undefined,
-                  onSelect: () => {
-                    if (!sameHost(h, deps.activeHost())) deps.switchHost(h);
-                  },
-                }),
+              hostRootActions(
+                deps.hostKeys(),
+                deps.activeHost(),
+                deps.switchHost,
               ),
           },
         ]
@@ -377,7 +381,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   (t): PaletteAction => ({
                     kind: "action",
                     name: t.name,
+                    // Cancel lives on the leaf too so root-flattened theme
+                    // hits (no path segment) still restore the committed theme.
                     onHighlight: () => deps.setPreviewThemeName(t.name),
+                    onCancel: () => deps.setPreviewThemeName(undefined),
                     onSelect: () =>
                       batch(() => {
                         deps.setPreviewThemeName(undefined);

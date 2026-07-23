@@ -163,7 +163,12 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     expect(endpoint.current()?.client).toBe("FRESH");
   });
 
-  it("Foreign holder: a non-kaval process is NEVER killed — loud typed error naming it", async () => {
+  // 15s — under a saturated localhost CI fanout the OS socket-holder scan +
+  // ensure path can exceed vitest's default 5s without being wrong (reran red
+  // twice on bd72d3d@x86_64-linux localhost). Keep the pin strict on behaviour.
+  it("Foreign holder: a non-kaval process is NEVER killed — loud typed error naming it", {
+    timeout: 15_000,
+  }, async () => {
     const d = dir();
     const socketPath = join(d, "pty.sock");
     const gatePath = join(d, "kaval.pid");
@@ -207,7 +212,9 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     );
   });
 
-  it("Pid-absent speaker: a version that fails schema (no self-reported pid) is FOREIGN, not killed", async () => {
+  it("Pid-absent speaker: a version that fails schema (no self-reported pid) is FOREIGN, not killed", {
+    timeout: 15_000,
+  }, async () => {
     const d = dir();
     const socketPath = join(d, "pty.sock");
     const gatePath = join(d, "kaval.pid");

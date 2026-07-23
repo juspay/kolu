@@ -198,21 +198,22 @@ const _ACTIONS = {
     altKeybind: { key: "Tab", code: "Tab", alt: true, shiftOptional: true },
   },
   commandPalette: {
-    label: "Command palette",
+    label: "Search everything",
     keybind: { key: "k", mod: true },
     handler: (ctx) => ctx.togglePalette(),
   },
   openWorkspaceSwitcher: {
-    label: "Workspace switcher",
+    label: "Terminal switcher",
     keybind: { key: "K", code: "KeyK", mod: true, shift: true },
     handler: (ctx) => ctx.openWorkspaceSwitcher(),
   },
   openHostSwitcher: {
-    label: "Switch host",
-    // `⌘⇧H` (Ctrl+Shift+H elsewhere) — opens the host-switcher palette group,
-    // mirroring `⌘⇧K`'s workspace switcher and following the `Mod+Shift+<letter>`
-    // convention it names. `H` = host; free of the terminal chords, and (unlike a
-    // bare `mod`+letter) it never collapses to a terminal-colliding chord off-mac.
+    label: "Hosts",
+    // `⌘⇧H` (Ctrl+Shift+H elsewhere) — deep-links into the Hosts scoped group
+    // of the unified palette (same host rows as the root index), mirroring
+    // `⌘⇧K`'s Terminals scope. `H` = host; free of the terminal chords, and
+    // (unlike a bare `mod`+letter) never collapses to a terminal-colliding
+    // chord off-mac.
     keybind: { key: "H", code: "KeyH", mod: true, shift: true },
     handler: (ctx) => ctx.openHostSwitcher(),
   },

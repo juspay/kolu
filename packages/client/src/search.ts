@@ -1,9 +1,8 @@
-/** Shared query helpers — used by the command palette filter and the
- *  workspace-entry search. One implementation so both surfaces have
- *  identical multi-token semantics: lowercase the query, split on
- *  whitespace, then require every token to appear as a substring of
- *  the candidate text. "kolu auth" matches "auth-fix · kolu · …"
- *  regardless of which order the tokens appear in the row. */
+/** Shared query helpers — the one AND-token matcher for the command
+ *  palette root index, the dock workspace grid, and any other multi-field
+ *  search surface. Lowercase the query, split on whitespace, then require
+ *  every token to appear as a substring of the candidate text. "kolu auth"
+ *  matches "auth-fix · kolu · …" regardless of token order. */
 
 export function tokenize(query: string): string[] {
   return query.toLowerCase().trim().split(/\s+/).filter(Boolean);

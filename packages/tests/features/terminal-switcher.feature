@@ -1,15 +1,17 @@
-Feature: Workspace switcher (unified palette navigator)
-  The dock is the canonical live-terminal navigator (#903); the
-  workspace-search surface unified with the command palette in #912 —
-  `Mod+Shift+K` and the dock's search-icon button both open the
-  palette pre-drilled into "Search workspaces", whose body renders
-  the same facet sidebar + agent-state column grid the standalone
-  mega level used to host.
+Feature: Terminal switcher (unified palette)
+  The dock is the canonical live-terminal navigator; the switcher is the
+  same terminal set as a searchable palette. The dock's search-icon opens
+  the palette host-scoped (Terminals › local); `Mod+Shift+K` opens Terminals
+  with every host already expanded under headers. Terminal rows use
+  StatePips, not a separate grid.
+
+  # Cross-host paths (remote fleet headers, switch+activate to another machine)
+  # are unit-tested only — this e2e harness is single-host (local).
 
   Background:
     Given the terminal is ready
 
-  Scenario: Workspace switcher (dock) appears on the canvas
+  Scenario: Dock appears on the canvas
     Then the workspace switcher should be visible
     And there should be no page errors
 
@@ -24,18 +26,13 @@ Feature: Workspace switcher (unified palette navigator)
     And there should be no page errors
 
   Scenario: Clicking a dock row switches the active terminal
-    # The Background-created terminal is t0; running echo targets it
-    # (it's the active one). Then a second terminal becomes active.
-    # Clicking row 1 returns to t0, whose buffer carries the echo
-    # output. (#830: typing in t0 lifts its recency above the just-
-    # created t1, so t0 leads the recency-sorted dock order.)
     Given I run "echo first-pill"
     And I create a terminal
     When I click workspace switcher branch 1
     Then the active terminal should show "first-pill"
     And there should be no page errors
 
-  Scenario: Palette body search filters live terminal metadata
+  Scenario: Scoped terminal list filters by dock corpus
     Given I create a terminal
     When I run "cd /tmp"
     And I hover the workspace switcher
@@ -44,13 +41,13 @@ Feature: Workspace switcher (unified palette navigator)
     Then the workspace switcher should show 1 card
     And there should be no page errors
 
-  Scenario: Mod+Shift+K opens palette on workspaces with search focused
+  Scenario: Mod+Shift+K opens terminal-scoped palette with search focused
     When I press the workspace switcher shortcut
     Then the workspace switcher panel should be visible
     And the workspace switcher search should be focused
     And there should be no page errors
 
-  Scenario: Dock search-icon button opens the palette on workspaces
+  Scenario: Dock search-icon button opens the terminal switcher
     When I click the workspace switcher toggle
     Then the workspace switcher panel should be visible
     And there should be no page errors
@@ -69,7 +66,7 @@ Feature: Workspace switcher (unified palette navigator)
     Then the workspace switcher panel should not be visible
     And there should be no page errors
 
-  Scenario: Selecting a workspace card closes the palette
+  Scenario: Selecting a terminal row closes the palette
     Given I run "echo dismiss-after-select"
     And I create a terminal
     When I click the workspace switcher toggle
@@ -79,17 +76,15 @@ Feature: Workspace switcher (unified palette navigator)
     And the active terminal should show "dismiss-after-select"
     And there should be no page errors
 
-  Scenario: Repo facet narrows visible cards
+  Scenario: Filtering by repo name narrows terminal rows
     Given I create a terminal
     When I run "cd /tmp"
     And I hover the workspace switcher
-    And I click workspace switcher repo "tmp"
-    Then the workspace switcher panel should be visible
-    And the workspace switcher should show 1 card
-    And the workspace switcher should show only repo "tmp" cards
+    When I search the workspace switcher for "tmp"
+    Then the workspace switcher should show 1 card
     And there should be no page errors
 
-  Scenario: Selecting a workspace card switches the active terminal
+  Scenario: Selecting a terminal row switches the active terminal
     Given I run "echo first-workspace-card"
     And I create a terminal
     When I hover the workspace switcher
@@ -97,9 +92,7 @@ Feature: Workspace switcher (unified palette navigator)
     Then the active terminal should show "first-workspace-card"
     And there should be no page errors
 
-  Scenario: Arrow keys move the keyboard cursor between workspace cards
-    # Two plain-shell terminals stack in the "No agent" column; the
-    # cursor lands on card 1 by default and ArrowDown steps to card 2.
+  Scenario: Arrow keys move the keyboard cursor between terminal rows
     Given I create a terminal
     When I hover the workspace switcher
     Then the workspace switcher panel should be visible
@@ -112,11 +105,7 @@ Feature: Workspace switcher (unified palette navigator)
     Then workspace switcher card 1 should be highlighted
     And there should be no page errors
 
-  Scenario: Enter on the keyboard-highlighted workspace activates it
-    # The cursor lands on card 1 by default; Enter without prior arrow
-    # navigation activates that card. Mirrors the click-card-1 path of
-    # "Selecting a workspace card switches the active terminal" but
-    # via Enter so we exercise the body's Enter handler explicitly.
+  Scenario: Enter on the keyboard-highlighted terminal activates it
     Given I run "echo selected-via-enter"
     And I create a terminal
     When I hover the workspace switcher
@@ -127,26 +116,58 @@ Feature: Workspace switcher (unified palette navigator)
     And the active terminal should show "selected-via-enter"
     And there should be no page errors
 
-  Scenario: Workspace columns enumerate every agent state bucket
-    # The Idle column lives between Working and No agent and surfaces the
-    # parked-by-inactivity entries the minimap window picker dims. Even on
-    # a fresh workspace (no parked terminals) the column is rendered so the
-    # ladder reads as a triage scaffold rather than a feature that appears
-    # only when something is wrong.
+  Scenario: Plain-shell terminals appear in the switcher
+    # Non-agent terminals must list — the dock's full set, not agents only.
+    Given I create a terminal
     When I hover the workspace switcher
     Then the workspace switcher panel should be visible
-    And the workspace switcher should show buckets "idle, awaiting, working, none"
-    And the workspace switcher idle column should show sub-buckets "4h-12h, 12h-24h, 24h-48h, 48h+"
+    And the workspace switcher should show 2 cards
     And there should be no page errors
 
-  Scenario: Workspace switcher column titles are label-only legends
-    # Column headers are state legends, not terminals — colour + label
-    # carry the bucket identity (#1950). StatePip stays on real terminal
-    # rows and the tile title, not the column chrome (a shell/agent glyph
-    # on every bucket header would misread the legend).
-    When I hover the workspace switcher
+  Scenario: Root jump finds a terminal by name with kind tag and activates on Enter
+    # (1) ⌘K root: type a distinctive branch, assert term kind tag, Enter
+    # activates and closes the palette.
+    When I run "rm -rf /tmp/kolu-sw-root-jump && git init /tmp/kolu-sw-root-jump && cd /tmp/kolu-sw-root-jump && git checkout -b root-jump-branch"
+    And I open the command palette
+    And I type "root-jump-branch" in the palette
+    Then palette item "root-jump-branch" should be visible
+    And palette item "root-jump-branch" should show section tag "term"
+    When I press Enter
+    Then the command palette should not be visible
+    And the header branch should contain "root-jump-branch"
+    And there should be no page errors
+
+  Scenario: Mod+Shift+K shows host header with terminal rows without drilling
+    # (2) ⌘⇧K auto-expands: local header + count, terminal rows beneath.
+    Given I create a terminal
+    When I press the workspace switcher shortcut
     Then the workspace switcher panel should be visible
-    And the workspace switcher should show buckets "idle, awaiting, working, none"
+    And the palette host header "local" should be visible
+    And the palette host header "local" should show at least 1 terminal
+    And the workspace switcher should show 2 cards
+    And the palette breadcrumb should show "Terminals"
+    And the palette breadcrumb should not show a host segment after Terminals
+    And there should be no page errors
+
+  Scenario: Split siblings are excluded from the switcher while the parent is listed
+    # (3) parentId children must not appear as independent rows.
+    # Use Ctrl+` (not the palette path) so focus/click flakiness on xterm
+    # canvas cannot strand the setup.
+    Given I create a terminal
+    When I press Control+Backquote
+    Then the active tile should show sub-terminal count 1
+    When I press the workspace switcher shortcut
+    Then the workspace switcher panel should be visible
+    # Background terminal + the one we created = 2 top-level; the split is not a third.
+    And the workspace switcher should show 2 cards
+    And there should be no page errors
+
+  Scenario: Dock search icon opens host-scoped Terminals with breadcrumb
+    # (4) dock-search deep-links Terminals › local (active host).
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    And the palette breadcrumb should show "Terminals"
+    And the palette breadcrumb should show "local"
     And there should be no page errors
 
   @mobile

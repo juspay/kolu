@@ -88,8 +88,8 @@ const TerminalCanvas: Component<{
   onSelect: (id: TileId) => void;
   onClose: (id: TileId) => void;
   /** Invoked when the dock's search-icon button is clicked. Opens the
-   *  command palette pre-drilled into the "Search workspaces" group —
-   *  the same surface `Mod+Shift+K` reaches. */
+   *  command palette host-scoped (Terminals › active host) so the list is
+   *  this machine's terminals only. ⌘⇧K opens Terminals (host list) instead. */
   onOpenWorkspaceSearch: () => void;
   /** Open the "new terminal" flow — wired into the dock header's `+`. */
   onCreate: () => void;
