@@ -30,6 +30,7 @@ import {
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { activeScope } from "../hostScope/hostScopes";
+import { reprojectTerminalClock } from "./reprojectClock";
 import { activeHost, padiMap } from "../wire";
 import {
   buildTerminalDisplayInfos,
@@ -96,44 +97,10 @@ export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
  *  it from any other tracking scope would reintroduce #1714's per-call identity churn,
  *  which is why the value read path funnels through `getMetadata` alone. */
 function reprojectClock(record: TerminalMetadata): TerminalMetadata {
-  const { toLocal } = padiMap.entry(activeHost()).clock;
-  // 0 is an IN-BAND sentinel across these epochs ("no activity yet" for `lastActivityAt`,
-  // `z.number().default(0)`; the ABSENT/"unknown" form for `startedAt`/`sleptAt`), NOT an
-  // epoch — so it must NOT be reprojected: `toLocal(0)` = `-offset` would forge a garbage
-  // timestamp that isStale/formatTimeAgo/dock-ranking read as a real reading (a fresh remote
-  // shell → "55y ago" → dropped from the dock as "parked"). Only a real, NON-zero epoch is a
-  // host-clock value to translate; 0 (and undefined) pass through untouched. 0 doing double
-  // duty is an overloaded value — a padi-contract union splitting "no activity" from an epoch
-  // is the real fix, not tonight's; this comment stops a future cleanup from reprojecting the
-  // sentinel again.
-  const lastActivityAt = record.lastActivityAt
-    ? (toLocal(record.lastActivityAt) ?? undefined)
-    : record.lastActivityAt;
-  const agent =
-    "agent" in record && typeof record.agent?.startedAt === "number"
-      ? {
-          ...record.agent,
-          startedAt: record.agent.startedAt
-            ? (toLocal(record.agent.startedAt) ?? 0)
-            : record.agent.startedAt,
-        }
-      : "agent" in record
-        ? record.agent
-        : undefined;
-  const sleptAt =
-    "sleptAt" in record && typeof record.sleptAt === "number"
-      ? record.sleptAt
-        ? (toLocal(record.sleptAt) ?? 0)
-        : record.sleptAt
-      : undefined;
-  // The same type bridge the parked-narrow above rides: the reprojected fields keep
-  // their wire types (number|undefined), so this is a value-only rewrite of the record.
-  return {
-    ...record,
-    lastActivityAt,
-    ...(agent === undefined ? {} : { agent }),
-    ...(sleptAt === undefined ? {} : { sleptAt }),
-  } as TerminalMetadata;
+  return reprojectTerminalClock(
+    padiMap.entry(activeHost()).clock.toLocal,
+    record,
+  );
 }
 
 export function useTerminalMetadata(deps: {

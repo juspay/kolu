@@ -24,7 +24,7 @@ import {
 } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createComputed, createMemo, mapArray } from "solid-js";
-import { rowRecencyAt } from "../canvas/dock/dockRowRanking";
+import { rowRecencyAt, tsRank } from "../canvas/dock/dockRowRanking";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostScopeOf } from "../hostScope/hostScopes";
 import {
@@ -33,6 +33,7 @@ import {
   isActivityWindow,
   windowOption,
 } from "../terminal/activityWindow";
+import { reprojectTerminalClock } from "../terminal/reprojectClock";
 import { isParked } from "../terminal/useTerminalMetadata";
 import { isStale as isStaleAt } from "../terminal/staleness";
 import { getClockNow } from "../time/clock";
@@ -51,9 +52,8 @@ export function rankFleetTerminalRows(
   rows: readonly FleetTerminalRow[],
 ): FleetTerminalRow[] {
   return [...rows].sort((a, b) => {
-    const ra = a.recencyAt ?? Number.NEGATIVE_INFINITY;
-    const rb = b.recencyAt ?? Number.NEGATIVE_INFINITY;
-    if (ra !== rb) return rb - ra;
+    const d = tsRank(b.recencyAt) - tsRank(a.recencyAt);
+    if (d !== 0) return d;
     return encodeHostKey(a.host).localeCompare(encodeHostKey(b.host));
   });
 }
@@ -105,38 +105,12 @@ export function orderHostsActiveFirst(
 }
 
 /** Reproject padi-stamped epochs onto the browser clock using THIS host's
- *  measured offset. Same 0-sentinel rule as useTerminalMetadata. */
+ *  measured offset — shared 0-sentinel rules via {@link reprojectTerminalClock}. */
 function reprojectOnHost(
   host: HostKey,
   record: TerminalMetadata,
 ): TerminalMetadata {
-  const { toLocal } = padiMap.entry(host).clock;
-  const lastActivityAt = record.lastActivityAt
-    ? (toLocal(record.lastActivityAt) ?? undefined)
-    : record.lastActivityAt;
-  const agent =
-    "agent" in record && typeof record.agent?.startedAt === "number"
-      ? {
-          ...record.agent,
-          startedAt: record.agent.startedAt
-            ? (toLocal(record.agent.startedAt) ?? 0)
-            : record.agent.startedAt,
-        }
-      : "agent" in record
-        ? record.agent
-        : undefined;
-  const sleptAt =
-    "sleptAt" in record && typeof record.sleptAt === "number"
-      ? record.sleptAt
-        ? (toLocal(record.sleptAt) ?? 0)
-        : record.sleptAt
-      : undefined;
-  return {
-    ...record,
-    lastActivityAt,
-    ...(agent === undefined ? {} : { agent }),
-    ...(sleptAt === undefined ? {} : { sleptAt }),
-  } as TerminalMetadata;
+  return reprojectTerminalClock(padiMap.entry(host).clock.toLocal, record);
 }
 
 type PerHostHandle = {
