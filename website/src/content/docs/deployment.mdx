@@ -1,0 +1,126 @@
+---
+title: Deployment
+description: "Run kolu as a home-manager service on Linux or macOS, configure its address and browser origins, inspect logs, and capture heap diagnostics."
+order: 72
+section: Operate
+koluHero:
+  eyebrow: operate
+  headline: Keep {kolu} running.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+
+kolu's home-manager module runs the web server as a systemd user service on
+Linux or a launchd LaunchAgent on macOS. Both supervisors restart a failed
+server, while [padi and kaval](/architecture) keep workspace state and live
+shells below it.
+
+## Enable the service
+
+Import the module and select the package for the current system:
+
+```nix
+{ pkgs, kolu, ... }:
+{
+  imports = [ kolu.homeManagerModules.default ];
+
+  services.kolu = {
+    enable = true;
+    package = kolu.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  };
+}
+```
+
+Apply the home-manager configuration as usual, then open
+[http://127.0.0.1:7681](http://127.0.0.1:7681). The module also puts the
+matching `kolu`, `padi-tui`, and `kaval-tui` commands on `PATH`.
+
+The complete, build-tested flake is in
+[`nix/home/example`](https://github.com/juspay/kolu/tree/master/nix/home/example).
+CI boots its systemd configuration in a NixOS VM and builds its launchd
+activation package on macOS.
+
+## Choose the address
+
+The service listens on loopback port `7681` by default. Change either value in
+the module:
+
+```nix
+services.kolu = {
+  host = "0.0.0.0";
+  port = 8080;
+};
+```
+
+<Aside type="caution" title="The RPC surface has no login">
+  The same-origin gate stops a hostile website from reaching kolu through your
+  browser; it does not authenticate another device that can reach the listening
+  address. Keep access inside a trusted network. For private HTTPS across
+  devices, follow <a href="/remote-access">Remote Access</a>.
+</Aside>
+
+## Allow a reverse-proxy origin
+
+kolu accepts its own browser origin by default. A reverse proxy or
+`tailscale serve` can present a public browser origin that differs from the
+`Host` forwarded to kolu. Add that exact origin:
+
+```nix
+services.kolu.allowedOrigins = [
+  "https://box.tailnet.ts.net"
+];
+```
+
+This sets `KOLU_ALLOWED_ORIGINS` for both the WebSocket and HTTP RPC paths. The
+[architecture page](/architecture#talking-over-the-wire) explains why the gate
+exists.
+
+## Read service logs
+
+On Linux, use the systemd user journal:
+
+```sh
+systemctl --user status kolu
+journalctl --user -u kolu -f
+```
+
+On macOS, launchd writes the two streams to:
+
+```text
+~/Library/Logs/kolu.out.log
+~/Library/Logs/kolu.err.log
+```
+
+Crashes and startup failures remain visible after the process exits.
+
+## Capture memory diagnostics
+
+If the server or kaval daemon grows without bound, set an absolute diagnostics
+directory:
+
+```nix
+services.kolu.diagnostics.dir =
+  "${config.home.homeDirectory}/.local/state/kolu-diagnostics";
+```
+
+Each restart gets a timestamped subdirectory containing:
+
+- a baseline heap snapshot after five minutes;
+- periodic memory statistics;
+- automatic snapshots near the V8 heap limit; and
+- snapshots requested with `SIGUSR2`.
+
+To capture a snapshot on demand:
+
+```sh
+kill -USR2 <pid>
+```
+
+The snapshot lands in the current run's diagnostics directory. Compare
+snapshots offline with
+[MemLab](https://facebook.github.io/memlab/docs/cli/CLI-commands/) to find what
+retains the growing objects.
+
+Diagnostics are disabled by default and add no overhead until `dir` is set.
+Browser-tab or GPU growth has a different checklist in
+[Troubleshooting](/troubleshooting#kolu-is-using-a-lot-of-memory).

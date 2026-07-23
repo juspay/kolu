@@ -36,7 +36,7 @@ non-survivable detached spawn. A NixOS VM has *real* systemd, so the production
 | `default.nix` | Aggregator — pins the `port` + `kavalTui` + `kavalBin` once, imports `lib.nix`, returns the five checks. |
 
 `../flake.nix` spreads all five into `checks.x86_64-linux`, so they ride
-`ci::home-manager` with no new CI recipe (see [Running](#running)).
+the Linux arm of `ci::home-manager` (see [Running](#running)).
 
 ## The two paths
 
@@ -107,7 +107,7 @@ nix build .#checks.x86_64-linux.adoption-adopt \
 In CI this is automatic: `ci::home-manager` directly builds this example's
 outputs with kolu overridden to the checkout and nixpkgs fixed by the example's
 committed lock. That realizes every `checks.x86_64-linux.*`, so the service smoke
-and all adoption VM tests build and run on the Linux lane.
+and all adoption VM tests build and run on the Linux lane after `ci::nix`.
 
 > `adoption-skew` forces a **second full kolu build** (the contract-bumped
 > `koluNew` `postPatch`-seds a source constant), so it is the slow check. That
@@ -151,5 +151,5 @@ The pre-cutover tests were re-checked on a KVM box (same PTY + scrollback surviv
 The **W2.2 cutover** rewired these tests for the two-level padi ↔ kaval topology
 (digest-keyed gates, padi-emitted journal lines, the `daemon.restart` drain reach).
 That rewrite has NOT yet been re-run on a KVM box — it can only run on the Linux
-`ci::home-manager` lane. Re-confirm each is green on correct code AND red under a
+`ci::home-manager` Linux lane. Re-confirm each is green on correct code AND red under a
 mutation before trusting the bite.

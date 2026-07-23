@@ -45,6 +45,8 @@ import { formatLifetime } from "../kaval/daemonPresentation";
 import { daemonTransportLive, formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import Commit from "../ui/Commit";
+import { docUrl } from "../ui/DocLink";
+import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import { formatMBCompact } from "../ui/memory";
 import RunningDaemonsSection from "../ui/RunningDaemonsSection";
@@ -299,6 +301,24 @@ const PadiInfoDialog: Component<{
         localScanLive={daemonTransportLive()}
         renderRow={(padi) => <RunningPadiRow padi={padi} />}
       />
+
+      <div class="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
+        <div class="min-w-0">
+          <h3 class="text-xs font-medium text-fg">Padi docs</h3>
+          <p class="mt-0.5 text-[11px] leading-relaxed text-fg-3">
+            How padi owns your workspace and how padi-tui drives it.
+          </p>
+        </div>
+        <a
+          href={docUrl("padi")}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface-1 px-2.5 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-surface-3/60 hover:text-fg"
+        >
+          Docs
+          <OpenIcon class="h-3.5 w-3.5" />
+        </a>
+      </div>
     </InfoDialogShell>
   );
 };

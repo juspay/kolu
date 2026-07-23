@@ -42,14 +42,33 @@ When("I clear the palette input", async function (this: KoluWorld) {
   await input.fill("");
 });
 
+/** Exact palette row by `data-palette-name` (rich rows lead with a glyph, so
+ *  `^name` text anchors no longer match). Falls back to anchored hasText for
+ *  any residual bare row without the attribute. */
+function paletteOption(
+  palette: import("@playwright/test").Locator,
+  text: string,
+) {
+  const byName = palette.locator(
+    `[role="option"][data-palette-name=${JSON.stringify(text)}]`,
+  );
+  // Playwright locators are lazy — prefer the attribute when any such row
+  // exists; otherwise fall back. Callers await visibility themselves.
+  return byName.or(
+    palette
+      .locator('[role="option"]')
+      .filter({ hasText: new RegExp(`^${escapeRegExp(text)}`) }),
+  );
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 When(
   "I select {string} in the palette",
   async function (this: KoluWorld, text: string) {
-    const palette = this.page.locator(PALETTE_SELECTOR);
-    // Use exact text match to avoid ambiguity (e.g. "Nord" vs "One Nord")
-    const item = palette
-      .locator('[role="option"]')
-      .filter({ hasText: new RegExp(`^${text}`) });
+    const item = paletteOption(this.page.locator(PALETTE_SELECTOR), text);
     await item.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await item.first().click();
   },
@@ -77,6 +96,51 @@ Then(
       count,
       expected,
       `Expected ${expected} palette results, got ${count}`,
+    );
+  },
+);
+
+Then(
+  "the first palette terminal row should be {string}",
+  async function (this: KoluWorld, name: string) {
+    const first = this.page
+      .locator(
+        `${PALETTE_SELECTOR} [role="option"][data-palette-kind="terminal"]`,
+      )
+      .first();
+    await first.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const actual = await first.getAttribute("data-palette-name");
+    assert.strictEqual(
+      actual,
+      name,
+      `Expected first Recent terminal row "${name}", got "${actual}"`,
+    );
+  },
+);
+
+Then(
+  "palette terminal row {string} should appear before {string}",
+  async function (this: KoluWorld, first: string, second: string) {
+    const names = await this.page
+      .locator(
+        `${PALETTE_SELECTOR} [role="option"][data-palette-kind="terminal"]`,
+      )
+      .evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-palette-name") ?? ""),
+      );
+    const i = names.indexOf(first);
+    const j = names.indexOf(second);
+    assert.ok(
+      i >= 0,
+      `Expected terminal row "${first}" in palette; got ${JSON.stringify(names)}`,
+    );
+    assert.ok(
+      j >= 0,
+      `Expected terminal row "${second}" in palette; got ${JSON.stringify(names)}`,
+    );
+    assert.ok(
+      i < j,
+      `Expected "${first}" before "${second}"; order was ${JSON.stringify(names)}`,
     );
   },
 );
@@ -150,10 +214,7 @@ Then(
   "palette item {string} should have a chevron",
   async function (this: KoluWorld, text: string) {
     const palette = this.page.locator(PALETTE_SELECTOR);
-    // Anchor to start of text to avoid substring matches (e.g. "Theme" vs "Random theme")
-    const item = palette.locator('[role="option"]', {
-      hasText: new RegExp(`^${text}`),
-    });
+    const item = paletteOption(palette, text);
     await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const content = await item.textContent();
     assert.ok(
@@ -232,10 +293,7 @@ Then(
 Then(
   "palette item {string} should be visible",
   async function (this: KoluWorld, text: string) {
-    const palette = this.page.locator(PALETTE_SELECTOR);
-    const item = palette
-      .locator('[role="option"]')
-      .filter({ hasText: new RegExp(`^${text}`) });
+    const item = paletteOption(this.page.locator(PALETTE_SELECTOR), text);
     await item.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
@@ -314,15 +372,37 @@ Then(
 );
 
 Then(
+  "the command palette should not show kind tags",
+  async function (this: KoluWorld) {
+    const tags = this.page.locator(
+      `${PALETTE_SELECTOR} [data-testid="palette-kind-tag"]`,
+    );
+    await this.page
+      .locator(PALETTE_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const count = await tags.count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no kind tags at empty root browse, found ${count}`,
+    );
+  },
+);
+
+Then(
   "palette item {string} should show section tag {string}",
   async function (this: KoluWorld, itemName: string, tagLabel: string) {
-    const row = this.page
-      .locator(`${PALETTE_SELECTOR} [role="option"]`)
-      .filter({ hasText: new RegExp(`^${itemName}`) });
+    // Unified switcher uses kind tags (term/host/cmd) at root search, not
+    // the old per-command-section pills. Map legacy section labels → kind.
+    const kind =
+      tagLabel === "cmd" || tagLabel === "host" || tagLabel === "term"
+        ? tagLabel
+        : "cmd";
+    const row = paletteOption(this.page.locator(PALETTE_SELECTOR), itemName);
     await row.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const tag = row
       .first()
-      .locator('[data-testid="palette-section-tag"]', { hasText: tagLabel });
+      .locator('[data-testid="palette-kind-tag"]', { hasText: kind });
     await tag.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

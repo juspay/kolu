@@ -19,8 +19,8 @@ packages/client/public/fonts
 /.do-results.json
 .kolu-dev/
 .ralph-logs/
-# /codex-debate skill: per-worktree scratch (verdicts, rebuttals, transcript)
-.codex-debate/
+# /agent-debate skill: per-worktree scratch (verdicts, rebuttals, transcript)
+.agent-debate/
 # /lens-debate skill: per-worktree scratch (commit-message files)
 .lens-debate/
 # /dev-server skill: per-worktree scratch (remembered dev-server ports)

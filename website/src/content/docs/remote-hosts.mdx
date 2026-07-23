@@ -96,23 +96,33 @@ over ssh**: it copies the padi closure to the machine with Nix. A cold copy can
 take **minutes**. You don't install anything on the host by hand — the closure
 carries everything.
 
-The host's chip dot tells you where it is:
+Each host is a **tab**: **local** is a Home icon plus the machine hostname
+kolu is running on; remotes show the ssh target. Every tab carries a
+**connection pip** so link health is always visible:
 
-| dot | meaning |
+| on the tab | meaning |
 | --- | --- |
-| amber | connecting or copying — coming up |
-| green | connected and live (shown only over a real link — never green over a dead host) |
-| red | provisioning or the link failed |
+| Home + hostname | this machine (local) |
+| `user@host` | a remote ssh target |
+| green pip | connected and live |
+| amber pip (pulsing) | connecting or copying — coming up |
+| red pip + struck label | unreachable — open diagnostics for the real error and **retry** |
+
+Click the **connection pip** for the **diagnostics popover** — connection
+state, terminal and awaiting counts, padi·kaval detail, remove-with-confirm.
+The **label** (Home or hostname) only switches hosts; diagnostics is never
+hover-opened.
 
 <Aside type="note" title="What a cold connect shows you">
   A first-time provisioning **narrates itself** on the canvas. It names the real
   phase — **“Provisioning kolu onto `<host>`…”** while it ships the closure, then
-  **“Building on `<host>`… this can take a few minutes”** during the compile — with a
-  **live tail of the actual Nix output** and an **elapsed timer** climbing beside it. So a
-  slow-but-working cold connect reads as *progress*, not a hang. There's no fake progress
-  bar — a Nix build has no honest percentage — so the reassurance is the named phase, the
-  real output, and the clock. A **warm** reconnect (the closure is already on the host)
-  skips straight to connected, with no build UI at all.
+  **“Building on `<host>`… this can take a few minutes”** during the compile / binary-cache
+  fetch — with a **live tail of nix's own verbose lines** (per-path copy/download chatter)
+  and an **elapsed timer** that **keeps climbing every second** even when the log is quiet
+  during one large fetch. So a slow-but-working cold connect reads as *in progress*, not a
+  hang. There's no fake progress bar — the reassurance is the named phase, nix's real
+  output, and the clock. A **warm** reconnect (the closure is already on the host) skips
+  straight to connected, with no build UI at all.
 
   And if a connect **genuinely stalls**, the canvas stops narrating past a **finite deadline**
   (a short one for your local machine; a generously longer one while a remote is still copying
@@ -145,13 +155,15 @@ The host's chip dot tells you where it is:
 ## Switch hosts, and per-host canvases
 
 **Click a chip** to make that host active — the whole canvas switches to it live,
-no reload, bindings staying warm server-side. From the keyboard, **⌘⇧H**
-(Ctrl+Shift+H elsewhere) — or the **search icon** in the host bar — opens a fuzzy
-host switcher (the sibling of ⌘⇧K's workspace switcher); pick a host and the canvas
-switches. Each host owns its own canvas: its terminals, splits, and focused
-tile are restored as you left them when you switch back. Switching away doesn't tear a host's work down; it keeps running on that
-host. If the active host ever leaves the pool, kolu switches you back to local and
-says so.
+no reload, bindings staying warm server-side. From the keyboard, type a host name
+in **⌘K** (hosts are first-class root results in the
+[switcher](/switcher)), or press **⌘⇧H** (Ctrl+Shift+H elsewhere) — or the
+**search icon** in the host bar — to deep-link into the scoped host list; pick a
+host and the canvas switches. The host strip stays as ambient status (connection
+dots, awaiting pills) — glanceable without opening anything. Each host owns its own canvas: its terminals, splits,
+and focused tile are restored as you left them when you switch back. Switching
+away doesn't tear a host's work down; it keeps running on that host. If the active
+host ever leaves the pool, kolu switches you back to local and says so.
 
 A chip also carries an **awaiting badge** — a count of agents on that host waiting
 for your input — so a host you're not looking at can tell you it needs you without
@@ -163,16 +175,17 @@ machine's does. An [installed PWA](/install-pwa) surfaces the awaiting count as 
 app-badge and notifications across all your hosts.
 
 Switching back to a host you've already visited is instant: kolu keeps each visited
-host's state — its terminal list, saved sessions, activity, and the Code tab's reads
-(the open file's content, git status, and diff) — **warm in memory**, so a switch-back
-has nothing to reload. A host you're not looking at isn't polled; its state is simply
-held and refreshed the moment you return to it. The terminals themselves
-keep running on their own host no matter which one you're looking at. Only the host
-you're viewing gets a live on-screen renderer (its terminals' WebGL/DOM canvases),
-which re-attaches in a blink when you switch back — kolu does not hold a live canvas
-per background host. Browser memory therefore scales with that retained per-host state
-and the number of connected hosts, not with a full canvas for every host. If a
-multi-host session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).
+host's **canvas** state — selection, camera, saved sessions, activity, and the Code
+tab's reads (open file content, git status, and diff) — **warm in memory**, so a
+switch-back has nothing to reload. The [switcher](/switcher) is different: it keeps a
+**lightweight fleet index** (terminal keys + metadata, not PTY bytes) live for every
+**connected** pool member, including hosts you have not opened yet, so ⌘K can jump
+cross-host without waiting for a first visit. Only the host you're viewing gets a live
+on-screen renderer (its terminals' WebGL/DOM canvases), which re-attaches in a blink when
+you switch back — kolu does not hold a live canvas per background host. Browser memory
+therefore scales with that retained per-host view state, the fleet metadata index, and
+the number of connected hosts — not with a full canvas for every host. If a multi-host
+session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).
 
 ## When a host is down
 

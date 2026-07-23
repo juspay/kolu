@@ -1,92 +1,169 @@
 /**
- * The host chip's connection-dot tone + hover title, derived from the keyed map's
- * projected `EntryStatus`. Pure (no JSX, no `wire`), so `HostSelectorStrip.tsx` renders
- * with them and the unit pin imports them without dragging in the live transport.
+ * Host-chip connection tone + labels, derived from the keyed map's projected
+ * `EntryStatus`. Pure (no JSX, no `wire`), so strip/popover/mobile render with
+ * them and unit pins import them without dragging in the live transport.
+ *
+ * Strip pips ({@link chipStatusDot}): always-on for every host (green/amber/red),
+ * fact-only — the open control for the diagnostics popover. Identity is separate
+ * (Home + machine hostname for local; ssh target for remote). Diagnostics
+ * header uses {@link HostGlance.detailDot} (same palette).
  */
 
 import type { EntryState } from "@kolu/surface-map";
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { hostHueFor } from "kolu-common/hostHue";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 
 /** Whether two `HostKey`s name the SAME host — compared by their CANONICAL
- *  string (`encodeHostKey`), never `===`: a `HostKey` is an object with no
- *  reference identity across independent decodes (`entries.use().keys()`
- *  mints a FRESH object every membership read, and zod's `.parse` mints a
- *  fresh object even for an already-valid input), so two logically-equal
- *  keys are almost never the same reference. A chip's active-highlight AND
- *  its click guard (a no-op click on the ALREADY-active chip must not
- *  re-write `activeHost` with a new-reference-but-equal key — that would
- *  needlessly re-notify every `useEntry(activeHost)` consumer) both compare
- *  through this ONE function. */
+ *  string (`encodeHostKey`), never `===`. */
 export function sameHost(a: HostKey, b: HostKey): boolean {
   return encodeHostKey(a) === encodeHostKey(b);
 }
 
-/** The host's identity hue (a palette hex) — the accent each tab wears so a host
- *  reads as a *place*, not just a label. Seeded on the CANONICAL host string
- *  (`encodeHostKey`), so it's stable across the fresh `HostKey` objects every
- *  membership read mints, and drawn from the SAME palette + hash the server's
- *  PWA `theme-color` uses (`kolu-common/hostHue`) — one host, one colour, on
- *  every surface. This is host IDENTITY, distinct from the connection dot's
- *  {@link dotClass} STATUS tone (green/amber/red), which stays fact-driven. */
+/** The host's identity hue (a palette hex). */
 export function hostHue(host: HostKey): string {
   return hostHueFor(encodeHostKey(host));
 }
 
-/** Render a `HostKey` as its human display label — the LOCAL default reads
- *  "local"; a remote reads its ssh target. The ONE source of truth for a host's
- *  chip / dialog / tooltip label, shared by `HostSelectorStrip` and
- *  `HostDaemonChips` (it was hand-rolled identically in both). */
+/** Render a `HostKey` as its human display label.
+ *  Local is the literal `"local"` (key identity) — the strip paints the
+ *  machine hostname via {@link useServerIdentity} + Home icon instead. */
 export function hostLabel(h: HostKey): string {
   return h.kind === "local" ? "local" : h.target;
 }
 
-/** The connection dot's tailwind tone. Green (`bg-emerald-400`) is emitted ONLY for
- *  `connected` — fact-only, the same discipline `<HostStatusPip>` enforces for a
- *  surface's `health()`. A map entry's equivalent fact is its `EntryStatus`, which
- *  `connectSurfaceMap` floors on real transport liveness, so a green-over-a-dead-host
- *  dot is unrenderable. */
-// A pure kind→tone lookup as a `Record` keyed on the full `EntryState["kind"]` union — so
-// adding a fourth displayed kind is a compile error here (exhaustive by construction), not a
-// silent fall-through to the `default` a `switch` would hide.
-const DOT_TONE: Record<EntryState["kind"], string> = {
-  connected: "bg-emerald-400", // live — the map floors this on transport liveness
-  warming: "bg-amber-400", // copying / connecting / pre-clock-offset — coming up
-  failed: "bg-red-400", // provisioning or link failed
-  "not-a-member": "bg-fg-3/40", // unreached — we only render members
-};
-export function dotClass(status: EntryState): string {
-  return DOT_TONE[status.kind];
+/** On-screen name for tooltips/aria: machine hostname when known for local,
+ *  else {@link hostLabel}. */
+export function hostDisplayName(
+  h: HostKey,
+  serverHostname: string | undefined,
+): string {
+  if (h.kind === "local") return serverHostname ?? hostLabel(h);
+  return hostLabel(h);
 }
 
-/** A one-line human note for the dot's `title` — the failure reason when failed.
- *  Reads only the failure's human `reason` (PR4: the reason folds into the
- *  schema-valid domain `failure` value), so it's typed to that minimal shape and
- *  stays domain-agnostic. */
-export function statusTitle(status: EntryState<{ reason: string }>): string {
-  switch (status.kind) {
-    case "connected":
-      return "connected";
-    case "warming":
-      return "connecting…";
-    case "failed":
-      return `failed: ${status.failure.reason}`;
-    default:
-      return "not a member";
+/** One glance fold of entry state — strip + detail + labels co-defined so a
+ *  fifth kind cannot update one projection and leave another lying. */
+export type HostGlance = {
+  /** Exception-only strip pip class, or null when healthy (paint nothing). */
+  stripDot: string | null;
+  /** Always-on pip for detail surfaces (popover header); green only when connected. */
+  detailDot: string;
+  /** Unreachable / failed — desaturate + strike. */
+  down: boolean;
+  /** Compact one-word label (switcher subline, popover state row). */
+  short: string;
+  /** Tooltip / a11y line (includes failure reason when failed). */
+  title: string;
+  /** Extra class on the label span when down. */
+  labelDecoration: string;
+};
+
+const STRIKE = " line-through decoration-red-400/80 decoration-1";
+
+/** Exhaustive kind→glance table. A fifth kind is a compile error here. */
+const GLANCE: Record<
+  EntryState["kind"],
+  Omit<HostGlance, "title"> & {
+    title: string | ((s: EntryState<{ reason: string }>) => string);
   }
+> = {
+  connected: {
+    stripDot: null,
+    detailDot: "bg-emerald-400",
+    down: false,
+    short: "connected",
+    title: "connected",
+    labelDecoration: "",
+  },
+  warming: {
+    stripDot: "bg-amber-400 animate-pulse motion-reduce:animate-none",
+    detailDot: "bg-amber-400",
+    down: false,
+    short: "connecting",
+    title: "connecting…",
+    labelDecoration: "",
+  },
+  failed: {
+    stripDot: "bg-red-400",
+    detailDot: "bg-red-400",
+    down: true,
+    short: "unreachable",
+    title: (s) =>
+      s.kind === "failed" ? `failed: ${s.failure.reason}` : "failed",
+    labelDecoration: STRIKE,
+  },
+  "not-a-member": {
+    stripDot: "bg-fg-3/40",
+    detailDot: "bg-fg-3/40",
+    down: false,
+    short: "removed",
+    title: "not a member",
+    labelDecoration: "",
+  },
+};
+
+export function hostGlance(
+  status: EntryState<{ reason: string }> | EntryState,
+): HostGlance {
+  const row = GLANCE[status.kind];
+  const title =
+    typeof row.title === "function"
+      ? row.title(status as EntryState<{ reason: string }>)
+      : row.title;
+  return {
+    stripDot: row.stripDot,
+    detailDot: row.detailDot,
+    down: row.down,
+    short: row.short,
+    title,
+    labelDecoration: row.labelDecoration,
+  };
 }
 
-// Terse one-word entry-state labels for the host-switcher row's status subline —
-// the compact sibling of `statusTitle` (which carries the fuller tooltip wording
-// with the failure reason). A `Record` keyed on the full `EntryState["kind"]`
-// union, like `DOT_TONE` above: a fifth kind is a compile error here, not a
-// silent fall-through to a default a `switch` would hide.
-const STATUS_LABEL_SHORT: Record<EntryState["kind"], string> = {
-  connected: "connected",
-  warming: "connecting",
-  failed: "failed",
-  "not-a-member": "removed",
-};
+/**
+ * Always-on status pip for strip/mobile chips: green when connected, amber
+ * pulse when warming, red when failed. Prefer `stripDot` so warming keeps its
+ * pulse; fall back to `detailDot` for the healthy green.
+ */
+export function chipStatusDot(
+  _host: HostKey,
+  status: EntryState<{ reason: string }> | EntryState,
+): string {
+  const g = hostGlance(status);
+  return g.stripDot ?? g.detailDot;
+}
+
+/** Always-on connection tone for non-strip surfaces (palette host lead).
+ *  Same fact fold as {@link chipStatusDot}; host identity is irrelevant. */
+export function dotClass(status: EntryState): string {
+  return chipStatusDot({ kind: "local" }, status);
+}
+
+/** Tooltip / a11y title from {@link hostGlance}. */
+export function statusTitle(
+  status: EntryState<{ reason: string }> | EntryState,
+): string {
+  return hostGlance(status).title;
+}
+
+/** Compact one-word label from {@link hostGlance}.short. */
 export function statusLabelShort(status: EntryState): string {
-  return STATUS_LABEL_SHORT[status.kind];
+  return hostGlance(status).short;
+}
+
+/** Context line for a host palette row — quiet when healthy, not canvas-active.
+ *
+ *  Vocabulary:
+ *  - **active** — this host is the canvas's current host (only one)
+ *  - **(empty)** — connected and not active (connected is the default; no noise)
+ *  - **connecting** / **unreachable** / **removed** — exception states only
+ *
+ *  Dot color still comes from {@link dotClass}; this is the text slot only. */
+export function hostRowContext(
+  status: EntryState,
+  isCanvasActive: boolean,
+): string {
+  if (isCanvasActive) return "active";
+  if (status.kind === "connected") return "";
+  return statusLabelShort(status);
 }

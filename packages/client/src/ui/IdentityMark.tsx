@@ -14,21 +14,16 @@ const identityMarkFrameClass =
  *  daemon marks in the chrome bar are the same size. */
 export const identityMarkBtnClass = `${identityMarkFrameClass} pointer-events-auto transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer`;
 
-/** Same frame without button affordance, for decorative process marks inside a
- *  larger clickable row. */
-export const identityMarkStaticClass = identityMarkFrameClass;
-
-/** Fixed dual-daemon slot: exactly two mark buttons wide (`w-7` × 2). */
+/** Fixed dual-daemon slot: exactly two mark buttons wide (`w-7` × 2). Used by
+ *  the diagnostics popover's padi·kaval pair (not the strip chips). */
 export const dualDaemonSlotClass =
   "flex h-7 w-14 shrink-0 items-center justify-center";
 
 export const IdentityMark: Component<{
   logoSrc: string;
   children: JSX.Element;
-  /** Extra class on the logo `<img>` — the host daemon marks pass
-   *  `host-daemon-logo` so the strip can mute them to quiet glyphs at rest
-   *  (colour lives in the status dot) and bloom them on the active host /
-   *  hover. The Kolu brand mark in `IdentityRail` passes nothing. */
+  /** Extra class on the logo `<img>` — host daemon marks pass
+   *  `host-daemon-logo`; Kolu brand mark in `IdentityRail` passes nothing. */
   imgClass?: string;
 }> = (props) => (
   <span class="relative grid h-5 w-5 shrink-0 place-items-center">

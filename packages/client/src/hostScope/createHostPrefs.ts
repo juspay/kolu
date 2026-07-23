@@ -19,12 +19,54 @@
 
 import type { HostKey } from "kolu-common/hostKey";
 import type { Accessor, Setter } from "solid-js";
-import { perHostBoolPref, perHostPref } from "../persistedPref";
+import {
+  perHostBoolPref,
+  perHostName,
+  perHostPref,
+  readWithFallback,
+} from "../persistedPref";
 import {
   type ActivityWindow,
   DEFAULT_ACTIVITY_WINDOW,
   isActivityWindow,
 } from "../terminal/activityWindow";
+
+/** Storage key base for the per-host activity-window pref — the ONE spelling
+ *  (createHostPrefs + fleet index reader share this). */
+export const ACTIVITY_WINDOW_PREF_BASE = "kolu-activityWindow";
+
+function parseActivityWindow(raw: string): ActivityWindow {
+  if (isActivityWindow(raw)) return raw;
+  throw new Error(`unrecognized activity window: ${raw}`);
+}
+
+/** Non-reactive read of a host's persisted activity window — for membership-
+ *  scoped consumers that must not wait for HostScope birth (fleet switcher).
+ *  Key composition via {@link perHostName}; parse via {@link readWithFallback}. */
+export function readStoredActivityWindow(host: HostKey): ActivityWindow {
+  const name = perHostName(ACTIVITY_WINDOW_PREF_BASE, host);
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(name);
+  } catch (err) {
+    console.warn(
+      `[activityWindow] storage unavailable for "${name}" — using default ${JSON.stringify(DEFAULT_ACTIVITY_WINDOW)}`,
+      err,
+    );
+    return DEFAULT_ACTIVITY_WINDOW;
+  }
+  if (raw === null) return DEFAULT_ACTIVITY_WINDOW;
+  return readWithFallback(
+    raw,
+    parseActivityWindow,
+    DEFAULT_ACTIVITY_WINDOW,
+    (err, offending) =>
+      console.warn(
+        `[activityWindow] ignoring invalid stored value for "${name}": ${JSON.stringify(offending)} — falling back to ${JSON.stringify(DEFAULT_ACTIVITY_WINDOW)}`,
+        err,
+      ),
+  );
+}
 
 export interface HostPrefs {
   /** This host's dock activity-window filter — persisted per host under
@@ -46,12 +88,9 @@ export function createHostPrefs(host: HostKey): HostPrefs {
   // evict-on-host-exit cleanup (see their docstrings); this factory just names each base.
   const [activityWindow, setActivityWindow] = perHostPref<ActivityWindow>({
     host,
-    base: "kolu-activityWindow",
+    base: ACTIVITY_WINDOW_PREF_BASE,
     fallback: DEFAULT_ACTIVITY_WINDOW,
-    parse: (raw) => {
-      if (isActivityWindow(raw)) return raw;
-      throw new Error(`unrecognized activity window: ${raw}`);
-    },
+    parse: parseActivityWindow,
   });
   const [showSleeping, setShowSleeping] = perHostBoolPref({
     host,

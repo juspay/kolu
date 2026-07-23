@@ -28,6 +28,14 @@ import { chromium } from "playwright";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
 import { padiFold } from "./padiEnvelope.ts";
+import {
+  BoundedErrorBody,
+  errorCodes,
+  HttpStatusError,
+  isTransientSetupError,
+  retryPadiScenarioReset,
+  retryTransient,
+} from "./scenarioSetupRetry.ts";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -464,73 +472,11 @@ let serverProcess: ChildProcess | undefined;
 // accumulation on macOS (see #334).
 const keepAliveAgent = new http.Agent({ keepAlive: true });
 
-const TRANSIENT_SETUP_ERRORS = [
-  "ECONNRESET",
-  "ECONNREFUSED",
-  "EPIPE",
-  "socket hang up",
-  "read ECONNRESET",
-  "ETIMEDOUT",
-  "EADDRNOTAVAIL",
-];
-
-/** Collect errno `code`s from an error tree. Node raises a dual-stack
- *  `AggregateError` for a refused connection (IPv4 + IPv6) whose own
- *  `.message` is empty and whose real errno lives on `.code` and on each
- *  `.errors[].code`. */
-function errorCodes(err: unknown, out: string[] = []): string[] {
-  if (err && typeof err === "object") {
-    const code = (err as { code?: unknown }).code;
-    if (typeof code === "string") out.push(code);
-    const inner = (err as { errors?: unknown }).errors;
-    if (Array.isArray(inner)) for (const e of inner) errorCodes(e, out);
-  }
-  return out;
-}
-
-/** A setup POST/GET error worth retrying. Checks both the message AND the
- *  errno `code` tree: a server that briefly refuses connections (mid-restart,
- *  GC pause, the instant before it dies) surfaces as an `AggregateError` with
- *  an EMPTY message but `code: "ECONNREFUSED"`. The prior message-only check
- *  missed that, so `retryTransient` bailed on the FIRST attempt with no retry
- *  and rethrew an empty-tailed "failed after retries:" — and under parallel
- *  load a single such miss let one worker fail (and queue-drain) hundreds of
- *  scenarios. Matching on `code` restores the intended 3× retry. */
-function isTransientSetupError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (TRANSIENT_SETUP_ERRORS.some((needle) => msg.includes(needle)))
-    return true;
-  return errorCodes(err).some((code) => TRANSIENT_SETUP_ERRORS.includes(code));
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function retryTransient<T>(
-  label: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  let last: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      last = err;
-      if (!isTransientSetupError(err) || attempt === 3) break;
-      await sleep(100 * attempt);
-    }
-  }
-  // Append the errno code(s) so an empty-message AggregateError (the
-  // dual-stack ECONNREFUSED a dead server produces) still names its cause.
-  const codes = errorCodes(last);
-  const suffix = codes.length ? ` [${[...new Set(codes)].join(",")}]` : "";
-  throw last instanceof Error
-    ? new Error(`${label} failed after retries: ${last.message}${suffix}`, {
-        cause: last,
-      })
-    : new Error(`${label} failed after retries: ${String(last)}${suffix}`);
-}
+const MAX_ERROR_BODY_BYTES = 16 * 1024;
 
 /** POST JSON to a local URL, reusing TCP connections via keepAlive. */
 function postJSONOnce(url: string, body: object): Promise<void> {
@@ -546,16 +492,23 @@ function postJSONOnce(url: string, body: object): Promise<void> {
         headers: { "Content-Type": "application/json" },
       },
       (res) => {
-        res.resume();
+        const code = res.statusCode ?? 0;
+        if (code >= 200 && code < 300) {
+          res.resume();
+          res.on("end", resolve);
+          res.on("error", reject);
+          return;
+        }
+
+        const responseBody = new BoundedErrorBody(MAX_ERROR_BODY_BYTES);
+        res.on("data", (chunk: Buffer) => responseBody.push(chunk));
         res.on("end", () => {
           // Reject non-2xx so a reset the server actually rejected (it was
           // briefly unready, or an endpoint drifted) surfaces instead of
           // resolving as success and letting the scenario start against stale
           // state. Mirrors httpGet's status check; 2xx resolves exactly as
           // before, so green runs are unchanged.
-          const code = res.statusCode ?? 0;
-          if (code >= 200 && code < 300) resolve();
-          else reject(new Error(`POST ${url} -> HTTP ${code}`));
+          reject(new HttpStatusError(code, url, responseBody.text()));
         });
         res.on("error", reject);
       },
@@ -977,55 +930,111 @@ async function startServerChild(koluServer: string): Promise<void> {
   // remote padi is live). Wait for it here, on EVERY server start (boot AND the
   // mid-run restarts reconnect/session-restore/@kaval-restart trigger), so scenarios
   // never race the warm-up (a `killAll` against a not-yet-connected binding is the
-  // "no live upstream link" 500).
+  // "no live upstream link" 503).
   await waitForPadiLive();
 }
 
+class PermanentPadiProbeError extends Error {}
+
 /** Poll a padi procedure until the (async-warming) bound arm — local or, under
- *  `KOLU_E2E_PADI_HOST`, remote — is live, or throw after 120s. Local warm-up is
- *  normally sub-second (a from-source spawn + connect); the remote leg's ssh
- *  provisioning is what actually needs the long budget. Runs UNCONDITIONALLY: since
- *  neither arm's boot blocks the server's listen anymore, a scenario racing padi's
- *  warm-up is possible on EITHER leg, not just the ssh one. */
-async function waitForPadiLive(): Promise<void> {
+ *  `KOLU_E2E_PADI_HOST`, remote — is live, or throw at the caller-supplied deadline.
+ *  Local warm-up is normally sub-second (a from-source spawn + connect); the remote
+ *  leg's ssh provisioning is what needs the longer startup default. Runs
+ *  UNCONDITIONALLY: since neither arm's boot blocks the server's listen anymore, a
+ *  scenario racing padi's warm-up is possible on EITHER leg, not just the ssh one. */
+async function waitForPadiLive({
+  announce = true,
+  timeoutMs = 120_000,
+}: {
+  announce?: boolean;
+  timeoutMs?: number;
+} = {}): Promise<void> {
   const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
   // Belt-and-suspenders: the ack was already enforced before the spawn (assertRemoteDestructiveAck
   // in startServerChild); re-assert here so this destructive killAll poll can't run without it
   // even if a future caller reaches it another way. A no-op on the local leg.
   assertRemoteDestructiveAck();
-  const deadline = Date.now() + 120_000;
-  let lastStatus = 0;
-  while (Date.now() < deadline) {
+  const deadline = Date.now() + timeoutMs;
+  let lastDiagnostic = "no attempt completed";
+  while (true) {
+    const remainingBeforeAttempt = deadline - Date.now();
+    if (remainingBeforeAttempt <= 0) break;
     try {
       const res = await fetch(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ json: padiFold() }),
         // Bound each attempt so a wedged request (TCP accepted, handler hung
-        // mid-boot) can't outlive the 120s deadline this function promises — a bare
-        // `await fetch` re-checks the deadline only BETWEEN attempts, so one hung
-        // request would stall the whole e2e startup indefinitely.
-        signal: AbortSignal.timeout(5_000),
+        // mid-boot) can't outlive the caller's deadline. The final attempt gets
+        // only the time still available rather than a fresh five-second budget.
+        signal: AbortSignal.timeout(Math.min(5_000, remainingBeforeAttempt)),
       });
-      lastStatus = res.status;
       if (res.ok) {
-        console.log(
-          remotePadiHost
-            ? `[worker:${workerId}] remote padi is live — running against the ssh host`
-            : `[worker:${workerId}] local padi is live`,
-        );
+        if (announce)
+          console.log(
+            remotePadiHost
+              ? `[worker:${workerId}] remote padi is live — running against the ssh host`
+              : `[worker:${workerId}] local padi is live`,
+          );
         return;
       }
-    } catch {
-      // server not answering yet — keep polling
+      const body = await res.text();
+      lastDiagnostic = `HTTP ${res.status}${body ? `: ${body}` : ""}`;
+      // The re-serve boundary assigns the upstream-link gap its own 503. This
+      // is the one HTTP failure worth polling; contract/route/auth/internal
+      // failures are permanent and retain their response body.
+      if (res.status !== 503) {
+        throw new PermanentPadiProbeError(
+          `[worker:${workerId}] padi liveness probe failed permanently (${lastDiagnostic})`,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof PermanentPadiProbeError) throw err;
+      const name = err instanceof Error ? err.name : "";
+      if (
+        !isTransientSetupError(err) &&
+        name !== "AbortError" &&
+        name !== "TimeoutError"
+      ) {
+        throw new Error(
+          `[worker:${workerId}] padi liveness probe failed permanently (${message || "unknown transport error"})`,
+          { cause: err },
+        );
+      }
+      const codes = [...new Set(errorCodes(err))];
+      lastDiagnostic = `${name || "transport error"}: ${message || "no message"}${
+        codes.length ? ` [${codes.join(",")}]` : ""
+      }`;
     }
-    await new Promise((r) => setTimeout(r, 1000));
+    const remainingBeforeSleep = deadline - Date.now();
+    if (remainingBeforeSleep <= 0) break;
+    await sleep(Math.min(1_000, remainingBeforeSleep));
   }
   throw new Error(
     remotePadiHost
-      ? `[worker:${workerId}] remote padi (KOLU_E2E_PADI_HOST=${remotePadiHost}) never became live within 120s (last killAll status ${lastStatus})`
-      : `[worker:${workerId}] local padi never became live within 120s (last killAll status ${lastStatus})`,
+      ? `[worker:${workerId}] remote padi (KOLU_E2E_PADI_HOST=${remotePadiHost}) never became live within ${timeoutMs}ms (last probe: ${lastDiagnostic})`
+      : `[worker:${workerId}] local padi never became live within ${timeoutMs}ms (last probe: ${lastDiagnostic})`,
   );
+}
+
+/** Reset every padi-owned scenario domain as one retryable transaction.
+ *
+ * The re-serve reports a link-down edge as 503. If that edge lands after
+ * `killAll` but before either cell write, restart the whole idempotent sequence:
+ * a successful return therefore proves all three operations reached one live
+ * padi episode. Any other HTTP status is a real handler/contract failure and
+ * surfaces immediately with its response body. */
+async function resetPadiScenarioState(timeoutMs: number): Promise<void> {
+  await retryPadiScenarioReset(timeoutMs, async (remaining) => {
+    await waitForPadiLive({ announce: false, timeoutMs: remaining });
+    await postJSON(`${baseUrl}/rpc/surface/padi/activityFeed/test__set`, {
+      json: padiFold({ recentRepos: [], recentAgents: [] }),
+    });
+    await postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, {
+      json: padiFold(null),
+    });
+  });
 }
 
 BeforeAll(async () => {
@@ -1101,115 +1110,112 @@ AfterAll(async () => {
   }
 });
 
-Before(async function (this: KoluWorld, scenario) {
-  // Derive the scenario's file stem once, up front — the failure screenshot,
-  // the evidence webm, the x11 grab, and the transcoded assets all key off the
-  // same value, so it's computed here and read at every site below.
-  x11Stem = slug(scenario.pickle.name);
-  // Kill leftover terminals and reset state so each scenario starts clean.
-  // After #577 each domain (preferences / activity / savedSession) owns its
-  // own reset endpoint — fired in parallel so the per-scenario setup cost
-  // stays the same.
-  await Promise.all([
-    postJSON(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {
-      json: padiFold(),
-    }),
-    postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
-      json: {
-        // Reset all preferences to defaults (newTerminalTheme "inherit" so new
-        // terminals get the default theme — deterministic for tests)
-        seenTips: [],
-        // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
-        // tip banners popping in mid-shot. Normal e2e runs keep them on.
-        startupTips: !X11CAP,
-        newTerminalTheme: "inherit",
-        // The NEW-TERMINAL `collapsed` default — a top-level seed beside
-        // `newTerminalTheme`. The LIVE collapsed state is per-terminal now (it
-        // follows the terminal, #959) — but every new terminal SEEDS its
-        // `collapsed` from this default, so pinning it `true` still gives the
-        // whole suite a deterministic collapsed starting point (every terminal a
-        // scenario spawns starts closed) for the many toggle-and-assert
-        // scenarios. The shipped runtime default is open
-        // (DEFAULT_PREFERENCES.newTerminalCollapsed = false). Recordings
-        // (X11CAP) want the right panel visible by default (it's the new app
-        // default, and the Code tab is part of what we show); normal tests keep
-        // it collapsed (right-panel.feature asserts that). `activeTab`/`codeMode`
-        // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
-        // there, asserted by right-panel.feature / code-tab.feature.
-        newTerminalCollapsed: !X11CAP,
-        shuffleBehavior: "auto",
-        scrollLock: true,
-        attentionAlerts: true,
-        colorScheme: "dark",
-        terminalRenderer: "auto",
-        // `rightPanel` preferences hold the panel width and the Code-tab tree
-        // split — live-written geometry only.
-        rightPanel: {
-          size: 0.25,
-          codeTabTreeSize: 0.35,
+const SCENARIO_PADI_LIVE_TIMEOUT = 60_000;
+const SCENARIO_SETUP_GUARD = 30_000;
+const SCENARIO_SETUP_TIMEOUT =
+  SCENARIO_PADI_LIVE_TIMEOUT + SCENARIO_SETUP_GUARD;
+
+Before(
+  { timeout: SCENARIO_SETUP_TIMEOUT },
+  async function (this: KoluWorld, scenario) {
+    // Derive the scenario's file stem once, up front — the failure screenshot,
+    // the evidence webm, the x11 grab, and the transcoded assets all key off the
+    // same value, so it's computed here and read at every site below.
+    x11Stem = slug(scenario.pickle.name);
+    // Reset padi's terminals + cells as one retryable transaction. The local
+    // preferences store is independent, so it can reset alongside that sequence.
+    await Promise.all([
+      resetPadiScenarioState(SCENARIO_PADI_LIVE_TIMEOUT),
+      postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
+        json: {
+          // Reset all preferences to defaults (newTerminalTheme "inherit" so new
+          // terminals get the default theme — deterministic for tests)
+          seenTips: [],
+          // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
+          // tip banners popping in mid-shot. Normal e2e runs keep them on.
+          startupTips: !X11CAP,
+          newTerminalTheme: "inherit",
+          // The NEW-TERMINAL `collapsed` default — a top-level seed beside
+          // `newTerminalTheme`. The LIVE collapsed state is per-terminal now (it
+          // follows the terminal, #959) — but every new terminal SEEDS its
+          // `collapsed` from this default, so pinning it `true` still gives the
+          // whole suite a deterministic collapsed starting point (every terminal a
+          // scenario spawns starts closed) for the many toggle-and-assert
+          // scenarios. The shipped runtime default is open
+          // (DEFAULT_PREFERENCES.newTerminalCollapsed = false). Recordings
+          // (X11CAP) want the right panel visible by default (it's the new app
+          // default, and the Code tab is part of what we show); normal tests keep
+          // it collapsed (right-panel.feature asserts that). `activeTab`/`codeMode`
+          // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
+          // there, asserted by right-panel.feature / code-tab.feature.
+          newTerminalCollapsed: !X11CAP,
+          shuffleBehavior: "auto",
+          scrollLock: true,
+          attentionAlerts: true,
+          colorScheme: "dark",
+          terminalRenderer: "auto",
+          // `rightPanel` preferences hold the panel width and the Code-tab tree
+          // split — live-written geometry only.
+          rightPanel: {
+            size: 0.25,
+            codeTabTreeSize: 0.35,
+          },
         },
-      },
-    }),
-    postJSON(`${baseUrl}/rpc/surface/padi/activityFeed/test__set`, {
-      json: padiFold({ recentRepos: [], recentAgents: [] }),
-    }),
-    postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, {
-      json: padiFold(null),
-    }),
-  ]);
+      }),
+    ]);
 
-  // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
-  // mounts the mobile drag handle). @compact → emulate a roomy touch device
-  // (Z Fold 6 unfolded / tablet): same touch context, but a near-square 900×1000
-  // viewport past the `sm` breakpoint, so `layoutMode` resolves to `compact`.
-  // Both share the touch context; they differ only in viewport size. Without
-  // either tag, scenarios run in the desktop context unchanged.
-  const isCompact = scenario.pickle.tags.some((t) => t.name === "@compact");
-  const isMobile =
-    isCompact || scenario.pickle.tags.some((t) => t.name === "@mobile");
-  const touchViewport = isCompact ? COMPACT_VIEWPORT : PHONE_VIEWPORT;
+    // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
+    // mounts the mobile drag handle). @compact → emulate a roomy touch device
+    // (Z Fold 6 unfolded / tablet): same touch context, but a near-square 900×1000
+    // viewport past the `sm` breakpoint, so `layoutMode` resolves to `compact`.
+    // Both share the touch context; they differ only in viewport size. Without
+    // either tag, scenarios run in the desktop context unchanged.
+    const isCompact = scenario.pickle.tags.some((t) => t.name === "@compact");
+    const isMobile =
+      isCompact || scenario.pickle.tags.some((t) => t.name === "@mobile");
+    const touchViewport = isCompact ? COMPACT_VIEWPORT : PHONE_VIEWPORT;
 
-  // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
-  // browser chrome and its capture viewport — read it so the launch + grab match.
-  const rec = X11CAP ? getRecording(scenario.pickle.name) : undefined;
-  const chrome = rec?.chrome ?? "browser";
-  const vp = rec?.viewport ?? X11_VIEWPORT;
+    // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
+    // browser chrome and its capture viewport — read it so the launch + grab match.
+    const rec = X11CAP ? getRecording(scenario.pickle.name) : undefined;
+    const chrome = rec?.chrome ?? "browser";
+    const vp = rec?.viewport ?? X11_VIEWPORT;
 
-  this.browser = browser;
-  const created = await newScenarioPage(isMobile, chrome, vp, touchViewport);
-  this.context = created.context;
-  this.page = created.page;
-  // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
-  // prefers-reduced-motion tells well-behaved libraries to skip animations;
-  // the style override catches anything that ignores the media query. SKIPPED
-  // under KOLU_EVIDENCE — when we're recording a video, motion is the point.
-  const reducedMotion = !EVIDENCE && !X11CAP;
-  if (reducedMotion) {
-    await this.page.emulateMedia({ reducedMotion: "reduce" });
-    await this.page.addInitScript(`
+    this.browser = browser;
+    const created = await newScenarioPage(isMobile, chrome, vp, touchViewport);
+    this.context = created.context;
+    this.page = created.page;
+    // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
+    // prefers-reduced-motion tells well-behaved libraries to skip animations;
+    // the style override catches anything that ignores the media query. SKIPPED
+    // under KOLU_EVIDENCE — when we're recording a video, motion is the point.
+    const reducedMotion = !EVIDENCE && !X11CAP;
+    if (reducedMotion) {
+      await this.page.emulateMedia({ reducedMotion: "reduce" });
+      await this.page.addInitScript(`
       document.addEventListener("DOMContentLoaded", function() {
         var style = document.createElement("style");
         style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
         document.head.appendChild(style);
       });
     `);
-  }
-  // KOLU_X11CAP: recordings want a quiet canvas — suppress the ambient tip
-  // banner unconditionally (it's desktop-always-on, not the startupTips pref).
-  if (X11CAP) {
-    await this.page.addInitScript(`
+    }
+    // KOLU_X11CAP: recordings want a quiet canvas — suppress the ambient tip
+    // banner unconditionally (it's desktop-always-on, not the startupTips pref).
+    if (X11CAP) {
+      await this.page.addInitScript(`
       document.addEventListener("DOMContentLoaded", function() {
         var style = document.createElement("style");
         style.textContent = '[data-testid="tip-banner"] { display: none !important; }';
         document.head.appendChild(style);
       });
     `);
-  }
-  // Shared xterm buffer reader for e2e tests — used by waitForBufferContains,
-  // readBufferText, and getTerminalPid via page.evaluate / page.waitForFunction.
-  // Single definition avoids the buffer-read loop being duplicated across files.
-  // Always injected (independent of the motion gate above).
-  await this.page.addInitScript(`
+    }
+    // Shared xterm buffer reader for e2e tests — used by waitForBufferContains,
+    // readBufferText, and getTerminalPid via page.evaluate / page.waitForFunction.
+    // Single definition avoids the buffer-read loop being duplicated across files.
+    // Always injected (independent of the motion gate above).
+    await this.page.addInitScript(`
     window.__readXtermBuffer = function(sel, idx) {
       var containers = document.querySelectorAll(sel);
       var container = containers[idx];
@@ -1239,30 +1245,34 @@ Before(async function (this: KoluWorld, scenario) {
       return lines.join("\\n");
     };
   `);
-  this.errors = [];
-  this.page.on("pageerror", (err) => this.errors.push(err.message));
+    this.errors = [];
+    this.page.on("pageerror", (err) => this.errors.push(err.message));
 
-  // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
-  // own 30 fps clock independent of Chrome's paint speed, so the recording is
-  // smooth regardless of how heavy the scenario is. Leading blank frames (before
-  // the first navigation) are trimmed in the transcode step.
-  if (X11CAP && x11Display) {
-    x11RawPath = path.join(evidenceVideoDir, `${x11Stem}.x11.mp4`);
-    // Grab exactly this recording's window (pinned at 0,0), sized to its own
-    // viewport — which may be smaller than the (max-sized) Xvfb screen.
-    const grab = engine.physicalSize({ viewport: vp, scale: X11_SCALE });
-    ffmpegProc = engine.startX11Grab({
-      display: x11Display,
-      width: grab.width,
-      height: grab.height,
-      out: x11RawPath,
-      logFile: path.join(evidenceVideoDir, `${x11Stem}.x11.log`),
-    });
-    ffmpegProc.on("error", (e) =>
-      console.error(`[worker:${workerId}] KOLU_X11CAP: ffmpeg spawn error:`, e),
-    );
-  }
-});
+    // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
+    // own 30 fps clock independent of Chrome's paint speed, so the recording is
+    // smooth regardless of how heavy the scenario is. Leading blank frames (before
+    // the first navigation) are trimmed in the transcode step.
+    if (X11CAP && x11Display) {
+      x11RawPath = path.join(evidenceVideoDir, `${x11Stem}.x11.mp4`);
+      // Grab exactly this recording's window (pinned at 0,0), sized to its own
+      // viewport — which may be smaller than the (max-sized) Xvfb screen.
+      const grab = engine.physicalSize({ viewport: vp, scale: X11_SCALE });
+      ffmpegProc = engine.startX11Grab({
+        display: x11Display,
+        width: grab.width,
+        height: grab.height,
+        out: x11RawPath,
+        logFile: path.join(evidenceVideoDir, `${x11Stem}.x11.log`),
+      });
+      ffmpegProc.on("error", (e) =>
+        console.error(
+          `[worker:${workerId}] KOLU_X11CAP: ffmpeg spawn error:`,
+          e,
+        ),
+      );
+    }
+  },
+);
 
 // Generous timeout: under KOLU_X11CAP this hook transcodes the raw grab (mp4 +
 // VP9 webm + poster). A long clip at 3200×1800 takes well over Cucumber's 70s

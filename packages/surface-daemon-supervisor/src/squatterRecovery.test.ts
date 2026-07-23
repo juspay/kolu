@@ -163,7 +163,12 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     expect(endpoint.current()?.client).toBe("FRESH");
   });
 
-  it("Foreign holder: a non-kaval process is NEVER killed — loud typed error naming it", async () => {
+  // 15s — under a saturated localhost CI fanout the OS socket-holder scan +
+  // ensure path can exceed vitest's default 5s without being wrong (reran red
+  // twice on bd72d3d@x86_64-linux localhost). Keep the pin strict on behaviour.
+  it("Foreign holder: a non-kaval process is NEVER killed — loud typed error naming it", {
+    timeout: 15_000,
+  }, async () => {
     const d = dir();
     const socketPath = join(d, "pty.sock");
     const gatePath = join(d, "kaval.pid");
@@ -188,22 +193,28 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    await expect(endpoint.ensure()).rejects.toSatisfy(
-      isSocketSquatterForeignError,
+    const err = await endpoint.ensure().then(
+      () => {
+        throw new Error("expected the foreign socket holder to be rejected");
+      },
+      (caught: unknown) => caught,
     );
+    expect(isSocketSquatterForeignError(err)).toBe(true);
+    if (!isSocketSquatterForeignError(err)) return;
+
     // The foreign process is LEFT ALIVE — we never kill what we can't prove is ours.
     expect(isHolderLive(holderPid)).toBe(true);
     // And the endpoint reported `dead`, not a silent hang.
     expect(statuses.map((s) => s.state)).toContain("dead");
     // The error names the culprit's pid + command.
-    const err = await endpoint.ensure().catch((e) => e);
-    expect(isSocketSquatterForeignError(err)).toBe(true);
     expect(err.holders.some((h: { pid: number }) => h.pid === holderPid)).toBe(
       true,
     );
   });
 
-  it("Pid-absent speaker: a version that fails schema (no self-reported pid) is FOREIGN, not killed", async () => {
+  it("Pid-absent speaker: a version that fails schema (no self-reported pid) is FOREIGN, not killed", {
+    timeout: 15_000,
+  }, async () => {
     const d = dir();
     const socketPath = join(d, "pty.sock");
     const gatePath = join(d, "kaval.pid");

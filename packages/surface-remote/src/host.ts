@@ -271,8 +271,15 @@ export function buildAgentCommand(opts: {
  *  dead-peer fast-fail as the agent session (see `SSH_COMMON_OPTS` for
  *  why a "one-shot" realise needs it just as much as a long-lived link).
  *
- *  Used for `nix-instantiate --eval` arch probes and `nix-store
- *  --realise` invocations that need to round-trip and return. */
+ *  Used for `nix-instantiate --eval` arch probes, `nix-store --realise` /
+ *  `nix build` invocations that need to round-trip and return.
+ *
+ *  **Remote arm quotes every token** via {@link shellQuoteArg}: OpenSSH joins
+ *  everything after the host into ONE string the remote login shell re-parses,
+ *  so a metacharacter-bearing arg (the `^*` installable suffix for
+ *  `nix build --print-out-paths`, spaces, globs, …) MUST be POSIX-quoted or
+ *  zsh/bash expand it (`zsh:1: no matches found: …drv^*` — #1964 macOS).
+ *  Localhost is direct `spawn` — args pass through verbatim, no shell. */
 export function buildSshProbeCommand(
   host: string,
   ...remoteArgv: readonly [string, ...string[]]
@@ -286,6 +293,14 @@ export function buildSshProbeCommand(
     // `--` ends ssh's option parsing so `host` can never be read as an option
     // (`-oProxyCommand=<cmd>` → RCE). See `buildAgentCommand` for the full
     // rationale; `host` is the bare-positional sink here too.
-    args: [...SSH_COMMON_OPTS, ...controlArgv(), "--", host, ...remoteArgv],
+    // Quote remote tokens the same way `buildAgentCommand` quotes `extraArgs`
+    // — the remote login shell re-parses this argv as one string.
+    args: [
+      ...SSH_COMMON_OPTS,
+      ...controlArgv(),
+      "--",
+      host,
+      ...remoteArgv.map(shellQuoteArg),
+    ],
   };
 }

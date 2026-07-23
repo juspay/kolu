@@ -167,13 +167,15 @@ While `odu run` is live in a checkout, these attach to its surface over
 `.ci/odu.sock`:
 
 ```sh
-nix run github:juspay/odu -- status          # snapshot; -o json for tooling
+nix run github:juspay/odu -- status          # snapshot; -o json → {nodes, posting}
+                                             # (warns while GitHub posts are owed)
 nix run github:juspay/odu -- attach          # live TUI dashboard on a tty
                                              # (digits attach · n/p cycle ·
                                              #  r rerun · q quit); -o json
                                              # = transition stream
 nix run github:juspay/odu -- logs -f e2e@x86_64-linux
 nix run github:juspay/odu -- cancel          # stop the live run, cleanly
+nix run github:juspay/odu -- runs            # durable history (flags unposted statuses)
 ```
 
 No run in progress ⇒ exit non-zero with `no run in progress in this

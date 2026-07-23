@@ -43,6 +43,11 @@ import {
   ptyHostSurface,
 } from "./ptyHostSurface.ts";
 
+/** A SIGKILLed PTY should exit immediately. Bound the wire mutation anyway:
+ *  node-pty's `kill` API returns void and swallows signal-delivery errors, so
+ *  without our own deadline a failed signal would leave callers hung forever. */
+const PTY_TERMINATION_TIMEOUT_MS = 8_000;
+
 /** Map a host {@link PtyListEntry} to the wire {@link PtyHostListEntry} — the one
  *  place the two shapes are bridged, annotated to the inferred wire type so a
  *  host/schema drift is a compile error here, not a silent zod field-strip
@@ -122,6 +127,42 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   const requirePty = (id: PtyId): void => {
     if (!host.has(id)) {
       throw new ORPCError("NOT_FOUND", { message: `no PTY with id ${id}` });
+    }
+  };
+
+  /** Arm every exit before signaling, force termination, and acknowledge only
+   *  after onExit teardown. The deadline converts node-pty's swallowed
+   *  process.kill error into a loud wire failure naming the residue. */
+  const terminate = async (ids: readonly PtyId[]): Promise<void> => {
+    const abort = new AbortController();
+    const exits = ids.map((id) => host.exitPromise(id, abort.signal));
+    for (const id of ids) host.kill(id, "SIGKILL");
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.all(exits),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            const originalIds = new Set(ids);
+            const survivors = host
+              .list()
+              .map((entry) => entry.id)
+              .filter((id) => originalIds.has(id));
+            reject(
+              new Error(
+                `pty-host: termination timed out after ${PTY_TERMINATION_TIMEOUT_MS}ms; surviving ids: ${survivors.join(", ") || "(none in inventory)"}`,
+              ),
+            );
+          }, PTY_TERMINATION_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      // On timeout, deregister every unresolved waiter from its surviving
+      // entry. On success the waiters already removed their abort listeners,
+      // so this is a no-op.
+      abort.abort();
     }
   };
 
@@ -311,16 +352,23 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           }
           return { id: res.id, pid: res.pid, cwd: input.cwd };
         },
-        // No kill-then-wait here (that's a reattach concern): the consumer
-        // aborts the exit tap before calling kill, so an intentional kill stays
-        // silent. The kill RPC's response drives the UI cleanup.
+        // The consumer aborts the exit tap before calling kill, so an
+        // intentional kill stays silent. Arm completion before signaling and
+        // do not acknowledge the mutation until onExit has removed the entry:
+        // sleep → wake reuses the same id, and an old teardown arriving after
+        // the re-spawn would otherwise delete the new PTY. This is explicitly
+        // destructive, so use SIGKILL: node-pty's default SIGHUP can lose an
+        // immediate post-spawn kill while the child becomes its session leader.
         kill: async ({ input }) => {
-          host.kill(input.id);
+          await terminate([input.id]);
           return { ok: true };
         },
         killAll: async () => {
           const ids = host.list().map((e) => e.id);
-          for (const id of ids) host.kill(id);
+          // killAll is the reset boundary used by test setup and operators:
+          // reporting success while old PTYs still occupy inventory makes the
+          // next world race residue.
+          await terminate(ids);
           return { killed: ids.length };
         },
         write: async ({ input }) => {

@@ -9,6 +9,7 @@ import { showsWelcome } from "./capabilities";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { resumableTerminalIds } from "./restoreModel";
+import DocLink from "./ui/DocLink";
 import Kbd from "./ui/Kbd";
 import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
@@ -20,7 +21,7 @@ const chrome = surface();
 const features = [
   { label: "New terminal", shortcut: advertisedNewTerminalKey },
   { label: "New terminal menu", shortcut: ACTIONS.newTerminalMenu.keybind },
-  { label: "Command palette", shortcut: ACTIONS.commandPalette.keybind },
+  { label: "Search everything", shortcut: ACTIONS.commandPalette.keybind },
   { label: "Cycle terminals", shortcut: ACTIONS.cycleTerminalMru.keybind },
 ];
 
@@ -171,7 +172,16 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                 "mb-5 pb-5 border-b border-edge": !isDesktop(),
               }}
             >
-              <p class="text-sm font-medium text-fg mb-3">Restore session</p>
+              <div class="mb-3 flex items-baseline justify-between gap-3">
+                <p class="text-sm font-medium text-fg">Restore session</p>
+                <DocLink
+                  slug="sessions"
+                  class="text-xs text-accent hover:underline"
+                  data-testid="session-restore-docs"
+                >
+                  Docs →
+                </DocLink>
+              </div>
               <div class="space-y-4">
                 <For each={groups()}>
                   {(group) => (

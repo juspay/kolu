@@ -34,12 +34,13 @@ import {
   Show,
   untrack,
 } from "solid-js";
-import { getClockNow } from "../time/clock";
-import { formatElapsedShort } from "../time/duration";
-import { activeHost, connectionInfo } from "../wire";
-import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
 import { showsElapsed, tailOf } from "../kaval/connectCanvasView";
 import { DAEMON_STATE_PRESENTATION } from "../kaval/daemonPresentation";
+import { getClockNow } from "../time/clock";
+import { formatElapsedShort } from "../time/duration";
+import DocLink from "../ui/DocLink";
+import { activeHost, connectionInfo } from "../wire";
+import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
 
 export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   const info = () => connectionInfo();
@@ -70,34 +71,72 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
 
   // Elapsed since THIS host's current provisioning episode began. The SESSION owns the
   // truth: the server ships `sinceMs` — the episode duration on its single clock, reset
-  // per episode — and the client only EXTENDS it smoothly between frames. So there is NO
-  // client-held episode-start place (the bug the reset came from): on a host-tab switch,
-  // ConnectCanvas remounts and simply re-reads the server's authoritative `sinceMs`, so
-  // the count never resets and never leaks a prior host's. `anchor` is a transient
-  // extension baseline (server duration + local receipt time), re-set on every frame —
-  // NOT an episode start, so it is self-correcting and belongs on the component.
-  const [anchor, setAnchor] = createSignal<{ ms: number; at: number } | null>(
-    null,
-  );
+  // per episode — and the client only EXTENDS it smoothly between frames.
+  //
+  // Two load-bearing rules for the wall-clock extension (#1962):
+  //  1. Drive re-renders off the SHARED app clock (`getClockNow`) — the same reactive
+  //     tick HostDaemonChips / inspector use. A component-local setInterval was wiped
+  //     every second when `<Match when={warmingMode()}>` remounted on each mode() object
+  //     (mode recomputes every getMonotonicNow tick for the boot deadline).
+  //  2. Re-anchor ONLY when the server's `sinceMs` changes for the SAME host+campaign —
+  //     re-baselining `at` on every effect re-run with the same sinceMs zeroes the extension
+  //     and freezes the label at the last frame's sinceMs until the next log frame jumps it.
+  //     Host + campaignEpoch are in the key because the boolean warming Match keeps this
+  //     component mounted across active-host switches and same-host recheck; a quiet multi-
+  //     minute stretch can leave anchor.ms at 0 while wall extension shows 40s, so a new
+  //     campaign that reopens at sinceMs: 0 must not keep that baseline.
+  const clockNow = getClockNow();
+  const [anchor, setAnchor] = createSignal<{
+    host: string;
+    epoch: number;
+    ms: number;
+    at: number;
+  } | null>(null);
   createEffect(() => {
-    // Re-anchor on each fresh frame — in the connect-overlay path (`copy` present) with a real
-    // frame (a `sinceMs` to extend). No flag gate: a `probing` frame ticks too. The GAP (no
-    // frame) and the kaval-restart path (`copy` null) carry no `sinceMs`, so no timer — data
-    // absence, not policy. The clock is read UNTRACKED so the effect fires on frames, not ticks.
     const c = copy();
     const frame = info();
-    setAnchor(
-      c !== null && frame !== undefined
-        ? { ms: frame.sinceMs, at: untrack(() => getClockNow()()) }
-        : null,
-    );
+    const h = host();
+    // Residual `connecting` mode can still have a live connection cell with a
+    // long-lived connected campaign (reload of a warm host). Title-only "Connecting…"
+    // is fine; elapsed/tail must not show that campaign's uptime as connect progress.
+    if (c === null || frame === undefined || !isConnectPhase(frame.phase)) {
+      setAnchor(null);
+      return;
+    }
+    const sinceMs = frame.sinceMs;
+    const epoch = frame.campaignEpoch;
+    setAnchor((prev) => {
+      // Same host + campaign + server duration → keep the receipt baseline so wall
+      // clock extends it between frames.
+      if (
+        prev !== null &&
+        prev.host === h &&
+        prev.epoch === epoch &&
+        prev.ms === sinceMs
+      ) {
+        return prev;
+      }
+      return {
+        host: h,
+        epoch,
+        ms: sinceMs,
+        at: untrack(() => clockNow()),
+      };
+    });
   });
-  const elapsedMs = createMemo(() => {
+  // Plain function (not createMemo): reads clockNow() in the caller's tracking
+  // context (JSX), the same pattern kaval uptime uses — so each shared-clock tick
+  // re-evaluates the elapsed text with zero incoming frames.
+  const elapsedMs = (): number | null => {
     const a = anchor();
-    return a === null ? null : a.ms + (getClockNow()() - a.at);
-  });
+    return a === null ? null : a.ms + (clockNow() - a.at);
+  };
 
-  const tail = createMemo(() => tailOf(info()?.log ?? []));
+  const tail = createMemo(() => {
+    const frame = info();
+    if (frame === undefined || !isConnectPhase(frame.phase)) return [];
+    return tailOf(frame.log);
+  });
 
   return (
     <Show
@@ -134,6 +173,9 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
                 {formatElapsedShort(elapsedMs() as number)}
               </span>
             </Show>
+          </div>
+          <div class="text-xs">
+            <DocLink slug="remote-hosts">Remote hosts docs →</DocLink>
           </div>
           {/* The live log tail renders whenever the frame carries log lines — the `probing`
               window's "checking for a cached agent…" narrates the instant it arrives, no

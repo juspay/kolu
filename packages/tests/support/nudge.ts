@@ -6,10 +6,10 @@
  *  event on each poll iteration so detection retries are driven from
  *  the test side rather than relying on the kernel queue staying warm.
  *
- *  Two flavors: `nudgeWal` writes a WAL frame to a SQLite DB
+ *  Three flavors: `nudgeWal` writes a WAL frame to a SQLite DB
  *  (agent-session mocks); `nudgeFiles` re-touches mtimes (transcript /
- *  session-JSONL mocks). Same volatility axis, two mechanisms — they
- *  share a home so future additions don't fragment further.
+ *  session-JSONL mocks). Same volatility axis — they share a home so future
+ *  additions don't fragment further.
  *
  *  SQLite errors that match the SQLITE_BUSY family are swallowed
  *  silently — those ARE the events we expect under contention.

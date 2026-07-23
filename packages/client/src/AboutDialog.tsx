@@ -8,6 +8,7 @@ import type { Component } from "solid-js";
 import { serverProcessId } from "./rpc/rpc";
 import Commit from "./ui/Commit";
 import { createDisclosure } from "./ui/createDisclosure";
+import DocLink from "./ui/DocLink";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import { useServerIdentity } from "./useServerIdentity";
@@ -35,7 +36,7 @@ const AboutDialog: Component = () => {
           <span class="font-semibold text-fg">{appTitle()}</span>
         </div>
         <div class="space-y-1 text-fg-3">
-          <p>
+          <p class="flex flex-wrap items-center gap-x-3 gap-y-1">
             <a
               href="https://github.com/juspay/kolu"
               target="_blank"
@@ -44,6 +45,7 @@ const AboutDialog: Component = () => {
             >
               github.com/juspay/kolu
             </a>
+            <DocLink slug="concepts">Concepts →</DocLink>
           </p>
           <p>
             Commit:{" "}

@@ -1,0 +1,178 @@
+---
+title: The Switcher
+description: "One search box for terminals, hosts, and commands. How root ranking works, which chords deep-link into scoped views, and how the terminal list mirrors the Dock."
+order: 48
+section: Use Kolu
+koluHero:
+  eyebrow: one surface
+  headline: One box that finds {everything}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+The **switcher** is kolu's unified search surface. Press
+<kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> and type — a branch, a repo, a host, a
+command — without first deciding which drawer to open. Terminals, hosts, and
+commands share one index and one muscle memory; the extra chords are deep links
+into scoped views of the same surface, not separate apps.
+
+## What opens at the root
+
+At the empty root you see:
+
+1. **Recent** — the three terminals **you were just in** (client visit trail —
+   last time each tile became active), interleaved across every **connected**
+   host — **except the tile that is already active**. Rank is
+   `max(your last visit, server activity)`, so a fresh browser still orders by
+   agent/output clocks until you navigate; after that your own trail wins over
+   background chatter. Cross-host rows show the same host chip as search hits.
+   Because the active tile is omitted and selection starts on the first Recent
+   row, **⌘K then Enter** toggles between your last two terminals (including
+   across hosts).
+2. **Hosts** — every machine in the pool (when more than local is configured),
+   quiet when healthy; `active` only for the canvas host.
+3. **Terminals** section — the Terminals group (⌘⇧K) and New terminal.
+4. **Further command sections** — Active Terminal, Canvas, UI, Help — as
+   usual, not collapsed into a single “Commands” band until you type.
+
+Type to search **across every kind at once**. Matching is multi-token: every
+whitespace-separated word must appear somewhere in the row's corpus (repo,
+branch, intent, agent, cwd, host label, command name…). Token order does not
+matter — `kolu auth` finds the same row as `auth kolu`.
+
+## Terminals across every connected host
+
+The switcher indexes **live top-level terminals on every connected host** in
+the padi pool — not only the machine whose canvas you are viewing. **Split
+children** (terminals with a parent) are omitted: activating the parent tile
+brings its splits with it, same as the Dock.
+
+- **Plain shells** appear (no agent required), with the same state pip language
+  as the Dock (shell mark / idle paint).
+- **Order** is fleet-wide `max(visit, activity)` (visit = last time you made
+  the tile active; activity is the Dock's reprojected clock). Parked rows the
+  activity window would hide are dropped here too.
+- **Cross-host rows** carry **one host chip** in the right rail — the same
+  identity hue + connection-status language as the chrome-bar host strip — so
+  `srid@builder` vs local is obvious without repeating the name in the context
+  line. Selecting one **switches the canvas to that host and activates the
+  terminal** in one step.
+
+### Browse Terminals: flat list, host-grouped headers
+
+**⌘⇧K → Terminals** shows **every connected host's terminals immediately** —
+no host drill required. The list is **visually grouped** under small-caps
+headers (`local · 3 terminals`, `zest · 6 terminals`); active host's group is
+first; within a group, recency order. Hosts with zero terminals still get a
+header so the fleet map is complete.
+
+**Host-scoping is optional.** Click a host header (or use the dock search
+icon) to narrow to that host; the breadcrumb becomes
+`Commands › Terminals › zest`. Backspace on an empty query pops a level.
+
+**Typing filters the whole list flat** across every host (host chips still
+mark foreign rows). At the root, the same multi-token match finds terminals
+without entering Terminals first.
+
+The active host's Dock remains the always-on navigator for the machine you are
+looking at; the switcher is the jump path over the whole fleet.
+
+## How results rank
+
+With a non-empty query, hits are ordered by **kind first**, not by how close the
+string match is:
+
+| Priority | Kind | Tie-break |
+| --- | --- | --- |
+| 1 | Terminals | Recency — max(last client visit, server/Dock activity) |
+| 2 | Hosts | Pool order |
+| 3 | Commands | Existing section order |
+
+So a branch name outranks a host that happens to share a substring, and both
+outrank a command. There are **no prefix sigils** (`>` commands, `@` hosts) —
+scoping is the existing drill-in path (below), not a mode character.
+
+## Deep-link chords
+
+| Chord / control | Opens |
+| --- | --- |
+| <kbd>Mod</kbd> + <kbd>K</kbd> | Root — search everything |
+| <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> | **Terminals** — all hosts' terminals under host headers |
+| Dock search icon | **Terminals › active host** — only that machine's terminals |
+| <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> | **Hosts** — same host rows as root (switch canvas host) |
+
+**Mod** is <kbd>Cmd</kbd> on macOS and <kbd>Ctrl</kbd> on Linux and Windows. The
+full chord table lives under [Keyboard shortcuts](/keyboard-shortcuts).
+
+## Scoped views
+
+Deep links do not leave the switcher — they **drill in**. Breadcrumbs show the
+path; **Backspace on an empty query** (or the breadcrumb) pops one level back to
+root. Escape closes the whole surface.
+
+### Terminals (⌘⇧K / dock search)
+
+⌘⇧K lands on **Terminals** with every connected host already expanded under
+headers — type to filter, or click a header to scope. The **dock search**
+icon opens **Terminals › the host you are viewing** (host-scoped). Selecting
+a row **switches host if needed and activates** the terminal.
+
+### Hosts (⌘⇧H)
+
+**⌘⇧H** opens the **Hosts** scope — the **same host rows** as the root index
+(one source of truth; there is no separate “Switch host” list). Selecting a
+host re-keys the canvas with no reload — same as the [host strip](/remote-hosts).
+
+Host status text is quiet by default:
+
+| Condition | Context text |
+| --- | --- |
+| Canvas’s current host | `active` |
+| Connected, not active | *(none — connected is the default)* |
+| Warming / failed / removed | `connecting` / `unreachable` / `removed` |
+
+The connection **dot** still carries health color on every row.
+
+## Reading a row
+
+Every result kind paints the same four slots so a mixed list stays scannable:
+
+1. **Lead** — agent-state pip (terminal; plain shells get the shell mark),
+   connection dot (host), or glyph (command).
+2. **Identity** — for terminals, the **same headline as the Dock**: repo
+   colour eyebrow + **intent first line** when one is set, otherwise the
+   branch. Host rows show `user@host`; commands show the command name.
+   Matched tokens bold in place.
+3. **Context** — one truncating line. When the identity is the intent, the
+   **branch** sits here; otherwise agent summary / foreground (Dock
+   subline). Host status or command description for other kinds. Never
+   carries the host name on a terminal row.
+4. **Right rail** — **host chip** (only when the terminal is on a non-active
+   host — hue ring + label), recency, keybind, drill chevron, and a kind tag
+   (`term` / `host` / `cmd`) **only at the mixed root**.
+
+## What this is not
+
+- The **dock** is still the always-visible navigator down the left edge —
+  glanceable without opening anything. The switcher is the jump / search path
+  over the **same** terminal set.
+- The **host strip** is still ambient multi-host status; ⌘K does not replace it.
+- Sleep, restore, and session memory live under [Sessions](/sessions); the
+  switcher only **finds** terminals that already exist on connected hosts.
+
+<Aside type="note" title="Mobile">
+  On a phone the palette still opens from the chrome sheet, but the **⌘⇧K
+  Terminals deep-link is desktop-gated** (`showsWorkspaceSwitcher`); host
+  switch and root search remain available. See [Mobile](/mobile).
+</Aside>
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Keyboard shortcuts" href="/keyboard-shortcuts" description="every global chord, including the three switcher doors" />
+  <LinkCard title="The Dock" href="/dock" description="the always-on terminal list the switcher shares" />
+  <LinkCard title="Remote hosts" href="/remote-hosts" description="the host strip, pool membership, and per-host canvases" />
+  <LinkCard title="First five minutes" href="/first-five-minutes" description="open a repo and launch an agent from the palette" />
+</CardGrid>

@@ -8,15 +8,15 @@
  *  the top of `MobileChromeSheet`.
  *
  *  It is the mobile TWIN of `HostSelectorStrip`, not a restyle: a chip consumes
- *  the EXACT desktop vocabulary — `dotClass` for the connection-dot tone (green
- *  only for `connected`), `hostHue` for the per-host identity accent,
- *  `HostAwaitingPill` (violet needs-you count) and `HostFinishedDot` (amber
- *  unseen-finished) — so a dot / hue / pill means the same thing on a phone as
- *  on a laptop. A tap calls `setActiveHost` (the identical write the desktop
- *  strip makes; W9 makes the switch instant). Adding a host reuses the shared
- *  `addHost` mechanism; only the CONTAINER differs from desktop — a full-width
- *  in-sheet section rather than an anchored popover (the popover clips at
- *  phone width).
+ *  the EXACT desktop vocabulary — always-on connection status pip (green /
+ *  amber pulse / red), Home glyph for local or hostname for remote, `hostHue`
+ *  for the per-host identity accent, `HostAwaitingPill` (violet needs-you
+ *  count) and `HostFinishedDot` (amber unseen-finished) — so a signal means
+ *  the same thing on a phone as on a laptop. A tap calls `setActiveHost` (the
+ *  identical write the desktop strip makes; W9 makes the switch instant).
+ *  Adding a host reuses the shared `addHost` mechanism; only the CONTAINER
+ *  differs from desktop — a full-width in-sheet section rather than an
+ *  anchored popover (the popover clips at phone width).
  *
  *  Touch ergonomics: every chip and the add trigger are ≥44px hit targets, and
  *  the chip row scrolls horizontally when hosts overflow the viewport width. */
@@ -30,20 +30,21 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { hostMarks } from "../attention/attentionMarks";
+import DocLink from "../ui/DocLink";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostFinishedDot } from "./HostFinishedDot";
+import { HostIdentityLabel } from "./HostIdentityLabel";
 import {
-  dotClass,
+  chipStatusDot,
+  hostGlance,
   hostHue,
   hostLabel,
   sameHost,
-  statusTitle,
 } from "./hostChipTone";
-import { HostIdentityLabel } from "./HostIdentityLabel";
-import { hostMarks } from "../attention/attentionMarks";
 import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
@@ -54,13 +55,17 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // own reactive owner, disposed when the host leaves the pool). Both derivations
   // are memoized because each is read from several tracked positions in the JSX
   // (`isActive` from aria-current + data-active + two classList keys; `state`
-  // from the title + the dot class), and each read otherwise re-runs the
+  // from the title + the exception-dot class), and each read otherwise re-runs the
   // encode/membership-scan on every `activeHost`/entry change.
   const state = createMemo(() => padiMap.entry(props.host).state());
   // Compare active-host vs. this chip's host by CANONICAL string (`sameHost`),
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
+  const glance = createMemo(() => hostGlance(state()));
+  const down = createMemo(() => glance().down);
+  // Always-on connection status (green / amber / red).
+  const statusDot = createMemo(() => chipStatusDot(props.host, state()));
   // Both marks from the ONE store, bundled once (the host is fixed for this chip).
   const marks = hostMarks(encodeHostKey(props.host));
 
@@ -74,25 +79,32 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       // host picker (`HostSwitcherRow` in `HostSelectorStrip.tsx`) already uses
       // for its list of host options, which is this row's real interaction twin
       // (a pick-and-dismiss list in a popover/sheet, not the persistent top-bar
-      // tab strip). The shared VISUAL vocabulary (dot / hue / pill) is unchanged.
+      // tab strip). The shared VISUAL vocabulary (exception dot / hue / pill) is
+      // unchanged from desktop.
       aria-current={isActive() ? "true" : undefined}
       data-testid="mobile-host-chip"
       data-host={encodeHostKey(props.host)}
       data-active={isActive() ? "" : undefined}
+      data-down={down() ? "" : undefined}
       // 44px min hit target. The identity hue (`--host-hue`) rides the active
       // chip's border + tinted belly, quiet at rest — the same "host is a
-      // place, not a label" treatment the desktop tab wears. The hue RING
-      // (`host-hue-ring`) is the DOT's identity mark only (below), never the
-      // whole shell — an inactive chip must stay quiet (`border-edge`), so the
-      // shell itself carries no hue at rest, exactly like the desktop chip.
+      // place, not a label" treatment the desktop tab wears. Down hosts
+      // desaturate + strike the label (exception-based, matching desktop).
       class="flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors"
       classList={{
+        // Active hue fill is kept even when down so the selected failed host
+        // still reads as the one that owns the canvas.
         "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_18%,var(--color-surface-1))] text-fg":
-          isActive(),
-        "border-edge bg-surface-2 text-fg-2 active:bg-surface-3": !isActive(),
+          isActive() && !down(),
+        "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_12%,var(--color-surface-1))] text-fg-3 opacity-80":
+          isActive() && down(),
+        "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
+          !isActive() && !down(),
+        "border-danger/40 bg-surface-2 text-fg-3 opacity-70":
+          !isActive() && down(),
       }}
       style={{ "--host-hue": hostHue(props.host) }}
-      title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
+      title={`${hostLabel(props.host)} — ${glance().title}`}
       // A no-op tap on the already-active chip must not re-write `activeHost`
       // with a new-reference-but-equal key (it would re-notify every
       // `useEntry(activeHost)` consumer for nothing) — guard on `isActive()`,
@@ -107,15 +119,13 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       }}
     >
       <span
-        // Status tone fills the dot; the hue ring wraps it in this host's
-        // identity colour — status and identity on one mark.
-        class={`host-hue-ring inline-block h-2.5 w-2.5 shrink-0 rounded-full ${dotClass(state())}`}
+        class={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${statusDot()}`}
         aria-hidden="true"
       />
       <HostIdentityLabel
         host={props.host}
-        glyphClass="h-3.5 w-3.5"
-        labelClass="max-w-[10rem] truncate font-medium"
+        glyphClass="h-4 w-4"
+        labelClass={`max-w-[10rem] truncate font-medium${glance().labelDecoration}`}
       />
       {/* Needs-you pill — shared violet `HostAwaitingPill` (roomier mobile).
        *  Unseen-finished is the amber `HostFinishedDot` beside it. */}
@@ -156,6 +166,12 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
       // sheet. Same guard the sheet's other controls (palette, settings) wear.
       onPointerDown={(e) => e.stopPropagation()}
     >
+      <p class="mb-2.5 text-[11px] leading-4 text-fg-2">
+        Remote hosts —{" "}
+        <DocLink slug="remote-hosts" data-testid="mobile-host-add-docs">
+          Learn more →
+        </DocLink>
+      </p>
       <div class="flex items-center gap-2">
         <input
           ref={inputEl}

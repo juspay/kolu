@@ -224,7 +224,54 @@ describe("relayFailThroughStream (delta)", () => {
     expect(frames).toEqual(["a"]);
   });
 
-  it("throws the RETRYABLE RelayTransportLostError when subscribed with no live client", async () => {
+  it("WAITS for the next spawn when subscribed with no live client (no 1s retry spam, #1963)", async () => {
+    // Pre-#1963: throw RelayTransportLostError immediately → browser STREAM_RETRY
+    // every 1s → LoggingHandlerPlugin logged a bare stack frame for the whole
+    // provisioning window. Now: wait for the pump to set a live client, then
+    // forward 1:1 (fail-through still applies to mid-stream deaths).
+    const holder = observableHolder<ByteClient>(); // current === null
+    const logs: string[] = [];
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+      { log: (l) => logs.push(l) },
+    );
+    const frames: string[] = [];
+    let error: unknown = null;
+    const run = (async () => {
+      try {
+        for await (const f of relay({ id: "t" }, undefined)) frames.push(f);
+      } catch (err) {
+        error = err;
+      }
+    })();
+    // Still waiting — no throw, no frames.
+    await delay(20);
+    expect(error).toBeNull();
+    expect(frames).toEqual([]);
+    expect(logs.some((l) => /no live upstream yet/.test(l))).toBe(true);
+    // Exactly ONE wait line even if we somehow re-enter — rate-limited.
+    expect(logs.filter((l) => /no live upstream yet/.test(l))).toHaveLength(1);
+
+    // Pump lands a spawn — the waiting relay binds and forwards.
+    const up = controllable<string>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up.stream(opts?.signal) } },
+    };
+    holder.onChange?.();
+    up.push("after-wait");
+    up.end();
+    await run;
+    expect(error).toBeNull();
+    expect(frames).toEqual(["after-wait"]);
+  });
+
+  it("ends cleanly (no throw) when aborted while waiting for a spawn", async () => {
+    // Downstream unsubscribes while still provisioning (no live client yet).
+    // Must end cleanly — not surface a transport-lost error to a client that
+    // already walked away.
     const holder = observableHolder<ByteClient>(); // current === null
     const relay = relayFailThroughStream(
       POLICY,
@@ -232,23 +279,21 @@ describe("relayFailThroughStream (delta)", () => {
       holder,
       selectByte,
     );
+    const ctl = new AbortController();
     let error: unknown = null;
-    await (async () => {
+    const frames: string[] = [];
+    const run = (async () => {
       try {
-        for await (const _ of relay({ id: "t" }, undefined)) {
-          /* consume */
-        }
+        for await (const f of relay({ id: "t" }, ctl.signal)) frames.push(f);
       } catch (err) {
         error = err;
       }
     })();
-    expect(error).toBeInstanceOf(RelayTransportLostError);
-    expect((error as ORPCError<string, unknown>).code).toBe(
-      SURFACE_RELAY_TRANSPORT_LOST,
-    );
-    // The shared retry fence classifies the no-live-upstream end RETRYABLE too, so
-    // a subscribe before the link is up re-subscribes once it comes back.
-    expect(fence({ error })).toBe(true);
+    await delay(5);
+    ctl.abort();
+    await run;
+    expect(error).toBeNull();
+    expect(frames).toEqual([]);
   });
 
   it("ends cleanly (no RelayTransportLostError) on an already-aborted subscribe with no live upstream", async () => {
@@ -256,7 +301,7 @@ describe("relayFailThroughStream (delta)", () => {
     // `holder.current` is null, and the generator is first pulled AFTER the abort.
     // That abort is teardown, not a dead-link condition, so it must end cleanly —
     // NOT surface a spurious RelayTransportLostError to a client that already walked
-    // away (the abort check precedes the `client === null` branch).
+    // away (the abort check precedes the wait-for-spawn loop).
     const holder = observableHolder<ByteClient>(); // current === null
     const relay = relayFailThroughStream(
       POLICY,

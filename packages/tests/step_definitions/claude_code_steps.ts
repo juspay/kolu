@@ -438,12 +438,15 @@ When(
   },
 );
 
-/** Re-touch the mock files so a dropped fs.watch event can't deadlock
- *  detection. The mechanism (and its rationale) lives in
- *  `support/nudge.ts::nudgeFiles` alongside `nudgeWal` — same volatility
- *  axis (kernel inotify queue overflow under parallel load). */
+/** Re-fire both watcher levels so a dropped fs.watch event can't deadlock
+ *  detection. Re-touching the files wakes the transcript watcher, while a
+ *  create+remove sentinel wakes the shared SESSIONS_DIR watcher that must first
+ *  discover the exact `<pid>.json`. A file-mtime touch alone is not a reliable
+ *  parent-directory event on Darwin. The sentinel is not JSON, so session
+ *  resolution can never mistake it for a Claude session. */
 function nudgeMockFiles() {
   nudgeFiles([mockSessionFile, mockTranscriptPath]);
+  nudgeDir(getSessionsDir());
 }
 
 /** Re-fire the SESSIONS_DIR watcher for the *disappearance* assertions.

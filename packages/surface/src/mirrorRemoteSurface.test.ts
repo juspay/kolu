@@ -93,29 +93,26 @@ describe("mirrorRemoteSurface", () => {
   });
 
   it("fires onRemove when a key leaves the collection's keys snapshot", async () => {
-    let closeKeys!: () => void;
-    const keysOpen = new Promise<void>((r) => {
-      closeKeys = r;
-    });
-    let closeVals!: () => void;
-    const valsOpen = new Promise<void>((r) => {
-      closeVals = r;
-    });
+    const initialUpserts = Promise.withResolvers<void>();
+    const allowDeparture = Promise.withResolvers<void>();
+    const removed = Promise.withResolvers<void>();
+    const closeKeys = Promise.withResolvers<void>();
+    const closeVals = Promise.withResolvers<void>();
     const client = {
       surface: {
         items: {
           keys: async () =>
             (async function* () {
               yield ["a", "b"];
-              await delay(5);
+              await allowDeparture.promise;
               yield ["a"]; // b departs
-              await keysOpen;
+              await closeKeys.promise;
             })(),
           // Per-key value streams stay open so a key is "present" until removed.
           get: async ({ key }: { key: string }) =>
             (async function* () {
               yield { v: key === "a" ? 1 : 2 };
-              await valsOpen;
+              await closeVals.promise;
             })(),
         },
       },
@@ -126,18 +123,26 @@ describe("mirrorRemoteSurface", () => {
     const { done } = mirrorRemoteSurface(testSurface, asClient(client), {
       collections: {
         items: {
-          upsert: (k) => upserts.push(k),
-          remove: (k) => removes.push(k),
+          upsert: (k) => {
+            upserts.push(k);
+            if (upserts.length === 2) initialUpserts.resolve();
+          },
+          remove: (k) => {
+            removes.push(k);
+            removed.resolve();
+          },
         },
       },
     });
 
-    await delay(30);
+    await initialUpserts.promise;
     expect([...upserts].sort()).toEqual(["a", "b"]);
+    allowDeparture.resolve();
+    await removed.promise;
     expect(removes).toEqual(["b"]);
 
-    closeVals();
-    closeKeys();
+    closeVals.resolve();
+    closeKeys.resolve();
     await done;
   });
 

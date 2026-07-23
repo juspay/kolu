@@ -360,10 +360,27 @@ Then(
 );
 
 Then(
-  "the Code tab should show the empty-changes message",
-  async function (this: KoluWorld) {
+  "the Code tab should show the empty-changes message for repo {string}",
+  async function (this: KoluWorld, repoPath: string) {
     const msg = this.page.locator('[data-testid="diff-empty"]');
-    await msg.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // A commit clears the Local tree through the repo-change watcher. Under
+    // Darwin FSEvents load that one-shot index/reflog burst can be dropped,
+    // leaving the already-mounted tree stale forever. Re-fire a working-tree
+    // event on each poll so the production subscriber re-derives the same
+    // post-commit state; the sentinel is removed synchronously, so it never
+    // changes the status being asserted. The 500ms cadence stays beyond the
+    // two 150ms trailing-edge debounces (native watcher + composed pulse).
+    await pollFor({
+      observe: () => msg.isVisible().catch(() => false),
+      isDone: (visible) => visible,
+      onTick: () => nudgeDir(repoPath),
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `Code tab did not show the empty-changes message within ${elapsedMs}ms for ${repoPath}`,
+        ),
+      intervalMs: 500,
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
   },
 );
 
@@ -620,27 +637,53 @@ async function waitForViewText(
   world: KoluWorld,
   testid: string,
   expected: string,
+  nudgePath?: string,
 ) {
-  await world.page.waitForFunction(
-    `(() => {
-      ${SHADOW_DFS_FN_SRC}
-      const root = document.querySelector('[data-testid="${testid}"]');
-      if (!root) return false;
-      let text = '';
-      shadowDfs(root, (node) => {
-        if (node.nodeType === 3) text += node.nodeValue || '';
-      });
-      return text.includes(${JSON.stringify(expected)});
-    })()`,
-    undefined,
-    { timeout: POLL_TIMEOUT },
-  );
+  const containsExpected = `(() => {
+    ${SHADOW_DFS_FN_SRC}
+    const root = document.querySelector('[data-testid="${testid}"]');
+    if (!root) return false;
+    let text = '';
+    shadowDfs(root, (node) => {
+      if (node.nodeType === 3) text += node.nodeValue || '';
+    });
+    return text.includes(${JSON.stringify(expected)});
+  })()`;
+  if (nudgePath !== undefined) {
+    // A native watcher edge is advisory: Darwin can drop the one FSEvents
+    // notification produced by the fixture's save under parallel load. Re-touch
+    // the already-final file while polling so the assertion still verifies the
+    // live watcher → pulse → requery path, without making correctness depend on
+    // one kernel edge. The 500ms cadence clears both 150ms trailing debounces.
+    await pollFor({
+      observe: () => world.page.evaluate<boolean>(containsExpected),
+      isDone: (found) => found,
+      onTick: () => nudgeFiles([nudgePath]),
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `${testid} never rendered ${JSON.stringify(expected)} within ${elapsedMs}ms while nudging ${nudgePath}`,
+        ),
+      intervalMs: 500,
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+    return;
+  }
+  await world.page.waitForFunction(containsExpected, undefined, {
+    timeout: POLL_TIMEOUT,
+  });
 }
 
 Then(
   "the file content should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForViewText(this, "pierre-file-view", expected);
+  },
+);
+
+Then(
+  "the file content should contain {string} while nudging {string}",
+  async function (this: KoluWorld, expected: string, filePath: string) {
+    await waitForViewText(this, "pierre-file-view", expected, filePath);
   },
 );
 
@@ -675,28 +718,62 @@ Then(
   },
 );
 
-// Drive Pierre's virtualized scroll viewport to its bottom. Pierre owns the
-// scroll container (the `pierre-file-view` / `pierre-diff-view` host), so a
-// single `scrollTop` assignment can land before the virtualizer has settled
-// its row window; loop a few frames pinning scrollTop past the max so the
-// last window materializes. Regression guard for the line-height-metric
-// clip (#1026): the bottom rows are only reachable once Pierre's virtualizer
-// knows the real row height, so this step + a last-line content assertion
-// fails when the metric is wrong and passes once it matches.
+Then(
+  "the diff view should contain {string} while nudging {string}",
+  async function (this: KoluWorld, expected: string, filePath: string) {
+    await waitForViewText(this, "pierre-diff-view", expected, filePath);
+  },
+);
+
+// Drive Pierre's virtualized scroll viewport to its bottom until the expected
+// last row materializes. The diff/file stream may not have mounted when the
+// step begins, and a fixed frame-count burst can finish before it exists under
+// Darwin load. Timer polling keeps pinning the live viewport to its evolving
+// maximum while Pierre measures and renders its final window.
 When(
-  "I scroll the file preview to the bottom",
-  async function (this: KoluWorld) {
-    await this.page.evaluate(`(async () => {
+  "I scroll the file preview to the bottom until {string} is rendered",
+  async function (this: KoluWorld, expected: string) {
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(`(() => {
+      ${SHADOW_DFS_FN_SRC}
       const sels = ['[data-testid="pierre-file-view"]', '[data-testid="pierre-diff-view"]'];
-      for (let i = 0; i < 12; i++) {
-        for (const sel of sels) {
-          const el = document.querySelector(sel);
-          if (el) el.scrollTop = el.scrollHeight + 2000;
-        }
-        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 25)));
+      const states = [];
+      for (const sel of sels) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        el.scrollTop = el.scrollHeight + 2000;
+        let text = '';
+        shadowDfs(el, (node) => {
+          if (node.nodeType === 3) text += node.nodeValue || '';
+        });
+        states.push({
+          sel,
+          found: text.includes(${JSON.stringify(expected)}),
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        });
       }
-    })()`);
-    await this.waitForFrame();
+      return states;
+    })()`),
+      isDone: (states) =>
+        Array.isArray(states) &&
+        states.some(
+          (state) =>
+            typeof state === "object" &&
+            state !== null &&
+            "found" in state &&
+            state.found === true,
+        ),
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `file preview did not render bottom marker "${expected}" within ${elapsedMs}ms; ` +
+            `last view states: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
+      intervalMs: 100,
+    });
   },
 );
 
@@ -739,118 +816,6 @@ Then(
         ),
       timeoutMs: HYDRATION_TIMEOUT,
     });
-  },
-);
-
-// Edit-then-refresh variant: after a file is rewritten in the shell, the live
-// preview reloads only when the file-change watch (`subscribeFileChange` →
-// `watchWorkingTree(repoRoot, { filePath })`) fires. On darwin that single
-// FSEvents notification is sometimes dropped under the post-koluBin-build
-// storm, so the iframe freezes on the pre-edit body and the bare assertion
-// above (even at HYDRATION_TIMEOUT) waits forever — no further event ever
-// comes. Re-touch the edited file's mtime each poll tick: each touch is a
-// fresh notification, so a dropped one is recovered. The touch itself no longer
-// changes the URL (the `?v=` cache-key hashes CONTENT, not mtime) — it only
-// re-fires the dropped watch; the requery then hashes the already-written
-// post-edit content, whose new hash re-points the iframe `src` and forces the
-// reload. The file already holds the post-edit content, so this recovers the
-// lost event without changing what is asserted — it does NOT mask a broken
-// watch re-arm (a touch of a file the
-// watch isn't armed on still fires nothing). `absFile` is the absolute on-disk
-// path the shell wrote (the scenario's repo cwd + relative path).
-Then(
-  "the file preview iframe should refresh to {string} after editing {string}",
-  async function (this: KoluWorld, expected: string, absFile: string) {
-    const body = this.page
-      .frameLocator('[data-testid="browse-preview-iframe"]')
-      .locator("body");
-    await pollFor({
-      observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
-      isDone: (text) => text?.includes(expected) ?? false,
-      onTick: () => nudgeFiles([absFile]),
-      onTimeout: (last) =>
-        new Error(
-          `iframe preview never refreshed to "${expected}" after editing ${absFile}; ` +
-            `last body text: ${JSON.stringify(last)}`,
-        ),
-      timeoutMs: HYDRATION_TIMEOUT,
-    });
-  },
-);
-
-// Scroll the sandboxed preview iframe's OWN document to the bottom and capture
-// the landed scrollTop for the hold-steady regression below. `frameLocator`
-// reaches into the opaque-origin frame (same boundary the read step uses), so
-// `body.evaluate` runs in the iframe context and drives its `scrollingElement`.
-// We poll because the content needs a beat to lay out tall enough to scroll;
-// a captured scrollTop of 0 means the fixture wasn't scrollable — a setup bug,
-// surfaced here rather than as a silent pass downstream.
-When(
-  "I scroll the file preview iframe to the bottom",
-  async function (this: KoluWorld) {
-    const body = this.page
-      .frameLocator('[data-testid="browse-preview-iframe"]')
-      .locator("body");
-    const top = await pollFor({
-      observe: () =>
-        body
-          .evaluate(() => {
-            const se = document.scrollingElement ?? document.documentElement;
-            se.scrollTop = se.scrollHeight;
-            return se.scrollTop;
-          })
-          .catch(() => 0),
-      isDone: (t) => t > 0,
-      onTimeout: (last) =>
-        new Error(
-          `preview iframe never scrolled (scrollTop stayed ${last}); is the fixture tall enough?`,
-        ),
-      timeoutMs: HYDRATION_TIMEOUT,
-    });
-    this.savedPreviewIframeScrollTop = top;
-  },
-);
-
-// The scroll-jump regression, end-to-end: a `git checkout`-style rewrite bumps
-// mtime WITHOUT changing bytes, which under the old mtime-keyed `?v=` re-pointed
-// the iframe `src` and slammed a mid-scrolled preview to the top. Here we hold
-// the frame at its captured scroll position while firing the file-change watch
-// repeatedly via identical-mtime touches (`nudgeFiles` re-touches mtime — that
-// IS the same-bytes-new-mtime rewrite). Each touch re-queries
-// `fs.filePreviewTag`, whose CONTENT hash is unchanged, so the URL holds and the
-// frame is never re-pointed: scrollTop must not reset. Were the tag still keyed
-// on mtime, the first touch would reload and drop scrollTop to 0, failing here.
-// The scenario's following real-edit refresh step is the liveness guard — it
-// proves the watch DOES fire and DOES reload on a genuine change, so this
-// hold-steady window is not a vacuous pass on a dead watch.
-Then(
-  "the file preview iframe holds its scroll position through identical rewrites of {string}",
-  async function (this: KoluWorld, absFile: string) {
-    const anchor = this.savedPreviewIframeScrollTop;
-    if (anchor === undefined || anchor <= 0)
-      throw new Error(
-        "no captured preview scroll position to hold — scroll the iframe first",
-      );
-    const body = this.page
-      .frameLocator('[data-testid="browse-preview-iframe"]')
-      .locator("body");
-    const deadline = Date.now() + 8_000;
-    while (Date.now() < deadline) {
-      nudgeFiles([absFile]);
-      const top = await body
-        .evaluate(() => {
-          const se = document.scrollingElement ?? document.documentElement;
-          return se.scrollTop;
-        })
-        .catch(() => null);
-      // A transient null (a read racing a swap) is ignored; a real drop toward
-      // the top means the `src` was re-pointed — the exact regression.
-      if (top !== null && top < anchor - 2)
-        throw new Error(
-          `preview iframe scroll reset from ${anchor} to ${top} after an identical-content rewrite — the URL was re-pointed`,
-        );
-      await new Promise((r) => setTimeout(r, 250));
-    }
   },
 );
 
@@ -1132,6 +1097,36 @@ Then(
         ),
       timeoutMs: HYDRATION_TIMEOUT,
     });
+  },
+);
+
+Then(
+  "the markdown preview should be syntax highlighted",
+  async function (this: KoluWorld) {
+    // A fenced document first paints plain, then Shiki replaces the Markdown
+    // subtree once its lazy grammar bundle is ready. Waiting on Shiki's own
+    // output class makes subsequent selection deterministic instead of racing
+    // a text-node replacement between range measurement and mouseup.
+    await this.page
+      .locator('[data-testid="browse-preview-markdown"] pre.shiki')
+      .first()
+      .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+  },
+);
+
+When(
+  "the markdown preview DOM is re-rendered",
+  async function (this: KoluWorld) {
+    // Reproduce the exact invalidation shape behind #1162: Solid's innerHTML
+    // update replaces every text node even when the bytes are unchanged. This
+    // explicit replacement is deterministic; racing Shiki's lazy completion
+    // made the old scenario pass or fail depending on runner load.
+    await this.page
+      .locator('[data-testid="browse-preview-markdown"] .kolu-md')
+      .evaluate((el) => {
+        const replacement = el.innerHTML;
+        el.innerHTML = replacement;
+      });
   },
 );
 
@@ -1535,9 +1530,12 @@ type CodeTabMode = "local" | "branch" | "browse";
 
 const MODE_TMP_COUNTER: { n: number } = { n: 0 };
 function modeFixturePaths(mode: CodeTabMode): { work: string; origin: string } {
-  // Fresh per-scenario directories so Examples rows don't collide.
+  // Fresh per-scenario directories so Examples rows don't collide. Cucumber
+  // workers are separate processes, so the module counter alone repeats in
+  // every worker; include the PID to prevent parallel branch scenarios from
+  // cloning into the same millisecond-stamped path.
   MODE_TMP_COUNTER.n += 1;
-  const stamp = `${mode}-${Date.now()}-${MODE_TMP_COUNTER.n}`;
+  const stamp = `${mode}-${process.pid}-${Date.now()}-${MODE_TMP_COUNTER.n}`;
   return {
     work: `/tmp/kolu-codetab-${stamp}`,
     origin: `/tmp/kolu-codetab-${stamp}-origin.git`,
@@ -1592,17 +1590,15 @@ async function setupCodeTabFixture(
     // exists but origin/master does not yet" — the residual branch-mode flake
     // that lost both cucumber attempts on the slower darwin runner.
     //
-    // Fix: establish the base ref ATOMICALLY with the `origin` remote so no read
-    // can ever observe that in-between state. Populate the bare origin from a
-    // throwaway seed repo INSIDE A SUBSHELL — so the terminal's cwd never enters
-    // the seed; a passive read there (origin configured at `remote add` but its
-    // push not yet landed) would hit the very same BASE_BRANCH_NOT_FOUND, just
-    // moved to the seed. Then `git clone` it into `work`: clone creates
-    // `origin`, `origin/master` and `origin/HEAD` in one operation, so the
-    // instant the terminal cd's into `work` (the only repo it ever enters) every
-    // gitStatus read resolves a valid base. The marker is split across a shell
-    // string-concat (`SET""TLED`) so the search text matches only the command's
-    // OUTPUT, never the typed echo.
+    // Fix: establish the ENTIRE staged branch fixture before the terminal ever
+    // enters `work`. Populate the bare origin from a throwaway seed repo in a
+    // subshell, then clone + branch + write + stage in another subshell. Only
+    // after every fact the first status read needs is final do we `cd` the
+    // terminal into the repo. The former partial fix entered immediately after
+    // clone, then created the branch/files/index through live watcher events;
+    // one dropped Darwin event could leave the first clean snapshot permanent.
+    // The marker is split across a shell string-concat (`SET""TLED`) so the
+    // search text matches only the command's OUTPUT, never the typed echo.
     const seed = `${origin}-seed`;
     await runShell(world, `git init --bare -b master ${origin}`);
     await runShell(
@@ -1611,20 +1607,40 @@ async function setupCodeTabFixture(
         `git remote add origin ${origin} && ` +
         `git commit --allow-empty -m init && git push -u origin master)`,
     );
-    await runShell(world, `git clone ${origin} ${work} && cd ${work}`);
-    await runShell(world, `git checkout -b feature`);
-    await runShell(world, writeFiles);
-    await runShell(world, `git add .`);
-    const token = work.replace(/[^a-zA-Z0-9]/g, "");
-    // Only emit the barrier marker once origin/master is verifiably resolvable;
-    // a missing base emits a distinct marker so the wait fails loudly instead
-    // of racing on into a permanently-empty branch tree.
+    // Keep the marker shorter than the narrowest e2e terminal. The xterm
+    // buffer inserts a newline at a wrapped cell boundary, so embedding the
+    // full worktree path made a successful marker unreadable as one string
+    // whenever the terminal was narrow under parallel Darwin load.
+    const token = String(MODE_TMP_COUNTER.n);
+    const settledMarker = `KOLU_SETTLED_${token}`;
+    const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
     await runShell(
       world,
-      `git rev-parse --verify origin/master >/dev/null 2>&1 ` +
-        `&& echo "KOLU_SET""TLED_${token}" || echo "KOLU_BASE""MISSING_${token}"`,
+      `(git clone ${origin} ${work} && cd ${work} && ` +
+        `git checkout -b feature && ${writeFiles} && git add . && ` +
+        `git rev-parse --verify origin/master >/dev/null 2>&1) ` +
+        `&& cd ${work}; kolu_fixture_status=$?; ` +
+        `if [ "$kolu_fixture_status" -eq 0 ]; then ` +
+        `echo "KOLU_SET""TLED_${token}"; else ` +
+        `echo "KOLU_FIX""TURE_FAILED_${token}:$kolu_fixture_status"; false; fi`,
     );
-    await waitForBufferContains(world.page, `KOLU_SETTLED_${token}`);
+    const outcome = await Promise.race([
+      waitForBufferContains(world.page, settledMarker).then(() => ({
+        kind: "settled" as const,
+      })),
+      waitForBufferContains(world.page, failedMarker).then((buffer) => ({
+        kind: "failed" as const,
+        buffer,
+      })),
+    ]);
+    if (outcome.kind === "failed") {
+      const failure = outcome.buffer
+        .split("\n")
+        .find((line) => line.includes(failedMarker));
+      throw new Error(
+        `branch fixture setup failed: ${failure?.trim() ?? failedMarker}`,
+      );
+    }
   } else if (mode === "browse") {
     await runShell(world, `git init ${work} && cd ${work}`);
     await runShell(world, writeFiles);
@@ -1664,14 +1680,10 @@ async function activateCodeTabMode(
  *  exceeded 20 s and was the single most-recurring flake site (#955).
  *
  *  `nudgeWork` (branch mode) re-fires the repo's working-tree watcher each
- *  tick. The gitStatus stream re-reads `getStatus`→`resolveBase` on every
- *  `subscribeRepoChange` event, so if the FIRST resolve raced the push and
- *  errored `BASE_BRANCH_NOT_FOUND` (origin/<default> not yet visible — the
- *  residual branch-mode flake that loses both cucumber attempts), a sentinel
- *  create+unlink in the work tree fires a repo change that re-resolves
- *  against the now-settled repo and the tree populates. The sentinel is
- *  untracked (excluded from the branch diff) and removed immediately, so it
- *  never appears in the tree. */
+ *  tick. The fixture is fully staged before the terminal enters it, so this
+ *  does not repair setup ordering; it only recovers a dropped first pulse by
+ *  making the status query re-read the same already-final state. The sentinel
+ *  is removed immediately and never changes the branch diff. */
 async function waitForCodeTabReady(
   world: KoluWorld,
   nudgeWork?: string,
@@ -1691,8 +1703,8 @@ async function waitForCodeTabReady(
     onTick: () => nudgeDir(nudgeWork),
     onTimeout: (_last, elapsed) =>
       new Error(
-        `Code tab tree never hydrated a row within ${elapsed}ms (work=${nudgeWork}) — ` +
-          `branch-mode gitStatus likely stuck on BASE_BRANCH_NOT_FOUND`,
+        `Code tab tree never hydrated a row within ${elapsed}ms ` +
+          `(work=${nudgeWork}) after the staged fixture was settled`,
       ),
     timeoutMs: HYDRATION_TIMEOUT,
     intervalMs: 500,
@@ -2154,6 +2166,49 @@ Then(
       onTimeout: (last) =>
         new Error(
           `comment highlight never registered any ranges; last size: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the comment highlight should cover {string} in the markdown preview",
+  async function (this: KoluWorld, expected: string) {
+    // A Highlight can retain a Range whose text nodes were detached by an
+    // innerHTML replacement. Counting registry entries therefore proves only
+    // that a stale range still exists. Require the range to cover the expected
+    // text through nodes owned by the CURRENT preview subtree; this is the
+    // re-anchoring contract exercised by the Markdown DOM-replacement test.
+    await pollFor({
+      observe: () =>
+        this.page
+          .evaluate(
+            `(() => {
+              const host = document.querySelector(
+                '[data-testid="browse-preview-markdown"] .kolu-md'
+              );
+              const reg = window.CSS && window.CSS.highlights;
+              if (!host || !reg) return false;
+              for (const [name, highlight] of reg) {
+                if (!String(name).startsWith(${JSON.stringify(HIGHLIGHT_PREFIX)})) continue;
+                for (const range of highlight) {
+                  if (
+                    !range.collapsed &&
+                    host.contains(range.startContainer) &&
+                    host.contains(range.endContainer) &&
+                    range.toString() === ${JSON.stringify(expected)}
+                  ) return true;
+                }
+              }
+              return false;
+            })()`,
+          )
+          .catch(() => false),
+      isDone: (anchored) => anchored === true,
+      onTimeout: () =>
+        new Error(
+          `comment highlight never re-anchored "${expected}" in the live Markdown preview`,
         ),
       timeoutMs: POLL_TIMEOUT,
     });

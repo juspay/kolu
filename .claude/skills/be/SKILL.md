@@ -1,6 +1,6 @@
 ---
 name: be
-description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a serial AI review gauntlet (lens debate (lowy ⇄ hickey) → codex debate → simplify → code-police, each editing the branch in turn) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
+description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a serial AI review gauntlet (lens debate (lowy ⇄ hickey) → agent debate → simplify → code-police, each editing the branch in turn) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
 argument-hint: "[--skip-gauntlet] <issue-url | prompt>"
 ---
 
@@ -10,7 +10,8 @@ Take a task to a shipped, reviewed PR. Unlike `/do` (autonomous start to finish)
 
 **Autonomy doesn't inherit — propagate it to every subagent you delegate to.** When you hand work to a fresh subagent (a §2 package build, a §5 "finish the ship" CI+gate+cleanup pass), its prompt must say *execute now; do not wait for confirmation, do not ask me to "say go"* — a subagent starts without your interview's "no stopping between steps" contract, so a prompt that merely lays out a plan gets a plan **back** (zero tool uses) instead of done work, and you're the one who has to type "go." Bake the directive into the delegation, and if a subagent still returns a plan-and-waits with no tool uses, resume it with "execute now" rather than surfacing the stall to the user.
 
-**Requires Claude Code's `Skill` tool** (the debate reviewers it calls are `Workflow`-backed).
+Requires a runtime that can invoke the named skills and the Workflow-backed
+lens review.
 
 ## Arguments
 
@@ -30,6 +31,9 @@ Before any work, ask the user via **`AskUserQuestion`** (one call, batched) — 
 
 - **Plan first?** — write the plan as an **Atlas note** (`docs/atlas/src/content/atlas/<slug>.mdx`) for review *before* implementing, or implement straight. Default: straight, unless the task is large/ambiguous. *(If the prompt already points at an existing Atlas note or legacy `docs/plans/*.html`, skip this question — that file is the plan of record; reuse it.)*
 - **Task kind** — bug fix · feature/new behavior · refactor/chore. This sets the test strategy (see §2).
+- **Debate peer** — when the gauntlet is enabled, choose `claude`, `codex`, or
+  `grok` for `/agent-debate`. There is no default: honor a peer already named in
+  the prompt; otherwise ask here and carry the answer through §4.
 
 Add a question only when something material is genuinely unclear — don't pad. Honor anything the user already pinned in the prompt instead of re-asking. **This single `AskUserQuestion` call is your one and only chance to ask** — surface every clarification you need now, because everything after this is autonomous.
 
@@ -69,16 +73,17 @@ PR comments. Note the skip in the Done report. Continue to §5.
 
 Otherwise run **`/be-review`** (Skill tool) — it runs four reviewers **serially**,
 each the sole editor while it runs: `/lens-debate` applying the agreed fixes, then
-`/codex-debate` (its per-round commits are the debate), then `/simplify`, then
+`/agent-debate` (its per-round commits are the debate), then `/simplify`, then
 code-police. Each step reads a clean tree (the previous step has committed) and
 applies its own fixes directly — no snapshot, no apply pass. be-review pushes once
-at the end and *then* posts the PR comments (lens, codex, and a code-police
+at the end and *then* posts the PR comments (lens, agent-debate, and a code-police
 summary), so no comment advertises a local-only commit.
 
-**Unless `--skip-gauntlet` was passed, this phase is non-negotiable — and it costs
-you almost nothing:** the reviewers run OFF your context, as backgrounded
-`Workflow`s that notify you when they settle. So "this would balloon my context /
-budget" is **never** grounds to skip a reviewer, run fewer than all four, or
+**Unless `--skip-gauntlet` was passed, this phase is non-negotiable.** The
+Workflow-backed lens step runs off-context and notifies you when it settles;
+`/agent-debate` runs inline against a live split peer, while later passes follow
+their own skill contracts. Context or budget concern is **never** grounds to
+skip a reviewer, run fewer than all four, or
 substitute a hand-rolled review for the real gauntlet — that excuse doesn't
 survive ten seconds of scrutiny, and dropping a step you were told to run is the
 single worst gauntlet failure. `/be`'s autonomy means *don't ask permission for
@@ -87,14 +92,13 @@ explicit `--skip-gauntlet` flag above. If a mandatory step is genuinely
 infeasible, **STOP and ask the user** at that moment — never silently substitute
 and disclose it later in the wrap-up.
 
-- Pass `base`, the change **`rationale`** (so the lenses don't flag deliberate
+- Pass the interview's explicit **`--agent`** selection, `base`, the change **`rationale`** (so the lenses don't flag deliberate
   decisions), and **`context`** — the task intent and key decisions you hold from
-  this run, so the codex author **inherits what you know instead of re-deriving it
-  from the diff**. Preflight is a non-empty diff and (since codex runs) `codex login
-  status`.
-- Lens-debate commits its agreed fixes; codex's rounds commit `fix(…)`; simplify
+  this run, so the author **inherits what you know instead of re-deriving it
+  from the diff**. Preflight is a non-empty diff plus the selected peer's auth check.
+- Lens-debate commits its agreed fixes; agent-debate's author rounds commit `fix(…)`; simplify
   and code-police commit `refactor:` / `fix(police):`. Confirm the post-push PR
-  comments landed: lens, codex, and — when the police track ran — the code-police
+  comments landed: lens, agent-debate, and — when the police track ran — the code-police
   summary.
 - On an **unresolved** lens finding, adjudicate it yourself before moving on.
 
@@ -132,7 +136,7 @@ before CI"). Pre-empt it: **before** kicking off `/ci`, `git fetch origin` and m
 `origin/<default>` into the branch so CI and the final `HEAD` sit on current master
 (the changelog is `merge=union` so it never conflicts; a *real* conflict is yours to
 resolve now, never to defer or paper over). **One ordering caveat** — never `git
-merge` while a background gauntlet step (a codex/lens round) is still committing
+merge` while a background gauntlet step (an agent-debate/lens round) is still committing
 per-round: it races the git index. If one is in flight, wait for it to settle, *then*
 merge, *then* start CI. Grep-check master isn't already an ancestor first — skip the
 merge only when `git merge-base --is-ancestor origin/<default> HEAD` is already true.
@@ -164,7 +168,10 @@ merge only when `git merge-base --is-ancestor origin/<default> HEAD` is already 
 
 ## Done
 
-Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied, codex consensus or reviewer-error, police findings actioned — **or** that `--skip-gauntlet` was used and §4 was skipped), and CI status. Never merge — the human reviews the commits and merges when satisfied.
+Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied,
+the selected agent-debate peer and its consensus or reviewer-error, police
+findings actioned — **or** that `--skip-gauntlet` was used and §4 was skipped),
+and CI status. Never merge — the human reviews the commits and merges when satisfied.
 
 **Then close the loop — run `/self-improve` (Skill tool), passing this run's `$CLAUDE_CODE_SESSION_ID`** so it can mine this session for recurring friction and turn it into a sharper skill-set. It runs **forked** (`context: fork`) so the whole analysis stays off your context — hence the explicit session id. It produces nothing unless a lesson durably recurs, ships any fix on its own draft PR (never this branch, never merged), and restores this branch — a clean, no-PR run is the common outcome.
 

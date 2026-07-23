@@ -8,10 +8,10 @@
 # snapshot, remote lanes `git fetch` the pushed SHA into a writable per-SHA
 # workspace on the host.
 #
-# Today every reachable recipe is replicated to every pipeline platform — a
-# per-recipe [linux]/[macos] filter is future work (it was on justci's roadmap
-# too). So a step tagged [linux]-only would still be scheduled on macOS and
-# fail there; keep leaf recipes platform-neutral until that lands.
+# odu respects just's OS attributes. A `[linux]` recipe is retained on the
+# Linux lane and pruned from Darwin (and `odu protect` derives the same filtered
+# status list). Keep platform-specific work tagged so unsupported nodes never
+# appear on the other lane.
 
 # Submodule recipes default to running from the submodule's directory (`ci/`),
 # but commands like `nix build … --override-input flake .` and `nix develop -c`
@@ -34,28 +34,20 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 # maximally, so the wall-clock is the *critical path* — the longest dependency
 # chain. We keep that path as short as honestly possible:
 #
-#   * `nix` (all packages, checks, and dev shells incl. typecheck) is the
-#     big build, but `e2e`, `smoke`, and `home-manager` no longer wait on it.
-#     Each of those self-builds exactly the store path it needs (`just test`
-#     builds `.#koluBin`; `smoke.sh` builds `.#default`; `home-manager` builds
-#     kolu via `--override-input`), and Nix store locking dedups the shared
-#     drv with `nix`'s concurrent build — so they overlap the big build
-#     instead of queuing behind it. This moves the ~2-min `e2e` lane (the long
-#     pole) off the `nix → e2e` chain and onto its own parallel branch.
-#   * Coverage is unchanged: `nix` still runs (it's a direct `default` dep), so
-#     the typecheck/website/packaging gates all still fire. The only behavior
-#     traded is that `e2e`/`smoke`/`home-manager` now run even when `nix`
-#     fails — which surfaces *more* independent signal per run, and all four
-#     stay required checks, so the merge gate is identical.
+#   * `nix` owns the root flake: packages, checks, and dev shells, plus the
+#     whole-flake evaluation/schema gate.
+#   * Every other node that invokes `nix build` depends on `nix`:
+#     home-manager, e2e's `.#koluBin`, smoke's `.#default`, and the pnpm hash
+#     rebuild. Their commands remain self-contained, but start from a warmed
+#     store after the root evaluator/build process has exited instead of
+#     competing with it for CPU, memory, and Nix locks.
 #
-# The cost is more concurrent nix builds on one host; on the ephemeral per-run
-# linux box (a full machine) that's the intended trade. See the ralph report
-# at docs/ci-workflow-ralph-report.md for the critical-path measurements.
+# This intentionally trades critical-path length for lower peak contention.
 [linux]
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix flake-check home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
+default: nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -79,57 +71,47 @@ install:
 # compares, so a stale cached artifact at the declared hash (local store
 # or cache.nixos.asia) can't silently satisfy a hash that no longer
 # matches the lockfile.
-pnpm-hash-fresh:
+pnpm-hash-fresh: nix
     nix build .#pnpmDeps .#website-pnpm-deps --no-link
     nix build --rebuild .#pnpmDeps .#website-pnpm-deps --no-link
 
-# Build every derivation output the flake exposes for the current system.
-# Per-system enumeration is deliberate: odu runs this recipe once in each
-# platform lane, and each lane proves its own packages, checks, and dev shells.
-# Names come from the flake itself so adding one cannot silently escape CI
-# (see ci/flake-build). This includes `checks.*`, so the workspace typecheck
-# (checks.x86_64-linux.typecheck) runs here — it replaced the standalone
-# `typecheck` recipe (juspay/kolu#1049). The typecheck result is
-# content-addressed, so it only re-runs when a typechecked source changes.
+# The single ordinary-Nix gate for each platform:
+#
+# 1. Build every root-flake package, check, and dev shell for the current
+#    system. Names come from the flake, so a new output cannot silently escape
+#    CI (see ci/flake-build). This includes the workspace typecheck.
+# 2. Run `nix flake check --no-build` as the whole-output evaluation/schema
+#    gate. Step 1 already realizes the check derivations; this command exists
+#    only to validate the flake structure and evaluation.
 nix:
     bash ci/flake-build .
+    nix flake check --no-build --accept-flake-config -L
 
-# `nix flake check`: evaluate every flake output and run the flake's `checks.*`.
-# Complements the `nix` node (which builds the output drvs) with the
-# flake-schema + whole-output *evaluation* gate — it forces every output to
-# evaluate, so an eval-time regression like an import-from-derivation that can't
-# be realised mid-eval (juspay/kolu#1317) fails here even when a plain build of
-# the affected drv would have succeeded. Store locking dedups its check builds
-# against the concurrent `nix` node, so it overlaps that build rather than
-# repeating it. No `nix` dep — it's an independent parallel leaf.
-flake-check:
-    nix flake check --accept-flake-config -L
-
-# Builds the home-manager example flake, whose committed lock owns nixpkgs at a
-# full revision; CI overrides only kolu to this checkout. Like `ci::nix`, this
-# enumerates the current system on purpose: the Linux lane builds Linux
-# checks/configurations and the Darwin lane builds Darwin checks.
-# No `nix` dep: store locking dedups the shared kolu drv with the `nix` node's
-# concurrent build, letting the home-manager VM work overlap the big build
-# instead of queuing behind every flake output.
-home-manager:
-    bash ci/flake-build --kinds checks --nixos-toplevels ./nix/home/example -- --override-input kolu .
+# Build the separate home-manager example flake after the root Nix gate has
+# warmed kolu's store paths. Darwin checks the activation package and launchd
+# configuration. Linux checks the NixOS configuration and runs the service,
+# adoption, and upgrade VM tests.
+home-manager: nix
+    if [ "$(uname)" = Darwin ]; then \
+      bash ci/flake-build --kinds checks ./nix/home/example -- --override-input kolu .; \
+    else \
+      bash ci/flake-build --kinds checks --nixos-toplevels ./nix/home/example -- --override-input kolu .; \
+    fi
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
 # packaging regressions where `nix build` passes but the binary crashes at
 # boot (e.g. missing workspace dep — see #761). smoke.sh shells out to
-# `nix build .#default` itself, so no `nix` dep (and no pnpm install): it
-# builds the `.#default` drv directly, deduped against `nix`'s concurrent
-# build via store locking, and boots as soon as that one path is ready.
-smoke:
+# `nix build .#default` itself. The `nix` dependency means that command starts
+# from an already-realized path rather than competing with the full-output
+# build; the node remains separate because booting the result is a distinct
+# runtime proof.
+smoke: nix
     {{ nix_shell }} bash .apm/skills/ci/smoke.sh
 
-# No `nix` dep: `just test` builds `.#koluBin` itself (justfile `test`
-# recipe), so e2e needs only the pnpm deps `install` provides — not the full
-# full-output build. Dropping the `nix` edge lets the ~2-min suite run
-# concurrently with the big build (koluBin drv deduped via store locking)
-# instead of strictly after it. This is the single largest critical-path win.
-e2e: install
+# `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
+# `nix` as well as the shared pnpm install so that build is an already-realized
+# lookup, not a concurrent Nix build.
+e2e: install nix
     # CUCUMBER_RETRY is the residual safety net for darwin-runner-load flakes
     # that survive the structural fixes in #955. Darwin runs at 2, linux at 1:
     # the darwin residual is an fs-event-drop class (e.g. the live-reload

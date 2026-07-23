@@ -46,16 +46,22 @@ async function paletteCommand(world: KoluWorld, query: string) {
     },
     { sel: PALETTE, q: query },
   );
+  // Prefer exact data-palette-name match — with fleet ranking, a looser
+  // filter can put "Toggle terminal split" ahead of "Split terminal".
   await world.page.waitForFunction(
-    (sel) => {
-      const item = document.querySelector(
-        `${sel} [role="option"]`,
-      ) as HTMLElement | null;
+    ({ sel, q }) => {
+      const opts = [
+        ...document.querySelectorAll(`${sel} [role="option"]`),
+      ] as HTMLElement[];
+      const exact = opts.find(
+        (el) => el.getAttribute("data-palette-name") === q,
+      );
+      const item = exact ?? opts[0];
       if (!item?.offsetHeight) return false;
       item.click();
       return true;
     },
-    PALETTE,
+    { sel: PALETTE, q: query },
     { timeout: POLL_TIMEOUT },
   );
   await world.page.waitForFunction(

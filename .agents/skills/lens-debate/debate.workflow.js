@@ -462,16 +462,16 @@ const fileOf = (location) => (location || '').split(':')[0].trim()
 
 // Render the PR comment deterministically from the debate outcome, returned as a
 // string so the ORCHESTRATOR posts it verbatim (`gh pr comment -F`) — no agent
-// re-improvises a table. Unlike codex-debate there are NO per-round files to
+// re-improvises a table. Unlike agent-debate there are NO per-round files to
 // assemble: the lenses don't read a ledger (feeding them prior reasoning would
 // invite entrenchment against conceding), so the comment is the only artifact.
 //
 // The header chrome (the `## ` title, the badge, the `base.slice(0, 12)`) is
-// deliberately kept STRUCTURALLY PARALLEL to codex-debate's ledgerHeader chrome.
+// deliberately kept STRUCTURALLY PARALLEL to agent-debate's ledgerHeader chrome.
 // The no-module workflow runtime has no imports, so a truly shared renderer isn't
 // available; the two are instead siblings that move together. A house-style change
 // (badge emoji, base-slice length, a new metadata row) is a mechanical mirror edit
-// — make it here and in codex-debate's ledgerHeader. If the runtime ever admits a
+// — make it here and in agent-debate's ledgerHeader. If the runtime ever admits a
 // shared helper file, lift this common chrome there.
 // `outcome` is the single mode bit for what happened to the agreed fixes:
 // { kind: 'applied', items } when this run implemented them, or

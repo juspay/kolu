@@ -57,8 +57,9 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
  *                     goes `probing → connecting → connected` with no build UI.
  *   - `"copying"`  — `nix copy --derivation …` is ACTUALLY pushing the `.drv` (the
  *                     COLD path only; entered at the copy command boundary).
- *   - `"building"` — `ssh $host nix-store --realise …` is compiling it (the minutes,
- *                     on a first connect to a fresh host).
+ *   - `"building"` — `ssh $host nix build -v --print-out-paths --no-link $drv^*`
+ *                     is compiling/substituting it (the minutes, on a first connect
+ *                     to a fresh host).
  *  A session opens at `"probing"` and advances to `"copying"` then `"building"` via
  *  `ctx.provisioning`, each at its real command boundary (`nixCopy`'s `onCopying`/
  *  `onBuilding` hooks). */
@@ -104,8 +105,8 @@ export function sshConnector<C extends AnyContractRouter>(
 ): Connector<AgentClient<C>, SshProv> {
   // The fused per-step progress-liveness budgets, owned HERE (the connector closure) so
   // their doubling + kill-budget persist across a campaign's retry-dials (#1908 C5). The
-  // campaign reset lives INSIDE the budgets (`onCampaign`, called by `provisionAgent`),
-  // so the connector holds ONE object and keeps no `lastCampaignEpoch` of its own.
+  // campaign reset is `budgets.onCampaign(ctx.campaignEpoch)` at the top of each dial
+  // (below) — provisionAgent is campaign-ignorant; the connector is the only caller.
   const budgets = makeProvisionBudgets();
 
   return async (ctx): Promise<Connection<AgentClient<C>>> => {

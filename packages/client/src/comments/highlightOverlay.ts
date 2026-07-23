@@ -61,11 +61,10 @@ export interface OverlayOptions {
    *  multi-surface (Markdown's Source ⇄ Rendered). Since the keep-alive toggle
    *  now mounts BOTH surfaces at once, the overlay only owns the scroll request
    *  whose `surface` matches — otherwise the hidden/wrong surface, whose effect
-   *  re-runs independently (its own `domTick`), could consume-and-clear a
-   *  request meant for the other surface (a prose-only quote that doesn't exist
-   *  in source, or vice versa), so the intended surface never scrolls. Undefined
-   *  for single-surface views (plain source, diff) — those match a request with
-   *  no surface. */
+   *  runs independently, could consume-and-clear a request meant for the other
+   *  surface (a prose-only quote that doesn't exist in source, or vice versa),
+   *  so the intended surface never scrolls. Undefined for single-surface views
+   *  (plain source, diff) — those match a request with no surface. */
   surface?: Accessor<"source" | "prose" | undefined>;
 }
 
@@ -91,33 +90,51 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
   });
   const scroll = useCommentScrollRequest();
 
-  // A subtree-mutation ticker for `observeMutations` surfaces (see the option
-  // doc): each batch of host DOM mutations bumps it, re-running the apply
-  // effect so highlights re-anchor onto the renderer's freshly-minted nodes.
+  const applyCurrentHighlights = (
+    host: HTMLElement,
+    comments: Comment[],
+  ): QuoteRoot => {
+    const root = findHostRoot(host);
+    applyHighlights(window, root, comments, name);
+    return root;
+  };
+
+  // Mutation re-application is immediate, but keep a ticker for the separate
+  // scroll-request path below: a prose DOM swap must still give a pending tray
+  // jump another chance against the freshly-rendered nodes.
   const [domTick, setDomTick] = createSignal(0);
 
   // Watch the host subtree only for prose surfaces. Kept in its own effect so
-  // it tracks `host` alone — the observer isn't torn down and rebuilt on every
-  // `domTick`/content re-apply (and `applyHighlights` uses the CSS Highlight
-  // API, which sets no DOM nodes, so our own re-apply never re-triggers it).
+  // it tracks `host` alone — the observer isn't torn down and rebuilt on a
+  // comments/content re-apply.
+  // `applyHighlights` uses the CSS Highlight API, which sets no DOM nodes, so
+  // our own re-apply never re-triggers the observer.
   createEffect(() => {
     if (!opts.observeMutations) return;
     const host = opts.host();
     if (!host) return;
-    // rAF-coalesced so a burst of mutations (a full innerHTML swap) bumps the
-    // ticker once rather than per-record.
-    let raf = 0;
+    // Re-anchor once at the NEXT microtask, after the browser has delivered the
+    // whole mutation-observer checkpoint. Applying inside our observer callback
+    // can still run before a later observer mutates the same rendered subtree;
+    // routing through a Solid signal goes too far the other way and leaves the
+    // repair waiting on a deferred reactive pass under load. One microtask is
+    // the exact boundary we need: after all observers, before paint.
+    let queued = false;
+    let disposed = false;
     const observer = new MutationObserver(() => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        setDomTick((n) => n + 1);
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        if (disposed) return;
+        applyCurrentHighlights(host, opts.comments());
+        if (scroll.request()) setDomTick((n) => n + 1);
       });
     });
     observer.observe(host, { childList: true, subtree: true });
     onCleanup(() => {
+      disposed = true;
       observer.disconnect();
-      if (raf) cancelAnimationFrame(raf);
     });
   });
 
@@ -125,10 +142,9 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     const host = opts.host();
     const comments = opts.comments();
     opts.contentTick?.(); // dependency
-    domTick(); // dependency — re-apply after the prose renderer swaps its DOM
+    domTick(); // dependency — retry pending scroll work after a prose DOM swap
     if (!host) return;
-    const root = findHostRoot(host);
-    applyHighlights(window, root, comments, name);
+    const root = applyCurrentHighlights(host, comments);
 
     // After the highlight set is applied for this file, consume any
     // pending scroll request. We resolve the target comment's range
@@ -139,8 +155,8 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     // Only the overlay whose surface matches the request owns it. Both
     // Source ⇄ Rendered surfaces are kept alive now, so without this gate the
     // wrong surface could find-or-fail and `scroll.clear()` the request before
-    // the intended surface — re-running on its own `domTick` (lazy Shiki/
-    // markdown swap) — gets to scroll. `undefined === undefined` matches the
+    // the intended surface — re-running after its own lazy Shiki/Markdown swap
+    // — gets to scroll. `undefined === undefined` matches the
     // single-surface views (plain source, diff) against a surface-less request.
     if (req.surface !== opts.surface?.()) return;
     const target = comments.find((c) => c.id === req.commentId);

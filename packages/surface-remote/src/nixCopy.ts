@@ -21,8 +21,10 @@
  *   2. `nix copy --derivation --to ssh-ng://$host $drvPath` pushes the
  *      .drv (plus its inputs' .drvs and source paths the remote
  *      doesn't have).
- *   3. `ssh $host nix-store --realise $drvPath` builds it on the
- *      remote, returning the output path on the remote's store.
+ *   3. `ssh $host nix build -v --print-out-paths --no-link $drv^*` builds
+ *      (or substitutes) it on the remote, returning the output path. Plain
+ *      `-v` so nix's own per-path lines reach the connect overlay; a single
+ *      large fetch may be quiet — the wall-clock elapsed timer covers liveness.
  *   4. `ssh $host nix-store --realise $out --add-root $link --indirect`
  *      pins that output behind a per-agent GC root on the target, so a
  *      `nix-collect-garbage` there can't delete the agent out from
@@ -32,7 +34,7 @@
  *      `ssh $host $agentPath/bin/<binary> --stdio` via the connector.
  *
  * Localhost shortcut: the .drv is already in the local store, so
- * `nix-store --realise` is a local build. The copy step is a no-op.
+ * `nix build` is a local build. The copy step is a no-op.
  *
  * **Lifetime ownership (#1908 D1b/D1c).** Every child spawns through
  * `process.ts` with a REQUIRED {@link LifetimePolicy}: the quick steps
@@ -134,8 +136,9 @@ export interface ProvisionBudgets {
   readonly copy: StepBudget;
   readonly build: StepBudget;
   /** Reset both step budgets when the campaign changes (a fresh episode / user verb).
-   *  Idempotent within a campaign — a no-op until `epoch` moves. Called by
-   *  `provisionAgent` at the top of every dial, so the connector needn't track it. */
+   *  Idempotent within a campaign — a no-op until `epoch` moves. The connector
+   *  (session↔nixCopy bridge) must call this with `ctx.campaignEpoch` before
+   *  `provisionAgent` — provisionAgent itself is campaign-ignorant. */
   onCampaign(epoch: number): void;
 }
 
@@ -180,8 +183,8 @@ export interface ProvisionOptions {
    *  the moment a real copy actually begins (the warm check has already MISSED). The
    *  connector uses it to advance its phase `probing → copying`. Optional. */
   onCopying?: () => void;
-  /** Fired ONCE, on the COLD path, at the copy→realise boundary — right before
-   *  `nix-store --realise` starts the BUILD. Advances `copying → building`. Optional. */
+  /** Fired ONCE, on the COLD path, at the copy→build boundary — right before
+   *  `nix build` starts the BUILD. Advances `copying → building`. Optional. */
   onBuilding?: () => void;
   /** The fused per-step progress-liveness budgets (#1908 R4/C5) — CONNECTOR-owned so
    *  their doubling/terminal state persists across a campaign's retries. The connector
@@ -456,9 +459,13 @@ export async function provisionAgent(
     // The warm check MISSED (cold path) — signal the `probing → copying` boundary.
     opts.onCopying?.();
     onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
+    // Plain `-v`: nix's own per-path lines ("copying path '…'") reach the
+    // connect tail untouched. No structured-progress parser — one long fetch
+    // may be quiet; the wall-clock elapsed timer covers liveness (#1962).
     const copyRes = await runProgress(
       "nix",
       [
+        "-v",
         "copy",
         "--no-check-sigs",
         "--derivation",
@@ -499,8 +506,16 @@ export async function provisionAgent(
     sawNetworkError = false;
   }
 
-  // 3. Realise (build) the .drv on the target — the minutes-long compile. Signal the
-  //    `copying → building` boundary (cold path only; a warm host returned at step 1).
+  // 3. Realise (build) the .drv on the target — the minutes-long compile / binary-cache
+  //    fetch. Signal the `copying → building` boundary (cold path only; a warm host
+  //    returned at step 1). Uses `nix build -v --print-out-paths --no-link` (not the
+  //    classic `nix-store --realise`) so nix's own verbose per-path lines reach the
+  //    connect tail. The installable is `$drv^*` (all outputs): a bare `$drv` path is
+  //    a derivation installable that `--print-out-paths` echoes back as itself (spawn
+  //    ENOTDIR), while `^*` realises and prints the store output path(s). Same
+  //    single-output contract as before (multi-output still fails loud via
+  //    `multiOutputError`). Remote arm shell-quotes the installable so zsh does not
+  //    glob `*` (#1964).
   opts.onBuilding?.();
   onProgress(
     isLocal
@@ -509,9 +524,13 @@ export async function provisionAgent(
   );
   const build = buildSshProbeCommand(
     opts.host,
-    "nix-store",
-    "--realise",
-    opts.drvPath,
+    "nix",
+    "-v",
+    "build",
+    "--print-out-paths",
+    "--no-link",
+    // `^*` = all outputs of the derivation (see comment above).
+    `${opts.drvPath}^*`,
   );
   const realiseRes = await runCapture(build.command, build.args, {
     onProgress,
@@ -519,17 +538,12 @@ export async function provisionAgent(
     signal,
   });
   if (realiseRes.kind === "lifetime-expired") {
-    return expiredResult(
-      opts.host,
-      "nix-store --realise",
-      budgets.build,
-      realiseRes,
-    );
+    return expiredResult(opts.host, "nix build", budgets.build, realiseRes);
   }
   if (!realiseRes.ok) {
     return {
       ok: false,
-      reason: `${opts.host}: 'nix-store --realise' ${describeExit(realiseRes)}`,
+      reason: `${opts.host}: 'nix build' ${describeExit(realiseRes)}`,
       cause: causeFor(realiseRes),
     };
   }

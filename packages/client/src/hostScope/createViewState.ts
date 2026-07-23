@@ -32,9 +32,10 @@
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createSignal, type Setter } from "solid-js";
+import { type Accessor, createMemo, createSignal, type Setter } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { perHostBoolPref } from "../persistedPref";
+import { useVisitRecency } from "../terminal/visitRecency";
 import { padiMap } from "../wire";
 
 // A terminal that has drawn attention while unwatched, surfaced as a dock unread
@@ -50,9 +51,10 @@ export interface HostViewState {
    *  MRU, clears the tile's unread, and reports it to THIS host's server session.
    *  Named `writeActive` (the facade exposes it as `setActiveSilently`). */
   writeActive: (id: TerminalId | null) => void;
-  setMruOrder: (
-    next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
-  ) => void;
+  /** Seed empty host trail / reconcile live membership (order is seed-only). */
+  reconcileLiveIds: (liveIds: readonly TerminalId[]) => void;
+  /** Drop one terminal from the durable visit trail (kill path). */
+  forgetFromMru: (id: TerminalId) => void;
   markUnread: (id: TerminalId) => void;
   isUnread: (id: TerminalId) => boolean;
   // ── Per-host VIEW POSTURE (W7 TIER A) ────────────────────────────────
@@ -70,15 +72,20 @@ export interface HostViewState {
 
 export function createViewState(host: HostKey): HostViewState {
   const [activeId, setActiveId] = createSignal<TerminalId | null>(null);
-  const [mruOrder, setMru] = createSignal<TerminalId[]>([]);
   const [attention, setAttention] = createStore<
     Record<TerminalId, TerminalAttention>
   >({});
+  // Cross-host visit trail — one client SOT for ⌘K Recent + Ctrl+Tab.
+  const visits = useVisitRecency();
 
   // The canonical host string — the map's `codec.encode(host)`, used in the
   // active-terminal report's error message below. Computed once per owner. (The
   // posture's per-host storage key is now composed inside `perHostBoolPref`.)
   const encoded = encodeHostKey(host);
+
+  // Host-filtered slice of the visit MRU (most-recent first). Replaces the old
+  // per-host in-memory list so cycling order survives reloads.
+  const mruOrder = createMemo(() => visits.mruForHost(host));
 
   // View posture: persisted PER HOST so a host's fullscreen posture survives reload —
   // the pre-W7 behavior, restored — but keyed by host (unlike the pre-W7 GLOBAL
@@ -94,7 +101,8 @@ export function createViewState(host: HostKey): HostViewState {
   function writeActive(id: TerminalId | null): void {
     setActiveId(id);
     if (id === null) return;
-    setMru((prev) => [id, ...prev.filter((x) => x !== id)]);
+    // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
+    visits.noteVisit(host, id);
     if (attention[id] === "unread")
       setAttention(
         produce((a) => {
@@ -119,10 +127,14 @@ export function createViewState(host: HostKey): HostViewState {
       });
   }
 
-  function setMruOrder(
-    next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
-  ): void {
-    setMru(typeof next === "function" ? next(mruOrder()) : next);
+  function reconcileLiveIds(liveIds: readonly TerminalId[]): void {
+    // Empty host trail → seed with liveIds order; non-empty → membership only
+    // (argument order is ignored for survivors). Kill uses forgetFromMru.
+    visits.applyLiveIds(host, liveIds);
+  }
+
+  function forgetFromMru(id: TerminalId): void {
+    visits.forgetVisit(host, id);
   }
 
   function markUnread(id: TerminalId): void {
@@ -143,7 +155,7 @@ export function createViewState(host: HostKey): HostViewState {
     // `setCanvasMaximized(false)` also writes `"false"` through the boolPref, so the
     // persisted posture is floored too — a reload after a close-all stays tiled.
     setActiveId(null);
-    setMru([]);
+    visits.clearHost(host);
     setAttention(reconcile({}));
     setCanvasMaximized(false);
   }
@@ -152,7 +164,8 @@ export function createViewState(host: HostKey): HostViewState {
     activeId,
     mruOrder,
     writeActive,
-    setMruOrder,
+    reconcileLiveIds,
+    forgetFromMru,
     markUnread,
     isUnread,
     canvasMaximized,

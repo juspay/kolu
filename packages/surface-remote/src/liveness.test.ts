@@ -233,8 +233,8 @@ describe("HostSession liveness watchdog", () => {
 // The local (stdio/endpoint) arm supplies a `processAlive` oracle the ssh arm above
 // cannot: on a heartbeat timeout the watchdog consults the same-box process table
 // instead of assuming death. A minimal stub connector whose liveness probe NEVER
-// answers (the heartbeat-silent link) + a controllable `processAlive` drives the three
-// arcs the #1776 ruling demands. (The ssh `describe` above already pins the fourth arc:
+// answers (the heartbeat-silent link) + a controllable `processAlive` drives the two
+// local arcs. (The ssh `describe` above pins the third arc:
 // NO oracle → force-cycle on the first timeout — the remote arm is provably untouched.)
 //
 // Each test below (like the ssh ones above) `pin()`s and swallows the rejection with
@@ -308,7 +308,7 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
     vi.clearAllMocks();
   });
 
-  it("timeout + oracle ALIVE → does NOT force-cycle (slow under load, not dead)", async () => {
+  it("prolonged silence + oracle ALIVE → never force-cycles (slow under load, not dead)", async () => {
     const { session, arm } = localSession(() => true);
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(1);
@@ -316,11 +316,13 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
     expect(localPhase(session)).toBe("connected");
     expect(arm.stats().connects).toBe(1);
 
-    // One full probe cycle (interval 15s + timeout 10s): the probe never answers, but the
-    // oracle says the padi process is alive → the watchdog keeps probing, no force-cycle.
-    await vi.advanceTimersByTimeAsync(25_000);
+    // Stay silent well past the former minute-scale cutoff. The same-box process oracle
+    // remains authoritative, so the watchdog keeps the usable link and reuses its one
+    // pending probe instead of manufacturing a time threshold for local death.
+    await vi.advanceTimersByTimeAsync(120_000);
     expect(arm.stats().teardowns).toBe(0);
     expect(arm.stats().connects).toBe(1);
+    expect(arm.stats().isAliveCalls).toBe(1);
     expect(localPhase(session)).toBe("connected");
 
     session.destroy();
@@ -338,28 +340,6 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
     expect(arm.stats().teardowns).toBe(1);
     await vi.advanceTimersByTimeAsync(200); // routes through reconnect → a fresh dial
     expect(arm.stats().connects).toBe(2);
-
-    session.destroy();
-  });
-
-  it("dead-man ceiling → force-cycles despite an ALIVE process after prolonged silence", async () => {
-    const { session, arm } = localSession(() => true); // process always alive
-    session.pin().catch(() => {});
-    await vi.advanceTimersByTimeAsync(1);
-    session.markConnected();
-
-    // Below the ceiling, sustained heartbeat-silence with an alive process never cycles.
-    await vi.advanceTimersByTimeAsync(25_000);
-    expect(arm.stats().teardowns).toBe(0);
-
-    // Past the 60s dead-man ceiling (a deadlocked-but-alive padi), it force-cycles anyway.
-    await vi.advanceTimersByTimeAsync(75_000);
-    expect(arm.stats().teardowns).toBe(1);
-
-    // Concurrency cap: across the whole ~100s hold-off the watchdog re-fired every cycle,
-    // but only ONE `isAlive()` round-trip was ever outstanding — the pending probe was
-    // reused, never piled a fresh `hello()` onto the already-slow padi each cycle.
-    expect(arm.stats().isAliveCalls).toBe(1);
 
     session.destroy();
   });
@@ -422,41 +402,22 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
     session.destroy();
   });
 
-  it("dead-man ceiling accrues MONOTONIC running time, not wall time — a mid-silence SUSPENSION never spends the ceiling (#1776 F2)", async () => {
-    // The ceiling must measure how long the padi has been heartbeat-silent while the
-    // runtime was actually RUNNING — on the SAME monotonic clock `createHeartbeat`'s
-    // suspension guard reads, never wall time. If it read `Date.now()`, a laptop sleep
-    // / forward clock-step mid-silence would fold the suspended wall span into
-    // `silentForMs` and force-cycle a merely-resumed-but-alive padi — the exact false
-    // recovery this arm exists to prevent. This test drives a REAL suspension (wall
-    // races ahead while the monotonic clock is frozen) between stale verdicts and pins
-    // that the resumed link keeps its FULL running-time grace.
-    //
-    // The monotonic clock is a spy INDEPENDENT of the fake wall clock (the repo's
-    // `vi.spyOn(performance, "now")` pattern). During RUNNING phases both advance in
-    // lockstep so the heartbeat's own per-window suspension check never voids and its
-    // stale verdicts fire normally; the suspension advances WALL alone with the
-    // monotonic clock held fixed (the heartbeat voids every straddling probe, as it
-    // would across a real sleep). Reverting the ceiling to `Date.now()` makes this fail:
-    // the first post-resume stale verdict would see the whole 20-minute wall jump.
+  it("suspension does not override the alive process oracle", async () => {
+    // Drive a real heartbeat suspension: wall time races ahead while the monotonic
+    // clock is frozen. The local process oracle remains the authority after resume.
     let monoMs = 0;
     const nowSpy = vi
       .spyOn(performance, "now")
       .mockImplementation(() => monoMs);
 
-    // Running time: advance wall AND the monotonic clock together in sub-`SLACK` steps
-    // so that at every probe timeout the wall/mono gap is ~0 — the heartbeat fires a
-    // normal stale verdict rather than voiding as a suspension.
+    // Advance wall and monotonic time together while the runtime is running.
     const run = async (ms: number): Promise<void> => {
       for (let elapsed = 0; elapsed < ms; elapsed += 1000) {
         monoMs += 1000;
         await vi.advanceTimersByTimeAsync(1000);
       }
     };
-    // A runtime SUSPENSION: wall advances while the monotonic clock is FROZEN. Every
-    // straddling probe reads the wall/mono divergence and VOIDs (never firing onStale),
-    // exactly as the heartbeat does across a real laptop sleep — so no stale verdict,
-    // and the monotonic silence clock does not tick.
+    // During suspension only wall time advances.
     const suspend = async (ms: number): Promise<void> => {
       await vi.advanceTimersByTimeAsync(ms);
     };
@@ -466,20 +427,15 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
     await vi.advanceTimersByTimeAsync(1);
     session.markConnected();
 
-    // Run past the first stale verdict — establishes `livenessUnresponsiveSince` on the
-    // monotonic clock (~25s in), well below the 60s ceiling.
+    // Establish heartbeat silence while the process remains alive.
     await run(30_000);
     expect(arm.stats().teardowns).toBe(0);
 
-    // Suspend: 20 MINUTES of WALL time pass with the monotonic clock frozen. On
-    // `Date.now()` this alone is >> the 60s ceiling; on the monotonic clock it is zero.
+    // Suspend for 20 minutes of wall time.
     await suspend(1_200_000);
     expect(arm.stats().teardowns).toBe(0);
 
-    // Resume running. The straddling probe voids once, then a fresh fully-running probe
-    // fires the next stale verdict — read on the monotonic clock, total silence is still
-    // ~25-30s (< 60s), so the link keeps its full grace and is NOT cycled. A `Date.now()`
-    // ceiling would have force-cycled the instant this post-resume verdict fired.
+    // Resume through another stale verdict. An alive process keeps its link.
     await run(25_000);
     expect(arm.stats().teardowns).toBe(0);
     expect(localPhase(session)).toBe("connected");

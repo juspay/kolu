@@ -12,6 +12,7 @@
 
 import Dialog from "@corvu/dialog";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { encodeHostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
   type Component,
@@ -22,26 +23,47 @@ import {
   on,
   Show,
 } from "solid-js";
-import { Dynamic } from "solid-js/web";
 import { match } from "ts-pattern";
-import { formatKeybind, type Keybind } from "./input/keyboard";
+import { hostLabel } from "./host/hostChipTone";
+import type { Keybind } from "./input/keyboard";
+import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
+import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
+import { notePointerMove, type PointerPos } from "./palette/pointerHoverGate";
+import {
+  filterAndRankPaletteItems,
+  itemKind,
+  type ResultKind,
+} from "./palette/rootIndex";
+import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
+import { useViewState } from "./useViewState";
+import { activeHost } from "./wire";
 
 /** Top-level sections, in render order. Items tagged with a section are
  *  grouped under a sticky header at the root level; untagged items
  *  render without a header. Drill-in levels ignore sections entirely
- *  (children of a group all belong to that group). */
+ *  (children of a group all belong to that group).
+ *
+ *  `recent` / `hosts` / `terminals` / `commands` support the unified root
+ *  index — Recent terminals on empty root, host rows, the Terminals section
+ *  for fleet navigation, and the Commands umbrella while searching. */
 export type SectionId =
-  | "workspaces"
+  | "recent"
+  | "hosts"
+  | "commands"
+  | "terminals"
   | "active-terminal"
   | "canvas"
   | "ui"
   | "help";
 
 const SECTION_ORDER: readonly SectionId[] = [
-  "workspaces",
+  "recent",
+  "terminals",
+  "hosts",
+  "commands",
   "active-terminal",
   "canvas",
   "ui",
@@ -49,7 +71,10 @@ const SECTION_ORDER: readonly SectionId[] = [
 ];
 
 const SECTION_LABELS: Record<SectionId, string> = {
-  workspaces: "Workspaces",
+  recent: "Recent",
+  hosts: "Hosts",
+  commands: "Commands",
+  terminals: "Terminals",
   "active-terminal": "Active Terminal",
   canvas: "Canvas",
   ui: "UI",
@@ -88,6 +113,9 @@ interface PaletteBase {
   /** Top-level grouping — only rendered at the root level. Untagged
    *  items appear with no header. Ignored for drill-in children. */
   section?: SectionId;
+  /** Rich-row presentation for the unified root index (workspace / host /
+   *  command). Commands may omit it and paint as kind `"command"`. */
+  row?: PaletteRowMeta;
   /** Called when this item becomes the highlighted item during navigation. */
   onHighlight?: () => void;
   /** Called when leaving this item without executing it (Escape, Backspace, breadcrumb). */
@@ -105,22 +133,10 @@ export interface PaletteGroup extends PaletteBase {
   kind: "group";
   /** Static array or accessor for dynamic lists. */
   children: PaletteItem[] | (() => PaletteItem[]);
-}
-
-/** A drill-in group that renders a custom body component instead of a
- *  filtered list. Body groups are leaves — they cannot host nested
- *  groups, and the engine never resolves children for them. The palette
- *  still owns the search input (the body reads `query` as a prop) and
- *  the breadcrumb / bottom action bar; the body decides how to paint
- *  its rows. Use this for grids that don't fit a single column of
- *  items (e.g. agent-state columns + facet sidebar). */
-export interface PaletteBodyGroup extends PaletteBase {
-  kind: "body-group";
-  body: Component<{ query: string; closePalette: () => void }>;
-  /** Hint string shown in the bottom action bar when drilled in —
-   *  describes what clicking inside the body does (e.g. "Pick a
-   *  workspace to switch"). */
-  bodyHint?: string;
+  /** When true, the group is omitted from the empty-root interactive list
+   *  (its children may already be promoted as root leaves) but remains
+   *  addressable for `openGroup` / `initialPath` resolution. */
+  rootHidden?: boolean;
 }
 
 /** A group whose drill-in switches the input from a filter to a free-text
@@ -163,37 +179,28 @@ export interface PaletteHint {
   text: string;
 }
 
-/** Top-level commands — action, group, body-group, or value-input.
+/** Top-level commands — action, group, or value-input.
  *  Labels are not permitted at the top level; they appear only as
  *  `PaletteValueInput` children. */
-export type PaletteCommand =
-  | PaletteAction
-  | PaletteGroup
-  | PaletteBodyGroup
-  | PaletteValueInput;
+export type PaletteCommand = PaletteAction | PaletteGroup | PaletteValueInput;
 
 /** Anything renderable at a palette level. */
 export type PaletteItem = PaletteCommand | PaletteLabel | PaletteHint;
 
-/** Any drillable kind — group with children, body group, or value input. */
-type DrillableKind = PaletteGroup | PaletteValueInput | PaletteBodyGroup;
+/** Any drillable kind — group with children, or value input. */
+type DrillableKind = PaletteGroup | PaletteValueInput;
 
 /** Discriminated UI mode driven by the deepest path segment. Filter
  *  mode: input narrows the children list. Value mode: input is a
- *  free-text field; children render as passive labels. Body mode:
- *  the body component renders its own custom JSX in place of the
- *  list (the input still drives a query the body reads). Exported so
+ *  free-text field; children render as passive labels. Exported so
  *  child components (e.g. ActionBar) reference the same union the
  *  engine dispatches on — a future arm forces both ends to update. */
 export type PaletteMode =
   | { kind: "filter" }
-  | { kind: "value"; leaf: PaletteValueInput }
-  | { kind: "body"; leaf: PaletteBodyGroup };
+  | { kind: "value"; leaf: PaletteValueInput };
 
 function isDrillable(item: PaletteItem): item is DrillableKind {
-  return (
-    item.kind === "group" || item.kind === "value" || item.kind === "body-group"
-  );
+  return item.kind === "group" || item.kind === "value";
 }
 
 /** Resolve children, handling both static arrays and accessors. Body
@@ -210,54 +217,77 @@ const CommandPalette: Component<{
   commands: Accessor<PaletteItem[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** If set, auto-drill into the group with this name on open. Tracked
-   *  reactively — a caller updating the prop while open re-targets the
-   *  drilled level. */
-  initialGroup?: string;
+  /** Group names to auto-drill on open (e.g. `["Terminals"]` or
+   *  `["Terminals", "zest"]`). Tracked reactively — updating while open
+   *  re-targets the path. */
+  initialPath?: readonly string[];
   /** When true, the backdrop is transparent so content behind is visible. */
   transparentOverlay?: boolean;
 }> = (props) => {
   const { peekAmbientTipText } = useTips();
+  const view = useViewState();
   let inputRef!: HTMLInputElement;
   let listEl!: HTMLDivElement;
   const [query, setQuery] = createSignal("");
   const [ambientTip, setAmbientTip] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
-  // Ignore mouseEnter until a real mouse move after opening (prevents cursor-under-palette hijack).
+  // Hover selection only after a real pointer delta — see pointerHoverGate.
+  // Synthetic mousemove/enter under a stationary cursor must not steal the
+  // keyboard highlight (open-under-cursor shimmer).
   const [mouseActive, setMouseActive] = createSignal(false);
+  let lastPointerPos: PointerPos | null = null;
   const [path, setPath] = createSignal<DrillableKind[]>([]);
 
-  /** Items at the current navigation level (may include hints).
-   *
-   *  Resolves the drilled-in path by **name** against the fresh
-   *  `props.commands()` tree, not by object reference against the
-   *  snapshot captured in `path()`. The parent createCommands memo
-   *  re-runs whenever its reactive inputs change (e.g. server state
-   *  push, terminal list update) and produces *new* PaletteCommand
-   *  objects — the stored references in `path()` become stale within
-   *  the same render, and resolving children against them would show
-   *  the outdated group contents at the drilled-in level. By walking
-   *  the current tree step-by-step via `.name` lookup, the drilled-in
-   *  level always reflects the latest content. If a segment's name
-   *  disappears from the fresh tree (e.g. a parent hidden by a
-   *  visibility guard), fall back to the stale reference so the
-   *  palette doesn't render an empty level mid-navigation. */
-  const currentItems = createMemo((): PaletteItem[] => {
-    const p = path();
-    const last = p.at(-1);
-    if (last === undefined) return props.commands();
-    // Body groups are leaves — the body owns rendering, no children.
-    if (last.kind === "body-group") return [];
+  /** Walk `path` against the live command tree; return the live
+   *  drillable segments that still resolve, in order. */
+  function resolveLivePath(p: DrillableKind[]): {
+    valid: DrillableKind[];
+    level: PaletteItem[];
+  } {
     let level: PaletteItem[] = props.commands();
+    const valid: DrillableKind[] = [];
     for (const segment of p) {
       const match = level.find(
         (item): item is PaletteGroup | PaletteValueInput =>
           (item.kind === "group" || item.kind === "value") &&
           item.name === segment.name,
       );
-      if (!match) return resolveChildren(last);
+      if (!match) break;
+      valid.push(match);
       level = resolveChildren(match);
     }
+    return { valid, level };
+  }
+
+  /** If a path segment disappears (host disconnect, group hidden), pop
+   *  to the deepest still-valid segment — never keep showing children
+   *  from a stale path object. */
+  createEffect(() => {
+    if (!props.open) return;
+    const p = path();
+    if (p.length === 0) return;
+    const { valid } = resolveLivePath(p);
+    if (valid.length === p.length) return;
+    for (const g of p.slice(valid.length)) g.onCancel?.();
+    setPath(valid);
+    setQuery("");
+    setSelectedIndex(0);
+  });
+
+  /** Items at the current navigation level (may include hints).
+   *
+   *  Resolves the drilled-in path by **name** against the fresh
+   *  `props.commands()` tree, not by object reference against the
+   *  snapshot captured in `path()`. */
+  const currentItems = createMemo((): PaletteItem[] => {
+    const p = path();
+    if (p.length === 0) return props.commands();
+    const { valid, level } = resolveLivePath(p);
+    // While the reconcile effect hasn't trimmed yet, render the deepest
+    // still-valid level — never the stale missing segment's children.
+    if (valid.length === 0) return props.commands();
+    if (valid.length < p.length)
+      return resolveChildren(valid[valid.length - 1]!);
     return level;
   });
 
@@ -266,10 +296,15 @@ const CommandPalette: Component<{
    *  (the list and the hint footer). */
   const partitioned = createMemo(() => {
     const items = currentItems();
+    // Hide rootHidden containers only on empty-root browse (children already
+    // promoted). Typed root search still indexes them for name match / drill.
+    const hideRootHidden = path().length === 0 && query().trim().length === 0;
     const interactive: (PaletteCommand | PaletteLabel)[] = [];
     const hints: PaletteHint[] = [];
     for (const item of items) {
       if (item.kind === "hint") hints.push(item);
+      else if (hideRootHidden && item.kind === "group" && item.rootHidden)
+        continue;
       else interactive.push(item);
     }
     return { interactive, hints };
@@ -278,17 +313,8 @@ const CommandPalette: Component<{
   const mode = createMemo<PaletteMode>(() => {
     const last = path().at(-1);
     if (last?.kind === "value") return { kind: "value", leaf: last };
-    if (last?.kind === "body-group") return { kind: "body", leaf: last };
     return { kind: "filter" };
   });
-
-  /** Narrow `mode()` to the body leaf for the `<Show>` render branch.
-   *  Plain function — the only consumer is the JSX below, so a memo
-   *  would just add a signal node for one read site. */
-  function bodyLeaf(): PaletteBodyGroup | undefined {
-    const m = mode();
-    return m.kind === "body" ? m.leaf : undefined;
-  }
 
   /** Validation error for the current value-input query. `null` outside
    *  value mode or when the value passes. */
@@ -303,61 +329,224 @@ const CommandPalette: Component<{
   function placeholder(): string {
     const m = mode();
     if (m.kind === "value") return m.leaf.placeholder ?? "Type a command...";
+    const p = path();
+    const last = p.at(-1);
+    if (last?.name === TERMINALS_GROUP_NAME) return "Type a terminal…";
+    if (p.length >= 2 && p[0]?.name === TERMINALS_GROUP_NAME)
+      return "Filter terminals…";
+    if (last?.name === HOSTS_GROUP_NAME) return "Filter hosts…";
+    if (p.length === 0) return "Search everything…";
     return "Type a command...";
   }
 
-  /** Interactive rows at the current level (filter is bypassed in
-   *  value and body modes). Filter mode produces `PaletteCommand[]`;
-   *  value mode produces `PaletteLabel[]`; body mode skips the list
-   *  entirely. The union covers all three without dynamic typing.
-   *
-   *  Substring semantics (case-insensitive) against the row's `name`
-   *  or `description`. Substring was chosen over AND-token because the
-   *  palette also hosts close-name action pairs like "Toggle terminal
-   *  split" vs "Split terminal" — token permutation matches both and
-   *  clicks the wrong one. Workspace search inside the column body
-   *  runs its own AND-token filter on the 20-field corpus
-   *  (`buildDockModel`), which is the right semantics there. */
-  const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
-    const items = partitioned().interactive;
-    // Stable sort by section index — tagged root items cluster in canonical
-    // order; untagged items (drill-in children, value-input labels) all map
-    // to the same end index, so registration order is preserved by sort
-    // stability.
-    const sorted = [...items].sort(
-      (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
-    );
-    if (mode().kind !== "filter") return sorted;
-    const q = query().toLowerCase();
-    if (!q) return sorted;
-    return sorted.filter(
-      (cmd) =>
-        cmd.name.toLowerCase().includes(q) ||
-        cmd.description?.toLowerCase().includes(q),
-    );
-  });
-
-  /** Annotated render list — interleaves section headers with rows when
-   *  at root with no query. Headers do not participate in selection;
-   *  `index` on row entries still indexes into `filtered()` directly so
-   *  keyboard navigation stays unchanged. */
-  type DisplayEntry =
-    | { kind: "header"; section: SectionId; index?: never }
-    | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
-
-  const showSectionHeaders = createMemo(
-    () => path().length === 0 && query() === "" && mode().kind === "filter",
+  const atTerminalsBrowse = createMemo(
+    () => path().length === 1 && path()[0]?.name === TERMINALS_GROUP_NAME,
+  );
+  /** Empty Terminals browse — auto-expand host groups into headers + rows. */
+  const atTerminalsBrowseEmpty = createMemo(
+    () => atTerminalsBrowse() && query().trim().length === 0,
   );
 
+  /** Host groups at the Terminals level (tree children), in paint order. */
+  function terminalsHostGroups(): PaletteGroup[] {
+    return partitioned().interactive.filter(
+      (item): item is PaletteGroup =>
+        item.kind === "group" && item.row?.kind === "host",
+    );
+  }
+
+  /** Flatten host groups → terminal leaves (host order preserved). Used for
+   *  selection at Terminals browse — grouping is visual only, not a gate. */
+  function flattenHostGroupTerminals(
+    items: readonly (PaletteCommand | PaletteLabel)[],
+  ): (PaletteCommand | PaletteLabel)[] {
+    const out: (PaletteCommand | PaletteLabel)[] = [];
+    for (const item of items) {
+      if (item.kind !== "group" || item.row?.kind !== "host") continue;
+      for (const child of resolveChildren(item)) {
+        if (child.kind === "hint") continue;
+        if (child.kind === "action" || child.kind === "label") out.push(child);
+      }
+    }
+    return out;
+  }
+
+  /** Root type-search index: top-level items (including terminal/host
+   *  leaves already registered at root) plus nested **command** actions
+   *  under Debug / New terminal / etc. Do **not** collect leaves from
+   *  Terminals / Hosts groups — those leaves are already top-level and
+   *  re-collecting them doubles every fleet hit. */
+  function flattenForRootSearch(
+    items: readonly (PaletteCommand | PaletteLabel)[],
+  ): (PaletteCommand | PaletteLabel)[] {
+    const out: (PaletteCommand | PaletteLabel)[] = [];
+    const collectActions = (list: readonly PaletteItem[]) => {
+      for (const item of list) {
+        if (item.kind === "action") out.push(item);
+        else if (item.kind === "group") collectActions(resolveChildren(item));
+      }
+    };
+    for (const item of items) {
+      if (item.kind === "label") continue;
+      if (item.kind === "action") {
+        out.push(item);
+        continue;
+      }
+      // Top-level group or value — keep for name match / drillInto.
+      out.push(item);
+      if (item.kind !== "group") continue;
+      // Skip groups whose children are already promoted to root leaves.
+      if (
+        item.name === TERMINALS_GROUP_NAME ||
+        item.name === HOSTS_GROUP_NAME
+      ) {
+        continue;
+      }
+      collectActions(resolveChildren(item));
+    }
+    return out;
+  }
+
+  /** Interactive rows at the current level (filter is bypassed in
+   *  value mode). Filter mode produces `PaletteCommand[]`;
+   *  value mode produces `PaletteLabel[]`.
+   *
+   *  AND-token multi-field match — the same matcher the dock uses
+   *  (`matchesAllTokens` / `tokenize`). At Terminals browse the tree is
+   *  host groups, but selection always sees a **flat terminal list**
+   *  (auto-expanded). At root with a non-empty query, nested command
+   *  leaves are included so "Search everything" finds Debug leaves. */
+  const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
+    let items = partitioned().interactive;
+    if (mode().kind !== "filter") {
+      // Value mode doesn't search — preserve registration order with a
+      // stable section sort for any tagged labels.
+      return [...items].sort(
+        (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
+      );
+    }
+    const p = path();
+    const q = query();
+    const atRoot = p.length === 0;
+    if (atTerminalsBrowse()) {
+      // Always flatten — empty browse and typed filter share one list.
+      items = flattenHostGroupTerminals(items);
+    } else if (atRoot && q.trim().length > 0) {
+      items = flattenForRootSearch(items);
+    }
+    // Stamp sectionOrder so the pure ranker can re-sort commands without
+    // knowing SectionId.
+    const stamped = items.map((cmd, i) => ({
+      ...cmd,
+      sectionOrder: sectionIndex(cmd.section) * 1000 + i,
+    }));
+    const activeId = view.activeId();
+    const excludeFromRecent =
+      atRoot && activeId !== null
+        ? { hostKey: encodeHostKey(activeHost()), terminalId: activeId }
+        : null;
+    return filterAndRankPaletteItems(stamped, {
+      query: q,
+      atRoot,
+      excludeFromRecent,
+    });
+  });
+
+  /** Breadcrumb labels — path names, plus a virtual host segment when a
+   *  Terminals search highlight lands on a terminal (so the path reads
+   *  Commands › Terminals › zest without a real host drill). */
+  const breadcrumbSegments = createMemo(
+    (): { name: string; depth: number }[] => {
+      const segments = path().map((s, i) => ({ name: s.name, depth: i + 1 }));
+      const p = path();
+      if (
+        p.length === 1 &&
+        p[0]?.name === TERMINALS_GROUP_NAME &&
+        query().trim().length > 0
+      ) {
+        const sel = filtered()[selectedIndex()];
+        const host = sel?.row?.hostKey;
+        if (host) {
+          segments.push({ name: hostLabel(host), depth: segments.length + 1 });
+        }
+      }
+      return segments;
+    },
+  );
+
+  /** Annotated render list — root section headers, Terminals host headers
+   *  (auto-expanded), or a plain row list. Headers are not selectable;
+   *  `index` on rows indexes into `filtered()`. */
+  type DisplayEntry =
+    | { kind: "header"; section: SectionId; index?: never }
+    | {
+        kind: "host-header";
+        name: string;
+        count: number;
+        group: PaletteGroup;
+        index?: never;
+      }
+    | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
+
+  const atRootFilter = createMemo(
+    () => path().length === 0 && mode().kind === "filter",
+  );
+
+  const showSectionHeaders = createMemo(() => atRootFilter());
+
+  /** Kind tags only during typed cross-kind root search — empty-root
+   *  section headers (Recent / Hosts / …) already announce kind. */
+  const showKindTag = createMemo(
+    () => atRootFilter() && query().trim().length > 0,
+  );
+
+  /** Map a row to its display section at root. Empty root: terminals →
+   *  Recent, hosts → Hosts, commands keep their registered section.
+   *  Queried root: kind umbrellas (Terminals / Hosts / Commands). */
+  function displaySection(
+    cmd: PaletteCommand | PaletteLabel,
+  ): SectionId | undefined {
+    if (!atRootFilter()) return cmd.section;
+    const kind: ResultKind = itemKind(cmd);
+    const hasQuery = query().trim().length > 0;
+    if (kind === "terminal") return hasQuery ? "terminals" : "recent";
+    if (kind === "host") return "hosts";
+    if (hasQuery) return "commands";
+    return cmd.section;
+  }
+
   const displayed = createMemo((): DisplayEntry[] => {
+    // Terminals empty browse: host header (name · count) + that host's
+    // terminals — visual grouping, no drill required. Clicking a header
+    // optionally scopes to that host (breadcrumb Terminals › $host).
+    if (atTerminalsBrowseEmpty()) {
+      const out: DisplayEntry[] = [];
+      let index = 0;
+      for (const group of terminalsHostGroups()) {
+        const kids = resolveChildren(group).filter(
+          (c): c is PaletteCommand | PaletteLabel => c.kind !== "hint",
+        );
+        out.push({
+          kind: "host-header",
+          name: group.name,
+          count: kids.length,
+          group,
+        });
+        for (const child of kids) {
+          out.push({ kind: "row", cmd: child, index: index++ });
+        }
+      }
+      return out;
+    }
+
     const items = filtered();
     if (!showSectionHeaders()) {
-      return items.map((cmd, index) => ({ kind: "row", cmd, index }));
+      return items.map((cmd, index) => ({ kind: "row" as const, cmd, index }));
     }
     const out: DisplayEntry[] = [];
     let lastSection: SectionId | undefined;
     items.forEach((cmd, index) => {
-      const section = cmd.section;
+      const section = displaySection(cmd);
       if (section !== undefined && section !== lastSection) {
         out.push({ kind: "header", section });
       }
@@ -367,13 +556,8 @@ const CommandPalette: Component<{
     return out;
   });
 
-  // Reserve a leading icon gutter for the whole list when ANY row carries
-  // an icon, so rows with and without icons stay aligned. Driven by the
-  // unfiltered command tree, not the typed-query subset, so the gutter
-  // doesn't appear/disappear as the user types.
-  const hasAnyIcon = createMemo(() =>
-    partitioned().interactive.some((cmd) => cmd.icon),
-  );
+  /** List has content to paint (rows and/or host headers with zero terms). */
+  const hasListContent = createMemo(() => displayed().length > 0);
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
@@ -396,10 +580,67 @@ const CommandPalette: Component<{
 
   function navigateTo(depth: number) {
     const p = path();
+    // Virtual host breadcrumb (pierce search): depth beyond real path drills
+    // into that host group under Terminals when possible.
+    if (
+      depth === p.length + 1 &&
+      p.length === 1 &&
+      p[0]?.name === TERMINALS_GROUP_NAME
+    ) {
+      const hostName = breadcrumbSegments().at(-1)?.name;
+      if (hostName) drillIntoHostUnderTerminals(hostName);
+      return;
+    }
     for (const g of p.slice(depth)) g.onCancel?.();
     setPath(p.slice(0, depth));
     setQuery("");
     setSelectedIndex(0);
+  }
+
+  /** From Terminals browse, drill into a named host group (breadcrumb or
+   *  deep-link). Resolves against the live tree so object identity stays fresh. */
+  function drillIntoHostUnderTerminals(hostName: string) {
+    const terminals = props
+      .commands()
+      .find(
+        (c): c is PaletteGroup =>
+          c.kind === "group" && c.name === TERMINALS_GROUP_NAME,
+      );
+    if (!terminals) return;
+    const hostGroup = resolveChildren(terminals).find(
+      (c): c is PaletteGroup => c.kind === "group" && c.name === hostName,
+    );
+    if (!hostGroup) return;
+    setPath([terminals, hostGroup]);
+    setQuery("");
+    setSelectedIndex(0);
+    requestAnimationFrame(() => inputRef.focus());
+  }
+
+  /** Walk `names` against the live command tree and set path. **Every**
+   *  segment must resolve — a partial match (e.g. Terminals without a
+   *  missing host) is rejected so deep-links never silently widen. */
+  function applyInitialPath(names: readonly string[]) {
+    if (names.length === 0) return false;
+    let level: PaletteItem[] = props.commands();
+    const built: DrillableKind[] = [];
+    for (const name of names) {
+      const match = level.find(
+        (item): item is DrillableKind =>
+          isDrillable(item) && item.name === name,
+      );
+      if (!match) return false;
+      built.push(match);
+      level = resolveChildren(match);
+    }
+    setPath(built);
+    setQuery("");
+    setSelectedIndex(0);
+    const leaf = built.at(-1);
+    requestAnimationFrame(() =>
+      leaf?.kind === "value" ? inputRef.select() : inputRef.focus(),
+    );
+    return true;
   }
 
   // Selection-initiated close: signals the close-effect to skip
@@ -432,12 +673,7 @@ const CommandPalette: Component<{
     // .exhaustive() forces a compile error if a future kind is added
     // without an arm here.
     match(cmd)
-      .with(
-        { kind: "group" },
-        { kind: "value" },
-        { kind: "body-group" },
-        (group) => drillInto(group),
-      )
+      .with({ kind: "group" }, { kind: "value" }, (group) => drillInto(group))
       .with({ kind: "action" }, (action) => {
         // Close first so the highlight effect stops tracking filtered(),
         // preventing onSelect's state changes from re-triggering a preview.
@@ -450,26 +686,24 @@ const CommandPalette: Component<{
 
   function handleKeyDown(e: KeyboardEvent) {
     if (!props.open) return;
-    // Body mode (custom group renderer): the body owns its own
-    // selection/activation. The engine still handles Backspace for
-    // drilling out (so the input being empty still pops the path)
-    // and lets Escape fall through to Corvu Dialog. Arrow/Tab/Enter
-    // pass to the body's own listener.
-    if (mode().kind === "body" && e.key !== "Backspace") return;
     const items = filtered();
     const isCtrl = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
     const key = (isCtrl && CTRL_KEY_MAP[e.key]) || e.key;
     switch (key) {
       case "ArrowDown":
         if (items.length === 0) return;
+        // Keyboard wins until the pointer actually moves again.
+        setMouseActive(false);
         setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
         break;
       case "ArrowUp":
         if (items.length === 0) return;
+        setMouseActive(false);
         setSelectedIndex((i) => Math.max(i - 1, 0));
         break;
       case "Tab":
         if (items.length === 0) return;
+        setMouseActive(false);
         setSelectedIndex((i) =>
           e.shiftKey
             ? (i - 1 + items.length) % items.length
@@ -503,45 +737,56 @@ const CommandPalette: Component<{
 
   // Open/close lifecycle — one effect so the read of `path()` for
   // `onCancel` propagation is ordered explicitly before the path
-  // reset. Splitting open-vs-initialGroup into two `on()` effects
+  // reset. Splitting open-vs-initialPath into two `on()` effects
   // raced when both depended on `props.open` (the path-reset effect
   // could fire first, clearing the segments the close branch was
   // about to walk for cancellation).
   createEffect(
-    on([() => props.open, () => props.initialGroup], ([isOpen, initial]) => {
-      if (isOpen) {
-        setQuery("");
-        setSelectedIndex(0);
-        setAmbientTip(peekAmbientTipText());
-        setMouseActive(false);
-        setClosingForSelection(false);
-        setPath([]);
-        if (initial) {
-          const group = props
-            .commands()
-            .find(
-              (c): c is DrillableKind => isDrillable(c) && c.name === initial,
+    on(
+      [() => props.open, () => props.initialPath?.join("\0") ?? ""],
+      ([isOpen, pathKey]) => {
+        if (isOpen) {
+          setQuery("");
+          setSelectedIndex(0);
+          setAmbientTip(peekAmbientTipText());
+          setMouseActive(false);
+          lastPointerPos = null;
+          setClosingForSelection(false);
+          setPath([]);
+          const names = props.initialPath ?? [];
+          if (names.length > 0) {
+            // Exact path only — no prefix fallback (a missing host must not
+            // open the broader Terminals list as if the deep-link succeeded).
+            if (!applyInitialPath(names)) {
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => inputRef.focus()),
+              );
+            }
+          } else {
+            // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+            // only fires on first mount. Re-focus explicitly on every root open.
+            // When a path is set, applyInitialPath is the sole focus owner —
+            // its rAF would otherwise race this double-rAF, and for a value-kind
+            // leaf the unconditional .focus() would clobber .select().
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => inputRef.focus()),
             );
-          if (group) drillInto(group);
+          }
+          // pathKey keeps the effect subscribed to initialPath identity.
+          void pathKey;
         } else {
-          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-          // only fires on first mount. Re-focus explicitly on every root open.
-          // When `initial` is set, `drillInto()` is the sole focus owner — its
-          // rAF would otherwise race this double-rAF, and for a value-kind
-          // initial group the unconditional .focus() would clobber the
-          // .select() drillInto() scheduled.
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => inputRef.focus()),
-          );
+          if (!closingForSelection()) {
+            for (const g of path()) g.onCancel?.();
+          }
+          // Always clear leaf highlight lifecycle (theme preview, etc.) —
+          // path onCancel only covers drill segments.
+          lastHighlight?.onCancel?.();
+          lastHighlight = undefined;
+          setClosingForSelection(false);
+          setPath([]);
         }
-      } else {
-        if (!closingForSelection()) {
-          for (const g of path()) g.onCancel?.();
-        }
-        setClosingForSelection(false);
-        setPath([]);
-      }
-    }),
+      },
+    ),
   );
 
   // Reset selection when the user types (defer: skip initial run).
@@ -560,12 +805,37 @@ const CommandPalette: Component<{
     ),
   );
 
-  // Notify highlighted item when selection changes. Tracks props.open so
-  // the effect re-fires on reopen with the same selection.
+  // Keep selectedIndex in range when the live list shrinks (terminal exit,
+  // host disconnect, activity-window age-out) without rebinding on every
+  // filtered() reference churn — track length only.
+  createEffect(
+    on(
+      () => filtered().length,
+      (len) => {
+        if (len === 0) {
+          setSelectedIndex(0);
+          return;
+        }
+        if (selectedIndex() >= len) setSelectedIndex(len - 1);
+      },
+    ),
+  );
+
+  // Notify highlighted item when selection changes. Cancels the previous
+  // leaf's onCancel first so root-flattened previews (theme) don't stick.
+  // Tracks props.open so the effect re-fires on reopen with the same selection.
+  let lastHighlight: (PaletteCommand | PaletteLabel) | undefined;
   createEffect(
     on([filtered, selectedIndex, () => props.open], ([items, idx, open]) => {
       if (!open) return;
-      items[idx]?.onHighlight?.();
+      const next = items[idx];
+      if (next === lastHighlight) {
+        next?.onHighlight?.();
+        return;
+      }
+      lastHighlight?.onCancel?.();
+      lastHighlight = next;
+      next?.onHighlight?.();
     }),
   );
 
@@ -594,7 +864,8 @@ const CommandPalette: Component<{
       // `useCommandPalette`'s close path, which EVERY close (incl. the
       // Corvu-driven onOpenChange this dialog forwards) funnels through —
       // adding `refocusOnClose` here would double-fire it on the Corvu path.
-      size="lg"
+      // Compact switcher width — not the old workspace-grid lg stretch.
+      size="palette"
     >
       <Dialog.Content
         forceMount
@@ -614,9 +885,11 @@ const CommandPalette: Component<{
         }}
       >
         {/* Breadcrumb — visible when drilled into a group. Renders as
-            Raycast-style chips: "Commands › Theme" feels like a path you
-            can click any segment of to pop back. */}
-        <Show when={path().length > 0}>
+            Raycast-style chips: "Commands › Terminals › zest" feels like a
+            path you can click any segment of to pop back. A pierced
+            Terminals search may append a virtual host segment from the
+            highlighted row. */}
+        <Show when={breadcrumbSegments().length > 0}>
           <nav class="flex items-center gap-1.5 px-5 pt-3.5 text-xs text-fg-3">
             <button
               type="button"
@@ -625,7 +898,7 @@ const CommandPalette: Component<{
             >
               Commands
             </button>
-            <For each={path()}>
+            <For each={breadcrumbSegments()}>
               {(segment, i) => (
                 <>
                   <span class="text-fg-3/50">›</span>
@@ -633,10 +906,11 @@ const CommandPalette: Component<{
                     type="button"
                     class="px-1.5 py-0.5 rounded-md hover:bg-surface-2/70 transition-colors"
                     classList={{
-                      "text-accent font-medium": i() === path().length - 1,
-                      "hover:text-fg": i() !== path().length - 1,
+                      "text-accent font-medium":
+                        i() === breadcrumbSegments().length - 1,
+                      "hover:text-fg": i() !== breadcrumbSegments().length - 1,
                     }}
-                    onClick={() => navigateTo(i() + 1)}
+                    onClick={() => navigateTo(segment.depth)}
                   >
                     {segment.name}
                   </button>
@@ -676,171 +950,105 @@ const CommandPalette: Component<{
             </div>
           )}
         </Show>
-        <Show
-          when={bodyLeaf()}
-          fallback={
-            <div
-              ref={(el) => {
-                listEl = el;
-                // mousemove is incidental UI state, not a real interactive event
-                // on this scroll container — attach via addEventListener so the
-                // div stays a plain layout element (Biome's
-                // noStaticElementInteractions would flag a JSX onMouseMove).
-                el.addEventListener("mousemove", () => setMouseActive(true), {
-                  passive: true,
+        <div
+          ref={(el) => {
+            listEl = el;
+            // mousemove is incidental UI state, not a real interactive event
+            // on this scroll container — attach via addEventListener so the
+            // div stays a plain layout element (Biome's
+            // noStaticElementInteractions would flag a JSX onMouseMove).
+            // Only arm hover after a real coordinate delta (not synthetic
+            // zero-delta moves when the list mounts under a stationary cursor).
+            el.addEventListener(
+              "mousemove",
+              (e: MouseEvent) => {
+                const { hoverArmed, pos } = notePointerMove(lastPointerPos, {
+                  x: e.clientX,
+                  y: e.clientY,
                 });
-              }}
-              class="flex-1 min-h-0 overflow-y-auto"
-            >
-              <Show
-                when={filtered().length > 0}
-                fallback={
-                  <div class="flex flex-col items-center justify-center gap-1 px-5 py-10 text-center">
-                    <span
-                      aria-hidden="true"
-                      class="font-mono text-base text-fg-3/60 select-none"
-                    >
-                      ⏵
-                    </span>
-                    <span class="text-sm text-fg-2">No matching commands</span>
-                    <span class="text-xs text-fg-3/70">
-                      Try a different search
-                    </span>
-                  </div>
-                }
-              >
-                <div class="py-1.5 px-2" role="listbox">
-                  <For each={displayed()}>
-                    {(entry) =>
-                      entry.kind === "header" ? (
-                        <div
-                          data-testid="palette-section-header"
-                          data-section={entry.section}
-                          class="flex items-center gap-2 px-3 pt-3.5 pb-1.5 text-[0.65rem] font-semibold tracking-[0.16em] uppercase text-fg-3/90 select-none first:pt-1.5"
-                        >
-                          <span
-                            aria-hidden="true"
-                            class="w-1 h-1 rounded-full bg-accent/60"
-                          />
-                          {SECTION_LABELS[entry.section]}
-                        </div>
-                      ) : (
-                        <div
-                          role="option"
-                          tabIndex={-1}
-                          aria-selected={selectedIndex() === entry.index}
-                          class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors duration-100"
-                          classList={{
-                            "bg-accent/15 text-fg shadow-[inset_2px_0_0_var(--color-accent)]":
-                              selectedIndex() === entry.index,
-                            "text-fg-2 hover:bg-surface-2/60":
-                              selectedIndex() !== entry.index,
-                          }}
-                          data-selected={
-                            selectedIndex() === entry.index || undefined
-                          }
-                          onMouseEnter={() =>
-                            mouseActive() && setSelectedIndex(entry.index)
-                          }
-                          onClick={() => execute(entry.cmd)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              execute(entry.cmd);
-                            }
-                          }}
-                        >
-                          <Show when={hasAnyIcon()}>
-                            <span
-                              class="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md transition-colors"
-                              classList={{
-                                "bg-accent/20 text-accent":
-                                  selectedIndex() === entry.index,
-                                "bg-surface-2/60 text-fg-3":
-                                  selectedIndex() !== entry.index,
-                              }}
-                            >
-                              <Dynamic
-                                component={entry.cmd.icon}
-                                class="w-3 h-3"
-                              />
-                            </span>
-                          </Show>
-                          <div class="flex-1 min-w-0 flex items-baseline gap-2">
-                            <span class="truncate">{entry.cmd.name}</span>
-                            <Show when={entry.cmd.description}>
-                              <span class="text-fg-3/80 text-xs truncate min-w-0">
-                                {entry.cmd.description}
-                              </span>
-                            </Show>
-                          </div>
-                          <Show
-                            when={!showSectionHeaders() && entry.cmd.section}
-                          >
-                            {(section) => (
-                              <span
-                                data-testid="palette-section-tag"
-                                class="shrink-0 text-[0.6rem] font-semibold tracking-[0.1em] uppercase text-fg-3 px-2 py-0.5 rounded-full border border-edge/80 bg-surface-2/40"
-                              >
-                                {SECTION_LABELS[section()]}
-                              </span>
-                            )}
-                          </Show>
-                          <Show when={entry.cmd.keybind}>
-                            {(keybind) => {
-                              const kb = keybind();
-                              return (
-                                <span class="shrink-0 flex items-center gap-1.5">
-                                  <For each={Array.isArray(kb) ? kb : [kb]}>
-                                    {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
-                                  </For>
-                                </span>
-                              );
-                            }}
-                          </Show>
-                          <Show when={isDrillable(entry.cmd)}>
-                            <span
-                              aria-hidden="true"
-                              class="shrink-0 text-sm leading-none"
-                              classList={{
-                                "text-accent": selectedIndex() === entry.index,
-                                "text-fg-3/70": selectedIndex() !== entry.index,
-                              }}
-                            >
-                              ›
-                            </span>
-                          </Show>
-                        </div>
-                      )
-                    }
-                  </For>
-                </div>
-              </Show>
-              <Show when={partitioned().hints.length > 0}>
-                <ul class="py-1 px-2">
-                  <For each={partitioned().hints}>
-                    {(hint) => (
-                      <li
-                        data-testid="palette-hint"
-                        class="px-3 py-2 text-xs text-fg-3/80 italic"
-                      >
-                        {hint.text}
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </Show>
-            </div>
-          }
+                lastPointerPos = pos;
+                if (hoverArmed) setMouseActive(true);
+              },
+              { passive: true },
+            );
+          }}
+          class="flex-1 min-h-0 overflow-y-auto"
         >
-          {(group) => (
-            <Dynamic
-              component={group().body}
-              query={query()}
-              closePalette={closeForSelection}
-            />
-          )}
-        </Show>
+          <Show
+            when={hasListContent()}
+            fallback={
+              <div class="flex flex-col items-center justify-center gap-1 px-5 py-10 text-center">
+                <span
+                  aria-hidden="true"
+                  class="font-mono text-base text-fg-3/60 select-none"
+                >
+                  ⏵
+                </span>
+                <span class="text-sm text-fg-2">No matches</span>
+                <span class="text-xs text-fg-3/70">Try a different search</span>
+              </div>
+            }
+          >
+            <div class="py-1 px-1.5" role="listbox">
+              <For each={displayed()}>
+                {(entry) =>
+                  entry.kind === "header" ? (
+                    <div
+                      data-testid="palette-section-header"
+                      data-section={entry.section}
+                      class="flex items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1"
+                    >
+                      {SECTION_LABELS[entry.section]}
+                    </div>
+                  ) : entry.kind === "host-header" ? (
+                    <button
+                      type="button"
+                      data-testid="palette-host-header"
+                      data-host-name={entry.name}
+                      data-count={entry.count}
+                      class="flex w-full items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1 hover:text-fg transition-colors text-left cursor-pointer"
+                      title={`Show only ${entry.name}`}
+                      onClick={() => drillInto(entry.group)}
+                    >
+                      <span class="truncate">{entry.name}</span>
+                      <span class="font-mono font-normal tracking-normal normal-case text-fg-3/60">
+                        {entry.count === 1
+                          ? "1 terminal"
+                          : `${entry.count} terminals`}
+                      </span>
+                    </button>
+                  ) : (
+                    <PaletteRow
+                      cmd={entry.cmd}
+                      selected={selectedIndex() === entry.index}
+                      query={query()}
+                      showKindTag={showKindTag()}
+                      drillable={isDrillable(entry.cmd)}
+                      onHover={() =>
+                        mouseActive() && setSelectedIndex(entry.index)
+                      }
+                      onSelect={() => execute(entry.cmd)}
+                    />
+                  )
+                }
+              </For>
+            </div>
+          </Show>
+          <Show when={partitioned().hints.length > 0}>
+            <ul class="py-1 px-2">
+              <For each={partitioned().hints}>
+                {(hint) => (
+                  <li
+                    data-testid="palette-hint"
+                    class="px-3 py-2 text-xs text-fg-3/80 italic"
+                  >
+                    {hint.text}
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </div>
         <ActionBar
           mode={mode()}
           drilled={path().length > 0}
@@ -864,10 +1072,9 @@ const CommandPalette: Component<{
 };
 
 /** Bottom action bar — Raycast-style hint strip showing what `⏎` will
- *  do for the currently highlighted row (or what clicking inside the
- *  body does, in body mode), plus an `esc Back` affordance when the
- *  path is drilled. Border-top separates it from the scrollable list
- *  above; the ambient tip (when present) renders below this bar. */
+ *  do for the currently highlighted row, plus an `esc Back` affordance
+ *  when the path is drilled. Border-top separates it from the scrollable
+ *  list above; the ambient tip (when present) renders below this bar. */
 const ActionBar: Component<{
   mode: PaletteMode;
   drilled: boolean;
@@ -875,12 +1082,15 @@ const ActionBar: Component<{
 }> = (props) => {
   function primaryLabel(): string {
     return match(props.mode)
-      .with({ kind: "body" }, (m) => m.leaf.bodyHint ?? "Pick an item")
       .with({ kind: "value" }, () => "Submit")
       .with({ kind: "filter" }, () => {
         const h = props.highlighted;
         if (!h) return "";
-        return isDrillable(h) ? "Open" : "Run";
+        if (isDrillable(h)) return "Open";
+        // Terminal / host root rows switch context; plain commands run.
+        if (h.row?.kind === "terminal" || h.row?.kind === "host")
+          return "Switch";
+        return "Run";
       })
       .exhaustive();
   }

@@ -16,6 +16,7 @@
 
 import { defineSurface } from "@kolu/surface/define";
 import { directLink } from "@kolu/surface/links/direct";
+import { ORPCError } from "@orpc/client";
 import type { createRouterClient } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -113,6 +114,14 @@ function makeUpstream(
     counter: [],
     label: [],
   };
+  let writeCounter = async (v: number): Promise<void> => {
+    cellWrites.counter.push(v);
+    counter.push(v);
+  };
+  let callEcho = async (msg: string): Promise<{ msg: string }> => {
+    echoes.push(msg);
+    return { msg: `echo:${msg}` };
+  };
 
   const counter = track(controllable<number>());
   counter.push(counterValue); // snapshot; the cell stream stays open
@@ -126,10 +135,7 @@ function makeUpstream(
           counter.stream(opts?.signal),
         // A forwarded write: record it, then ECHO it back on the cell stream so
         // the mirror folds the agent's authoritative value into the local mirror.
-        set: async (v: number) => {
-          cellWrites.counter.push(v);
-          counter.push(v);
-        },
+        set: (v: number) => writeCounter(v),
       },
       label: {
         get: async (_i: unknown, opts?: { signal?: AbortSignal }) =>
@@ -175,10 +181,7 @@ function makeUpstream(
         },
       },
       ctl: {
-        echo: async ({ msg }: { msg: string }) => {
-          echoes.push(msg);
-          return { msg: `echo:${msg}` };
-        },
+        echo: ({ msg }: { msg: string }) => callEcho(msg),
       },
     },
   } as unknown as AgentClient<typeof toySurface.contract>;
@@ -193,6 +196,16 @@ function makeUpstream(
     pulseStreams,
     echoes,
     cellWrites,
+    setCounterWriter: (writer: (v: number) => Promise<void>) => {
+      writeCounter = writer;
+    },
+    setEchoCaller: (
+      caller: (msg: string) => Promise<{
+        msg: string;
+      }>,
+    ) => {
+      callEcho = caller;
+    },
     kill: () => {
       for (const c of open) c.fail(new Error("upstream link died"));
     },
@@ -212,6 +225,7 @@ function makeSession() {
     phase: "copying",
     log: [],
     sinceMs: 0,
+    campaignEpoch: 0,
   };
   const fire = (): void => {
     for (const cb of [...listeners]) cb(state);
@@ -220,6 +234,7 @@ function makeSession() {
     pin: () => clientPromise ?? Promise.reject(new Error("no client yet")),
     isDestroyed: () => destroyed,
     currentClient: () => (destroyed ? null : clientPromise),
+    currentState: () => state,
     onState: (cb: (s: SessionState<SshProv>) => void) => {
       listeners.add(cb);
       cb(state); // snapshot on subscribe, like the real inMemoryCell-backed onState
@@ -240,6 +255,17 @@ function makeSession() {
     },
     setClient: (c: AgentClient<typeof toySurface.contract>) => {
       clientPromise = Promise.resolve(c);
+      fire();
+    },
+    setDisconnected: () => {
+      state = {
+        phase: "disconnected",
+        error: "link dropped",
+        cause: "network",
+        log: [],
+        sinceMs: 0,
+        campaignEpoch: 0,
+      };
       fire();
     },
   };
@@ -313,6 +339,22 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // re-served surface.
 
     await teardown(session, done, upstream);
+  });
+
+  it("reports a procedure's missing upstream link as service unavailable", async () => {
+    const { session, upstream, done, downstream } = setup(1);
+    await delay(15);
+
+    upstream.kill();
+    await delay(15);
+    await expect(
+      downstream.surface.ctl.echo({ msg: "between-spawns" }),
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      message: expect.stringMatching(/no live upstream link/),
+    });
+
+    await teardown(session, done);
   });
 
   it("a mirror serves NO frame until the authority's first real one (never the fabricated default)", async () => {
@@ -656,10 +698,112 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
           set: (v: number) => Promise<unknown>;
         }
       ).set(3),
-    ).rejects.toThrow(/no live upstream link/);
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      message: expect.stringMatching(/no live upstream link/),
+    });
     expect(upstream.cellWrites.counter).toEqual([]); // nothing crossed
 
     await teardown(session, done); // upstream already killed
+  });
+
+  it("rejects stale cell and procedure forwards once the session is down", async () => {
+    const { session, upstream, done, downstream } = setup(1);
+    await delay(15);
+
+    // Session state changes synchronously when the transport dies; the mirror
+    // can clear its cached client/procedure holders a turn later. A forward in
+    // that edge must not call the stale client.
+    session.setDisconnected();
+
+    await expect(
+      (
+        downstream.surface.counter as unknown as {
+          set: (v: number) => Promise<unknown>;
+        }
+      ).set(3),
+    ).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+    await expect(
+      downstream.surface.ctl.echo({ msg: "stale" }),
+    ).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+    expect(upstream.cellWrites.counter).toEqual([]);
+    expect(upstream.echoes).toEqual([]);
+
+    await teardown(session, done, upstream);
+  });
+
+  it("translates a link drop during cell and procedure forwards to service unavailable", async () => {
+    const cell = setup(1);
+    await delay(15);
+    cell.upstream.setCounterWriter(async () => {
+      cell.session.setDisconnected();
+      throw new Error("transport closed during cell write");
+    });
+    await expect(
+      (
+        cell.downstream.surface.counter as unknown as {
+          set: (v: number) => Promise<unknown>;
+        }
+      ).set(3),
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      cause: expect.objectContaining({
+        message: "transport closed during cell write",
+      }),
+    });
+    await teardown(cell.session, cell.done, cell.upstream);
+
+    const procedure = setup(1);
+    await delay(15);
+    procedure.upstream.setEchoCaller(async () => {
+      procedure.session.setDisconnected();
+      throw new Error("transport closed during procedure call");
+    });
+    await expect(
+      procedure.downstream.surface.ctl.echo({ msg: "drop" }),
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      cause: expect.objectContaining({
+        message: "transport closed during procedure call",
+      }),
+    });
+    await teardown(procedure.session, procedure.done, procedure.upstream);
+  });
+
+  it("preserves cell and procedure application errors while the session stays connected", async () => {
+    const cell = setup(1);
+    await delay(15);
+    cell.upstream.setCounterWriter(async () => {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "cell value rejected",
+      });
+    });
+    await expect(
+      (
+        cell.downstream.surface.counter as unknown as {
+          set: (v: number) => Promise<unknown>;
+        }
+      ).set(3),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "cell value rejected",
+    });
+    await teardown(cell.session, cell.done, cell.upstream);
+
+    const procedure = setup(1);
+    await delay(15);
+    procedure.upstream.setEchoCaller(async () => {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "procedure input rejected",
+      });
+    });
+    await expect(
+      procedure.downstream.surface.ctl.echo({ msg: "bad" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "procedure input rejected",
+    });
+    await teardown(procedure.session, procedure.done, procedure.upstream);
   });
 
   it("h3 dedup edge: a write EQUAL to the current mirror value still forwards to the agent", async () => {

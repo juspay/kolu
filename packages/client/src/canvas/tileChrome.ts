@@ -1,12 +1,13 @@
 /** Shared tile-chrome derivations — single source for the color tiers
- *  CanvasTile and WorkspaceSwitcher both derive from a terminal's theme.
+ *  CanvasTile (and any other surface that tints chrome from a terminal theme)
+ *  derives colours from the terminal's theme.
  *  Same `color-mix(in oklch, fg X%, bg)` formula was duplicated across
  *  files; consolidating it here means a tweak to one tier flows
  *  everywhere it's read.
  *
  *  Scope: **color derivations only**. Tile sizing, layout, border-radius,
  *  shadow, hover state, animation, and other interaction styling stay
- *  inline in their owning component (CanvasTile, WorkspaceSwitcher).
+ *  inline in their owning component (e.g. CanvasTile).
  *  This module's volatility is the per-theme color formula — anything
  *  that doesn't change when the formula changes belongs elsewhere. */
 

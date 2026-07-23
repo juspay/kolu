@@ -330,7 +330,9 @@ its **local unix socket** — same oRPC framing, a different transport.
   browser-reachable paths — it rejects a cross-site <code>Origin</code> at the
   websocket upgrade and 403s a cross-site HTTP call. A reverse proxy or
   <code>tailscale serve</code> front-end, whose origin differs from the forwarded
-  host, is allowlisted with <code>KOLU_ALLOWED_ORIGINS</code>.
+  host, is allowlisted with <code>KOLU_ALLOWED_ORIGINS</code>. The
+  <a href="/deployment#allow-a-reverse-proxy-origin">deployment guide</a> shows
+  the home-manager configuration.
 </Aside>
 
 ## Two loops of data flow
