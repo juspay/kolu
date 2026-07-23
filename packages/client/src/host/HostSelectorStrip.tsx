@@ -20,8 +20,8 @@
  *    · remove ✕ is hover/focus-only on the chip; the primary remove path is in
  *      the popover with a confirm step.
  *  A click switches the canvas (a synchronous signal write — `useEntry(activeHost)`
- *  re-keys, no reload). Hover (or click the already-active / down chip) opens
- *  the diagnostics popover.
+ *  re-keys, no reload). A mini padi·kaval control opens the diagnostics
+ *  popover on click (never hover — switching must not pop a dialog).
  *
  *  NARROW-WINDOW STAGES (window resize only, never a host switch). Note this
  *  component only ever LIVES at `>= sm` (640px) — `useMobile.ts`'s
@@ -72,6 +72,7 @@ import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
+import { HostDiagnosticsTrigger } from "./HostDaemonChips";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostFinishedDot } from "./HostFinishedDot";
 import { HostIdentityLabel } from "./HostIdentityLabel";
@@ -89,8 +90,8 @@ import { useHostMembers } from "./useHostMembers";
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Measurement is truth;
  *  this only avoids dumping every chip into overflow on the very first paint.
- *  Quiet strip: label + optional exception pip + pill — no dual-daemon slot. */
-const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 96;
+ *  Quiet strip: label + status + pills + mini padi·kaval more control. */
+const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 128;
 
 /** Tailwind `md` (768px) — chip row vs dropdown. Real Solid media signal so
  *  only ONE dual-daemon fill mounts (CSS `hidden` does not unmount). */
@@ -108,9 +109,6 @@ const ADD_BUTTON_RESERVE: number = 38;
  *  key), never a `HostKey` object. */
 const labelForKey: (key: string) => string = (key) =>
   hostLabel(decodeHostKey(key));
-
-/** Hover-open delay so a chip sweep across the strip doesn't flash N panels. */
-const DIAGNOSTICS_HOVER_MS = 280;
 
 /** Accessors the strip owns for the one-open-diagnostics key — passed into
  *  each chip so open state dies with the strip (no module-lifetime leak). */
@@ -148,23 +146,9 @@ const HostChip: Component<{
   const diagOpen = () => !props.measure && props.diagnostics.isOpen(encKey);
 
   let chipEl: HTMLDivElement | undefined;
-  let hoverTimer: ReturnType<typeof setTimeout> | undefined;
-  const clearHoverTimer = () => {
-    if (hoverTimer !== undefined) {
-      clearTimeout(hoverTimer);
-      hoverTimer = undefined;
-    }
-  };
-  onCleanup(clearHoverTimer);
-
-  // Measure twins never open diagnostics (they're off-screen width probes).
-  const openThisDiagnostics = () => {
-    if (props.measure) return;
-    props.diagnostics.open(encKey);
-  };
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
-  // border/bg/text COLOR. Quiet strip: no dual-daemon slot on the chip.
+  // border/bg/text COLOR. Label switches; mini padi·kaval opens diagnostics.
   return (
     <div
       ref={chipEl}
@@ -173,16 +157,6 @@ const HostChip: Component<{
       data-host={encKey}
       data-active={isActive() ? "" : undefined}
       data-down={down() ? "" : undefined}
-      onPointerEnter={() => {
-        if (props.measure) return;
-        clearHoverTimer();
-        hoverTimer = setTimeout(openThisDiagnostics, DIAGNOSTICS_HOVER_MS);
-      }}
-      onPointerLeave={() => {
-        clearHoverTimer();
-        // Outside-click / strip-level open key owns dismiss; leave alone here
-        // so the pointer can travel into the portalled panel without a race.
-      }}
     >
       <div
         // No outline box: active and inactive share the SAME geometry (no
@@ -200,28 +174,18 @@ const HostChip: Component<{
           type="button"
           role="tab"
           aria-selected={isActive()}
-          aria-haspopup="dialog"
-          aria-expanded={diagOpen()}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-xl pl-2.5 pr-2.5 transition-colors focus-visible:outline-none cursor-pointer"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-l-xl pl-2.5 pr-1.5 transition-colors focus-visible:outline-none cursor-pointer"
           classList={{
             "text-fg": isActive() && !down(),
             "text-fg-2 hover:text-fg": !isActive() && !down(),
             "text-fg-3": down(),
           }}
           data-testid="host-select"
-          // A no-op click on the ALREADY-active chip must not re-set `activeHost`: `props.host`
-          // is a FRESH object every membership read (`entries.use().keys()` decodes anew), so a
-          // guardless write would replace `activeHost`'s value with a new-reference-but-equal
-          // `HostKey` — `createSignal`'s default `===` equality treats that as a genuine change
-          // and re-notifies every `useEntry(activeHost)` consumer for nothing. Compare by the
-          // SAME canonical-string equality `isActive()` already uses (never `===` on the object).
-          // Switch on click; diagnostics toggle when already active. Down hosts
-          // always open the panel (fail loud with the real error + retry).
+          // Switch only — diagnostics is the separate "more" control so a
+          // hover/switch never pops a full dialog. No-op on already-active
+          // (canonical-string guard; never re-write activeHost with a fresh key).
           onClick={() => {
-            const wasActive = isActive();
-            if (!wasActive) setActiveHost(props.host);
-            if (down()) openThisDiagnostics();
-            else if (wasActive) props.diagnostics.toggle(encKey);
+            if (!isActive()) setActiveHost(props.host);
           }}
           title={`${hostLabel(props.host)} — ${glance().title}`}
         >
@@ -256,6 +220,18 @@ const HostChip: Component<{
             sizeClass="ml-0.5 h-1.5 w-1.5"
           />
         </button>
+        {/* Mini padi·kaval — the "there is more" control; click opens diagnostics. */}
+        <Show when={!props.measure}>
+          <HostDiagnosticsTrigger
+            host={props.host}
+            open={diagOpen()}
+            onToggle={() => props.diagnostics.toggle(encKey)}
+          />
+        </Show>
+        <Show when={props.measure}>
+          {/* Width twin for the trigger (no live daemon subs on measure row). */}
+          <span class="inline-block h-7 w-10 shrink-0" aria-hidden="true" />
+        </Show>
       </div>
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover

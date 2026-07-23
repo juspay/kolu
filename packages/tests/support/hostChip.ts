@@ -1,8 +1,8 @@
 /** Locators for the multi-host chrome identity chips (Kolu · Padi · Kaval).
  *
- *  Quiet-strip redesign: Padi/Kaval marks live in the per-host diagnostics
- *  popover (not on every chip). Scope Padi/Kaval to that panel once open;
- *  Kolu stays a single global mark on the identity rail.
+ *  Quiet strip: Padi/Kaval full marks live in the diagnostics popover. Open it
+ *  via the chip's mini "more" control (`host-diagnostics-open`). Kolu stays a
+ *  single global mark on the identity rail.
  */
 
 export type IdentityChipTestid =
@@ -11,7 +11,7 @@ export type IdentityChipTestid =
   | "kaval-identity-chip";
 
 /** CSS selector for an identity mark. Kolu is global; Padi/Kaval are inside
- *  the open host diagnostics popover (open the active host chip first). */
+ *  the open host diagnostics popover. */
 export function identityChipSelector(testid: IdentityChipTestid): string {
   if (testid === "kolu-identity-chip") return `[data-testid="${testid}"]`;
   return `[data-testid="host-diagnostics-popover"] [data-testid="${testid}"]`;
@@ -34,13 +34,9 @@ type PageLike = {
 const PANEL = '[data-testid="host-diagnostics-popover"]';
 const ACTIVE_CHIP =
   '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]';
+const ACTIVE_MORE = `${ACTIVE_CHIP} [data-testid="host-diagnostics-open"]`;
 
-/** Idempotently open the ACTIVE host's diagnostics popover.
- *
- *  Compares the open panel's `data-host` attribute to the active chip's key
- *  in JS — never interpolates the host key into a CSS selector (keys can
- *  contain quotes/backslash; HostKeySchema admits every non-empty target).
- *  Only one diagnostics panel mounts at a time (strip-owned open key). */
+/** Idempotently open the ACTIVE host's diagnostics popover via the more control. */
 export async function openActiveHostDiagnostics(page: PageLike): Promise<void> {
   const activeKey = await page.locator(ACTIVE_CHIP).getAttribute("data-host");
   if (!activeKey) {
@@ -59,9 +55,7 @@ export async function openActiveHostDiagnostics(page: PageLike): Promise<void> {
     return;
   }
 
-  // Different host open (or none): click the active select. Toggle opens it;
-  // if a different panel was open, strip-level open key replaces it.
-  await page.locator(`${ACTIVE_CHIP} [data-testid="host-select"]`).click();
+  await page.locator(ACTIVE_MORE).click();
   await page.waitForSelector(PANEL, { timeout: 10_000, state: "visible" });
 
   const openedHost = await page.locator(PANEL).getAttribute("data-host");

@@ -440,8 +440,7 @@ const InteractiveDaemonMarks: Component<{ host: HostKey }> = (props) => {
 };
 
 /** Dual-daemon marks for one host — interactive only, mounted from the
- *  diagnostics popover. Measure/static strip modes were deleted with the quiet
- *  strip (no width reserve, no switcher-static pair). */
+ *  diagnostics popover. */
 export const HostDualDaemonSlot: Component<{ host: HostKey }> = (props) => (
   <div
     class={dualDaemonSlotClass}
@@ -452,3 +451,78 @@ export const HostDualDaemonSlot: Component<{ host: HostKey }> = (props) => (
     <InteractiveDaemonMarks host={props.host} />
   </div>
 );
+
+/** Compact strip "more" control — mini padi·kaval status icons. Click opens
+ *  host diagnostics (not the individual daemon dialogs). Switching stays on
+ *  the host label button; this is the only strip path into the popover. */
+export const HostDiagnosticsTrigger: Component<{
+  host: HostKey;
+  open: boolean;
+  onToggle: () => void;
+}> = (props) => {
+  const padi = useHostPadi(props.host);
+  const kaval = useHostKaval(props.host);
+  const identity = padiMap.entry(props.host).cells.identity.use();
+  const padiStatus = padiMap.entry(props.host).cells.status.use();
+  const padiPresence = createMemo(() =>
+    toPadiPresence(padi.link(), padi.live(), identity.value()),
+  );
+  const kavalPresence = createMemo(() =>
+    toKavalPresence(kaval.daemon(), kaval.live()),
+  );
+  const attention = createMemo(() =>
+    kavalAttention(
+      padiStatus.value()?.expectedKaval?.staleKey,
+      kaval.daemon(),
+      kaval.live(),
+    ),
+  );
+
+  return (
+    <button
+      type="button"
+      data-testid="host-diagnostics-open"
+      aria-haspopup="dialog"
+      aria-expanded={props.open}
+      aria-label={`More about ${hostLabel(props.host)} — padi and kaval status`}
+      title="More — padi · kaval"
+      class="pointer-events-auto relative flex h-7 shrink-0 items-center gap-0.5 rounded-lg px-1 text-fg-3 transition-colors hover:bg-surface-1/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+      classList={{
+        "bg-surface-1/80 text-fg": props.open,
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        props.onToggle();
+      }}
+    >
+      <span class="relative grid h-4 w-4 place-items-center">
+        <img src={PADI_LOGO_URL} alt="" class="host-daemon-logo h-3.5 w-3.5" />
+        <span
+          data-padi-link={presenceLink(padiPresence())}
+          class={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full border border-surface-0 ${padiPresencePresentation(padiPresence()).dot}`}
+          aria-hidden="true"
+        />
+      </span>
+      <span class="relative grid h-4 w-4 place-items-center">
+        <img src={KAVAL_LOGO_URL} alt="" class="host-daemon-logo h-3.5 w-3.5" />
+        <span
+          data-daemon-state={presenceState(kavalPresence())}
+          class={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full border border-surface-0 ${kavalPresencePresentation(kavalPresence()).dot}`}
+          aria-hidden="true"
+        />
+        <Show
+          when={
+            attention().kind === "stale" || attention().kind === "incompatible"
+          }
+        >
+          <span
+            data-testid="kaval-update-pip"
+            data-attention={attention().kind}
+            class={`absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full border border-surface-0 ${attention().kind === "incompatible" ? "bg-danger" : "bg-amber-500"}`}
+            aria-hidden="true"
+          />
+        </Show>
+      </span>
+    </button>
+  );
+};
