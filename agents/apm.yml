@@ -2,7 +2,7 @@ name: agents
 version: 0.1.0
 description: >-
   Reusable AI-native development skills extracted from kolu — the /be review
-  gauntlet (lens-debate, codex-debate, perfection-review, be, be-review),
+  gauntlet (lens-debate, agent-debate, perfection-review, be, be-review),
   agent-to-agent driving (kolu), and shared @kolu/surface consumption
   (surface). Repo-agnostic: a consuming project supplies its own /atlas,
   /test, /dev-server, and (optionally) /evidence skills.

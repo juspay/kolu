@@ -165,7 +165,7 @@ kaval-tui wait "$id" --until idle:800 --timeout 600000   # block until the turn 
   > single tool call at ~2 minutes by default — so a `--timeout 1200000` wait is
   > **SIGKILLed at ~2 min (exit 143)** while the agent you're watching is perfectly
   > fine. Two ways out: **prefer ending your turn** and being woken by the other
-  > side's ping (the event-driven loop — see `/codex-debate`) instead of holding a
+  > side's ping (the event-driven loop — see `/agent-debate`) instead of holding a
   > wait; or, if you *must* hold it, **raise the Bash call's own timeout to exceed
   > the `--timeout`** so the harness doesn't kill it first.
 - **`--json`** → one result frame per outcome: `{ id, result, … }`, where
@@ -235,10 +235,10 @@ padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-f
 
 > **A split tile BESIDE you — `--parent "$KAVAL_TERMINAL_ID"`.** When you want the
 > new terminal to open as a **split beside your own** (a sibling tile on the same
-> canvas — e.g. driving a live `codex` reviewer per `/codex-debate`), pass
+> canvas — e.g. driving a selected Claude/Codex/Grok peer per `/agent-debate`), pass
 > **`--parent <your-terminal-id>`**, using your self-knowledge var
 > `$KAVAL_TERMINAL_ID` (see *Reach*): `padi-tui create --parent "$KAVAL_TERMINAL_ID"
-> -- codex --yolo …`. Add `--worktree`/`--repo` too if the split should also get its
+> -- <selected-agent> <unrestricted-flags> …`. Add `--worktree`/`--repo` too if the split should also get its
 > own worktree; omit them and the split opens in your cwd. **`kaval-tui create` is
 > NOT a split** — it spawns a *detached, standalone* terminal that isn't a tile
 > beside you, isn't on the canvas, and isn't padi-tracked. So whenever the intent is

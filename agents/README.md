@@ -21,7 +21,7 @@ Repo-agnostic skills that don't depend on kolu internals:
 | -------------------- | ---------------------------------------------------------------------- |
 | `be` / `be-review`   | Take a task end-to-end with a serial AI review gauntlet                 |
 | `lens-debate`        | Structural-review debate between the lowy and hickey lenses             |
-| `codex-debate`       | codex ⇄ Claude debate to consensus (review or freeform answer)          |
+| `agent-debate`       | Claude/Codex/Grok peer debate to consensus (review or freeform answer)  |
 | `perfection-review`  | Adversarial "ideal-bar" review, fanned out via Workflow                 |
 | `architecture-first-principles` | The state-and-time lens — 5 grounded CS principles (values, pure core, one-authority/clock, illegal-states-unrepresentable, end-to-end) |
 | `kolu`               | Drive one agent from another through kolu terminals (`kaval-tui`)       |
@@ -54,7 +54,7 @@ dependencies:
 ```
 
 Then install with APM (e.g. `apm install`, or your project's equivalent recipe).
-After install you'll have `be`, `be-review`, `lens-debate`, `codex-debate`,
+After install you'll have `be`, `be-review`, `lens-debate`, `agent-debate`,
 `perfection-review`, `kolu`, and `surface` available to your runtime.
 
 To make the gauntlet fully functional, **provide your own** `/atlas`, `/test`,
