@@ -122,6 +122,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       phase: "building",
       log: [{ source: "local", line: "6 paths done · 84 B of 84 B" }],
       sinceMs: 3_000,
+      campaignEpoch: 1,
     });
 
     dispose = render(
@@ -148,6 +149,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       phase: "copying",
       log: [{ source: "local", line: "copying 6 paths…" }],
       sinceMs: 3_000,
+      campaignEpoch: 1,
     });
     dispose = render(
       () => <ConnectCanvas daemonState={undefined} />,
@@ -163,6 +165,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       phase: "copying",
       log: [{ source: "local", line: "copying path '/nix/store/…-pkg'…" }],
       sinceMs: 3_000,
+      campaignEpoch: 1,
     });
     expect(elapsed()).toBe("5s"); // still extended, not back to 3s
 
@@ -175,6 +178,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       phase: "building",
       log: [{ source: "local", line: "building" }],
       sinceMs: 3_000,
+      campaignEpoch: 1,
     });
     dispose = render(
       () => <ConnectCanvas daemonState={undefined} />,
@@ -188,6 +192,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       phase: "building",
       log: [{ source: "local", line: "building" }],
       sinceMs: 40_000,
+      campaignEpoch: 1,
     });
     expect(elapsed()).toBe("40s");
     clock.advance(1_000);
@@ -199,6 +204,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       phase: "connecting",
       log: [],
       sinceMs: 200,
+      campaignEpoch: 1,
     });
     dispose = render(
       () => <ConnectCanvas daemonState={undefined} />,
@@ -217,6 +223,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       phase: "building",
       log: [{ source: "local", line: "building on zest" }],
       sinceMs: 0,
+      campaignEpoch: 1,
     });
     dispose = render(
       () => <ConnectCanvas daemonState={undefined} />,
@@ -231,6 +238,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       phase: "building",
       log: [{ source: "local", line: "building on other" }],
       sinceMs: 0,
+      campaignEpoch: 1,
     });
     // Fresh host at sinceMs 0 → elapsed resets (still under 1s flash guard).
     expect(
@@ -238,5 +246,35 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     ).toBeNull();
     clock.advance(2_000);
     expect(elapsed()).toBe("2s"); // from other, not 4s from zest
+  });
+
+  it("re-baselines on same-host recheck when campaignEpoch advances (quiet stretch)", async () => {
+    // Quiet multi-minute stretch: anchor.ms stays 0 while wall extension shows 40s.
+    // recheck() bumps campaignEpoch; first frame of the new campaign is also sinceMs: 0.
+    h.host = { kind: "remote", target: "zest" };
+    h.setInfo({
+      phase: "building",
+      log: [{ source: "local", line: "building" }],
+      sinceMs: 0,
+      campaignEpoch: 1,
+    });
+    dispose = render(
+      () => <ConnectCanvas daemonState={undefined} />,
+      document.body,
+    );
+    clock.advance(40_000);
+    expect(elapsed()).toBe("40s");
+
+    h.setInfo({
+      phase: "probing",
+      log: [],
+      sinceMs: 0,
+      campaignEpoch: 2,
+    });
+    expect(
+      document.querySelector('[data-testid="connect-elapsed"]'),
+    ).toBeNull();
+    clock.advance(2_000);
+    expect(elapsed()).toBe("2s"); // not 42s
   });
 });

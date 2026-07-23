@@ -96,9 +96,16 @@ const st = (
     if (error === undefined) {
       throw new Error(`st(${phase}): a down arm requires an error`);
     }
-    return { phase, log: [], error, cause: "remote", sinceMs: 0 };
+    return {
+      phase,
+      log: [],
+      error,
+      cause: "remote",
+      sinceMs: 0,
+      campaignEpoch: 0,
+    };
   }
-  return { phase, log: [], sinceMs: 0 };
+  return { phase, log: [], sinceMs: 0, campaignEpoch: 0 };
 };
 
 /** A `connected` `SessionState` carrying the measured `clockOffset` — `null` until
@@ -109,6 +116,7 @@ const connected = (clockOffset: number | null): SessionState<SshProv> => ({
   phase: "connected",
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
   clockOffset,
 });
 
@@ -459,7 +467,12 @@ describe("the joint connection-authority invariant (SR9, drishti#102)", () => {
       failureOf: classify,
       connection: {
         project: () =>
-          ({ phase: "connecting", log: [], sinceMs: 0 }) as ConnectionInfo,
+          ({
+            phase: "connecting",
+            log: [],
+            sinceMs: 0,
+            campaignEpoch: 0,
+          }) as ConnectionInfo,
         isConnected: (c) => c.phase === "connected",
       },
     });

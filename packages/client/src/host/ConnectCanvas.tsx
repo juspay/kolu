@@ -78,15 +78,17 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   //     tick HostDaemonChips / inspector use. A component-local setInterval was wiped
   //     every second when `<Match when={warmingMode()}>` remounted on each mode() object
   //     (mode recomputes every getMonotonicNow tick for the boot deadline).
-  //  2. Re-anchor ONLY when the server's `sinceMs` changes for the SAME host — re-baselining
-  //     `at` on every effect re-run (or remount) with the same sinceMs zeroes the extension
+  //  2. Re-anchor ONLY when the server's `sinceMs` changes for the SAME host+campaign —
+  //     re-baselining `at` on every effect re-run with the same sinceMs zeroes the extension
   //     and freezes the label at the last frame's sinceMs until the next log frame jumps it.
-  //     Host is part of the key because the boolean warming Match keeps this component
-  //     mounted across active-host switches; same sinceMs (often 0 at episode start) must
-  //     not keep the prior host's wall baseline.
+  //     Host + campaignEpoch are in the key because the boolean warming Match keeps this
+  //     component mounted across active-host switches and same-host recheck; a quiet multi-
+  //     minute stretch can leave anchor.ms at 0 while wall extension shows 40s, so a new
+  //     campaign that reopens at sinceMs: 0 must not keep that baseline.
   const clockNow = getClockNow();
   const [anchor, setAnchor] = createSignal<{
     host: string;
+    epoch: number;
     ms: number;
     at: number;
   } | null>(null);
@@ -99,12 +101,24 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
       return;
     }
     const sinceMs = frame.sinceMs;
+    const epoch = frame.campaignEpoch;
     setAnchor((prev) => {
-      // Same host + same server duration → keep the receipt baseline so wall clock
-      // extends it. Same-host new episode with an identical first sinceMs is rare and
-      // self-corrects on the next frame; don't "fix" that edge alone.
-      if (prev !== null && prev.host === h && prev.ms === sinceMs) return prev;
-      return { host: h, ms: sinceMs, at: untrack(() => clockNow()) };
+      // Same host + campaign + server duration → keep the receipt baseline so wall
+      // clock extends it between frames.
+      if (
+        prev !== null &&
+        prev.host === h &&
+        prev.epoch === epoch &&
+        prev.ms === sinceMs
+      ) {
+        return prev;
+      }
+      return {
+        host: h,
+        epoch,
+        ms: sinceMs,
+        at: untrack(() => clockNow()),
+      };
     });
   });
   // Plain function (not createMemo): reads clockNow() in the caller's tracking
