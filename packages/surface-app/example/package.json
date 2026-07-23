@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.13",
+    "@hono/node-server": "^2.0.10",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
     "@orpc/client": "^1.13.13",
