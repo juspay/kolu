@@ -1,12 +1,13 @@
 /** Prioritized, state-aware welcome moments for new users — Pin it · Reach it
- *  anywhere · Run agents · Add a host · Shortcuts. Rendered inline by
- *  `EmptyState` (zero terminals) and inside `WelcomeDialog` (the palette
- *  "Tutorial" command).
+ *  anywhere · Run agents · Search everything · Add a host · Shortcuts.
+ *  Rendered inline by `EmptyState` (zero terminals) and inside
+ *  `WelcomeDialog` (the palette "Tutorial" command).
  *
  *  Done moments collapse into a muted header; the card paints the first three
  *  still-undone rows (selection is pure — see `welcomeMomentsSelect.ts`).
- *  Rows act through existing seams (create-terminal action, shortcuts help
- *  disclosure, PWA install prompt); every moment carries a `DocLink`. */
+ *  Rows act through existing seams (create-terminal action, command palette,
+ *  shortcuts help disclosure, PWA install prompt); every moment carries a
+ *  `DocLink`. */
 
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
@@ -20,12 +21,13 @@ import {
   Switch,
 } from "solid-js";
 import { useHostMembers } from "./host/useHostMembers";
-import { advertisedNewTerminalKey } from "./input/actions";
+import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { shortcutsHelp } from "./ShortcutsHelp";
 import DocLink, { type DocSlug } from "./ui/DocLink";
 import Kbd from "./ui/Kbd";
 import { useActionContext } from "./useActionContext";
+import { useCommandPalette } from "./useCommandPalette";
 import {
   selectWelcomeMoments,
   type WelcomeMomentId,
@@ -121,6 +123,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
   const app = useSurfaceApp();
   const hosts = useHostMembers();
   const actions = useActionContext();
+  const commandPalette = useCommandPalette();
   // Auto-detected, per-browser install steps — used when no one-click prompt is
   // available (Safari/Firefox/iOS, or any plain-http origin). Manual install
   // works over http; only the one-click prompt + app badge need a secure context.
@@ -205,6 +208,27 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
                 onClick={runCreateTerminal}
               >
                 <Kbd>{formatKeybind(advertisedNewTerminalKey)}</Kbd>
+              </button>
+            }
+          />
+        );
+      case "search":
+        return (
+          <MomentShell
+            testId="welcome-moment-search"
+            emoji="⌕"
+            title="Search everything"
+            body="One box finds workspaces, hosts, and commands — type a branch or machine name, no separate switcher."
+            docSlug="keyboard-shortcuts"
+            trailing={
+              <button
+                type="button"
+                data-testid="welcome-open-palette"
+                class="shrink-0 self-center cursor-pointer"
+                title="Open search"
+                onClick={() => commandPalette.openDialog()}
+              >
+                <Kbd>{formatKeybind(ACTIONS.commandPalette.keybind)}</Kbd>
               </button>
             }
           />

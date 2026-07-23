@@ -52,7 +52,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-workspace-switcher-shortcut",
-    text: `${formatKeybind(ACTIONS.openWorkspaceSwitcher.keybind)} opens the workspace switcher with search focused`,
+    text: `${formatKeybind(ACTIONS.openWorkspaceSwitcher.keybind)} deep-links into the workspace grid (agent-state columns); ${formatKeybind(ACTIONS.commandPalette.keybind)} at root finds the same terminals by name`,
   },
   {
     id: "amb-palette-finds-everything",

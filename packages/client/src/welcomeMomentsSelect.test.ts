@@ -15,7 +15,7 @@ describe("selectWelcomeMoments", () => {
     });
   });
 
-  it("pinned + reachable: next-tier moments (agents · host · shortcuts)", () => {
+  it("pinned + reachable: next-tier moments (agents · search · host)", () => {
     expect(
       selectWelcomeMoments({
         pinDone: true,
@@ -24,11 +24,11 @@ describe("selectWelcomeMoments", () => {
       }),
     ).toEqual({
       done: ["pin", "reach"],
-      rows: ["agents", "host", "shortcuts"],
+      rows: ["agents", "search", "host"],
     });
   });
 
-  it("all collapse-able done: agents + shortcuts only", () => {
+  it("all collapse-able done: agents · search · shortcuts", () => {
     expect(
       selectWelcomeMoments({
         pinDone: true,
@@ -37,11 +37,11 @@ describe("selectWelcomeMoments", () => {
       }),
     ).toEqual({
       done: ["pin", "reach", "host"],
-      rows: ["agents", "shortcuts"],
+      rows: ["agents", "search", "shortcuts"],
     });
   });
 
-  it("only pin done: reach · agents · host (pin in header)", () => {
+  it("only pin done: reach · agents · search (pin in header)", () => {
     expect(
       selectWelcomeMoments({
         pinDone: true,
@@ -50,7 +50,7 @@ describe("selectWelcomeMoments", () => {
       }),
     ).toEqual({
       done: ["pin"],
-      rows: ["reach", "agents", "host"],
+      rows: ["reach", "agents", "search"],
     });
   });
 
