@@ -135,10 +135,11 @@ export function clearHostVisits(
  * Reconcile one host's trail against live top-level ids:
  * - drop ids no longer live
  * - keep existing `visitedAt` for survivors (no restamp)
- * - append missing live ids at the end with timestamps below all survivors
+ * - append missing live ids with timestamps below all survivors
  *
  * When the host slice is empty, seeds `ids` most-recent-first (restore /
- * first paint). Other hosts' visits are never touched.
+ * first paint). The global list is then ordered by true visit recency and
+ * capped — newer other-host visits always outrank older local filler rows.
  */
 export function reconcileHostLiveIds(
   prev: readonly VisitEntry[],
@@ -151,34 +152,37 @@ export function reconcileHostLiveIds(
   const hostPrev = prev.filter((e) => e.hostKey === hostKey);
   const liveSet = new Set(liveIds);
 
+  let hostNext: VisitEntry[];
   if (hostPrev.length === 0) {
-    // Empty host trail — seed only. Most-recent first: decreasing timestamps.
-    const seeded: VisitEntry[] = liveIds.map((terminalId, i) => ({
+    // Empty host trail — seed only. Decreasing timestamps, most-recent first.
+    hostNext = liveIds.map((terminalId, i) => ({
       hostKey,
       terminalId,
       visitedAt: now - i,
     }));
-    return [...seeded, ...others].slice(0, cap);
+  } else {
+    // Preserve timestamps for survivors; drop dead; append missing below oldest.
+    const survivors = hostPrev.filter((e) => liveSet.has(e.terminalId));
+    const survivorIds = new Set(survivors.map((e) => e.terminalId));
+    const missing = liveIds.filter((id) => !survivorIds.has(id));
+    const minSurvivor =
+      survivors.length === 0
+        ? now
+        : survivors.reduce(
+            (m, e) => Math.min(m, e.visitedAt),
+            survivors[0]!.visitedAt,
+          );
+    const appended: VisitEntry[] = missing.map((terminalId, i) => ({
+      hostKey,
+      terminalId,
+      visitedAt: minSurvivor - 1 - i,
+    }));
+    hostNext = [...survivors, ...appended];
   }
 
-  // Preserve order + timestamps for survivors; drop dead.
-  const survivors = hostPrev.filter((e) => liveSet.has(e.terminalId));
-  const survivorIds = new Set(survivors.map((e) => e.terminalId));
-  const missing = liveIds.filter((id) => !survivorIds.has(id));
-  const minSurvivor =
-    survivors.length === 0
-      ? now
-      : survivors.reduce(
-          (m, e) => Math.min(m, e.visitedAt),
-          survivors[0]!.visitedAt,
-        );
-  // Append missing below the oldest survivor so they don't outrank real visits.
-  const appended: VisitEntry[] = missing.map((terminalId, i) => ({
-    hostKey,
-    terminalId,
-    visitedAt: minSurvivor - 1 - i,
-  }));
-  return [...survivors, ...appended, ...others].slice(0, cap);
+  return [...hostNext, ...others]
+    .sort((a, b) => b.visitedAt - a.visitedAt)
+    .slice(0, cap);
 }
 
 /** Active-host MRU ids (most-recent first) for Ctrl+Tab / WebGL budget. */

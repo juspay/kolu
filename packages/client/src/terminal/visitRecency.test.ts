@@ -187,6 +187,17 @@ describe("mruIdsForHost / reconcileHostLiveIds / clear", () => {
     expect(out.find((e) => e.terminalId === B)?.visitedAt).toBeLessThan(50);
   });
 
+  it("caps by true recency so newer remote visits survive local reconcile", () => {
+    // 2-cap list: remote visit is newer than local filler after reconcile.
+    const prev: VisitEntry[] = [
+      { hostKey: "remote:zest", terminalId: Z, visitedAt: 99 },
+      { hostKey: "local", terminalId: A, visitedAt: 50 },
+    ];
+    const out = reconcileHostLiveIds(prev, "local", [A, B], 1000, 2);
+    expect(out.map((e) => e.terminalId)).toEqual([Z, A]);
+    expect(out.find((e) => e.terminalId === Z)?.visitedAt).toBe(99);
+  });
+
   it("removeVisit and clearHostVisits", () => {
     const prev: VisitEntry[] = [
       { hostKey: "local", terminalId: A, visitedAt: 1 },
