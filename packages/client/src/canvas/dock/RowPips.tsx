@@ -23,10 +23,9 @@
  *      width back to the branch label. Volatility axis: sub-
  *      terminal presence visualization (low-volatility today).
  *
- *  The live-output presence axis used to live here too, as
- *  `ActivityPip` (a standalone green dot in its own leading column);
- *  R-activity-merge folded that dot into the row's `StatePip` as its
- *  green live RING, so there is no separate activity cell anymore.
+ *  Live-output presence no longer has its own cell — activity is the
+ *  StatePip motion channel (spin/glow), so the row leading column is
+ *  identity + paint + motion + alert only.
  *
  *  Each export could be split into its own file the moment one of
  *  these axes diverges enough to justify the boundary; for now

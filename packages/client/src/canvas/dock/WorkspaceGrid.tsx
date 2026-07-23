@@ -13,7 +13,8 @@
  *  three echoes of the same truth. */
 
 import { activeArm, activePr } from "@kolu/padi/surface";
-import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
+import { StatePip } from "@kolu/solid-statepip";
+import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -32,6 +33,7 @@ import { annotationLine } from "../../intent/text";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
+import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import { PrStateIcon } from "../../ui/Icons";
@@ -477,6 +479,11 @@ const WorkspaceCard: Component<{
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.meta.lastActivityAt);
   const idle = () => props.entry.bucket === "idle";
+  const pip = useStatePip(
+    () => props.entry.id,
+    () => props.entry.meta,
+    () => props.unread,
+  );
 
   return (
     <button
@@ -512,23 +519,6 @@ const WorkspaceCard: Component<{
           class="absolute left-0 top-2 bottom-2 w-1 rounded-r-full"
           style={{ "background-color": props.entry.info.branchColor }}
         />
-      </Show>
-      {/* Unread ping — the card-corner twin of the dock row's unread badge.
-       *  Placement + ping motion stay; only the FILL is unified to the shared
-       *  `ATTENTION_PILL_CLASS` amber (was the cool `bg-alert` violet — the same
-       *  "your turn" state hue, a drift from the amber every OTHER unread mark
-       *  paints), so all three unread surfaces read as one cue. The pill class's
-       *  text utilities are inert here (no content); its fill + rounding carry. */}
-      <Show when={props.unread}>
-        <span
-          class="absolute right-2 top-2 inline-flex h-2 w-2"
-          aria-hidden="true"
-        >
-          <span
-            class={`absolute h-full w-full opacity-75 animate-ping ${ATTENTION_PILL_CLASS}`}
-          />
-          <span class={`relative h-2 w-2 ${ATTENTION_PILL_CLASS}`} />
-        </span>
       </Show>
 
       {/* Eyebrow: repo identity + (right) PR badge if resolved.
@@ -587,15 +577,9 @@ const WorkspaceCard: Component<{
         </Show>
       </div>
 
-      {/* Status: glyph color encodes bucket; agent label and tokens
-       *  sit on the same line for left-edge scanability. */}
+      {/* Status: same StatePip binder as dock rows; label + tokens beside. */}
       <div class="mt-2 flex items-center gap-1.5 min-w-0 text-[0.72rem] text-fg-2">
-        <span
-          aria-hidden="true"
-          class={`font-mono leading-none shrink-0 ${bucketInfo().textClass}`}
-        >
-          {bucketInfo().glyph}
-        </span>
+        <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
         <span class="truncate">{agentLabel(agent())}</span>
         <Show when={tokens()}>
           {(t) => (
@@ -609,15 +593,12 @@ const WorkspaceCard: Component<{
       {/* Meta line: cwd or foreground process — a quiet trailing whisper. */}
       <div class="mt-0.5 flex items-baseline gap-2 font-mono text-[0.65rem] text-fg-3/90 min-w-0">
         <span class="truncate min-w-0">{metaLine(props.entry)}</span>
-        <Show when={lastActive()}>
+        {/* Same active-recency rule as dock RecencyCell — hide while active. */}
+        <Show when={lastActive() && !pip().active}>
           {(label) => (
             <span
               data-testid="workspace-switcher-card-recency"
               class="tabular-nums text-fg-3/70 shrink-0 ml-auto"
-              // The `<Show when={lastActive()}>` gate already proves this is a
-              // real epoch: `formatTimeAgo` returns "" ONLY for `null`
-              // (never-active), so a non-empty label means `lastActivityAt`
-              // is a number here.
               title={`Last agent activity: ${new Date(props.entry.meta.lastActivityAt as number).toLocaleString()}`}
             >
               {label()}

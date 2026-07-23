@@ -634,6 +634,7 @@ const App: Component = () => {
                       {...dockPalette}
                       renderTileTitle={(id) => (
                         <TerminalMeta
+                          terminalId={id}
                           info={store.getDisplayInfo(id)}
                           meta={store.getMetadata(id)}
                           unread={store.isUnread(id)}

@@ -1,32 +1,13 @@
-/* The merged status indicator's outer axes + core motion — the live PLATE,
- * the alert BADGE, and the identity-glyph breathe/glow animations that
- * `StatePip` composes (R-activity-merge + Option C). Shipped as a CSS leaf
- * rather than Tailwind utilities because the live plate is a colour-mix
- * disc and the glyph glow uses `filter: drop-shadow` — neither express
- * cleanly as utility classes. kolu's client `@import`s
- * `@kolu/solid-statepip/statepip.css`, so the overlays are single-sourced
- * (one definition, can't drift). Colours are the shared `@kolu/theme` CSS
- * vars, resolved by whichever surface imports the theme.
- *
- * The live plate is a faint green disc BEHIND the identity glyph (presence,
- * contained inside the pip — no glow bleed past the box). The alert is a
- * small CORNER DOT, deliberately NOT a ring — a surrounding alert ring
- * (especially nested with a live disc) read as overwhelming, so the two
- * axes use different shapes. Motion is transform/opacity/filter only
- * (compositor-friendly — no per-frame layout), and a reduced-motion
- * preference holds animations still. Under reduced motion the awaiting
- * core keeps a violet hollow outline so state never degrades to colour
- * alone (Option C spent shape on identity). */
+/* StatePip motion + unread badge. Glyph spin/glow use filter/transform
+ * (compositor-friendly); badge is an absolute corner dot. Colours from
+ * `@kolu/theme`. Motion durations are `--motion-*-duration` tokens so the
+ * rail chip (index.css) stays in lockstep. Reduced-motion freezes
+ * animations; awaiting keeps a violet hollow outline so state is not
+ * colour-only. */
 
-@keyframes statepip-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(0.78);
-    opacity: 0.55;
+@keyframes statepip-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 @keyframes statepip-glow {
@@ -50,37 +31,19 @@
   }
 }
 
-/* working → breathe on the identity glyph (one motion per row) */
-.statepip-anim-breathe {
-  animation: statepip-breathe 1.8s ease-in-out infinite;
+/* active → continuous spin on the identity glyph (working, live shell, …) */
+.statepip-anim-spin {
+  animation: statepip-spin var(--motion-spin-duration, 2.8s) linear infinite;
   transform-origin: center;
 }
 
 /* awaiting → glow on the identity glyph */
 .statepip-anim-glow {
-  animation: statepip-glow 2.2s ease-in-out infinite;
+  animation: statepip-glow var(--motion-glow-duration, 2.2s) ease-in-out
+    infinite;
 }
 
-/* live = this terminal is moving bytes right now: a faint green disc
- * (avatar plate) behind the identity glyph. Contained inside the pip —
- * no box-shadow bleed past the edge. Presence only; agent state owns
- * motion. Rendered under the glyph in StatePip's DOM order. */
-.statepip-live-plate {
-  position: absolute;
-  inset: -1px;
-  border-radius: 9999px;
-  background: color-mix(in oklab, var(--color-ok) 13%, transparent);
-  pointer-events: none;
-}
-
-/* alert badge = a fired notification a surface wants surfaced (the Dock's
- * unopened-unread — each surface names it via `alertLabel`): a small amber
- * CORNER DOT at the top-right, NOT a ring and NOT the host-tab count pill —
- * Option C mockup's 7px attention pip. Shape is deliberately a circle so it
- * never competes with the live plate or reads as a count capsule on a
- * 14px identity glyph. The surface separator lifts it off the row; a gentle
- * pulse draws the eye without shouting. Fill is `--color-attention` (the
- * warm "needs you" amber), single-sourced in this leaf. */
+/* Unread amber corner badge (Dock `unread`); not a ring, not the host pill. */
 .statepip-alert-badge {
   position: absolute;
   top: -2px;
@@ -95,7 +58,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .statepip-anim-breathe,
+  .statepip-anim-spin,
   .statepip-anim-glow,
   .statepip-alert-badge {
     animation: none;

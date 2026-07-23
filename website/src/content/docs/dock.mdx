@@ -38,20 +38,28 @@ fixed-width strip, and the floating dock in tiled mode keeps its default width.
 
 ## One indicator per row
 
-The first-column **status indicator** folds three signals into one glyph, so a
-sweep down the dock reads overall activity without three separate marks fighting
-for space:
+The first-column **status indicator** folds identity, state, activity, and
+obligation into one mark, so a sweep down the dock reads overall activity
+without separate dots fighting for space:
 
-- the **core** shape is the agent's state — the same vocabulary as
-  [Agent detection](/agent-detection): working, awaiting you, idle, or a ☾ for a
-  sleeping shell;
-- a thin green **live ring** sweeps around the core while the terminal is moving
-  bytes right now (any output, agent or not) — including terminals you're not
-  looking at. The signal comes from the host's PTY daemon (kaval), which already
-  ignores pure resize-repaint noise, so revealing a quiet tile no longer flashes
-  the ring;
-- a small amber **corner badge** appears when a background ping fired that you
-  haven't seen — beside the core, so a pending alert never hides the live state.
+- **identity (shape)** — who is driving: a real agent brand mark (Claude, Codex,
+  OpenCode, Grok), or a shell **`#`** when there is no agent;
+- **state (colour)** — what that driver is doing:
+  - **busy orange** while the machine is in flight (thinking / tools / background
+    work, and a plain shell with live output such as `btop`);
+  - **violet** when it needs you (or is in the brief post-turn lull);
+  - **moonlit** when sleeping — and the whole row recedes (~55% opacity);
+- **activity (motion)** — the glyph **spins** (2.8s continuous) while the
+  terminal is effectively active, **glows** when it is blocked on you, and holds
+  still when quiet. Under reduced motion, animations freeze. Active rows hide
+  the "Xs ago" recency (it would only say "just now");
+- **obligation (amber corner badge)** — a background ping you have not opened
+  yet. Deliberately **amber**, not violet: needs-you is state (violet), unread
+  is an unopened notification (amber). The host strip uses the same pair —
+  a **violet count pill** for agents blocked on you, a quieter **amber dot**
+  for finished-but-unseen work on a background machine.
+
+The same StatePip leads the tile title bar, so dock and title never disagree.
 
 Rows sort by **pure recency**: the terminal that just changed floats to the top,
 and clicking a row centres its tile on the canvas. A terminal running one
