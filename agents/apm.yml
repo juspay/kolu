@@ -43,3 +43,8 @@ dependencies:
       command: kolu
       args:
         - mcp
+      # Codex strips undeclared variables from MCP children. Forward the live
+      # per-terminal socket; `env` would freeze an ephemeral path at install time.
+      extra:
+        env_vars:
+          - PADI_SOCKET
