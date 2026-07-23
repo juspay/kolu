@@ -12,17 +12,14 @@ import type { HostKey } from "kolu-common/hostKey";
 import type {
   PaletteAction,
   PaletteCommand,
-  PaletteGroup,
   PaletteHint,
   PaletteItem,
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
-import { workspaceSearchText } from "./canvas/dockModel";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
-import { hostLabel, hostRowContext, sameHost } from "./host/hostChipTone";
 import {
   ACTIONS,
   type ActionContext,
@@ -32,185 +29,20 @@ import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
 import { recentAgents, recentRepos } from "./hostScope/activeWire";
-import { encodeHostKey } from "kolu-common/hostKey";
 import {
-  type FleetTerminalRow,
-  groupFleetByHost,
-  orderHostsActiveFirst,
-  useFleetTerminalIndex,
-} from "./palette/fleetTerminals";
+  hostRootActions,
+  terminalHostGroups,
+  terminalSwitchActions,
+} from "./palette/fleetActions";
+import { useFleetTerminalIndex } from "./palette/fleetTerminals";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
-import { assignColors } from "./terminal/terminalDisplay";
 import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
 import { padiMap } from "./wire";
-import { computeTerminalKeys, terminalKey } from "kolu-common/terminalKey";
-
-/** Switch host when the row is foreign, then activate. Pure sequencing
- *  extracted so unit tests can spy without mounting the palette. */
-export function selectFleetTerminal(
-  rowHost: HostKey,
-  rowId: TerminalId,
-  active: HostKey,
-  switchHost: (host: HostKey) => void,
-  activate: (id: TerminalId) => void,
-): void {
-  if (!sameHost(rowHost, active)) switchHost(rowHost);
-  activate(rowId);
-}
-
-/** Terminal rows for the unified switcher — fleet-wide (every connected
- *  host's terminals), ranked by recency. Selecting a row switches host if
- *  needed then activates the terminal.
- *
- *  Identity/context paint lives in `PaletteRow` via the Dock's
- *  `annotationLine` / `rowSubline` pair — do not re-derive headline rules
- *  here. Collision suffixes are computed **per host** (host chip already
- *  separates cross-host same-name rows). */
-function terminalSwitchActions(
-  fleet: readonly FleetTerminalRow[],
-  active: HostKey,
-  switchHost: (host: HostKey) => void,
-  activate: (id: TerminalId) => void,
-): PaletteAction[] {
-  // Collision-aware keys per host — same-repo/same-branch on one machine
-  // get `#id` suffixes; identical names on different hosts stay bare.
-  const keysById = new Map(
-    groupFleetByHost(fleet).flatMap((g) => [
-      ...computeTerminalKeys(
-        g.rows.map((r) => ({
-          id: r.id,
-          git: r.meta.git,
-          cwd: r.meta.cwd,
-        })),
-      ),
-    ]),
-  );
-  // One color sequence across the visible fleet so repo hues stay stable
-  // in a mixed multi-host result list.
-  const colors = assignColors(
-    fleet.flatMap((r) => {
-      const k = keysById.get(r.id) ?? terminalKey(r.meta);
-      return [k.group, k.label];
-    }),
-  );
-  return fleet.map((row): PaletteAction => {
-    const k = keysById.get(row.id) ?? terminalKey(row.meta);
-    const repoName = k.group;
-    const branchLabel = k.suffix ? `${k.label} ${k.suffix}` : k.label;
-    const repoColor = colors.get(repoName);
-    if (repoColor === undefined) {
-      throw new Error(
-        `assignColors missing repo key "${repoName}" — map must cover every fleet group`,
-      );
-    }
-    const hostName = hostLabel(row.host);
-    // Host lives ONLY on the row's host chip (PaletteRow), never in context
-    // or description — one deliberate place, no double "zest".
-    return {
-      kind: "action",
-      // Branch (+ collision suffix) is the stable name for e2e /
-      // data-palette-name; painted identity follows Dock via annotationLine.
-      name: branchLabel,
-      description: repoName,
-      onSelect: () =>
-        selectFleetTerminal(row.host, row.id, active, switchHost, activate),
-      row: {
-        kind: "terminal",
-        terminalId: row.id,
-        terminalMeta: row.meta,
-        hostKey: row.host,
-        repoName,
-        repoColor,
-        branchLabel,
-        recencyAt: row.recencyAt,
-        searchText: [
-          workspaceSearchText({
-            repoName,
-            label: branchLabel,
-            meta: row.meta,
-          }),
-          hostName,
-        ].join(" "),
-      },
-    };
-  });
-}
-
-/** Terminals tree: one drillable host group per **connected** pool member
- *  (local included), even when that host has zero terminals. The palette
- *  paints these as section headers over a flat terminal list — not as a
- *  host-only gate. Optional host-scope (header click / dock deep-link) still
- *  drills into the group. Active host's group is first; within each group
- *  terminals stay recency-ranked. */
-function terminalHostGroups(
-  fleet: readonly FleetTerminalRow[],
-  hosts: readonly HostKey[],
-  active: HostKey,
-  switchHost: (host: HostKey) => void,
-  activate: (id: TerminalId) => void,
-): PaletteGroup[] {
-  const buckets = new Map(
-    groupFleetByHost(fleet).map(
-      (g) => [encodeHostKey(g.host), g.rows] as const,
-    ),
-  );
-  const connected = hosts.filter(
-    (h) => padiMap.entry(h).state().kind === "connected",
-  );
-  return orderHostsActiveFirst(connected, active).map((host) => {
-    const rows = buckets.get(encodeHostKey(host)) ?? [];
-    const n = rows.length;
-    const countLabel = n === 1 ? "1 terminal" : `${n} terminals`;
-    const label = hostLabel(host);
-    return {
-      kind: "group" as const,
-      name: label,
-      description: countLabel,
-      row: {
-        kind: "host" as const,
-        hostKey: host,
-        context: countLabel,
-        searchText: `${label} ${countLabel}`,
-      },
-      children: (): PaletteItem[] =>
-        terminalSwitchActions(rows, active, switchHost, activate),
-    };
-  });
-}
-
-/** Host rows for root index and the Hosts scoped group — one source of truth.
- *  Context is quiet when connected (not active); "active" for the canvas host;
- *  exception states only otherwise ({@link hostRowContext}). */
-function hostRootActions(
-  hosts: HostKey[],
-  active: HostKey,
-  switchHost: (host: HostKey) => void,
-): PaletteAction[] {
-  return hosts.map((h): PaletteAction => {
-    const label = hostLabel(h);
-    const state = padiMap.entry(h).state();
-    const context = hostRowContext(state, sameHost(h, active));
-    return {
-      kind: "action",
-      name: label,
-      description: context || undefined,
-      onSelect: () => {
-        if (!sameHost(h, active)) switchHost(h);
-      },
-      row: {
-        kind: "host",
-        hostKey: h,
-        context,
-        searchText: `${label} ${context} ${state.kind}`.trim(),
-      },
-    };
-  });
-}
 
 /** Live worktree-name validator — reuses the server schema so the rule
  *  has one source of truth. Returns the first issue's message, or null

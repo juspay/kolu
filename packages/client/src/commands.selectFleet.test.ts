@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { selectFleetTerminal } from "./commands";
+import { selectFleetTerminal } from "./palette/fleetActions";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 

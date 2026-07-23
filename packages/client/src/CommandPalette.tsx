@@ -292,12 +292,15 @@ const CommandPalette: Component<{
    *  (the list and the hint footer). */
   const partitioned = createMemo(() => {
     const items = currentItems();
-    const atRoot = path().length === 0;
+    // Hide rootHidden containers only on empty-root browse (children already
+    // promoted). Typed root search still indexes them for name match / drill.
+    const hideRootHidden = path().length === 0 && query().trim().length === 0;
     const interactive: (PaletteCommand | PaletteLabel)[] = [];
     const hints: PaletteHint[] = [];
     for (const item of items) {
       if (item.kind === "hint") hints.push(item);
-      else if (atRoot && item.kind === "group" && item.rootHidden) continue;
+      else if (hideRootHidden && item.kind === "group" && item.rootHidden)
+        continue;
       else interactive.push(item);
     }
     return { interactive, hints };
@@ -739,13 +742,9 @@ const CommandPalette: Component<{
           setPath([]);
           const names = props.initialPath ?? [];
           if (names.length > 0) {
-            // Exact path first. On failure (missing host, etc.) land on the
-            // first segment alone when it is a known scope group — never
-            // silently widen a scoped deep-link into root "Search everything".
-            if (
-              !applyInitialPath(names) &&
-              !(names.length > 1 && applyInitialPath([names[0]!]))
-            ) {
+            // Exact path only — no prefix fallback (a missing host must not
+            // open the broader Terminals list as if the deep-link succeeded).
+            if (!applyInitialPath(names)) {
               requestAnimationFrame(() =>
                 requestAnimationFrame(() => inputRef.focus()),
               );

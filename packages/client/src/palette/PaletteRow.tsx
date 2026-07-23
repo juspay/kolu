@@ -290,16 +290,13 @@ const PaletteRow: Component<{
         </Show>
         <span class="truncate min-w-0">
           <Show
-            when={
-              kind() === "terminal" &&
-              row()?.terminalMeta?.intent &&
-              props.query.trim().length === 0
-            }
+            when={kind() === "terminal" && row()?.terminalMeta?.intent}
             fallback={
               <HighlightedText text={identityPrimary()} query={props.query} />
             }
           >
-            {/* Dock's identity path — safe inline markdown for intent headlines. */}
+            {/* Dock identity path for intents — always markdown-safe, including
+                during typed search (raw `**` must never reappear). */}
             <IntentMarkdownInline markdown={identityPrimary()} />
           </Show>
         </span>

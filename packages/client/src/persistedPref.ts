@@ -139,7 +139,7 @@ function defaultInvalidWarning<T>(
 /** Compose a per-host `localStorage` key: `<base>:<encoded host>`. The ONE place
  *  the `:${encoded}` suffix is appended, so a per-host pref cannot be spelled
  *  without its host scope — the "remember to append the host" hazard dies here. */
-function perHostName(base: string, host: HostKey): string {
+export function perHostName(base: string, host: HostKey): string {
   return `${base}:${encodeHostKey(host)}`;
 }
 

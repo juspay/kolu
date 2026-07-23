@@ -17,9 +17,14 @@
  *      travels with the TERMINAL via `TerminalMetadata.rightPanel`, so the panel
  *      follows the terminal, #959.) */
 
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import type { HostKey } from "kolu-common/hostKey";
 import type { Accessor, Setter } from "solid-js";
-import { perHostBoolPref, perHostPref } from "../persistedPref";
+import {
+  perHostBoolPref,
+  perHostName,
+  perHostPref,
+  readWithFallback,
+} from "../persistedPref";
 import {
   type ActivityWindow,
   DEFAULT_ACTIVITY_WINDOW,
@@ -37,10 +42,9 @@ function parseActivityWindow(raw: string): ActivityWindow {
 
 /** Non-reactive read of a host's persisted activity window — for membership-
  *  scoped consumers that must not wait for HostScope birth (fleet switcher).
- *  Same key + parse as {@link createHostPrefs}; invalid/corrupt values warn
- *  and fall back to {@link DEFAULT_ACTIVITY_WINDOW}. */
+ *  Key composition via {@link perHostName}; parse via {@link readWithFallback}. */
 export function readStoredActivityWindow(host: HostKey): ActivityWindow {
-  const name = `${ACTIVITY_WINDOW_PREF_BASE}:${encodeHostKey(host)}`;
+  const name = perHostName(ACTIVITY_WINDOW_PREF_BASE, host);
   let raw: string | null;
   try {
     raw = localStorage.getItem(name);
@@ -52,15 +56,16 @@ export function readStoredActivityWindow(host: HostKey): ActivityWindow {
     return DEFAULT_ACTIVITY_WINDOW;
   }
   if (raw === null) return DEFAULT_ACTIVITY_WINDOW;
-  try {
-    return parseActivityWindow(raw);
-  } catch (err) {
-    console.warn(
-      `[activityWindow] ignoring invalid stored value for "${name}": ${JSON.stringify(raw)} — falling back to ${JSON.stringify(DEFAULT_ACTIVITY_WINDOW)}`,
-      err,
-    );
-    return DEFAULT_ACTIVITY_WINDOW;
-  }
+  return readWithFallback(
+    raw,
+    parseActivityWindow,
+    DEFAULT_ACTIVITY_WINDOW,
+    (err, offending) =>
+      console.warn(
+        `[activityWindow] ignoring invalid stored value for "${name}": ${JSON.stringify(offending)} — falling back to ${JSON.stringify(DEFAULT_ACTIVITY_WINDOW)}`,
+        err,
+      ),
+  );
 }
 
 export interface HostPrefs {

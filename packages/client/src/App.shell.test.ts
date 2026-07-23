@@ -35,7 +35,7 @@ const RESOLVER_SRC = readFileSync(
  *  open-state it owns) and the `canvasMode` memo — layout / command wiring.
  *  `workspaceEntries` left with the retired WorkspaceGrid switcher. Domain
  *  state goes in a singleton, not here. */
-const REACTIVE_PRIMITIVE_BUDGET = 3;
+const REACTIVE_PRIMITIVE_BUDGET = 2;
 
 describe("App.tsx thin-shell invariant (#1340)", () => {
   it(`holds at most ${REACTIVE_PRIMITIVE_BUDGET} reactive primitives`, () => {
