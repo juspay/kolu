@@ -1,7 +1,6 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
 import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
-import type { TerminalId } from "kolu-common/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
