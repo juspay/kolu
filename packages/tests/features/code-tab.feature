@@ -1556,7 +1556,7 @@ Feature: Code tab (review + browse)
     Then the diff view should contain "before"
     When I click the terminal canvas
     And I run "printf 'after\n' > note.txt"
-    Then the diff view should contain "after"
+    Then the diff view should contain "after" while nudging "/tmp/kolu-live-diff/note.txt"
 
   Scenario: Editing a file updates browse-mode content live
     When I run "git init /tmp/kolu-live-browse && cd /tmp/kolu-live-browse"
@@ -1568,7 +1568,7 @@ Feature: Code tab (review + browse)
     Then the file content should contain "first version"
     When I click the terminal canvas
     And I run "printf 'second version\n' > letters.txt"
-    Then the file content should contain "second version"
+    Then the file content should contain "second version" while nudging "/tmp/kolu-live-browse/letters.txt"
 
   # Live-update for the iframe-previewed kinds (.html/.svg): editing the
   # previewed file must refresh the iframe with no manual reload. Unlike the

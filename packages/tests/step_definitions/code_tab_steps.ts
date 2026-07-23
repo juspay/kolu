@@ -1,6 +1,6 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { nudgeDir } from "../support/nudge.ts";
+import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -637,27 +637,53 @@ async function waitForViewText(
   world: KoluWorld,
   testid: string,
   expected: string,
+  nudgePath?: string,
 ) {
-  await world.page.waitForFunction(
-    `(() => {
-      ${SHADOW_DFS_FN_SRC}
-      const root = document.querySelector('[data-testid="${testid}"]');
-      if (!root) return false;
-      let text = '';
-      shadowDfs(root, (node) => {
-        if (node.nodeType === 3) text += node.nodeValue || '';
-      });
-      return text.includes(${JSON.stringify(expected)});
-    })()`,
-    undefined,
-    { timeout: POLL_TIMEOUT },
-  );
+  const containsExpected = `(() => {
+    ${SHADOW_DFS_FN_SRC}
+    const root = document.querySelector('[data-testid="${testid}"]');
+    if (!root) return false;
+    let text = '';
+    shadowDfs(root, (node) => {
+      if (node.nodeType === 3) text += node.nodeValue || '';
+    });
+    return text.includes(${JSON.stringify(expected)});
+  })()`;
+  if (nudgePath !== undefined) {
+    // A native watcher edge is advisory: Darwin can drop the one FSEvents
+    // notification produced by the fixture's save under parallel load. Re-touch
+    // the already-final file while polling so the assertion still verifies the
+    // live watcher → pulse → requery path, without making correctness depend on
+    // one kernel edge. The 500ms cadence clears both 150ms trailing debounces.
+    await pollFor({
+      observe: () => world.page.evaluate<boolean>(containsExpected),
+      isDone: (found) => found,
+      onTick: () => nudgeFiles([nudgePath]),
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `${testid} never rendered ${JSON.stringify(expected)} within ${elapsedMs}ms while nudging ${nudgePath}`,
+        ),
+      intervalMs: 500,
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+    return;
+  }
+  await world.page.waitForFunction(containsExpected, undefined, {
+    timeout: POLL_TIMEOUT,
+  });
 }
 
 Then(
   "the file content should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForViewText(this, "pierre-file-view", expected);
+  },
+);
+
+Then(
+  "the file content should contain {string} while nudging {string}",
+  async function (this: KoluWorld, expected: string, filePath: string) {
+    await waitForViewText(this, "pierre-file-view", expected, filePath);
   },
 );
 
@@ -689,6 +715,13 @@ Then(
   "the diff view should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForViewText(this, "pierre-diff-view", expected);
+  },
+);
+
+Then(
+  "the diff view should contain {string} while nudging {string}",
+  async function (this: KoluWorld, expected: string, filePath: string) {
+    await waitForViewText(this, "pierre-diff-view", expected, filePath);
   },
 );
 
