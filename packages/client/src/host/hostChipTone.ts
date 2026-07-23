@@ -10,8 +10,8 @@
  */
 
 import type { EntryState } from "@kolu/surface-map";
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { hostHueFor } from "kolu-common/hostHue";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 
 /** Whether two `HostKey`s name the SAME host — compared by their CANONICAL
  *  string (`encodeHostKey`), never `===`. */
@@ -108,27 +108,24 @@ export function hostGlance(
   };
 }
 
-/** @deprecated Prefer {@link hostGlance}.stripDot — kept for call-site clarity. */
+/** Single-field accessors over {@link hostGlance} — for call sites that only
+ *  need one projection (and for unit pins of each arm). */
 export function exceptionDotClass(status: EntryState): string | null {
   return hostGlance(status).stripDot;
 }
 
-/** @deprecated Prefer {@link hostGlance}.detailDot */
 export function dotClass(status: EntryState): string {
   return hostGlance(status).detailDot;
 }
 
-/** @deprecated Prefer {@link hostGlance}.down */
 export function isHostDown(status: EntryState): boolean {
   return hostGlance(status).down;
 }
 
-/** @deprecated Prefer {@link hostGlance}.title */
 export function statusTitle(status: EntryState<{ reason: string }>): string {
   return hostGlance(status).title;
 }
 
-/** @deprecated Prefer {@link hostGlance}.short */
 export function statusLabelShort(status: EntryState): string {
   return hostGlance(status).short;
 }
