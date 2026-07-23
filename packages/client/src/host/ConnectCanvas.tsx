@@ -95,6 +95,9 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     const sinceMs = frame.sinceMs;
     setAnchor((prev) => {
       // Same server duration → keep the receipt baseline so wall clock extends it.
+      // Edge: a new episode whose first frame carries exactly the old episode's
+      // sinceMs would keep the stale anchor and briefly overstate elapsed until
+      // the next frame — self-correcting and acceptably rare; don't "fix" it.
       if (prev !== null && prev.ms === sinceMs) return prev;
       return { ms: sinceMs, at: untrack(() => clockNow()) };
     });
