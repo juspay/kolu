@@ -297,8 +297,7 @@ Then(
     // (no › local / › zest). Collapse whitespace from button separators.
     const normalized = text.replace(/\s+/g, " ").trim();
     assert.ok(
-      /Terminals\s*$/.test(normalized) ||
-        /Terminals$/.test(normalized.replace(/›/g, "›")),
+      /Terminals\s*$/.test(normalized),
       `Expected breadcrumb to end at Terminals (no host segment), got "${text}"`,
     );
     // Stronger: buttons after Commands should be only "Terminals".
