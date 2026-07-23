@@ -2,7 +2,7 @@ name: agents
 version: 0.1.0
 description: >-
   Reusable AI-native development skills extracted from kolu — the /be review
-  gauntlet (lens-debate, codex-debate, perfection-review, be, be-review),
+  gauntlet (lens-debate, agent-debate, perfection-review, be, be-review),
   agent-to-agent driving (kolu), and shared @kolu/surface consumption
   (surface). Repo-agnostic: a consuming project supplies its own /atlas,
   /test, /dev-server, and (optionally) /evidence skills.
@@ -26,6 +26,7 @@ compilation:
 #   srid/agency             — /lowy /hickey /code-police /simplify /forge-pr /fact-check
 #   juspay/project-unknown  — /pu (ephemeral box for heavy work)
 #   juspay/odu              — /odu /odu-mcp
+#   kolu mcp                — /kolu's typed terminal-driving tools
 #
 # A consuming project additionally supplies its OWN /atlas, /test, /dev-server,
 # and (optionally) /evidence skills — these are intentionally project-specific
@@ -35,3 +36,15 @@ dependencies:
     - srid/agency#master
     - juspay/project-unknown
     - juspay/odu
+  mcp:
+    - name: kolu
+      registry: false
+      transport: stdio
+      command: kolu
+      args:
+        - mcp
+      # Codex strips undeclared variables from MCP children. Forward the live
+      # per-terminal socket; `env` would freeze an ephemeral path at install time.
+      extra:
+        env_vars:
+          - PADI_SOCKET

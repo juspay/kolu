@@ -11,3 +11,11 @@ args = []
 id = ""
 
 [mcp_servers.odu.env]
+
+[mcp_servers.kolu]
+command = "kolu"
+args = ["mcp"]
+id = ""
+env_vars = ["PADI_SOCKET"]
+
+[mcp_servers.kolu.env]

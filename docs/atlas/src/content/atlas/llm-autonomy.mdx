@@ -4,7 +4,7 @@ description: A recurring audit of how autonomous our PR workflow is. Round 1 cov
 parents: [analysis]
 status: proposed
 maturity: budding
-updated: 2026-06-20
+updated: 2026-07-23
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -162,7 +162,7 @@ copies), `.agency/do.md`, and `settings.json` hooks.
 | 9 | **Machine-checked RED→GREEN repro & observed-green before Done** (tests passing ≠ verified) | `be` §2; Stop guard `verified` field | M · **high** |
 | 10 | **§0 echoes a concrete task contract; PreToolUse blocks AskUserQuestion after §0** | `be` §0; new PreToolUse hook | M · med |
 | 11 | **§2 design-seam self-check** — run lowy + hickey on the *seam* before building, not at §4 | `be` §2 | M · med |
-| 12 | **Heartbeat + wall-clock budget + auto-retry** on long review/ship sub-skills | `be-review`, `codex-debate`, `lens-debate`, `evidence` | M · med |
+| 12 | **Heartbeat + wall-clock budget + auto-retry** on long review/ship sub-skills | `be-review`, `agent-debate`, `lens-debate`, `evidence` | M · med |
 | 13 | **Auto-classify evidence necessity** from the diff; self-emit "no visual impact" so backend PRs don't false-block | `be` §5; `evidence` §0 | M · med |
 | 14 | **Lens/police hard probes for recurring smells** + re-fire gauntlet on post-gauntlet commits | `lens-debate`, `code-police`, `be-review` | L · med |
 
@@ -274,7 +274,7 @@ method constant so successive runs are comparable.
 
 <Callout kind="accent" title="The lever map (where fixes go)">
 - **`agents/.apm/skills/be/SKILL.md`** — the `/be` stages & gates (most fixes).
-- **`agents/.apm/skills/be-review/SKILL.md`** + the gauntlet sub-skills (`codex-debate`,
+- **`agents/.apm/skills/be-review/SKILL.md`** + the gauntlet sub-skills (`agent-debate`,
   `lens-debate`, `simplify`, `code-police`, `evidence`, `ci`, `forge-pr`).
 - **`.apm/instructions/*.md`** → always-loaded `.claude/rules/*.md`
   (`conventions.md` is the home for the design-philosophy rule).

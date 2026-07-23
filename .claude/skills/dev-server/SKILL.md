@@ -90,7 +90,7 @@ jq -n --arg s "$server_url" --arg c "$client_url" \
   '{server:$s, client:$c}' > .dev-server/ports.json   # gitignored, per-worktree
 ```
 
-`.dev-server/` is gitignored (like `.codex-debate/` / `.lens-debate/`), so the
+`.dev-server/` is gitignored (like `.agent-debate/` / `.lens-debate/`), so the
 scratch never shows up in a diff. Read `.dev-server/ports.json` whenever you need
 the URL again — single source of truth for the session.
 

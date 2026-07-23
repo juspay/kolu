@@ -106,13 +106,14 @@ Non-negotiable rules:
 - **Reuse past de-flake PRs.** Read how this suite was de-flaked before — start
   from [Common flake classes](#common-flake-classes) below — and apply the
   established pattern instead of inventing one.
-- **Code changes pass `/codex-debate` before the streak counts.** Batch the fixes,
-  then drive them through `/codex-debate` to consensus — a CI pass is only trusted
-  on codex-debate-passed commits (docs are exempt, and the debate is expensive, so
-  debate the batch, not each edit). The debate is read-only code review, so its
-  consensus still needs **CI verification**: defend an empirically-grounded fix
-  rather than concede a plausible-but-unverified simplification — a consensus that
-  contradicts an observed CI failure is wrong until CI proves otherwise.
+- **Code changes pass `/agent-debate` before the streak counts.** Batch the fixes,
+  then drive them through `/agent-debate` with an explicitly selected peer to
+  consensus — a CI pass is only trusted on agent-debate-passed commits (docs are exempt, and the debate is expensive, so
+  debate the batch, not each edit). The peer inspects read-only while the author
+  applies agreed fixes, but consensus still needs **CI verification**: defend an
+  empirically-grounded fix rather than concede a plausible-but-unverified
+  simplification — a consensus that contradicts an observed CI failure is wrong
+  until CI proves otherwise.
 
 The loop: **fail** → streak resets to 0, root-cause and fix the test
 (<Pill variant="run">fixing</Pill> → <Pill variant="ok">fixed</Pill>, link the PR

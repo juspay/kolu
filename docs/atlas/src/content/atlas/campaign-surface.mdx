@@ -4,7 +4,7 @@ description: "Unify Atlas notes, the hand-maintained orchestrator dashboard, and
 parents: [feature, chat-native-agents-and-kolu]
 status: proposed
 maturity: seedling
-updated: 2026-07-18
+updated: 2026-07-23
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -56,7 +56,7 @@ kolu's campaign is already this, piece for piece:
 | mailbox, one message at a time | **kaval serializes all input** — "when input arrives, last one wins" is the single-writer mailbox; the coordinator's own inbox is serialization-by-conversation |
 | create actors / send messages / decide next state | the coordinator **spawns terminals** (`lifecycle_create`), **sends briefs** (`sendInput`), and revises its plan |
 | supervisor resets a crashed actor to stable state | the falsify-and-redirect loop: a wrong brief → stand down, `/compact` (reset to stable), re-brief. And **the daemons already do it literally**: padi adopt-or-recycles its kaval; the binder drains and re-provisions padi |
-| hierarchy — everything is an actor | coordinator → worker terminals → split terminals (codex debates); padi → kaval beneath them |
+| hierarchy — everything is an actor | coordinator → worker terminals → split terminals (selected-agent debates); padi → kaval beneath them |
 
 ### Inside the coordinator: the receive loop
 

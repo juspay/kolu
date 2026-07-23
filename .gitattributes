@@ -1,11 +1,15 @@
 npins/default.nix linguist-generated
+
+# APM-generated runtime and lock outputs.
 AGENTS.md linguist-generated
 CLAUDE.md linguist-generated
+.mcp.json linguist-generated
+opencode.json linguist-generated
+apm.lock.yaml linguist-generated
 .claude/** linguist-generated
 .claude/launch.json -linguist-generated
 .agents/** linguist-generated
 .codex/** linguist-generated
-.codex/config.toml -linguist-generated
 .opencode/** linguist-generated
 
 # Generated Astro output, committed for in-app (Code tab) preview of the Atlas.

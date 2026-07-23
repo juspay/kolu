@@ -4,7 +4,7 @@ description: "Extract the non-kolu-specific AI skills from agents/ into a standa
 parents: [kolu-cli, feature]
 status: proposed
 maturity: seedling
-updated: 2026-07-16
+updated: 2026-07-23
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -30,7 +30,7 @@ git clone https://github.com/srid/orchestrator ~/code/orchestrator
 <Svg svg={split} caption="The split. agents/ stops being a kolu-internal path-dependency; the generic half becomes the orchestrator repo, kolu becomes its first consumer, and the kolu-only surface skill moves home to kolu's own .apm." />
 
 - **What moves**: `orchestrator` (+ dashboard assets) · `be` · `be-review` ·
-  `lens-debate` · `codex-debate` · `perfection-review` ·
+  `lens-debate` · `agent-debate` · `perfection-review` ·
   `architecture-first-principles` · `kolu` (the agent-driving protocol — named
   for the product it drives, not the repo it lives in).
 - **What stays**: `surface` (kolu-repo law → kolu's root `.apm/`), and

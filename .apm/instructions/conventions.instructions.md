@@ -9,7 +9,7 @@ applyTo: "**"
 
 ## Workflow
 
-- Use `/be` to take a task end-to-end: interview → setup → implement (test-first) → draft PR → review gauntlet (lens-debate → codex-debate → simplify → code-police) → ship (CI + evidence) → done. One interview up front, autonomous after.
+- Use `/be` to take a task end-to-end: interview → setup → implement (test-first) → draft PR → review gauntlet (lens-debate → agent-debate → simplify → code-police) → ship (CI + evidence) → done. One interview up front, autonomous after.
 - Run `just fmt` (formatting) before declaring done.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 

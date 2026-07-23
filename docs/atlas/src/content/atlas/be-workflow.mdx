@@ -4,7 +4,7 @@ description: How kolu takes a task to a shipped, reviewed PR — one interview u
 parents: [reference, llm-autonomy]
 status: implemented
 maturity: budding
-updated: 2026-07-21
+updated: 2026-07-23
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -21,7 +21,7 @@ export const SKILL_URL = {
   "dev-server": "https://github.com/juspay/kolu/blob/master/.apm/skills/dev-server/SKILL.md",
   "be-review": "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/be-review/SKILL.md",
   "lens-debate": "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/lens-debate/SKILL.md",
-  "codex-debate": "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/codex-debate/SKILL.md",
+  "agent-debate": "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/agent-debate/SKILL.md",
   evidence: "https://github.com/juspay/kolu/blob/master/.apm/skills/evidence/SKILL.md",
   "self-improve": "https://github.com/juspay/kolu/blob/master/.apm/skills/self-improve/SKILL.md",
   do: "https://github.com/srid/agency/blob/master/.apm/skills/do/SKILL.md",
@@ -65,11 +65,10 @@ Two things actually do:
 - **It's built for Claude Code's [dynamic workflows](https://code.claude.com/docs/en/workflows).**
   That's the reason `/be` exists as its own skill. A dynamic workflow is a script
   Claude Code's runtime executes to orchestrate many subagents at scale. `/do` is
-  harness-agnostic; `/be` is optimized for Claude Code so its review gauntlet can
-  run as dynamic workflows — the debate skills <Skill name="be-review" /> drives
-  (<Skill name="lens-debate" />, <Skill name="codex-debate" />) each fan out
-  dozens of subagents from a workflow script, which `/do`'s flow has no way to
-  express.
+  harness-agnostic; `/be` combines that Workflow-backed
+  <Skill name="lens-debate" /> with a live split-terminal
+  <Skill name="agent-debate" /> whose peer is explicitly selected from Claude,
+  Codex, or Grok.
 - **It opens with a short interview.** Before any work, `/be` asks a single
   batched `AskUserQuestion` — the one and only moment it asks you anything — to
   pin down a few choices up front rather than guessing.
@@ -80,7 +79,7 @@ already live) or another home — so it can decouple from kolu and be used
 anywhere. The kolu-specific pieces it leans on (the <Skill name="pu" /> box,
 <Skill name="dev-server" />, the Atlas) are the seams that work would tease apart.
 
-The interview covers two things:
+The interview covers three things:
 
 - **Plan first?** Write the plan as an [Atlas note](/atlas/meta.html) for review
   before implementing, or go straight to code. Default: straight, unless the task
@@ -88,6 +87,8 @@ The interview covers two things:
 - **Task kind** — bug · feature · refactor. This picks the test strategy: a bug
   needs a red-then-green reproduction; a feature needs a covering test written
   first; a refactor leans on existing coverage.
+- **Debate peer** — Claude · Codex · Grok. `/be` carries that explicit choice
+  into the gauntlet; no peer is baked into the skill.
 
 <Callout type="note">
 **Autonomy doesn't inherit — it's propagated.** Every subagent `/be` delegates to
@@ -143,8 +144,9 @@ separate apply pass.
    consensus, in parallel per-file threads, before the agreed fixes are applied.
    Both lenses — and why kolu reviews with them — are explained in the blog post
    [Hickey & Lowy](https://kolu.dev/blog/hickey-lowy).
-2. <Skill name="codex-debate" /> — codex (reviewer) and a Claude author debate the
-   diff to consensus, each round auto-committing its `fix(…)`.
+2. <Skill name="agent-debate" /> — the selected Claude, Codex, or Grok peer
+   reviews the current author agent's diff to consensus, with each author round
+   auto-committing its `fix(…)`.
 3. [/simplify](https://docs.claude.com/en/docs/claude-code/slash-commands) — the
    self-applying reuse, simplification, and efficiency pass over the changed code.
    *(A built-in Claude Code skill, so this links to its docs rather than a repo.)*
