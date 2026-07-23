@@ -758,17 +758,24 @@ describe("worktreeCreate", () => {
 describe("watchGitHead", () => {
   let tmpDir: string;
 
-  /** Create a git repo with one commit and return its path + .git absolute path. */
-  async function initRepo(name: string) {
+  /** Create the smallest on-disk repo that `git rev-parse` recognizes.
+   *
+   * These watcher tests need a real git-dir lookup, not commits. Building a
+   * commit for every test added five unrelated git subprocesses before the
+   * two watcher resolutions under test, which could exhaust vitest's whole
+   * test budget on a loaded darwin lane. */
+  function initRepo(name: string) {
     const dir = path.join(tmpDir, name);
-    fs.mkdirSync(dir, { recursive: true });
+    const gitDir = path.join(dir, ".git");
+    fs.mkdirSync(path.join(gitDir, "objects"), { recursive: true });
+    fs.mkdirSync(path.join(gitDir, "refs", "heads"), { recursive: true });
+    fs.writeFileSync(path.join(gitDir, "HEAD"), "ref: refs/heads/main\n");
+    fs.writeFileSync(
+      path.join(gitDir, "config"),
+      "[core]\n\trepositoryformatversion = 0\n\tbare = false\n",
+    );
     const git = simpleGit(dir);
-    await git.init();
-    await git.checkoutLocalBranch("main");
-    fs.writeFileSync(path.join(dir, "file.txt"), "hello");
-    await git.add(".");
-    await git.commit("initial");
-    return { dir, git, gitDir: path.join(dir, ".git") };
+    return { dir, git, gitDir };
   }
 
   /** Wait until `predicate` returns true or `timeout` elapses. Polls so we
