@@ -7,6 +7,20 @@
  * missing, watches its parent directory (when that exists) and re-arms
  * when the basename appears — same observe-without-mutate idea as
  * Claude's session watchers.
+ *
+ * ## Debounce + maxWait (juspay/kolu#1952)
+ *
+ * Grok's `events.jsonl` is *not* a sparse transcript: a single turn can append
+ * hundreds of `phase_changed` lines per second (`streaming_text` /
+ * `streaming_reasoning`). A pure trailing-edge debounce (reset on every edge)
+ * never reaches its quiet window while that burst is live — so `emitIfChanged`
+ * freezes on the pre-burst state for the whole stream, and the 1s append-poll
+ * floor (#1754) is defeated too (it feeds the *same* `schedule()`, which the
+ * next fs.watch edge re-arms before 150ms elapses).
+ *
+ * `DEBOUNCE_MAX_MS` caps how long a pending re-derive can be postponed: after
+ * that budget the timer fires even if edges keep arriving. Quiet turns still
+ * settle in `DEBOUNCE_MS`; hot turns publish at least every maxWait.
  */
 
 import fs from "node:fs";
@@ -17,7 +31,15 @@ import type { Logger } from "kolu-shared";
 import { deriveGrokInfo, type GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
 
-const DEBOUNCE_MS = 150;
+/** Quiet-window coalescing for sparse writes (summary rename, single phase). */
+export const DEBOUNCE_MS = 150;
+/**
+ * Upper bound on how long continuous `events.jsonl` edges may postpone a
+ * re-derive. Must be ≤ the append-poll interval so a hot stream still
+ * publishes within one floor tick of the first change in a burst; kept as a
+ * named export so the starvation regression pins the same number.
+ */
+export const DEBOUNCE_MAX_MS = 500;
 
 export interface GrokWatcher {
   readonly session: GrokSession;
@@ -32,6 +54,9 @@ export function createGrokWatcher(
   let destroyed = false;
   let lastInfo: GrokInfo | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /** Wall-clock ms when the current pending debounce window opened; null when
+   *  no re-derive is scheduled. Anchors `DEBOUNCE_MAX_MS`. */
+  let pendingSince: number | null = null;
   // One teardown collection for every "run on destroy" concern: raw fs.watch
   // handles wrap to `() => w.close()`, and the append-robust floor
   // (juspay/kolu#1754) already returns an unsubscribe of the same shape.
@@ -55,11 +80,20 @@ export function createGrokWatcher(
 
   function schedule(): void {
     if (destroyed) return;
+    const now = Date.now();
+    if (pendingSince === null) pendingSince = now;
     if (timer) clearTimeout(timer);
+    // Trailing quiet window, hard-capped so a phase-spam burst cannot starve
+    // the re-derive past DEBOUNCE_MAX_MS from the first pending edge.
+    const delay = Math.min(
+      DEBOUNCE_MS,
+      Math.max(0, DEBOUNCE_MAX_MS - (now - pendingSince)),
+    );
     timer = setTimeout(() => {
       timer = null;
+      pendingSince = null;
       emitIfChanged();
-    }, DEBOUNCE_MS);
+    }, delay);
   }
 
   function watchPath(p: string): void {
@@ -146,6 +180,7 @@ export function createGrokWatcher(
       destroyed = true;
       if (timer) clearTimeout(timer);
       timer = null;
+      pendingSince = null;
       for (const c of cleanups) {
         try {
           c();

@@ -16,20 +16,25 @@ import type { GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
 import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
 import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testlib";
-import { createGrokWatcher } from "./session-watcher.ts";
+import {
+  createGrokWatcher,
+  DEBOUNCE_MAX_MS,
+  DEBOUNCE_MS,
+} from "./session-watcher.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let tmp: string;
-let restoreWatch: () => void;
+let restoreWatch: (() => void) | null = null;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-floor-"));
-  restoreWatch = suppressFsWatchEdges(); // only the statSync poll floor recovers
+  restoreWatch = null;
 });
 
 afterEach(() => {
-  restoreWatch();
+  restoreWatch?.();
+  restoreWatch = null;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -60,6 +65,11 @@ function setupSession(): GrokSession {
 }
 
 describe("grok watcher — append-robust floor (#1754)", () => {
+  beforeEach(() => {
+    // only the statSync poll floor recovers — edges suppressed
+    restoreWatch = suppressFsWatchEdges();
+  });
+
   it("self-heals to `waiting` after a dropped `turn_ended` edge", async () => {
     const session = setupSession();
     const states: GrokInfo["state"][] = [];
@@ -122,6 +132,35 @@ describe("grok watcher — append-robust floor (#1754)", () => {
     await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval
 
     expect(states.at(-1)).toBe("waiting");
+    watcher.destroy();
+  });
+});
+
+describe("grok watcher — debounce maxWait under phase spam (#1952)", () => {
+  // Real fs.watch edges stay armed: Grok's live failure is continuous edges
+  // re-arming a pure trailing debounce so emitIfChanged never runs mid-burst.
+
+  it("publishes a mid-burst state change without a DEBOUNCE_MS quiet gap", async () => {
+    const session = setupSession();
+    const states: GrokInfo["state"][] = [];
+    const watcher = createGrokWatcher(session, (i) => states.push(i.state));
+    expect(states.at(-1)).toBe("thinking");
+
+    // Mimic streaming_text / tool_execution spam: append faster than DEBOUNCE_MS
+    // for longer than DEBOUNCE_MAX_MS so a pure trailing debounce would starve.
+    const burstMs = DEBOUNCE_MAX_MS + DEBOUNCE_MS + 100;
+    const gapMs = Math.max(10, Math.floor(DEBOUNCE_MS / 3));
+    const line = `${JSON.stringify({ type: "phase_changed", phase: "tool_execution" })}\n`;
+    const started = Date.now();
+    while (Date.now() - started < burstMs) {
+      fs.appendFileSync(session.eventsPath, line);
+      await sleep(gapMs);
+    }
+
+    // Must have flipped to tool_use *during* the burst (maxWait), not only after
+    // a trailing quiet window once the loop ends.
+    expect(states).toContain("tool_use");
+    expect(states.at(-1)).toBe("tool_use");
     watcher.destroy();
   });
 });
