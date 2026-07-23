@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   filterAndRankPaletteItems,
+  type IndexableItem,
   kindRank,
   RECENT_TERMINAL_LIMIT,
   searchCorpus,
-  type IndexableItem,
 } from "./rootIndex";
 
 function item(

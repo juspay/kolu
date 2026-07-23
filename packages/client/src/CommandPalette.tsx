@@ -12,6 +12,7 @@
 
 import Dialog from "@corvu/dialog";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { encodeHostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
   type Component,
@@ -22,12 +23,10 @@ import {
   on,
   Show,
 } from "solid-js";
-import { encodeHostKey } from "kolu-common/hostKey";
 import { match } from "ts-pattern";
-import type { Keybind } from "./input/keyboard";
 import { hostLabel } from "./host/hostChipTone";
+import type { Keybind } from "./input/keyboard";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
-import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
 import { notePointerMove, type PointerPos } from "./palette/pointerHoverGate";
 import {
@@ -35,6 +34,7 @@ import {
   itemKind,
   type ResultKind,
 } from "./palette/rootIndex";
+import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";

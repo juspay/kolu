@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { TerminalId } from "kolu-common/surface";
+import { describe, expect, it } from "vitest";
 import {
   clearHostVisits,
   joinVisitsToLive,
@@ -8,9 +8,9 @@ import {
   removeVisit,
   replaceHostVisitOrder,
   upsertVisit,
+  type VisitEntry,
   visitLiveKey,
   visitRankScore,
-  type VisitEntry,
 } from "./visitRecency";
 
 const T = (s: string) => s as TerminalId;

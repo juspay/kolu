@@ -2,12 +2,12 @@
  *  unified switcher. Lives next to the fleet index so `createCommands` only
  *  registers the results (not presentation/keying). */
 
-import type { TerminalId } from "kolu-common/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
 import {
   computeTerminalKeys,
-  terminalKey,
   type TerminalKey,
+  terminalKey,
 } from "kolu-common/terminalKey";
 import type {
   PaletteAction,
