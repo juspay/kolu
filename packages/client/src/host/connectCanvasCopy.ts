@@ -5,10 +5,10 @@
  *
  *  Only the UP-but-not-yet-connected phases narrate here: the ssh connector's two
  *  provisioning phases (`copying` = `nix copy` the derivation; `building` = the remote
- *  `nix-store --realise`, the minutes-long compile) and the brief post-provision
- *  `connecting` handshake. `connected` needs no overlay (the workspace shows), and
- *  `disconnected`/`failed` are owned by the Skew-UX host-down card — NOT narrated here
- *  (a second failure surface is exactly what this must not build). */
+ *  `nix build`, the minutes-long compile / binary-cache fetch) and the brief
+ *  post-provision `connecting` handshake. `connected` needs no overlay (the workspace
+ *  shows), and `disconnected`/`failed` are owned by the Skew-UX host-down card — NOT
+ *  narrated here (a second failure surface is exactly what this must not build). */
 
 // The phases the connect overlay narrates ride the framework's own `ConnectPhase` (exported
 // beside `ConnectionInfo`, its honest owner) — imported through kolu-common's established

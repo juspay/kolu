@@ -31,10 +31,10 @@ import {
   createMemo,
   createSignal,
   For,
+  onCleanup,
   Show,
   untrack,
 } from "solid-js";
-import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import DocLink from "../ui/DocLink";
 import { activeHost, connectionInfo } from "../wire";
@@ -77,6 +77,18 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   // the count never resets and never leaks a prior host's. `anchor` is a transient
   // extension baseline (server duration + local receipt time), re-set on every frame —
   // NOT an episode start, so it is self-correcting and belongs on the component.
+  //
+  // The wall-clock TICK is a component-local setInterval (#1962): the label must climb
+  // every second even when the log is silent for minutes (a multi-hundred-MiB NAR
+  // copy). Driving the display only from connection frames freezes the timer for
+  // exactly that silent window. Local + onCleanup — not the app-lifetime shared clock
+  // — so the interval is disposed when the overlay unmounts and is independently
+  // controllable under fake timers in the unit pin.
+  const [tick, setTick] = createSignal(0);
+  {
+    const id = setInterval(() => setTick((n) => n + 1), 1_000);
+    onCleanup(() => clearInterval(id));
+  }
   const [anchor, setAnchor] = createSignal<{ ms: number; at: number } | null>(
     null,
   );
@@ -84,18 +96,20 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     // Re-anchor on each fresh frame — in the connect-overlay path (`copy` present) with a real
     // frame (a `sinceMs` to extend). No flag gate: a `probing` frame ticks too. The GAP (no
     // frame) and the kaval-restart path (`copy` null) carry no `sinceMs`, so no timer — data
-    // absence, not policy. The clock is read UNTRACKED so the effect fires on frames, not ticks.
+    // absence, not policy. Wall clock is read UNTRACKED so the effect fires on frames, not ticks.
     const c = copy();
     const frame = info();
     setAnchor(
       c !== null && frame !== undefined
-        ? { ms: frame.sinceMs, at: untrack(() => getClockNow()()) }
+        ? { ms: frame.sinceMs, at: untrack(() => Date.now()) }
         : null,
     );
   });
   const elapsedMs = createMemo(() => {
     const a = anchor();
-    return a === null ? null : a.ms + (getClockNow()() - a.at);
+    // Subscribe to `tick` so the memo re-runs each second independent of frame arrival.
+    tick();
+    return a === null ? null : a.ms + (Date.now() - a.at);
   });
 
   const tail = createMemo(() => tailOf(info()?.log ?? []));

@@ -107,12 +107,14 @@ The host's chip dot tells you where it is:
 <Aside type="note" title="What a cold connect shows you">
   A first-time provisioning **narrates itself** on the canvas. It names the real
   phase — **“Provisioning kolu onto `<host>`…”** while it ships the closure, then
-  **“Building on `<host>`… this can take a few minutes”** during the compile — with a
-  **live tail of the actual Nix output** and an **elapsed timer** climbing beside it. So a
+  **“Building on `<host>`… this can take a few minutes”** during the compile / binary-cache
+  fetch — with a **live tail** of Nix progress (**bytes and path counts**, e.g.
+  `50.0 MiB of 260.0 MiB · kolu-1.1.0`) and an **elapsed timer** that **keeps climbing
+  every second** even when the log is quiet for a long NAR transfer. So a
   slow-but-working cold connect reads as *progress*, not a hang. There's no fake progress
-  bar — a Nix build has no honest percentage — so the reassurance is the named phase, the
-  real output, and the clock. A **warm** reconnect (the closure is already on the host)
-  skips straight to connected, with no build UI at all.
+  bar — the reassurance is the named phase, the real transfer progress, and the clock. A
+  **warm** reconnect (the closure is already on the host) skips straight to connected, with
+  no build UI at all.
 
   And if a connect **genuinely stalls**, the canvas stops narrating past a **finite deadline**
   (a short one for your local machine; a generously longer one while a remote is still copying
