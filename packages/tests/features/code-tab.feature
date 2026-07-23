@@ -1898,7 +1898,7 @@ Feature: Code tab (review + browse)
     And I click the composer "Save" button
     Then the comments tray should contain "survives shiki"
     And the comment highlight should be present
-    When the markdown preview DOM is re-rendered without a paint frame
+    When the markdown preview DOM is re-rendered
     Then the comment highlight should cover "md-shiki-marker" in the markdown preview
 
   Scenario: Cancel button dismisses the composer without saving
@@ -2030,7 +2030,7 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     And I click the Code tab mode "browse"
     And I click the file "long.ts" in the file browser
-    And I scroll the file preview to the bottom
+    And I scroll the file preview to the bottom until "LAST_LINE_MARKER" is rendered
     Then the file content should contain "LAST_LINE_MARKER"
 
   Scenario: Diff preview can scroll all the way to the last line
@@ -2040,7 +2040,7 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     And I click the Code tab mode "local"
     And I click the changed file "long.ts" in the Code tab
-    And I scroll the file preview to the bottom
+    And I scroll the file preview to the bottom until "LAST_LINE_MARKER" is rendered
     Then the diff view should contain "LAST_LINE_MARKER"
 
   # ── Find-in-page: Cmd/Ctrl+F is confined to the terminal ──

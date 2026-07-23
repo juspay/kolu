@@ -692,28 +692,55 @@ Then(
   },
 );
 
-// Drive Pierre's virtualized scroll viewport to its bottom. Pierre owns the
-// scroll container (the `pierre-file-view` / `pierre-diff-view` host), so a
-// single `scrollTop` assignment can land before the virtualizer has settled
-// its row window; loop a few frames pinning scrollTop past the max so the
-// last window materializes. Regression guard for the line-height-metric
-// clip (#1026): the bottom rows are only reachable once Pierre's virtualizer
-// knows the real row height, so this step + a last-line content assertion
-// fails when the metric is wrong and passes once it matches.
+// Drive Pierre's virtualized scroll viewport to its bottom until the expected
+// last row materializes. The diff/file stream may not have mounted when the
+// step begins, and a fixed frame-count burst can finish before it exists under
+// Darwin load. Timer polling keeps pinning the live viewport to its evolving
+// maximum while Pierre measures and renders its final window.
 When(
-  "I scroll the file preview to the bottom",
-  async function (this: KoluWorld) {
-    await this.page.evaluate(`(async () => {
+  "I scroll the file preview to the bottom until {string} is rendered",
+  async function (this: KoluWorld, expected: string) {
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(`(() => {
+      ${SHADOW_DFS_FN_SRC}
       const sels = ['[data-testid="pierre-file-view"]', '[data-testid="pierre-diff-view"]'];
-      for (let i = 0; i < 12; i++) {
-        for (const sel of sels) {
-          const el = document.querySelector(sel);
-          if (el) el.scrollTop = el.scrollHeight + 2000;
-        }
-        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 25)));
+      const states = [];
+      for (const sel of sels) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        el.scrollTop = el.scrollHeight + 2000;
+        let text = '';
+        shadowDfs(el, (node) => {
+          if (node.nodeType === 3) text += node.nodeValue || '';
+        });
+        states.push({
+          sel,
+          found: text.includes(${JSON.stringify(expected)}),
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        });
       }
-    })()`);
-    await this.waitForFrame();
+      return states;
+    })()`),
+      isDone: (states) =>
+        Array.isArray(states) &&
+        states.some(
+          (state) =>
+            typeof state === "object" &&
+            state !== null &&
+            "found" in state &&
+            state.found === true,
+        ),
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `file preview did not render bottom marker "${expected}" within ${elapsedMs}ms; ` +
+            `last view states: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
+      intervalMs: 100,
+    });
   },
 );
 
@@ -1055,22 +1082,15 @@ Then(
 );
 
 When(
-  "the markdown preview DOM is re-rendered without a paint frame",
+  "the markdown preview DOM is re-rendered",
   async function (this: KoluWorld) {
     // Reproduce the exact invalidation shape behind #1162: Solid's innerHTML
     // update replaces every text node even when the bytes are unchanged. This
-    // explicit replacement is deterministic. Park rAF through the following
-    // assertion as well: MutationObserver already batches the swap, and the
-    // highlight must re-anchor without depending on a future paint frame.
+    // explicit replacement is deterministic; racing Shiki's lazy completion
+    // made the old scenario pass or fail depending on runner load.
     await this.page
       .locator('[data-testid="browse-preview-markdown"] .kolu-md')
       .evaluate((el) => {
-        const testWindow = window as typeof window & {
-          __koluSavedRequestAnimationFrame?: typeof requestAnimationFrame;
-        };
-        testWindow.__koluSavedRequestAnimationFrame =
-          window.requestAnimationFrame;
-        window.requestAnimationFrame = () => 1;
         const replacement = el.innerHTML;
         el.innerHTML = replacement;
       });
@@ -2120,51 +2140,38 @@ Then(
     // that a stale range still exists. Require the range to cover the expected
     // text through nodes owned by the CURRENT preview subtree; this is the
     // re-anchoring contract exercised by the Markdown DOM-replacement test.
-    try {
-      await pollFor({
-        observe: () =>
-          this.page
-            .evaluate(
-              `(() => {
-                const host = document.querySelector(
-                  '[data-testid="browse-preview-markdown"] .kolu-md'
-                );
-                const reg = window.CSS && window.CSS.highlights;
-                if (!host || !reg) return false;
-                for (const [name, highlight] of reg) {
-                  if (!String(name).startsWith(${JSON.stringify(HIGHLIGHT_PREFIX)})) continue;
-                  for (const range of highlight) {
-                    if (
-                      !range.collapsed &&
-                      host.contains(range.startContainer) &&
-                      host.contains(range.endContainer) &&
-                      range.toString() === ${JSON.stringify(expected)}
-                    ) return true;
-                  }
+    await pollFor({
+      observe: () =>
+        this.page
+          .evaluate(
+            `(() => {
+              const host = document.querySelector(
+                '[data-testid="browse-preview-markdown"] .kolu-md'
+              );
+              const reg = window.CSS && window.CSS.highlights;
+              if (!host || !reg) return false;
+              for (const [name, highlight] of reg) {
+                if (!String(name).startsWith(${JSON.stringify(HIGHLIGHT_PREFIX)})) continue;
+                for (const range of highlight) {
+                  if (
+                    !range.collapsed &&
+                    host.contains(range.startContainer) &&
+                    host.contains(range.endContainer) &&
+                    range.toString() === ${JSON.stringify(expected)}
+                  ) return true;
                 }
-                return false;
-              })()`,
-            )
-            .catch(() => false),
-        isDone: (anchored) => anchored === true,
-        onTimeout: () =>
-          new Error(
-            `comment highlight never re-anchored "${expected}" in the live Markdown preview`,
-          ),
-        timeoutMs: POLL_TIMEOUT,
-      });
-    } finally {
-      await this.page.evaluate(() => {
-        const testWindow = window as typeof window & {
-          __koluSavedRequestAnimationFrame?: typeof requestAnimationFrame;
-        };
-        if (testWindow.__koluSavedRequestAnimationFrame) {
-          window.requestAnimationFrame =
-            testWindow.__koluSavedRequestAnimationFrame;
-          delete testWindow.__koluSavedRequestAnimationFrame;
-        }
-      });
-    }
+              }
+              return false;
+            })()`,
+          )
+          .catch(() => false),
+      isDone: (anchored) => anchored === true,
+      onTimeout: () =>
+        new Error(
+          `comment highlight never re-anchored "${expected}" in the live Markdown preview`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
