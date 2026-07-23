@@ -56,8 +56,11 @@ nix --refresh run github:juspay/kolu -- --host 0.0.0.0 --port 8080
 ```
 
 Open the address you chose. You should see an empty canvas. The empty canvas is
-the welcome state; it goes away when you create the first terminal and returns
-whenever there are none.
+the welcome state — a short list of next moments (pin the app, reach it over
+HTTPS, run an agent, add a host, open shortcuts), each with a link into the
+matching product-docs page. Done moments collapse into a one-line header so the
+card always shows what's still open. It goes away when you create the first
+terminal and returns whenever there are none.
 
 For another device, prefer the private HTTPS setup in
 [Remote Access](/remote-access); plain LAN HTTP does not unlock install prompts,

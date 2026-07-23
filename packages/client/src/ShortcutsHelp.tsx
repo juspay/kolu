@@ -5,6 +5,7 @@ import { type Component, For } from "solid-js";
 import { ACTIONS, type ActionId } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { createDisclosure } from "./ui/createDisclosure";
+import DocLink from "./ui/DocLink";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
@@ -74,6 +75,11 @@ const ShortcutsHelp: Component = () => (
             );
           }}
         </For>
+      </div>
+      <div class="border-t border-edge px-4 py-2.5 text-xs">
+        <DocLink slug="keyboard-shortcuts" data-testid="shortcuts-help-docs">
+          Full guide →
+        </DocLink>
       </div>
     </Dialog.Content>
   </ModalDialog>

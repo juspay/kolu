@@ -36,6 +36,7 @@ import {
 } from "solid-js";
 import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
+import DocLink from "../ui/DocLink";
 import { activeHost, connectionInfo } from "../wire";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
 import { showsElapsed, tailOf } from "../kaval/connectCanvasView";
@@ -134,6 +135,9 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
                 {formatElapsedShort(elapsedMs() as number)}
               </span>
             </Show>
+          </div>
+          <div class="text-xs">
+            <DocLink slug="remote-hosts">Remote hosts docs →</DocLink>
           </div>
           {/* The live log tail renders whenever the frame carries log lines — the `probing`
               window's "checking for a cached agent…" narrates the instant it arrives, no

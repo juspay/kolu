@@ -12,6 +12,7 @@ import {
   Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import DocLink from "../ui/DocLink";
 import { CloseIcon } from "../ui/Icons";
 import { activeTip, dismissTip } from "./useTips";
 
@@ -56,6 +57,17 @@ const TipBanner: Component = () => {
                 💡
               </span>
               <span class="text-sm text-fg">{tip().text}</span>
+              <Show when={tip().doc}>
+                {(slug) => (
+                  <DocLink
+                    slug={slug()}
+                    class="shrink-0 text-sm text-accent hover:underline"
+                    data-testid="tip-banner-docs"
+                  >
+                    Docs →
+                  </DocLink>
+                )}
+              </Show>
               <button
                 type="button"
                 data-testid="tip-banner-dismiss"
