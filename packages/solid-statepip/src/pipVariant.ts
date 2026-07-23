@@ -88,7 +88,7 @@ export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
 /** A brand mark or shell prompt — one render shape for both fill and stroke. */
 export type PipGlyphDef = {
   viewBox: string;
-  /** `fill` for brand marks; `stroke` for the shell chevron. */
+  /** `fill` for brand marks; `stroke` for the shell terminal frame. */
   paint: "fill" | "stroke";
   paths: readonly string[];
   /** Stroke width when `paint === "stroke"`. */
@@ -128,12 +128,23 @@ const GLYPH_OPENCODE = fillMark(
   "M22 24H2V0h20zM17 4.8H7v14.4h10z",
 );
 
-/** Shell prompt — chevron + cursor (`❯ _`), stroked so it reads at 14px. */
+/** Shell — terminal window + centered cursor block.
+ *
+ *  The old chevron+underscore prompt (`❯ _`) was lopsided and looked gnarly
+ *  under continuous spin. A rounded frame with a centered cursor is roughly
+ *  4-fold symmetric: still reads "terminal" when quiet, and rotation stays
+ *  clean (no flailing chevron). Stroked to stay distinct from filled brand
+ *  marks. */
 const GLYPH_SHELL: PipGlyphDef = {
   viewBox: "0 0 24 24",
   paint: "stroke",
-  strokeWidth: 2.8,
-  paths: ["M4.5 6.5 11 12l-6.5 5.5", "M13.5 18.5h6"],
+  strokeWidth: 2.2,
+  paths: [
+    // Rounded terminal frame
+    "M6.5 5.5h11a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z",
+    // Centered cursor block
+    "M10.5 10.5h3v3h-3z",
+  ],
 };
 
 /** Agent-kind → brand mark. Exhaustive over `AgentKind` so a new kind forces
