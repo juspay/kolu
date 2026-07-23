@@ -299,8 +299,7 @@ const CommandPalette: Component<{
     if (m.kind === "value") return m.leaf.placeholder ?? "Type a command...";
     const p = path();
     const last = p.at(-1);
-    if (last?.name === TERMINALS_GROUP_NAME)
-      return "Filter hosts, or type a terminal…";
+    if (last?.name === TERMINALS_GROUP_NAME) return "Type a terminal…";
     if (p.length >= 2 && p[0]?.name === TERMINALS_GROUP_NAME)
       return "Filter terminals…";
     if (last?.name === "Switch host") return "Filter hosts…";
@@ -308,9 +307,25 @@ const CommandPalette: Component<{
     return "Type a command...";
   }
 
-  /** At Terminals browse (one level deep), flatten host groups to their
-   *  terminal leaves so typing pierces the hierarchy across every host. */
-  function pierceTerminalsLevel(
+  const atTerminalsBrowse = createMemo(
+    () => path().length === 1 && path()[0]?.name === TERMINALS_GROUP_NAME,
+  );
+  /** Empty Terminals browse — auto-expand host groups into headers + rows. */
+  const atTerminalsBrowseEmpty = createMemo(
+    () => atTerminalsBrowse() && query().trim().length === 0,
+  );
+
+  /** Host groups at the Terminals level (tree children), in paint order. */
+  function terminalsHostGroups(): PaletteGroup[] {
+    return partitioned().interactive.filter(
+      (item): item is PaletteGroup =>
+        item.kind === "group" && item.row?.kind === "host",
+    );
+  }
+
+  /** Flatten host groups → terminal leaves (host order preserved). Used for
+   *  selection at Terminals browse — grouping is visual only, not a gate. */
+  function flattenHostGroupTerminals(
     items: readonly (PaletteCommand | PaletteLabel)[],
   ): (PaletteCommand | PaletteLabel)[] {
     const out: (PaletteCommand | PaletteLabel)[] = [];
@@ -329,11 +344,9 @@ const CommandPalette: Component<{
    *  value mode produces `PaletteLabel[]`.
    *
    *  AND-token multi-field match — the same matcher the dock uses
-   *  (`matchesAllTokens` / `tokenize`), so typing a branch or host
-   *  name at root finds it. Root ranks terminals → hosts → commands
-   *  (recency within workspaces; recent-cap on empty root). At the
-   *  Terminals host-list level, a non-empty query pierces into a flat
-   *  multi-host terminal list (host chip on each row). */
+   *  (`matchesAllTokens` / `tokenize`). At Terminals browse the tree is
+   *  host groups, but selection always sees a **flat terminal list**
+   *  (auto-expanded); typing filters that list across every host. */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     let items = partitioned().interactive;
     if (mode().kind !== "filter") {
@@ -345,10 +358,9 @@ const CommandPalette: Component<{
     }
     const p = path();
     const q = query();
-    const atTerminalsBrowse =
-      p.length === 1 && p[0]?.name === TERMINALS_GROUP_NAME;
-    if (atTerminalsBrowse && q.trim().length > 0) {
-      items = pierceTerminalsLevel(items);
+    if (atTerminalsBrowse()) {
+      // Always flatten — empty browse and typed filter share one list.
+      items = flattenHostGroupTerminals(items);
     }
     const atRoot = p.length === 0;
     // Stamp sectionOrder so the pure ranker can re-sort commands without
@@ -364,8 +376,8 @@ const CommandPalette: Component<{
   });
 
   /** Breadcrumb labels — path names, plus a virtual host segment when a
-   *  pierced Terminals search highlight lands on a terminal (so the path
-   *  reads Commands › Terminals › zest without a real host drill). */
+   *  Terminals search highlight lands on a terminal (so the path reads
+   *  Commands › Terminals › zest without a real host drill). */
   const breadcrumbSegments = createMemo((): { name: string; depth: number }[] => {
     const segments = path().map((s, i) => ({ name: s.name, depth: i + 1 }));
     const p = path();
@@ -383,12 +395,18 @@ const CommandPalette: Component<{
     return segments;
   });
 
-  /** Annotated render list — interleaves section headers with rows when
-   *  at root. Headers do not participate in selection; `index` on row
-   *  entries still indexes into `filtered()` directly so keyboard
-   *  navigation stays unchanged. */
+  /** Annotated render list — root section headers, Terminals host headers
+   *  (auto-expanded), or a plain row list. Headers are not selectable;
+   *  `index` on rows indexes into `filtered()`. */
   type DisplayEntry =
     | { kind: "header"; section: SectionId; index?: never }
+    | {
+        kind: "host-header";
+        name: string;
+        count: number;
+        group: PaletteGroup;
+        index?: never;
+      }
     | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
 
   const atRootFilter = createMemo(
@@ -416,9 +434,32 @@ const CommandPalette: Component<{
   }
 
   const displayed = createMemo((): DisplayEntry[] => {
+    // Terminals empty browse: host header (name · count) + that host's
+    // terminals — visual grouping, no drill required. Clicking a header
+    // optionally scopes to that host (breadcrumb Terminals › $host).
+    if (atTerminalsBrowseEmpty()) {
+      const out: DisplayEntry[] = [];
+      let index = 0;
+      for (const group of terminalsHostGroups()) {
+        const kids = resolveChildren(group).filter(
+          (c): c is PaletteCommand | PaletteLabel => c.kind !== "hint",
+        );
+        out.push({
+          kind: "host-header",
+          name: group.name,
+          count: kids.length,
+          group,
+        });
+        for (const child of kids) {
+          out.push({ kind: "row", cmd: child, index: index++ });
+        }
+      }
+      return out;
+    }
+
     const items = filtered();
     if (!showSectionHeaders()) {
-      return items.map((cmd, index) => ({ kind: "row", cmd, index }));
+      return items.map((cmd, index) => ({ kind: "row" as const, cmd, index }));
     }
     const out: DisplayEntry[] = [];
     let lastSection: SectionId | undefined;
@@ -432,6 +473,9 @@ const CommandPalette: Component<{
     });
     return out;
   });
+
+  /** List has content to paint (rows and/or host headers with zero terms). */
+  const hasListContent = createMemo(() => displayed().length > 0);
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
@@ -811,7 +855,7 @@ const CommandPalette: Component<{
           class="flex-1 min-h-0 overflow-y-auto"
         >
           <Show
-            when={filtered().length > 0}
+            when={hasListContent()}
             fallback={
               <div class="flex flex-col items-center justify-center gap-1 px-5 py-10 text-center">
                 <span
@@ -836,6 +880,23 @@ const CommandPalette: Component<{
                     >
                       {SECTION_LABELS[entry.section]}
                     </div>
+                  ) : entry.kind === "host-header" ? (
+                    <button
+                      type="button"
+                      data-testid="palette-host-header"
+                      data-host-name={entry.name}
+                      data-count={entry.count}
+                      class="flex w-full items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1 hover:text-fg transition-colors text-left cursor-pointer"
+                      title={`Show only ${entry.name}`}
+                      onClick={() => drillInto(entry.group)}
+                    >
+                      <span class="truncate">{entry.name}</span>
+                      <span class="font-mono font-normal tracking-normal normal-case text-fg-3/60">
+                        {entry.count === 1
+                          ? "1 terminal"
+                          : `${entry.count} terminals`}
+                      </span>
+                    </button>
                   ) : (
                     <PaletteRow
                       cmd={entry.cmd}

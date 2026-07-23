@@ -50,22 +50,21 @@ brings its splits with it, same as the Dock.
   line. Selecting one **switches the canvas to that host and activates the
   terminal** in one step.
 
-### Browse by host, type to pierce
+### Browse Terminals: flat list, host-grouped headers
 
-**Terminals** is a three-level hierarchy when you *browse*:
+**⌘⇧K → Terminals** shows **every connected host's terminals immediately** —
+no host drill required. The list is **visually grouped** under small-caps
+headers (`local · 3 terminals`, `zest · 6 terminals`); active host's group is
+first; within a group, recency order. Hosts with zero terminals still get a
+header so the fleet map is complete.
 
-1. **Terminals** — one row per host that has live terminals (with a count).
-2. **$host** — that host's top-level terminals.
-3. Select a terminal — switch + activate.
+**Host-scoping is optional.** Click a host header (or use the dock search
+icon) to narrow to that host; the breadcrumb becomes
+`Commands › Terminals › zest`. Backspace on an empty query pops a level.
 
-Breadcrumbs show the path (`Commands › Terminals › zest`); **Backspace** on an
-empty query pops a level.
-
-**Typing pierces the hierarchy.** At the Terminals level (and at the root),
-typing a branch or repo name matches terminals **across every host** as a flat
-list — host chips still mark foreign rows, and the breadcrumb reflects the
-highlighted match's host. You do not have to drill into a host first to find a
-name you already know.
+**Typing filters the whole list flat** across every host (host chips still
+mark foreign rows). At the root, the same multi-token match finds terminals
+without entering Terminals first.
 
 The active host's Dock remains the always-on navigator for the machine you are
 looking at; the switcher is the jump path over the whole fleet.
@@ -90,8 +89,8 @@ scoping is the existing drill-in path (below), not a mode character.
 | Chord / control | Opens |
 | --- | --- |
 | <kbd>Mod</kbd> + <kbd>K</kbd> | Root — search everything |
-| <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> | **Terminals** host list (type to pierce all hosts) |
-| Dock search icon | **Terminals › $active host** — only that machine's terminals |
+| <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> | **Terminals** — all hosts' terminals under host headers |
+| Dock search icon | **Terminals › active host** — only that machine's terminals |
 | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> | Scoped **host list** (switch canvas host) |
 
 **Mod** is <kbd>Cmd</kbd> on macOS and <kbd>Ctrl</kbd> on Linux and Windows. The
@@ -105,11 +104,10 @@ root. Escape closes the whole surface.
 
 ### Terminals (⌘⇧K / dock search)
 
-⌘⇧K lands on the **host list** under Terminals — pick a host to browse its
-terminals, or type to search every host flat. The **dock search** icon skips
-the host list and opens **Terminals › the host you are viewing**, so the list
-matches the Dock's machine. Either way, selecting a row **switches host if
-needed and activates** the terminal.
+⌘⇧K lands on **Terminals** with every connected host already expanded under
+headers — type to filter, or click a header to scope. The **dock search**
+icon opens **Terminals › the host you are viewing** (host-scoped). Selecting
+a row **switches host if needed and activates** the terminal.
 
 ### Hosts (⌘⇧H)
 
