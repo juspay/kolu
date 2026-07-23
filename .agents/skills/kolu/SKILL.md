@@ -46,7 +46,7 @@ screen_text        { id, tail: 40 }                                     # 5. rea
   agent sensors, dock state, the works). `intent` labels the tile so a human
   watching the canvas knows whose it is; `cwd` sets the working directory;
   **`parentId: <your-or-another-terminal-id>` opens it as a SPLIT beside that
-  tile** (the sibling-reviewer layout `/codex-debate` uses). It spawns a shell —
+  tile** (the sibling-reviewer layout `/agent-debate` uses). It spawns a shell —
   launch the agent by sending its command line (`claude
   --dangerously-skip-permissions` etc.) through the three-step submit below.
 - **`lifecycle_sendInput`** writes **text OR one named key, never both** —

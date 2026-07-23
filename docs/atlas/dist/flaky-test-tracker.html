@@ -342,10 +342,11 @@ established pattern instead of inventing one.</li>
 <li><strong>Code changes pass <code>/agent-debate</code> before the streak counts.</strong> Batch the fixes,
 then drive them through <code>/agent-debate</code> with an explicitly selected peer to
 consensus — a CI pass is only trusted on agent-debate-passed commits (docs are exempt, and the debate is expensive, so
-debate the batch, not each edit). The debate is read-only code review, so its
-consensus still needs <strong>CI verification</strong>: defend an empirically-grounded fix
-rather than concede a plausible-but-unverified simplification — a consensus that
-contradicts an observed CI failure is wrong until CI proves otherwise.</li>
+debate the batch, not each edit). The peer inspects read-only while the author
+applies agreed fixes, but consensus still needs <strong>CI verification</strong>: defend an
+empirically-grounded fix rather than concede a plausible-but-unverified
+simplification — a consensus that contradicts an observed CI failure is wrong
+until CI proves otherwise.</li>
 </ul>
 <p>The loop: <strong>fail</strong> → streak resets to 0, root-cause and fix the test
 (<span class="pill" style="color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6" data-astro-cid-4xidn2cs>fixing</span> → <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-4xidn2cs>fixed</span>, link the PR

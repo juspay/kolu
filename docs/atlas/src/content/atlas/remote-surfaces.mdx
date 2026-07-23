@@ -4,7 +4,7 @@ description: The switch rebuilt on a first-class surface notion — a dynamic ke
 parents: [padi, feature, surface]
 status: accepted
 maturity: seedling
-updated: 2026-07-06
+updated: 2026-07-23
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -131,4 +131,4 @@ active.cells.terminals.use();  // re-keys on switch, synchronous first value; a 
 
 **Risks, named with mitigations**: *dedup input-hashing* — stable-stringify only zod-validated static inputs, throw on functions; *end-vs-error ordering on removal* — the map completes streams before the registry destroys the session (pinned above); *chip fan-out cost* — bounded by pool size and the urgency-count wire rule (W5), measured in the PR.
 
-Both PRs run the full gauntlet — the C1–C7 checks first (C2 reads every new export from the consumer's chair; this design exists because that chair was empty last time), then lens/codex/simplify/police, then `/perfection-review` against the invariant table above: for each row, either cite the structural mechanism or construct the defect — no "acceptable for scope".
+Both PRs run the full gauntlet — the C1–C7 checks first (C2 reads every new export from the consumer's chair; this design exists because that chair was empty last time), then lens/agent-debate/simplify/police, then `/perfection-review` against the invariant table above: for each row, either cite the structural mechanism or construct the defect — no "acceptable for scope".
