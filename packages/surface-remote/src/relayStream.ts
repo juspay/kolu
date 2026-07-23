@@ -30,7 +30,10 @@
  *     snapshot only ever arrives as the FIRST frame of a FRESH stream. Holding a
  *     byte stream open and splicing a replayed snapshot into a live xterm would
  *     corrupt the screen — the retired pulam-web's hold-open forwarder was *exactly wrong*
- *     for attach, and this is its correction.
+ *     for attach, and this is its correction. A subscribe WHILE no client is live
+ *     WAITS for the next spawn (same as hold-open's pre-connect arm) rather than
+ *     throwing a retryable end every second — the 1s STREAM_RETRY loop was logging
+ *     a bare stack frame for the entire remote-provisioning window (#1963).
  *
  * The split is guarded at the type level for DIRECT callers: {@link
  * relayHoldOpenStream} accepts only a {@link ValueMembers} key and {@link
@@ -51,7 +54,7 @@ import {
 import type { UpstreamSource } from "@kolu/surface/project";
 import { isAbortReason, iterateUntilAborted } from "@kolu/surface/server";
 import { ORPCError } from "@orpc/client";
-import type { LiveSpawnHolder, ObservableHolder } from "./hostFanout";
+import type { ObservableHolder } from "./hostFanout";
 
 // ── The forwarding policy (surface-generic) ────────────────────────────────
 
@@ -266,6 +269,10 @@ export class RelayTransportLostError extends ORPCError<
 > {
   constructor(
     member: string,
+    /** Mid-stream link death is the only producer today (#1963: a subscribe with
+     *  no live upstream WAITS for the next spawn instead of throwing). The
+     *  `"no-live-upstream"` reason remains on the type for any residual caller
+     *  and for the error message vocabulary the fence tests pin. */
     reason: "no-live-upstream" | "link-died",
     cause?: unknown,
   ) {
@@ -341,12 +348,29 @@ function requireUpstream<Cl, I, F>(
  */
 export function failThroughStreamCore<Cl, I, F>(
   member: string,
-  holder: LiveSpawnHolder<Cl>,
+  holder: ObservableHolder<Cl>,
   select: (client: Cl) => ForwardableStream<I, F>,
   opts: RelayStreamOptions = {},
 ): (input: I, signal: AbortSignal | undefined) => AsyncGenerator<F> {
   const log = opts.log ?? (() => {});
+  // Rate-limit the "waiting for spawn" diagnostic: many delta members subscribe
+  // at once when a host is added, and each would otherwise emit the same line.
+  // ONE human-meaningful line per member per process is enough (#1963).
+  let loggedWaiting = false;
   return async function* (input, signal) {
+    const aborted = (): boolean => signal?.aborted === true;
+    // Wait for the pump to set a live client. Returns `true` on change, `false`
+    // on downstream abort (same helper shape as holdOpenStreamCore).
+    const waitNextSpawn = async (): Promise<boolean> => {
+      try {
+        await holder.whenChanged(signal);
+        return true;
+      } catch (err) {
+        if (isAbortReason(err, signal)) return false;
+        throw err;
+      }
+    };
+
     // Already-aborted subscribe — the downstream unsubscribed before the first
     // pull. Clean return, NOT a `RelayTransportLostError`: an abort is teardown, not a
     // dead-link condition, so surfacing an error to a client that already walked
@@ -354,15 +378,29 @@ export function failThroughStreamCore<Cl, I, F>(
     // head returns the same way, and the subscribe-handshake abort below is already
     // swallowed via `isAbortReason` — #1661 candidate 10). Checked BEFORE
     // `holder.current` so a teardown racing an upstream drop can't throw.
-    if (signal?.aborted === true) return;
-    const client = holder.current;
-    if (client === null) {
-      // No live upstream at subscribe — end (loudly, as the NAMED RETRYABLE
-      // transport end) so the client re-subscribes once the link is back, never a
-      // healthy-but-empty byte stream.
-      log(`${member}: no live client at subscribe — ending downstream`);
-      throw new RelayTransportLostError(member, "no-live-upstream");
+    if (aborted()) return;
+
+    // Wait for a live upstream when none is present yet (provisioning / between
+    // respawns). Throwing here used to force the browser's 1s STREAM_RETRY loop,
+    // and LoggingHandlerPlugin logged each throw as an ERROR with a bare stack
+    // frame for the whole multi-minute building window (#1963). Waiting is the
+    // same pre-connect arm hold-open already uses: the generator produces no
+    // frames until a spawn lands, then fails through 1:1 from there. Mid-stream
+    // link death still ends the downstream with the NAMED RETRYABLE end below.
+    let client = holder.current;
+    while (client === null) {
+      if (!loggedWaiting) {
+        loggedWaiting = true;
+        log(
+          `${member}: no live upstream yet — waiting for spawn (expected while provisioning)`,
+        );
+      }
+      if (!(await waitNextSpawn())) return;
+      if (aborted()) return;
+      client = holder.current;
+      // whenChanged also fires on clear-to-null; loop until a non-null spawn.
     }
+
     // Straight through: forward the upstream 1:1. `iterateUntilAborted` swallows
     // only the downstream-abort rejection; a clean end completes the loop and an
     // UPSTREAM error re-throws here → the downstream iterator rejects → the
@@ -416,7 +454,7 @@ export function failThroughStreamCore<Cl, I, F>(
 export function relayFailThroughStream<P extends RelayPolicy, Cl, I, F>(
   policy: P,
   member: DeltaMembers<P>,
-  holder: LiveSpawnHolder<Cl>,
+  holder: ObservableHolder<Cl>,
   select: (client: Cl) => ForwardableStream<I, F>,
   opts: RelayStreamOptions = {},
 ): (input: I, signal: AbortSignal | undefined) => AsyncGenerator<F> {
