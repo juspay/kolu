@@ -11,6 +11,7 @@ const probingFrame: ConnectionInfo = {
   phase: "probing",
   log: [{ source: "local", line: "zest: checking for a cached agent…" }],
   sinceMs: 2_000,
+  campaignEpoch: 0,
 };
 
 describe("tailOf — the live log tail renders off frame data, not a flag", () => {

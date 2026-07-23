@@ -128,6 +128,12 @@ export type SessionState<Prov extends string = never> = {
    *  locally with its own ticker. Resets toward `0` on each fresh episode. The one
    *  source both per-episode elapsed AND per-episode log scoping derive from. */
   sinceMs: number;
+  /** Monotonic campaign generation (bumped at each fresh episode — first dial,
+   *  user reconnect/recheck, post-connected drop). Carried on every frame so a
+   *  client elapsed timer can re-baseline when the same host starts a new campaign
+   *  that reopens at `sinceMs: 0` after a quiet multi-minute stretch (wall extension
+   *  alone leaves the prior baseline at `ms: 0`). */
+  campaignEpoch: number;
 } & (
   | { phase: "connecting" | Prov }
   | { phase: "connected"; clockOffset: number | null }
@@ -646,6 +652,7 @@ export function makeSession<
     phase: opts.initialConnection,
     log: [],
     sinceMs: 0,
+    campaignEpoch: 0,
   } as SessionState<Prov>);
 
   const emit = (
@@ -811,6 +818,7 @@ export function makeSession<
       ...prev,
       log: [...prev.log, { source, line }].slice(-MAX_PROGRESS_LINES),
       sinceMs: since(),
+      campaignEpoch,
     } as SessionState<Prov>);
   };
 
@@ -831,6 +839,7 @@ export function makeSession<
       phase,
       log: fresh ? [] : prev.log,
       sinceMs: since(),
+      campaignEpoch,
       // The `connected` arm ALONE carries `clockOffset`, born `null` here (offset-at-
       // hello: the frame is honest that it hasn't measured yet) and re-stamped by
       // `pollClockNow` once the reserved `system.clockNow` probe resolves. Other up
@@ -872,6 +881,7 @@ export function makeSession<
       cause,
       log: prev.log,
       sinceMs: since(),
+      campaignEpoch,
     } as SessionState<Prov>);
   };
 
@@ -1390,6 +1400,7 @@ export function makeSession<
           clockOffset,
           log: cur.log,
           sinceMs: since(),
+          campaignEpoch,
         } as SessionState<Prov>);
       })
       .catch((err) => {

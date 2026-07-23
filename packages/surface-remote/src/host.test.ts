@@ -72,7 +72,7 @@ describe("buildSshProbeCommand", () => {
     expect(args).toEqual(["--eval"]);
   });
 
-  it("wraps a remote command in ssh and forwards the remote argv verbatim", () => {
+  it("wraps a remote command in ssh; safe bare words stay unquoted", () => {
     const { command, args } = buildSshProbeCommand(
       "alice@bob.example",
       "nix-store",
@@ -80,13 +80,45 @@ describe("buildSshProbeCommand", () => {
       "/nix/store/x-agent.drv",
     );
     expect(command).toBe("ssh");
-    // host then remote argv, after the -o option block.
+    // host then remote argv, after the -o option block. Paths without shell
+    // metacharacters remain bare (shellQuoteArg leaves them alone).
     expect(args.slice(-4)).toEqual([
       "alice@bob.example",
       "nix-store",
       "--realise",
       "/nix/store/x-agent.drv",
     ]);
+  });
+
+  it("POSIX-quotes remote tokens with shell metacharacters (zsh glob of drv^*)", () => {
+    // #1964: `nix build … $drv^*` over ssh hit zsh on macOS as
+    // `zsh:1: no matches found: …padi.drv^*` — OpenSSH joins the remote argv
+    // into one string the login shell re-parses, so `*` MUST be quoted.
+    // Localhost must stay unquoted (direct spawn, no shell).
+    const installable =
+      "/nix/store/fxc7xkr02fa8nr6zilj36am610sml49v-padi.drv^*";
+    const remote = buildSshProbeCommand(
+      "zest",
+      "nix",
+      "build",
+      "--print-out-paths",
+      "--no-link",
+      installable,
+    );
+    expect(remote.command).toBe("ssh");
+    expect(remote.args.at(-1)).toBe(`'${installable}'`); // single-quoted whole token
+    expect(remote.args.at(-1)).not.toBe(installable); // not bare
+
+    const local = buildSshProbeCommand(
+      "localhost",
+      "nix",
+      "build",
+      "--print-out-paths",
+      "--no-link",
+      installable,
+    );
+    expect(local.command).toBe("nix");
+    expect(local.args.at(-1)).toBe(installable); // verbatim for spawn
   });
 
   it("fails fast on a dead peer: keepalive + connect timeout on the realise ssh", () => {

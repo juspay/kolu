@@ -63,7 +63,12 @@ const logSchema = z.array(LogEntrySchema).readonly();
  *  carried on the host map's entry (whose sessions are exactly those ssh sessions), so
  *  naming them here is honest. */
 const upArm = <P extends string>(phase: P) =>
-  z.object({ phase: z.literal(phase), log: logSchema, sinceMs: z.number() });
+  z.object({
+    phase: z.literal(phase),
+    log: logSchema,
+    sinceMs: z.number(),
+    campaignEpoch: z.number(),
+  });
 
 export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
   upArm("probing"),
@@ -75,6 +80,7 @@ export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
     clockOffset: z.number().nullable(),
     log: logSchema,
     sinceMs: z.number(),
+    campaignEpoch: z.number(),
   }),
   z.object({
     phase: z.literal("disconnected"),
@@ -82,6 +88,7 @@ export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
     cause: z.enum(["network", "remote"]),
     log: logSchema,
     sinceMs: z.number(),
+    campaignEpoch: z.number(),
   }),
   z.object({
     phase: z.literal("failed"),
@@ -89,6 +96,7 @@ export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
     cause: z.enum(["network", "remote"]),
     log: logSchema,
     sinceMs: z.number(),
+    campaignEpoch: z.number(),
   }),
 ]);
 
@@ -122,6 +130,7 @@ export const DEFAULT_CONNECTION: ConnectionInfo = {
   phase: "connecting",
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
 };
 
 /** Project a session frame → the browser-facing {@link ConnectionInfo} — the ONE pure

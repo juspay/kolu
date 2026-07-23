@@ -54,8 +54,9 @@ function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
 
 /** Route the mocked `runCapture` by the command it was handed (robust to call
  *  order): the sender-local `-q --outputs`, the ssh `--check-validity`, the
- *  `--realise … --add-root` pin, and the bare `--realise` build. `runProgress` is
- *  the single `nix copy`. Each arm defaults to the cold happy path; override any. */
+ *  `--realise … --add-root` pin, and the `nix build --print-out-paths` realise.
+ *  `runProgress` is the single `nix copy`. Each arm defaults to the cold happy
+ *  path; override any. */
 function mockNix(over?: {
   outputs?: CaptureResult;
   checkValidity?: CaptureResult;
@@ -69,6 +70,11 @@ function mockNix(over?: {
       return over?.checkValidity ?? failOut; // cold: not on host yet
     if (args.includes("--add-root"))
       return over?.pin ?? okOut("/home/u/link\n");
+    // Cold realise is `nix build -v --print-out-paths --no-link` (plain -v so
+    // per-path lines reach the connect tail, #1962) — not classic `nix-store
+    // --realise` (that remains on the pin).
+    if (args.includes("--print-out-paths"))
+      return over?.realise ?? okOut(`${STORE}\n`);
     if (args.includes("--realise")) return over?.realise ?? okOut(`${STORE}\n`);
     return failOut;
   });
@@ -130,6 +136,51 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C(\s|$)/);
     expect(nixSshOpts).toContain("-o ControlPersist=10m");
     expect(nixSshOpts).toContain("-o ServerAliveInterval=10");
+  });
+
+  it("runs nix copy + nix build with plain -v and $drv^* realise (#1962)", async () => {
+    mockNix();
+    await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(),
+    });
+    const copyArgs = vi.mocked(runProgress).mock.calls[0]![1];
+    expect(copyArgs).toContain("-v");
+    expect(copyArgs).not.toContain("--log-format");
+    expect(copyArgs).not.toContain("internal-json");
+    expect(copyArgs).toContain("copy");
+    const buildArgs = vi
+      .mocked(runCapture)
+      .mock.calls.map((c) => c[1])
+      .find((args) => args.includes("--print-out-paths"));
+    expect(buildArgs).toBeDefined();
+    expect(buildArgs).toContain("-v");
+    expect(buildArgs).not.toContain("--log-format");
+    expect(buildArgs).toContain("build");
+    expect(buildArgs).toContain("--no-link");
+    // Bare `$drv` would echo the .drv path (spawn ENOTDIR); `^*` realises outputs.
+    // Remote arm shell-quotes the installable so zsh/bash don't glob `*` (#1964).
+    expect(buildArgs).toContain(`'${DRV}^*'`);
+  });
+
+  it("localhost realise keeps the installable unquoted (direct spawn, no shell)", async () => {
+    mockNix();
+    await provisionAgent({
+      host: "localhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(),
+    });
+    const buildArgs = vi
+      .mocked(runCapture)
+      .mock.calls.map((c) => c[1])
+      .find((args) => args.includes("--print-out-paths"));
+    expect(buildArgs).toBeDefined();
+    // Localhost is spawn(argv) — no remote shell, so no quoting.
+    expect(buildArgs).toContain(`${DRV}^*`);
+    expect(buildArgs).not.toContain(`'${DRV}^*'`);
   });
 
   it("returns the immutable store path, not the moving root link", async () => {
@@ -198,7 +249,9 @@ describe("provisionAgent cause classification", () => {
         );
         return { ok: false, kind: "exit", code: 255, stdout: "" };
       }
-      if (args.includes("--realise")) return failOut; // genuine remote failure
+      // Cold realise is `nix build --print-out-paths`; pin still uses `--realise`.
+      if (args.includes("--print-out-paths")) return failOut; // genuine remote failure
+      if (args.includes("--realise")) return failOut;
       return failOut;
     });
     vi.mocked(runProgress).mockResolvedValue(okExit); // copy succeeds

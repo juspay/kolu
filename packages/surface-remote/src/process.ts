@@ -45,8 +45,8 @@ import { forEachLine } from "./host";
  *                           (an arch probe, the warm `check-validity`, the pin).
  *                           Killed unconditionally `ms` after spawn.
  *   - `progress-liveness` — UNBOUNDED-but-ALIVE for a child that legitimately runs
- *                           for minutes (the `nix copy` transfer, the `nix-store
- *                           --realise` build): killed only if it produces NO output
+ *                           for minutes (the `nix copy` transfer, the `nix build`
+ *                           realise): killed only if it produces NO output
  *                           (stdout OR stderr) for `silenceMs`. A responsive-but-slow
  *                           build keeps its output flowing and is never capped; only a
  *                           genuinely silent (wedged) child trips it. The CALLER owns
@@ -339,7 +339,8 @@ export function runProgress(
 }
 
 /** Run a child and buffer its stdout; forward stderr lines to `onProgress`. Used for
- *  `nix-store --realise` (output path on stdout) and `nix-instantiate --eval` (system
+ *  `nix build --print-out-paths` (output path on stdout), the GC-root pin
+ *  (`nix-store --realise … --add-root`), and `nix-instantiate --eval` (system
  *  identifier on stdout). The lifetime `policy` is REQUIRED. */
 export function runCapture(
   cmd: string,
