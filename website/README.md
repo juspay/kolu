@@ -19,6 +19,10 @@ sidebar. Docs render through `DocsLayout`, which provides the native site header
 sidebar, mobile docs menu, on-this-page TOC, previous/next links, Pagefind
 metadata, and code-copy buttons.
 
+Adding, renaming, or deleting a product-docs page also requires the same slug
+change in `packages/client/src/ui/DocLink.tsx`. Its set-equality test keeps
+in-app documentation links synchronized with the website.
+
 Docs component kit: `src/components/docs/Aside.astro`, `Card.astro`,
 `CardGrid.astro`, `LinkCard.astro`, and `Steps.astro`. Use normal Markdown first;
 reach for these when the page needs callouts, repeated cards, navigation cards,
