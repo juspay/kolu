@@ -2,13 +2,13 @@
  *
  *  Axes (Option C + motion-as-activity):
  *    - `glyph` — identity (who is driving)
- *    - `variant` — paint (agent state colour); live shells use working paint
- *      from the binder so this leaf has no shell special-case
+ *    - `variant` — paint (agent state colour)
  *    - `motion` — activity channel (spin / glow / none)
  *    - `bytesLive` — raw PTY meaningful output (a11y only)
+ *    - `shellLive` — binder-computed: busy-orange shell paint (leaf trusts it)
  *    - `alert` — unread obligation badge (amber)
  *
- *  Callers should use `bindStatePip` so the four surfaces cannot drift. */
+ *  Callers should use `useStatePip` / `bindStatePip` so surfaces cannot drift. */
 
 import { type Component, createMemo, For, Show } from "solid-js";
 import {
@@ -54,7 +54,7 @@ export const StatePip: Component<{
   motion?: PipMotionKind;
   /** Raw meaningful PTY output — a11y "live output" only (not effective-active). */
   bytesLive?: boolean;
-  /** Live shell (no agent) — busy-orange paint without rewriting variant to working. */
+  /** Live shell paint — binder already decided; leaf trusts the boolean. */
   shellLive?: boolean;
   /** Unread obligation corner badge (amber). Needs-you is paint/glow, not this. */
   alert?: boolean;
@@ -77,10 +77,7 @@ export const StatePip: Component<{
   const coreClass = createMemo(() => {
     const b = body();
     if (!b) return null;
-    const paint =
-      props.shellLive && glyphId() === "shell" && variant() === "idle"
-        ? SHELL_LIVE_CLASS
-        : b.class;
+    const paint = props.shellLive ? SHELL_LIVE_CLASS : b.class;
     const motion = PIP_MOTION_CLASS[motionKind()];
     return motion ? `${paint} ${motion}` : paint;
   });

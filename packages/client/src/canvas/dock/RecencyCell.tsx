@@ -36,7 +36,6 @@ const RecencyCell: Component<{
 }> = (props) => (
   <span
     class={`inline-flex justify-end w-[8ch] font-mono tabular-nums text-fg-3 ${props.textSize}`}
-    data-recency-hidden={props.hidden ? "" : undefined}
   >
     {props.hidden ? "" : formatTimeAgo(props.recencyAt)}
   </span>

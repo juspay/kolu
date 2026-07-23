@@ -188,16 +188,18 @@ export const PIP_MOTION_CLASS: Record<PipMotionKind, string | null> = {
   none: null,
 };
 
+/** Post-turn linger violet — pip awaiting paint and AgentIndicator `waiting`. */
+export const AWAITING_LINGER_CLASS = "text-alert/55";
+
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
-  // lingering violet-55% — post-turn (`waiting`) and `awaiting_user` share this
-  // paint via agentPaintClass. Needs-you is still the full violet channel via
-  // glow motion + host pill; AgentIndicator mirrors /55 for `waiting` and full
-  // `text-alert` for `awaiting_user`.
-  awaiting: { class: "text-alert/55" },
+  // lingering violet — post-turn (`waiting`) and `awaiting_user` share this
+  // paint via agentPaintClass. Needs-you is still full `text-alert` on
+  // AgentIndicator words + glow motion + host pill.
+  awaiting: { class: AWAITING_LINGER_CLASS },
   // rust/orange busy — machine in flight (thinking / tools / background).
   // Deliberately NOT teal accent: accent is chrome selection, not agent work.
   working: { class: "text-busy" },
-  // muted shell — live shells use SHELL_LIVE_CLASS (busy orange) via StatePip
+  // muted shell — live shells use SHELL_LIVE_CLASS via binder `shellLive`
   idle: { class: "text-fg-3" },
   // moonlit + still (the ☾ shape retired — moonlit paint carries sleep)
   sleeping: { class: "text-moonlit/65" },
@@ -205,9 +207,8 @@ export const PIP_BODY: Record<PipVariant, PipBody | null> = {
   empty: null,
 };
 
-/** Live plain-shell paint — same busy orange as working agents; applied when
- *  the binder sets `shellLive` so a11y/data-pip stay idle, not "Working". */
-export const SHELL_LIVE_CLASS = "text-busy";
+/** Live plain-shell paint — alias of working busy orange (binder sets shellLive). */
+export const SHELL_LIVE_CLASS = PIP_BODY.working!.class;
 
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */
@@ -220,14 +221,9 @@ export const PIP_TITLES: Record<PipVariant, string> = {
 };
 
 /** The merged status indicator's leaf-intrinsic WRAPPER class — content-sized
- *  (no fixed box, so it fits whatever text/gap context the surface drops it in),
- *  and the positioning context for the two outer-axis overlays (R-activity-merge).
- *  `relative` so the live ring + alert badge (absolutely positioned, see
- *  `@kolu/solid-statepip/statepip.css`) anchor to it; `flex-none` so it never
- *  stretches or shrinks beside flexed siblings. A surface that reserves a
- *  fixed-size column passes that box in via `StatePip`'s `class` prop (the dock
- *  rows / fleet rows use `DOCK_ROW_PIP_BOX`); the leaf itself owns no surface
- *  geometry. */
+ *  (no fixed box), positioning context for the amber alert badge (absolute in
+ *  `statepip.css`); `flex-none` so it never stretches beside flexed siblings.
+ *  Surfaces that reserve a column pass `DOCK_ROW_PIP_BOX` / `TITLE_PIP_BOX`. */
 export const INDICATOR_BASE =
   "relative inline-flex flex-none items-center justify-center";
 

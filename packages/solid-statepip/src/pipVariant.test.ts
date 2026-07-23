@@ -83,7 +83,6 @@ describe("PIP_BODY — paint only per variant", () => {
 
   it("sleeping is moonlit paint only — stillness is no motion, not a ☾ glyph", () => {
     expect(PIP_BODY.sleeping).toEqual({ class: "text-moonlit/65" });
-    expect(PIP_MOTION_CLASS.none).toBeNull();
   });
 
   it("empty renders nothing inside the cell", () => {
@@ -142,17 +141,16 @@ describe("pipGlyph / agentGlyph — identity marks", () => {
   });
 });
 
-// Outer-axis overlays: unread ALERT badge (amber corner dot). Live plate was
-// retired (no disc behind the glyph). Class name kept for CSS contract tests.
+// Outer-axis overlay: unread ALERT badge (amber corner dot).
 describe("the indicator wrapper + outer-axis overlays", () => {
-  it("the leaf wrapper is a content-sized relative box (anchors the absolute overlays), no surface geometry", () => {
+  it("the leaf wrapper is a content-sized relative box (anchors the absolute badge), no surface geometry", () => {
     const cls = INDICATOR_BASE.split(/\s+/);
-    expect(cls).toContain("relative"); // positioning context for the overlays
+    expect(cls).toContain("relative"); // positioning context for the badge
     expect(cls).toContain("flex-none"); // never stretch/shrink beside flexed siblings
     // The leaf owns NO fixed box — a surface that reserves a column passes the
     // box in via `DOCK_ROW_PIP_BOX`, so an inline caller sizes to its own text.
     expect(cls).not.toContain("w-[20px]");
-    expect(cls).not.toContain("border-2"); // no border — overlays carry the rings
+    expect(cls).not.toContain("border-2");
   });
 
   it("DOCK_ROW_PIP_BOX is the caller-supplied 20px column box, not baked into the leaf", () => {

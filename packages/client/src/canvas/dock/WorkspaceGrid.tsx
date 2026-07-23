@@ -33,9 +33,7 @@ import { annotationLine } from "../../intent/text";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
-import { bindStatePip } from "../../terminal/statePipBind";
-import { useFinishedQuiet } from "../../terminal/useFinishedQuiet";
-import { useTerminalActivity } from "../../terminal/useTerminalActivity";
+import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import { PrStateIcon } from "../../ui/Icons";
@@ -475,21 +473,17 @@ const WorkspaceCard: Component<{
   unread: boolean;
   onSelect: () => void;
 }> = (props) => {
-  const activity = useTerminalActivity();
-  const finishedQuiet = useFinishedQuiet();
   const agent = () => activeArm(props.entry.meta)?.agent;
   const pr = () => activePr(props.entry.meta);
   const tokens = () => tokenLine(agent());
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.meta.lastActivityAt);
   const idle = () => props.entry.bucket === "idle";
-  const pip = () =>
-    bindStatePip({
-      meta: props.entry.meta,
-      isLive: activity.isLive(props.entry.id),
-      isFinished: finishedQuiet.isFinished(props.entry.id),
-      unread: props.unread,
-    });
+  const pip = useStatePip(
+    () => props.entry.id,
+    () => props.entry.meta,
+    () => props.unread,
+  );
 
   return (
     <button
@@ -585,16 +579,7 @@ const WorkspaceCard: Component<{
 
       {/* Status: same StatePip binder as dock rows; label + tokens beside. */}
       <div class="mt-2 flex items-center gap-1.5 min-w-0 text-[0.72rem] text-fg-2">
-        <StatePip
-          variant={pip().variant}
-          glyph={pip().glyph}
-          motion={pip().motion}
-          bytesLive={pip().bytesLive}
-          shellLive={pip().shellLive}
-          alert={pip().alert}
-          alertLabel={pip().alertLabel}
-          class={DOCK_ROW_PIP_BOX}
-        />
+        <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
         <span class="truncate">{agentLabel(agent())}</span>
         <Show when={tokens()}>
           {(t) => (

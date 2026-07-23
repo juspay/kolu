@@ -12,11 +12,7 @@
  *  The mobile pull-handle has its own one-row layout — see
  *  `TerminalMetaCompact`. */
 
-import {
-  activeArm,
-  sleepingArm,
-  type TerminalMetadata,
-} from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
@@ -25,15 +21,14 @@ import { type Component, createMemo, Show } from "solid-js";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { agentWorkflow } from "../ui/agentDisplay";
+import { SLEEPING_RECEDE_CLASS } from "../ui/chromeSpacing";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
-import { bindStatePip } from "./statePipBind";
+import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
-import { useFinishedQuiet } from "./useFinishedQuiet";
-import { useTerminalActivity } from "./useTerminalActivity";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
@@ -58,44 +53,31 @@ const TerminalMeta: Component<{
   onOpenIntent: () => void;
 }> = (props) => {
   const view = createMemo(() => pairDisplayRow(props.info, props.meta));
-  const activity = useTerminalActivity();
-  const finishedQuiet = useFinishedQuiet();
   return (
     <Show when={view()} fallback={<TerminalMetaSkeleton />}>
       {(v) => {
         // T1: brand mark lives once on StatePip; AgentIndicator is words only.
-        const pip = () =>
-          bindStatePip({
-            meta: v().meta,
-            isLive: activity.isLive(props.terminalId),
-            isFinished: finishedQuiet.isFinished(props.terminalId),
-            unread: props.unread,
-          });
-        // Sleeping recedes on the title the same way dock rows do (55%).
-        // Applied per row (not a contents-wrapper): opacity does not inherit
-        // through `display: contents` into the canvas title grid.
-        const sleepClass = () =>
-          sleepingArm(v().meta) ? "opacity-55" : undefined;
+        const pip = useStatePip(
+          () => props.terminalId,
+          () => v().meta,
+          () => props.unread,
+        );
+        // Sleeping recedes on the title the same way dock rows do
+        // (`SLEEPING_RECEDE_CLASS`). Applied per row (not a contents-wrapper):
+        // opacity does not inherit through `display: contents` into the
+        // canvas title grid.
         return (
           <>
             {/* Name row — T1: identity StatePip leads (app-icon position),
              *  then repo name / suffix / worktree / fg / progress. */}
             <div
-              class={`col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0 ${sleepClass() ?? ""}`}
-              data-sleeping={sleepingArm(v().meta) ? "" : undefined}
+              class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0"
+              classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
+              data-sleeping={pip().sleeping ? "" : undefined}
             >
-              {/* Always mount the shared pip — bindStatePip handles sleeping
+              {/* Always mount the shared pip — binder handles sleeping
                *  moonlit + identity even without a live activeArm. */}
-              <StatePip
-                variant={pip().variant}
-                glyph={pip().glyph}
-                motion={pip().motion}
-                bytesLive={pip().bytesLive}
-                shellLive={pip().shellLive}
-                alert={pip().alert}
-                alertLabel={pip().alertLabel}
-                class={TITLE_PIP_BOX}
-              />
+              <StatePip {...pip()} class={TITLE_PIP_BOX} />
               <NameSpan info={v().info} meta={v().meta} />
               <Show when={v().info.key.suffix}>
                 {(suffix) => (
@@ -145,7 +127,8 @@ const TerminalMeta: Component<{
              *  (T1: brand mark appears once, on line 1). Sleeps with the name
              *  row so a dormant tile recedes on both chrome lines. */}
             <div
-              class={`col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs ${sleepClass() ?? ""}`}
+              class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs"
+              classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
             >
               <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>
                 <button

@@ -15,15 +15,14 @@
  *  supplies a `flex flex-col h-full` container and decides selection semantics —
  *  the drawer dismisses on select, the rail does not. */
 
-import { activeArm, sleepingArm } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import { useFinishedQuiet } from "../../terminal/useFinishedQuiet";
-import { useTerminalActivity } from "../../terminal/useTerminalActivity";
+import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
@@ -31,11 +30,11 @@ import {
   DOCK_ROW_BRANCH_COL,
   DOCK_ROW_GAP,
   DOCK_ROW_GRID,
+  SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { bindStatePip } from "../../terminal/statePipBind";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
@@ -80,9 +79,8 @@ function DockListSection(props: {
 }) {
   // Subgrid container — same shape as the desktop dock (the shared
   // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
-  // The leading 20px indicator track is fixed (not `auto`) holding the
-  // merged `StatePip` (its green live ring replacing the old standalone
-  // activity dot), so the indicator never shifts as its axes flip. PR
+  // The leading 20px indicator track is fixed (not `auto`) holding
+  // `StatePip`, so the indicator never shifts as its axes flip. PR
   // pip lives on line 2 (left) alongside the subline, anchored to the
   // branch column's left edge so PR icons align across every section.
   //
@@ -143,23 +141,18 @@ function DockListRow(props: {
 }) {
   const store = useTerminalStore();
   const tileStore = useTileStore();
-  const activity = useTerminalActivity();
-  const finishedQuiet = useFinishedQuiet();
   const combined = createDockRowData(props.id);
   const rowActive = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   return (
     <Show when={combined()}>
       {(c) => {
-        const pip = () =>
-          bindStatePip({
-            meta: c().meta,
-            isLive: activity.isLive(props.id),
-            isFinished: finishedQuiet.isFinished(props.id),
-            unread: unread(),
-            pipBucket: props.pip,
-          });
-        const sleeping = () => sleepingArm(c().meta) !== undefined;
+        const pip = useStatePip(
+          () => props.id,
+          () => c().meta,
+          unread,
+          () => props.pip,
+        );
         return (
           // Row is `<div role="button">` rather than `<button>` so the
           // `<a>` PR pip on line 2 stays valid HTML (no `<a>` inside
@@ -179,7 +172,7 @@ function DockListRow(props: {
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
             }
-            data-sleeping={sleeping() ? "" : undefined}
+            data-sleeping={pip().sleeping ? "" : undefined}
             // stopPropagation on pointerdown keeps Corvu Drawer's
             // drag-to-dismiss from claiming the tap (no-op in the rail,
             // load-bearing in the phone drawer).
@@ -196,20 +189,12 @@ function DockListRow(props: {
             // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
             // side is symmetric between the two surfaces, so it ships
             // as one symbol.
-            class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent data-[sleeping]:opacity-55`}
+            class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+            classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
           >
             {/* Identity status indicator — same binder as Dock/title. */}
             <span class="row-span-2 flex self-center">
-              <StatePip
-                variant={pip().variant}
-                glyph={pip().glyph}
-                motion={pip().motion}
-                bytesLive={pip().bytesLive}
-                shellLive={pip().shellLive}
-                alert={pip().alert}
-                alertLabel={pip().alertLabel}
-                class={DOCK_ROW_PIP_BOX}
-              />
+              <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
             </span>
             <span
               class="dock-cards-row-label text-[0.9rem]"

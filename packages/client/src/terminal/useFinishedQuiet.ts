@@ -1,10 +1,10 @@
 /** Mirror of padi's EF2 `finishedIds` — terminals whose `waiting` agent is
  *  effectively finished (quiet ≥ EFFECTIVE_FINISH_QUIET_MS, sticky per episode).
  *
- *  Mirrors each host's `urgency` cell the same way `useTerminalActivity` mirrors
- *  the live set: full-member fan-out, reconcile into a flat per-id store. Dock
- *  and title pips read `isFinished(id)` so motion can hold still once EF2 says
- *  the turn is done — without re-deriving a second quiet timer client-side. */
+ *  Same shape as `useTerminalActivity`: full-member fan-out over host urgency
+ *  cells, `createActivityFrameReducer` for the prev-snapshot / Set-diff fence,
+ *  flat per-id store. Dock and title pips read `isFinished(id)` so motion can
+ *  hold still once EF2 says the turn is done. */
 
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -12,6 +12,7 @@ import { createEffect, mapArray, onCleanup } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, padiMap } from "../wire";
+import { createActivityFrameReducer } from "./useTerminalActivity";
 
 export const useFinishedQuiet = createSharedRoot(() => {
   const [finished, setFinished] = createStore<Record<TerminalId, boolean>>({});
@@ -22,39 +23,30 @@ export const useFinishedQuiet = createSharedRoot(() => {
       const host = decodeHostKey(encHost);
       const entry = padiMap.entry(host);
       // Bare `.use()` — urgency declares its own onError policy (see useAttention).
-      // Match useTerminalActivity: gate on pending, clear on absent fact (do not
-      // freeze last finishedIds across reconnect/load gaps).
+      // Gate on pending; clear on absent fact (do not freeze last finishedIds).
       const { value, sub } = entry.cells.urgency.use();
-      // Per-host previous finished set (plain array — never retain a reconcile
-      // proxy as prev).
-      let prev: TerminalId[] = [];
+      const reduce = createActivityFrameReducer((adds, removes) =>
+        setFinished(
+          produce((draft) => {
+            for (const id of adds) draft[id] = true;
+            for (const id of removes) delete draft[id];
+          }),
+        ),
+      );
       createEffect(() => {
         if (sub.pending()) return;
         const v = value();
-        // Past-pending undefined → apply empty (drop this host's finished keys).
-        const next = v === undefined ? [] : [...v.finishedIds];
-        const nextSet = new Set(next);
-        const prevSet = new Set(prev);
-        setFinished(
-          produce((draft) => {
-            for (const id of prev) {
-              if (!nextSet.has(id)) delete draft[id];
-            }
-            for (const id of next) {
-              if (!prevSet.has(id)) draft[id] = true;
-            }
-          }),
-        );
-        prev = next;
+        // Past-pending undefined → empty frame (drop this host's finished keys).
+        reduce.apply(v === undefined ? [] : v.finishedIds);
       });
       onCleanup(() => {
-        if (prev.length === 0) return;
+        const held = reduce.drain();
+        if (held.length === 0) return;
         setFinished(
           produce((draft) => {
-            for (const id of prev) delete draft[id];
+            for (const id of held) delete draft[id];
           }),
         );
-        prev = [];
       });
       return null;
     },

@@ -10,11 +10,10 @@
  *    obligation → amber badge
  *    dormancy → row recedes (caller)
  *
- *  Motion kinds:
- *    - working → always spin (2.8s linear)
- *    - awaiting_user → always glow
- *    - waiting → spin until effectively finished (EF2 `finishedIds`), then still
- *    - shell / idle → spin while live output, still otherwise
+ *  Motion kinds (derived from `pipIsActive`, not re-encoded per bucket):
+ *    - empty / sleeping / inactive → none
+ *    - awaiting_user (active) → glow
+ *    - everything else active → spin
  *
  *  Paint stays decoupled: waiting keeps lingering violet via PipVariant
  *  `awaiting` even when motion holds still. */
@@ -25,11 +24,10 @@ import type {
 } from "@kolu/solid-statepip/pipVariant";
 import { agentBucket, type AgentInfo } from "kolu-common/surface";
 
-export type { PipMotionKind };
-
 /** Whether the terminal is "effectively active" for motion — complement of
  *  EF2 effective finish for waiting agents; live-output for shells; always
- *  for working / awaiting_user. Also gates recency-cell hide. */
+ *  for working / awaiting_user. Also gates recency-cell hide.
+ *  Exhaustive over `agentBucket` (`case "other"`, no bare default). */
 export function pipIsActive(input: {
   agent: AgentInfo | null | undefined;
   isLive: boolean;
@@ -39,44 +37,32 @@ export function pipIsActive(input: {
   if (!agent) return input.isLive;
   switch (agentBucket(agent.state)) {
     case "working":
-      return true;
     case "awaiting":
-      // Needs-you is always "active" for the glow channel.
       return true;
     case "waiting":
       return !input.isFinished;
-    default:
+    case "other":
       return input.isLive;
   }
 }
 
-/** Which motion class the glyph should run, given paint variant + agent bucket
- *  + activity. Exhaustive over the agent buckets we care about; pure for tests. */
+/** Which motion class the glyph should run. Collapsed: inactive/empty/sleeping
+ *  → none; active needs-you → glow; active otherwise → spin. */
 export function pipMotionKind(input: {
   variant: PipVariant;
   agent: AgentInfo | null | undefined;
   active: boolean;
 }): PipMotionKind {
-  if (input.variant === "empty" || input.variant === "sleeping") return "none";
-
-  const agent = input.agent;
-  if (agent) {
-    switch (agentBucket(agent.state)) {
-      case "working":
-        return "spin";
-      case "awaiting":
-        return "glow";
-      case "waiting":
-        // Lingering violet paint (variant awaiting) + spin until EF2 quiet.
-        return input.active ? "spin" : "none";
-      default:
-        return input.active ? "spin" : "none";
-    }
+  if (
+    input.variant === "empty" ||
+    input.variant === "sleeping" ||
+    !input.active
+  ) {
+    return "none";
   }
-
-  // Shell / agentless: spin only while active (never treat agentless
-  // working paint elevation as always-on spin).
-  if (input.variant === "working") return input.active ? "spin" : "none";
-  if (input.variant === "awaiting") return input.active ? "glow" : "none";
-  return input.active ? "spin" : "none";
+  // Needs-you (awaiting_user) glows; working / waiting-until-EF2 / live shell spin.
+  if (input.agent && agentBucket(input.agent.state) === "awaiting") {
+    return "glow";
+  }
+  return "spin";
 }

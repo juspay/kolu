@@ -705,7 +705,8 @@ body {
 .dock-rail-chip[data-motion="glow"] .dock-rail-chip-glow {
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-alert) 70%, transparent);
   will-change: opacity, transform;
-  animation: dock-chip-glow 2.2s ease-in-out infinite;
+  animation: dock-chip-glow var(--motion-glow-duration, 2.2s) ease-in-out
+    infinite;
 }
 @keyframes dock-chip-glow {
   0%,
@@ -721,7 +722,8 @@ body {
 .dock-rail-chip[data-motion="spin"] .dock-rail-chip-glow {
   box-shadow: 2px 0 6px color-mix(in oklch, var(--color-busy) 55%, transparent);
   will-change: transform;
-  animation: dock-chip-spin-glow 2.8s linear infinite;
+  animation: dock-chip-spin-glow var(--motion-spin-duration, 2.8s) linear
+    infinite;
 }
 @keyframes dock-chip-spin-glow {
   to {

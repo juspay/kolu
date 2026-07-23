@@ -27,20 +27,14 @@
  *     repo's header pushes it off — so a row's repo is legible at a
  *     glance and the label survives the scroll. Rows below stack as
  *     `indicator · branch · pips · time` lines. The leading **status
- *     indicator** (`StatePip`) folds three axes into one glyph: the
- *     agent-state CORE by shape (dim small disk for already-seen
- *     awaiting, hollow spinning ring for working, muted dot for idle,
- *     nothing for parked/none), a thin green **live ring** that gently
- *     sweeps around it while the terminal is moving bytes ("moving bytes
- *     right now", orthogonal to agent state), and a small amber **unread
- *     corner badge** while a fired alert is unopened (a badge, not a
- *     ring, so the two never compound into nested circles) — so one
- *     glance reads overall activity and the state stays fully visible.
- *     Agent kind is not surfaced here — it lives on
- *     the terminal title bar where there's room. PR pip is a link
- *     to the PR with the live checks verdict in its
- *     tooltip; the sub-terminal chip surfaces when there are nested
- *     terminals. The active row gets a quiet highlight
+ *     indicator** (`StatePip`) folds identity · paint · motion · unread
+ *     into one glyph (agent brand mark, state colour, spin/glow while
+ *     active, amber corner badge when unopened) — so one glance reads
+ *     who is driving and whether they need you. Agent kind is not
+ *     labeled in text here — it lives on the terminal title bar where
+ *     there's room. PR pip is a link to the PR with the live checks
+ *     verdict in its tooltip; the sub-terminal chip surfaces when there
+ *     are nested terminals. The active row gets a quiet highlight
  *     (`bg-surface-2` + 3 px accent left-edge stripe); row geometry
  *     stays constant so the dock never reflows when the active
  *     terminal changes. Pip columns share a CSS subgrid across each
@@ -67,7 +61,7 @@
  *  affordance. App.tsx mounts it (desktop only) inside the empty-state
  *  canvas as well as the populated one. */
 
-import { activeArm, sleepingArm } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
@@ -88,8 +82,7 @@ import { annotationLine } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { useFinishedQuiet } from "../../terminal/useFinishedQuiet";
-import { useTerminalActivity } from "../../terminal/useTerminalActivity";
+import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
@@ -100,6 +93,7 @@ import {
   DOCK_ROW_GAP,
   DOCK_ROW_GRID,
   RAIL_WIDTH_PX,
+  SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { useViewPosture } from "../useViewPosture";
@@ -115,7 +109,6 @@ import {
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { bindStatePip } from "../../terminal/statePipBind";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
@@ -502,19 +495,16 @@ const RepoSection: Component<{
 }> = (props) => (
   // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
   // template): indicator · branch · sub-count · time. The leading
-  // indicator column is a fixed 20px reserved track (not `auto`) holding
-  // the merged `StatePip` — R-activity-merge collapsed the old leading
-  // pair (a 12px live-activity track + a separate state-pip track) into
-  // this one column, the live dot now folded into the pip's green ring —
-  // so the indicator never shifts as its axes flip and pips stay aligned
-  // across rows whether or not each is streaming. PR pip is NOT a grid
-  // column — it lives inline on line 2 (left of the subline text),
-  // anchored to the branch column's left edge so its X stays consistent
-  // across every section. Branch is `minmax(0,1fr)` so it stretches and
-  // truncates; sub-count and time are `auto`, so an empty sub-count
-  // column collapses to 0 and gives its width back to the branch. Each
-  // DockRow is a subgrid item that inherits these columns, keeping the
-  // icons aligned vertically across rows in one section.
+  // indicator column is a fixed 20px reserved track holding `StatePip`
+  // so the indicator never shifts as its axes flip and pips stay
+  // aligned across rows. PR pip is NOT a grid column — it lives inline
+  // on line 2 (left of the subline text), anchored to the branch
+  // column's left edge so its X stays consistent across every section.
+  // Branch is `minmax(0,1fr)` so it stretches and truncates; sub-count
+  // and time are `auto`, so an empty sub-count column collapses to 0
+  // and gives its width back to the branch. Each DockRow is a subgrid
+  // item that inherits these columns, keeping the icons aligned
+  // vertically across rows in one section.
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
@@ -591,8 +581,6 @@ const DockRow: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileStore = useTileStore();
-  const activity = useTerminalActivity();
-  const finishedQuiet = useFinishedQuiet();
   const combined = createDockRowData(props.id);
   // Active-tile highlight follows the TILE registry (so a focused sleeping tile
   // reads as the active row in PR 2); unread is terminal-attention, stays on
@@ -605,15 +593,12 @@ const DockRow: Component<{
     <Show when={combined()}>
       {(c) => {
         const agent = () => activeArm(c().meta)?.agent;
-        const pip = () =>
-          bindStatePip({
-            meta: c().meta,
-            isLive: activity.isLive(props.id),
-            isFinished: finishedQuiet.isFinished(props.id),
-            unread: unread(),
-            pipBucket: props.pip,
-          });
-        const sleeping = () => sleepingArm(c().meta) !== undefined;
+        const pip = useStatePip(
+          () => props.id,
+          () => c().meta,
+          unread,
+          () => props.pip,
+        );
         return (
           // Row is `<div role="button">` rather than `<button>` so the
           // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
@@ -637,7 +622,7 @@ const DockRow: Component<{
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
             }
-            data-sleeping={sleeping() ? "" : undefined}
+            data-sleeping={pip().sleeping ? "" : undefined}
             onClick={() => tileStore.activate(props.id)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -645,21 +630,13 @@ const DockRow: Component<{
                 tileStore.activate(props.id);
               }
             }}
-            class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent data-[sleeping]:opacity-55`}
+            class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+            classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
             title="Jump to this terminal"
           >
             {/* Identity status indicator — one binder shared with title/list. */}
             <span class="row-span-2 flex self-center">
-              <StatePip
-                variant={pip().variant}
-                glyph={pip().glyph}
-                motion={pip().motion}
-                bytesLive={pip().bytesLive}
-                shellLive={pip().shellLive}
-                alert={pip().alert}
-                alertLabel={pip().alertLabel}
-                class={DOCK_ROW_PIP_BOX}
-              />
+              <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
             </span>
             <span
               class="dock-cards-row-label text-[0.84rem]"
@@ -774,23 +751,19 @@ const RailChip: Component<{
   // the terminal store.
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
-  const activity = useTerminalActivity();
-  const finishedQuiet = useFinishedQuiet();
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
       {(c) => {
         const labels = () => chipInitials(c().meta, c().info);
-        // Same binder as cards StatePip — motion/active drive rail glow.
-        const pip = () =>
-          bindStatePip({
-            meta: c().meta,
-            isLive: activity.isLive(props.id),
-            isFinished: finishedQuiet.isFinished(props.id),
-            unread: unread(),
-            pipBucket: props.pip,
-          });
+        // Same hook as cards StatePip — motion/active drive rail glow.
+        const pip = useStatePip(
+          () => props.id,
+          () => c().meta,
+          unread,
+          () => props.pip,
+        );
         return (
           <button
             type="button"
@@ -834,7 +807,7 @@ const RailChip: Component<{
                 <LiveActivityDot />
               </span>
             </Show>
-            {/* Motion glow/spin from bindStatePip (same as cards StatePip). */}
+            {/* Motion glow/spin from useStatePip (same as cards StatePip). */}
             <Show when={pip().motion !== "none"}>
               <div class="dock-rail-chip-glow" aria-hidden="true" />
             </Show>

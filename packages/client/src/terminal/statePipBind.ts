@@ -1,21 +1,27 @@
-/** One binder for every StatePip surface — dock, list, title, workspace card.
- *
- *  Folds identity · paint · motion · activity · unread into a prop bag so the
- *  four call sites cannot drift (lens-debate F1 / Hickey F1). Paint uses
- *  `pipPaintBucket` (same as dock ranking); motion uses `pipMotionKind`. */
+/** One binder + memoized hook for every StatePip surface — dock, list, title,
+ *  workspace card, rail. Folds identity · paint · motion · activity · unread ·
+ *  dormancy into a prop bag so call sites cannot drift. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import {
+  activeArm,
+  sleepingArm,
+  type TerminalMetadata,
+} from "@kolu/padi/surface";
 import type {
   PipGlyphId,
   PipMotionKind,
   PipVariant,
 } from "@kolu/solid-statepip/pipVariant";
+import type { TerminalId } from "kolu-common/surface";
+import { createMemo, type Accessor } from "solid-js";
 import {
   type DockRowBucket,
-  pipPaintBucket,
+  paintDockRow,
 } from "../canvas/dock/dockRowRanking";
 import { pipGlyphFor, pipVariant } from "../canvas/dock/pipVariant";
 import { pipIsActive, pipMotionKind } from "./pipMotion";
+import { useFinishedQuiet } from "./useFinishedQuiet";
+import { useTerminalActivity } from "./useTerminalActivity";
 
 export type StatePipBind = {
   variant: PipVariant;
@@ -27,6 +33,8 @@ export type StatePipBind = {
   bytesLive: boolean;
   /** Quiet shell with live PTY bytes → busy orange without agent "Working". */
   shellLive: boolean;
+  /** Dormant terminal — row/title recede (same token everywhere). */
+  sleeping: boolean;
   alert: boolean;
   alertLabel: string;
 };
@@ -39,11 +47,9 @@ export function bindStatePip(input: {
   unread: boolean;
   /** Dock ranking already computed the paint bucket; others omit. */
   pipBucket?: DockRowBucket;
-  parked?: boolean;
 }): StatePipBind {
   const agent = activeArm(input.meta)?.agent;
-  const bucket =
-    input.pipBucket ?? pipPaintBucket(input.meta, input.parked ?? false);
+  const bucket = input.pipBucket ?? paintDockRow(input.meta);
   const variant = pipVariant(bucket);
   const active = pipIsActive({
     agent,
@@ -61,7 +67,29 @@ export function bindStatePip(input: {
     active,
     bytesLive: input.isLive,
     shellLive,
+    sleeping: sleepingArm(input.meta) !== undefined,
     alert: input.unread,
     alertLabel: "unread alert",
   };
+}
+
+/** Memoized binder for a reactive terminal row — owns activity + EF2 reads so
+ *  call sites do not re-run the fold once per JSX prop. */
+export function useStatePip(
+  id: Accessor<TerminalId>,
+  meta: Accessor<TerminalMetadata>,
+  unread: Accessor<boolean>,
+  pipBucket?: Accessor<DockRowBucket | undefined>,
+): Accessor<StatePipBind> {
+  const activity = useTerminalActivity();
+  const finishedQuiet = useFinishedQuiet();
+  return createMemo(() =>
+    bindStatePip({
+      meta: meta(),
+      isLive: activity.isLive(id()),
+      isFinished: finishedQuiet.isFinished(id()),
+      unread: unread(),
+      pipBucket: pipBucket?.(),
+    }),
+  );
 }
