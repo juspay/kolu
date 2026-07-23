@@ -601,6 +601,58 @@ scrollback.”</li>
 </ul>
 <p><code>exportHtml</code> remains the path for offline full history. The live panel is a
 <strong>ticker</strong>, not a browser for the archive.</p>
+<h4 id="hard-reload-browser-tab">Hard reload (browser tab)</h4>
+<p>A hard reload kills <strong>only the browser face</strong>. Daemons and agents keep running
+— same stack story as the rest of kolu.</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>On hard reload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>kaval PTYs</strong></td>
+<td>Still alive — agents keep working</td>
+</tr>
+<tr>
+<td><strong>padi</strong></td>
+<td>Registry, awareness, session files on disk unchanged</td>
+</tr>
+<tr>
+<td><strong>kolu-server</strong></td>
+<td>Still up; browser opens a <strong>new</strong> websocket</td>
+</tr>
+<tr>
+<td><strong>Client RAM</strong></td>
+<td>Gone — Solid stores, open streams, Conversation buffer</td>
+</tr>
+<tr>
+<td><strong>Compose draft</strong></td>
+<td>Survives — per-terminal <code>localStorage</code> (today)</td>
+</tr>
+<tr>
+<td><strong>Canvas / session</strong></td>
+<td>Restored from padi/server session when the client reconnects</td>
+</tr>
+<tr>
+<td><strong>Conversation (CT1+CH1)</strong></td>
+<td>Starts <strong>empty</strong>; re-subscribe is <strong>forward-only</strong> — no history snapshot</td>
+</tr>
+<tr>
+<td><strong>Full past</strong></td>
+<td>Still on disk → <strong>Export → Chat log</strong> (or the live PTY tile)</td>
+</tr>
+</tbody>
+</table>
+<p>Boot after reload: re-dial → re-subscribe surfaces → re-attach PTYs (PTY
+snapshot is fine — that path already exists). Conversation does <strong>not</strong> use
+the PTY-attach pattern of “first frame = full scrollback.” It only appends
+<strong>new</strong> chat events from the current offset. Empty until the next human/AI
+message is correct, not a bug.</p>
+<p>What does <strong>not</strong> happen: agents killed, transcripts wiped, full-session
+re-parse into the panel, or needing pesu for recovery.</p>
 <h4 id="memory-only-what-arrived-this-ui-session">Memory: only what arrived this UI session</h4>
 <table>
 <thead>

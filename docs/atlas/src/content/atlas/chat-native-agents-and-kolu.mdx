@@ -300,6 +300,31 @@ output: chat-filtered events (deltas)         // no full-session payload
 `exportHtml` remains the path for offline full history. The live panel is a
 **ticker**, not a browser for the archive.
 
+#### Hard reload (browser tab)
+
+A hard reload kills **only the browser face**. Daemons and agents keep running
+— same stack story as the rest of kolu.
+
+| Layer | On hard reload |
+| --- | --- |
+| **kaval PTYs** | Still alive — agents keep working |
+| **padi** | Registry, awareness, session files on disk unchanged |
+| **kolu-server** | Still up; browser opens a **new** websocket |
+| **Client RAM** | Gone — Solid stores, open streams, Conversation buffer |
+| **Compose draft** | Survives — per-terminal `localStorage` (today) |
+| **Canvas / session** | Restored from padi/server session when the client reconnects |
+| **Conversation (CT1+CH1)** | Starts **empty**; re-subscribe is **forward-only** — no history snapshot |
+| **Full past** | Still on disk → **Export → Chat log** (or the live PTY tile) |
+
+Boot after reload: re-dial → re-subscribe surfaces → re-attach PTYs (PTY
+snapshot is fine — that path already exists). Conversation does **not** use
+the PTY-attach pattern of “first frame = full scrollback.” It only appends
+**new** chat events from the current offset. Empty until the next human/AI
+message is correct, not a bug.
+
+What does **not** happen: agents killed, transcripts wiped, full-session
+re-parse into the panel, or needing pesu for recovery.
+
 #### Memory: only what arrived this UI session
 
 | Rule | Detail |
