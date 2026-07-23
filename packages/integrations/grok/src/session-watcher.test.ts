@@ -1,11 +1,15 @@
 /**
- * grok session-watcher wiring for the append-robust floor (juspay/kolu#1754).
+ * Grok session-watcher regression pins:
  *
- * The exhaustive floor mechanics live in kolu-io's
- * `file-append-watcher.test.ts`; this is the CI regression guard that the floor
- * is actually reachable THROUGH the real grok watcher — a dropped `turn_ended`
- * edge on `events.jsonl` self-heals to `waiting` with no edge and no further
- * write.
+ *  - **#1754** — the append-robust floor is reachable THROUGH the real grok
+ *    watcher: a dropped `turn_ended` edge on `events.jsonl` self-heals to
+ *    `waiting` with no edge and no further write. Exhaustive floor mechanics
+ *    live in `kolu-io`'s `file-append-watcher.test.ts`.
+ *  - **#1952** — phase-spam starvation: continuous fs.watch edges faster than
+ *    the quiet window still publish within maxWait (shared
+ *    `createCoalesceSchedule`). Primitive-level starvation lives in
+ *    `kolu-io`'s `coalesce-schedule.test.ts`; this file pins the guarantee
+ *    through the real grok watcher.
  */
 
 import fs from "node:fs";
@@ -63,6 +67,13 @@ function setupSession(): GrokSession {
     startedAt: Date.parse("2026-07-20T00:00:00.000Z"),
   };
 }
+
+describe("grok watcher — shared coalesce constants", () => {
+  it("DEBOUNCE_MAX_MS ≤ DEFAULT_APPEND_POLL_MS (documented invariant)", () => {
+    expect(DEBOUNCE_MAX_MS).toBeLessThanOrEqual(DEFAULT_APPEND_POLL_MS);
+    expect(DEBOUNCE_MS).toBeLessThanOrEqual(DEBOUNCE_MAX_MS);
+  });
+});
 
 describe("grok watcher — append-robust floor (#1754)", () => {
   beforeEach(() => {
@@ -143,7 +154,11 @@ describe("grok watcher — debounce maxWait under phase spam (#1952)", () => {
   it("publishes a mid-burst state change without a DEBOUNCE_MS quiet gap", async () => {
     const session = setupSession();
     const states: GrokInfo["state"][] = [];
-    const watcher = createGrokWatcher(session, (i) => states.push(i.state));
+    let flipAt: number | null = null;
+    const watcher = createGrokWatcher(session, (i) => {
+      if (i.state === "tool_use" && flipAt === null) flipAt = Date.now();
+      states.push(i.state);
+    });
     expect(states.at(-1)).toBe("thinking");
 
     // Mimic streaming_text / tool_execution spam: append faster than DEBOUNCE_MS
@@ -151,14 +166,32 @@ describe("grok watcher — debounce maxWait under phase spam (#1952)", () => {
     const burstMs = DEBOUNCE_MAX_MS + DEBOUNCE_MS + 100;
     const gapMs = Math.max(10, Math.floor(DEBOUNCE_MS / 3));
     const line = `${JSON.stringify({ type: "phase_changed", phase: "tool_execution" })}\n`;
-    const started = Date.now();
-    while (Date.now() - started < burstMs) {
-      fs.appendFileSync(session.eventsPath, line);
+    const firstAppendAt = Date.now();
+    let lastAppendAt = firstAppendAt;
+    fs.appendFileSync(session.eventsPath, line);
+    while (Date.now() - firstAppendAt < burstMs) {
       await sleep(gapMs);
+      const now = Date.now();
+      const gap = now - lastAppendAt;
+      // Jitter-corrupted burst would let pure-trailing fire mid-burst and
+      // false-pass the pre-fix code — fail loud instead of silent pass.
+      if (gap >= DEBOUNCE_MS) {
+        watcher.destroy();
+        throw new Error(
+          `burst inter-append gap ${gap}ms ≥ DEBOUNCE_MS ${DEBOUNCE_MS} — jitter-corrupted, not a valid #1952 run`,
+        );
+      }
+      fs.appendFileSync(session.eventsPath, line);
+      lastAppendAt = Date.now();
     }
 
-    // Must have flipped to tool_use *during* the burst (maxWait), not only after
-    // a trailing quiet window once the loop ends.
+    // Flip must land within maxWait (+slack) of the *first* append — proves
+    // maxWait, not a lucky quiet gap mid-burst.
+    const slackMs = 100;
+    expect(flipAt).not.toBeNull();
+    expect(flipAt! - firstAppendAt).toBeLessThanOrEqual(
+      DEBOUNCE_MAX_MS + slackMs,
+    );
     expect(states).toContain("tool_use");
     expect(states.at(-1)).toBe("tool_use");
     watcher.destroy();

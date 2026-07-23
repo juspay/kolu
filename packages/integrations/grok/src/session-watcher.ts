@@ -12,34 +12,33 @@
  *
  * Grok's `events.jsonl` is *not* a sparse transcript: a single turn can append
  * hundreds of `phase_changed` lines per second (`streaming_text` /
- * `streaming_reasoning`). A pure trailing-edge debounce (reset on every edge)
- * never reaches its quiet window while that burst is live — so `emitIfChanged`
- * freezes on the pre-burst state for the whole stream, and the 1s append-poll
- * floor (#1754) is defeated too (it feeds the *same* `schedule()`, which the
- * next fs.watch edge re-arms before 150ms elapses).
- *
- * `DEBOUNCE_MAX_MS` caps how long a pending re-derive can be postponed: after
- * that budget the timer fires even if edges keep arriving. Quiet turns still
- * settle in `DEBOUNCE_MS`; hot turns publish at least every maxWait.
+ * `streaming_reasoning`). A pure trailing-edge debounce never reaches its
+ * quiet window while that burst is live — so re-derive freezes on the
+ * pre-burst state, and the 1s append-poll floor (#1754) is defeated too
+ * (it feeds the same schedule). Coalescing uses `kolu-io`'s shared
+ * `createCoalesceSchedule` with `COALESCE_MAX_WAIT_MS` so hot turns publish
+ * at least every half-second; quiet turns still settle in 150ms.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { agentInfoEqual } from "anyagent";
-import { DEFAULT_APPEND_POLL_MS, subscribeFileAppends } from "kolu-io";
+import {
+  COALESCE_DEBOUNCE_MS,
+  COALESCE_MAX_WAIT_MS,
+  createCoalesceSchedule,
+  DEFAULT_APPEND_POLL_MS,
+  subscribeFileAppends,
+} from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { deriveGrokInfo, type GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
 
-/** Quiet-window coalescing for sparse writes (summary rename, single phase). */
-export const DEBOUNCE_MS = 150;
-/**
- * Upper bound on how long continuous `events.jsonl` edges may postpone a
- * re-derive. Must be ≤ the append-poll interval so a hot stream still
- * publishes within one floor tick of the first change in a burst; kept as a
- * named export so the starvation regression pins the same number.
- */
-export const DEBOUNCE_MAX_MS = 500;
+/** Quiet-window — re-export of the shared constant so #1952 tests pin the
+ *  same number the real watcher uses. */
+export const DEBOUNCE_MS = COALESCE_DEBOUNCE_MS;
+/** Hard maxWait — re-export of the shared constant for the starvation pin. */
+export const DEBOUNCE_MAX_MS = COALESCE_MAX_WAIT_MS;
 
 export interface GrokWatcher {
   readonly session: GrokSession;
@@ -53,10 +52,6 @@ export function createGrokWatcher(
 ): GrokWatcher {
   let destroyed = false;
   let lastInfo: GrokInfo | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  /** Wall-clock ms when the current pending debounce window opened; null when
-   *  no re-derive is scheduled. Anchors `DEBOUNCE_MAX_MS`. */
-  let pendingSince: number | null = null;
   // One teardown collection for every "run on destroy" concern: raw fs.watch
   // handles wrap to `() => w.close()`, and the append-robust floor
   // (juspay/kolu#1754) already returns an unsubscribe of the same shape.
@@ -78,22 +73,16 @@ export function createGrokWatcher(
     onChange(info);
   }
 
+  const coalesce = createCoalesceSchedule({
+    debounceMs: DEBOUNCE_MS,
+    maxWaitMs: DEBOUNCE_MAX_MS,
+    onFire: emitIfChanged,
+  });
+  cleanups.push(() => coalesce.destroy());
+
   function schedule(): void {
     if (destroyed) return;
-    const now = Date.now();
-    if (pendingSince === null) pendingSince = now;
-    if (timer) clearTimeout(timer);
-    // Trailing quiet window, hard-capped so a phase-spam burst cannot starve
-    // the re-derive past DEBOUNCE_MAX_MS from the first pending edge.
-    const delay = Math.min(
-      DEBOUNCE_MS,
-      Math.max(0, DEBOUNCE_MAX_MS - (now - pendingSince)),
-    );
-    timer = setTimeout(() => {
-      timer = null;
-      pendingSince = null;
-      emitIfChanged();
-    }, delay);
+    coalesce.schedule();
   }
 
   function watchPath(p: string): void {
@@ -178,9 +167,6 @@ export function createGrokWatcher(
     session,
     destroy() {
       destroyed = true;
-      if (timer) clearTimeout(timer);
-      timer = null;
-      pendingSince = null;
       for (const c of cleanups) {
         try {
           c();
