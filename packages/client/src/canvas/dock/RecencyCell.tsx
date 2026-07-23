@@ -6,7 +6,7 @@
  *  hides it.
  *
  *  Active rows hide the label: effectively active terminals (same predicate as
- *  `pipIsActive` — working ∨ live ∨ waiting∧¬finished) are "just now" by
+ *  `pipIsActive` — do not re-derive the formula here) are "just now" by
  *  definition, so the text is noise. The fixed `w-[8ch]` still reserves the
  *  column so rows do not jump when the cell appears on quiet.
  *
