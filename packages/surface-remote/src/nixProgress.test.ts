@@ -1,163 +1,144 @@
 /**
- * Structured nix progress (#1962) — parse `--log-format internal-json` events
- * into the human lines the connect overlay's log tail shows during a long copy.
+ * Drop-by-default nix progress filter (#1962 / #1964): only transfer status (+
+ * optional building starts) reach the connect tail; raw @nix never leaks.
  */
 import { describe, expect, it } from "vitest";
 import { makeNixProgressReporter } from "./nixProgress";
 
 const ACT_COPY_PATH = 100;
 const ACT_COPY_PATHS = 103;
+const ACT_BUILD = 105;
 const RES_PROGRESS = 105;
+const RES_BUILD_LOG_LINE = 101;
+
+const nix = (o: object): string => `@nix ${JSON.stringify(o)}`;
 
 describe("makeNixProgressReporter", () => {
-  it("forwards non-@nix lines unchanged (network heuristics still see them)", () => {
+  it("forwards non-@nix lines unchanged", () => {
     const out: string[] = [];
     const report = makeNixProgressReporter((l) => out.push(l));
+    report("zest: checking for a cached agent…");
     report("ssh: connect to host zest port 22: Connection refused");
-    report("copying path '/nix/store/abc-foo' from 'https://cache…'");
     expect(out).toEqual([
+      "zest: checking for a cached agent…",
       "ssh: connect to host zest port 22: Connection refused",
-      "copying path '/nix/store/abc-foo' from 'https://cache…'",
     ]);
   });
 
-  it("surfaces path count from actCopyPaths start", () => {
+  it("emits a single throttled transfer status line (paths + bytes)", () => {
+    let now = 0;
     const out: string[] = [];
-    const report = makeNixProgressReporter((l) => out.push(l));
+    const report = makeNixProgressReporter(
+      (l) => out.push(l),
+      () => now,
+    );
     report(
-      `@nix ${JSON.stringify({
+      nix({
         action: "start",
         id: 1,
         type: ACT_COPY_PATHS,
-        text: "copying 12 paths",
-        parent: 0,
-      })}`,
+        text: "copying 6 paths",
+      }),
     );
-    expect(out.some((l) => l.includes("12 path"))).toBe(true);
-  });
+    expect(out.at(-1)).toMatch(/copying 6 paths/);
 
-  it("renders byte progress for an in-flight actCopyPath (the silent-NAR case)", () => {
-    let now = 0;
-    const out: string[] = [];
-    const report = makeNixProgressReporter(
-      (l) => out.push(l),
-      () => now,
-    );
-    const path = "/nix/store/filjywabc123def456-kolu-1.1.0";
     report(
-      `@nix ${JSON.stringify({
+      nix({
         action: "start",
         id: 7,
         type: ACT_COPY_PATH,
-        text: `copying path '${path}' from 'https://cache.nixos.org'`,
-        fields: [path, "https://cache.nixos.org", "ssh-ng://zest"],
-        parent: 0,
-      })}`,
+        fields: ["/nix/store/abc-kolu-1.1.0"],
+      }),
     );
-    // First path-start emits immediately.
-    expect(out.at(-1)).toMatch(/kolu-1\.1\.0/);
-
-    // Mid-transfer progress — force past the throttle.
     now = 600;
     report(
-      `@nix ${JSON.stringify({
+      nix({
         action: "result",
         id: 7,
         type: RES_PROGRESS,
-        fields: [50 * 1024 * 1024, 260 * 1024 * 1024, 1, 0],
-      })}`,
+        fields: [84, 84, 0, 0],
+      }),
     );
-    expect(out.at(-1)).toMatch(/50\.0 MiB of 260\.0 MiB/);
-    expect(out.at(-1)).toMatch(/kolu-1\.1\.0/);
+    expect(out.at(-1)).toMatch(/84 B of 84 B/);
+    expect(out.every((l) => !l.startsWith("@nix"))).toBe(true);
   });
 
-  it("throttles high-frequency resProgress so the log tail isn't a firehose", () => {
-    let now = 0;
+  it("NEVER forwards raw @nix JSON — build-log results and unknown events are dropped", () => {
     const out: string[] = [];
-    const report = makeNixProgressReporter(
-      (l) => out.push(l),
-      () => now,
-    );
+    const report = makeNixProgressReporter((l) => out.push(l));
+    // The field leak: resBuildLogLine with a dist/ path and ANSI.
     report(
-      `@nix ${JSON.stringify({
-        action: "start",
-        id: 1,
-        type: ACT_COPY_PATH,
-        text: "",
-        fields: ["/nix/store/aaa-pkg"],
-        parent: 0,
-      })}`,
-    );
-    const afterStart = out.length;
-    // Ten progress ticks within the throttle window → only the first after start
-    // (if different) or none while identical cadence is suppressed.
-    for (let i = 1; i <= 10; i++) {
-      now = i * 50; // 50ms steps — all inside 500ms throttle
-      report(
-        `@nix ${JSON.stringify({
-          action: "result",
-          id: 1,
-          type: RES_PROGRESS,
-          fields: [i * 1024 * 1024, 100 * 1024 * 1024, 1, 0],
-        })}`,
-      );
-    }
-    // At most one progress line inside the first 500ms window (besides the start).
-    expect(out.length - afterStart).toBeLessThanOrEqual(1);
-
-    // Past the throttle window after the last emit → a new line lands.
-    now = 1_200;
-    report(
-      `@nix ${JSON.stringify({
+      nix({
         action: "result",
-        id: 1,
-        type: RES_PROGRESS,
-        fields: [80 * 1024 * 1024, 100 * 1024 * 1024, 1, 0],
-      })}`,
+        id: 99,
+        type: RES_BUILD_LOG_LINE,
+        fields: ["\u001b[32mdist/index.js\u001b[0m"],
+      }),
     );
-    expect(out.at(-1)).toMatch(/80\.0 MiB of 100\.0 MiB/);
+    report(
+      nix({
+        action: "msg",
+        level: 0,
+        msg: "some verbosity",
+      }),
+    );
+    report(
+      nix({
+        action: "start",
+        id: 3,
+        type: 109, // actQueryPathInfo — not a transfer
+        text: "querying info about missing paths",
+      }),
+    );
+    report("@nix {not-json");
+    expect(out).toEqual([]); // drop-by-default: nothing leaked
+  });
+
+  it("optionally surfaces a building start (drv name only)", () => {
+    const out: string[] = [];
+    const report = makeNixProgressReporter((l) => out.push(l));
+    report(
+      nix({
+        action: "start",
+        id: 2,
+        type: ACT_BUILD,
+        text: "building '/nix/store/hash-padi.drv'",
+      }),
+    );
+    expect(out).toEqual(["building padi.drv"]);
+    expect(out[0]).not.toMatch(/@nix/);
   });
 
   it("counts completed paths on stop", () => {
-    const out: string[] = [];
     let now = 0;
+    const out: string[] = [];
     const report = makeNixProgressReporter(
       (l) => out.push(l),
       () => now,
     );
     report(
-      `@nix ${JSON.stringify({
+      nix({
         action: "start",
         id: 1,
         type: ACT_COPY_PATHS,
         text: "copying 3 paths",
-        parent: 0,
-      })}`,
+      }),
     );
     for (const id of [10, 11]) {
       now += 600;
       report(
-        `@nix ${JSON.stringify({
+        nix({
           action: "start",
           id,
           type: ACT_COPY_PATH,
-          text: "",
           fields: [`/nix/store/hash-pkg${id}`],
-          parent: 1,
-        })}`,
+        }),
       );
       now += 600;
-      report(`@nix ${JSON.stringify({ action: "stop", id })}`);
+      report(nix({ action: "stop", id }));
     }
     expect(
       out.some((l) => /\d+ paths? done/.test(l) || /path \d+ of 3/.test(l)),
     ).toBe(true);
-  });
-
-  it("forwards malformed @nix payloads rather than dropping them", () => {
-    const out: string[] = [];
-    const report = makeNixProgressReporter((l) => out.push(l));
-    report("@nix {not-json");
-    expect(out).toEqual(["@nix {not-json"]);
   });
 });

@@ -31,10 +31,10 @@ import {
   createMemo,
   createSignal,
   For,
-  onCleanup,
   Show,
   untrack,
 } from "solid-js";
+import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import DocLink from "../ui/DocLink";
 import { activeHost, connectionInfo } from "../wire";
@@ -71,46 +71,41 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
 
   // Elapsed since THIS host's current provisioning episode began. The SESSION owns the
   // truth: the server ships `sinceMs` — the episode duration on its single clock, reset
-  // per episode — and the client only EXTENDS it smoothly between frames. So there is NO
-  // client-held episode-start place (the bug the reset came from): on a host-tab switch,
-  // ConnectCanvas remounts and simply re-reads the server's authoritative `sinceMs`, so
-  // the count never resets and never leaks a prior host's. `anchor` is a transient
-  // extension baseline (server duration + local receipt time), re-set on every frame —
-  // NOT an episode start, so it is self-correcting and belongs on the component.
+  // per episode — and the client only EXTENDS it smoothly between frames.
   //
-  // The wall-clock TICK is a component-local setInterval (#1962): the label must climb
-  // every second even when the log is silent for minutes (a multi-hundred-MiB NAR
-  // copy). Driving the display only from connection frames freezes the timer for
-  // exactly that silent window. Local + onCleanup — not the app-lifetime shared clock
-  // — so the interval is disposed when the overlay unmounts and is independently
-  // controllable under fake timers in the unit pin.
-  const [tick, setTick] = createSignal(0);
-  {
-    const id = setInterval(() => setTick((n) => n + 1), 1_000);
-    onCleanup(() => clearInterval(id));
-  }
+  // Two load-bearing rules for the wall-clock extension (#1962):
+  //  1. Drive re-renders off the SHARED app clock (`getClockNow`) — the same reactive
+  //     tick HostDaemonChips / inspector use. A component-local setInterval was wiped
+  //     every second when `<Match when={warmingMode()}>` remounted on each mode() object
+  //     (mode recomputes every getMonotonicNow tick for the boot deadline).
+  //  2. Re-anchor ONLY when the server's `sinceMs` changes — re-baselining `at` on every
+  //     effect re-run (or remount) with the same sinceMs zeroes the extension and freezes
+  //     the label at the last frame's sinceMs until the next log frame jumps it.
+  const clockNow = getClockNow();
   const [anchor, setAnchor] = createSignal<{ ms: number; at: number } | null>(
     null,
   );
   createEffect(() => {
-    // Re-anchor on each fresh frame — in the connect-overlay path (`copy` present) with a real
-    // frame (a `sinceMs` to extend). No flag gate: a `probing` frame ticks too. The GAP (no
-    // frame) and the kaval-restart path (`copy` null) carry no `sinceMs`, so no timer — data
-    // absence, not policy. Wall clock is read UNTRACKED so the effect fires on frames, not ticks.
     const c = copy();
     const frame = info();
-    setAnchor(
-      c !== null && frame !== undefined
-        ? { ms: frame.sinceMs, at: untrack(() => Date.now()) }
-        : null,
-    );
+    if (c === null || frame === undefined) {
+      setAnchor(null);
+      return;
+    }
+    const sinceMs = frame.sinceMs;
+    setAnchor((prev) => {
+      // Same server duration → keep the receipt baseline so wall clock extends it.
+      if (prev !== null && prev.ms === sinceMs) return prev;
+      return { ms: sinceMs, at: untrack(() => clockNow()) };
+    });
   });
-  const elapsedMs = createMemo(() => {
+  // Plain function (not createMemo): reads clockNow() in the caller's tracking
+  // context (JSX), the same pattern kaval uptime uses — so each shared-clock tick
+  // re-evaluates the elapsed text with zero incoming frames.
+  const elapsedMs = (): number | null => {
     const a = anchor();
-    // Subscribe to `tick` so the memo re-runs each second independent of frame arrival.
-    tick();
-    return a === null ? null : a.ms + (Date.now() - a.at);
-  });
+    return a === null ? null : a.ms + (clockNow() - a.at);
+  };
 
   const tail = createMemo(() => tailOf(info()?.log ?? []));
 
