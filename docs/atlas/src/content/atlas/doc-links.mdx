@@ -2,7 +2,7 @@
 title: Doc links — one registry, every surface
 description: A single typed DocLink module maps UI surfaces to kolu.dev doc pages, a set-equality test keeps it in lock-step with the website content, and the welcome card + tips grow "learn more" links — restoring the remote-hosts pointer PR #1948 deleted.
 parents: [feature]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-07-23
 ---
@@ -14,6 +14,8 @@ import Svg from "../../components/Svg.astro";
 import architecture from "../../diagrams/doc-links-registry.svg?raw";
 
 <Svg svg={architecture} caption="One leaf module spells every in-app doc URL. The website content directory stays the source of truth; a vitest set-equality check makes slug drift a red build, and a grep law makes a hand-rolled kolu.dev anchor unspellable." />
+
+Implemented in <PrLink pr={1959} />.
 
 <PrLink pr={1948} /> shipped remote hosts out of alpha but deleted the whole
 `RemoteHostsAlphaNotice` — badge, warning, **and** the "Learn more →" link to

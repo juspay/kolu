@@ -97,6 +97,8 @@ export function CanvasFailureCard(props: {
   title: string;
   body: string;
   detail?: string;
+  /** Optional footer line under the body (e.g. a docs link). */
+  footer?: JSX.Element;
   actions: CanvasFailureAction[];
 }): JSX.Element {
   return (
@@ -116,6 +118,13 @@ export function CanvasFailureCard(props: {
                 <p class="mt-2 font-mono text-xs leading-relaxed text-fg-3 break-words">
                   {detail()}
                 </p>
+              )}
+            </Show>
+            <Show when={props.footer}>
+              {(footer) => (
+                <div class="mt-2 text-xs leading-relaxed text-fg-3">
+                  {footer()}
+                </div>
               )}
             </Show>
             <div class="mt-3 flex flex-col gap-2">

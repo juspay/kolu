@@ -30,6 +30,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import DocLink from "../ui/DocLink";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
@@ -156,6 +157,12 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
       // sheet. Same guard the sheet's other controls (palette, settings) wear.
       onPointerDown={(e) => e.stopPropagation()}
     >
+      <p class="mb-2.5 text-[11px] leading-4 text-fg-2">
+        Remote hosts —{" "}
+        <DocLink slug="remote-hosts" data-testid="mobile-host-add-docs">
+          Learn more →
+        </DocLink>
+      </p>
       <div class="flex items-center gap-2">
         <input
           ref={inputEl}

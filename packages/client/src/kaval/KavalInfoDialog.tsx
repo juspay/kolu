@@ -16,6 +16,7 @@ import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "../ui/Commit";
+import { docUrl } from "../ui/DocLink";
 import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import { formatMBCompact } from "../ui/memory";
@@ -366,7 +367,7 @@ const KavalInfoDialog: Component<{
           </p>
         </div>
         <a
-          href="https://kolu.dev/kaval/"
+          href={docUrl("kaval")}
           target="_blank"
           rel="noopener noreferrer"
           class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface-1 px-2.5 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-surface-3/60 hover:text-fg"

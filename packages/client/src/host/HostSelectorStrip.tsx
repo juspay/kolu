@@ -78,6 +78,7 @@ import {
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
+import DocLink from "../ui/DocLink";
 import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useCommandPalette } from "../useCommandPalette";
@@ -575,6 +576,12 @@ const AddHostAffordance: Component = () => {
             class={`fixed z-50 w-[min(20rem,calc(100vw-1rem))] p-3 ${addHostChrome.class}`}
             style={{ ...panelStyle(), ...addHostChrome.style }}
           >
+            <p class="mb-2.5 text-[11px] leading-4 text-fg-2">
+              Remote hosts —{" "}
+              <DocLink slug="remote-hosts" data-testid="host-add-docs">
+                Learn more →
+              </DocLink>
+            </p>
             <input
               ref={inputEl}
               type="text"

@@ -21,6 +21,7 @@
 
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
+import DocLink from "../ui/DocLink";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
@@ -50,6 +51,7 @@ const HostDownCanvas: Component<{
       title={copy().title}
       body={copy().body}
       detail={props.reason}
+      footer={<DocLink slug="remote-hosts">Learn more →</DocLink>}
       actions={actions()}
     />
   );

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-22T20:17:39.374152+00:00'
+generated_at: '2026-07-23T14:28:46.864629+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -674,6 +674,15 @@ deployments:
   - .
   active_owner: .
   content_hash: sha256:33edfa92cf1a1bbbf6c205a45f9f91a9d5c15b6f0355002993987bde5a5e7d47
+- kind: project-relative
+  target: claude
+  value: .claude/rules/doc-links.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:280a14103c848247ab9f2bf0f2284569c0d9cf00b7d1deafb29bf60b12a661c3
 - kind: project-relative
   target: claude
   value: .claude/rules/dock-fleet-mirror.md
@@ -2376,6 +2385,7 @@ local_deployed_files:
 - .claude/rules/atlas.md
 - .claude/rules/be-workflow-atlas.md
 - .claude/rules/conventions.md
+- .claude/rules/doc-links.md
 - .claude/rules/dock-fleet-mirror.md
 - .claude/rules/docs.md
 - .claude/rules/e2e-testing.md
@@ -2440,6 +2450,7 @@ local_deployed_file_hashes:
   .claude/rules/atlas.md: sha256:952a49f91d233d35fa8fc1f731cbff874161df7491b5696edc1e91da588c6d90
   .claude/rules/be-workflow-atlas.md: sha256:c16190acae27d8f1b8b8fc10e508701ea5d216c83807156df081b52a75341ae5
   .claude/rules/conventions.md: sha256:33edfa92cf1a1bbbf6c205a45f9f91a9d5c15b6f0355002993987bde5a5e7d47
+  .claude/rules/doc-links.md: sha256:280a14103c848247ab9f2bf0f2284569c0d9cf00b7d1deafb29bf60b12a661c3
   .claude/rules/dock-fleet-mirror.md: sha256:a8b69d323a0e6b077204d190a5ba54c942e3c0fd005bff97b3f8398d3ef752a0
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
