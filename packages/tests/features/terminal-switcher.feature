@@ -137,6 +137,36 @@ Feature: Terminal switcher (unified palette)
     And the header branch should contain "root-jump-branch"
     And there should be no page errors
 
+  Scenario: Empty-root Recent ranks by visit trail and excludes the active tile
+    # Activate A then B; ⌘K Recent lists the previous (A) first — not B.
+    When I run "rm -rf /tmp/kolu-visit-a && git init /tmp/kolu-visit-a && cd /tmp/kolu-visit-a && git checkout -b visit-a-branch"
+    And I create a terminal
+    And I run "rm -rf /tmp/kolu-visit-b && git init /tmp/kolu-visit-b && cd /tmp/kolu-visit-b && git checkout -b visit-b-branch"
+    # visit-b is active (just created). Click older dock row then back to B.
+    When I click workspace switcher branch 1
+    And I click workspace switcher branch 2
+    And I open the command palette
+    # visit-b is active → excluded from Recent; previous visit (A) is first.
+    Then the first palette terminal row should be "visit-a-branch"
+    And there should be no page errors
+
+  Scenario: ⌘K then Enter toggles the previous terminal
+    When I run "rm -rf /tmp/kolu-toggle-a && git init /tmp/kolu-toggle-a && cd /tmp/kolu-toggle-a && git checkout -b toggle-a-branch"
+    And I create a terminal
+    And I run "rm -rf /tmp/kolu-toggle-b && git init /tmp/kolu-toggle-b && cd /tmp/kolu-toggle-b && git checkout -b toggle-b-branch"
+    # B active. ⌘K Enter → A; ⌘K Enter → B.
+    When I open the command palette
+    Then the first palette terminal row should be "toggle-a-branch"
+    When I press Enter
+    Then the command palette should not be visible
+    And the header branch should contain "toggle-a-branch"
+    When I open the command palette
+    Then the first palette terminal row should be "toggle-b-branch"
+    When I press Enter
+    Then the command palette should not be visible
+    And the header branch should contain "toggle-b-branch"
+    And there should be no page errors
+
   Scenario: Mod+Shift+K shows host header with terminal rows without drilling
     # (2) ⌘⇧K auto-expands: local header + count, terminal rows beneath.
     Given I create a terminal

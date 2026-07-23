@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   filterAndRankPaletteItems,
+  type IndexableItem,
   kindRank,
   RECENT_TERMINAL_LIMIT,
   searchCorpus,
-  type IndexableItem,
 } from "./rootIndex";
 
 function item(
@@ -14,9 +14,19 @@ function item(
     recencyAt?: number;
     searchText?: string;
     sectionOrder?: number;
+    hostKey?: string;
+    terminalId?: string;
   } = {},
 ): IndexableItem {
-  const { recencyAt, searchText, sectionOrder, description, ...rest } = extras;
+  const {
+    recencyAt,
+    searchText,
+    sectionOrder,
+    description,
+    hostKey,
+    terminalId,
+    ...rest
+  } = extras;
   return {
     name,
     description,
@@ -25,6 +35,8 @@ function item(
       kind,
       recencyAt,
       searchText,
+      hostKey,
+      terminalId,
     },
     ...rest,
   };
@@ -105,6 +117,67 @@ describe("filterAndRankPaletteItems", () => {
       "Set theme",
       "Toggle dock",
     ]);
+  });
+
+  it("empty-root Recent excludes the canvas-active terminal", () => {
+    const withIds: IndexableItem[] = [
+      item("fresh-ws", "terminal", {
+        recencyAt: 500,
+        hostKey: "local",
+        terminalId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      }),
+      item("mid-ws", "terminal", {
+        recencyAt: 300,
+        hostKey: "local",
+        terminalId: "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      }),
+      item("old-ws", "terminal", {
+        recencyAt: 100,
+        hostKey: "local",
+        terminalId: "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      }),
+      item("local", "host", { searchText: "local" }),
+    ];
+    const out = filterAndRankPaletteItems(withIds, {
+      query: "",
+      atRoot: true,
+      excludeFromRecent: {
+        hostKey: "local",
+        terminalId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      },
+    });
+    const names = out
+      .filter((i) => i.row?.kind === "terminal")
+      .map((i) => i.name);
+    // Active (freshest) omitted; previous visits remain and fill Recent.
+    expect(names).toEqual(["mid-ws", "old-ws"]);
+    expect(names[0]).toBe("mid-ws");
+  });
+
+  it("queried root still includes the active terminal", () => {
+    const withIds: IndexableItem[] = [
+      item("fresh-ws", "terminal", {
+        recencyAt: 500,
+        searchText: "fresh edge",
+        hostKey: "local",
+        terminalId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      }),
+      item("mid-ws", "terminal", {
+        recencyAt: 300,
+        searchText: "mid other",
+        hostKey: "local",
+        terminalId: "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      }),
+    ];
+    const out = filterAndRankPaletteItems(withIds, {
+      query: "edge",
+      atRoot: true,
+      excludeFromRecent: {
+        hostKey: "local",
+        terminalId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      },
+    });
+    expect(out.map((i) => i.name)).toEqual(["fresh-ws"]);
   });
 
   it("queried root: AND-token match + kind rank + workspace recency", () => {

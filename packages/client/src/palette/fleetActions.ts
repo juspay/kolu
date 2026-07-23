@@ -2,12 +2,12 @@
  *  unified switcher. Lives next to the fleet index so `createCommands` only
  *  registers the results (not presentation/keying). */
 
-import type { TerminalId } from "kolu-common/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
 import {
   computeTerminalKeys,
-  terminalKey,
   type TerminalKey,
+  terminalKey,
 } from "kolu-common/terminalKey";
 import type {
   PaletteAction,
@@ -17,12 +17,31 @@ import type {
 import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel, hostRowContext, sameHost } from "../host/hostChipTone";
 import { assignColors } from "../terminal/terminalDisplay";
+import {
+  useVisitRecency,
+  visitedAtOf,
+  type VisitEntry,
+} from "../terminal/visitRecency";
 import { padiMap } from "../wire";
 import {
   type FleetTerminalRow,
   groupFleetByHost,
   orderHostsActiveFirst,
 } from "./fleetTerminals";
+
+/** Palette ranking policy: max(client visit, server activity). Lives here
+ *  (not in the trail store) so visitRecency stays trail-only. */
+export function terminalRankScore(
+  visits: readonly VisitEntry[],
+  hostKey: string,
+  terminalId: TerminalId,
+  serverActivityAt: number | null | undefined,
+): number {
+  return Math.max(
+    visitedAtOf(visits, hostKey, terminalId),
+    serverActivityAt ?? 0,
+  );
+}
 
 /** Switch host when the row is foreign, then activate. Pure sequencing
  *  extracted so unit tests can spy without mounting the palette. */
@@ -69,6 +88,15 @@ function terminalSwitchActionsForHost(
       );
     }
     const hostName = hostLabel(row.host);
+    const hostKey = encodeHostKey(row.host);
+    // activity clock for paint; rankScore for sort — never jam them into one field.
+    const activityAt = row.recencyAt;
+    const rankAt = terminalRankScore(
+      useVisitRecency().visits(),
+      hostKey,
+      row.id,
+      activityAt,
+    );
     return {
       kind: "action",
       name: branchLabel,
@@ -83,7 +111,8 @@ function terminalSwitchActionsForHost(
         repoName,
         repoColor,
         branchLabel,
-        recencyAt: row.recencyAt,
+        recencyAt: activityAt,
+        rankAt,
         searchText: [
           workspaceSearchText({
             repoName,

@@ -101,6 +101,51 @@ Then(
 );
 
 Then(
+  "the first palette terminal row should be {string}",
+  async function (this: KoluWorld, name: string) {
+    const first = this.page
+      .locator(
+        `${PALETTE_SELECTOR} [role="option"][data-palette-kind="terminal"]`,
+      )
+      .first();
+    await first.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const actual = await first.getAttribute("data-palette-name");
+    assert.strictEqual(
+      actual,
+      name,
+      `Expected first Recent terminal row "${name}", got "${actual}"`,
+    );
+  },
+);
+
+Then(
+  "palette terminal row {string} should appear before {string}",
+  async function (this: KoluWorld, first: string, second: string) {
+    const names = await this.page
+      .locator(
+        `${PALETTE_SELECTOR} [role="option"][data-palette-kind="terminal"]`,
+      )
+      .evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-palette-name") ?? ""),
+      );
+    const i = names.indexOf(first);
+    const j = names.indexOf(second);
+    assert.ok(
+      i >= 0,
+      `Expected terminal row "${first}" in palette; got ${JSON.stringify(names)}`,
+    );
+    assert.ok(
+      j >= 0,
+      `Expected terminal row "${second}" in palette; got ${JSON.stringify(names)}`,
+    );
+    assert.ok(
+      i < j,
+      `Expected "${first}" before "${second}"; order was ${JSON.stringify(names)}`,
+    );
+  },
+);
+
+Then(
   "palette item {int} should be selected",
   async function (this: KoluWorld, index: number) {
     await this.page.waitForFunction(
@@ -322,6 +367,24 @@ Then(
       count,
       0,
       `Expected no palette section headers, got ${count}`,
+    );
+  },
+);
+
+Then(
+  "the command palette should not show kind tags",
+  async function (this: KoluWorld) {
+    const tags = this.page.locator(
+      `${PALETTE_SELECTOR} [data-testid="palette-kind-tag"]`,
+    );
+    await this.page
+      .locator(PALETTE_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const count = await tags.count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no kind tags at empty root browse, found ${count}`,
     );
   },
 );

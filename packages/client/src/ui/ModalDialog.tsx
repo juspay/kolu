@@ -59,12 +59,11 @@ export function refocusIfNoDialogOpen() {
 const SIZE_CLASS = {
   sm: "max-w-sm",
   md: "max-w-md",
-  // `lg` is sized to fit the command palette's workspace-grid body:
-  // 12rem repo facet + 4 agent-state columns + breathing room. The
-  // cap scales with the viewport so a 27" monitor doesn't render a
-  // tiny dialog in the middle of all that space, while a 13"
-  // laptop still gets the 95vw fallback. 80rem = 1280px caps the
-  // upper end on ultrawide displays.
+  // Unified ⌘K switcher: compact enough that identity + right rail stay
+  // adjacent on wide monitors (not a name, a desert, then a lone tag).
+  // 44rem ≈ 704px; 90vw keeps phone/narrow windows usable.
+  palette: "max-w-[min(90vw,44rem)]",
+  // Broad content dialogs that still need more room than md (rare).
   lg: "max-w-[min(95vw,80rem)]",
 } as const;
 
@@ -84,10 +83,10 @@ const ModalDialog: Component<{
    *  in one place instead of being hand-duplicated at each call site. */
   refocusOnClose?: boolean;
   /** Max width cap — "sm" (24rem) for confirms/help, "md" (28rem) for
-   *  legacy palette callers, "lg" (min(95vw, 80rem)) for the unified
-   *  command palette whose workspace-grid body needs the extra room.
+   *  medium dialogs, "palette" (min(90vw, 44rem)) for the unified ⌘K
+   *  switcher, "lg" (min(95vw, 80rem)) for rare broad content.
    *  Defaults to "md". */
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "palette" | "lg";
   children: JSX.Element;
 }> = (props) => {
   // Every modal goes through this boundary, so reflecting `open` into the

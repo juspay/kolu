@@ -121,7 +121,7 @@ function makeStore(): TerminalStore {
     getMetadata: () => undefined,
     setActiveSilently: () => {},
     activeId: () => null,
-    setMruOrder: () => {},
+    reconcileLiveIds: () => {},
   } as unknown as TerminalStore;
 }
 
@@ -429,7 +429,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
     const setActiveSilently = vi.fn((id: string | null) => {
       active = id;
     });
-    const setMruOrder = vi.fn();
+    const reconcileLiveIds = vi.fn();
     const listSub = Object.assign(() => opts.list, { pending: () => false });
     const store = {
       listSub,
@@ -437,9 +437,9 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       getMetadata: (id: TerminalId) => opts.meta[id],
       setActiveSilently,
       activeId: () => active,
-      setMruOrder,
+      reconcileLiveIds,
     } as unknown as TerminalStore;
-    return { store, setActiveSilently, setMruOrder };
+    return { store, setActiveSilently, reconcileLiveIds };
   }
 
   it("activates the server-active terminal (B), not the first-listed (A)", async () => {
@@ -447,7 +447,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
       ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
     h.sessionPending = false;
     h.savedSession = { terminals: [], activeTerminalId: "B", savedAt: 1 };
-    const { store, setActiveSilently, setMruOrder } = makeMetaStore({
+    const { store, setActiveSilently, reconcileLiveIds } = makeMetaStore({
       list: [{ id: "A" }, { id: "B" }] as TerminalInfo[],
       meta: { A: activeMeta(), B: activeMeta() },
     });
@@ -459,7 +459,7 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
             useSessionRestore({ store });
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).toHaveBeenCalledWith("B");
-            expect(setMruOrder).toHaveBeenCalledWith(["B", "A"]);
+            expect(reconcileLiveIds).toHaveBeenCalledWith(["B", "A"]);
             dispose();
             resolve();
           } catch (err) {
@@ -499,7 +499,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
         active = id;
       },
       activeId: () => active,
-      setMruOrder: () => {},
+      reconcileLiveIds: () => {},
     } as unknown as TerminalStore;
     return { store, setList, setMeta };
   }

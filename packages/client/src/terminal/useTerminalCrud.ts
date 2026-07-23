@@ -62,8 +62,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     getSubTerminalIds: store.getSubTerminalIds,
     activeId: store.activeId,
     activate: store.activate,
-    dropFromMru: (id) =>
-      store.setMruOrder((prev) => prev.filter((x) => x !== id)),
+    dropFromMru: (id) => store.forgetFromMru(id),
     promoteToTopLevel: (subId) =>
       void activePadiRpc.chrome
         .setParent({ id: subId, parentId: null })

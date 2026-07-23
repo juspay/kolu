@@ -60,8 +60,13 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "switcher",
   },
   {
+    id: "amb-visit-recency",
+    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} then Enter jumps to the previous terminal (Recent hides the one you're in) — works across hosts too`,
+    doc: "switcher",
+  },
+  {
     id: "amb-mru",
-    text: `${formatKeybind(ACTIONS.cycleTerminalMru.keybind)} cycles terminals in most-recently-used order`,
+    text: `${formatKeybind(ACTIONS.cycleTerminalMru.keybind)} cycles terminals in most-recently-used order (same trail as Recent, this host only; survives reload)`,
   },
   {
     // Replaces the old "searches terminal output" tip (id `amb-search`), which
