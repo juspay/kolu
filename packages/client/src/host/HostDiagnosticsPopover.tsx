@@ -238,21 +238,24 @@ export const HostDiagnosticsPopover: Component<{
             <Show
               when={confirmRemove()}
               fallback={
+                // Same row geometry as PopoverRow (label column left) — no extra
+                // horizontal padding that would shift past "state" / "terminals".
                 <button
                   type="button"
                   data-testid="host-diagnostics-remove"
-                  class="flex w-full items-center rounded-md px-1.5 py-1 text-left text-[11px] text-danger transition-colors hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+                  class="flex w-full items-center justify-between gap-4 py-0.5 text-left text-[11px] text-danger transition-colors hover:text-danger/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
                   onClick={() => setConfirmRemove(true)}
                 >
-                  remove host…
+                  <span>remove host…</span>
+                  <span aria-hidden="true" />
                 </button>
               }
             >
-              <div class="flex items-center gap-2">
+              <div class="flex items-center justify-between gap-2 py-0.5">
                 <button
                   type="button"
                   data-testid="host-diagnostics-remove-confirm"
-                  class="flex-1 rounded-md bg-danger/15 px-2 py-1 text-[11px] font-medium text-danger transition-colors hover:bg-danger/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+                  class="rounded-md bg-danger/15 px-2 py-1 text-[11px] font-medium text-danger transition-colors hover:bg-danger/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
                   onClick={() => {
                     removeHost(props.host);
                     props.onDismiss();

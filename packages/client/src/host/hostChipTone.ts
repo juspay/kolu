@@ -3,10 +3,10 @@
  * `EntryStatus`. Pure (no JSX, no `wire`), so strip/popover/mobile render with
  * them and unit pins import them without dragging in the live transport.
  *
- * Exception-based strip: a healthy connected host paints NO status pip
- * (silence = fine). Amber pulse = warming; red = failed. Green "fine" dots
- * are deleted on the strip (they remain only as always-on detail pips in the
- * diagnostics popover via {@link hostGlance}.detailDot).
+ * Strip pips (via {@link chipStatusDot}):
+ *   · **local** — exception-only (house glyph is identity; green "fine" is silent)
+ *   · **remote** — always-on connection status (green/amber/red), fact-only
+ * Diagnostics popover always uses {@link HostGlance.detailDot}.
  */
 
 import type { EntryState } from "@kolu/surface-map";
@@ -106,4 +106,19 @@ export function hostGlance(
     title,
     labelDecoration: row.labelDecoration,
   };
+}
+
+/**
+ * Status pip class for a strip/mobile chip. Local is exception-only (null when
+ * healthy — the house glyph carries identity). Remote is unconditional: green
+ * when connected, amber pulse when warming, red when failed.
+ */
+export function chipStatusDot(
+  host: HostKey,
+  status: EntryState<{ reason: string }> | EntryState,
+): string | null {
+  const g = hostGlance(status);
+  if (host.kind === "local") return g.stripDot;
+  // Remote: always paint. Prefer stripDot so warming keeps its pulse class.
+  return g.stripDot ?? g.detailDot;
 }

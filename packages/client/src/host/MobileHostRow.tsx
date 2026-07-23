@@ -38,7 +38,13 @@ import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostFinishedDot } from "./HostFinishedDot";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import { hostGlance, hostHue, hostLabel, sameHost } from "./hostChipTone";
+import {
+  chipStatusDot,
+  hostGlance,
+  hostHue,
+  hostLabel,
+  sameHost,
+} from "./hostChipTone";
 import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
@@ -58,6 +64,8 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
   const glance = createMemo(() => hostGlance(state()));
   const down = createMemo(() => glance().down);
+  // Local: house glyph + exception pip. Remote: always-on connection status.
+  const statusDot = createMemo(() => chipStatusDot(props.host, state()));
   // Both marks from the ONE store, bundled once (the host is fixed for this chip).
   const marks = hostMarks(encodeHostKey(props.host));
 
@@ -110,7 +118,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
         props.onSwitch();
       }}
     >
-      <Show when={glance().stripDot}>
+      <Show when={statusDot()}>
         {(cls) => (
           <span
             class={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${cls()}`}

@@ -75,7 +75,13 @@ import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostFinishedDot } from "./HostFinishedDot";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import { hostGlance, hostHue, hostLabel, sameHost } from "./hostChipTone";
+import {
+  chipStatusDot,
+  hostGlance,
+  hostHue,
+  hostLabel,
+  sameHost,
+} from "./hostChipTone";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { removeHost } from "./removeHost";
 import { useHostMembers } from "./useHostMembers";
@@ -123,7 +129,6 @@ const HostChip: Component<{
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
-  const isLocal = () => props.host.kind === "local";
   // Both host-tab attention marks — the amber "asking" pill and the quiet
   // "finished, unseen" dot — read from the ONE cross-host store `useAttention`
   // publishes (neither is the raw urgency count: a finished agent idles in
@@ -137,6 +142,8 @@ const HostChip: Component<{
   const isActive = () => sameHost(activeHost(), props.host);
   const glance = () => hostGlance(state());
   const down = () => glance().down;
+  // Local: house glyph + exception pip only. Remote: always-on connection status.
+  const statusDot = () => chipStatusDot(props.host, state());
   // Strip-owned open key — only ONE diagnostics panel mounts at a time.
   const diagOpen = () => !props.measure && props.diagnostics.isOpen(encKey);
 
@@ -195,12 +202,11 @@ const HostChip: Component<{
           aria-selected={isActive()}
           aria-haspopup="dialog"
           aria-expanded={diagOpen()}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-xl pl-2.5 pr-2 transition-colors focus-visible:outline-none cursor-pointer"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-xl pl-2.5 pr-2.5 transition-colors focus-visible:outline-none cursor-pointer"
           classList={{
             "text-fg": isActive() && !down(),
             "text-fg-2 hover:text-fg": !isActive() && !down(),
             "text-fg-3": down(),
-            "rounded-tr-none": !isLocal(),
           }}
           data-testid="host-select"
           // A no-op click on the ALREADY-active chip must not re-set `activeHost`: `props.host`
@@ -219,12 +225,11 @@ const HostChip: Component<{
           }}
           title={`${hostLabel(props.host)} — ${glance().title}`}
         >
-          <Show when={glance().stripDot}>
+          <Show when={statusDot()}>
             {(cls) => (
               <span
-                // Exception-only: healthy chips paint no status pip. Amber pulse
-                // = connecting; red = unreachable. No host-hue ring on silent
-                // healthy chips — the active tab's hue fill carries identity.
+                // Local: exception-only. Remote: unconditional connection status
+                // (green/amber/red). House glyph on local is HostIdentityLabel.
                 class={`inline-block h-2 w-2 rounded-full shrink-0 ${cls()}`}
                 aria-hidden="true"
               />
@@ -251,20 +256,6 @@ const HostChip: Component<{
             sizeClass="ml-0.5 h-1.5 w-1.5"
           />
         </button>
-        {/* Remove — guest only, hover/focus revealed. Primary path is the
-         *  diagnostics popover (confirm step); this is the quick affordance. */}
-        <Show when={!isLocal()}>
-          <button
-            type="button"
-            class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-xl text-fg-3 hover:text-danger hover:bg-danger/10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color] cursor-pointer"
-            data-testid="host-remove"
-            aria-label={`Remove host ${hostLabel(props.host)}`}
-            title={`Remove ${hostLabel(props.host)}`}
-            onClick={() => removeHost(props.host)}
-          >
-            ✕
-          </button>
-        </Show>
       </div>
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover
@@ -288,8 +279,10 @@ const HostSwitcherRow: Component<{
   const host = decodeHostKey(props.hostKey);
   const isLocal = () => host.kind === "local";
   const isActive = () => sameHost(activeHost(), host);
-  const glance = () => hostGlance(padiMap.entry(host).state());
+  const state = () => padiMap.entry(host).state();
+  const glance = () => hostGlance(state());
   const down = () => glance().down;
+  const statusDot = () => chipStatusDot(host, state());
   const marks = hostMarks(props.hostKey);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
@@ -322,7 +315,7 @@ const HostSwitcherRow: Component<{
         class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         onClick={pickHost}
       >
-        <Show when={glance().stripDot}>
+        <Show when={statusDot()}>
           {(cls) => (
             <span
               class={`inline-block h-2 w-2 rounded-full shrink-0 ${cls()}`}
@@ -479,8 +472,10 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
   const active = () => activeHost();
-  const glance = () => hostGlance(padiMap.entry(active()).state());
+  const state = () => padiMap.entry(active()).state();
+  const glance = () => hostGlance(state());
   const down = () => glance().down;
+  const statusDot = () => chipStatusDot(active(), state());
   const hostKeys = () => props.hosts.map(encodeHostKey);
 
   return (
@@ -508,7 +503,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
           title={`Switch host — currently ${hostLabel(active())}`}
           onClick={() => setOpen((v) => !v)}
         >
-          <Show when={glance().stripDot}>
+          <Show when={statusDot()}>
             {(cls) => (
               <span
                 class={`inline-block h-2 w-2 rounded-full shrink-0 ${cls()}`}

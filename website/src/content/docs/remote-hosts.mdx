@@ -96,14 +96,16 @@ over ssh**: it copies the padi closure to the machine with Nix. A cold copy can
 take **minutes**. You don't install anything on the host by hand — the closure
 carries everything.
 
-The host strip is **quiet by default**: a healthy machine is just its name (and
-its identity colour when active). Status dots appear only as **exceptions**:
+**Local** is quiet by default (house glyph + name; status only when something is
+wrong). **Remote** hosts always show a connection pip so you can see link health
+at a glance:
 
 | on the chip | meaning |
 | --- | --- |
-| *(nothing)* | connected and live — silence is the healthy case |
+| *(local only)* house + name | local is healthy — silence is fine |
+| green | remote connected and live |
 | amber (pulsing) | connecting or copying — coming up |
-| red + struck label | provisioning or the link failed — click for the real error and **retry** |
+| red + struck label | unreachable — open diagnostics for the real error and **retry** |
 
 Hover a chip (or click the active one) for the **diagnostics popover**:
 connection state, terminal and awaiting counts, padi·kaval status, and
