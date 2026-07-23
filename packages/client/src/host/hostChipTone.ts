@@ -132,3 +132,38 @@ export function chipStatusDot(
   const g = hostGlance(status);
   return g.stripDot ?? g.detailDot;
 }
+
+/** Always-on connection tone for non-strip surfaces (palette host lead).
+ *  Same fact fold as {@link chipStatusDot}; host identity is irrelevant. */
+export function dotClass(status: EntryState): string {
+  return chipStatusDot({ kind: "local" }, status);
+}
+
+/** Tooltip / a11y title from {@link hostGlance}. */
+export function statusTitle(
+  status: EntryState<{ reason: string }> | EntryState,
+): string {
+  return hostGlance(status).title;
+}
+
+/** Compact one-word label from {@link hostGlance}.short. */
+export function statusLabelShort(status: EntryState): string {
+  return hostGlance(status).short;
+}
+
+/** Context line for a host palette row — quiet when healthy, not canvas-active.
+ *
+ *  Vocabulary:
+ *  - **active** — this host is the canvas's current host (only one)
+ *  - **(empty)** — connected and not active (connected is the default; no noise)
+ *  - **connecting** / **unreachable** / **removed** — exception states only
+ *
+ *  Dot color still comes from {@link dotClass}; this is the text slot only. */
+export function hostRowContext(
+  status: EntryState,
+  isCanvasActive: boolean,
+): string {
+  if (isCanvasActive) return "active";
+  if (status.kind === "connected") return "";
+  return statusLabelShort(status);
+}

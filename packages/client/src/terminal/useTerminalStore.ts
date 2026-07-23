@@ -5,8 +5,8 @@
  *  (W9; it left `wire.ts` when the per-host wire subs became retained); client
  *  view state (activeId, attention, mruOrder) lives in local signals.
  *
- *  Singleton via `createSharedRoot`: every consumer (WorkspaceSwitcher,
- *  ChromeBar, TerminalCanvas, mobile sheet, tile theme) reads the same
+ *  Singleton via `createSharedRoot`: every consumer (command palette,
+ *  ChromeBar, TerminalCanvas, dock, mobile sheet, tile theme) reads the same
  *  store, so derivations like `getDisplayInfo` and `getMetadata` flow
  *  without prop-drilling lookup functions through layout components. */
 

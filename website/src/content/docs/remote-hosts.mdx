@@ -154,13 +154,15 @@ hover-opened.
 ## Switch hosts, and per-host canvases
 
 **Click a chip** to make that host active — the whole canvas switches to it live,
-no reload, bindings staying warm server-side. From the keyboard, **⌘⇧H**
-(Ctrl+Shift+H elsewhere) — or the **search icon** in the host bar — opens a fuzzy
-host switcher (the sibling of ⌘⇧K's workspace switcher); pick a host and the canvas
-switches. Each host owns its own canvas: its terminals, splits, and focused
-tile are restored as you left them when you switch back. Switching away doesn't tear a host's work down; it keeps running on that
-host. If the active host ever leaves the pool, kolu switches you back to local and
-says so.
+no reload, bindings staying warm server-side. From the keyboard, type a host name
+in **⌘K** (hosts are first-class root results in the
+[switcher](/switcher)), or press **⌘⇧H** (Ctrl+Shift+H elsewhere) — or the
+**search icon** in the host bar — to deep-link into the scoped host list; pick a
+host and the canvas switches. The host strip stays as ambient status (connection
+dots, awaiting pills) — glanceable without opening anything. Each host owns its own canvas: its terminals, splits,
+and focused tile are restored as you left them when you switch back. Switching
+away doesn't tear a host's work down; it keeps running on that host. If the active
+host ever leaves the pool, kolu switches you back to local and says so.
 
 A chip also carries an **awaiting badge** — a count of agents on that host waiting
 for your input — so a host you're not looking at can tell you it needs you without
@@ -172,16 +174,17 @@ machine's does. An [installed PWA](/install-pwa) surfaces the awaiting count as 
 app-badge and notifications across all your hosts.
 
 Switching back to a host you've already visited is instant: kolu keeps each visited
-host's state — its terminal list, saved sessions, activity, and the Code tab's reads
-(the open file's content, git status, and diff) — **warm in memory**, so a switch-back
-has nothing to reload. A host you're not looking at isn't polled; its state is simply
-held and refreshed the moment you return to it. The terminals themselves
-keep running on their own host no matter which one you're looking at. Only the host
-you're viewing gets a live on-screen renderer (its terminals' WebGL/DOM canvases),
-which re-attaches in a blink when you switch back — kolu does not hold a live canvas
-per background host. Browser memory therefore scales with that retained per-host state
-and the number of connected hosts, not with a full canvas for every host. If a
-multi-host session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).
+host's **canvas** state — selection, camera, saved sessions, activity, and the Code
+tab's reads (open file content, git status, and diff) — **warm in memory**, so a
+switch-back has nothing to reload. The [switcher](/switcher) is different: it keeps a
+**lightweight fleet index** (terminal keys + metadata, not PTY bytes) live for every
+**connected** pool member, including hosts you have not opened yet, so ⌘K can jump
+cross-host without waiting for a first visit. Only the host you're viewing gets a live
+on-screen renderer (its terminals' WebGL/DOM canvases), which re-attaches in a blink when
+you switch back — kolu does not hold a live canvas per background host. Browser memory
+therefore scales with that retained per-host view state, the fleet metadata index, and
+the number of connected hosts — not with a full canvas for every host. If a multi-host
+session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).
 
 ## When a host is down
 

@@ -1,10 +1,17 @@
 /** Pure selection for the welcome-moments card.
  *
- *  Moments in priority order: Pin · Reach · Run agents · Add a host · Shortcuts.
- *  Done-predicates collapse into a muted header line; the card renders the first
- *  three still-undone moments. Run-agents and Shortcuts are never "done". */
+ *  Moments in priority order: Pin · Reach · Run agents · Search everything ·
+ *  Add a host · Shortcuts. Done-predicates collapse into a muted header line;
+ *  the card renders the first three still-undone moments. Run-agents, Search,
+ *  and Shortcuts are never "done". */
 
-export type WelcomeMomentId = "pin" | "reach" | "agents" | "host" | "shortcuts";
+export type WelcomeMomentId =
+  | "pin"
+  | "reach"
+  | "agents"
+  | "search"
+  | "host"
+  | "shortcuts";
 
 export interface WelcomeMomentFlags {
   pinDone: boolean;
@@ -23,6 +30,7 @@ const ORDER: readonly WelcomeMomentId[] = [
   "pin",
   "reach",
   "agents",
+  "search",
   "host",
   "shortcuts",
 ];
@@ -36,6 +44,7 @@ function isDone(id: WelcomeMomentId, flags: WelcomeMomentFlags): boolean {
     case "host":
       return flags.hostsDone;
     case "agents":
+    case "search":
     case "shortcuts":
       return false;
   }
