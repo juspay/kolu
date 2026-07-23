@@ -66,7 +66,7 @@
         ];
       };
 
-      # Linux checks — both run on the x86_64-linux lane (NixOS VM tests are
+      # Linux checks — all run on the x86_64-linux lane (NixOS VM tests are
       # Linux-only): the kolu-service smoke (vm-test) + B3.3 adoption.
       checks.${linuxSystem} = {
         # vm-test boots the config and verifies kolu listens on its port.
@@ -142,8 +142,8 @@
       # and a contract-skewed survivor is recycled (not adopted) with the session
       # preserved — the one path the Playwright e2e harness can't reach (no
       # systemd, one server per worker). Kept in its own folder so this flake stays
-      # lean; both are plain checks of this flake, so they ride `ci::home-manager`
-      # with no new CI recipe.
+      # lean; all are plain checks of this flake, so they ride the Linux arm of
+      # `ci::home-manager`.
       // import ./adoption {
         pkgs = linuxPkgs;
         inherit kolu home-manager nixosModule;
