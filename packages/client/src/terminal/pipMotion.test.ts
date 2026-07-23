@@ -55,6 +55,33 @@ describe("pipIsActive", () => {
       }),
     ).toBe(false);
   });
+
+  // Sticky EF2 finish must not silence motion when the terminal is still
+  // printing (#1955). finishedIds is the chime question; isLive is motion.
+  it("sticky-finished waiting agent with live output is active", () => {
+    const waitingAgent = agent("waiting");
+    expect(
+      pipIsActive({
+        agent: waitingAgent,
+        isLive: true,
+        isFinished: true,
+      }),
+    ).toBe(true);
+    expect(
+      pipMotionKind({
+        variant: "awaiting",
+        agent: waitingAgent,
+        active: true,
+      }),
+    ).toBe("spin");
+    expect(
+      pipIsActive({
+        agent: waitingAgent,
+        isLive: false,
+        isFinished: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("pipMotionKind", () => {
