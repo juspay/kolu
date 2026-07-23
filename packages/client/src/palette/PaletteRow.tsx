@@ -18,14 +18,13 @@ import { Dynamic } from "solid-js/web";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
 import {
   dotClass,
+  hostHue,
   hostLabel,
   sameHost,
   statusLabelShort,
+  statusTitle,
 } from "../host/hostChipTone";
-
-function encodeHostAttr(h: HostKey): string {
-  return encodeHostKey(h);
-}
+import { HostIdentityLabel } from "../host/HostIdentityLabel";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { bindStatePip, useStatePip } from "../terminal/statePipBind";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -35,6 +34,10 @@ import { activeHost, padiMap } from "../wire";
 import HighlightedText from "./highlightMatch";
 import type { ResultKind } from "./rootIndex";
 
+function encodeHostAttr(h: HostKey): string {
+  return encodeHostKey(h);
+}
+
 export type PaletteRowMeta = {
   kind: ResultKind;
   /** Multi-field AND-token corpus (terminal dock fields / host label+status). */
@@ -43,7 +46,7 @@ export type PaletteRowMeta = {
   terminalId?: TerminalId;
   /** Meta snapshot for fleet rows (may be off the active host). */
   terminalMeta?: TerminalMetadata;
-  /** Precomputed context (intent / foreground / host tag). */
+  /** Precomputed context (intent / foreground only — never the host name). */
   context?: string;
   repoName?: string;
   repoColor?: string;
@@ -116,6 +119,32 @@ const HostLead: Component<{ host: HostKey }> = (props) => {
   );
 };
 
+/** Compact host chip for cross-host terminal rows — same visual language as the
+ *  chrome-bar host strip: identity hue + connection-status dot + hostLabel.
+ *  One deliberate place; never also written into the context line. */
+const TerminalHostChip: Component<{ host: HostKey }> = (props) => {
+  const state = () => padiMap.entry(props.host).state();
+  return (
+    <span
+      data-testid="palette-host-chip"
+      data-host={encodeHostAttr(props.host)}
+      title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
+      class="inline-flex items-center gap-1 max-w-[7.5rem] shrink-0 rounded-md border border-edge/70 px-1.5 py-0.5 font-mono text-[0.62rem] text-fg-2 bg-surface-2/40"
+      style={{ "--host-hue": hostHue(props.host) }}
+    >
+      <span
+        class={`host-hue-ring inline-block h-1.5 w-1.5 rounded-full shrink-0 ${dotClass(state())}`}
+        aria-hidden="true"
+      />
+      <HostIdentityLabel
+        host={props.host}
+        glyphClass="h-2.5 w-2.5"
+        labelClass="truncate min-w-0"
+      />
+    </span>
+  );
+};
+
 const CommandLead: Component<{
   icon?: Component<{ class?: string }>;
   selected: boolean;
@@ -160,7 +189,7 @@ const PaletteRow: Component<{
   const contextLine = (): string => {
     const r = row();
     if (r?.kind === "terminal") {
-      // Prefer precomputed context (includes host tag for cross-host rows).
+      // Intent / foreground only — host is the right-rail chip, never here.
       if (r.context) return r.context;
       return props.cmd.description ?? "";
     }
@@ -176,13 +205,12 @@ const PaletteRow: Component<{
     return compactRecency(row()?.recencyAt);
   };
 
-  const showHostChip = (): boolean => {
+  /** Host chip only when the terminal lives on a non-active host. */
+  const foreignHost = (): HostKey | undefined => {
     const r = row();
-    return (
-      r?.kind === "terminal" &&
-      !!r.hostKey &&
-      !sameHost(r.hostKey, activeHost())
-    );
+    if (r?.kind !== "terminal" || !r.hostKey) return undefined;
+    if (sameHost(r.hostKey, activeHost())) return undefined;
+    return r.hostKey;
   };
 
   return (
@@ -243,14 +271,9 @@ const PaletteRow: Component<{
         <span class="truncate min-w-0">
           <HighlightedText text={identityPrimary()} query={props.query} />
         </span>
-        <Show when={showHostChip()}>
-          <span class="font-mono text-[0.65rem] text-fg-3 truncate max-w-[6rem]">
-            {hostLabel(row()!.hostKey!)}
-          </span>
-        </Show>
       </div>
 
-      {/* 3 · Context — one truncating line, never wraps. */}
+      {/* 3 · Context — one truncating line, never wraps. No host text. */}
       <Show when={contextLine()}>
         {(line) => (
           <span class="flex-1 min-w-0 text-fg-3 text-[0.76rem] truncate">
@@ -263,8 +286,11 @@ const PaletteRow: Component<{
         <span class="flex-1 min-w-0" />
       </Show>
 
-      {/* 4 · Right rail */}
+      {/* 4 · Right rail — host chip (foreign only) · recency · keybind · kind · › */}
       <span class="ml-auto shrink-0 flex items-center gap-1.5">
+        <Show when={foreignHost()}>
+          {(host) => <TerminalHostChip host={host()} />}
+        </Show>
         <Show when={recencyLabel()}>
           {(label) => (
             <span class="font-mono text-[0.68rem] tabular-nums text-fg-3/80">

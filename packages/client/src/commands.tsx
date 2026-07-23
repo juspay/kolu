@@ -69,18 +69,16 @@ function terminalSwitchActions(
     const branchLabel = k.label;
     const repoColor = colors.get(repoName) ?? "oklch(0.75 0.14 0)";
     const hostName = hostLabel(row.host);
-    const onActive = sameHost(row.host, active);
     const intentOrFg = row.meta.intent
       ? firstIntentLine(row.meta.intent)
       : rowSubline(row.meta);
-    const context = onActive
-      ? intentOrFg
-      : [intentOrFg, hostName].filter(Boolean).join(" · ");
+    // Host lives ONLY on the row's host chip (PaletteRow), never in context
+    // or description — one deliberate place, no double "zest".
     return {
       kind: "action",
-      // Name is branch for match highlighting; host is in searchText + row.
+      // Name is branch for match highlighting; host is in searchText + hostKey.
       name: branchLabel,
-      description: onActive ? repoName : `${repoName} · ${hostName}`,
+      description: repoName,
       onSelect: () => {
         if (!sameHost(row.host, active)) switchHost(row.host);
         activate(row.id);
@@ -94,7 +92,7 @@ function terminalSwitchActions(
         repoColor,
         branchLabel,
         recencyAt: row.recencyAt,
-        context,
+        context: intentOrFg,
         searchText: [
           workspaceSearchText({
             repoName,

@@ -42,8 +42,10 @@ pool — not only the machine whose canvas you are viewing:
   as the Dock (shell mark / idle paint).
 - **Order** is fleet-wide recency (`lastActivityAt` / sleep clock, reprojected
   per host). Parked rows the activity window would hide are dropped here too.
-- **Cross-host rows** carry the host label so `srid@builder` vs local is
-  obvious; selecting one **switches the canvas to that host and activates the
+- **Cross-host rows** carry **one host chip** in the right rail — the same
+  identity hue + connection-status language as the chrome-bar host strip — so
+  `srid@builder` vs local is obvious without repeating the name in the context
+  line. Selecting one **switches the canvas to that host and activates the
   terminal** in one step.
 
 The active host's Dock remains the always-on navigator for the machine you are
@@ -104,13 +106,13 @@ Every result kind paints the same four slots so a mixed list stays scannable:
 
 1. **Lead** — agent-state pip (terminal; plain shells get the shell mark),
    connection dot (host), or glyph (command).
-2. **Identity** — repo colour + branch; `user@host`; or the command name.
-   Matched tokens bold in place.
+2. **Identity** — repo colour + branch; `user@host` for host rows; or the
+   command name. Matched tokens bold in place.
 3. **Context** — one truncating line: intent / foreground, host status, or
-   command description.
-4. **Right rail** — recency, keybind chip, drill chevron, and a kind tag
-   (`term` / `host` / `cmd`) **only at the mixed root** — not inside a scoped
-   view where every row is already the same kind.
+   command description. Never carries the host name on a terminal row.
+4. **Right rail** — **host chip** (only when the terminal is on a non-active
+   host — hue ring + label), recency, keybind, drill chevron, and a kind tag
+   (`term` / `host` / `cmd`) **only at the mixed root**.
 
 ## What this is not
 
