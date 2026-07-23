@@ -355,7 +355,8 @@ export function failThroughStreamCore<Cl, I, F>(
   const log = opts.log ?? (() => {});
   // Rate-limit the "waiting for spawn" diagnostic: many delta members subscribe
   // at once when a host is added, and each would otherwise emit the same line.
-  // ONE human-meaningful line per member per process is enough (#1963).
+  // ONE human-meaningful line per member per episode is enough (#1963) — reset
+  // after bind so a re-provision hours later still logs once.
   let loggedWaiting = false;
   return async function* (input, signal) {
     const aborted = (): boolean => signal?.aborted === true;
@@ -400,6 +401,8 @@ export function failThroughStreamCore<Cl, I, F>(
       client = holder.current;
       // whenChanged also fires on clear-to-null; loop until a non-null spawn.
     }
+    // Bound: next wait (re-provision after a later drop) logs once again.
+    loggedWaiting = false;
 
     // Straight through: forward the upstream 1:1. `iterateUntilAborted` swallows
     // only the downstream-abort rejection; a clean end completes the loop and an
