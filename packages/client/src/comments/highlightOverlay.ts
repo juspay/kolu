@@ -104,20 +104,16 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     if (!opts.observeMutations) return;
     const host = opts.host();
     if (!host) return;
-    // rAF-coalesced so a burst of mutations (a full innerHTML swap) bumps the
-    // ticker once rather than per-record.
-    let raf = 0;
+    // MutationObserver already delivers one callback per mutation batch. Bump
+    // the ticker in that callback: deferring the re-anchor behind rAF leaves a
+    // detached highlight on throttled or heavily loaded pages until the
+    // browser grants another paint frame.
     const observer = new MutationObserver(() => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        setDomTick((n) => n + 1);
-      });
+      setDomTick((n) => n + 1);
     });
     observer.observe(host, { childList: true, subtree: true });
     onCleanup(() => {
       observer.disconnect();
-      if (raf) cancelAnimationFrame(raf);
     });
   });
 

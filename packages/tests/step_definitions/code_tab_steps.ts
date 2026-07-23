@@ -1055,19 +1055,25 @@ Then(
 );
 
 When(
-  "the markdown preview DOM is re-rendered",
+  "the markdown preview DOM is re-rendered without a paint frame",
   async function (this: KoluWorld) {
     // Reproduce the exact invalidation shape behind #1162: Solid's innerHTML
     // update replaces every text node even when the bytes are unchanged. This
-    // explicit replacement is deterministic; racing Shiki's lazy completion
-    // made the old scenario pass or fail depending on runner load.
+    // explicit replacement is deterministic. Park rAF through the following
+    // assertion as well: MutationObserver already batches the swap, and the
+    // highlight must re-anchor without depending on a future paint frame.
     await this.page
       .locator('[data-testid="browse-preview-markdown"] .kolu-md')
       .evaluate((el) => {
+        const testWindow = window as typeof window & {
+          __koluSavedRequestAnimationFrame?: typeof requestAnimationFrame;
+        };
+        testWindow.__koluSavedRequestAnimationFrame =
+          window.requestAnimationFrame;
+        window.requestAnimationFrame = () => 1;
         const replacement = el.innerHTML;
         el.innerHTML = replacement;
       });
-    await this.waitForFrame();
   },
 );
 
@@ -2114,38 +2120,51 @@ Then(
     // that a stale range still exists. Require the range to cover the expected
     // text through nodes owned by the CURRENT preview subtree; this is the
     // re-anchoring contract exercised by the Markdown DOM-replacement test.
-    await pollFor({
-      observe: () =>
-        this.page
-          .evaluate(
-            `(() => {
-              const host = document.querySelector(
-                '[data-testid="browse-preview-markdown"] .kolu-md'
-              );
-              const reg = window.CSS && window.CSS.highlights;
-              if (!host || !reg) return false;
-              for (const [name, highlight] of reg) {
-                if (!String(name).startsWith(${JSON.stringify(HIGHLIGHT_PREFIX)})) continue;
-                for (const range of highlight) {
-                  if (
-                    !range.collapsed &&
-                    host.contains(range.startContainer) &&
-                    host.contains(range.endContainer) &&
-                    range.toString() === ${JSON.stringify(expected)}
-                  ) return true;
+    try {
+      await pollFor({
+        observe: () =>
+          this.page
+            .evaluate(
+              `(() => {
+                const host = document.querySelector(
+                  '[data-testid="browse-preview-markdown"] .kolu-md'
+                );
+                const reg = window.CSS && window.CSS.highlights;
+                if (!host || !reg) return false;
+                for (const [name, highlight] of reg) {
+                  if (!String(name).startsWith(${JSON.stringify(HIGHLIGHT_PREFIX)})) continue;
+                  for (const range of highlight) {
+                    if (
+                      !range.collapsed &&
+                      host.contains(range.startContainer) &&
+                      host.contains(range.endContainer) &&
+                      range.toString() === ${JSON.stringify(expected)}
+                    ) return true;
+                  }
                 }
-              }
-              return false;
-            })()`,
-          )
-          .catch(() => false),
-      isDone: (anchored) => anchored === true,
-      onTimeout: () =>
-        new Error(
-          `comment highlight never re-anchored "${expected}" in the live Markdown preview`,
-        ),
-      timeoutMs: POLL_TIMEOUT,
-    });
+                return false;
+              })()`,
+            )
+            .catch(() => false),
+        isDone: (anchored) => anchored === true,
+        onTimeout: () =>
+          new Error(
+            `comment highlight never re-anchored "${expected}" in the live Markdown preview`,
+          ),
+        timeoutMs: POLL_TIMEOUT,
+      });
+    } finally {
+      await this.page.evaluate(() => {
+        const testWindow = window as typeof window & {
+          __koluSavedRequestAnimationFrame?: typeof requestAnimationFrame;
+        };
+        if (testWindow.__koluSavedRequestAnimationFrame) {
+          window.requestAnimationFrame =
+            testWindow.__koluSavedRequestAnimationFrame;
+          delete testWindow.__koluSavedRequestAnimationFrame;
+        }
+      });
+    }
   },
 );
 

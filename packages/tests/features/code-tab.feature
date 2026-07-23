@@ -1898,7 +1898,7 @@ Feature: Code tab (review + browse)
     And I click the composer "Save" button
     Then the comments tray should contain "survives shiki"
     And the comment highlight should be present
-    When the markdown preview DOM is re-rendered
+    When the markdown preview DOM is re-rendered without a paint frame
     Then the comment highlight should cover "md-shiki-marker" in the markdown preview
 
   Scenario: Cancel button dismisses the composer without saving
