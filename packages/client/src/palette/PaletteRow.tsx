@@ -173,6 +173,9 @@ const PaletteRow: Component<{
       aria-selected={props.selected}
       data-selected={props.selected || undefined}
       data-palette-kind={kind()}
+      // Exact command/row name for e2e — free of lead glyph / context text so
+      // "Search workspaces" and "Nord" vs "One Nord" stay unambiguous.
+      data-palette-name={props.cmd.name}
       class="flex items-center gap-2.5 px-2.5 py-1.5 text-[0.86rem] rounded-lg cursor-pointer transition-colors duration-100 min-w-0"
       classList={{
         "bg-accent/[0.14] text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_38%,transparent)]":

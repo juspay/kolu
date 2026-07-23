@@ -42,14 +42,33 @@ When("I clear the palette input", async function (this: KoluWorld) {
   await input.fill("");
 });
 
+/** Exact palette row by `data-palette-name` (rich rows lead with a glyph, so
+ *  `^name` text anchors no longer match). Falls back to anchored hasText for
+ *  any residual bare row without the attribute. */
+function paletteOption(
+  palette: import("@playwright/test").Locator,
+  text: string,
+) {
+  const byName = palette.locator(
+    `[role="option"][data-palette-name=${JSON.stringify(text)}]`,
+  );
+  // Playwright locators are lazy — prefer the attribute when any such row
+  // exists; otherwise fall back. Callers await visibility themselves.
+  return byName.or(
+    palette
+      .locator('[role="option"]')
+      .filter({ hasText: new RegExp(`^${escapeRegExp(text)}`) }),
+  );
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 When(
   "I select {string} in the palette",
   async function (this: KoluWorld, text: string) {
-    const palette = this.page.locator(PALETTE_SELECTOR);
-    // Use exact text match to avoid ambiguity (e.g. "Nord" vs "One Nord")
-    const item = palette
-      .locator('[role="option"]')
-      .filter({ hasText: new RegExp(`^${text}`) });
+    const item = paletteOption(this.page.locator(PALETTE_SELECTOR), text);
     await item.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await item.first().click();
   },
@@ -150,10 +169,7 @@ Then(
   "palette item {string} should have a chevron",
   async function (this: KoluWorld, text: string) {
     const palette = this.page.locator(PALETTE_SELECTOR);
-    // Anchor to start of text to avoid substring matches (e.g. "Theme" vs "Random theme")
-    const item = palette.locator('[role="option"]', {
-      hasText: new RegExp(`^${text}`),
-    });
+    const item = paletteOption(palette, text);
     await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const content = await item.textContent();
     assert.ok(
