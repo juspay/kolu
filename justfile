@@ -318,30 +318,18 @@ test: install
             trap 'rm -rf "$lock"' EXIT
         fi
     fi
-    # Budget workers from *free* cores, not hardware cores — sampled AFTER the
-    # lock, so a queued run sizes itself from the load left once the previous
-    # suite is done, not from the load that suite was generating. The darwin CI
-    # host (rasam) is shared with vira's frequent multi-hour GHC builds (~16
-    # cores), so cores/3 sized for the hardware overcommits the leftover ~2x and the
-    # suite thrashes (33+ min vs ~3 min idle — see the 2026-06 follow-up in
-    # docs/ci-e2e-macos-ralph-report.md). Subtracting the 1-min load average is
-    # a no-op on an idle host ((24-~0)/3 still hits the cap) and degrades all the
-    # way to one worker under real external load. A fixed floor of 4 encoded the
-    # old 24-core rasam venue: on a 10-core darwin host at load 6 it knowingly
-    # oversubscribed the four free cores with four browser+server+padi+kaval
-    # worlds, starving an alive padi for 60s and triggering a false watchdog
-    # recycle. The floor must respect the measured capacity just like the cap.
-    load="$(uptime | sed 's/.*load average[s]*: *//' | awk -F'[, ]' '{print int($1)}')"
-    free=$(( cores - ${load:-0} ))
-    par=$(( free / 3 ))
+    # The odu venue pool leases each CI host exclusively, so external load is
+    # not an input to capacity. Size deterministically from hardware: roughly
+    # one browser+server+padi+kaval world per three online cores, rounding up
+    # so a dedicated 10-core venue uses four workers instead of leaving the
+    # remainder idle. Clamp by the measured platform cap above and a minimum of
+    # one. In particular, never sample the one-minute load average here: it
+    # trails the Nix build that runs before Cucumber and made an idle 10-core
+    # venue start just one worker.
+    par=$(( (cores + 2) / 3 ))
     if (( par < 1 )); then par=1; fi
     if (( par > cap )); then par=$cap; fi
-    par="${CUCUMBER_PARALLEL:-$par}"
-    # Fail loud on a non-numeric worker count: cucumber.js drops a NaN
-    # `parallel` silently and runs the whole suite SERIAL — a ~5x slowdown
-    # that looks green (this exact bug shipped as the literal string "cap").
-    case "$par" in *[!0-9]*|'') echo "e2e: invalid worker count '$par'" >&2; exit 1;; esac
-    echo "e2e: workers=$par (cores=$cores load=$load cap=$cap)"
+    echo "e2e: workers=$par (cores=$cores cap=$cap)"
     # No `pnpm install` here: the `install` dep (and, in CI, the ci::install
     # node) already installed the whole workspace, packages/tests included. A
     # second `pnpm install` re-links the shared workspace `node_modules/.bin`,
