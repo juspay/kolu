@@ -21,6 +21,7 @@ type PageLike = {
   locator: (sel: string) => {
     click: () => Promise<void>;
     count: () => Promise<number>;
+    getAttribute: (name: string) => Promise<string | null>;
   };
   waitForSelector: (
     sel: string,
@@ -28,17 +29,24 @@ type PageLike = {
   ) => Promise<unknown>;
 };
 
-/** Idempotently open the active host's diagnostics popover so Padi/Kaval
- *  marks mount. A second call is a no-op when the panel is already visible
- *  (the chip click toggles — re-clicking would close it). */
+/** Idempotently open the ACTIVE host's diagnostics popover. Scopes the
+ *  already-open check to that host's `data-host` so a panel for a different
+ *  host does not short-circuit the open. */
 export async function openActiveHostDiagnostics(page: PageLike): Promise<void> {
-  const panel = '[data-testid="host-diagnostics-popover"]';
+  const activeChip =
+    '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]';
+  const activeKey = await page.locator(activeChip).getAttribute("data-host");
+  if (!activeKey) {
+    throw new Error(
+      "openActiveHostDiagnostics: no active host chip (data-host) found",
+    );
+  }
+  // Host keys are encodeHostKey strings (no quotes); attribute match is exact.
+  const panel = `[data-testid="host-diagnostics-popover"][data-host="${activeKey}"]`;
   if ((await page.locator(panel).count()) > 0) {
     await page.waitForSelector(panel, { timeout: 5_000, state: "visible" });
     return;
   }
-  const active =
-    '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active] [data-testid="host-select"]';
-  await page.locator(active).click();
+  await page.locator(`${activeChip} [data-testid="host-select"]`).click();
   await page.waitForSelector(panel, { timeout: 10_000, state: "visible" });
 }

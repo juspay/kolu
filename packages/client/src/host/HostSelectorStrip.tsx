@@ -77,12 +77,6 @@ import {
   statusTitle,
 } from "./hostChipTone";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
-import {
-  closeDiagnostics,
-  isDiagnosticsOpen,
-  openDiagnostics,
-  toggleDiagnostics,
-} from "./hostDiagnosticsOpen";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
@@ -123,7 +117,20 @@ const statusLabel: (host: HostKey) => string = (host) =>
 /** Hover-open delay so a chip sweep across the strip doesn't flash N panels. */
 const DIAGNOSTICS_HOVER_MS = 280;
 
-const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
+/** Accessors the strip owns for the one-open-diagnostics key — passed into
+ *  each chip so open state dies with the strip (no module-lifetime leak). */
+type DiagnosticsCtl = {
+  isOpen: (encKey: string) => boolean;
+  open: (encKey: string) => void;
+  close: () => void;
+  toggle: (encKey: string) => void;
+};
+
+const HostChip: Component<{
+  host: HostKey;
+  measure?: boolean;
+  diagnostics: DiagnosticsCtl;
+}> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
@@ -141,8 +148,8 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   const isActive = () => sameHost(activeHost(), props.host);
   const down = () => isHostDown(state());
   const exceptionDot = () => exceptionDotClass(state());
-  // Strip-level open key — only ONE diagnostics panel mounts at a time.
-  const diagOpen = () => !props.measure && isDiagnosticsOpen(encKey);
+  // Strip-owned open key — only ONE diagnostics panel mounts at a time.
+  const diagOpen = () => !props.measure && props.diagnostics.isOpen(encKey);
 
   let chipEl: HTMLDivElement | undefined;
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
@@ -157,7 +164,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // Measure twins never open diagnostics (they're off-screen width probes).
   const openThisDiagnostics = () => {
     if (props.measure) return;
-    openDiagnostics(encKey);
+    props.diagnostics.open(encKey);
   };
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
@@ -219,7 +226,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             const wasActive = isActive();
             if (!wasActive) setActiveHost(props.host);
             if (down()) openThisDiagnostics();
-            else if (wasActive) toggleDiagnostics(encKey);
+            else if (wasActive) props.diagnostics.toggle(encKey);
           }}
           title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
         >
@@ -275,7 +282,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           host={props.host}
           triggerRef={() => chipEl}
           open={diagOpen}
-          onDismiss={closeDiagnostics}
+          onDismiss={props.diagnostics.close}
         />
       </Show>
     </div>
@@ -658,6 +665,24 @@ const HostSelectorStrip: Component = () => {
   // `onError` (shared with the mobile row).
   const renderableHosts = useHostMembers();
 
+  // One open diagnostics host — strip-owned (dies with the strip; cleared when
+  // the keyed host leaves membership so a re-add never reopens stale).
+  const [diagKey, setDiagKey] = createSignal<string | null>(null);
+  const diagnostics: DiagnosticsCtl = {
+    isOpen: (encKey) => diagKey() === encKey,
+    open: (encKey) => setDiagKey(encKey),
+    close: () => setDiagKey(null),
+    toggle: (encKey) => setDiagKey((cur) => (cur === encKey ? null : encKey)),
+  };
+  createEffect(() => {
+    const open = diagKey();
+    if (open === null) return;
+    const stillMember = renderableHosts().some(
+      (h) => encodeHostKey(h) === open,
+    );
+    if (!stillMember) setDiagKey(null);
+  });
+
   // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
   // Real DOM measurement: a HIDDEN row (absolutely positioned, `invisible`,
   // `pointer-events-none`, so it never paints or intercepts a click) mounts
@@ -751,7 +776,9 @@ const HostSelectorStrip: Component = () => {
           data-testid="host-chip-row"
         >
           <For each={hostFit().visible}>
-            {(key) => <HostChip host={decodeHostKey(key)} />}
+            {(key) => (
+              <HostChip host={decodeHostKey(key)} diagnostics={diagnostics} />
+            )}
           </For>
           <Show when={hostFit().overflowed.length > 0}>
             <HostOverflowMenu hosts={hostFit().overflowed} />
@@ -784,7 +811,7 @@ const HostSelectorStrip: Component = () => {
                 data-host-key={key}
                 class="shrink-0"
               >
-                <HostChip host={host} measure />
+                <HostChip host={host} measure diagnostics={diagnostics} />
               </div>
             );
           }}
