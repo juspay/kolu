@@ -57,6 +57,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-palette-finds-everything",
     text: `${formatKeybind(ACTIONS.commandPalette.keybind)} finds workspaces and hosts too — type a branch, repo, or machine name without opening a separate switcher`,
+    doc: "switcher",
   },
   {
     id: "amb-mru",
