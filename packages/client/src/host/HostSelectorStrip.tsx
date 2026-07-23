@@ -59,12 +59,9 @@ import {
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { hostMarks } from "../attention/attentionMarks";
-import { HOSTS_GROUP_NAME } from "../palette/hostsGroup";
 import DocLink from "../ui/DocLink";
-import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
-import { useCommandPalette } from "../useCommandPalette";
 import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
@@ -580,25 +577,6 @@ const AddHostAffordance: Component = () => {
   );
 };
 
-/** The host-bar search affordance — a magnifier that opens the Hosts scoped
- *  palette group (the same `⌘⇧H` picker as root host rows), mirroring the
- *  Dock's terminal search button. Only when the pool holds more than local. */
-const HostSearchButton: Component = () => {
-  const commandPalette = useCommandPalette();
-  return (
-    <button
-      type="button"
-      data-testid="host-search"
-      onClick={() => commandPalette.openGroup(HOSTS_GROUP_NAME)}
-      class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
-      aria-label="Hosts"
-      title="Hosts (⌘⇧H)"
-    >
-      <SearchIcon class="h-4 w-4" />
-    </button>
-  );
-};
-
 const HostSelectorStrip: Component = () => {
   // Multi-host chrome is NO LONGER gated on `KOLU_PADI_HOST`: every pool member
   // gets a chip and the "+ add a host" affordance is always present. With no
@@ -760,12 +738,8 @@ const HostSelectorStrip: Component = () => {
         </For>
       </div>
 
-      {/* Hosts switcher — mirrors Dock search; opens the ⌘⇧H picker. */}
-      <Show when={renderableHosts().length > 1}>
-        <HostSearchButton />
-      </Show>
-
-      {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate). */}
+      {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate).
+       *  Host switching stays on ⌘⇧H / the command palette. */}
       <AddHostAffordance />
     </div>
   );
