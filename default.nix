@@ -128,7 +128,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-oUzs67WJxOO6eLsIUb9vaOCgFdv2nSJHm4Qxo8MGzS0=";
+    hash = "sha256-8XNU5fOdJ7Y7D7G1mKB1pD5npfI95M70DoYfJFTjyAs=";
     fetcherVersion = 3;
   };
 
