@@ -196,6 +196,41 @@ describe("foldEventsState", () => {
         { type: "goal_planner_completed" },
       ]),
     ).toBe("waiting");
+    // happy path: turn_started after the planner window wins on its own
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_completed" },
+        { type: "turn_started" },
+      ]),
+    ).toBe("thinking");
+    // sequential re-open: a later fire is active again
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_completed" },
+        { type: "goal_planner_fired" },
+      ]),
+    ).toBe("thinking");
+    // completed with no prior fire is a no-op closer
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_completed" },
+      ]),
+    ).toBe("waiting");
+    // nested multi-fire: stacked completes close every open fire
+    expect(
+      foldEventsState([
+        { type: "turn_ended" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_fired" },
+        { type: "goal_planner_completed" },
+        { type: "goal_planner_completed" },
+      ]),
+    ).toBe("waiting");
   });
 
   it("prefers the newest signal", () => {
