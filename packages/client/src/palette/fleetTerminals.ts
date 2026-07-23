@@ -73,19 +73,19 @@ export function isTopLevelTerminal(meta: {
 export function groupFleetByHost(
   rows: readonly FleetTerminalRow[],
 ): { host: HostKey; rows: FleetTerminalRow[] }[] {
-  const order: string[] = [];
-  const map = new Map<string, { host: HostKey; rows: FleetTerminalRow[] }>();
+  const out: { host: HostKey; rows: FleetTerminalRow[] }[] = [];
+  const byKey = new Map<string, { host: HostKey; rows: FleetTerminalRow[] }>();
   for (const row of rows) {
     const key = encodeHostKey(row.host);
-    let bucket = map.get(key);
+    let bucket = byKey.get(key);
     if (bucket === undefined) {
       bucket = { host: row.host, rows: [] };
-      map.set(key, bucket);
-      order.push(key);
+      byKey.set(key, bucket);
+      out.push(bucket);
     }
     bucket.rows.push(row);
   }
-  return order.map((key) => map.get(key)!);
+  return out;
 }
 
 /** Active host first, then the remaining hosts in their original order.

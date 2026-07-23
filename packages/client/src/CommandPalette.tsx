@@ -358,11 +358,11 @@ const CommandPalette: Component<{
     return out;
   }
 
-  /** Root type-search index: top-level drillables (groups/values) for name
-   *  match + drill, plus **nested actions only** (e.g. Debug → Diagnostic
-   *  info). Nested value labels and nested groups are omitted — labels are
-   *  inert in filter mode, and nested groups can't be drilled without an
-   *  ancestor path. */
+  /** Root type-search index: top-level items (including terminal/host
+   *  leaves already registered at root) plus nested **command** actions
+   *  under Debug / New terminal / etc. Do **not** collect leaves from
+   *  Terminals / Hosts groups — those leaves are already top-level and
+   *  re-collecting them doubles every fleet hit. */
   function flattenForRootSearch(
     items: readonly (PaletteCommand | PaletteLabel)[],
   ): (PaletteCommand | PaletteLabel)[] {
@@ -371,7 +371,6 @@ const CommandPalette: Component<{
       for (const item of list) {
         if (item.kind === "action") out.push(item);
         else if (item.kind === "group") collectActions(resolveChildren(item));
-        // value / label / hint — skip (not executable from root search)
       }
     };
     for (const item of items) {
@@ -382,7 +381,15 @@ const CommandPalette: Component<{
       }
       // Top-level group or value — keep for name match / drillInto.
       out.push(item);
-      if (item.kind === "group") collectActions(resolveChildren(item));
+      if (item.kind !== "group") continue;
+      // Skip groups whose children are already promoted to root leaves.
+      if (
+        item.name === TERMINALS_GROUP_NAME ||
+        item.name === HOSTS_GROUP_NAME
+      ) {
+        continue;
+      }
+      collectActions(resolveChildren(item));
     }
     return out;
   }

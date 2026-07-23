@@ -96,12 +96,6 @@ export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
  *  `reconcile` collapses an unchanged reprojection back to a stable reference. Calling
  *  it from any other tracking scope would reintroduce #1714's per-call identity churn,
  *  which is why the value read path funnels through `getMetadata` alone. */
-function reprojectClock(record: TerminalMetadata): TerminalMetadata {
-  return reprojectTerminalClock(
-    padiMap.entry(activeHost()).clock.toLocal,
-    record,
-  );
-}
 
 export function useTerminalMetadata(deps: {
   list: Accessor<{ id: TerminalId }[] | undefined>;
@@ -168,13 +162,13 @@ export function useTerminalMetadata(deps: {
    *  record`, or a structural swap `reconcile` can't merge in place.
    *
    *  This restores an identity-stability GUARANTEE at the one knowing endpoint.
-   *  #1714 broke it by having `getMetadata` return `reprojectClock(rawTile(id))`
-   *  — a fresh object minted per call, reactive on the active host's clock — so
-   *  every observation manufactured a spurious "new value"; a consumer keyed on
-   *  the reference (the `active` memo → `repoPath()` → the Code tab) then
-   *  remounted on every incidental `lastActivityAt`/`agent`/clock tick (the
-   *  right-panel flicker). With the projection, consumers reading `meta.git.…`
-   *  track that leaf again and are notified only on a real value change.
+   *  #1714 broke it by having `getMetadata` return a fresh reprojected object
+   *  per call (reactive on the active host's clock) so every observation
+   *  manufactured a spurious "new value"; a consumer keyed on the reference
+   *  (the `active` memo → `repoPath()` → the Code tab) then remounted on every
+   *  incidental `lastActivityAt`/`agent`/clock tick (the right-panel flicker).
+   *  With the projection, consumers reading `meta.git.…` track that leaf again
+   *  and are notified only on a real value change.
    *
    *  `slots` is a keyed store (not a plain Map) so `getMetadata`'s `slots[id]`
    *  read re-subscribes when THIS id's projection is created/removed WITHOUT
@@ -192,13 +186,18 @@ export function useTerminalMetadata(deps: {
     });
     // Reprojects on every change of this id's raw record OR the active host's
     // clock; `writeWrappedValue`'s `reconcile` keeps `store.v`'s identity when the
-    // reprojected value is unchanged. This computed is the SOLE caller of
-    // `reprojectClock` — the fresh-object read path is unspellable elsewhere.
+    // reprojected value is unchanged. Sole write path for reprojected metadata —
+    // the fresh-object read path is unspellable elsewhere.
     createComputed(() => {
       const record = rawTile(id);
       writeWrappedValue<TerminalMetadata | undefined>(
         setStore,
-        record === undefined ? undefined : reprojectClock(record),
+        record === undefined
+          ? undefined
+          : reprojectTerminalClock(
+              padiMap.entry(activeHost()).clock.toLocal,
+              record,
+            ),
       );
     });
     setSlots(id, { read: () => store.v });
