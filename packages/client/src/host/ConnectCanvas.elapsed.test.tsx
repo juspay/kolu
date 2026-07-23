@@ -14,7 +14,7 @@ import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  host: { kind: "remote", host: "zest" } as HostKey,
+  host: { kind: "remote", target: "zest" } satisfies HostKey,
   /** Mutable box the mock reads — not a Solid signal (createSignal can't run
    *  inside `vi.hoisted` before solid-js is initialized). */
   info: undefined as ConnectionInfo | undefined,
