@@ -137,6 +137,19 @@ Feature: Terminal switcher (unified palette)
     And the header branch should contain "root-jump-branch"
     And there should be no page errors
 
+  Scenario: Empty-root Recent ranks by visit trail (last active first)
+    # Activate A then B via dock; ⌘K Recent should list B before A.
+    When I run "rm -rf /tmp/kolu-visit-a && git init /tmp/kolu-visit-a && cd /tmp/kolu-visit-a && git checkout -b visit-a-branch"
+    And I create a terminal
+    And I run "rm -rf /tmp/kolu-visit-b && git init /tmp/kolu-visit-b && cd /tmp/kolu-visit-b && git checkout -b visit-b-branch"
+    # visit-b is active (just created). Click the older dock row to activate visit-a, then back to visit-b.
+    When I click workspace switcher branch 1
+    And I click workspace switcher branch 2
+    And I open the command palette
+    Then the first palette terminal row should be "visit-b-branch"
+    And palette terminal row "visit-b-branch" should appear before "visit-a-branch"
+    And there should be no page errors
+
   Scenario: Mod+Shift+K shows host header with terminal rows without drilling
     # (2) ⌘⇧K auto-expands: local header + count, terminal rows beneath.
     Given I create a terminal

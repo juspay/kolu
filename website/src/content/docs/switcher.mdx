@@ -22,8 +22,12 @@ into scoped views of the same surface, not separate apps.
 
 At the empty root you see:
 
-1. **Recent** — the three most-recent live terminals (the same recency clock
-   the [Dock](/dock) uses), so "go back to what I was doing" is often row one.
+1. **Recent** — the three terminals **you were just in** (client visit trail —
+   last time each tile became active), interleaved across every **connected**
+   host. Rank is `max(your last visit, server activity)`, so a fresh browser
+   still orders by agent/output clocks until you navigate; after that your own
+   trail wins over background chatter. Cross-host rows show the same host chip
+   as search hits.
 2. **Hosts** — every machine in the pool (when more than local is configured),
    quiet when healthy; `active` only for the canvas host.
 3. **Terminals** section — the Terminals group (⌘⇧K) and New terminal.
@@ -44,8 +48,9 @@ brings its splits with it, same as the Dock.
 
 - **Plain shells** appear (no agent required), with the same state pip language
   as the Dock (shell mark / idle paint).
-- **Order** is fleet-wide recency (`lastActivityAt` / sleep clock, reprojected
-  per host). Parked rows the activity window would hide are dropped here too.
+- **Order** is fleet-wide `max(visit, activity)` (visit = last time you made
+  the tile active; activity is the Dock's reprojected clock). Parked rows the
+  activity window would hide are dropped here too.
 - **Cross-host rows** carry **one host chip** in the right rail — the same
   identity hue + connection-status language as the chrome-bar host strip — so
   `srid@builder` vs local is obvious without repeating the name in the context

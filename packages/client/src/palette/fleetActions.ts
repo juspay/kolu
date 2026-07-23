@@ -17,6 +17,11 @@ import type {
 import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel, hostRowContext, sameHost } from "../host/hostChipTone";
 import { assignColors } from "../terminal/terminalDisplay";
+import {
+  encodeVisitHost,
+  visitList,
+  visitRankScore,
+} from "../terminal/visitRecency";
 import { padiMap } from "../wire";
 import {
   type FleetTerminalRow,
@@ -69,6 +74,14 @@ function terminalSwitchActionsForHost(
       );
     }
     const hostName = hostLabel(row.host);
+    // max(client visit, server activity) so ⌘K Recent follows the user's
+    // trail once they navigate, and still ranks by activity on a fresh browser.
+    const recencyAt = visitRankScore(
+      visitList(),
+      encodeVisitHost(row.host),
+      row.id,
+      row.recencyAt,
+    );
     return {
       kind: "action",
       name: branchLabel,
@@ -83,7 +96,7 @@ function terminalSwitchActionsForHost(
         repoName,
         repoColor,
         branchLabel,
-        recencyAt: row.recencyAt,
+        recencyAt,
         searchText: [
           workspaceSearchText({
             repoName,
