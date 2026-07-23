@@ -57,8 +57,9 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
  *                     goes `probing → connecting → connected` with no build UI.
  *   - `"copying"`  — `nix copy --derivation …` is ACTUALLY pushing the `.drv` (the
  *                     COLD path only; entered at the copy command boundary).
- *   - `"building"` — `ssh $host nix-store --realise …` is compiling it (the minutes,
- *                     on a first connect to a fresh host).
+ *   - `"building"` — `ssh $host nix build -v --print-out-paths --no-link $drv^*`
+ *                     is compiling/substituting it (the minutes, on a first connect
+ *                     to a fresh host).
  *  A session opens at `"probing"` and advances to `"copying"` then `"building"` via
  *  `ctx.provisioning`, each at its real command boundary (`nixCopy`'s `onCopying`/
  *  `onBuilding` hooks). */

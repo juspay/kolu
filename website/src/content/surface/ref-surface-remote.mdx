@@ -90,9 +90,12 @@ fence retries) so the client re-subscribes end-to-end and a snapshot only ever
 leads a fresh stream. A subscribe **before** any live spawn is up **waits** for
 the next spawn (same pre-connect arm as hold-open) rather than throwing that
 retryable end every second — which used to spam the journal for the whole
-provisioning window. A raw re-throw would cross oRPC sanitized to a non-retriable
-error and strand the downstream — this named end is what makes fail-through
-actually recover. Holding open a byte stream is a compile error.
+provisioning window. Direct callers of `relayFailThroughStream` (and its
+hold-open sibling) must pass an **`ObservableHolder`** from
+`observableHolder()` — the pre-bind wait needs `whenChanged()`, which a plain
+`LiveSpawnHolder` does not expose. A raw re-throw would cross oRPC sanitized to
+a non-retriable error and strand the downstream — this named end is what makes
+fail-through actually recover. Holding open a byte stream is a compile error.
 
 A collection that declares the `deltas` verb is mirrored through its **single**
 batched snapshot-then-delta stream (folded into the same `{ upsert, remove }`

@@ -208,4 +208,35 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
       document.querySelector('[data-testid="connect-elapsed"]'),
     ).toBeNull();
   });
+
+  it("re-baselines when the active host switches (same sinceMs, component stays mounted)", async () => {
+    // Boolean warming Match keeps ConnectCanvas mounted across host switches;
+    // both episodes often open at sinceMs: 0 — must not keep host A's wall baseline.
+    h.host = { kind: "remote", target: "zest" };
+    h.setInfo({
+      phase: "building",
+      log: [{ source: "local", line: "building on zest" }],
+      sinceMs: 0,
+    });
+    dispose = render(
+      () => <ConnectCanvas daemonState={undefined} />,
+      document.body,
+    );
+    // Advance past the 1s elapsed guard so the label is visible.
+    clock.advance(2_000);
+    expect(elapsed()).toBe("2s");
+
+    h.host = { kind: "remote", target: "other" };
+    h.setInfo({
+      phase: "building",
+      log: [{ source: "local", line: "building on other" }],
+      sinceMs: 0,
+    });
+    // Fresh host at sinceMs 0 → elapsed resets (still under 1s flash guard).
+    expect(
+      document.querySelector('[data-testid="connect-elapsed"]'),
+    ).toBeNull();
+    clock.advance(2_000);
+    expect(elapsed()).toBe("2s"); // from other, not 4s from zest
+  });
 });

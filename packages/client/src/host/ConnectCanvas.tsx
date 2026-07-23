@@ -78,28 +78,33 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   //     tick HostDaemonChips / inspector use. A component-local setInterval was wiped
   //     every second when `<Match when={warmingMode()}>` remounted on each mode() object
   //     (mode recomputes every getMonotonicNow tick for the boot deadline).
-  //  2. Re-anchor ONLY when the server's `sinceMs` changes — re-baselining `at` on every
-  //     effect re-run (or remount) with the same sinceMs zeroes the extension and freezes
-  //     the label at the last frame's sinceMs until the next log frame jumps it.
+  //  2. Re-anchor ONLY when the server's `sinceMs` changes for the SAME host — re-baselining
+  //     `at` on every effect re-run (or remount) with the same sinceMs zeroes the extension
+  //     and freezes the label at the last frame's sinceMs until the next log frame jumps it.
+  //     Host is part of the key because the boolean warming Match keeps this component
+  //     mounted across active-host switches; same sinceMs (often 0 at episode start) must
+  //     not keep the prior host's wall baseline.
   const clockNow = getClockNow();
-  const [anchor, setAnchor] = createSignal<{ ms: number; at: number } | null>(
-    null,
-  );
+  const [anchor, setAnchor] = createSignal<{
+    host: string;
+    ms: number;
+    at: number;
+  } | null>(null);
   createEffect(() => {
     const c = copy();
     const frame = info();
+    const h = host();
     if (c === null || frame === undefined) {
       setAnchor(null);
       return;
     }
     const sinceMs = frame.sinceMs;
     setAnchor((prev) => {
-      // Same server duration → keep the receipt baseline so wall clock extends it.
-      // Edge: a new episode whose first frame carries exactly the old episode's
-      // sinceMs would keep the stale anchor and briefly overstate elapsed until
-      // the next frame — self-correcting and acceptably rare; don't "fix" it.
-      if (prev !== null && prev.ms === sinceMs) return prev;
-      return { ms: sinceMs, at: untrack(() => clockNow()) };
+      // Same host + same server duration → keep the receipt baseline so wall clock
+      // extends it. Same-host new episode with an identical first sinceMs is rare and
+      // self-corrects on the next frame; don't "fix" that edge alone.
+      if (prev !== null && prev.host === h && prev.ms === sinceMs) return prev;
+      return { host: h, ms: sinceMs, at: untrack(() => clockNow()) };
     });
   });
   // Plain function (not createMemo): reads clockNow() in the caller's tracking

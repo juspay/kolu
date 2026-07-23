@@ -34,7 +34,7 @@
  *      `ssh $host $agentPath/bin/<binary> --stdio` via the connector.
  *
  * Localhost shortcut: the .drv is already in the local store, so
- * `nix-store --realise` is a local build. The copy step is a no-op.
+ * `nix build` is a local build. The copy step is a no-op.
  *
  * **Lifetime ownership (#1908 D1b/D1c).** Every child spawns through
  * `process.ts` with a REQUIRED {@link LifetimePolicy}: the quick steps
@@ -182,8 +182,8 @@ export interface ProvisionOptions {
    *  the moment a real copy actually begins (the warm check has already MISSED). The
    *  connector uses it to advance its phase `probing → copying`. Optional. */
   onCopying?: () => void;
-  /** Fired ONCE, on the COLD path, at the copy→realise boundary — right before
-   *  `nix-store --realise` starts the BUILD. Advances `copying → building`. Optional. */
+  /** Fired ONCE, on the COLD path, at the copy→build boundary — right before
+   *  `nix build` starts the BUILD. Advances `copying → building`. Optional. */
   onBuilding?: () => void;
   /** The fused per-step progress-liveness budgets (#1908 R4/C5) — CONNECTOR-owned so
    *  their doubling/terminal state persists across a campaign's retries. The connector
