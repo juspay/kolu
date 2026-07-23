@@ -28,10 +28,7 @@ import { hostLabel } from "./host/hostChipTone";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
-import {
-  notePointerMove,
-  type PointerPos,
-} from "./palette/pointerHoverGate";
+import { notePointerMove, type PointerPos } from "./palette/pointerHoverGate";
 import {
   filterAndRankPaletteItems,
   itemKind,
@@ -281,7 +278,8 @@ const CommandPalette: Component<{
     // While the reconcile effect hasn't trimmed yet, render the deepest
     // still-valid level — never the stale missing segment's children.
     if (valid.length === 0) return props.commands();
-    if (valid.length < p.length) return resolveChildren(valid[valid.length - 1]!);
+    if (valid.length < p.length)
+      return resolveChildren(valid[valid.length - 1]!);
     return level;
   });
 
@@ -431,22 +429,24 @@ const CommandPalette: Component<{
   /** Breadcrumb labels — path names, plus a virtual host segment when a
    *  Terminals search highlight lands on a terminal (so the path reads
    *  Commands › Terminals › zest without a real host drill). */
-  const breadcrumbSegments = createMemo((): { name: string; depth: number }[] => {
-    const segments = path().map((s, i) => ({ name: s.name, depth: i + 1 }));
-    const p = path();
-    if (
-      p.length === 1 &&
-      p[0]?.name === TERMINALS_GROUP_NAME &&
-      query().trim().length > 0
-    ) {
-      const sel = filtered()[selectedIndex()];
-      const host = sel?.row?.hostKey;
-      if (host) {
-        segments.push({ name: hostLabel(host), depth: segments.length + 1 });
+  const breadcrumbSegments = createMemo(
+    (): { name: string; depth: number }[] => {
+      const segments = path().map((s, i) => ({ name: s.name, depth: i + 1 }));
+      const p = path();
+      if (
+        p.length === 1 &&
+        p[0]?.name === TERMINALS_GROUP_NAME &&
+        query().trim().length > 0
+      ) {
+        const sel = filtered()[selectedIndex()];
+        const host = sel?.row?.hostKey;
+        if (host) {
+          segments.push({ name: hostLabel(host), depth: segments.length + 1 });
+        }
       }
-    }
-    return segments;
-  });
+      return segments;
+    },
+  );
 
   /** Annotated render list — root section headers, Terminals host headers
    *  (auto-expanded), or a plain row list. Headers are not selectable;

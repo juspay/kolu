@@ -177,10 +177,7 @@ const App: Component = () => {
     onCreate: () => commandPalette.openGroup("New terminal"),
     // Dock search → host-scoped terminal list (Terminals › $activeHost).
     onOpenWorkspaceSearch: () =>
-      commandPalette.openPath([
-        TERMINALS_GROUP_NAME,
-        hostLabel(activeHost()),
-      ]),
+      commandPalette.openPath([TERMINALS_GROUP_NAME, hostLabel(activeHost())]),
   };
 
   /** Close a terminal. Top-level terminals show a confirmation dialog;

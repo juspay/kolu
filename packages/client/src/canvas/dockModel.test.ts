@@ -1,10 +1,6 @@
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
-import {
-  metaBucket,
-  paintBucket,
-  workspaceSearchText,
-} from "./dockModel";
+import { metaBucket, paintBucket, workspaceSearchText } from "./dockModel";
 
 describe("paintBucket", () => {
   it("maps absent agent to none", () => {
