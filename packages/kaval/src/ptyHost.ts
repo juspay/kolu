@@ -673,6 +673,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
 
   function spawn(spawnOpts: PtySpawnOpts): PtySpawnResult {
     const id = spawnOpts.id ?? generateId();
+    // An id names one live PTY. In particular, a kill and a same-id wake may
+    // overlap while the old child is still delivering onExit; overwriting its
+    // map slot would let the old teardown delete the replacement. Reject before
+    // node-pty or the headless mirror has any side effects.
+    if (entries.has(id)) {
+      throw new Error(`pty-host: PTY ${id} already exists`);
+    }
     const cols = spawnOpts.cols ?? DEFAULT_COLS;
     const rows = spawnOpts.rows ?? DEFAULT_ROWS;
     const scrollback = spawnOpts.scrollback ?? defaultScrollback;

@@ -20,7 +20,7 @@
  */
 
 import { describeDaemon } from "@kolu/daemon-test-gate";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import type { PtyHostClient } from "./inProcessPtyHost.ts";
 import {
   DEFAULT_SPAWN_SHELL,
@@ -213,9 +213,25 @@ export function runContractCorpus(opts: {
     beforeAll(async () => {
       host = await opts.makeHost();
     });
+
+    /** Reap the shared host through killAll's production boundary, then prove
+     *  inventory is empty. Tests intentionally share an expensive daemon host,
+     *  so clean per-test state is enforced here rather than left to individual
+     *  assertion tails. */
+    const killAllAndWait = async (): Promise<number> => {
+      const { killed } = await client().surface.terminal.killAll({});
+      const after = await client().surface.terminal.list({});
+      expect(after.entries).toEqual([]);
+      return killed;
+    };
+
+    afterEach(async () => {
+      await killAllAndWait();
+    }, 20_000);
+
     afterAll(async () => {
       try {
-        await client().surface.terminal.killAll({});
+        await killAllAndWait();
       } catch {
         // The connection may already be torn down by a prior failure — the
         // dispose below still runs.
@@ -528,23 +544,44 @@ export function runContractCorpus(opts: {
       });
     });
 
+    it("a live id stays reserved through kill teardown, then can respawn", async () => {
+      const id = "11111111-1111-4111-8111-111111111111";
+      const first = await client().surface.terminal.spawn({
+        ...spawnInput(opts.makeCwd()),
+        id,
+      });
+
+      // This is the same state an overlapping kill/spawn observes until the
+      // old child's onExit teardown: the id must not be overwritten.
+      await expect(
+        client().surface.terminal.spawn({
+          ...spawnInput(opts.makeCwd()),
+          id,
+        }),
+      ).rejects.toThrow();
+
+      await client().surface.terminal.kill({ id });
+      expect((await client().surface.terminal.list({})).entries).toEqual([]);
+
+      const second = await client().surface.terminal.spawn({
+        ...spawnInput(opts.makeCwd()),
+        id,
+      });
+      expect(second.pid).not.toBe(first.pid);
+      expect((await client().surface.terminal.list({})).entries).toEqual([
+        expect.objectContaining({ id, pid: second.pid }),
+      ]);
+    });
+
     it("terminal.killAll reaps every live PTY", {
       timeout: 20000,
     }, async () => {
       await client().surface.terminal.spawn(spawnInput(opts.makeCwd()));
       await client().surface.terminal.spawn(spawnInput(opts.makeCwd()));
-      // Include any still-exiting PTY from the preceding corpus test, then arm
-      // every completion signal before killAll. The exit streams yield only
-      // after each PTY's onExit path has removed its inventory entry.
-      const before = await client().surface.terminal.list({});
-      const exits = before.entries.map(async ({ id }) =>
-        firstYield(await client().surface.exit.get({ id })),
-      );
-      const { killed } = await client().surface.terminal.killAll({});
+      // The shared cleanup authority resolves only after killAll's production
+      // boundary has observed every onExit and removed every inventory row.
+      const killed = await killAllAndWait();
       expect(killed).toBeGreaterThanOrEqual(2);
-      await Promise.all(exits);
-      const { entries } = await client().surface.terminal.list({});
-      expect(entries).toEqual([]);
     });
   });
 }
