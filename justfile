@@ -325,13 +325,16 @@ test: install
     # cores), so cores/3 sized for the hardware overcommits the leftover ~2x and the
     # suite thrashes (33+ min vs ~3 min idle — see the 2026-06 follow-up in
     # docs/ci-e2e-macos-ralph-report.md). Subtracting the 1-min load average is
-    # a no-op on an idle host ((24-~0)/3 still hits the cap) and degrades toward
-    # the floor only under real external load. Floor 4 = the setting CI ran
-    # stably on for months, never lower.
+    # a no-op on an idle host ((24-~0)/3 still hits the cap) and degrades all the
+    # way to one worker under real external load. A fixed floor of 4 encoded the
+    # old 24-core rasam venue: on a 10-core darwin host at load 6 it knowingly
+    # oversubscribed the four free cores with four browser+server+padi+kaval
+    # worlds, starving an alive padi for 60s and triggering a false watchdog
+    # recycle. The floor must respect the measured capacity just like the cap.
     load="$(uptime | sed 's/.*load average[s]*: *//' | awk -F'[, ]' '{print int($1)}')"
     free=$(( cores - ${load:-0} ))
     par=$(( free / 3 ))
-    if (( par < 4 )); then par=4; fi
+    if (( par < 1 )); then par=1; fi
     if (( par > cap )); then par=$cap; fi
     par="${CUCUMBER_PARALLEL:-$par}"
     # Fail loud on a non-numeric worker count: cucumber.js drops a NaN
