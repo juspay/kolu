@@ -2,9 +2,11 @@
  *  Label is the hero (`text-fg font-medium`); hint recedes (`text-fg-3/70`) so
  *  attention lands on the control, not the copy. TONE_CONFIG owns both the
  *  color class and the glyph prefix so a new tone entry updates both in one
- *  place. Default tone is "muted". */
+ *  place. Default tone is "muted". Optional `doc` renders a trailing docs link
+ *  under the hint. */
 
 import { type Component, type JSX, Show } from "solid-js";
+import DocLink, { type DocSlug } from "../ui/DocLink";
 
 const TONE_CONFIG = {
   muted: { colorClass: "text-fg-3/70", glyph: "" },
@@ -16,6 +18,8 @@ export type Hint = { text: string; tone?: keyof typeof TONE_CONFIG };
 const SettingRow: Component<{
   label: string;
   hint?: Hint;
+  /** Optional product-docs slug — renders a "Docs →" link under the hint. */
+  doc?: DocSlug;
   children: JSX.Element;
 }> = (props) => (
   <div>
@@ -39,6 +43,13 @@ const SettingRow: Component<{
           </p>
         );
       }}
+    </Show>
+    <Show when={props.doc}>
+      {(slug) => (
+        <div class="mt-1 text-xs">
+          <DocLink slug={slug()}>Docs →</DocLink>
+        </div>
+      )}
     </Show>
   </div>
 );

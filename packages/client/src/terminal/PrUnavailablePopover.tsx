@@ -12,6 +12,7 @@ import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { match } from "ts-pattern";
 import CopyCommandButton from "../ui/CopyCommandButton";
+import DocLink from "../ui/DocLink";
 import { WarningIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -120,6 +121,10 @@ const PrUnavailablePopover: Component<{
           style={{ ...panelStyle(), ...chrome.style }}
         >
           <ProviderUnavailableContent source={props.source} />
+          <p class="text-fg-3 leading-relaxed pt-1 border-t border-edge">
+            Still stuck?{" "}
+            <DocLink slug="troubleshooting">Troubleshooting →</DocLink>
+          </p>
         </div>
       </Portal>
     </Show>

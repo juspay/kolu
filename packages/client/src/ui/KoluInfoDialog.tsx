@@ -7,6 +7,7 @@ import { formatUptime } from "../kaval/daemonPresentation";
 import type { WsStatus } from "../rpc/rpc";
 import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "./Commit";
+import { docUrl } from "./DocLink";
 import { OpenIcon } from "./Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "./InfoDialog";
 import { mbText } from "./memory";
@@ -108,15 +109,26 @@ const KoluInfoDialog: Component<{
         </DetailRow>
       </div>
 
-      <a
-        href={REPO_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="inline-flex items-center gap-1.5 rounded-md border border-edge bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-surface-3/60 hover:text-fg"
-      >
-        GitHub
-        <OpenIcon class="h-3.5 w-3.5" />
-      </a>
+      <div class="flex flex-wrap items-center gap-2">
+        <a
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center gap-1.5 rounded-md border border-edge bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-surface-3/60 hover:text-fg"
+        >
+          GitHub
+          <OpenIcon class="h-3.5 w-3.5" />
+        </a>
+        <a
+          href={docUrl("concepts")}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center gap-1.5 rounded-md border border-edge bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-surface-3/60 hover:text-fg"
+        >
+          Docs
+          <OpenIcon class="h-3.5 w-3.5" />
+        </a>
+      </div>
     </InfoDialogShell>
   );
 };

@@ -23,6 +23,7 @@
  */
 
 import { type Component, type JSX, Show } from "solid-js";
+import DocLink from "../ui/DocLink";
 import { WarningIcon } from "../ui/Icons";
 import type { DaemonDownState } from "./daemonPresentation";
 import RestartKavalButton from "./RestartKavalButton";
@@ -87,7 +88,8 @@ const RestartableCard: Component<{ state: "dead" | "degraded" }> = (props) => {
       </p>
       <p class="mt-2 text-xs leading-relaxed text-fg-3">
         Your saved session is preserved. Restart kaval to bring it back — your
-        terminals are offered for restore on the fresh daemon.
+        terminals are offered for restore on the fresh daemon.{" "}
+        <DocLink slug="kaval">Learn more →</DocLink>
       </p>
     </DangerCard>
   );
@@ -122,7 +124,7 @@ const IncompatibleCard: Component<{
     </p>
     <p class="mt-2 text-xs leading-relaxed text-fg-3">
       Your saved session is preserved and offered for restore on the fresh
-      daemon.
+      daemon. <DocLink slug="kaval">Learn more →</DocLink>
     </p>
   </DangerCard>
 );

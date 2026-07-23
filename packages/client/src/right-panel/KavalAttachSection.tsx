@@ -45,6 +45,7 @@ import { type Component, createMemo, For, Show } from "solid-js";
 import { localDaemonStatus } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import CopyCommandButton from "../ui/CopyCommandButton";
+import DocLink from "../ui/DocLink";
 import { CopyIcon } from "../ui/Icons";
 import { kavalCmd, kavalSocketArg } from "./kavalCmd";
 
@@ -167,15 +168,7 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
         Reach these terminals from any shell with{" "}
         <span class="font-mono text-fg-2">kaval-tui</span>, kolu's terminal CLI
         — attach to one, dump its scrollback, or send a prompt to an agent
-        inside it.{" "}
-        <a
-          href="https://kolu.dev/kaval/"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-accent hover:underline"
-        >
-          Learn more&nbsp;↗
-        </a>
+        inside it. <DocLink slug="kaval">Learn more&nbsp;↗</DocLink>
       </p>
 
       {/* Key by the stable primitive terminal id (not a wrapper object) so a

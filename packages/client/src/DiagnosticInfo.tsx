@@ -14,6 +14,7 @@ import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import { writeTextToClipboard } from "./ui/clipboard";
 import { createDisclosure } from "./ui/createDisclosure";
+import DocLink from "./ui/DocLink";
 import ModalDialog from "./ui/ModalDialog";
 import { formatMB, readJsHeap } from "./ui/memory";
 import Row from "./ui/Row";
@@ -145,17 +146,26 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       class={`${chrome.class} overflow-hidden flex flex-col max-h-[80vh]`}
       style={chrome.style}
     >
-      <div class="flex items-center justify-between px-4 py-2.5 border-b border-edge shrink-0">
+      <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-edge shrink-0">
         <Dialog.Label class="font-semibold text-fg text-sm">
           Diagnostic info
         </Dialog.Label>
-        <button
-          type="button"
-          onClick={copyJson}
-          class="text-[11px] px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 text-fg-2 hover:text-fg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        >
-          Copy JSON
-        </button>
+        <div class="flex items-center gap-2">
+          <DocLink
+            slug="troubleshooting"
+            class="text-[11px] text-accent hover:underline"
+            data-testid="diagnostic-docs"
+          >
+            Docs →
+          </DocLink>
+          <button
+            type="button"
+            onClick={copyJson}
+            class="text-[11px] px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 text-fg-2 hover:text-fg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          >
+            Copy JSON
+          </button>
+        </div>
       </div>
 
       <div class="overflow-y-auto">

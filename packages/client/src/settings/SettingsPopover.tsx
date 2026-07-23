@@ -117,7 +117,11 @@ const SettingsPopover: Component<{
           class={`fixed z-50 ${chrome.class} p-4 min-w-[280px] space-y-4`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
-          <SettingRow label="Theme" hint={SCHEME_HINT[colorScheme()]}>
+          <SettingRow
+            label="Theme"
+            hint={SCHEME_HINT[colorScheme()]}
+            doc="theming"
+          >
             <SegmentedControl
               options={SCHEME_OPTIONS}
               value={colorScheme()}
@@ -128,6 +132,7 @@ const SettingsPopover: Component<{
           <SettingRow
             label="New terminal theme"
             hint={NEW_TERMINAL_THEME_HINT[preferences().newTerminalTheme]}
+            doc="theming"
           >
             <SegmentedControl
               options={NEW_TERMINAL_THEME_OPTIONS}
@@ -164,6 +169,7 @@ const SettingsPopover: Component<{
             hint={{
               text: "Sound + notification when a background terminal finishes.",
             }}
+            doc="notifications"
           >
             <Toggle
               testId="attention-alerts-toggle"
