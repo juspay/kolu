@@ -16,7 +16,10 @@ import {
   readKavalGatePid,
   readPadiGatePid,
 } from "../support/hooks.ts";
-import { identityChipSelector } from "../support/hostChip.ts";
+import {
+  identityChipSelector,
+  openActiveHostDiagnostics,
+} from "../support/hostChip.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 async function armWarmingCanvasRecorder(world: KoluWorld): Promise<void> {
@@ -132,9 +135,11 @@ When(
   },
 );
 
-// Open the kaval rail chip's info dialog, where the "Restart kaval" button lives
-// for a RUNNING (not degraded) daemon — the live-but-stuck arm's entry point.
+// Open the kaval mark's info dialog (via the host diagnostics popover — quiet
+// strip), where the "Restart kaval" button lives for a RUNNING (not degraded)
+// daemon — the live-but-stuck arm's entry point.
 When("I open the kaval rail dialog", async function (this: KoluWorld) {
+  await openActiveHostDiagnostics(this.page);
   await this.page.locator(identityChipSelector("kaval-identity-chip")).click();
   await this.page.waitForSelector('[data-testid="restart-kaval"]', {
     timeout: POLL_TIMEOUT,

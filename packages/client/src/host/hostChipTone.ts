@@ -1,7 +1,11 @@
 /**
- * The host chip's connection-dot tone + hover title, derived from the keyed map's
- * projected `EntryStatus`. Pure (no JSX, no `wire`), so `HostSelectorStrip.tsx` renders
+ * Host-chip connection tone + labels, derived from the keyed map's projected
+ * `EntryStatus`. Pure (no JSX, no `wire`), so `HostSelectorStrip.tsx` renders
  * with them and the unit pin imports them without dragging in the live transport.
+ *
+ * Exception-based: a healthy connected host paints NO status dot on the strip
+ * (silence = fine). Amber pulse = warming/connecting; red = failed/unreachable.
+ * Green "everything is fine" dots are deleted, not restyled.
  */
 
 import type { EntryState } from "@kolu/surface-map";
@@ -28,7 +32,7 @@ export function sameHost(a: HostKey, b: HostKey): boolean {
  *  membership read mints, and drawn from the SAME palette + hash the server's
  *  PWA `theme-color` uses (`kolu-common/hostHue`) — one host, one colour, on
  *  every surface. This is host IDENTITY, distinct from the connection dot's
- *  {@link dotClass} STATUS tone (green/amber/red), which stays fact-driven. */
+ *  exception tone (amber/red), which stays fact-driven. */
 export function hostHue(host: HostKey): string {
   return hostHueFor(encodeHostKey(host));
 }
@@ -41,25 +45,47 @@ export function hostLabel(h: HostKey): string {
   return h.kind === "local" ? "local" : h.target;
 }
 
-/** The connection dot's tailwind tone. Green (`bg-emerald-400`) is emitted ONLY for
- *  `connected` — fact-only, the same discipline `<HostStatusPip>` enforces for a
- *  surface's `health()`. A map entry's equivalent fact is its `EntryStatus`, which
- *  `connectSurfaceMap` floors on real transport liveness, so a green-over-a-dead-host
- *  dot is unrenderable. */
-// A pure kind→tone lookup as a `Record` keyed on the full `EntryState["kind"]` union — so
-// adding a fourth displayed kind is a compile error here (exhaustive by construction), not a
-// silent fall-through to the `default` a `switch` would hide.
+/**
+ * Exception-based strip status: `null` when healthy (paint nothing), otherwise
+ * a tailwind fill class. Amber pulse for warming/connecting; red for failed.
+ * `motion-reduce:animate-none` keeps the pulse off under
+ * `prefers-reduced-motion` (static amber, still the exception signal).
+ *
+ * A pure kind→tone lookup as a `Record` keyed on the full `EntryState["kind"]`
+ * union — adding a fifth displayed kind is a compile error here (exhaustive by
+ * construction), not a silent fall-through to a `default` a `switch` would hide.
+ */
+const EXCEPTION_DOT: Record<EntryState["kind"], string | null> = {
+  connected: null, // healthy = silent
+  warming: "bg-amber-400 animate-pulse motion-reduce:animate-none",
+  failed: "bg-red-400",
+  "not-a-member": "bg-fg-3/40",
+};
+export function exceptionDotClass(status: EntryState): string | null {
+  return EXCEPTION_DOT[status.kind];
+}
+
+/**
+ * Always-on tone for surfaces that still need a permanent status pip (e.g. a
+ * popover header). Green only for `connected` — fact-only, same discipline as
+ * `<HostStatusPip>`. Prefer {@link exceptionDotClass} on the strip itself.
+ */
 const DOT_TONE: Record<EntryState["kind"], string> = {
-  connected: "bg-emerald-400", // live — the map floors this on transport liveness
-  warming: "bg-amber-400", // copying / connecting / pre-clock-offset — coming up
-  failed: "bg-red-400", // provisioning or link failed
-  "not-a-member": "bg-fg-3/40", // unreached — we only render members
+  connected: "bg-emerald-400",
+  warming: "bg-amber-400",
+  failed: "bg-red-400",
+  "not-a-member": "bg-fg-3/40",
 };
 export function dotClass(status: EntryState): string {
   return DOT_TONE[status.kind];
 }
 
-/** A one-line human note for the dot's `title` — the failure reason when failed.
+/** Unreachable / failed — desaturate the chip and strike the label. */
+export function isHostDown(status: EntryState): boolean {
+  return status.kind === "failed";
+}
+
+/** A one-line human note for the chip's `title` — the failure reason when failed.
  *  Reads only the failure's human `reason` (PR4: the reason folds into the
  *  schema-valid domain `failure` value), so it's typed to that minimal shape and
  *  stays domain-agnostic. */
@@ -76,15 +102,13 @@ export function statusTitle(status: EntryState<{ reason: string }>): string {
   }
 }
 
-// Terse one-word entry-state labels for the host-switcher row's status subline —
-// the compact sibling of `statusTitle` (which carries the fuller tooltip wording
-// with the failure reason). A `Record` keyed on the full `EntryState["kind"]`
-// union, like `DOT_TONE` above: a fifth kind is a compile error here, not a
-// silent fall-through to a default a `switch` would hide.
+// Terse one-word entry-state labels for the host-switcher row + diagnostics
+// popover. A `Record` keyed on the full `EntryState["kind"]` union, like
+// `EXCEPTION_DOT` above: a fifth kind is a compile error here.
 const STATUS_LABEL_SHORT: Record<EntryState["kind"], string> = {
   connected: "connected",
   warming: "connecting",
-  failed: "failed",
+  failed: "unreachable",
   "not-a-member": "removed",
 };
 export function statusLabelShort(status: EntryState): string {

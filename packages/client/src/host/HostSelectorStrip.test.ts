@@ -1,16 +1,20 @@
 /**
- * HostSelectorStrip — the connection-dot tone is a FACT-ONLY green: the green class is
- * emitted for `connected` and NOTHING else. This is the same discipline `<HostStatusPip>`
- * enforces for a surface's `health()`; a map entry's equivalent fact is its `EntryStatus`
- * (which `connectSurfaceMap` floors on real transport liveness), so a chip can never show
- * green over a host that is warming, failed, or gone.
+ * HostSelectorStrip — exception-based connection dots: healthy (`connected`) is
+ * silent; amber for warming; red for failed. Green "fine" dots are deleted.
  */
 
 import type { EntryState } from "@kolu/surface-map";
 import { testMembershipId } from "@kolu/surface-map/testing";
 import { HostKeySchema } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
-import { dotClass, sameHost, statusTitle } from "./hostChipTone";
+import {
+  dotClass,
+  exceptionDotClass,
+  isHostDown,
+  sameHost,
+  statusLabelShort,
+  statusTitle,
+} from "./hostChipTone";
 
 const GREEN = "bg-emerald-400";
 
@@ -19,7 +23,63 @@ const GREEN = "bg-emerald-400";
 // old `hostGateOpen` / `shouldRenderHostChip` gate helpers and their tests are
 // gone.
 
-describe("HostSelectorStrip dot tone — fact-only green", () => {
+describe("HostSelectorStrip exception dots — healthy is silent", () => {
+  it("emits null for connected (no green fine-dot on the strip)", () => {
+    expect(
+      exceptionDotClass({
+        kind: "connected",
+        membershipId: testMembershipId(),
+        clockOffset: 0,
+      }),
+    ).toBeNull();
+  });
+
+  it("emits amber pulse for warming / connecting", () => {
+    const cls = exceptionDotClass({
+      kind: "warming",
+      membershipId: testMembershipId(),
+    });
+    expect(cls).toContain("amber");
+    expect(cls).toContain("animate-pulse");
+    expect(cls).toContain("motion-reduce:animate-none");
+  });
+
+  it("emits red for failed / unreachable", () => {
+    expect(
+      exceptionDotClass({
+        kind: "failed",
+        membershipId: testMembershipId(),
+        failure: { cause: "link-failed", reason: "x" },
+      }),
+    ).toContain("red");
+  });
+
+  it("never emits green on the exception strip path", () => {
+    const states: EntryState[] = [
+      {
+        kind: "connected",
+        membershipId: testMembershipId(),
+        clockOffset: 0,
+      },
+      { kind: "warming", membershipId: testMembershipId() },
+      {
+        kind: "failed",
+        membershipId: testMembershipId(),
+        failure: { cause: "link-failed", reason: "no drv" },
+      },
+      { kind: "not-a-member" },
+    ];
+    for (const s of states) {
+      const cls = exceptionDotClass(s);
+      if (cls !== null) {
+        expect(cls).not.toBe(GREEN);
+        expect(cls).not.toContain("emerald");
+      }
+    }
+  });
+});
+
+describe("dotClass — always-on tone for popover header (green only when connected)", () => {
   it("emits green ONLY for connected", () => {
     expect(
       dotClass({
@@ -45,18 +105,40 @@ describe("HostSelectorStrip dot tone — fact-only green", () => {
       expect(dotClass(s)).not.toContain("emerald");
     }
   });
+});
 
-  it("gives each state a distinct, honest tone", () => {
+describe("isHostDown + status labels", () => {
+  it("marks only failed as down", () => {
     expect(
-      dotClass({ kind: "warming", membershipId: testMembershipId() }),
-    ).toContain("amber");
-    expect(
-      dotClass({
+      isHostDown({
         kind: "failed",
         membershipId: testMembershipId(),
         failure: { cause: "link-failed", reason: "x" },
       }),
-    ).toContain("red");
+    ).toBe(true);
+    expect(
+      isHostDown({
+        kind: "connected",
+        membershipId: testMembershipId(),
+        clockOffset: 0,
+      }),
+    ).toBe(false);
+    expect(
+      isHostDown({ kind: "warming", membershipId: testMembershipId() }),
+    ).toBe(false);
+  });
+
+  it("labels failed as unreachable (user language, not internal 'failed')", () => {
+    expect(
+      statusLabelShort({
+        kind: "failed",
+        membershipId: testMembershipId(),
+        failure: { cause: "link-failed", reason: "x" },
+      }),
+    ).toBe("unreachable");
+    expect(
+      statusLabelShort({ kind: "warming", membershipId: testMembershipId() }),
+    ).toBe("connecting");
   });
 });
 

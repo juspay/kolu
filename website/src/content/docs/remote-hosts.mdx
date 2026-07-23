@@ -96,13 +96,18 @@ over ssh**: it copies the padi closure to the machine with Nix. A cold copy can
 take **minutes**. You don't install anything on the host by hand — the closure
 carries everything.
 
-The host's chip dot tells you where it is:
+The host strip is **quiet by default**: a healthy machine is just its name (and
+its identity colour when active). Status dots appear only as **exceptions**:
 
-| dot | meaning |
+| on the chip | meaning |
 | --- | --- |
-| amber | connecting or copying — coming up |
-| green | connected and live (shown only over a real link — never green over a dead host) |
-| red | provisioning or the link failed |
+| *(nothing)* | connected and live — silence is the healthy case |
+| amber (pulsing) | connecting or copying — coming up |
+| red + struck label | provisioning or the link failed — click for the real error and **retry** |
+
+Hover a chip (or click the active one) for the **diagnostics popover**:
+connection state, terminal and awaiting counts, padi·kaval status, and
+remove-with-confirm. Daemon marks no longer sit on every chip.
 
 <Aside type="note" title="What a cold connect shows you">
   A first-time provisioning **narrates itself** on the canvas. It names the real

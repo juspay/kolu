@@ -98,9 +98,21 @@ body {
     inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
     0 -7px 18px -12px var(--host-hue);
 }
-/* The identity hue ring around each connection dot (status fills the dot). */
+/* The identity hue ring around each connection dot (status fills the dot).
+ * Healthy chips no longer paint a status pip, so this ring only appears on
+ * surfaces that still show a permanent mark (e.g. mobile until parity). */
 .host-hue-ring {
   box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--host-hue) 24%, transparent);
+}
+/* Unreachable host — desaturate the whole tab; struck label is classed in JSX. */
+.host-tab-down {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+.host-tab-down.host-tab-active,
+.host-tab-down:is(.host-tab-active) {
+  /* Active+down still shows a faint hue so you know which host is selected. */
+  background: color-mix(in oklch, var(--host-hue) 8%, var(--color-surface-0));
 }
 /* Dark mode: a 13% hue mixed into the near-black surface collapses to a muddy
  * grey — every host tab then looks the same. Over the dark surface the hue
