@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const PALETTE_SELECTOR = '[data-testid="command-palette"]';
@@ -109,7 +110,17 @@ Then(
       )
       .first();
     await first.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const actual = await first.getAttribute("data-palette-name");
+    // A row can mount before its async terminal metadata label is current.
+    // Visibility is setup; the label value is the condition under test.
+    const actual = await pollFor({
+      observe: () => first.getAttribute("data-palette-name"),
+      isDone: (value) => value === name,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `Expected first Recent terminal row "${name}" after ${elapsedMs}ms, got "${last}"`,
+        ),
+    });
     assert.strictEqual(
       actual,
       name,
