@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-23T19:37:51.478867+00:00'
+generated_at: '2026-07-23T19:50:19.888135+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -2365,6 +2365,8 @@ mcp_configs:
     - mcp
     registry: false
     command: kolu
+    env_vars:
+    - PADI_SOCKET
   odu:
     name: odu
     transport: stdio

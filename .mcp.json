@@ -18,6 +18,9 @@
       "command": "kolu",
       "args": [
         "mcp"
+      ],
+      "env_vars": [
+        "PADI_SOCKET"
       ]
     }
   }

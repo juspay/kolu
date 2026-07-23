@@ -16,5 +16,6 @@ id = ""
 command = "kolu"
 args = ["mcp"]
 id = ""
+env_vars = ["PADI_SOCKET"]
 
 [mcp_servers.kolu.env]
