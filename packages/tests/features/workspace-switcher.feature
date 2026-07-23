@@ -1,8 +1,8 @@
 Feature: Terminal switcher (unified palette)
   The dock is the canonical live-terminal navigator; the switcher is the
-  same terminal set as a searchable palette. `Mod+Shift+K` and the dock's
-  search-icon open the palette pre-drilled into "Search terminals" —
-  dock-ordered rows with StatePips, not a separate grid.
+  same terminal set as a searchable palette. The dock's search-icon opens
+  the palette host-scoped (Terminals › local); `Mod+Shift+K` opens the
+  Terminals host list. Terminal rows use StatePips, not a separate grid.
 
   Background:
     Given the terminal is ready

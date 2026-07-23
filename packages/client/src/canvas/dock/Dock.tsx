@@ -185,7 +185,7 @@ export function toggleRailCards(): void {
 export const dockExpanded = (): boolean => dockMode() !== "rail";
 
 const Dock: Component<{
-  /** Opens the command palette pre-drilled into "Search terminals" —
+  /** Opens the command palette host-scoped (Terminals › active host) —
    *  invoked by the dock's search-icon button. */
   onOpenWorkspaceSearch: () => void;
   onCreate: () => void;
@@ -454,8 +454,8 @@ const DockHeader: Component<{
         data-testid="dock-search"
         onClick={props.onOpenWorkspaceSearch}
         class="flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        aria-label="Search terminals"
-        title="Search terminals (⌘⇧K)"
+        aria-label="Search terminals on this host"
+        title="Search terminals on this host"
       >
         <SearchIcon class="w-3.5 h-3.5" />
       </button>

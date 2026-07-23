@@ -82,9 +82,10 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { hostHue } from "./host/hostChipTone";
+import { hostHue, hostLabel } from "./host/hostChipTone";
 import { savedSession as serverSavedSession } from "./hostScope/activeWire";
 import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
+import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 
 const App: Component = () => {
   const { store, crud, session, worktree, getSubject } = useTerminals();
@@ -174,7 +175,12 @@ const App: Component = () => {
    *  and the one TerminalCanvas owns) so the wiring lives in one place. */
   const dockPalette = {
     onCreate: () => commandPalette.openGroup("New terminal"),
-    onOpenWorkspaceSearch: () => commandPalette.openGroup("Search terminals"),
+    // Dock search → host-scoped terminal list (Terminals › $activeHost).
+    onOpenWorkspaceSearch: () =>
+      commandPalette.openPath([
+        TERMINALS_GROUP_NAME,
+        hostLabel(activeHost()),
+      ]),
   };
 
   /** Close a terminal. Top-level terminals show a confirmation dialog;
@@ -354,7 +360,7 @@ const App: Component = () => {
         commands={commands}
         open={commandPalette.open()}
         onOpenChange={commandPalette.onOpenChange}
-        initialGroup={commandPalette.initialGroup()}
+        initialPath={commandPalette.initialPath()}
         transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp />

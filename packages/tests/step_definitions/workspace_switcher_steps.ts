@@ -6,7 +6,7 @@
  *  - "branch pill" / "branch" → dock row (`dock-row`)
  *  - "switcher toggle" → dock's search-icon (`dock-search`)
  *  - "hover the switcher" → click dock search (opens scoped palette)
- *  - "panel" → command palette open with "Search terminals" breadcrumb
+ *  - "panel" → command palette open (often Terminals › local from dock search)
  *  - "card" → palette option with `data-palette-kind="terminal"`
  *  - "switcher search" → palette input
  *  - "highlighted" → `data-selected` on the palette option
@@ -152,10 +152,6 @@ When(
 Then(
   "the workspace switcher panel should be visible",
   async function (this: KoluWorld) {
-    await this.page
-      .locator(PALETTE_SELECTOR)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // Scoped view: breadcrumb shows Search terminals (or root still ok).
     await this.page
       .locator(PALETTE_SELECTOR)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });

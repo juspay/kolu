@@ -38,13 +38,13 @@ Feature: Command Palette
     And there should be no page errors
 
   Scenario: Switch terminal via command palette
-    # Search terminals renders the dock-ordered terminal rows (#912); selecting
-    # a workspace card activates the terminal and closes the palette.
+    # Terminals → local → rows; selecting a terminal activates and closes.
     # Workspace-switcher scenarios cover the recency-based card
     # ordering — here we just exercise the drill → click → close path.
     Given I run "echo palette-only-terminal"
     When I open the command palette
-    And I select "Search terminals" in the palette
+    And I select "Terminals" in the palette
+    And I select "local" in the palette
     Then the workspace switcher panel should be visible
     When I click workspace switcher card 1
     Then the command palette should not be visible
@@ -140,14 +140,14 @@ Feature: Command Palette
     Then palette item "Keyboard shortcuts" should show shortcut "/"
     And there should be no page errors
 
-  Scenario: Drilling into Search terminals keeps focus on palette input
-    # Selecting a body-group via Enter must leave focus in the palette
-    # input so the user can immediately start typing to narrow the
-    # workspace cards. Previously the open-effect's focus call only
-    # ran on `open` changing — in-palette drill-in skipped it.
+  Scenario: Drilling into Terminals keeps focus on palette input
+    # Selecting a group via Enter must leave focus in the palette
+    # input so the user can immediately start typing (pierce search).
+    # Previously the open-effect's focus call only ran on `open`
+    # changing — in-palette drill-in skipped it.
     Given I run "echo focus-after-drill"
     When I open the command palette
-    And I select "Search terminals" in the palette
+    And I select "Terminals" in the palette
     Then the workspace switcher panel should be visible
     And the palette search input should be focused
     And there should be no page errors

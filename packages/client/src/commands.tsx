@@ -12,6 +12,7 @@ import type { HostKey } from "kolu-common/hostKey";
 import type {
   PaletteAction,
   PaletteCommand,
+  PaletteGroup,
   PaletteHint,
   PaletteItem,
   PaletteLabel,
@@ -34,8 +35,10 @@ import { activeKavalPresence } from "./kaval/useDaemonStatus";
 import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   type FleetTerminalRow,
+  groupFleetByHost,
   useFleetTerminalIndex,
 } from "./palette/fleetTerminals";
+import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { rowSubline } from "./canvas/dock/rowSubline";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { assignColors } from "./terminal/terminalDisplay";
@@ -103,6 +106,33 @@ function terminalSwitchActions(
           encodeHostSearch(row.host),
         ].join(" "),
       },
+    };
+  });
+}
+
+/** Terminals-level browse: one drillable host group per host that has live
+ *  top-level terminals, with a count in the description. Typing at this level
+ *  pierces into a flat multi-host terminal list (CommandPalette). */
+function terminalHostGroups(
+  fleet: readonly FleetTerminalRow[],
+  active: HostKey,
+  switchHost: (host: HostKey) => void,
+  activate: (id: TerminalId) => void,
+): PaletteGroup[] {
+  return groupFleetByHost(fleet).map(({ host, rows }) => {
+    const label = hostLabel(host);
+    const n = rows.length;
+    return {
+      kind: "group" as const,
+      name: label,
+      description: n === 1 ? "1 terminal" : `${n} terminals`,
+      row: {
+        kind: "host" as const,
+        hostKey: host,
+        searchText: `${label} ${encodeHostSearch(host)}`,
+      },
+      children: (): PaletteItem[] =>
+        terminalSwitchActions(rows, active, switchHost, activate),
     };
   });
 }
@@ -245,6 +275,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const crud = useTerminalCrud();
   // Fleet-wide terminal index — every connected host's terminals, ranked by
   // recency. Active-host-only dock order is not enough for multi-host jump.
+  // Split children are excluded at the source (same rule as Dock terminalIds).
   const fleet = useFleetTerminalIndex();
   const terminalRows = () =>
     terminalSwitchActions(
@@ -253,27 +284,35 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       deps.switchHost,
       deps.activate,
     );
+  const hostScopedTerminalGroups = () =>
+    terminalHostGroups(
+      fleet(),
+      deps.activeHost(),
+      deps.switchHost,
+      deps.activate,
+    );
 
   return createMemo((): PaletteCommand[] => [
     // --- Root index: terminals (all hosts) + hosts ---
-    // Empty root caps terminals to Recent (~3); a query surfaces all matches.
-    // ⌘⇧K / ⌘⇧H deep-link into the scoped groups below.
+    // Empty root caps terminals to Recent (~3); a query surfaces all matches
+    // flat across hosts (host chip on each row). ⌘⇧K drills into Terminals
+    // (host list); the dock search deep-links Terminals › $activeHost.
     ...terminalRows(),
     ...(deps.hostKeys().length > 1
       ? hostRootActions(deps.hostKeys(), deps.activeHost(), deps.switchHost)
       : []),
 
-    // --- Terminals (scoped ⌘⇧K — full fleet list, no Recent cap) ---
+    // --- Terminals → $host → $terminal (browse by host; type to pierce) ---
     ...(fleet().length > 0
       ? [
           {
             kind: "group" as const,
-            name: "Search terminals",
-            description: "Jump to a live terminal on any host",
+            name: TERMINALS_GROUP_NAME,
+            description: "Browse by host, or type to search every host",
             section: "workspaces" as const,
             keybind: ACTIONS.openWorkspaceSwitcher.keybind,
             row: { kind: "command" as const },
-            children: (): PaletteItem[] => terminalRows(),
+            children: (): PaletteItem[] => hostScopedTerminalGroups(),
           },
         ]
       : []),

@@ -24,7 +24,13 @@ import {
 } from "solid-js";
 import { match } from "ts-pattern";
 import type { Keybind } from "./input/keyboard";
+import { hostLabel } from "./host/hostChipTone";
+import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
+import {
+  notePointerMove,
+  type PointerPos,
+} from "./palette/pointerHoverGate";
 import {
   filterAndRankPaletteItems,
   itemKind,
@@ -206,10 +212,10 @@ const CommandPalette: Component<{
   commands: Accessor<PaletteItem[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** If set, auto-drill into the group with this name on open. Tracked
-   *  reactively — a caller updating the prop while open re-targets the
-   *  drilled level. */
-  initialGroup?: string;
+  /** Group names to auto-drill on open (e.g. `["Terminals"]` or
+   *  `["Terminals", "zest"]`). Tracked reactively — updating while open
+   *  re-targets the path. */
+  initialPath?: readonly string[];
   /** When true, the backdrop is transparent so content behind is visible. */
   transparentOverlay?: boolean;
 }> = (props) => {
@@ -219,8 +225,11 @@ const CommandPalette: Component<{
   const [query, setQuery] = createSignal("");
   const [ambientTip, setAmbientTip] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
-  // Ignore mouseEnter until a real mouse move after opening (prevents cursor-under-palette hijack).
+  // Hover selection only after a real pointer delta — see pointerHoverGate.
+  // Synthetic mousemove/enter under a stationary cursor must not steal the
+  // keyboard highlight (open-under-cursor shimmer).
   const [mouseActive, setMouseActive] = createSignal(false);
+  let lastPointerPos: PointerPos | null = null;
   const [path, setPath] = createSignal<DrillableKind[]>([]);
 
   /** Items at the current navigation level (may include hints).
@@ -288,11 +297,31 @@ const CommandPalette: Component<{
   function placeholder(): string {
     const m = mode();
     if (m.kind === "value") return m.leaf.placeholder ?? "Type a command...";
-    const last = path().at(-1);
-    if (last?.name === "Search terminals") return "Filter terminals…";
+    const p = path();
+    const last = p.at(-1);
+    if (last?.name === TERMINALS_GROUP_NAME)
+      return "Filter hosts, or type a terminal…";
+    if (p.length >= 2 && p[0]?.name === TERMINALS_GROUP_NAME)
+      return "Filter terminals…";
     if (last?.name === "Switch host") return "Filter hosts…";
-    if (path().length === 0) return "Search everything…";
+    if (p.length === 0) return "Search everything…";
     return "Type a command...";
+  }
+
+  /** At Terminals browse (one level deep), flatten host groups to their
+   *  terminal leaves so typing pierces the hierarchy across every host. */
+  function pierceTerminalsLevel(
+    items: readonly (PaletteCommand | PaletteLabel)[],
+  ): (PaletteCommand | PaletteLabel)[] {
+    const out: (PaletteCommand | PaletteLabel)[] = [];
+    for (const item of items) {
+      if (item.kind !== "group" || item.row?.kind !== "host") continue;
+      for (const child of resolveChildren(item)) {
+        if (child.kind === "hint") continue;
+        if (child.kind === "action" || child.kind === "label") out.push(child);
+      }
+    }
+    return out;
   }
 
   /** Interactive rows at the current level (filter is bypassed in
@@ -302,9 +331,11 @@ const CommandPalette: Component<{
    *  AND-token multi-field match — the same matcher the dock uses
    *  (`matchesAllTokens` / `tokenize`), so typing a branch or host
    *  name at root finds it. Root ranks terminals → hosts → commands
-   *  (recency within workspaces; recent-cap on empty root). */
+   *  (recency within workspaces; recent-cap on empty root). At the
+   *  Terminals host-list level, a non-empty query pierces into a flat
+   *  multi-host terminal list (host chip on each row). */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
-    const items = partitioned().interactive;
+    let items = partitioned().interactive;
     if (mode().kind !== "filter") {
       // Value mode doesn't search — preserve registration order with a
       // stable section sort for any tagged labels.
@@ -312,7 +343,14 @@ const CommandPalette: Component<{
         (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
       );
     }
-    const atRoot = path().length === 0;
+    const p = path();
+    const q = query();
+    const atTerminalsBrowse =
+      p.length === 1 && p[0]?.name === TERMINALS_GROUP_NAME;
+    if (atTerminalsBrowse && q.trim().length > 0) {
+      items = pierceTerminalsLevel(items);
+    }
+    const atRoot = p.length === 0;
     // Stamp sectionOrder so the pure ranker can re-sort commands without
     // knowing SectionId.
     const stamped = items.map((cmd, i) => ({
@@ -320,9 +358,29 @@ const CommandPalette: Component<{
       sectionOrder: sectionIndex(cmd.section) * 1000 + i,
     }));
     return filterAndRankPaletteItems(stamped, {
-      query: query(),
+      query: q,
       atRoot,
     });
+  });
+
+  /** Breadcrumb labels — path names, plus a virtual host segment when a
+   *  pierced Terminals search highlight lands on a terminal (so the path
+   *  reads Commands › Terminals › zest without a real host drill). */
+  const breadcrumbSegments = createMemo((): { name: string; depth: number }[] => {
+    const segments = path().map((s, i) => ({ name: s.name, depth: i + 1 }));
+    const p = path();
+    if (
+      p.length === 1 &&
+      p[0]?.name === TERMINALS_GROUP_NAME &&
+      query().trim().length > 0
+    ) {
+      const sel = filtered()[selectedIndex()];
+      const host = sel?.row?.hostKey;
+      if (host) {
+        segments.push({ name: hostLabel(host), depth: segments.length + 1 });
+      }
+    }
+    return segments;
   });
 
   /** Annotated render list — interleaves section headers with rows when
@@ -396,10 +454,67 @@ const CommandPalette: Component<{
 
   function navigateTo(depth: number) {
     const p = path();
+    // Virtual host breadcrumb (pierce search): depth beyond real path drills
+    // into that host group under Terminals when possible.
+    if (
+      depth === p.length + 1 &&
+      p.length === 1 &&
+      p[0]?.name === TERMINALS_GROUP_NAME
+    ) {
+      const hostName = breadcrumbSegments().at(-1)?.name;
+      if (hostName) drillIntoHostUnderTerminals(hostName);
+      return;
+    }
     for (const g of p.slice(depth)) g.onCancel?.();
     setPath(p.slice(0, depth));
     setQuery("");
     setSelectedIndex(0);
+  }
+
+  /** From Terminals browse, drill into a named host group (breadcrumb or
+   *  deep-link). Resolves against the live tree so object identity stays fresh. */
+  function drillIntoHostUnderTerminals(hostName: string) {
+    const terminals = props
+      .commands()
+      .find(
+        (c): c is PaletteGroup =>
+          c.kind === "group" && c.name === TERMINALS_GROUP_NAME,
+      );
+    if (!terminals) return;
+    const hostGroup = resolveChildren(terminals).find(
+      (c): c is PaletteGroup => c.kind === "group" && c.name === hostName,
+    );
+    if (!hostGroup) return;
+    setPath([terminals, hostGroup]);
+    setQuery("");
+    setSelectedIndex(0);
+    requestAnimationFrame(() => inputRef.focus());
+  }
+
+  /** Walk `names` against the live command tree and set path. Stops at the
+   *  first missing segment so a stale deep-link still opens what it can. */
+  function applyInitialPath(names: readonly string[]) {
+    if (names.length === 0) return false;
+    let level: PaletteItem[] = props.commands();
+    const built: DrillableKind[] = [];
+    for (const name of names) {
+      const match = level.find(
+        (item): item is DrillableKind =>
+          isDrillable(item) && item.name === name,
+      );
+      if (!match) break;
+      built.push(match);
+      level = resolveChildren(match);
+    }
+    if (built.length === 0) return false;
+    setPath(built);
+    setQuery("");
+    setSelectedIndex(0);
+    const leaf = built.at(-1);
+    requestAnimationFrame(() =>
+      leaf?.kind === "value" ? inputRef.select() : inputRef.focus(),
+    );
+    return true;
   }
 
   // Selection-initiated close: signals the close-effect to skip
@@ -451,14 +566,18 @@ const CommandPalette: Component<{
     switch (key) {
       case "ArrowDown":
         if (items.length === 0) return;
+        // Keyboard wins until the pointer actually moves again.
+        setMouseActive(false);
         setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
         break;
       case "ArrowUp":
         if (items.length === 0) return;
+        setMouseActive(false);
         setSelectedIndex((i) => Math.max(i - 1, 0));
         break;
       case "Tab":
         if (items.length === 0) return;
+        setMouseActive(false);
         setSelectedIndex((i) =>
           e.shiftKey
             ? (i - 1 + items.length) % items.length
@@ -492,45 +611,44 @@ const CommandPalette: Component<{
 
   // Open/close lifecycle — one effect so the read of `path()` for
   // `onCancel` propagation is ordered explicitly before the path
-  // reset. Splitting open-vs-initialGroup into two `on()` effects
+  // reset. Splitting open-vs-initialPath into two `on()` effects
   // raced when both depended on `props.open` (the path-reset effect
   // could fire first, clearing the segments the close branch was
   // about to walk for cancellation).
   createEffect(
-    on([() => props.open, () => props.initialGroup], ([isOpen, initial]) => {
-      if (isOpen) {
-        setQuery("");
-        setSelectedIndex(0);
-        setAmbientTip(peekAmbientTipText());
-        setMouseActive(false);
-        setClosingForSelection(false);
-        setPath([]);
-        if (initial) {
-          const group = props
-            .commands()
-            .find(
-              (c): c is DrillableKind => isDrillable(c) && c.name === initial,
+    on(
+      [() => props.open, () => props.initialPath?.join("\0") ?? ""],
+      ([isOpen, pathKey]) => {
+        if (isOpen) {
+          setQuery("");
+          setSelectedIndex(0);
+          setAmbientTip(peekAmbientTipText());
+          setMouseActive(false);
+          lastPointerPos = null;
+          setClosingForSelection(false);
+          setPath([]);
+          const names = props.initialPath ?? [];
+          if (!(names.length > 0 && applyInitialPath(names))) {
+            // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+            // only fires on first mount. Re-focus explicitly on every root open.
+            // When a path is set, applyInitialPath is the sole focus owner —
+            // its rAF would otherwise race this double-rAF, and for a value-kind
+            // leaf the unconditional .focus() would clobber .select().
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => inputRef.focus()),
             );
-          if (group) drillInto(group);
+          }
+          // pathKey keeps the effect subscribed to initialPath identity.
+          void pathKey;
         } else {
-          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-          // only fires on first mount. Re-focus explicitly on every root open.
-          // When `initial` is set, `drillInto()` is the sole focus owner — its
-          // rAF would otherwise race this double-rAF, and for a value-kind
-          // initial group the unconditional .focus() would clobber the
-          // .select() drillInto() scheduled.
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => inputRef.focus()),
-          );
+          if (!closingForSelection()) {
+            for (const g of path()) g.onCancel?.();
+          }
+          setClosingForSelection(false);
+          setPath([]);
         }
-      } else {
-        if (!closingForSelection()) {
-          for (const g of path()) g.onCancel?.();
-        }
-        setClosingForSelection(false);
-        setPath([]);
-      }
-    }),
+      },
+    ),
   );
 
   // Reset selection when the user types (defer: skip initial run).
@@ -603,9 +721,11 @@ const CommandPalette: Component<{
         }}
       >
         {/* Breadcrumb — visible when drilled into a group. Renders as
-            Raycast-style chips: "Commands › Theme" feels like a path you
-            can click any segment of to pop back. */}
-        <Show when={path().length > 0}>
+            Raycast-style chips: "Commands › Terminals › zest" feels like a
+            path you can click any segment of to pop back. A pierced
+            Terminals search may append a virtual host segment from the
+            highlighted row. */}
+        <Show when={breadcrumbSegments().length > 0}>
           <nav class="flex items-center gap-1.5 px-5 pt-3.5 text-xs text-fg-3">
             <button
               type="button"
@@ -614,7 +734,7 @@ const CommandPalette: Component<{
             >
               Commands
             </button>
-            <For each={path()}>
+            <For each={breadcrumbSegments()}>
               {(segment, i) => (
                 <>
                   <span class="text-fg-3/50">›</span>
@@ -622,10 +742,11 @@ const CommandPalette: Component<{
                     type="button"
                     class="px-1.5 py-0.5 rounded-md hover:bg-surface-2/70 transition-colors"
                     classList={{
-                      "text-accent font-medium": i() === path().length - 1,
-                      "hover:text-fg": i() !== path().length - 1,
+                      "text-accent font-medium":
+                        i() === breadcrumbSegments().length - 1,
+                      "hover:text-fg": i() !== breadcrumbSegments().length - 1,
                     }}
-                    onClick={() => navigateTo(i() + 1)}
+                    onClick={() => navigateTo(segment.depth)}
                   >
                     {segment.name}
                   </button>
@@ -672,9 +793,20 @@ const CommandPalette: Component<{
             // on this scroll container — attach via addEventListener so the
             // div stays a plain layout element (Biome's
             // noStaticElementInteractions would flag a JSX onMouseMove).
-            el.addEventListener("mousemove", () => setMouseActive(true), {
-              passive: true,
-            });
+            // Only arm hover after a real coordinate delta (not synthetic
+            // zero-delta moves when the list mounts under a stationary cursor).
+            el.addEventListener(
+              "mousemove",
+              (e: MouseEvent) => {
+                const { hoverArmed, pos } = notePointerMove(lastPointerPos, {
+                  x: e.clientX,
+                  y: e.clientY,
+                });
+                lastPointerPos = pos;
+                if (hoverArmed) setMouseActive(true);
+              },
+              { passive: true },
+            );
           }}
           class="flex-1 min-h-0 overflow-y-auto"
         >
