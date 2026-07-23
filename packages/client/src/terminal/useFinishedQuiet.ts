@@ -3,8 +3,9 @@
  *
  *  Same shape as `useTerminalActivity`: full-member fan-out over host urgency
  *  cells, `createActivityFrameReducer` for the prev-snapshot / Set-diff fence,
- *  flat per-id store. Dock and title pips read `isFinished(id)` so motion can
- *  hold still once EF2 says the turn is done. */
+ *  flat per-id store. Dock and title pips read `isFinished(id)` so the motion
+ *  fold can apply the EF2 linger leg (`!isFinished`); live output re-lights
+ *  motion independently (#1955). */
 
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
