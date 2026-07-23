@@ -1693,8 +1693,18 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     And I click the file "obsolete.txt" in the file browser
     Then the file content should contain "old content"
+    # The initial listAll snapshot can render before @parcel/watcher's async
+    # fs-events subscription is ready. Prove this repo's live watcher has
+    # delivered an event before measuring a later delete.
     When I click the terminal canvas
-    And I run "rm obsolete.txt"
+    And I run "printf 'watcher ready\n' > watcher-ready.txt"
+    Then the file browser should show a file "watcher-ready.txt"
+    When I click the terminal canvas
+    # `I run` submits terminal input but does not wait for shell completion.
+    # Split the marker in the typed command so only real command output can
+    # satisfy the following buffer assertion.
+    And I run "rm obsolete.txt && test ! -e obsolete.txt && printf 'KOLU_DELETE_%s\n' SETTLED"
+    And the screen state should contain "KOLU_DELETE_SETTLED"
     Then the file browser should not show a file "obsolete.txt"
     And the Code tab content should show the select hint "Select a file to view its content"
 
