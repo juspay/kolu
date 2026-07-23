@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type FleetTerminalRow, rankFleetTerminalRows } from "./fleetTerminals";
+import {
+  type FleetTerminalRow,
+  groupFleetByHost,
+  isTopLevelTerminal,
+  rankFleetTerminalRows,
+} from "./fleetTerminals";
 
 const local: HostKey = { kind: "local" };
 const remote: HostKey = { kind: "remote", target: "srid@builder" };
@@ -46,5 +51,32 @@ describe("rankFleetTerminalRows", () => {
     // local encodes before remote target string under localeCompare of encodeHostKey
     expect(ranked.map((r) => r.id).sort()).toEqual(["x", "y"].sort());
     expect(ranked).toHaveLength(2);
+  });
+});
+
+describe("isTopLevelTerminal — split children are not switcher rows", () => {
+  it("includes root tiles (no parentId / null / undefined)", () => {
+    expect(isTopLevelTerminal({})).toBe(true);
+    expect(isTopLevelTerminal({ parentId: undefined })).toBe(true);
+    expect(isTopLevelTerminal({ parentId: null })).toBe(true);
+    expect(isTopLevelTerminal({ parentId: "" })).toBe(true);
+  });
+
+  it("excludes split children that carry a parentId", () => {
+    expect(isTopLevelTerminal({ parentId: "agent-tile" })).toBe(false);
+  });
+});
+
+describe("groupFleetByHost", () => {
+  it("buckets by host and keeps first-seen host order from ranked input", () => {
+    const ranked = rankFleetTerminalRows([
+      row(local, "a", 100),
+      row(remote, "b", 500),
+      row(local, "c", 200),
+    ]);
+    const groups = groupFleetByHost(ranked);
+    expect(groups.map((g) => g.host)).toEqual([remote, local]);
+    expect(groups[0]!.rows.map((r) => r.id)).toEqual(["b"]);
+    expect(groups[1]!.rows.map((r) => r.id)).toEqual(["c", "a"]);
   });
 });

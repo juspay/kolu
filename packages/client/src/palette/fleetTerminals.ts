@@ -6,8 +6,10 @@
  *  composed terminals collection (same shape as `createHostWire`) and flattens
  *  them into ranked rows carrying the host key.
  *
- *  Ranking: recency-desc across the whole fleet (`rowRecencyAt`). Parked
- *  (activity-window) rows are dropped the same way the Dock drops them. */
+ *  Entry source matches the Dock: only top-level tiles (`!parentId`) — split
+ *  children ride their parent. Ranking: recency-desc across the fleet
+ *  (`rowRecencyAt`). Parked (activity-window) rows are dropped the same way
+ *  the Dock drops them. */
 
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -46,6 +48,36 @@ export function rankFleetTerminalRows(
     if (ra !== rb) return rb - ra;
     return encodeHostKey(a.host).localeCompare(encodeHostKey(b.host));
   });
+}
+
+/** Whether a terminal is a switcher/dock row — same rule as
+ *  `useTerminalMetadata.terminalIds`: split children (`parentId` set) ride
+ *  their parent tile and must not appear as independent entries. */
+export function isTopLevelTerminal(meta: {
+  parentId?: string | null;
+}): boolean {
+  return !meta.parentId;
+}
+
+/** Group a recency-ranked fleet list by host, preserving first-seen host order
+ *  (so the host of the most-recent terminal leads). Used by Terminals browse
+ *  (one row per host) and unit-tested without Solid. */
+export function groupFleetByHost(
+  rows: readonly FleetTerminalRow[],
+): { host: HostKey; rows: FleetTerminalRow[] }[] {
+  const order: string[] = [];
+  const map = new Map<string, { host: HostKey; rows: FleetTerminalRow[] }>();
+  for (const row of rows) {
+    const key = encodeHostKey(row.host);
+    let bucket = map.get(key);
+    if (bucket === undefined) {
+      bucket = { host: row.host, rows: [] };
+      map.set(key, bucket);
+      order.push(key);
+    }
+    bucket.rows.push(row);
+  }
+  return order.map((key) => map.get(key)!);
 }
 
 /** Reproject padi-stamped epochs onto the browser clock using THIS host's
@@ -132,6 +164,8 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
           // Bound collection: `byKey` is a method on the use() result (not a signal).
           const raw = terminals.byKey(id)?.();
           if (raw === undefined || isParked(raw)) continue;
+          // Match Dock / `terminalIds`: splits are not independent rows.
+          if (!isTopLevelTerminal(raw)) continue;
           const meta = reprojectOnHost(host, raw);
           const recencyAt = rowRecencyAt(meta);
           if (isStale(recencyAt)) continue;
