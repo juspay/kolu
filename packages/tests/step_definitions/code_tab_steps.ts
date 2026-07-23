@@ -1497,9 +1497,12 @@ type CodeTabMode = "local" | "branch" | "browse";
 
 const MODE_TMP_COUNTER: { n: number } = { n: 0 };
 function modeFixturePaths(mode: CodeTabMode): { work: string; origin: string } {
-  // Fresh per-scenario directories so Examples rows don't collide.
+  // Fresh per-scenario directories so Examples rows don't collide. Cucumber
+  // workers are separate processes, so the module counter alone repeats in
+  // every worker; include the PID to prevent parallel branch scenarios from
+  // cloning into the same millisecond-stamped path.
   MODE_TMP_COUNTER.n += 1;
-  const stamp = `${mode}-${Date.now()}-${MODE_TMP_COUNTER.n}`;
+  const stamp = `${mode}-${process.pid}-${Date.now()}-${MODE_TMP_COUNTER.n}`;
   return {
     work: `/tmp/kolu-codetab-${stamp}`,
     origin: `/tmp/kolu-codetab-${stamp}-origin.git`,
@@ -1571,7 +1574,11 @@ async function setupCodeTabFixture(
         `git remote add origin ${origin} && ` +
         `git commit --allow-empty -m init && git push -u origin master)`,
     );
-    const token = work.replace(/[^a-zA-Z0-9]/g, "");
+    // Keep the marker shorter than the narrowest e2e terminal. The xterm
+    // buffer inserts a newline at a wrapped cell boundary, so embedding the
+    // full worktree path made a successful marker unreadable as one string
+    // whenever the terminal was narrow under parallel Darwin load.
+    const token = String(MODE_TMP_COUNTER.n);
     const settledMarker = `KOLU_SETTLED_${token}`;
     const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
     await runShell(

@@ -1725,6 +1725,15 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     And I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
+    # The initial list can precede @parcel/watcher's async installation. Wait
+    # until a post-snapshot read reflects this sentinel before the measured
+    # create. If Parcel is already live, that read rode its event; if another
+    # pulse/reconnect won first, Parcel is still installing and its mandatory
+    # post-install reconciliation will include the measured create. Either
+    # ordering closes the otherwise-unobserved install window.
+    When I click the terminal canvas
+    And I run "printf 'ready\n' > watcher-ready.txt"
+    Then the file browser should show a file "watcher-ready.txt"
     When I click the terminal canvas
     And I run "printf 'y\n' > lib/added.ts"
     Then the file browser should show a file "lib/added.ts"
