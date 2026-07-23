@@ -67,14 +67,17 @@ The current DAG covers four kinds of work:
 
 | Area | Required nodes |
 | --- | --- |
-| Nix and packaging | `nix`, `flake-check`, `home-manager`, `smoke`, `pnpm-hash-fresh` |
+| Nix and packaging | `nix`, `home-manager`, `smoke`, `pnpm-hash-fresh` |
 | Code quality | `fmt`, `biome`, `unit`, `daemon` |
 | Browser behavior | `e2e` |
 | Living docs and examples | `surface-example-build`, `surface-app-example-build`, `atlas-sync` |
 
-`nix` builds every flake output for the lane's system, including checks and dev
-shells. Workspace typechecking is a flake check, so `nix build .#default` alone
-is not a type proof: Vite and `tsx` transpile without checking types.
+`nix` builds every root-flake output for the lane's system and runs the
+whole-flake evaluation gate. `home-manager` then builds the separate example
+flake: Darwin checks its activation and launchd configuration, while Linux
+builds the NixOS configuration and runs its VM tests. Workspace typechecking is
+a flake check, so `nix build .#default` alone is not a type proof: Vite and
+`tsx` transpile without checking types.
 
 The `daemon` node is separate from `unit` because it forks real padi and kaval
 processes. Keeping it explicit prevents the default-off daemon suites from
@@ -82,26 +85,26 @@ silently disappearing from CI.
 
 ## Critical path
 
-The large `nix` build remains a required gate, but `e2e`, `smoke`, and
-`home-manager` do not wait for it. Each builds only the store path it needs, and
-Nix store locking deduplicates the shared work while the branches run in
-parallel:
+The large `nix` build is the shared prerequisite for every node that invokes
+`nix build`: `home-manager`, `e2e`, `smoke`, and `pnpm-hash-fresh`.
+Their commands remain self-contained, but start from a warmed store instead of
+running several Nix builds at once:
 
 ```text
-            ┌─ nix ───────────────┐
-setup ──────├─ e2e ──────────────┤
-            ├─ smoke ─────────────┤── required verdict
-            └─ home-manager ──────┘
+                   ┌─ home-manager (Darwin checks / Linux VM tests)
+                   ├─ e2e
+setup ─── nix ─────├─ smoke
+                   └─ pnpm-hash-fresh
 ```
 
-This keeps the roughly two-minute end-to-end suite off the big build's critical
-path without weakening the merge gate. The measurements and dependency model
-are in the [CI workflow report](../docs/ci-workflow-ralph-report.md).
+This lengthens the critical path but lowers peak CPU, memory, and Nix-store
+contention.
 
 ## Change the pipeline
 
-Edit [`mod.just`](mod.just). Keep leaf recipes platform-neutral: odu currently
-replicates every reachable recipe across both platforms.
+Edit [`mod.just`](mod.just). Odu respects just's OS attributes, but a
+cross-platform product gate such as `home-manager` should remain one node and
+select its platform-specific proof inside the recipe.
 
 The `install` node is the single pnpm installation for a lane. Downstream pnpm
 consumers must depend on it and invoke pnpm directly; concurrent installs can
