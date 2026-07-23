@@ -360,10 +360,27 @@ Then(
 );
 
 Then(
-  "the Code tab should show the empty-changes message",
-  async function (this: KoluWorld) {
+  "the Code tab should show the empty-changes message for repo {string}",
+  async function (this: KoluWorld, repoPath: string) {
     const msg = this.page.locator('[data-testid="diff-empty"]');
-    await msg.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // A commit clears the Local tree through the repo-change watcher. Under
+    // Darwin FSEvents load that one-shot index/reflog burst can be dropped,
+    // leaving the already-mounted tree stale forever. Re-fire a working-tree
+    // event on each poll so the production subscriber re-derives the same
+    // post-commit state; the sentinel is removed synchronously, so it never
+    // changes the status being asserted. The 500ms cadence stays beyond the
+    // two 150ms trailing-edge debounces (native watcher + composed pulse).
+    await pollFor({
+      observe: () => msg.isVisible().catch(() => false),
+      isDone: (visible) => visible,
+      onTick: () => nudgeDir(repoPath),
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `Code tab did not show the empty-changes message within ${elapsedMs}ms for ${repoPath}`,
+        ),
+      intervalMs: 500,
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
   },
 );
 
@@ -1023,6 +1040,37 @@ Then(
   },
 );
 
+Then(
+  "the markdown preview should be syntax highlighted",
+  async function (this: KoluWorld) {
+    // A fenced document first paints plain, then Shiki replaces the Markdown
+    // subtree once its lazy grammar bundle is ready. Waiting on Shiki's own
+    // output class makes subsequent selection deterministic instead of racing
+    // a text-node replacement between range measurement and mouseup.
+    await this.page
+      .locator('[data-testid="browse-preview-markdown"] pre.shiki')
+      .first()
+      .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+  },
+);
+
+When(
+  "the markdown preview DOM is re-rendered",
+  async function (this: KoluWorld) {
+    // Reproduce the exact invalidation shape behind #1162: Solid's innerHTML
+    // update replaces every text node even when the bytes are unchanged. This
+    // explicit replacement is deterministic; racing Shiki's lazy completion
+    // made the old scenario pass or fail depending on runner load.
+    await this.page
+      .locator('[data-testid="browse-preview-markdown"] .kolu-md')
+      .evaluate((el) => {
+        const replacement = el.innerHTML;
+        el.innerHTML = replacement;
+      });
+    await this.waitForFrame();
+  },
+);
+
 // A >1 MB Markdown file is read back truncated; the preview must surface the
 // same "File truncated" banner the source view shows, otherwise a partial
 // document renders with no warning. The banner is a sibling ABOVE the
@@ -1480,17 +1528,15 @@ async function setupCodeTabFixture(
     // exists but origin/master does not yet" — the residual branch-mode flake
     // that lost both cucumber attempts on the slower darwin runner.
     //
-    // Fix: establish the base ref ATOMICALLY with the `origin` remote so no read
-    // can ever observe that in-between state. Populate the bare origin from a
-    // throwaway seed repo INSIDE A SUBSHELL — so the terminal's cwd never enters
-    // the seed; a passive read there (origin configured at `remote add` but its
-    // push not yet landed) would hit the very same BASE_BRANCH_NOT_FOUND, just
-    // moved to the seed. Then `git clone` it into `work`: clone creates
-    // `origin`, `origin/master` and `origin/HEAD` in one operation, so the
-    // instant the terminal cd's into `work` (the only repo it ever enters) every
-    // gitStatus read resolves a valid base. The marker is split across a shell
-    // string-concat (`SET""TLED`) so the search text matches only the command's
-    // OUTPUT, never the typed echo.
+    // Fix: establish the ENTIRE staged branch fixture before the terminal ever
+    // enters `work`. Populate the bare origin from a throwaway seed repo in a
+    // subshell, then clone + branch + write + stage in another subshell. Only
+    // after every fact the first status read needs is final do we `cd` the
+    // terminal into the repo. The former partial fix entered immediately after
+    // clone, then created the branch/files/index through live watcher events;
+    // one dropped Darwin event could leave the first clean snapshot permanent.
+    // The marker is split across a shell string-concat (`SET""TLED`) so the
+    // search text matches only the command's OUTPUT, never the typed echo.
     const seed = `${origin}-seed`;
     await runShell(world, `git init --bare -b master ${origin}`);
     await runShell(
@@ -1499,20 +1545,36 @@ async function setupCodeTabFixture(
         `git remote add origin ${origin} && ` +
         `git commit --allow-empty -m init && git push -u origin master)`,
     );
-    await runShell(world, `git clone ${origin} ${work} && cd ${work}`);
-    await runShell(world, `git checkout -b feature`);
-    await runShell(world, writeFiles);
-    await runShell(world, `git add .`);
     const token = work.replace(/[^a-zA-Z0-9]/g, "");
-    // Only emit the barrier marker once origin/master is verifiably resolvable;
-    // a missing base emits a distinct marker so the wait fails loudly instead
-    // of racing on into a permanently-empty branch tree.
+    const settledMarker = `KOLU_SETTLED_${token}`;
+    const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
     await runShell(
       world,
-      `git rev-parse --verify origin/master >/dev/null 2>&1 ` +
-        `&& echo "KOLU_SET""TLED_${token}" || echo "KOLU_BASE""MISSING_${token}"`,
+      `(git clone ${origin} ${work} && cd ${work} && ` +
+        `git checkout -b feature && ${writeFiles} && git add . && ` +
+        `git rev-parse --verify origin/master >/dev/null 2>&1) ` +
+        `&& cd ${work}; kolu_fixture_status=$?; ` +
+        `if [ "$kolu_fixture_status" -eq 0 ]; then ` +
+        `echo "KOLU_SET""TLED_${token}"; else ` +
+        `echo "KOLU_FIX""TURE_FAILED_${token}:$kolu_fixture_status"; false; fi`,
     );
-    await waitForBufferContains(world.page, `KOLU_SETTLED_${token}`);
+    const outcome = await Promise.race([
+      waitForBufferContains(world.page, settledMarker).then(() => ({
+        kind: "settled" as const,
+      })),
+      waitForBufferContains(world.page, failedMarker).then((buffer) => ({
+        kind: "failed" as const,
+        buffer,
+      })),
+    ]);
+    if (outcome.kind === "failed") {
+      const failure = outcome.buffer
+        .split("\n")
+        .find((line) => line.includes(failedMarker));
+      throw new Error(
+        `branch fixture setup failed: ${failure?.trim() ?? failedMarker}`,
+      );
+    }
   } else if (mode === "browse") {
     await runShell(world, `git init ${work} && cd ${work}`);
     await runShell(world, writeFiles);
@@ -1552,14 +1614,10 @@ async function activateCodeTabMode(
  *  exceeded 20 s and was the single most-recurring flake site (#955).
  *
  *  `nudgeWork` (branch mode) re-fires the repo's working-tree watcher each
- *  tick. The gitStatus stream re-reads `getStatus`→`resolveBase` on every
- *  `subscribeRepoChange` event, so if the FIRST resolve raced the push and
- *  errored `BASE_BRANCH_NOT_FOUND` (origin/<default> not yet visible — the
- *  residual branch-mode flake that loses both cucumber attempts), a sentinel
- *  create+unlink in the work tree fires a repo change that re-resolves
- *  against the now-settled repo and the tree populates. The sentinel is
- *  untracked (excluded from the branch diff) and removed immediately, so it
- *  never appears in the tree. */
+ *  tick. The fixture is fully staged before the terminal enters it, so this
+ *  does not repair setup ordering; it only recovers a dropped first pulse by
+ *  making the status query re-read the same already-final state. The sentinel
+ *  is removed immediately and never changes the branch diff. */
 async function waitForCodeTabReady(
   world: KoluWorld,
   nudgeWork?: string,
@@ -1579,8 +1637,8 @@ async function waitForCodeTabReady(
     onTick: () => nudgeDir(nudgeWork),
     onTimeout: (_last, elapsed) =>
       new Error(
-        `Code tab tree never hydrated a row within ${elapsed}ms (work=${nudgeWork}) — ` +
-          `branch-mode gitStatus likely stuck on BASE_BRANCH_NOT_FOUND`,
+        `Code tab tree never hydrated a row within ${elapsed}ms ` +
+          `(work=${nudgeWork}) after the staged fixture was settled`,
       ),
     timeoutMs: HYDRATION_TIMEOUT,
     intervalMs: 500,
@@ -2042,6 +2100,49 @@ Then(
       onTimeout: (last) =>
         new Error(
           `comment highlight never registered any ranges; last size: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the comment highlight should cover {string} in the markdown preview",
+  async function (this: KoluWorld, expected: string) {
+    // A Highlight can retain a Range whose text nodes were detached by an
+    // innerHTML replacement. Counting registry entries therefore proves only
+    // that a stale range still exists. Require the range to cover the expected
+    // text through nodes owned by the CURRENT preview subtree; this is the
+    // re-anchoring contract exercised by the Markdown DOM-replacement test.
+    await pollFor({
+      observe: () =>
+        this.page
+          .evaluate(
+            `(() => {
+              const host = document.querySelector(
+                '[data-testid="browse-preview-markdown"] .kolu-md'
+              );
+              const reg = window.CSS && window.CSS.highlights;
+              if (!host || !reg) return false;
+              for (const [name, highlight] of reg) {
+                if (!String(name).startsWith(${JSON.stringify(HIGHLIGHT_PREFIX)})) continue;
+                for (const range of highlight) {
+                  if (
+                    !range.collapsed &&
+                    host.contains(range.startContainer) &&
+                    host.contains(range.endContainer) &&
+                    range.toString() === ${JSON.stringify(expected)}
+                  ) return true;
+                }
+              }
+              return false;
+            })()`,
+          )
+          .catch(() => false),
+      isDone: (anchored) => anchored === true,
+      onTimeout: () =>
+        new Error(
+          `comment highlight never re-anchored "${expected}" in the live Markdown preview`,
         ),
       timeoutMs: POLL_TIMEOUT,
     });

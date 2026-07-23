@@ -29,7 +29,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     And I click the Code tab mode "local"
-    Then the Code tab should show the empty-changes message
+    Then the Code tab should show the empty-changes message for repo "/tmp/kolu-review-clean"
 
   # ── Mode picker ──
 
@@ -1682,7 +1682,7 @@ Feature: Code tab (review + browse)
     Then the diff view should contain "before"
     When I click the terminal canvas
     And I run "git add note.txt && git commit -m 'save note'"
-    Then the Code tab should show the empty-changes message
+    Then the Code tab should show the empty-changes message for repo "/tmp/kolu-clear-selected-local"
     And the Code tab content should show the select hint "Select a file to view its diff"
 
   Scenario: Deleting the selected browse file clears the stale content pane
@@ -1877,13 +1877,12 @@ Feature: Code tab (review + browse)
     When I go back in the Code tab
     Then the selected file should show content "other-file-body"
 
-  # Regression (#1162): the rendered Markdown preview reassigns its innerHTML
-  # AFTER mount — the lazy Shiki highlighter warms and the html memo re-runs,
+  # Regression (#1162): the rendered Markdown preview reassigns its innerHTML,
   # swapping every text node. A comment highlight applied before that swap
-  # points at detached nodes and silently disappears. The overlay watches the
-  # prose host's subtree and re-applies, so the highlight survives. The doc has
-  # a fenced code block (triggers the Shiki load) and a commentable paragraph.
-  Scenario: Rendered Markdown comment highlight survives the Shiki re-render
+  # points at detached nodes and silently disappears. Drive that mutation
+  # explicitly instead of racing Shiki's lazy load, then prove the overlay
+  # re-anchors against the replacement subtree.
+  Scenario: Rendered Markdown comment highlight survives a DOM re-render
     When I run "rm -rf /tmp/kolu-comments-md-shiki && git init /tmp/kolu-comments-md-shiki && cd /tmp/kolu-comments-md-shiki"
     And I run "printf '# Doc\n\nmd-shiki-marker paragraph.\n\n```js\nconst x = 1;\n```\n' > README.md && git add . && git commit -m init"
     And I click the Code tab
@@ -1891,6 +1890,7 @@ Feature: Code tab (review + browse)
     And I click the file "README.md" in the file browser
     Then the markdown preview should be visible
     And the markdown preview should contain "md-shiki-marker"
+    And the markdown preview should be syntax highlighted
     When I select text "md-shiki-marker" in the markdown preview
     And I click the comment pill
     Then the comment composer should be visible
@@ -1898,6 +1898,8 @@ Feature: Code tab (review + browse)
     And I click the composer "Save" button
     Then the comments tray should contain "survives shiki"
     And the comment highlight should be present
+    When the markdown preview DOM is re-rendered
+    Then the comment highlight should cover "md-shiki-marker" in the markdown preview
 
   Scenario: Cancel button dismisses the composer without saving
     When I run "rm -rf /tmp/kolu-comments-cancel && git init /tmp/kolu-comments-cancel && cd /tmp/kolu-comments-cancel"
