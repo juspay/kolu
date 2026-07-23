@@ -287,3 +287,63 @@ Then(
     );
   },
 );
+
+const HOST_HEADER_SELECTOR = `${PALETTE_SELECTOR} [data-testid="palette-host-header"]`;
+
+Then(
+  "the palette host header {string} should be visible",
+  async function (this: KoluWorld, hostName: string) {
+    const header = this.page.locator(HOST_HEADER_SELECTOR, {
+      hasText: hostName,
+    });
+    await header.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the palette host header {string} should show at least {int} terminal(s)",
+  async function (this: KoluWorld, hostName: string, min: number) {
+    const header = this.page
+      .locator(HOST_HEADER_SELECTOR)
+      .filter({ hasText: hostName })
+      .first();
+    await header.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const countAttr = await header.getAttribute("data-count");
+    const count = Number(countAttr ?? "0");
+    assert.ok(
+      count >= min,
+      `Expected host header "${hostName}" count ≥ ${min}, got ${countAttr}`,
+    );
+  },
+);
+
+Then(
+  "the palette breadcrumb should not show a host segment after Terminals",
+  async function (this: KoluWorld) {
+    const nav = this.page.locator(`${PALETTE_SELECTOR} nav`);
+    await nav.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = (await nav.textContent()) ?? "";
+    // Auto-expanded Terminals browse: breadcrumb is Commands › Terminals only
+    // (no › local / › zest). Collapse whitespace from button separators.
+    const normalized = text.replace(/\s+/g, " ").trim();
+    assert.ok(
+      /Terminals\s*$/.test(normalized) ||
+        /Terminals$/.test(normalized.replace(/›/g, "›")),
+      `Expected breadcrumb to end at Terminals (no host segment), got "${text}"`,
+    );
+    // Stronger: buttons after Commands should be only "Terminals".
+    const labels = await nav.locator("button").allTextContents();
+    const afterCommands = labels.map((l) => l.trim()).filter(Boolean);
+    // ["Commands", "Terminals"] or just path segments without Commands label
+    // depending on markup — accept any list whose last is Terminals and length ≤ 2
+    // for the path chips (Commands + Terminals).
+    assert.ok(
+      afterCommands.includes("Terminals"),
+      `Expected Terminals in breadcrumb buttons, got ${JSON.stringify(afterCommands)}`,
+    );
+    assert.ok(
+      afterCommands.length <= 2,
+      `Expected no host segment (≤2 breadcrumb buttons), got ${JSON.stringify(afterCommands)}`,
+    );
+  },
+);

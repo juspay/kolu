@@ -131,7 +131,6 @@ Feature: Canvas workspace
     Then there should be 4 canvas tiles
     When I open the command palette
     And I select "Terminals" in the palette
-    And I select "local" in the palette
     Then the workspace switcher panel should be visible
     When I click workspace switcher card 4
     Then the active canvas tile should be centered in the viewport

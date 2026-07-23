@@ -38,13 +38,11 @@ Feature: Command Palette
     And there should be no page errors
 
   Scenario: Switch terminal via command palette
-    # Terminals → local → rows; selecting a terminal activates and closes.
-    # Workspace-switcher scenarios cover the recency-based card
-    # ordering — here we just exercise the drill → click → close path.
+    # Terminals auto-expands host groups — terminal rows are visible without
+    # drilling into a host. Selecting one activates and closes.
     Given I run "echo palette-only-terminal"
     When I open the command palette
     And I select "Terminals" in the palette
-    And I select "local" in the palette
     Then the workspace switcher panel should be visible
     When I click workspace switcher card 1
     Then the command palette should not be visible
