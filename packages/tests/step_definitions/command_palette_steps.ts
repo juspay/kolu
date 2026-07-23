@@ -372,6 +372,24 @@ Then(
 );
 
 Then(
+  "the command palette should not show kind tags",
+  async function (this: KoluWorld) {
+    const tags = this.page.locator(
+      `${PALETTE_SELECTOR} [data-testid="palette-kind-tag"]`,
+    );
+    await this.page
+      .locator(PALETTE_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const count = await tags.count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no kind tags at empty root browse, found ${count}`,
+    );
+  },
+);
+
+Then(
   "palette item {string} should show section tag {string}",
   async function (this: KoluWorld, itemName: string, tagLabel: string) {
     // Unified switcher uses kind tags (term/host/cmd) at root search, not

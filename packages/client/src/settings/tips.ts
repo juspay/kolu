@@ -61,7 +61,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-visit-recency",
-    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} Recent lists the terminals you were just in — including on other hosts — not only the ones still printing`,
+    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} then Enter jumps to the previous terminal (Recent hides the one you're in) — works across hosts too`,
     doc: "switcher",
   },
   {

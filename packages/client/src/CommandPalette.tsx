@@ -22,6 +22,7 @@ import {
   on,
   Show,
 } from "solid-js";
+import { encodeHostKey } from "kolu-common/hostKey";
 import { match } from "ts-pattern";
 import type { Keybind } from "./input/keyboard";
 import { hostLabel } from "./host/hostChipTone";
@@ -37,6 +38,8 @@ import {
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
+import { useViewState } from "./useViewState";
+import { activeHost } from "./wire";
 
 /** Top-level sections, in render order. Items tagged with a section are
  *  grouped under a sticky header at the root level; untagged items
@@ -222,6 +225,7 @@ const CommandPalette: Component<{
   transparentOverlay?: boolean;
 }> = (props) => {
   const { peekAmbientTipText } = useTips();
+  const view = useViewState();
   let inputRef!: HTMLInputElement;
   let listEl!: HTMLDivElement;
   const [query, setQuery] = createSignal("");
@@ -436,9 +440,15 @@ const CommandPalette: Component<{
       ...cmd,
       sectionOrder: sectionIndex(cmd.section) * 1000 + i,
     }));
+    const activeId = view.activeId();
+    const excludeFromRecent =
+      atRoot && activeId !== null
+        ? { hostKey: encodeHostKey(activeHost()), terminalId: activeId }
+        : null;
     return filterAndRankPaletteItems(stamped, {
       query: q,
       atRoot,
+      excludeFromRecent,
     });
   });
 
@@ -484,8 +494,11 @@ const CommandPalette: Component<{
 
   const showSectionHeaders = createMemo(() => atRootFilter());
 
-  /** Kind tags only during cross-kind root search (empty or queried). */
-  const showKindTag = createMemo(() => atRootFilter());
+  /** Kind tags only during typed cross-kind root search — empty-root
+   *  section headers (Recent / Hosts / …) already announce kind. */
+  const showKindTag = createMemo(
+    () => atRootFilter() && query().trim().length > 0,
+  );
 
   /** Map a row to its display section at root. Empty root: terminals →
    *  Recent, hosts → Hosts, commands keep their registered section.
@@ -851,7 +864,8 @@ const CommandPalette: Component<{
       // `useCommandPalette`'s close path, which EVERY close (incl. the
       // Corvu-driven onOpenChange this dialog forwards) funnels through —
       // adding `refocusOnClose` here would double-fire it on the Corvu path.
-      size="lg"
+      // Compact switcher width — not the old workspace-grid lg stretch.
+      size="palette"
     >
       <Dialog.Content
         forceMount

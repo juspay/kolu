@@ -213,11 +213,12 @@ Feature: Command Palette
     And there should be no page errors
 
   Scenario: Filtering shows kind tags on matched rows
-    # At root search each row carries a kind tag (term/host/cmd). "Set theme"
-    # only appears with an active terminal, so create one first.
+    # Kind tags only when typing a cross-kind search — empty root relies on
+    # section headers (Recent / Hosts / …) and must not paint term/host/cmd.
     When I open the app
     And I create a terminal
     And I open the command palette
-    And I type "Set theme" in the palette
+    Then the command palette should not show kind tags
+    When I type "Set theme" in the palette
     Then palette item "Set theme" should show section tag "cmd"
     And there should be no page errors
