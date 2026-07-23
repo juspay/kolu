@@ -26,10 +26,15 @@ A verdict about an observed run is stamped with that run's identity — `sha7`
 always, `seq` whenever the coordinator reserved an ordinal — so it's clear
 *which* run it describes (`seq` is `null` only when none was reserved: a wait
 that saw no frame, or the rare case the coordinator couldn't reserve one);
-called with **no run live**
+and `unposted[]` carries full owed GitHub status rows
+(`{context, lastError, attempts}`) not yet confirmed (reporting debt never
+blocks settle — the test verdict stays the truth).
+Called with **no run live**
 it fails loud (an error mirroring `odu status`, not an empty `settled: false`),
 and an optional `expected_sha` (prefix-matched against the run's `sha7`) refuses
-loud when the live run's commit doesn't match.
+loud when the live run's commit doesn't match. The `nodes` resource carries the
+same `unposted`. MCP `run` tees coordinator stdout/stderr to
+`.ci/<sha7>/runs/<seq>.log`.
 
 `cancel` stops the live run and waits until it's torn down; `run`'s `supersede`
 cancels a run already live here before starting (the "stop this, run the fixed
