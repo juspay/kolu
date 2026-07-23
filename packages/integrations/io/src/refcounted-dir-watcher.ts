@@ -14,6 +14,11 @@
 
 import type { Logger } from "@kolu/log";
 import fs from "node:fs";
+import {
+  COALESCE_MAX_WAIT_MS,
+  createCoalesceSchedule,
+  type CoalesceSchedule,
+} from "./coalesce-schedule.ts";
 
 interface SharedFilenameWatcher {
   subscribe(onChange: () => void): () => void;
@@ -35,7 +40,9 @@ export interface DirFilenameWatcherConfig {
   /** Filename inside `resolveDir(cwd)` that fires the listener. Other
    *  events on the directory are ignored. */
   filename: string;
-  /** Trailing-edge debounce window in milliseconds. */
+  /** Trailing-edge debounce quiet-window in milliseconds. A hard maxWait
+   *  (`COALESCE_MAX_WAIT_MS`) is always applied internally — not a
+   *  consumer-facing knob (juspay/kolu#1952). */
   debounceMs: number;
   /** Lifecycle log label, e.g. `"git: head"`. Combined with `installed` /
    *  `retired` / `listener threw` for log lines. */
@@ -93,30 +100,34 @@ export function createDirFilenameWatcher(
     log?: Logger,
   ): SharedFilenameWatcher | null {
     const listeners = new Set<() => void>();
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    // maxWait is baked as COALESCE_MAX_WAIT_MS — no per-call disable (#1952).
+    const coalesce: CoalesceSchedule = createCoalesceSchedule({
+      debounceMs: config.debounceMs,
+      maxWaitMs: COALESCE_MAX_WAIT_MS,
+      onFire: () => {
+        // Snapshot before iteration so a listener that unsubscribes
+        // synchronously can't skip a peer for this event.
+        for (const cb of [...listeners]) {
+          try {
+            cb();
+          } catch (e) {
+            log?.error(
+              { err: e instanceof Error ? e.message : String(e), dir },
+              `${config.logLabel} listener threw`,
+            );
+          }
+        }
+      },
+    });
 
     let watcher: fs.FSWatcher;
     try {
       watcher = fs.watch(dir, (_, filename) => {
         if (filename !== config.filename) return;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-          timer = undefined;
-          // Snapshot before iteration so a listener that unsubscribes
-          // synchronously can't skip a peer for this event.
-          for (const cb of [...listeners]) {
-            try {
-              cb();
-            } catch (e) {
-              log?.error(
-                { err: e instanceof Error ? e.message : String(e), dir },
-                `${config.logLabel} listener threw`,
-              );
-            }
-          }
-        }, config.debounceMs);
+        coalesce.schedule();
       });
     } catch (e) {
+      coalesce.destroy();
       log?.error(
         { err: e instanceof Error ? e.message : String(e), dir },
         `${config.logLabel} failed to watch dir`,
@@ -136,7 +147,7 @@ export function createDirFilenameWatcher(
           // accidentally tear that fresh entry down.
           if (!listeners.delete(onChange)) return;
           if (listeners.size === 0) {
-            if (timer) clearTimeout(timer);
+            coalesce.destroy();
             watcher.close();
             onLast();
             log?.info({ dir }, `${config.logLabel} watcher retired`);
@@ -145,7 +156,7 @@ export function createDirFilenameWatcher(
       },
       _forceClose() {
         listeners.clear();
-        if (timer) clearTimeout(timer);
+        coalesce.destroy();
         watcher.close();
       },
     };

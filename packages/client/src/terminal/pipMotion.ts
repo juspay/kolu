@@ -25,8 +25,9 @@ import type {
 import { agentBucket, type AgentInfo } from "kolu-common/surface";
 
 /** Whether the terminal is "effectively active" for motion — complement of
- *  EF2 effective finish for waiting agents; live-output for shells; always
- *  for working / awaiting_user. Also gates recency-cell hide.
+ *  EF2 effective finish for waiting agents (OR live output: sticky finish
+ *  must not silence a still-printing terminal); live-output for shells;
+ *  always for working / awaiting_user. Also gates recency-cell hide.
  *  Exhaustive over `agentBucket` (`case "other"`, no bare default). */
 export function pipIsActive(input: {
   agent: AgentInfo | null | undefined;
@@ -40,7 +41,9 @@ export function pipIsActive(input: {
     case "awaiting":
       return true;
     case "waiting":
-      return !input.isFinished;
+      // EF2 linger until quiet, OR live output once sticky-finish latches
+      // (finishedIds answers chime; isLive answers motion — #1955).
+      return !input.isFinished || input.isLive;
     case "other":
       return input.isLive;
   }
