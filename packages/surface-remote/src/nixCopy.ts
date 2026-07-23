@@ -514,7 +514,10 @@ export async function provisionAgent(
   //    classic `nix-store --realise`) so we can take `--log-format internal-json` and
   //    surface byte/path progress while a large NAR substitutes from the cache —
   //    the recurring "frozen for minutes on one copying path line" failure mode (#1962).
-  //    stdout is still one output path per line, same single-output contract.
+  //    The installable is `$drv^*` (all outputs): a bare `$drv` path is a derivation
+  //    installable that `--print-out-paths` echoes back as itself (spawn ENOTDIR),
+  //    while `^*` realises and prints the store output path(s). Same single-output
+  //    contract as before (multi-output still fails loud via `multiOutputError`).
   opts.onBuilding?.();
   onProgress(
     isLocal
@@ -530,7 +533,8 @@ export async function provisionAgent(
     "build",
     "--print-out-paths",
     "--no-link",
-    opts.drvPath,
+    // `^*` = all outputs of the derivation (see comment above).
+    `${opts.drvPath}^*`,
   );
   const realiseRes = await runCapture(build.command, build.args, {
     onProgress: buildProgress,

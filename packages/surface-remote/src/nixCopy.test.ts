@@ -158,6 +158,8 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(buildArgs).toContain("internal-json");
     expect(buildArgs).toContain("build");
     expect(buildArgs).toContain("--no-link");
+    // Bare `$drv` would echo the .drv path (spawn ENOTDIR); `^*` realises outputs.
+    expect(buildArgs).toContain(`${DRV}^*`);
   });
 
   it("returns the immutable store path, not the moving root link", async () => {
