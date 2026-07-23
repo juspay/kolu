@@ -1,6 +1,6 @@
 ---
 title: Core Concepts
-description: "The vocabulary behind kolu: canvas, tiles, dock, worktrees, palette, detection, GitHub state, and file comments."
+description: "The vocabulary behind kolu: canvas, tiles, dock, worktrees, switcher, detection, GitHub state, and file comments."
 order: 30
 section: Start
 koluHero:
@@ -34,9 +34,10 @@ like plain language — each card links to the page that owns the surface.
     Creating a terminal in a repo branches a fresh git worktree under the hood.
     The name you type becomes the branch and labels the dock row.
   </Card>
-  <Card title="Command palette">
-    <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> opens the unified palette. Drilling into a
-    row opens a sub-palette, such as repo → worktree name → agent.
+  <Card title="Switcher">
+    <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> is one search box for terminals, hosts,
+    and commands. Deep links open scoped views of the same surface.
+    → [The Switcher](/switcher)
   </Card>
   <Card title="Auto-detection">
     kolu populates itself by watching shell facts: recent repos from `cd`, agent

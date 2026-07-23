@@ -35,7 +35,10 @@ const WelcomeDialog: Component<{
         </Dialog.Label>
       </div>
       <p class="text-xs text-fg-3 mb-4">Three things worth doing first.</p>
-      <WelcomeMoments install={props.install} />
+      <WelcomeMoments
+        install={props.install}
+        onBeforeOpenPalette={() => welcomeDialog.onOpenChange(false)}
+      />
     </Dialog.Content>
   </ModalDialog>
 );

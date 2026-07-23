@@ -739,7 +739,7 @@ const HostSelectorStrip: Component = () => {
       </div>
 
       {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate).
-       *  Host switching also stays on ⌘⇧H / the command palette. */}
+       *  Host switching stays on ⌘⇧H / the command palette. */}
       <AddHostAffordance />
     </div>
   );

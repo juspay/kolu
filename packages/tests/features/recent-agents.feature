@@ -28,7 +28,7 @@ Feature: Recent agents in command palette
     And there should be no page errors
 
   Scenario: Drilling into Recent agents keeps focus on palette input
-    # Same focus contract as Search workspaces / Theme: the drill-in
+    # Same focus contract as Terminals / Theme: the drill-in
     # must leave focus in the palette input so the user can immediately
     # start typing to filter agents.
     When I run "claude --dangerously-skip-permissions"

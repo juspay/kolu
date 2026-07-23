@@ -124,16 +124,13 @@ Feature: Canvas workspace
     # Caught by hickey: the prior "Switch terminal" group spread
     # actionPaletteCommand then overrode onSelect with bare
     # setActiveId(id), stripping the centering the action handler
-    # already does. After #912 the "Switch terminal" group became
-    # "Search workspaces" with a column-grid body — picking a
-    # workspace card calls store.activate(id), which still pans the
-    # canvas to the newly-active tile.
+    # already does. Terminals › local → rows; activate still pans.
     Given I create a terminal
     And I create a terminal
     And I create a terminal
     Then there should be 4 canvas tiles
     When I open the command palette
-    And I select "Search workspaces" in the palette
+    And I select "Terminals" in the palette
     Then the workspace switcher panel should be visible
     When I click workspace switcher card 4
     Then the active canvas tile should be centered in the viewport

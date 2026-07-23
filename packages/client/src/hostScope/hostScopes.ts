@@ -82,3 +82,11 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
  *  `hosts[hostKey()] ?? empty` did. */
 export const activeScope: Accessor<HostScope | undefined> = () =>
   scopes().active();
+
+/** A specific host's owned world if its owner has been born (lazy on first
+ *  activation) and not yet disposed. `undefined` for a never-activated host —
+ *  callers floor prefs to defaults. Used by the fleet terminal index so each
+ *  host's activity-window filter is that host's preference, not the active one's. */
+export function hostScopeOf(host: HostKey): HostScope | undefined {
+  return scopes().get(host);
+}
