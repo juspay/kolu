@@ -1,17 +1,9 @@
-/** Per-host Padi + Kaval dual marks for every host chip (host-first chrome).
+/** Per-host Padi + Kaval dual marks — diagnostics-on-demand (quiet strip).
  *
- *  Mounted INSIDE every `HostChip` as a FIXED-width dual-daemon slot. The outer
- *  box is always the same size; every non-measure chip **fills** it with that
- *  host's own Padi + Kaval marks (not only the active host). Inactive hosts
- *  used to leave the reserve empty — glanceability across the pool required
- *  switching first. Measure-row twins stay empty so width is reserved without
- *  a second live mount pair.
- *
- *  Each sub-chip keys off `props.host` via `padiMap.entry(host)` (entry state,
- *  identity, daemonStatus) — never the free `activeHost` alone. Click switches
- *  to that host before opening the info dialog, matching master: the dialog's
- *  active-host detail sections stay complete rather than being hidden for
- *  inactive chips.
+ *  Mounted from `HostDiagnosticsPopover`, not on every strip chip. Each
+ *  sub-chip keys off `props.host` via `padiMap.entry(host)` (entry state,
+ *  identity, daemonStatus). Click switches to that host before opening the
+ *  info dialog so the dialog's active-host detail sections describe it.
  *
  *  COMPACTION: resting state is icon + status dot only. Steady versions,
  *  memory, and update detail live in the Tip / dialogs. */
@@ -57,14 +49,13 @@ import {
   dualDaemonSlotClass,
   IdentityMark,
   identityMarkBtnClass,
-  identityMarkStaticClass,
   StatusDot,
 } from "../ui/IdentityMark";
 import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
 import { activeHost, padiMap, setActiveHost } from "../wire";
-import { hostLabel, sameHost, statusTitle } from "./hostChipTone";
+import { hostGlance, hostLabel, sameHost } from "./hostChipTone";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
@@ -287,7 +278,7 @@ const PadiSubChip: Component<{
   const padiTip = (): string => {
     const skew = skewPairFor(props.host);
     return joinTip(
-      `padi ${padi.live() ? statusTitle(padi.entry()) : DAEMON_UNKNOWN_LABEL}`,
+      `padi ${padi.live() ? hostGlance(padi.entry()).title : DAEMON_UNKNOWN_LABEL}`,
       skew
         ? `contract skew v${skew.running} → v${skew.expected}`
         : padiVersion()
@@ -436,39 +427,8 @@ const KavalSubChip: Component<{
   );
 };
 
-const PadiStaticMark: Component<{ host: HostKey }> = (props) => {
-  const padi = useHostPadi(props.host);
-  const identity = padiMap.entry(props.host).cells.identity.use();
-  // Build this host's presence from the read-only reader (its OWN single identity
-  // subscription — the static path has no other identity consumer to share with), so the
-  // mark's dot + attribute inherit the same one liveness floor as the interactive path.
-  const presence = createMemo(() =>
-    toPadiPresence(padi.link(), padi.live(), identity.value()),
-  );
-  return (
-    <span class={identityMarkStaticClass}>
-      <PadiMark presence={presence()} />
-    </span>
-  );
-};
-
-const KavalStaticMark: Component<{ host: HostKey }> = (props) => {
-  const kaval = useHostKaval(props.host);
-  const presence = createMemo(() =>
-    toKavalPresence(kaval.daemon(), kaval.live()),
-  );
-  return (
-    <span class={identityMarkStaticClass}>
-      <KavalMark presence={presence()} />
-    </span>
-  );
-};
-
-/** The interactive fill of one host's slot: builds the SHARED per-host
- *  process-memory reader ONCE and hands it to both sub-chips (which each read a
- *  different member off the same cell), so the pair opens one `processMemory`
- *  subscription — and fires one poll-failure toast — not two. Mounts only in
- *  the slot's `"interactive"` mode, so the measuring/static rows never open it. */
+/** Shared per-host process-memory reader + interactive Padi/Kaval sub-chips.
+ *  Lives in the diagnostics popover only (quiet strip — no dual-daemon on chips). */
 const InteractiveDaemonMarks: Component<{ host: HostKey }> = (props) => {
   const mem = useHostProcessMemory(props.host);
   return (
@@ -479,44 +439,16 @@ const InteractiveDaemonMarks: Component<{ host: HostKey }> = (props) => {
   );
 };
 
-/** Fixed-width dual-daemon slot for one host chip. Its THREE reachable states
- *  are one named `mode`, never a pair of booleans (the old `measure ⊗
- *  interactive` left `measure && interactive` type-expressible yet meaningless):
- *   · `"interactive"` (default) — filled with this host's Padi/Kaval SUB-chips,
- *     each owning its info dialog (active *and* inactive hosts alike, so a red
- *     remote is obvious without switching first);
- *   · `"static"` — filled with read-only marks; the transient host switcher asks
- *     for these so it never owns a dialog that unmounts itself mid-switch;
- *   · `"measure"` — empty, so a measuring-row twin reserves width without a
- *     second live mount pair. */
-export const HostDualDaemonSlot: Component<{
-  host: HostKey;
-  mode?: "measure" | "interactive" | "static";
-}> = (props) => {
-  const mode = () => props.mode ?? "interactive";
-  const filled = () => mode() !== "measure";
-  const interactive = () => mode() === "interactive";
-  return (
-    <div
-      class={dualDaemonSlotClass}
-      data-testid="host-dual-daemon-slot"
-      data-filled={filled() ? "" : undefined}
-      data-interactive={interactive() ? "" : undefined}
-      aria-hidden={interactive() ? undefined : true}
-    >
-      <Show when={filled()}>
-        <Show
-          when={interactive()}
-          fallback={
-            <>
-              <PadiStaticMark host={props.host} />
-              <KavalStaticMark host={props.host} />
-            </>
-          }
-        >
-          <InteractiveDaemonMarks host={props.host} />
-        </Show>
-      </Show>
-    </div>
-  );
-};
+/** Dual-daemon marks for one host — interactive only, mounted from the
+ *  diagnostics popover. Measure/static strip modes were deleted with the quiet
+ *  strip (no width reserve, no switcher-static pair). */
+export const HostDualDaemonSlot: Component<{ host: HostKey }> = (props) => (
+  <div
+    class={dualDaemonSlotClass}
+    data-testid="host-dual-daemon-slot"
+    data-filled=""
+    data-interactive=""
+  >
+    <InteractiveDaemonMarks host={props.host} />
+  </div>
+);

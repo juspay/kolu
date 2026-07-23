@@ -1,10 +1,10 @@
 /** IdentityRail — the quiet "which kolu am I running" chrome mark.
  *
  *  Host-independent process identity only: Kolu (server + client). Padi and
- *  Kaval are PER-HOST facts — they live in each host chip's dual-daemon slot
- *  (`HostDualDaemonSlot` in `HostDaemonChips.tsx`). Resting state is icon +
- *  status dot; version/build/commit/memory live in the tooltip and the
- *  click-through panel that drops under this mark. */
+ *  Kaval are PER-HOST facts — they live in the host diagnostics popover
+ *  (`HostDualDaemonSlot` in `HostDaemonChips.tsx`), not on every strip chip.
+ *  Resting state is icon + status dot; version/build/commit/memory live in
+ *  the tooltip and the click-through panel that drops under this mark. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";

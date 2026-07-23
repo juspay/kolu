@@ -1,20 +1,13 @@
 /**
- * HostSelectorStrip — exception-based connection dots: healthy (`connected`) is
- * silent; amber for warming; red for failed. Green "fine" dots are deleted.
+ * HostSelectorStrip — exception-based connection dots via {@link hostGlance}:
+ * healthy (`connected`) is silent; amber for warming; red for failed.
  */
 
 import type { EntryState } from "@kolu/surface-map";
 import { testMembershipId } from "@kolu/surface-map/testing";
 import { HostKeySchema } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
-import {
-  dotClass,
-  exceptionDotClass,
-  isHostDown,
-  sameHost,
-  statusLabelShort,
-  statusTitle,
-} from "./hostChipTone";
+import { hostGlance, sameHost } from "./hostChipTone";
 
 const GREEN = "bg-emerald-400";
 
@@ -23,35 +16,46 @@ const GREEN = "bg-emerald-400";
 // old `hostGateOpen` / `shouldRenderHostChip` gate helpers and their tests are
 // gone.
 
-describe("HostSelectorStrip exception dots — healthy is silent", () => {
-  it("emits null for connected (no green fine-dot on the strip)", () => {
-    expect(
-      exceptionDotClass({
-        kind: "connected",
-        membershipId: testMembershipId(),
-        clockOffset: 0,
-      }),
-    ).toBeNull();
+describe("hostGlance — exception strip + detail co-defined", () => {
+  it("connected: strip silent, detail green, not down", () => {
+    const g = hostGlance({
+      kind: "connected",
+      membershipId: testMembershipId(),
+      clockOffset: 0,
+    });
+    expect(g.stripDot).toBeNull();
+    expect(g.detailDot).toBe(GREEN);
+    expect(g.down).toBe(false);
+    expect(g.short).toBe("connected");
+    expect(g.title).toBe("connected");
+    expect(g.labelDecoration).toBe("");
   });
 
-  it("emits amber pulse for warming / connecting", () => {
-    const cls = exceptionDotClass({
+  it("warming: amber pulse strip, not down", () => {
+    const g = hostGlance({
       kind: "warming",
       membershipId: testMembershipId(),
     });
-    expect(cls).toContain("amber");
-    expect(cls).toContain("animate-pulse");
-    expect(cls).toContain("motion-reduce:animate-none");
+    expect(g.stripDot).toContain("amber");
+    expect(g.stripDot).toContain("animate-pulse");
+    expect(g.stripDot).toContain("motion-reduce:animate-none");
+    expect(g.down).toBe(false);
+    expect(g.short).toBe("connecting");
+    expect(g.title).toBe("connecting…");
   });
 
-  it("emits red for failed / unreachable", () => {
-    expect(
-      exceptionDotClass({
-        kind: "failed",
-        membershipId: testMembershipId(),
-        failure: { cause: "link-failed", reason: "x" },
-      }),
-    ).toContain("red");
+  it("failed: red strip + detail, down, struck, unreachable short, reason in title", () => {
+    const g = hostGlance({
+      kind: "failed",
+      membershipId: testMembershipId(),
+      failure: { cause: "link-failed", reason: "ssh refused" },
+    });
+    expect(g.stripDot).toContain("red");
+    expect(g.detailDot).toContain("red");
+    expect(g.down).toBe(true);
+    expect(g.short).toBe("unreachable");
+    expect(g.title).toBe("failed: ssh refused");
+    expect(g.labelDecoration).toContain("line-through");
   });
 
   it("never emits green on the exception strip path", () => {
@@ -70,27 +74,22 @@ describe("HostSelectorStrip exception dots — healthy is silent", () => {
       { kind: "not-a-member" },
     ];
     for (const s of states) {
-      const cls = exceptionDotClass(s);
+      const cls = hostGlance(s).stripDot;
       if (cls !== null) {
         expect(cls).not.toBe(GREEN);
         expect(cls).not.toContain("emerald");
       }
     }
   });
-});
 
-describe("dotClass — always-on tone for popover header (green only when connected)", () => {
-  it("emits green ONLY for connected", () => {
+  it("detailDot is green ONLY for connected", () => {
     expect(
-      dotClass({
+      hostGlance({
         kind: "connected",
         membershipId: testMembershipId(),
         clockOffset: 0,
-      }),
+      }).detailDot,
     ).toBe(GREEN);
-  });
-
-  it("never emits green for a not-connected state", () => {
     const notConnected: EntryState[] = [
       { kind: "warming", membershipId: testMembershipId() },
       {
@@ -101,66 +100,9 @@ describe("dotClass — always-on tone for popover header (green only when connec
       { kind: "not-a-member" },
     ];
     for (const s of notConnected) {
-      expect(dotClass(s)).not.toBe(GREEN);
-      expect(dotClass(s)).not.toContain("emerald");
+      expect(hostGlance(s).detailDot).not.toBe(GREEN);
+      expect(hostGlance(s).detailDot).not.toContain("emerald");
     }
-  });
-});
-
-describe("isHostDown + status labels", () => {
-  it("marks only failed as down", () => {
-    expect(
-      isHostDown({
-        kind: "failed",
-        membershipId: testMembershipId(),
-        failure: { cause: "link-failed", reason: "x" },
-      }),
-    ).toBe(true);
-    expect(
-      isHostDown({
-        kind: "connected",
-        membershipId: testMembershipId(),
-        clockOffset: 0,
-      }),
-    ).toBe(false);
-    expect(
-      isHostDown({ kind: "warming", membershipId: testMembershipId() }),
-    ).toBe(false);
-  });
-
-  it("labels failed as unreachable (user language, not internal 'failed')", () => {
-    expect(
-      statusLabelShort({
-        kind: "failed",
-        membershipId: testMembershipId(),
-        failure: { cause: "link-failed", reason: "x" },
-      }),
-    ).toBe("unreachable");
-    expect(
-      statusLabelShort({ kind: "warming", membershipId: testMembershipId() }),
-    ).toBe("connecting");
-  });
-});
-
-describe("HostSelectorStrip status title", () => {
-  it("surfaces the failure reason so a dead host is legible on hover", () => {
-    expect(
-      statusTitle({
-        kind: "failed",
-        membershipId: testMembershipId(),
-        failure: { reason: "ssh refused" },
-      }),
-    ).toBe("failed: ssh refused");
-    expect(
-      statusTitle({
-        kind: "connected",
-        membershipId: testMembershipId(),
-        clockOffset: 3,
-      }),
-    ).toBe("connected");
-    expect(
-      statusTitle({ kind: "warming", membershipId: testMembershipId() }),
-    ).toBe("connecting…");
   });
 });
 

@@ -98,12 +98,6 @@ body {
     inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
     0 -7px 18px -12px var(--host-hue);
 }
-/* The identity hue ring around each connection dot (status fills the dot).
- * Healthy chips no longer paint a status pip, so this ring only appears on
- * surfaces that still show a permanent mark (e.g. mobile until parity). */
-.host-hue-ring {
-  box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--host-hue) 24%, transparent);
-}
 /* Unreachable host — desaturate the tab; struck label is classed in JSX.
  * Active+down keeps the host-hue belly so the selected failed host is still
  * the one that owns the canvas. */
@@ -121,8 +115,7 @@ body {
 }
 /* Dark mode: a 13% hue mixed into the near-black surface collapses to a muddy
  * grey — every host tab then looks the same. Over the dark surface the hue
- * needs far more presence to read AS a colour and to tell hosts apart, so the
- * active fill, the hover wash, and the dot ring all get boosted. */
+ * needs far more presence to read AS a colour and to tell hosts apart. */
 :root.dark .host-tab-active {
   background: color-mix(in oklch, var(--host-hue) 32%, var(--color-surface-1));
   box-shadow:
@@ -132,26 +125,10 @@ body {
 :root.dark .host-tab-idle:hover {
   background: color-mix(in oklch, var(--host-hue) 18%, transparent);
 }
-:root.dark .host-hue-ring {
-  box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--host-hue) 55%, transparent);
-}
-/* Daemon logos are quiet grey glyphs at rest — colour lives in their status
- * dots — and bloom to full colour on the active host or on hover, so the pair
- * declutters the row without dropping any Padi/Kaval signal. */
+/* Padi/Kaval logos live only in the diagnostics popover now (quiet strip) —
+ * full colour; no strip-mute bloom rules. */
 .host-daemon-logo {
-  filter: saturate(0);
-  opacity: 0.45;
-  transition:
-    filter 160ms ease,
-    opacity 160ms ease;
-}
-.host-tab-active .host-daemon-logo {
-  filter: none;
   opacity: 0.95;
-}
-.host-strip button:hover .host-daemon-logo {
-  filter: none;
-  opacity: 1;
 }
 
 /* ── Pill border channels ────────────────────────────────────

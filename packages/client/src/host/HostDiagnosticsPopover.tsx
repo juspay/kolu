@@ -223,7 +223,7 @@ export const HostDiagnosticsPopover: Component<{
 
           <div class="flex items-center justify-between gap-3 py-0.5 text-[11px]">
             <span class="text-fg-3">padi · kaval</span>
-            <HostDualDaemonSlot host={props.host} mode="interactive" />
+            <HostDualDaemonSlot host={props.host} />
           </div>
 
           <PopoverRow

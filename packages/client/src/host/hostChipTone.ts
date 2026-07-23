@@ -107,25 +107,3 @@ export function hostGlance(
     labelDecoration: row.labelDecoration,
   };
 }
-
-/** Single-field accessors over {@link hostGlance} — for call sites that only
- *  need one projection (and for unit pins of each arm). */
-export function exceptionDotClass(status: EntryState): string | null {
-  return hostGlance(status).stripDot;
-}
-
-export function dotClass(status: EntryState): string {
-  return hostGlance(status).detailDot;
-}
-
-export function isHostDown(status: EntryState): boolean {
-  return hostGlance(status).down;
-}
-
-export function statusTitle(status: EntryState<{ reason: string }>): string {
-  return hostGlance(status).title;
-}
-
-export function statusLabelShort(status: EntryState): string {
-  return hostGlance(status).short;
-}

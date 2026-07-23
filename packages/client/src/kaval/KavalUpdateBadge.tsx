@@ -1,7 +1,7 @@
 /** Accessor for the active host's expected kaval identity — the build padi would
- *  spawn on restart. Host-first chrome keeps the dual-daemon slot icon+dot only;
- *  update detail rides each host-chip Kaval tooltip and {@link KavalInfoDialog}.
- *  Session-preserving Restart-kaval lives in that dialog (`RestartKavalButton`).
+ *  spawn on restart. Update detail rides the diagnostics-popover Kaval tooltip
+ *  and {@link KavalInfoDialog}. Session-preserving Restart-kaval lives in that
+ *  dialog (`RestartKavalButton`).
  *
  *  The derivation ({@link kavalAttention}) is a read-site join of two raw facts —
  *  `expected` (padi's `status.expectedKaval`) and `reported` (the connected
