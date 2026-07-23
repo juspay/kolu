@@ -188,16 +188,20 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    await expect(endpoint.ensure()).rejects.toSatisfy(
-      isSocketSquatterForeignError,
+    const err = await endpoint.ensure().then(
+      () => {
+        throw new Error("expected the foreign socket holder to be rejected");
+      },
+      (caught: unknown) => caught,
     );
+    expect(isSocketSquatterForeignError(err)).toBe(true);
+    if (!isSocketSquatterForeignError(err)) return;
+
     // The foreign process is LEFT ALIVE — we never kill what we can't prove is ours.
     expect(isHolderLive(holderPid)).toBe(true);
     // And the endpoint reported `dead`, not a silent hang.
     expect(statuses.map((s) => s.state)).toContain("dead");
     // The error names the culprit's pid + command.
-    const err = await endpoint.ensure().catch((e) => e);
-    expect(isSocketSquatterForeignError(err)).toBe(true);
     expect(err.holders.some((h: { pid: number }) => h.pid === holderPid)).toBe(
       true,
     );

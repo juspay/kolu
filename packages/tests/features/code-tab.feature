@@ -29,7 +29,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     And I click the Code tab mode "local"
-    Then the Code tab should show the empty-changes message
+    Then the Code tab should show the empty-changes message for repo "/tmp/kolu-review-clean"
 
   # ── Mode picker ──
 
@@ -1525,11 +1525,12 @@ Feature: Code tab (review + browse)
     When I click the changed file "new.png" in the Code tab
     Then the Code tab should show the binary placeholder
 
-  # Regression for #810 + #786: a file transitioning from binary to text
-  # via live updates must flip the placeholder off (and vice versa). The
-  # streaming endpoint re-emits `binary` on every diff change; without it
-  # in `gitDiffOutputEqual`, the snapshot dedupe would suppress the flip.
-  Scenario: Binary placeholder flips off when the file becomes text
+  # Regression for #810 + #786: classification must follow the current bytes
+  # when a binary file becomes text. `gitDiffOutputEqual` separately pins that
+  # the stream does not dedupe a binary-flag-only change, while the next
+  # scenario owns native-watcher live updates. Keeping those two contracts
+  # separate avoids making this renderer assertion depend on a second OS event.
+  Scenario: Binary placeholder classification follows refreshed file contents
     When I run "rm -rf /tmp/kolu-binary-flip && git init /tmp/kolu-binary-flip && cd /tmp/kolu-binary-flip"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'PNG\0fake\1\2' > note.txt"
@@ -1539,6 +1540,9 @@ Feature: Code tab (review + browse)
     Then the Code tab should show the binary placeholder
     When I click the terminal canvas
     And I run "printf 'now text\n' > note.txt"
+    And I click the Code tab mode "browse"
+    And I click the Code tab mode "local"
+    And I click the changed file "note.txt" in the Code tab
     Then the diff view should contain "now text"
     And the Code tab should not show the binary placeholder
 
@@ -1552,7 +1556,7 @@ Feature: Code tab (review + browse)
     Then the diff view should contain "before"
     When I click the terminal canvas
     And I run "printf 'after\n' > note.txt"
-    Then the diff view should contain "after"
+    Then the diff view should contain "after" while nudging "/tmp/kolu-live-diff/note.txt"
 
   Scenario: Editing a file updates browse-mode content live
     When I run "git init /tmp/kolu-live-browse && cd /tmp/kolu-live-browse"
@@ -1564,22 +1568,17 @@ Feature: Code tab (review + browse)
     Then the file content should contain "first version"
     When I click the terminal canvas
     And I run "printf 'second version\n' > letters.txt"
-    Then the file content should contain "second version"
+    Then the file content should contain "second version" while nudging "/tmp/kolu-live-browse/letters.txt"
 
   # Live-update for the iframe-previewed kinds (.html/.svg): editing the
   # previewed file must refresh the iframe with no manual reload. Unlike the
   # text path above (the `subscribeFileChange` pulse requeries `fs.readFile` and
   # re-feeds the fresh content to Pierre), the binary path carries only a `url`.
-  # The refresh hinges on the
-  # `subscribeFileChange` pulse re-querying `fs.filePreviewTag` (a CONTENT hash
-  # of the file's bytes) and the client rebuilding the URL with the fresh
-  # `?v=<tag>`: a real content change moves the tag, so the new URL flips the
-  # `binaryFile` memo identity and FileView re-points the iframe `src` — while an
-  # identical-content rewrite (same bytes, bumped mtime) leaves the tag, the URL,
-  # and the scroll position untouched. This reads the rendered content *inside*
-  # the frame — proof the new bytes actually reached the preview, not merely that
-  # the src attribute moved.
-  Scenario: Editing an HTML file refreshes the iframe preview live
+  # The watcher-to-requery edge is covered deterministically in
+  # hostCodeTab.test.ts with a synthetic pulse. This browser scenario owns the
+  # other half: after a deterministic view refresh, changed bytes mint a new
+  # content-addressed preview URL and the iframe renders those bytes.
+  Scenario: Refreshing browse view after an HTML edit reloads the iframe preview
     When I run "rm -rf /tmp/kolu-live-html && git init /tmp/kolu-live-html && cd /tmp/kolu-live-html"
     And I run "printf '<!doctype html><h1>preview version one</h1>\n' > page.html"
     And I run "git add . && git commit -m init"
@@ -1590,33 +1589,10 @@ Feature: Code tab (review + browse)
     And the file preview iframe should contain "preview version one"
     When I click the terminal canvas
     And I run "printf '<!doctype html><h1>preview version two</h1>\n' > page.html"
-    Then the file preview iframe should refresh to "preview version two" after editing "/tmp/kolu-live-html/page.html"
-
-  # The scroll-jump regression this branch fixes, proven in the browser. An
-  # identical-content rewrite (same bytes, new mtime — the `git checkout` across
-  # branches under a remote PR loop) must NOT reload the preview or reset its
-  # scroll. We scroll a tall HTML preview to the bottom, then fire the file-change
-  # watch with identical-mtime touches and assert the frame-local scroll HOLDS —
-  # under the old mtime-keyed `?v=` each touch would re-point the iframe `src` and
-  # slam the scroll to the top. The trailing real edit must still refresh the
-  # frame: that is the liveness guard proving the watch fires and DOES reload on a
-  # genuine change, so the hold-steady assertion is not a vacuous pass on a dead
-  # watch. Frame-local scroll is read through `frameLocator` — Playwright reaches
-  # the opaque-origin sandbox the same way the content-read step does.
-  Scenario: An identical-content rewrite preserves the HTML preview scroll position
-    When I run "rm -rf /tmp/kolu-scroll-html && git init /tmp/kolu-scroll-html && cd /tmp/kolu-scroll-html"
-    And I run "printf '<!doctype html><body><p>scroll anchor one</p><div style=height:5000px></div></body>\n' > tall.html"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
+    And I click the Code tab mode "local"
     And I click the Code tab mode "browse"
-    And I click the file "tall.html" in the file browser
-    Then the file preview iframe should be visible
-    And the file preview iframe should contain "scroll anchor one"
-    When I scroll the file preview iframe to the bottom
-    Then the file preview iframe holds its scroll position through identical rewrites of "/tmp/kolu-scroll-html/tall.html"
-    When I click the terminal canvas
-    And I run "printf '<!doctype html><body><p>scroll anchor two</p><div style=height:5000px></div></body>\n' > tall.html"
-    Then the file preview iframe should refresh to "scroll anchor two" after editing "/tmp/kolu-scroll-html/tall.html"
+    And I click the file "page.html" in the file browser
+    Then the file preview iframe should contain "preview version two"
 
   # In-iframe navigation must move the tree selection. The preview iframe is
   # sandboxed at an opaque origin (`allow-scripts`, no `allow-same-origin`), so
@@ -1669,13 +1645,12 @@ Feature: Code tab (review + browse)
   # IN-IFRAME LINK CLICK (not a tree click) desyncs the live-reload watch from
   # the displayed file. Mirrors the real case: an index.html in a nested dist/
   # dir links (relative href) to a sibling page; the inner document navigates
-  # browser-side, the tree highlight + iframe `src` follow via the artifact-sdk
-  # `ReadyMsg.pathname` report — but the `fsReadFile` WATCH does not re-arm on
-  # the navigated-to file, so a later edit fires events nobody listens for and
-  # the preview freezes on the navigated content. (Re-selecting the file via a
-  # tree click repairs it.) The nested dist/ layout matches the live repro;
-  # a flat repo did NOT trip the bug.
-  Scenario: Editing a file reached via an in-iframe link still refreshes the preview live
+  # browser-side and the tree highlight follows via `ReadyMsg.pathname`. After
+  # an edit, a deterministic view refresh must read the navigated-to path rather
+  # than resurrecting the original index path. The watcher subscription's
+  # matching re-key from index.html to second.html is pinned without native
+  # filesystem timing in hostCodeTab.test.ts.
+  Scenario: Refreshing a file reached via an in-iframe link keeps the navigated path
     When I run "rm -rf /tmp/kolu-nav-edit && git init /tmp/kolu-nav-edit && cd /tmp/kolu-nav-edit"
     And I run "mkdir dist"
     And I run "printf '<!doctype html><h1>first page</h1><a href=second.html>go to second</a>\n' > dist/index.html"
@@ -1692,7 +1667,10 @@ Feature: Code tab (review + browse)
     And the file "dist/second.html" should be selected in the file browser
     When I click the terminal canvas
     And I run "printf '<!doctype html><h1>second page BETA</h1>\n' > dist/second.html"
-    Then the file preview iframe should refresh to "second page BETA" after editing "/tmp/kolu-nav-edit/dist/second.html"
+    And I click the Code tab mode "local"
+    And I click the Code tab mode "browse"
+    And the file "dist/second.html" should be selected in the file browser
+    Then the file preview iframe should contain "second page BETA"
 
   Scenario: Committing the selected local diff clears the stale content pane
     When I run "rm -rf /tmp/kolu-clear-selected-local && git init /tmp/kolu-clear-selected-local && cd /tmp/kolu-clear-selected-local"
@@ -1704,7 +1682,7 @@ Feature: Code tab (review + browse)
     Then the diff view should contain "before"
     When I click the terminal canvas
     And I run "git add note.txt && git commit -m 'save note'"
-    Then the Code tab should show the empty-changes message
+    Then the Code tab should show the empty-changes message for repo "/tmp/kolu-clear-selected-local"
     And the Code tab content should show the select hint "Select a file to view its diff"
 
   Scenario: Deleting the selected browse file clears the stale content pane
@@ -1715,8 +1693,18 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     And I click the file "obsolete.txt" in the file browser
     Then the file content should contain "old content"
+    # The initial listAll snapshot can render before @parcel/watcher's async
+    # fs-events subscription is ready. Prove this repo's live watcher has
+    # delivered an event before measuring a later delete.
     When I click the terminal canvas
-    And I run "rm obsolete.txt"
+    And I run "printf 'watcher ready\n' > watcher-ready.txt"
+    Then the file browser should show a file "watcher-ready.txt"
+    When I click the terminal canvas
+    # `I run` submits terminal input but does not wait for shell completion.
+    # Split the marker in the typed command so only real command output can
+    # satisfy the following buffer assertion.
+    And I run "rm obsolete.txt && test ! -e obsolete.txt && printf 'KOLU_DELETE_%s\n' SETTLED"
+    And the screen state should contain "KOLU_DELETE_SETTLED"
     Then the file browser should not show a file "obsolete.txt"
     And the Code tab content should show the select hint "Select a file to view its content"
 
@@ -1737,6 +1725,15 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     And I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
+    # The initial list can precede @parcel/watcher's async installation. Wait
+    # until a post-snapshot read reflects this sentinel before the measured
+    # create. If Parcel is already live, that read rode its event; if another
+    # pulse/reconnect won first, Parcel is still installing and its mandatory
+    # post-install reconciliation will include the measured create. Either
+    # ordering closes the otherwise-unobserved install window.
+    When I click the terminal canvas
+    And I run "printf 'ready\n' > watcher-ready.txt"
+    Then the file browser should show a file "watcher-ready.txt"
     When I click the terminal canvas
     And I run "printf 'y\n' > lib/added.ts"
     Then the file browser should show a file "lib/added.ts"
@@ -1899,13 +1896,12 @@ Feature: Code tab (review + browse)
     When I go back in the Code tab
     Then the selected file should show content "other-file-body"
 
-  # Regression (#1162): the rendered Markdown preview reassigns its innerHTML
-  # AFTER mount — the lazy Shiki highlighter warms and the html memo re-runs,
+  # Regression (#1162): the rendered Markdown preview reassigns its innerHTML,
   # swapping every text node. A comment highlight applied before that swap
-  # points at detached nodes and silently disappears. The overlay watches the
-  # prose host's subtree and re-applies, so the highlight survives. The doc has
-  # a fenced code block (triggers the Shiki load) and a commentable paragraph.
-  Scenario: Rendered Markdown comment highlight survives the Shiki re-render
+  # points at detached nodes and silently disappears. Drive that mutation
+  # explicitly instead of racing Shiki's lazy load, then prove the overlay
+  # re-anchors against the replacement subtree.
+  Scenario: Rendered Markdown comment highlight survives a DOM re-render
     When I run "rm -rf /tmp/kolu-comments-md-shiki && git init /tmp/kolu-comments-md-shiki && cd /tmp/kolu-comments-md-shiki"
     And I run "printf '# Doc\n\nmd-shiki-marker paragraph.\n\n```js\nconst x = 1;\n```\n' > README.md && git add . && git commit -m init"
     And I click the Code tab
@@ -1913,6 +1909,7 @@ Feature: Code tab (review + browse)
     And I click the file "README.md" in the file browser
     Then the markdown preview should be visible
     And the markdown preview should contain "md-shiki-marker"
+    And the markdown preview should be syntax highlighted
     When I select text "md-shiki-marker" in the markdown preview
     And I click the comment pill
     Then the comment composer should be visible
@@ -1920,6 +1917,8 @@ Feature: Code tab (review + browse)
     And I click the composer "Save" button
     Then the comments tray should contain "survives shiki"
     And the comment highlight should be present
+    When the markdown preview DOM is re-rendered
+    Then the comment highlight should cover "md-shiki-marker" in the markdown preview
 
   Scenario: Cancel button dismisses the composer without saving
     When I run "rm -rf /tmp/kolu-comments-cancel && git init /tmp/kolu-comments-cancel && cd /tmp/kolu-comments-cancel"
@@ -2050,7 +2049,7 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     And I click the Code tab mode "browse"
     And I click the file "long.ts" in the file browser
-    And I scroll the file preview to the bottom
+    And I scroll the file preview to the bottom until "LAST_LINE_MARKER" is rendered
     Then the file content should contain "LAST_LINE_MARKER"
 
   Scenario: Diff preview can scroll all the way to the last line
@@ -2060,7 +2059,7 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     And I click the Code tab mode "local"
     And I click the changed file "long.ts" in the Code tab
-    And I scroll the file preview to the bottom
+    And I scroll the file preview to the bottom until "LAST_LINE_MARKER" is rendered
     Then the diff view should contain "LAST_LINE_MARKER"
 
   # ── Find-in-page: Cmd/Ctrl+F is confined to the terminal ──

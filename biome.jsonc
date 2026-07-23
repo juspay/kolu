@@ -41,6 +41,10 @@
       "!**/.direnv",
       "!**/.logs",
       "!patches",
+      // The dev-shell hook materializes this ignored path as a symlink into the
+      // Nix store. CI source transfer can dereference it, so exclude the
+      // generated font bundle explicitly rather than formatting store output.
+      "!packages/client/public/fonts",
       // Astro files: frontmatter imports/consts are resolved inside the template
       // body, which Biome doesn't parse — lint + format would false-positive
       // and corrupt files. Astro has its own formatter (future: astro fmt).

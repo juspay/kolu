@@ -530,20 +530,26 @@ describeDaemon("createPtyHost", () => {
 
   it("routes write() to the child and lists live PTYs", async () => {
     host = createPtyHost({ log: silentLog });
-    // A long-lived shell reading commands from its stdin (the PTY): a
-    // written `echo` command runs and prints the marker — robust to whether
-    // the tty echoes input.
+    // A non-interactive shell reads one line and prints an unmistakable reply.
+    // Unlike the old interactive shell, `sh -c` loads no host rc files.
     const { id, pid } = host.spawn({
       shell: "/bin/sh",
+      args: [
+        "-c",
+        "IFS= read -r line; printf 'received:%s\\n' \"$line\"; sleep 5",
+      ],
+      commandRooted: true,
       env: shellEnv,
       cwd: "/tmp",
     });
     expect(host.list()).toEqual([
       expect.objectContaining({ id, pid, cwd: "/tmp" }),
     ]);
-    host.write(id, "echo kolu_write_ok\n");
-    await waitFor(() => host.getScreenText(id).includes("kolu_write_ok"));
-    expect(host.getScreenText(id)).toContain("kolu_write_ok");
+    host.write(id, "kolu_write_ok\n");
+    await waitFor(() =>
+      host.getScreenText(id).includes("received:kolu_write_ok"),
+    );
+    expect(host.getScreenText(id)).toContain("received:kolu_write_ok");
     expect(host.getProcess(id)).toBeTypeOf("string");
     host.kill(id);
     await host.exitPromise(id);

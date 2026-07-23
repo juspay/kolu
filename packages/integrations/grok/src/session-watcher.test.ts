@@ -15,7 +15,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
 import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
@@ -24,21 +24,53 @@ import {
   createGrokWatcher,
   DEBOUNCE_MAX_MS,
   DEBOUNCE_MS,
+  type GrokWatcher,
 } from "./session-watcher.ts";
+
+const appendCtl = vi.hoisted(() => ({
+  capture: false,
+  callbacks: [] as Array<() => void>,
+}));
+
+vi.mock("kolu-io", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("kolu-io")>();
+  return {
+    ...actual,
+    subscribeFileAppends: (
+      ...args: Parameters<typeof actual.subscribeFileAppends>
+    ) => {
+      if (!appendCtl.capture) return actual.subscribeFileAppends(...args);
+      appendCtl.callbacks.push(args[1]);
+      return () => {
+        const index = appendCtl.callbacks.indexOf(args[1]);
+        if (index !== -1) appendCtl.callbacks.splice(index, 1);
+      };
+    },
+  };
+});
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let tmp: string;
 let restoreWatch: (() => void) | null = null;
+let watcher: GrokWatcher | null = null;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-floor-"));
   restoreWatch = null;
+  watcher = null;
+  appendCtl.capture = false;
+  appendCtl.callbacks = [];
 });
 
 afterEach(() => {
+  watcher?.destroy();
+  watcher = null;
+  vi.useRealTimers();
   restoreWatch?.();
   restoreWatch = null;
+  appendCtl.capture = false;
+  appendCtl.callbacks = [];
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -84,7 +116,7 @@ describe("grok watcher — append-robust floor (#1754)", () => {
   it("self-heals to `waiting` after a dropped `turn_ended` edge", async () => {
     const session = setupSession();
     const states: GrokInfo["state"][] = [];
-    const watcher = createGrokWatcher(session, (i) => states.push(i.state));
+    watcher = createGrokWatcher(session, (i) => states.push(i.state));
 
     expect(states.at(-1)).toBe("thinking"); // open turn
 
@@ -95,7 +127,6 @@ describe("grok watcher — append-robust floor (#1754)", () => {
     await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval; edge dropped
 
     expect(states.at(-1)).toBe("waiting");
-    watcher.destroy();
   });
 
   it("picks up events.jsonl appearing after the watcher subscribes (Q7 unconditional)", async () => {
@@ -132,7 +163,7 @@ describe("grok watcher — append-robust floor (#1754)", () => {
     // would be a redundant check-then-write on the same path — CodeQL flags that
     // as a file-system race (js/file-system-race), so we lean on the state.
     const states: GrokInfo["state"][] = [];
-    const watcher = createGrokWatcher(session, (i) => states.push(i.state));
+    watcher = createGrokWatcher(session, (i) => states.push(i.state));
 
     // No events.jsonl yet — deriveGrokInfo's documented missing-file default.
     expect(states.at(-1)).toBe("thinking");
@@ -143,60 +174,48 @@ describe("grok watcher — append-robust floor (#1754)", () => {
     await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval
 
     expect(states.at(-1)).toBe("waiting");
-    watcher.destroy();
   });
 });
 
 describe("grok watcher — debounce maxWait under phase spam (#1952)", () => {
-  // Real fs.watch edges stay armed: Grok's live failure is continuous edges
-  // re-arming a pure trailing debounce so emitIfChanged never runs mid-burst.
+  // Production's failure source is continuous real fs.watch edges re-arming a
+  // pure trailing debounce. This test suppresses the OS edge and drives that
+  // same consumer callback deterministically at the kolu-io boundary.
 
   it("publishes a mid-burst state change without a DEBOUNCE_MS quiet gap", async () => {
+    // The OS watcher is separately covered by kolu-io. Capture its callback at
+    // this consumer boundary and drive exact fake time so loaded CI cannot
+    // stretch a nominal 50ms gap beyond the 150ms premise.
+    restoreWatch = suppressFsWatchEdges();
+    appendCtl.capture = true;
+    vi.useFakeTimers();
     const session = setupSession();
     const states: GrokInfo["state"][] = [];
     let flipAt: number | null = null;
-    const watcher = createGrokWatcher(session, (i) => {
+    watcher = createGrokWatcher(session, (i) => {
       if (i.state === "tool_use" && flipAt === null) flipAt = Date.now();
       states.push(i.state);
     });
     expect(states.at(-1)).toBe("thinking");
+    expect(appendCtl.callbacks).toHaveLength(1);
 
-    // Mimic streaming_text / tool_execution spam: append faster than DEBOUNCE_MS
-    // for longer than DEBOUNCE_MAX_MS so a pure trailing debounce would starve.
-    const burstMs = DEBOUNCE_MAX_MS + DEBOUNCE_MS + 100;
-    const gapMs = Math.max(10, Math.floor(DEBOUNCE_MS / 3));
+    // Mimic streaming_text / tool_execution spam by feeding the real Grok
+    // schedule callback every 50ms, strictly below DEBOUNCE_MS, for longer than
+    // DEBOUNCE_MAX_MS. A pure trailing debounce would still be pending.
     const line = `${JSON.stringify({ type: "phase_changed", phase: "tool_execution" })}\n`;
     const firstAppendAt = Date.now();
-    let lastAppendAt = firstAppendAt;
     fs.appendFileSync(session.eventsPath, line);
-    while (Date.now() - firstAppendAt < burstMs) {
-      await sleep(gapMs);
-      const now = Date.now();
-      const gap = now - lastAppendAt;
-      // Jitter-corrupted burst would let pure-trailing fire mid-burst and
-      // false-pass the pre-fix code — fail loud instead of silent pass.
-      if (gap >= DEBOUNCE_MS) {
-        watcher.destroy();
-        throw new Error(
-          `burst inter-append gap ${gap}ms ≥ DEBOUNCE_MS ${DEBOUNCE_MS} — jitter-corrupted, not a valid #1952 run`,
-        );
-      }
-      fs.appendFileSync(session.eventsPath, line);
-      lastAppendAt = Date.now();
+    appendCtl.callbacks[0]?.();
+    for (let elapsed = 50; elapsed <= DEBOUNCE_MAX_MS + 100; elapsed += 50) {
+      await vi.advanceTimersByTimeAsync(50);
+      appendCtl.callbacks[0]?.();
     }
 
-    // Flip must land within maxWait (+slack) of the *first* append — proves
-    // maxWait, not a lucky quiet gap mid-burst. Slack covers real-timer /
-    // FSEvents callback lag under loaded CI (darwin saw 610ms vs 600ms
-    // budget with 100ms slack — still well under pure-trailing after the
-    // burst ends at ~DEBOUNCE_MAX_MS+DEBOUNCE_MS).
-    const slackMs = 250;
+    // Flip lands exactly on maxWait from the first append — no scheduler jitter
+    // or accidental quiet gap can satisfy this assertion.
     expect(flipAt).not.toBeNull();
-    expect(flipAt! - firstAppendAt).toBeLessThanOrEqual(
-      DEBOUNCE_MAX_MS + slackMs,
-    );
+    expect(flipAt! - firstAppendAt).toBe(DEBOUNCE_MAX_MS);
     expect(states).toContain("tool_use");
     expect(states.at(-1)).toBe("tool_use");
-    watcher.destroy();
   });
 });
