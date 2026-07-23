@@ -19,6 +19,26 @@ import {
 import { identityChipSelector } from "../support/hostChip.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
+async function armWarmingCanvasRecorder(world: KoluWorld): Promise<void> {
+  await world.page.evaluate(() => {
+    const state = window as unknown as {
+      __sawDaemonWarming: boolean;
+    };
+    state.__sawDaemonWarming = Boolean(
+      document.querySelector('[data-testid="daemon-warming"]'),
+    );
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('[data-testid="daemon-warming"]')) {
+        state.__sawDaemonWarming = true;
+        observer.disconnect();
+      }
+    });
+    if (!state.__sawDaemonWarming) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+  });
+}
+
 // Install a durable toast recorder BEFORE the recycle. solid-sonner toasts
 // auto-dismiss (~4s), so the "Failed to set parent" toast the reconcile pops
 // during the drain window can vanish before the daemon finishes warming — a
@@ -159,6 +179,7 @@ Then(
 // inline destructive-action guard.
 When("I restart kaval from the rail dialog", async function (this: KoluWorld) {
   await this.page.locator('[data-testid="restart-kaval"]').click();
+  await armWarmingCanvasRecorder(this);
   await this.page.locator('[data-testid="restart-kaval-confirm"]').click();
 });
 
@@ -233,6 +254,7 @@ When(
   "I restart kaval from the degraded canvas",
   async function (this: KoluWorld) {
     await this.page.locator('[data-testid="restart-kaval"]').click();
+    await armWarmingCanvasRecorder(this);
     await this.page.locator('[data-testid="restart-kaval-confirm"]').click();
   },
 );
@@ -246,9 +268,13 @@ When(
 Then(
   "the warming canvas is shown while kaval restarts",
   async function (this: KoluWorld) {
-    await this.page.waitForSelector('[data-testid="daemon-warming"]', {
-      timeout: POLL_TIMEOUT,
-    });
+    await this.page.waitForFunction(
+      () =>
+        (window as unknown as { __sawDaemonWarming?: boolean })
+          .__sawDaemonWarming === true,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 

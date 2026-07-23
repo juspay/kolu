@@ -4,7 +4,7 @@
  * guarantee is proven at the source, independent of OS edge delivery.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COALESCE_DEBOUNCE_MS,
   COALESCE_MAX_WAIT_MS,
@@ -12,9 +12,10 @@ import {
 } from "./coalesce-schedule.ts";
 import { DEFAULT_APPEND_POLL_MS } from "./file-append-watcher.ts";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 describe("createCoalesceSchedule", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   it("COALESCE_MAX_WAIT_MS ≤ DEFAULT_APPEND_POLL_MS (documented invariant)", () => {
     expect(COALESCE_MAX_WAIT_MS).toBeLessThanOrEqual(DEFAULT_APPEND_POLL_MS);
     expect(COALESCE_DEBOUNCE_MS).toBeLessThanOrEqual(COALESCE_MAX_WAIT_MS);
@@ -30,9 +31,9 @@ describe("createCoalesceSchedule", () => {
       },
     });
     s.schedule();
-    await sleep(20);
+    await vi.advanceTimersByTimeAsync(39);
     expect(fires).toBe(0);
-    await sleep(40);
+    await vi.advanceTimersByTimeAsync(1);
     expect(fires).toBe(1);
     s.destroy();
   });
@@ -51,29 +52,19 @@ describe("createCoalesceSchedule", () => {
       },
     });
 
-    const gapMs = Math.max(10, Math.floor(debounceMs / 3));
-    const burstMs = maxWaitMs + debounceMs + 80;
     const started = Date.now();
-    let lastScheduleAt = started;
     s.schedule();
-    while (Date.now() - started < burstMs) {
-      await sleep(gapMs);
-      const now = Date.now();
-      const gap = now - lastScheduleAt;
-      if (gap >= debounceMs) {
-        s.destroy();
-        throw new Error(
-          `burst schedule gap ${gap}ms ≥ debounceMs ${debounceMs} — jitter-corrupted run, not a valid starvation probe`,
-        );
-      }
+    // A synthetic source schedules every 25ms — strictly below the 80ms quiet
+    // window. Fake time makes the no-quiet-gap premise exact under host load.
+    for (let elapsed = 25; elapsed <= 300; elapsed += 25) {
+      await vi.advanceTimersByTimeAsync(25);
       s.schedule();
-      lastScheduleAt = Date.now();
     }
 
     // Must have fired *during* the burst (maxWait), not only after quiet.
     expect(fires).toBeGreaterThanOrEqual(1);
     expect(firstFireAt).not.toBeNull();
-    expect(firstFireAt! - started).toBeLessThanOrEqual(maxWaitMs + 80);
+    expect(firstFireAt! - started).toBe(maxWaitMs);
     s.destroy();
   });
 
@@ -88,10 +79,10 @@ describe("createCoalesceSchedule", () => {
     });
     s.schedule();
     s.destroy();
-    await sleep(50);
+    await vi.advanceTimersByTimeAsync(50);
     expect(fires).toBe(0);
     s.schedule(); // no-op
-    await sleep(50);
+    await vi.advanceTimersByTimeAsync(50);
     expect(fires).toBe(0);
   });
 });

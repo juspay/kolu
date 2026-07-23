@@ -232,15 +232,11 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
 });
 
 /** End-to-end through `createSessionWatcher`: drives the user-visible eventing
- *  path (the published `ClaudeCodeInfo.state`), not just the helper scan. Proves
- *  the F1 fix — the `subagents/` watcher re-runs the fork scan when the fork's
- *  artifacts land AFTER the main transcript already went idle — and that a
- *  completion notification on the main transcript demotes the row again.
- *
- *  Uses real `fs.watch` + real timers (the watcher's actual machinery), so each
- *  assertion polls for the expected published state rather than reading a single
- *  synchronous snapshot. `KOLU_CLAUDE_PROJECTS_DIR` is set, which both redirects
- *  the on-disk lookups into the tmp tree AND disables the SDK summary fetch. */
+ * path (the published `ClaudeCodeInfo.state`), not just the helper scan. The
+ * transcript subscription callback is captured and driven under Vitest's fake
+ * clock; the IO package separately owns real `fs.watch` + append-floor coverage.
+ * This test therefore proves the watcher wiring and derivation without making
+ * correctness depend on an OS edge or host scheduling latency. */
 describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   let tmpDir: string;
   let createSessionWatcher: typeof import("./index.ts").createSessionWatcher;
@@ -249,6 +245,7 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   const sessionId = "fork-watcher-session";
   const cwd = "/home/user/fork-watcher-project";
   const session = { pid: 1, sessionId, cwd };
+  let transcriptChanged: (() => void) | null = null;
 
   const noopLog = {
     debug: () => {},
@@ -261,13 +258,36 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-watcher-"));
     process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
     vi.resetModules();
-    const mod = await import("./index.ts");
-    createSessionWatcher = mod.createSessionWatcher;
-    subagentsDirFor = mod.subagentsDirFor;
-    encodeProjectPath = mod.encodeProjectPath;
+
+    const core = await vi.importActual<typeof import("./core.ts")>("./core.ts");
+    subagentsDirFor = core.subagentsDirFor;
+    encodeProjectPath = core.encodeProjectPath;
+    vi.doMock("./core.ts", () => ({
+      ...core,
+      watchOrWaitForDir: () => () => {},
+    }));
+
+    const io = await vi.importActual<typeof import("kolu-io")>("kolu-io");
+    vi.doMock("kolu-io", () => ({
+      ...io,
+      subscribeFileAppends: (
+        _path: string,
+        onChange: () => void,
+      ): (() => void) => {
+        transcriptChanged = onChange;
+        return () => {
+          transcriptChanged = null;
+        };
+      },
+    }));
+
+    ({ createSessionWatcher } = await import("./session-watcher.ts"));
   });
 
   afterAll(() => {
+    vi.doUnmock("./core.ts");
+    vi.doUnmock("kolu-io");
+    vi.resetModules();
     delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -317,36 +337,8 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
     fs.writeFileSync(path.join(dir, `agent-${id}.jsonl`), "{}\n");
   }
 
-  /** Poll `read()` until it equals `want` or the deadline passes. Returns the
-   *  last observed value so a failed expect prints the actual state.
-   *
-   *  `onTick` fires on a steady `tickMs` cadence (NOT every 25ms poll) — kept
-   *  slower than the watcher's 150ms trailing-edge debounce so the debounce can
-   *  actually settle and re-derive between nudges instead of being reset on every
-   *  poll. It re-fires the main-transcript event so a single dropped fs.watch
-   *  event can't wedge the test — the same reason the e2e harness re-touches its
-   *  mock files. */
-  async function waitForState(
-    read: () => string | null,
-    want: string,
-    opts: { onTick?: () => void; tickMs?: number; timeoutMs?: number } = {},
-  ): Promise<string | null> {
-    const { onTick, tickMs = 250, timeoutMs = 3000 } = opts;
-    const deadline = Date.now() + timeoutMs;
-    let nextTick = 0;
-    while (Date.now() < deadline) {
-      if (read() === want) return want;
-      const now = Date.now();
-      if (onTick && now >= nextTick) {
-        onTick();
-        nextTick = now + tickMs;
-      }
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    return read();
-  }
-
   it("promotes a waiting main to running_background when fork artifacts land late, then demotes on completion", async () => {
+    vi.useFakeTimers();
     fs.mkdirSync(projectDir(), { recursive: true });
     // Main is idle BEFORE any fork exists: the watcher's first derivation reads
     // `waiting`, and the fork scan finds nothing (artifacts don't exist yet).
@@ -365,47 +357,32 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
       const state = () => latest()?.state ?? null;
 
       // Initial derivation: idle, no fork.
-      expect(await waitForState(state, "waiting")).toBe("waiting");
+      expect(state()).toBe("waiting");
       expect(latest()?.workflow ?? null).toBeNull();
 
       // The fork's artifacts appear AFTER the main already went quiet (the F1
       // race), then the `/fork` writes its `⑂ forked …` echo to the MAIN
-      // transcript — which is what actually re-triggers detection in production:
-      // the single-file transcript watcher (reliable cross-platform, unlike the
-      // macOS directory watch — #1123) re-derives, and the synchronous subagents
-      // readdir finds the now-present fork and promotes. The echo is re-appended
-      // on a steady tick so a dropped fs event can't wedge it (a `system` entry
-      // deriveState skips, so repeats keep the trailing state `waiting`). The
-      // `subagents/` watcher stays as resilience for the rarer "artifacts lag the
-      // echo past the debounce" sub-race; it isn't asserted here because
-      // directory fs.watch is nondeterministic on macOS.
+      // transcript — which fires the captured append-subscription edge. The
+      // coalescer advances under the fake clock, and the synchronous subagents
+      // readdir finds the now-present fork and promotes.
       writeForkAgent("aimplement-it-late");
       appendTranscript(forkEcho("implement-it"));
-      expect(
-        await waitForState(state, "running_background", {
-          onTick: () => appendTranscript(forkEcho("implement-it")),
-          timeoutMs: 8000,
-        }),
-      ).toBe("running_background");
+      expect(transcriptChanged).not.toBeNull();
+      transcriptChanged?.();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(state()).toBe("running_background");
       // A fork promotes the state but carries no fan-out journal.
       expect(latest()?.workflow ?? null).toBeNull();
 
       // The fork reports completion on the MAIN transcript. The completed-id
       // signal drops it from the live set on the next scan → demote to waiting.
-      // Re-assert on a tick so a dropped main-transcript event can't wedge the
-      // demote (idempotent — the same terminal task-id).
       appendTranscript(completion("aimplement-it-late"));
-      expect(
-        await waitForState(state, "waiting", {
-          onTick: () => appendTranscript(completion("aimplement-it-late")),
-          timeoutMs: 8000,
-        }),
-      ).toBe("waiting");
+      transcriptChanged?.();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(state()).toBe("waiting");
     } finally {
       watcher.destroy();
+      vi.useRealTimers();
     }
-    // Explicit 20s budget: the two ≤8s state-waits above can't fit vitest's
-    // default 5s per-test timeout, which (not an assertion) is what failed this
-    // test on the slower darwin lane.
-  }, 20_000);
+  });
 });

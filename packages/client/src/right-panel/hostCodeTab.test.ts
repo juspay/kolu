@@ -20,30 +20,45 @@
  *  (`hostScope/mockHostMap.testlib`), membership driven by `addHost`/`removeHost`, the
  *  active host by one module-stable signal. The Code-tab query inputs read the mocked
  *  `useTerminalStore().active()` + `useRightPanel()` (the active projection), and a
- *  hand-driven pulse (`unenrolledStreamCall` mocked) requeries every ACTIVE instance. */
+ *  hand-driven, procedure-and-input-keyed pulse (`unenrolledStreamCall` mocked)
+ *  requeries the matching ACTIVE instance. */
 
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// A multi-subscriber hand-driven pulse over the SHARED abort-aware stream mock: every
-// ACTIVE query subscribes one emitter; `pulse()` fires them all (→ one requery each). A
-// paused/torn-down instance aborts its subscription, dropping its emitter from the set —
-// so a pulse reaches only live ones.
-const pulseCtl = vi.hoisted(() => ({ subs: new Set<() => void>() }));
+type PulseSubscription = {
+  proc: unknown;
+  input: string;
+  emit: () => void;
+};
+
+// A multi-subscriber hand-driven pulse over the SHARED abort-aware stream mock.
+// Subscriptions retain both the procedure identity and serialized input, so focused
+// tests can emit one exact server event instead of broadcasting an indistinguishable
+// generic pulse. A paused/re-keyed instance aborts and removes its old subscription.
+const pulseCtl = vi.hoisted(() => ({
+  repoProc: () => ({}),
+  fileProc: () => ({}),
+  subs: new Set<PulseSubscription>(),
+}));
 vi.mock("@kolu/surface/client", async () => {
   const { makeAbortAwareStream } = await import("./streamMock.testlib");
   return {
     unenrolledStreamCall: async (
-      _proc: unknown,
-      _input: unknown,
+      proc: unknown,
+      input: unknown,
       opts?: { signal?: AbortSignal },
     ) => {
       const { iterable, push } = makeAbortAwareStream(opts?.signal);
-      const emit = () => push({ frame: true });
-      pulseCtl.subs.add(emit);
-      opts?.signal?.addEventListener("abort", () => pulseCtl.subs.delete(emit));
+      const sub = {
+        proc,
+        input: JSON.stringify(input),
+        emit: () => push({ frame: true }),
+      };
+      pulseCtl.subs.add(sub);
+      opts?.signal?.addEventListener("abort", () => pulseCtl.subs.delete(sub));
       return iterable;
     },
   };
@@ -58,6 +73,7 @@ const bag = vi.hoisted(() => ({
   selected: (() => null) as () => string | null,
   // getStatus poll count, keyed by mode, so a "refresh" is observable per query.
   counts: {} as Record<string, number>,
+  previewTagInputs: [] as Array<{ repoPath: string; filePath: string }>,
 }));
 
 vi.mock("../wire", async () => {
@@ -78,14 +94,17 @@ vi.mock("../wire", async () => {
     fs: {
       listAll: async () => ({ paths: [] }),
       readFile: async () => ({ content: "", truncated: false }),
-      filePreviewTag: async () => "tag",
+      filePreviewTag: async (input: { repoPath: string; filePath: string }) => {
+        bag.previewTagInputs.push(input);
+        return "same-content-tag";
+      },
     },
   };
   // The un-enrolled change pulses ride the entry's STREAM face now
   // (`activePadiStreams.<pulse>.unenrolled`) — a no-op stream stub.
   const activePadiStreams = {
-    subscribeRepoChange: { unenrolled: () => ({}) },
-    subscribeFileChange: { unenrolled: () => ({}) },
+    subscribeRepoChange: { unenrolled: pulseCtl.repoProc },
+    subscribeFileChange: { unenrolled: pulseCtl.fileProc },
   };
   return {
     padiMap: mockPadiMap,
@@ -116,12 +135,22 @@ import {
   removeHost,
   resetHosts,
 } from "../hostScope/mockHostMap.testlib";
-import { codeLocalStatus } from "./hostCodeTab";
+import { codeFileContent, codeLocalStatus } from "./hostCodeTab";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const pulse = () => {
-  for (const emit of [...pulseCtl.subs]) emit();
+  for (const sub of [...pulseCtl.subs]) sub.emit();
 };
+const filePulse = (input: { repoPath: string; filePath: string }) => {
+  const serialized = JSON.stringify(input);
+  for (const sub of [...pulseCtl.subs]) {
+    if (sub.proc === pulseCtl.fileProc && sub.input === serialized) sub.emit();
+  }
+};
+const liveFileInputs = () =>
+  [...pulseCtl.subs]
+    .filter((sub) => sub.proc === pulseCtl.fileProc)
+    .map((sub) => JSON.parse(sub.input) as unknown);
 
 const HOST_A: HostKey = { kind: "local" };
 const HOST_B: HostKey = { kind: "remote", target: "B" };
@@ -146,6 +175,9 @@ beforeEach(() => {
   resetHosts();
   setDriveHost(HOST_A);
   bag.counts = {};
+  bag.previewTagInputs = [];
+  bag.mode = () => "browse";
+  bag.selected = () => null;
   // Build the lazy app-lifetime owner (a real consumer reads the facade at mount) so the
   // `scopedByEntry` reactive graph is live and reacts to `switchTo` before the first pulse.
   void codeLocalStatus.pending();
@@ -267,5 +299,54 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     await flush();
     expect(codeLocalStatus.pending()).toBe(false);
     expect(label()).toBe("local:local");
+  });
+
+  it("a watcher pulse re-queries an unchanged preview tag without changing its URL", async () => {
+    bag.selected = () => "report.html";
+    switchTo(HOST_A);
+    void codeFileContent.pending();
+    await flush();
+
+    const input = { repoPath: "/repo", filePath: "report.html" };
+    expect(liveFileInputs()).toEqual([input]);
+    filePulse(input);
+    await flush();
+    const before = codeFileContent();
+    filePulse(input);
+    await flush();
+    const after = codeFileContent();
+
+    expect(bag.previewTagInputs).toEqual([input, input]);
+    expect(before).toEqual(after);
+    expect(after).toMatchObject({
+      kind: "binary",
+      url: expect.stringContaining("?v=same-content-tag"),
+    });
+  });
+
+  it("re-keys the file watcher when an in-preview navigation changes the selected path", async () => {
+    const [selected, setSelected] = createSignal("dist/index.html");
+    bag.selected = selected;
+    switchTo(HOST_A);
+    void codeFileContent.pending();
+    await flush();
+
+    const indexInput = { repoPath: "/repo", filePath: "dist/index.html" };
+    const secondInput = { repoPath: "/repo", filePath: "dist/second.html" };
+    expect(liveFileInputs()).toEqual([indexInput]);
+    filePulse(indexInput);
+    await flush();
+    expect(bag.previewTagInputs).toEqual([indexInput]);
+
+    setSelected("dist/second.html");
+    await flush();
+    expect(liveFileInputs()).toEqual([secondInput]);
+
+    // An event for the old path is no longer connected; only the navigated-to
+    // file can refresh the preview.
+    filePulse(indexInput);
+    filePulse(secondInput);
+    await flush();
+    expect(bag.previewTagInputs).toEqual([indexInput, secondInput]);
   });
 });

@@ -14,6 +14,7 @@
     "tsx": "^4.19.0"
   },
   "scripts": {
-    "test": "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui"
+    "test": "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui",
+    "test:unit": "node --import tsx --test support/scenarioSetupRetry.test.ts"
   }
 }

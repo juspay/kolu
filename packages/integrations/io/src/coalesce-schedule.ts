@@ -14,8 +14,8 @@
  * publish at least every `maxWaitMs`.
  *
  * Production watch sites bake `COALESCE_MAX_WAIT_MS` as a module constant
- * (no per-call opt-out — conventions.md). Tests pass short real intervals
- * the same way `subscribeFileAppends` requires `intervalMs`.
+ * (no per-call opt-out — conventions.md). Tests pass short intervals under
+ * Vitest's fake global clock; production uses the host clock and timers.
  */
 
 /** Default quiet-window used by agent / git / WAL watchers (150 ms). */
@@ -41,7 +41,7 @@ export interface CoalesceSchedule {
 export interface CoalesceScheduleOpts {
   /** Quiet-window in ms. Required (no default — same fail-fast shape as
    *  `subscribeFileAppends.intervalMs`). Production passes
-   *  `COALESCE_DEBOUNCE_MS`; tests inject a short real interval. */
+   *  `COALESCE_DEBOUNCE_MS`; tests inject a short synthetic interval. */
   debounceMs: number;
   /** Hard cap in ms from the first pending edge. Required. Production
    *  watchers pass `COALESCE_MAX_WAIT_MS`; never omit to "disable". */

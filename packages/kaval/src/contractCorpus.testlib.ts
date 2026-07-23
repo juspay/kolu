@@ -20,7 +20,7 @@
  */
 
 import { describeDaemon } from "@kolu/daemon-test-gate";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import type { PtyHostClient } from "./inProcessPtyHost.ts";
 import {
   DEFAULT_SPAWN_SHELL,
@@ -60,18 +60,27 @@ export const CONTRACT_COVERAGE = {
   ],
 } as const;
 
-/** A minimal fully-specified spawn — a plain `$SHELL` run with no login flag,
- *  no rc files. Since B0
+/** A minimal fully-specified spawn — the fixed default shell with a minimal
+ *  sanitized environment, no login flag, and no init files. Since B0
  *  the host derives nothing from policy, so a bare client supplies the complete
  *  `{argv, env, initFiles}` (and this exercises exactly that no-hooks path). The
  *  env crosses the wire verbatim on the socket link. */
 export function spawnInput(cwd: string): PtyHostSpawnInput {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v;
+  const path = process.env.PATH;
+  if (path === undefined) {
+    throw new Error("contract corpus requires PATH");
+  }
   return {
-    argv: [process.env.SHELL || DEFAULT_SPAWN_SHELL],
+    argv: [DEFAULT_SPAWN_SHELL],
     cwd,
-    env,
+    // Keep host shell hooks (ENV, BASH_ENV, ZDOTDIR, inherited SHELL) out of
+    // this transport contract. They can run arbitrary user startup code before
+    // the corpus' first frame and make a socket test depend on the CI account.
+    env: {
+      HOME: cwd,
+      PATH: path,
+      TERM: "xterm-256color",
+    },
     initFiles: [],
   };
 }
@@ -204,9 +213,25 @@ export function runContractCorpus(opts: {
     beforeAll(async () => {
       host = await opts.makeHost();
     });
+
+    /** Reap the shared host through killAll's production boundary, then prove
+     *  inventory is empty. Tests intentionally share an expensive daemon host,
+     *  so clean per-test state is enforced here rather than left to individual
+     *  assertion tails. */
+    const killAllAndWait = async (): Promise<number> => {
+      const { killed } = await client().surface.terminal.killAll({});
+      const after = await client().surface.terminal.list({});
+      expect(after.entries).toEqual([]);
+      return killed;
+    };
+
+    afterEach(async () => {
+      await killAllAndWait();
+    }, 20_000);
+
     afterAll(async () => {
       try {
-        await client().surface.terminal.killAll({});
+        await killAllAndWait();
       } catch {
         // The connection may already be torn down by a prior failure — the
         // dispose below still runs.
@@ -519,22 +544,44 @@ export function runContractCorpus(opts: {
       });
     });
 
+    it("a live id stays reserved through kill teardown, then can respawn", async () => {
+      const id = "11111111-1111-4111-8111-111111111111";
+      const first = await client().surface.terminal.spawn({
+        ...spawnInput(opts.makeCwd()),
+        id,
+      });
+
+      // This is the same state an overlapping kill/spawn observes until the
+      // old child's onExit teardown: the id must not be overwritten.
+      await expect(
+        client().surface.terminal.spawn({
+          ...spawnInput(opts.makeCwd()),
+          id,
+        }),
+      ).rejects.toThrow();
+
+      await client().surface.terminal.kill({ id });
+      expect((await client().surface.terminal.list({})).entries).toEqual([]);
+
+      const second = await client().surface.terminal.spawn({
+        ...spawnInput(opts.makeCwd()),
+        id,
+      });
+      expect(second.pid).not.toBe(first.pid);
+      expect((await client().surface.terminal.list({})).entries).toEqual([
+        expect.objectContaining({ id, pid: second.pid }),
+      ]);
+    });
+
     it("terminal.killAll reaps every live PTY", {
       timeout: 20000,
     }, async () => {
       await client().surface.terminal.spawn(spawnInput(opts.makeCwd()));
       await client().surface.terminal.spawn(spawnInput(opts.makeCwd()));
-      const { killed } = await client().surface.terminal.killAll({});
+      // The shared cleanup authority resolves only after killAll's production
+      // boundary has observed every onExit and removed every inventory row.
+      const killed = await killAllAndWait();
       expect(killed).toBeGreaterThanOrEqual(2);
-      // kill is async — the entry is removed on the PTY's exit event, not
-      // synchronously — so poll list until it drains rather than racing it.
-      let entries: unknown[] = [];
-      for (let i = 0; i < 80; i++) {
-        ({ entries } = await client().surface.terminal.list({}));
-        if (entries.length === 0) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      expect(entries).toEqual([]);
     });
   });
 }

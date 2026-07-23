@@ -1,7 +1,8 @@
 import fs from "node:fs";
+import type { FSWatcher } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirFilenameWatcher } from "./refcounted-dir-watcher.ts";
 
 /** A promise plus its resolver — lets a test hold a `resolveDir` open and
@@ -34,9 +35,16 @@ describe("createDirFilenameWatcher async install", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "refcounted-watcher-test-"));
+    // These tests pin install/reconcile/refcount semantics, not Node's kernel
+    // watcher. A real fs.watch adds an unrelated inotify/FSEvents scheduling
+    // race to the exact async-install window under test.
+    vi.spyOn(fs, "watch").mockReturnValue({
+      close() {},
+    } as FSWatcher);
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -141,6 +149,29 @@ describe("createDirFilenameWatcher async install", () => {
     await w._whenSettled();
     // The pending install saw the cancellation and never attached.
     expect(w._watcherCount()).toBe(0);
+  });
+
+  it("a fresh subscribe after teardown installs a new watcher", async () => {
+    const w = createDirFilenameWatcher({
+      resolveDir: async (cwd) => cwd,
+      filename: "HEAD",
+      debounceMs: 10,
+      logLabel: "test",
+    });
+
+    const stop1 = w.watch(tmpDir, () => {});
+    await w._whenSettled();
+    expect(w._watcherCount()).toBe(1);
+    stop1();
+    expect(w._watcherCount()).toBe(0);
+
+    const stop2 = w.watch(tmpDir, () => {});
+    await w._whenSettled();
+    expect(w._watcherCount()).toBe(1);
+    stop2();
+    expect(w._watcherCount()).toBe(0);
+
+    expect(fs.watch).toHaveBeenCalledTimes(2);
   });
 
   it("a resolveDir that rejects is caught and logged, never thrown", async () => {
