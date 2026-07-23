@@ -48,20 +48,17 @@ export interface CoalesceScheduleOpts {
   maxWaitMs: number;
   /** Invoked once the quiet window or the maxWait cap elapses. */
   onFire: () => void;
-  /** Clock for pending-since accounting. Defaults to `Date.now`. Tests
-   *  may inject a controllable clock; real timers still drive the fire. */
-  now?: () => number;
 }
 
 /**
  * Create a coalescing schedule handle. `onFire` is not wrapped — a throwing
  * fire escapes to the host timer (callers that need isolation catch inside
- * `onFire`, matching the prior hand-rolled debounce sites).
+ * `onFire`, matching the prior hand-rolled debounce sites). Wall clock is
+ * `Date.now` by construction — no optional clock inject (dead-knob ban).
  */
 export function createCoalesceSchedule(
   opts: CoalesceScheduleOpts,
 ): CoalesceSchedule {
-  const now = opts.now ?? Date.now;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pendingSince: number | null = null;
   let destroyed = false;
@@ -75,7 +72,7 @@ export function createCoalesceSchedule(
   return {
     schedule() {
       if (destroyed) return;
-      const t = now();
+      const t = Date.now();
       if (pendingSince === null) pendingSince = t;
       if (timer) clearTimeout(timer);
       const delay = Math.min(
