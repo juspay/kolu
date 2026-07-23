@@ -186,8 +186,11 @@ describe("grok watcher — debounce maxWait under phase spam (#1952)", () => {
     }
 
     // Flip must land within maxWait (+slack) of the *first* append — proves
-    // maxWait, not a lucky quiet gap mid-burst.
-    const slackMs = 100;
+    // maxWait, not a lucky quiet gap mid-burst. Slack covers real-timer /
+    // FSEvents callback lag under loaded CI (darwin saw 610ms vs 600ms
+    // budget with 100ms slack — still well under pure-trailing after the
+    // burst ends at ~DEBOUNCE_MAX_MS+DEBOUNCE_MS).
+    const slackMs = 250;
     expect(flipAt).not.toBeNull();
     expect(flipAt! - firstAppendAt).toBeLessThanOrEqual(
       DEBOUNCE_MAX_MS + slackMs,
