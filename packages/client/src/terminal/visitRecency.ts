@@ -54,7 +54,11 @@ function isVisitEntry(v: unknown, now: number): v is VisitEntry {
   return true;
 }
 
-/** Validate persisted JSON — throws so {@link persistedPref} falls back to []. */
+/**
+ * Validate persisted JSON. Well-formed entries are kept; corrupt rows and
+ * duplicates are dropped (tolerant array read). Throws only when the top-level
+ * value is not an array, so {@link persistedPref} can fall back to [].
+ */
 export function parseVisitList(
   raw: string,
   now: number = Date.now(),
@@ -63,19 +67,12 @@ export function parseVisitList(
   if (!Array.isArray(data)) {
     throw new Error("visit recency: expected a JSON array");
   }
-  if (data.length > VISIT_MRU_CAP) {
-    throw new Error(`visit recency: exceeds cap ${VISIT_MRU_CAP}`);
-  }
   const seen = new Set<string>();
   const out: VisitEntry[] = [];
   for (const item of data) {
-    if (!isVisitEntry(item, now)) {
-      throw new Error("visit recency: invalid entry shape");
-    }
+    if (!isVisitEntry(item, now)) continue;
     const key = visitLiveKey(item.hostKey, item.terminalId);
-    if (seen.has(key)) {
-      throw new Error("visit recency: duplicate host+terminal key");
-    }
+    if (seen.has(key)) continue;
     seen.add(key);
     out.push({
       hostKey: item.hostKey,
@@ -83,7 +80,7 @@ export function parseVisitList(
       visitedAt: item.visitedAt,
     });
   }
-  return out;
+  return out.slice(0, VISIT_MRU_CAP);
 }
 
 /** Upsert one visit to the front of the MRU, dedupe by (hostKey, terminalId),
@@ -131,16 +128,22 @@ export function clearHostVisits(
   return prev.filter((e) => e.hostKey !== hostKey);
 }
 
-/** Seed visits for a host that has none — most-recent-first decreasing stamps. */
+/**
+ * Seed membership for a host that has no trail yet — Ctrl+Tab order only.
+ * Stamps are tiny positive ranks (n … 1), never wall-clock times, so they
+ * cannot drown real `noteVisit` stamps or server activity in max() ranking.
+ */
 export function seedHostVisits(
   hostKey: string,
   liveIds: readonly TerminalId[],
-  now: number,
+  _now?: number,
 ): VisitEntry[] {
+  const n = liveIds.length;
   return liveIds.map((terminalId, i) => ({
     hostKey,
     terminalId,
-    visitedAt: now - i,
+    // First live id is most-recent for cycle order; values stay << Date.now().
+    visitedAt: n - i,
   }));
 }
 
@@ -165,10 +168,11 @@ export function reconcileHostLiveIds(
           (m, e) => Math.min(m, e.visitedAt),
           survivors[0]!.visitedAt,
         );
+  // Append below oldest survivor; never go negative (parse rejects < 0).
   const appended: VisitEntry[] = missing.map((terminalId, i) => ({
     hostKey,
     terminalId,
-    visitedAt: minSurvivor - 1 - i,
+    visitedAt: Math.max(0, minSurvivor - 1 - i),
   }));
   return [...survivors, ...appended];
 }
@@ -220,10 +224,6 @@ export function visitLiveKey(hostKey: string, terminalId: TerminalId): string {
   return `${hostKey}\0${terminalId}`;
 }
 
-export function encodeVisitHost(host: HostKey): string {
-  return encodeHostKey(host);
-}
-
 const STORAGE_KEY = "kolu-visit-recency";
 
 type VisitRecencyApi = {
@@ -255,27 +255,25 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     terminalId: TerminalId,
     at: number = Date.now(),
   ): void {
-    setVisits((prev) =>
-      upsertVisit(prev, encodeVisitHost(host), terminalId, at),
-    );
+    setVisits((prev) => upsertVisit(prev, encodeHostKey(host), terminalId, at));
   }
 
   function forgetVisit(host: HostKey, terminalId: TerminalId): void {
-    setVisits((prev) => removeVisit(prev, encodeVisitHost(host), terminalId));
+    setVisits((prev) => removeVisit(prev, encodeHostKey(host), terminalId));
   }
 
   function clearHost(host: HostKey): void {
-    setVisits((prev) => clearHostVisits(prev, encodeVisitHost(host)));
+    setVisits((prev) => clearHostVisits(prev, encodeHostKey(host)));
   }
 
   function applyLiveIds(host: HostKey, liveIds: readonly TerminalId[]): void {
     setVisits((prev) =>
-      applyHostLiveIds(prev, encodeVisitHost(host), liveIds, Date.now()),
+      applyHostLiveIds(prev, encodeHostKey(host), liveIds, Date.now()),
     );
   }
 
   function mruForHost(host: HostKey): TerminalId[] {
-    return mruIdsForHost(visits(), encodeVisitHost(host));
+    return mruIdsForHost(visits(), encodeHostKey(host));
   }
 
   return {
@@ -287,8 +285,3 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     mruForHost,
   };
 });
-
-/** Reactive visit list for callers that only need to read (palette rank). */
-export function visitList(): VisitEntry[] {
-  return useVisitRecency().visits();
-}

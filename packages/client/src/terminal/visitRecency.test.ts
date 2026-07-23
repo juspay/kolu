@@ -84,44 +84,40 @@ describe("parseVisitList", () => {
     ]);
   });
 
-  it("throws on invalid shape (caller falls back via persistedPref)", () => {
+  it("throws when top-level is not an array (persistedPref falls back)", () => {
     expect(() => parseVisitList(`{"nope":true}`)).toThrow();
-    expect(() => parseVisitList(`[{}]`)).toThrow();
   });
 
-  it("rejects non-canonical host keys", () => {
-    expect(() =>
-      parseVisitList(
-        JSON.stringify([
-          { hostKey: "not-a-host", terminalId: A, visitedAt: 1 },
-        ]),
-      ),
-    ).toThrow();
+  it("drops corrupt rows / dupes and keeps well-formed entries", () => {
+    const out = parseVisitList(
+      JSON.stringify([
+        { hostKey: "not-a-host", terminalId: A, visitedAt: 1 },
+        { hostKey: "local", terminalId: "abc", visitedAt: 1 },
+        { hostKey: "local", terminalId: A, visitedAt: 10 },
+        { hostKey: "local", terminalId: A, visitedAt: 11 },
+        {},
+      ]),
+    );
+    expect(out).toEqual([{ hostKey: "local", terminalId: A, visitedAt: 10 }]);
   });
 
-  it("rejects non-UUID terminal ids", () => {
-    expect(() =>
-      parseVisitList(
-        JSON.stringify([{ hostKey: "local", terminalId: "abc", visitedAt: 1 }]),
-      ),
-    ).toThrow();
-  });
-
-  it("rejects duplicates and over-cap", () => {
-    expect(() =>
-      parseVisitList(
-        JSON.stringify([
-          { hostKey: "local", terminalId: A, visitedAt: 1 },
-          { hostKey: "local", terminalId: A, visitedAt: 2 },
-        ]),
-      ),
-    ).toThrow(/duplicate/);
+  it("caps over-long lists", () => {
     const many = Array.from({ length: 51 }, (_, i) => ({
       hostKey: "local",
       terminalId: T(`00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
-      visitedAt: i,
+      visitedAt: i + 1,
     }));
-    expect(() => parseVisitList(JSON.stringify(many))).toThrow(/cap/);
+    expect(parseVisitList(JSON.stringify(many))).toHaveLength(50);
+  });
+});
+
+describe("seedHostVisits stamps", () => {
+  it("uses tiny ranks so activity ranking is not drowned", async () => {
+    const { seedHostVisits } = await import("./visitRecency");
+    const seeded = seedHostVisits("local", [A, B], 1_700_000_000_000);
+    expect(seeded[0]!.visitedAt).toBe(2);
+    expect(seeded[1]!.visitedAt).toBe(1);
+    expect(Math.max(seeded[0]!.visitedAt, 9_000)).toBe(9_000);
   });
 });
 

@@ -18,11 +18,16 @@ import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel, hostRowContext, sameHost } from "../host/hostChipTone";
 import { assignColors } from "../terminal/terminalDisplay";
 import {
-  encodeVisitHost,
-  visitList,
+  useVisitRecency,
   visitedAtOf,
   type VisitEntry,
 } from "../terminal/visitRecency";
+import { padiMap } from "../wire";
+import {
+  type FleetTerminalRow,
+  groupFleetByHost,
+  orderHostsActiveFirst,
+} from "./fleetTerminals";
 
 /** Palette ranking policy: max(client visit, server activity). Lives here
  *  (not in the trail store) so visitRecency stays trail-only. */
@@ -37,12 +42,6 @@ export function terminalRankScore(
     serverActivityAt ?? 0,
   );
 }
-import { padiMap } from "../wire";
-import {
-  type FleetTerminalRow,
-  groupFleetByHost,
-  orderHostsActiveFirst,
-} from "./fleetTerminals";
 
 /** Switch host when the row is foreign, then activate. Pure sequencing
  *  extracted so unit tests can spy without mounting the palette. */
@@ -89,10 +88,15 @@ function terminalSwitchActionsForHost(
       );
     }
     const hostName = hostLabel(row.host);
-    const hostKey = encodeVisitHost(row.host);
+    const hostKey = encodeHostKey(row.host);
     // activity clock for paint; rankScore for sort — never jam them into one field.
     const activityAt = row.recencyAt;
-    const rankAt = terminalRankScore(visitList(), hostKey, row.id, activityAt);
+    const rankAt = terminalRankScore(
+      useVisitRecency().visits(),
+      hostKey,
+      row.id,
+      activityAt,
+    );
     return {
       kind: "action",
       name: branchLabel,
