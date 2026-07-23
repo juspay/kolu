@@ -17,36 +17,57 @@ export function identityChipSelector(testid: IdentityChipTestid): string {
   return `[data-testid="host-diagnostics-popover"] [data-testid="${testid}"]`;
 }
 
+type LocatorLike = {
+  click: () => Promise<void>;
+  count: () => Promise<number>;
+  getAttribute: (name: string) => Promise<string | null>;
+};
+
 type PageLike = {
-  locator: (sel: string) => {
-    click: () => Promise<void>;
-    count: () => Promise<number>;
-    getAttribute: (name: string) => Promise<string | null>;
-  };
+  locator: (sel: string) => LocatorLike;
   waitForSelector: (
     sel: string,
     opts?: { timeout?: number; state?: "visible" | "attached" },
   ) => Promise<unknown>;
 };
 
-/** Idempotently open the ACTIVE host's diagnostics popover. Scopes the
- *  already-open check to that host's `data-host` so a panel for a different
- *  host does not short-circuit the open. */
+const PANEL = '[data-testid="host-diagnostics-popover"]';
+const ACTIVE_CHIP =
+  '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]';
+
+/** Idempotently open the ACTIVE host's diagnostics popover.
+ *
+ *  Compares the open panel's `data-host` attribute to the active chip's key
+ *  in JS — never interpolates the host key into a CSS selector (keys can
+ *  contain quotes/backslash; HostKeySchema admits every non-empty target).
+ *  Only one diagnostics panel mounts at a time (strip-owned open key). */
 export async function openActiveHostDiagnostics(page: PageLike): Promise<void> {
-  const activeChip =
-    '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]';
-  const activeKey = await page.locator(activeChip).getAttribute("data-host");
+  const activeKey = await page.locator(ACTIVE_CHIP).getAttribute("data-host");
   if (!activeKey) {
     throw new Error(
       "openActiveHostDiagnostics: no active host chip (data-host) found",
     );
   }
-  // Host keys are encodeHostKey strings (no quotes); attribute match is exact.
-  const panel = `[data-testid="host-diagnostics-popover"][data-host="${activeKey}"]`;
-  if ((await page.locator(panel).count()) > 0) {
-    await page.waitForSelector(panel, { timeout: 5_000, state: "visible" });
+
+  const panelHost =
+    (await page.locator(PANEL).count()) > 0
+      ? await page.locator(PANEL).getAttribute("data-host")
+      : null;
+
+  if (panelHost === activeKey) {
+    await page.waitForSelector(PANEL, { timeout: 5_000, state: "visible" });
     return;
   }
-  await page.locator(`${activeChip} [data-testid="host-select"]`).click();
-  await page.waitForSelector(panel, { timeout: 10_000, state: "visible" });
+
+  // Different host open (or none): click the active select. Toggle opens it;
+  // if a different panel was open, strip-level open key replaces it.
+  await page.locator(`${ACTIVE_CHIP} [data-testid="host-select"]`).click();
+  await page.waitForSelector(PANEL, { timeout: 10_000, state: "visible" });
+
+  const openedHost = await page.locator(PANEL).getAttribute("data-host");
+  if (openedHost !== activeKey) {
+    throw new Error(
+      `openActiveHostDiagnostics: expected panel for ${JSON.stringify(activeKey)}, got ${JSON.stringify(openedHost)}`,
+    );
+  }
 }
