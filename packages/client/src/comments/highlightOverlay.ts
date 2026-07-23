@@ -113,16 +113,27 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     if (!opts.observeMutations) return;
     const host = opts.host();
     if (!host) return;
-    // Apply directly from the observer callback. Routing through a signal and
-    // another scheduled reactive pass left a second queueing window under
-    // heavy load; the callback already runs at the browser's mutation
-    // checkpoint and has the current comments accessor available.
+    // Re-anchor once at the NEXT microtask, after the browser has delivered the
+    // whole mutation-observer checkpoint. Applying inside our observer callback
+    // can still run before a later observer mutates the same rendered subtree;
+    // routing through a Solid signal goes too far the other way and leaves the
+    // repair waiting on a deferred reactive pass under load. One microtask is
+    // the exact boundary we need: after all observers, before paint.
+    let queued = false;
+    let disposed = false;
     const observer = new MutationObserver(() => {
-      applyCurrentHighlights(host, opts.comments());
-      if (scroll.request()) setDomTick((n) => n + 1);
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        if (disposed) return;
+        applyCurrentHighlights(host, opts.comments());
+        if (scroll.request()) setDomTick((n) => n + 1);
+      });
     });
     observer.observe(host, { childList: true, subtree: true });
     onCleanup(() => {
+      disposed = true;
       observer.disconnect();
     });
   });
