@@ -137,7 +137,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(nixSshOpts).toContain("-o ServerAliveInterval=10");
   });
 
-  it("runs nix copy + nix build with --log-format internal-json (structured progress, #1962)", async () => {
+  it("runs nix copy + nix build with plain -v and $drv^* realise (#1962)", async () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
@@ -146,16 +146,17 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       ...provArgs(),
     });
     const copyArgs = vi.mocked(runProgress).mock.calls[0]![1];
-    expect(copyArgs).toContain("--log-format");
-    expect(copyArgs).toContain("internal-json");
+    expect(copyArgs).toContain("-v");
+    expect(copyArgs).not.toContain("--log-format");
+    expect(copyArgs).not.toContain("internal-json");
     expect(copyArgs).toContain("copy");
     const buildArgs = vi
       .mocked(runCapture)
       .mock.calls.map((c) => c[1])
       .find((args) => args.includes("--print-out-paths"));
     expect(buildArgs).toBeDefined();
-    expect(buildArgs).toContain("--log-format");
-    expect(buildArgs).toContain("internal-json");
+    expect(buildArgs).toContain("-v");
+    expect(buildArgs).not.toContain("--log-format");
     expect(buildArgs).toContain("build");
     expect(buildArgs).toContain("--no-link");
     // Bare `$drv` would echo the .drv path (spawn ENOTDIR); `^*` realises outputs.

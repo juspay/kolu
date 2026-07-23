@@ -21,10 +21,10 @@
  *   2. `nix copy --derivation --to ssh-ng://$host $drvPath` pushes the
  *      .drv (plus its inputs' .drvs and source paths the remote
  *      doesn't have).
- *   3. `ssh $host nix build --print-out-paths --no-link $drvPath` builds
- *      (or substitutes) it on the remote, returning the output path. Runs
- *      with `--log-format internal-json` so the connect overlay can show
- *      live byte/path progress (#1962) instead of a frozen raw line.
+ *   3. `ssh $host nix build -v --print-out-paths --no-link $drv^*` builds
+ *      (or substitutes) it on the remote, returning the output path. Plain
+ *      `-v` so nix's own per-path lines reach the connect overlay; a single
+ *      large fetch may be quiet — the wall-clock elapsed timer covers liveness.
  *   4. `ssh $host nix-store --realise $out --add-root $link --indirect`
  *      pins that output behind a per-agent GC root on the target, so a
  *      `nix-collect-garbage` there can't delete the agent out from
@@ -56,7 +56,6 @@ import {
   looksLikeNetworkError,
   nixSshOpts,
 } from "./host";
-import { makeNixProgressReporter } from "./nixProgress";
 import {
   describeExit,
   type ExitResult,
@@ -459,15 +458,13 @@ export async function provisionAgent(
     // The warm check MISSED (cold path) — signal the `probing → copying` boundary.
     opts.onCopying?.();
     onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
-    // `--log-format internal-json` so a multi-minute NAR transfer surfaces as
-    // "X of Y MiB · path N of M" rather than a single frozen `copying path…`
-    // line (#1962). The reporter is the ONE consumer of that format.
-    const copyProgress = makeNixProgressReporter(onProgress);
+    // Plain `-v`: nix's own per-path lines ("copying path '…'") reach the
+    // connect tail untouched. No structured-progress parser — one long fetch
+    // may be quiet; the wall-clock elapsed timer covers liveness (#1962).
     const copyRes = await runProgress(
       "nix",
       [
-        "--log-format",
-        "internal-json",
+        "-v",
         "copy",
         "--no-check-sigs",
         "--derivation",
@@ -476,7 +473,7 @@ export async function provisionAgent(
         opts.drvPath,
       ],
       {
-        onProgress: copyProgress,
+        onProgress,
         // The copy is a transfer that can sit idle for minutes; progress-liveness kills
         // it only on real silence (#1908 R4). The ssh nix forks internally rides the
         // shared master + dead-peer keepalive via NIX_SSHOPTS.
@@ -510,26 +507,24 @@ export async function provisionAgent(
 
   // 3. Realise (build) the .drv on the target — the minutes-long compile / binary-cache
   //    fetch. Signal the `copying → building` boundary (cold path only; a warm host
-  //    returned at step 1). Uses `nix build --print-out-paths --no-link` (not the
-  //    classic `nix-store --realise`) so we can take `--log-format internal-json` and
-  //    surface byte/path progress while a large NAR substitutes from the cache —
-  //    the recurring "frozen for minutes on one copying path line" failure mode (#1962).
-  //    The installable is `$drv^*` (all outputs): a bare `$drv` path is a derivation
-  //    installable that `--print-out-paths` echoes back as itself (spawn ENOTDIR),
-  //    while `^*` realises and prints the store output path(s). Same single-output
-  //    contract as before (multi-output still fails loud via `multiOutputError`).
+  //    returned at step 1). Uses `nix build -v --print-out-paths --no-link` (not the
+  //    classic `nix-store --realise`) so nix's own verbose per-path lines reach the
+  //    connect tail. The installable is `$drv^*` (all outputs): a bare `$drv` path is
+  //    a derivation installable that `--print-out-paths` echoes back as itself (spawn
+  //    ENOTDIR), while `^*` realises and prints the store output path(s). Same
+  //    single-output contract as before (multi-output still fails loud via
+  //    `multiOutputError`). Remote arm shell-quotes the installable so zsh does not
+  //    glob `*` (#1964).
   opts.onBuilding?.();
   onProgress(
     isLocal
       ? `localhost: realising '${opts.drvPath}'…`
       : `${opts.host}: realising '${opts.drvPath}' on remote…`,
   );
-  const buildProgress = makeNixProgressReporter(onProgress);
   const build = buildSshProbeCommand(
     opts.host,
     "nix",
-    "--log-format",
-    "internal-json",
+    "-v",
     "build",
     "--print-out-paths",
     "--no-link",
@@ -537,7 +532,7 @@ export async function provisionAgent(
     `${opts.drvPath}^*`,
   );
   const realiseRes = await runCapture(build.command, build.args, {
-    onProgress: buildProgress,
+    onProgress,
     policy: budgets.build.policy(),
     signal,
   });

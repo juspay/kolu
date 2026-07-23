@@ -161,7 +161,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     // Same sinceMs, new object identity — effect re-runs, must NOT reset.
     h.setInfo({
       phase: "copying",
-      log: [{ source: "local", line: "path 2 of 6 · 10.0 MiB of 50.0 MiB" }],
+      log: [{ source: "local", line: "copying path '/nix/store/…-pkg'…" }],
       sinceMs: 3_000,
     });
     expect(elapsed()).toBe("5s"); // still extended, not back to 3s
