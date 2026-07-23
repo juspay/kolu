@@ -315,6 +315,22 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     await teardown(session, done, upstream);
   });
 
+  it("reports a procedure's missing upstream link as service unavailable", async () => {
+    const { session, upstream, done, downstream } = setup(1);
+    await delay(15);
+
+    upstream.kill();
+    await delay(15);
+    await expect(
+      downstream.surface.ctl.echo({ msg: "between-spawns" }),
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      message: expect.stringMatching(/no live upstream link/),
+    });
+
+    await teardown(session, done);
+  });
+
   it("a mirror serves NO frame until the authority's first real one (never the fabricated default)", async () => {
     // Subscribe to the mirrored cell IMMEDIATELY — before the pump has bound and
     // folded the upstream's first frame — and take exactly the FIRST frame. The
@@ -656,7 +672,10 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
           set: (v: number) => Promise<unknown>;
         }
       ).set(3),
-    ).rejects.toThrow(/no live upstream link/);
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      message: expect.stringMatching(/no live upstream link/),
+    });
     expect(upstream.cellWrites.counter).toEqual([]); // nothing crossed
 
     await teardown(session, done); // upstream already killed

@@ -8,9 +8,8 @@
  *
  *  Three flavors: `nudgeWal` writes a WAL frame to a SQLite DB
  *  (agent-session mocks); `nudgeFiles` re-touches mtimes (transcript /
- *  session-JSONL mocks); `rewriteFiles` writes the same bytes back when a
- *  watcher needs a fresh content-write event. Same volatility axis — they
- *  share a home so future additions don't fragment further.
+ *  session-JSONL mocks). Same volatility axis — they share a home so future
+ *  additions don't fragment further.
  *
  *  SQLite errors that match the SQLITE_BUSY family are swallowed
  *  silently — those ARE the events we expect under contention.
@@ -45,19 +44,6 @@ export function nudgeFiles(paths: ReadonlyArray<string | undefined>): void {
     } catch {
       // File may have been cleaned up between iterations — fine.
     }
-  }
-}
-
-/** Rewrite each file with its current bytes. Some native watcher
- * backends coalesce repeated metadata-only `utimes` calls, while a real write
- * is the same event shape as the user edit being recovered. Every filesystem
- * error is a test failure; callers that can race teardown must opt into that
- * tolerance themselves. */
-export function rewriteFiles(paths: ReadonlyArray<string | undefined>): void {
-  for (const p of paths) {
-    if (!p) continue;
-    const contents = fs.readFileSync(p);
-    fs.writeFileSync(p, contents);
   }
 }
 

@@ -1,6 +1,6 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { nudgeDir, nudgeFiles, rewriteFiles } from "../support/nudge.ts";
+import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -8,12 +8,6 @@ import {
   MOD_KEY,
   POLL_TIMEOUT,
 } from "../support/world.ts";
-
-// Repo/file pulses cross two 150ms trailing-edge debounces: the native
-// working-tree watcher, then subscribeRepoChange/subscribeFileChange. Nudging
-// faster than their combined 300ms window continually resets the first timer
-// and prevents any pulse from firing.
-const FILE_WATCH_NUDGE_INTERVAL_MS = 500;
 
 /** Ensure the right panel is expanded for the ACTIVE terminal before touching
  *  the Code tab. Panel collapse is PER-TERMINAL now (#1753): a freshly-created
@@ -745,119 +739,6 @@ Then(
         ),
       timeoutMs: HYDRATION_TIMEOUT,
     });
-  },
-);
-
-// Edit-then-refresh variant: after a file is rewritten in the shell, the live
-// preview reloads only when the file-change watch (`subscribeFileChange` →
-// `watchWorkingTree(repoRoot, { filePath })`) fires. On darwin that single
-// FSEvents notification is sometimes dropped under the post-koluBin-build
-// storm, so the iframe freezes on the pre-edit body and the bare assertion
-// above (even at HYDRATION_TIMEOUT) waits forever — no further event ever
-// comes. Rewrite the already-edited bytes each poll tick: each write is a
-// fresh notification, so a dropped one is recovered. The rewrite itself no longer
-// changes the URL (the `?v=` cache-key hashes CONTENT, not mtime) — it only
-// re-fires the dropped watch; the requery then hashes the already-written
-// post-edit content, whose new hash re-points the iframe `src` and forces the
-// reload. The file already holds the post-edit content, so this recovers the
-// lost event without changing what is asserted — it does NOT mask a broken
-// watch re-arm (a touch of a file the
-// watch isn't armed on still fires nothing). `absFile` is the absolute on-disk
-// path the shell wrote (the scenario's repo cwd + relative path).
-Then(
-  "the file preview iframe should refresh to {string} after editing {string}",
-  async function (this: KoluWorld, expected: string, absFile: string) {
-    const body = this.page
-      .frameLocator('[data-testid="browse-preview-iframe"]')
-      .locator("body");
-    await pollFor({
-      observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
-      isDone: (text) => text?.includes(expected) ?? false,
-      onTick: () => rewriteFiles([absFile]),
-      onTimeout: (last) =>
-        new Error(
-          `iframe preview never refreshed to "${expected}" after editing ${absFile}; ` +
-            `last body text: ${JSON.stringify(last)}`,
-        ),
-      intervalMs: FILE_WATCH_NUDGE_INTERVAL_MS,
-      timeoutMs: HYDRATION_TIMEOUT,
-    });
-  },
-);
-
-// Scroll the sandboxed preview iframe's OWN document to the bottom and capture
-// the landed scrollTop for the hold-steady regression below. `frameLocator`
-// reaches into the opaque-origin frame (same boundary the read step uses), so
-// `body.evaluate` runs in the iframe context and drives its `scrollingElement`.
-// We poll because the content needs a beat to lay out tall enough to scroll;
-// a captured scrollTop of 0 means the fixture wasn't scrollable — a setup bug,
-// surfaced here rather than as a silent pass downstream.
-When(
-  "I scroll the file preview iframe to the bottom",
-  async function (this: KoluWorld) {
-    const body = this.page
-      .frameLocator('[data-testid="browse-preview-iframe"]')
-      .locator("body");
-    const top = await pollFor({
-      observe: () =>
-        body
-          .evaluate(() => {
-            const se = document.scrollingElement ?? document.documentElement;
-            se.scrollTop = se.scrollHeight;
-            return se.scrollTop;
-          })
-          .catch(() => 0),
-      isDone: (t) => t > 0,
-      onTimeout: (last) =>
-        new Error(
-          `preview iframe never scrolled (scrollTop stayed ${last}); is the fixture tall enough?`,
-        ),
-      timeoutMs: HYDRATION_TIMEOUT,
-    });
-    this.savedPreviewIframeScrollTop = top;
-  },
-);
-
-// The scroll-jump regression, end-to-end: a `git checkout`-style rewrite bumps
-// mtime WITHOUT changing bytes, which under the old mtime-keyed `?v=` re-pointed
-// the iframe `src` and slammed a mid-scrolled preview to the top. Here we hold
-// the frame at its captured scroll position while firing the file-change watch
-// repeatedly via identical-mtime touches (`nudgeFiles` re-touches mtime — that
-// IS the same-bytes-new-mtime rewrite). Each touch re-queries
-// `fs.filePreviewTag`, whose CONTENT hash is unchanged, so the URL holds and the
-// frame is never re-pointed: scrollTop must not reset. Were the tag still keyed
-// on mtime, the first touch would reload and drop scrollTop to 0, failing here.
-// The scenario's following real-edit refresh step is the liveness guard — it
-// proves the watch DOES fire and DOES reload on a genuine change, so this
-// hold-steady window is not a vacuous pass on a dead watch.
-Then(
-  "the file preview iframe holds its scroll position through identical rewrites of {string}",
-  async function (this: KoluWorld, absFile: string) {
-    const anchor = this.savedPreviewIframeScrollTop;
-    if (anchor === undefined || anchor <= 0)
-      throw new Error(
-        "no captured preview scroll position to hold — scroll the iframe first",
-      );
-    const body = this.page
-      .frameLocator('[data-testid="browse-preview-iframe"]')
-      .locator("body");
-    const deadline = Date.now() + 8_000;
-    while (Date.now() < deadline) {
-      nudgeFiles([absFile]);
-      const top = await body
-        .evaluate(() => {
-          const se = document.scrollingElement ?? document.documentElement;
-          return se.scrollTop;
-        })
-        .catch(() => null);
-      // A transient null (a read racing a swap) is ignored; a real drop toward
-      // the top means the `src` was re-pointed — the exact regression.
-      if (top !== null && top < anchor - 2)
-        throw new Error(
-          `preview iframe scroll reset from ${anchor} to ${top} after an identical-content rewrite — the URL was re-pointed`,
-        );
-      await new Promise((r) => setTimeout(r, 250));
-    }
   },
 );
 

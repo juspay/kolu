@@ -48,6 +48,7 @@
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
+import { ORPCError } from "@orpc/client";
 import {
   type CellCtxSetOpts,
   type ImplementSurfaceDeps,
@@ -266,9 +267,9 @@ export function reServeSurface<S extends SurfaceSpec>(
   ): Promise<unknown> => {
     const client = liveClient.current;
     if (client === null) {
-      throw new Error(
-        `reServeSurface: cell "${key}.${verb}" written with no live upstream link`,
-      );
+      throw new ORPCError("SERVICE_UNAVAILABLE", {
+        message: `reServeSurface: cell "${key}.${verb}" written with no live upstream link`,
+      });
     }
     const cellNs = surfaceMember<Record<string, ProcedureFn> | undefined>(
       client,
@@ -370,9 +371,9 @@ export function reServeSurface<S extends SurfaceSpec>(
       | undefined;
     const fn = procs?.[ns]?.[verb];
     if (typeof fn !== "function") {
-      throw new Error(
-        `reServeSurface: procedure "${ns}.${verb}" invoked with no live upstream link`,
-      );
+      throw new ORPCError("SERVICE_UNAVAILABLE", {
+        message: `reServeSurface: procedure "${ns}.${verb}" invoked with no live upstream link`,
+      });
     }
     return fn(input, { signal });
   };
