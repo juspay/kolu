@@ -14,7 +14,7 @@
     "start": "tsx src/server/main.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.13",
+    "@hono/node-server": "^2.0.10",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-remote": "workspace:*",

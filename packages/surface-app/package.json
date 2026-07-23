@@ -30,7 +30,7 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@hono/node-server": "^1.19.13",
+    "@hono/node-server": "^2.0.10",
     "hono": "^4.12.25"
   },
   "peerDependenciesMeta": {
@@ -42,7 +42,7 @@
     }
   },
   "devDependencies": {
-    "@hono/node-server": "^1.19.13",
+    "@hono/node-server": "^2.0.10",
     "@types/node": "^22.0.0",
     "hono": "^4.12.25",
     "typescript": "^7.0.2",
