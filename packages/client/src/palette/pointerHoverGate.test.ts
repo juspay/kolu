@@ -28,7 +28,7 @@ describe("notePointerMove — real-mousemove hover gate", () => {
   it("re-arms after a keyboard-style reset of the armed flag (pos kept)", () => {
     // After keyboard nav: hover disarmed but last pos retained. Stationary
     // synthetic moves must not re-arm; a real delta must.
-    let pos: PointerPos | null = { x: 20, y: 30 };
+    const pos: PointerPos | null = { x: 20, y: 30 };
     expect(notePointerMove(pos, { x: 20, y: 30 }).hoverArmed).toBe(false);
     const real = notePointerMove(pos, { x: 25, y: 30 });
     expect(real.hoverArmed).toBe(true);
