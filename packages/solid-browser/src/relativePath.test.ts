@@ -80,6 +80,12 @@ describe("resolveLinkHref", () => {
     expect(resolveLinkHref("README.md", "docs/guide.md?v=2")).toBe(
       "docs/guide.md",
     );
+    expect(resolveLinkHref("README.md", "docs/guide.md?v=2#install")).toBe(
+      "docs/guide.md",
+    );
+    expect(resolveLinkHref("README.md", "docs/guide.md#install?v=2")).toBe(
+      "docs/guide.md",
+    );
   });
 
   it("returns null for external / own-scheme hrefs", () => {

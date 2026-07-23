@@ -37,7 +37,16 @@ export function resolveRelativePath(
  *  scrolling to the heading inside it is the host's concern, not this resolver's.
  *  Returns null for an external/own-scheme href or a path that escapes the root. */
 export function resolveLinkHref(fromPath: string, href: string): string | null {
-  const path = href.trim().replace(/[?#].*$/, "");
+  const trimmed = href.trim();
+  const fragmentStart = trimmed.indexOf("#");
+  const queryStart = trimmed.indexOf("?");
+  const suffixStart =
+    fragmentStart < 0
+      ? queryStart
+      : queryStart < 0
+        ? fragmentStart
+        : Math.min(fragmentStart, queryStart);
+  const path = suffixStart < 0 ? trimmed : trimmed.slice(0, suffixStart);
   return resolveRelativePath(fromPath, path);
 }
 
