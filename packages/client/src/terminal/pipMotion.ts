@@ -1,6 +1,9 @@
-/** Pure motion fold for dock / title StatePips — activity is the motion channel.
+/** Pure motion fold for every StatePip surface — activity is the motion channel.
  *
- *  Axis contract (see #1949 identity, this PR for motion):
+ *  Lives under `terminal/` (not `dock/`) because title chrome and the workspace
+ *  switcher share it — location is structure (lens-debate).
+ *
+ *  Axis contract:
  *    identity → glyph shape
  *    state    → glyph paint (agentPaintClass → PipVariant)
  *    activity → glyph MOTION (this module)
@@ -9,21 +12,24 @@
  *
  *  Motion kinds:
  *    - working → always spin (2.8s linear)
- *    - awaiting_user → always glow ("calling you" ranks above spin)
+ *    - awaiting_user → always glow
  *    - waiting → spin until effectively finished (EF2 `finishedIds`), then still
  *    - shell / idle → spin while live output, still otherwise
  *
  *  Paint stays decoupled: waiting keeps lingering violet via PipVariant
  *  `awaiting` even when motion holds still. */
 
-import type { PipVariant } from "@kolu/solid-statepip/pipVariant";
+import type {
+  PipMotionKind,
+  PipVariant,
+} from "@kolu/solid-statepip/pipVariant";
 import { agentBucket, type AgentInfo } from "kolu-common/surface";
 
-export type PipMotionKind = "spin" | "glow" | "none";
+export type { PipMotionKind };
 
 /** Whether the terminal is "effectively active" for motion — complement of
  *  EF2 effective finish for waiting agents; live-output for shells; always
- *  for working / awaiting_user. */
+ *  for working / awaiting_user. Also gates recency-cell hide. */
 export function pipIsActive(input: {
   agent: AgentInfo | null | undefined;
   isLive: boolean;
@@ -68,7 +74,8 @@ export function pipMotionKind(input: {
     }
   }
 
-  // Shell / agentless: spin while live, still otherwise.
+  // Shell / agentless: spin while live (variant may be elevated to working
+  // for paint by bindStatePip), still otherwise.
   if (input.variant === "working") return "spin";
   if (input.variant === "awaiting") return input.active ? "glow" : "none";
   return input.active ? "spin" : "none";

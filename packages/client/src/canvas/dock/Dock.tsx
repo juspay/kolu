@@ -115,8 +115,7 @@ import {
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { pipIsActive, pipMotionKind } from "./pipMotion";
-import { pipGlyphFor, pipVariant } from "./pipVariant";
+import { bindStatePip } from "../../terminal/statePipBind";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
@@ -606,18 +605,13 @@ const DockRow: Component<{
     <Show when={combined()}>
       {(c) => {
         const agent = () => activeArm(c().meta)?.agent;
-        const variant = () => pipVariant(props.pip);
-        const pipActive = () =>
-          pipIsActive({
-            agent: agent(),
+        const pip = () =>
+          bindStatePip({
+            meta: c().meta,
             isLive: activity.isLive(props.id),
             isFinished: finishedQuiet.isFinished(props.id),
-          });
-        const motion = () =>
-          pipMotionKind({
-            variant: variant(),
-            agent: agent(),
-            active: pipActive(),
+            unread: unread(),
+            pipBucket: props.pip,
           });
         const sleeping = () => sleepingArm(c().meta) !== undefined;
         return (
@@ -654,16 +648,15 @@ const DockRow: Component<{
             class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent data-[sleeping]:opacity-55`}
             title="Jump to this terminal"
           >
-            {/* Identity status indicator — motion carries activity
-             *  (spin/glow until effectively quiet); no live plate disc. */}
+            {/* Identity status indicator — one binder shared with title/list. */}
             <span class="row-span-2 flex self-center">
               <StatePip
-                variant={variant()}
-                glyph={pipGlyphFor(c().meta)}
-                motion={motion()}
-                live={pipActive()}
-                alert={unread()}
-                alertLabel="unread alert"
+                variant={pip().variant}
+                glyph={pip().glyph}
+                motion={pip().motion}
+                bytesLive={pip().bytesLive}
+                alert={pip().alert}
+                alertLabel={pip().alertLabel}
                 class={DOCK_ROW_PIP_BOX}
               />
             </span>
@@ -678,11 +671,11 @@ const DockRow: Component<{
               />
             </span>
             <SubCountCell subCount={c().info.subCount} />
-            {/* Recency — hidden while active (`pipIsActive`); width reserved. */}
+            {/* Recency — hidden while active; width reserved. */}
             <RecencyCell
               recencyAt={rowRecencyAt(c().meta)}
               textSize="text-[0.6rem]"
-              hidden={pipActive()}
+              hidden={pip().active}
             />
             <Show when={showShortcutHint()}>
               <span

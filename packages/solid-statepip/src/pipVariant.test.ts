@@ -6,8 +6,8 @@ import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,
-  AWAITING_PILL_CLASS,
   DOCK_ROW_PIP_BOX,
+  FINISHED_DOT_CLASS,
   GLYPH_SVG_CLASS,
   INDICATOR_BASE,
   NEEDS_YOU_PILL_CLASS,
@@ -15,9 +15,7 @@ import {
   PIP_MOTION_CLASS,
   PIP_TITLES,
   type PipVariant,
-  SHELL_LIVE_CLASS,
   TITLE_PIP_BOX,
-  UNREAD_PILL_CLASS,
   agentGlyph,
   pipForPaintClass,
   pipGlyph,
@@ -99,10 +97,6 @@ describe("PIP_BODY — paint only per variant", () => {
     expect(PIP_TITLES.empty).toBe("");
     expect(PIP_TITLES.working).toBe("Working");
   });
-
-  it("SHELL_LIVE_CLASS is busy orange — one shell tier when live", () => {
-    expect(SHELL_LIVE_CLASS).toBe("text-busy");
-  });
 });
 
 describe("PIP_MOTION_CLASS — activity channel tokens", () => {
@@ -179,20 +173,14 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     expect(ALERT_BADGE_CLASS).toBe("statepip-alert-badge");
   });
 
-  // Two host/chrome pills, deliberately different hues:
-  //   needs-you (violet) ≠ unread (amber). Never collapse them.
   it("NEEDS_YOU_PILL_CLASS is violet (awaiting) — not amber unread", () => {
     const cls = NEEDS_YOU_PILL_CLASS.split(/\s+/);
     expect(cls).toContain("bg-alert/90");
     expect(cls).toContain("rounded-full");
     expect(cls).toContain("tabular-nums");
-    expect(AWAITING_PILL_CLASS).toBe(NEEDS_YOU_PILL_CLASS);
   });
 
-  it("UNREAD_PILL_CLASS is amber attention — not violet needs-you", () => {
-    const cls = UNREAD_PILL_CLASS.split(/\s+/);
-    expect(cls).toContain("bg-attention/90");
-    expect(cls).toContain("rounded-full");
-    expect(UNREAD_PILL_CLASS).not.toBe(NEEDS_YOU_PILL_CLASS);
+  it("FINISHED_DOT_CLASS is soft amber attention", () => {
+    expect(FINISHED_DOT_CLASS.split(/\s+/)).toContain("bg-attention/50");
   });
 });

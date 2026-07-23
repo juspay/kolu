@@ -10,6 +10,7 @@
  *  ONLY per-surface pixel (the desktop dot is tighter than the roomier mobile one);
  *  the amber fill / shape / copy live here, so a size tweak can't re-fork them. */
 
+import { FINISHED_DOT_CLASS } from "@kolu/solid-statepip/pipVariant";
 import { type Component, Show } from "solid-js";
 
 export const HostFinishedDot: Component<{
@@ -21,7 +22,7 @@ export const HostFinishedDot: Component<{
   <Show when={props.count > 0 && !props.active}>
     <span
       role="img"
-      class={`shrink-0 rounded-full bg-attention/50 ${props.sizeClass}`}
+      class={`shrink-0 ${FINISHED_DOT_CLASS} ${props.sizeClass}`}
       title={`${props.count} finished, unseen, on ${props.hostLabel}`}
       aria-label={`${props.count} finished terminals you haven't seen on ${props.hostLabel}`}
     />

@@ -1,19 +1,14 @@
-/** The shared status indicator — kolu's on-canvas **Dock** renders THIS
- *  component, and it stays renderer-agnostic so any fleet mirror shows the
- *  identical glyph, colour, and animation for a given (state, motion, live,
- *  alert, identity) tuple.
+/** The shared status indicator — identity glyph + state paint + motion + alert.
  *
- *  Option C axes:
+ *  Axes (Option C + motion-as-activity):
  *    - `glyph` — identity (who is driving)
- *    - `variant` — paint (agent state colour)
- *    - `motion` — activity channel (spin / glow / none); callers fold
- *      working∨live∨(waiting∧¬finished) into the kind
- *    - `live` — folds into the accessible label as "live output" (no disc
- *      behind the glyph — motion alone carries activity)
+ *    - `variant` — paint (agent state colour); live shells use working paint
+ *      from the binder so this leaf has no shell special-case
+ *    - `motion` — activity channel (spin / glow / none)
+ *    - `bytesLive` — raw PTY meaningful output (a11y only)
  *    - `alert` — unread obligation badge (amber)
  *
- *  Shape no longer encodes state. Under `prefers-reduced-motion` awaiting keeps
- *  a violet hollow outline and motion freezes. */
+ *  Callers should use `bindStatePip` so the four surfaces cannot drift. */
 
 import { type Component, createMemo, For, Show } from "solid-js";
 import {
@@ -27,7 +22,6 @@ import {
   type PipGlyphId,
   type PipMotionKind,
   type PipVariant,
-  SHELL_LIVE_CLASS,
   pipGlyph,
 } from "./pipVariant.ts";
 
@@ -55,12 +49,10 @@ export const StatePip: Component<{
   /** Who is driving this terminal — agent brand mark, or `"shell"`. Defaults
    *  to shell. */
   glyph?: PipGlyphId;
-  /** Activity motion channel. Callers compute via `pipMotionKind` (dock).
-   *  Default `"none"` (still). */
+  /** Activity motion channel. Default `"none"` (still). */
   motion?: PipMotionKind;
-  /** Effectively active — working ∨ live output ∨ (waiting ∧ ¬EF2 finished).
-   *  Folds into the accessible label as "live output" (no painted plate). */
-  live?: boolean;
+  /** Raw meaningful PTY output — a11y "live output" only (not effective-active). */
+  bytesLive?: boolean;
   /** Unread obligation corner badge (amber). Needs-you is paint/glow, not this. */
   alert?: boolean;
   alertLabel?: string;
@@ -74,7 +66,7 @@ export const StatePip: Component<{
   const label = createMemo(() => {
     const parts = [
       PIP_TITLES[variant()],
-      props.live && "live output",
+      props.bytesLive && "live output",
       props.alert && (props.alertLabel ?? "alert"),
     ].filter((p): p is string => Boolean(p));
     return parts.join(" · ");
@@ -82,15 +74,8 @@ export const StatePip: Component<{
   const coreClass = createMemo(() => {
     const b = body();
     if (!b) return null;
-    // One shell tier: quiet shell → fg-3; live output → busy orange (same as a
-    // working agent). No mid tier for "foreground present" — the sub-line names
-    // the process in words. Motion layers on top so live shells still spin.
-    let paint = b.class;
-    if (glyphId() === "shell" && variant() === "idle" && props.live) {
-      paint = SHELL_LIVE_CLASS;
-    }
     const motion = PIP_MOTION_CLASS[motionKind()];
-    return motion ? `${paint} ${motion}` : paint;
+    return motion ? `${b.class} ${motion}` : b.class;
   });
   return (
     <span
@@ -99,7 +84,7 @@ export const StatePip: Component<{
       data-pip={variant()}
       data-glyph={glyphId()}
       data-motion={motionKind()}
-      data-live={props.live ? "" : undefined}
+      data-live={props.bytesLive ? "" : undefined}
       data-alert={props.alert ? "" : undefined}
       title={label() || undefined}
       role="img"

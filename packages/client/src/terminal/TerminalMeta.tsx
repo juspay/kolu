@@ -22,9 +22,6 @@ import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
-import { pipIsActive, pipMotionKind } from "../canvas/dock/pipMotion";
-import { pipGlyphFor, pipVariant } from "../canvas/dock/pipVariant";
-import { paintBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { agentWorkflow } from "../ui/agentDisplay";
@@ -33,6 +30,7 @@ import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
+import { bindStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
 import { useFinishedQuiet } from "./useFinishedQuiet";
 import { useTerminalActivity } from "./useTerminalActivity";
@@ -49,7 +47,7 @@ const TerminalMeta: Component<{
    *  display decorations (colors + identity key). */
   meta: TerminalMetadata | undefined;
   /** Terminal id — required for activity / EF2 finished motion folds. */
-  terminalId?: TerminalId;
+  terminalId: TerminalId;
   /** True when this terminal has unseen agent activity. Drives the
    *  leading state pip's attention escalation exactly as the dock row
    *  does, so the title and the dock can't disagree on what's loud.
@@ -69,23 +67,12 @@ const TerminalMeta: Component<{
         // — in the StatePip. AgentIndicator (title chrome) speaks in words
         // only; no second spark.
         const arm = () => activeArm(v().meta);
-        const agent = () => arm()?.agent;
-        const variant = () =>
-          agent() ? pipVariant(paintBucket(agent())) : "idle";
-        const id = () => props.terminalId;
-        const pipActive = () =>
-          id()
-            ? pipIsActive({
-                agent: agent(),
-                isLive: activity.isLive(id()!),
-                isFinished: finishedQuiet.isFinished(id()!),
-              })
-            : !!agent();
-        const motion = () =>
-          pipMotionKind({
-            variant: variant(),
-            agent: agent(),
-            active: pipActive(),
+        const pip = () =>
+          bindStatePip({
+            meta: v().meta,
+            isLive: activity.isLive(props.terminalId),
+            isFinished: finishedQuiet.isFinished(props.terminalId),
+            unread: props.unread,
           });
         // Sleeping recedes on the title the same way dock rows do (55%).
         // Applied per row (not a contents-wrapper): opacity does not inherit
@@ -102,12 +89,12 @@ const TerminalMeta: Component<{
             >
               <Show when={arm()}>
                 <StatePip
-                  variant={variant()}
-                  glyph={pipGlyphFor(v().meta)}
-                  motion={motion()}
-                  live={pipActive()}
-                  alert={props.unread}
-                  alertLabel="unread alert"
+                  variant={pip().variant}
+                  glyph={pip().glyph}
+                  motion={pip().motion}
+                  bytesLive={pip().bytesLive}
+                  alert={pip().alert}
+                  alertLabel={pip().alertLabel}
                   class={TITLE_PIP_BOX}
                 />
               </Show>

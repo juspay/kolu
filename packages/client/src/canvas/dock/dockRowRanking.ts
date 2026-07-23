@@ -116,6 +116,15 @@ function classifyDockRow(
  *  `idle` paint (shell glyph) even when ORDER ranks them `none`. Order (rank)
  *  and colour (paint) stay decoupled: the row sorts by urgency but paints by
  *  identity + agent state. */
+/** Paint bucket for StatePip — one fold for dock rows, title, and switcher cards.
+ *  `parked` defaults false for non-windowed surfaces (title/switcher). */
+export function pipPaintBucket(
+  meta: TerminalMetadata,
+  parked: boolean = false,
+): DockRowBucket {
+  return paintDockRow(meta, parked);
+}
+
 function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
   // The overlay also runs in the paint fold so the two folds stay aligned by
   // construction — even though a parked pip never paints (`dockTree` drops the

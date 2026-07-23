@@ -10,18 +10,10 @@
  *  surface imports, rather than in `dock/` where it used to — location is
  *  structure.
  *
- *  The core is only ONE of three axes the indicator now folds into one glyph
- *  (R-activity-merge). The other two — terminal **liveness** (moving bytes) and
- *  an unread-notification **alert** — were each a SEPARATE dot before, defined
- *  (and drifting) per surface; they now compose here, once, as overlay elements
- *  (`LIVE_RING_CLASS`, `ALERT_BADGE_CLASS`; visuals in `statepip.css`):
- *    - the live PLATE — a faint green disc behind the identity glyph while the
- *      terminal is emitting (contained presence; no glow bleed past the pip);
- *    - the alert BADGE — a small amber `--color-attention` corner dot, the
- *      Dock's old loud `attention` pip retired: a different SHAPE from the plate
- *      so the two never compound into nested rings, and the glyph stays fully
- *      visible.
- *  Both default off, so a bare `<StatePip variant=… />` reads exactly as before.
+ *  The core is identity glyph + state paint; **motion** is the activity channel
+ *  (spin/glow, caller-supplied); the unread **alert** is an amber corner badge
+ *  (`ALERT_BADGE_CLASS` in `statepip.css`). There is no live plate/ring — a disc
+ *  behind the glyph read as a muddy wash on brand marks.
  *
  *  Option C: every core is an **identity glyph** ("who is driving this
  *  terminal") — a real agent brand mark, or the shell prompt for a plain
@@ -205,21 +197,13 @@ export const PIP_BODY: Record<PipVariant, PipBody | null> = {
   // rust/orange busy — machine in flight (thinking / tools / background).
   // Deliberately NOT teal accent: accent is chrome selection, not agent work.
   working: { class: "text-busy" },
-  // muted shell — live shells brighten via StatePip → SHELL_LIVE_CLASS
+  // muted shell — live shells elevate to working paint in bindStatePip
   idle: { class: "text-fg-3" },
   // moonlit + still (the ☾ shape retired — moonlit paint carries sleep)
   sleeping: { class: "text-moonlit/65" },
   // parked / none — render nothing inside the cell
   empty: null,
 };
-
-/** Shell with meaningful live output (btop, builds, tail -f) — same busy
- *  orange as a working agent so activity reads one colour everywhere.
- *
- *  One shell tier only: quiet → `text-fg-3` (idle body); active/live → this
- *  class. There is no mid tier for "foreground process present" — the
- *  process name already sits on the sub-line in words. */
-export const SHELL_LIVE_CLASS = "text-busy";
 
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */
@@ -271,20 +255,15 @@ export const TITLE_PIP_BOX = "w-[16px] h-[16px] rounded-full";
 export const NEEDS_YOU_PILL_CLASS =
   "inline-flex items-center justify-center rounded-full bg-alert/90 text-[10px] font-semibold text-black/80 tabular-nums";
 
-/** Alias — same violet needs-you pill (name prefers "awaiting" vocabulary). */
-export const AWAITING_PILL_CLASS = NEEDS_YOU_PILL_CLASS;
-
-/** Unread / obligation FILL for pill-shaped chrome (workspace-card corner ping).
- *  Warm amber — same hue family as `ALERT_BADGE_CLASS` / HostFinishedDot.
- *  NEVER use this for needs-you (that is `NEEDS_YOU_PILL_CLASS` / violet). */
-export const UNREAD_PILL_CLASS =
-  "inline-flex items-center justify-center rounded-full bg-attention/90 text-[10px] font-semibold text-black/80 tabular-nums";
+/** Host-tab finished-unseen soft amber fill — same hue family as
+ *  `ALERT_BADGE_CLASS` (obligation), softer than a corner badge. */
+export const FINISHED_DOT_CLASS = "rounded-full bg-attention/50";
 
 /** Unread / obligation CORNER DOT on StatePip (top-right). Warm amber
  *  (`--color-attention`) — deliberately a different hue from needs-you
  *  violet so "state is awaiting" and "you have an unopened notification"
  *  never collapse into one mark. Host tab's quieter finished-unseen mark
- *  (`HostFinishedDot`) is the same amber family, softer. */
+ *  (`HostFinishedDot`) uses `FINISHED_DOT_CLASS`. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";
 
 /** Glyph size inside the 20 px dock pip box — 16 px mark, 2 px inset each side.
