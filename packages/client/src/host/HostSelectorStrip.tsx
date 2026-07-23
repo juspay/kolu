@@ -62,23 +62,23 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
+import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
 import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
-import { useCommandPalette } from "../useCommandPalette";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
-import { hostGlance, hostHue, hostLabel, sameHost } from "./hostChipTone";
-import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
-import { computeVisibleHosts, type HostFit } from "./hostOverflow";
+import { useCommandPalette } from "../useCommandPalette";
+import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
-import { hostMarks } from "../attention/attentionMarks";
 import { HostAwaitingPill } from "./HostAwaitingPill";
+import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostFinishedDot } from "./HostFinishedDot";
+import { HostIdentityLabel } from "./HostIdentityLabel";
+import { hostGlance, hostHue, hostLabel, sameHost } from "./hostChipTone";
+import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { removeHost } from "./removeHost";
 import { useHostMembers } from "./useHostMembers";
-import { HostIdentityLabel } from "./HostIdentityLabel";
-import { activeHost, padiMap, setActiveHost } from "../wire";
 
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Measurement is truth;

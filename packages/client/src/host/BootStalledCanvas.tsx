@@ -29,12 +29,12 @@
  */
 
 import { type Component, createMemo } from "solid-js";
-import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
   bootStalledCopy,
   bootStalledPhaseDetail,
   CONNECTOR_STALLED_COPY,
 } from "../kaval/bootStalledCopy";
+import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,

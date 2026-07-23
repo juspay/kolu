@@ -11,7 +11,7 @@ import type { KoluBuildInfo } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { daemonTransportLive, serverDot } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
-import { identityMarkBtnClass, IdentityMark, StatusDot } from "./IdentityMark";
+import { IdentityMark, identityMarkBtnClass, StatusDot } from "./IdentityMark";
 import { joinTip } from "./joinTip";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { mbText } from "./memory";

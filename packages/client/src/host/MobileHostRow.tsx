@@ -30,15 +30,15 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostFinishedDot } from "./HostFinishedDot";
-import { hostGlance, hostHue, hostLabel, sameHost } from "./hostChipTone";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import { hostMarks } from "../attention/attentionMarks";
+import { hostGlance, hostHue, hostLabel, sameHost } from "./hostChipTone";
 import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
