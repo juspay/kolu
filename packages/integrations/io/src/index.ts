@@ -15,3 +15,11 @@ export {
   subscribeFileAppends,
   type SubscribeFileAppendsOpts,
 } from "./file-append-watcher.ts";
+
+export {
+  COALESCE_DEBOUNCE_MS,
+  COALESCE_MAX_WAIT_MS,
+  createCoalesceSchedule,
+  type CoalesceSchedule,
+  type CoalesceScheduleOpts,
+} from "./coalesce-schedule.ts";

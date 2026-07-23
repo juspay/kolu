@@ -7,17 +7,38 @@
  * missing, watches its parent directory (when that exists) and re-arms
  * when the basename appears — same observe-without-mutate idea as
  * Claude's session watchers.
+ *
+ * ## Debounce + maxWait (juspay/kolu#1952)
+ *
+ * Grok's `events.jsonl` is *not* a sparse transcript: a single turn can append
+ * hundreds of `phase_changed` lines per second (`streaming_text` /
+ * `streaming_reasoning`). A pure trailing-edge debounce never reaches its
+ * quiet window while that burst is live — so re-derive freezes on the
+ * pre-burst state, and the 1s append-poll floor (#1754) is defeated too
+ * (it feeds the same schedule). Coalescing uses `kolu-io`'s shared
+ * `createCoalesceSchedule` with `COALESCE_MAX_WAIT_MS` so hot turns publish
+ * at least every half-second; quiet turns still settle in 150ms.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { agentInfoEqual } from "anyagent";
-import { DEFAULT_APPEND_POLL_MS, subscribeFileAppends } from "kolu-io";
+import {
+  COALESCE_DEBOUNCE_MS,
+  COALESCE_MAX_WAIT_MS,
+  createCoalesceSchedule,
+  DEFAULT_APPEND_POLL_MS,
+  subscribeFileAppends,
+} from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { deriveGrokInfo, type GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
 
-const DEBOUNCE_MS = 150;
+/** Quiet-window — re-export of the shared constant so #1952 tests pin the
+ *  same number the real watcher uses. */
+export const DEBOUNCE_MS = COALESCE_DEBOUNCE_MS;
+/** Hard maxWait — re-export of the shared constant for the starvation pin. */
+export const DEBOUNCE_MAX_MS = COALESCE_MAX_WAIT_MS;
 
 export interface GrokWatcher {
   readonly session: GrokSession;
@@ -31,7 +52,6 @@ export function createGrokWatcher(
 ): GrokWatcher {
   let destroyed = false;
   let lastInfo: GrokInfo | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
   // One teardown collection for every "run on destroy" concern: raw fs.watch
   // handles wrap to `() => w.close()`, and the append-robust floor
   // (juspay/kolu#1754) already returns an unsubscribe of the same shape.
@@ -53,13 +73,16 @@ export function createGrokWatcher(
     onChange(info);
   }
 
+  const coalesce = createCoalesceSchedule({
+    debounceMs: DEBOUNCE_MS,
+    maxWaitMs: DEBOUNCE_MAX_MS,
+    onFire: emitIfChanged,
+  });
+  cleanups.push(() => coalesce.destroy());
+
   function schedule(): void {
     if (destroyed) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      emitIfChanged();
-    }, DEBOUNCE_MS);
+    coalesce.schedule();
   }
 
   function watchPath(p: string): void {
@@ -144,8 +167,6 @@ export function createGrokWatcher(
     session,
     destroy() {
       destroyed = true;
-      if (timer) clearTimeout(timer);
-      timer = null;
       for (const c of cleanups) {
         try {
           c();
