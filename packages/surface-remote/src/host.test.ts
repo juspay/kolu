@@ -95,7 +95,8 @@ describe("buildSshProbeCommand", () => {
     // `zsh:1: no matches found: …padi.drv^*` — OpenSSH joins the remote argv
     // into one string the login shell re-parses, so `*` MUST be quoted.
     // Localhost must stay unquoted (direct spawn, no shell).
-    const installable = "/nix/store/fxc7xkr02fa8nr6zilj36am610sml49v-padi.drv^*";
+    const installable =
+      "/nix/store/fxc7xkr02fa8nr6zilj36am610sml49v-padi.drv^*";
     const remote = buildSshProbeCommand(
       "zest",
       "nix",
