@@ -47,18 +47,30 @@ const MomentShell: Component<{
   trailing?: JSX.Element;
   testId?: string;
 }> = (props) => (
+  // Title row owns the trailing CTA so multi-line body/learn-more never
+  // vertically centers the action mid-block (the shimmer of misaligned ⌘K /
+  // Open → next to a two-line description).
   <div class="flex items-start gap-3" data-testid={props.testId}>
-    <span class="text-base leading-5" aria-hidden="true">
+    <span
+      class="shrink-0 w-5 text-center text-base leading-5 pt-px"
+      aria-hidden="true"
+    >
       {props.emoji}
     </span>
     <div class="min-w-0 flex-1">
-      <div class="text-sm font-medium text-fg">{props.title}</div>
-      <div class="text-xs text-fg-3">{props.body}</div>
+      <div class="flex items-center gap-3 min-h-5">
+        <div class="min-w-0 flex-1 text-sm font-medium leading-5 text-fg">
+          {props.title}
+        </div>
+        <Show when={props.trailing}>
+          <div class="shrink-0 flex items-center">{props.trailing}</div>
+        </Show>
+      </div>
+      <div class="text-xs leading-snug text-fg-3 mt-0.5">{props.body}</div>
       <div class="mt-0.5 text-xs">
         <DocLink slug={props.docSlug}>Learn more →</DocLink>
       </div>
     </div>
-    {props.trailing}
   </div>
 );
 
@@ -68,20 +80,37 @@ const PinMoment: Component<{
   onInstall: () => void;
 }> = (props) => (
   <div class="flex items-start gap-3" data-testid="welcome-moment-pin">
-    <span class="text-base leading-5" aria-hidden="true">
+    <span
+      class="shrink-0 w-5 text-center text-base leading-5 pt-px"
+      aria-hidden="true"
+    >
       📌
     </span>
     <div class="min-w-0 flex-1">
-      <div class="text-sm font-medium text-fg">Pin it</div>
+      <div class="flex items-center gap-3 min-h-5">
+        <div class="min-w-0 flex-1 text-sm font-medium leading-5 text-fg">
+          Pin it
+        </div>
+        <Show when={props.pinState === "one-click"}>
+          <button
+            type="button"
+            data-testid="welcome-install"
+            class="shrink-0 px-3 py-1.5 text-xs rounded-lg bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
+            onClick={() => props.onInstall()}
+          >
+            Install
+          </button>
+        </Show>
+      </div>
       <Switch>
         <Match when={props.pinState === "one-click"}>
-          <div class="text-xs text-fg-3">
+          <div class="text-xs leading-snug text-fg-3 mt-0.5">
             Its own window, dock icon, and a live badge for finished agents.
           </div>
         </Match>
         <Match when={true}>
           <div data-testid="welcome-install-manual">
-            <div class="text-xs text-fg-3">
+            <div class="text-xs leading-snug text-fg-3 mt-0.5">
               Add kolu as an app — its own window, dock icon, and a live agent
               badge.
             </div>
@@ -106,16 +135,6 @@ const PinMoment: Component<{
         <DocLink slug="install-pwa">Learn more →</DocLink>
       </div>
     </div>
-    <Show when={props.pinState === "one-click"}>
-      <button
-        type="button"
-        data-testid="welcome-install"
-        class="shrink-0 self-center px-3 py-1.5 text-xs rounded-lg bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
-        onClick={() => props.onInstall()}
-      >
-        Install
-      </button>
-    </Show>
   </div>
 );
 
@@ -184,7 +203,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
             trailing={
               <DocLink
                 slug="remote-access"
-                class="shrink-0 self-center text-xs text-accent hover:underline"
+                class="text-xs text-accent hover:underline"
               >
                 Guide →
               </DocLink>
@@ -203,7 +222,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
               <button
                 type="button"
                 data-testid="welcome-run-agents"
-                class="shrink-0 self-center cursor-pointer"
+                class="cursor-pointer"
                 title="New terminal"
                 onClick={runCreateTerminal}
               >
@@ -224,7 +243,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
               <button
                 type="button"
                 data-testid="welcome-open-palette"
-                class="shrink-0 self-center cursor-pointer"
+                class="cursor-pointer"
                 title="Open search"
                 onClick={() => commandPalette.openDialog()}
               >
@@ -244,7 +263,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
             trailing={
               <DocLink
                 slug="remote-hosts"
-                class="shrink-0 self-center text-xs text-accent hover:underline"
+                class="text-xs text-accent hover:underline"
               >
                 Guide →
               </DocLink>
@@ -263,7 +282,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
               <button
                 type="button"
                 data-testid="welcome-open-shortcuts"
-                class="shrink-0 self-center text-xs text-accent hover:underline cursor-pointer"
+                class="text-xs text-accent hover:underline cursor-pointer"
                 onClick={() => shortcutsHelp.openDialog()}
               >
                 Open →
