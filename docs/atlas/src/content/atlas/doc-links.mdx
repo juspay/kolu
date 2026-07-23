@@ -1,0 +1,145 @@
+---
+title: Doc links — one registry, every surface
+description: A single typed DocLink module maps UI surfaces to kolu.dev doc pages, a set-equality test keeps it in lock-step with the website content, and the welcome card + tips grow "learn more" links — restoring the remote-hosts pointer PR #1948 deleted.
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-23
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import architecture from "../../diagrams/doc-links-registry.svg?raw";
+
+<Svg svg={architecture} caption="One leaf module spells every in-app doc URL. The website content directory stays the source of truth; a vitest set-equality check makes slug drift a red build, and a grep law makes a hand-rolled kolu.dev anchor unspellable." />
+
+<PrLink pr={1948} /> shipped remote hosts out of alpha but deleted the whole
+`RemoteHostsAlphaNotice` — badge, warning, **and** the "Learn more →" link to
+`kolu.dev/remote-hosts/`. The add-host popover is now a bare ssh input with no
+pointer to its docs. A survey of the client found only three kolu.dev links in
+the entire UI<Footnote>`WelcomeMoments.tsx` (home page + `#remote` anchors),
+`kaval/KavalInfoDialog.tsx` and `right-panel/KavalAttachSection.tsx` (both
+`/kaval/`) — each hand-rolling its own `<a>` with its own private URL
+constant.</Footnote>, while ~a dozen surfaces that explain a documented feature
+link nowhere. This note is the plan of record for fixing the structure, not
+just the regression. **One PR**, implemented by a terminal agent; work items
+DOC1–DOC4 below are sections of that PR, not phases.
+
+## DOC1 — the registry: `ui/DocLink.tsx`
+
+One module owns the slug↔URL knowledge (today it's smeared across three
+files as string literals — incidental duplication with nothing keeping any
+copy honest):
+
+- `export type DocSlug = "agent-detection" | "canvas" | … | "troubleshooting"`
+  — a hand-written literal union, one member per page in
+  `website/src/content/docs/*.mdx`.
+- `export const docUrl = (slug: DocSlug, anchor?: string) =>` →
+  `https://kolu.dev/${slug}/` (+ `#anchor`). Trailing slash matches how the
+  existing kaval links are spelled.
+- `export const DocLink: Component<{ slug; anchor?; children }>` — the inline
+  anchor (`text-accent hover:underline`, `target="_blank"`,
+  `rel="noopener noreferrer"`). Button-chrome sites (the KavalInfoDialog
+  "Docs" button) keep their styling and take `docUrl()` for the href.
+
+The verdict is *leaf*, not electricity: bounded data plus a one-tag component,
+no volatility hidden — it stays a client module, no `@kolu/*` package.
+
+Two tests in `ui/DocLink.test.ts` enforce the sync the module exists for:
+
+1. **Set equality** — `readdirSync` the repo's `website/src/content/docs/`,
+   strip `.mdx`, assert the basename set *equals* the `DocSlug` union
+   (exported as a runtime array the union derives
+   from<Footnote>`const DOC_SLUGS = [...] as const; type DocSlug = (typeof DOC_SLUGS)[number]`
+   — one source for both the type and the test.</Footnote>). Adding, renaming,
+   or deleting a doc page without touching the registry is a red build in both
+   directions — fail fast, no drift.
+2. **Grep law** — no `kolu.dev` literal anywhere in `packages/client/src`
+   outside `DocLink.tsx`. This only passes once DOC2 migrates the three legacy
+   sites, and it keeps the consolidation permanent: a future hand-rolled
+   anchor cannot compile past CI.
+
+Plus `.apm/instructions/doc-links.instructions.md`
+(`applyTo: {website/src/content/docs/**,packages/client/src/ui/DocLink.tsx}`),
+the agent-facing statement of the same invariant, sitting beside
+`website-docs.instructions.md`: touch a doc page's existence or name → update
+the registry in the same change; link to docs from the UI only through
+`DocLink`/`docUrl`.
+
+## DOC2 — the link sweep
+
+Re-add the <PrLink pr={1948} /> regression first: a one-line "Remote hosts —
+Learn more →" (`slug="remote-hosts"`, no alpha badge, no warning) above the ssh
+input in **both** `AddHostAffordance` (`host/HostSelectorStrip.tsx`) and
+`MobileAddSection` (`host/MobileHostRow.tsx`). Then the sweep — each row is a
+one-liner once DOC1 exists:
+
+| Surface | File | Slug |
+| --- | --- | --- |
+| Padi info dialog ("Docs" button, mirroring KavalInfoDialog's) | `padi/PadiInfoDialog.tsx` | `padi` |
+| Keyboard-shortcuts modal footer | `ShortcutsHelp.tsx` | `keyboard-shortcuts` |
+| Diagnostic-info dialog header (next to "Copy JSON") | `DiagnosticInfo.tsx` | `troubleshooting` |
+| kaval degraded/blocked canvas cards | `kaval/DegradedCanvas.tsx` | `kaval` |
+| Remote host down / connect canvases | `host/HostDownCanvas.tsx` · `host/ConnectCanvas.tsx` | `remote-hosts` |
+| Settings: theme rows · attention-alerts toggle | `settings/SettingsPopover.tsx` | `theming` · `notifications` |
+| Restore-session empty-state card | `EmptyState.tsx` | `sessions` |
+| About + Kolu info dialogs (beside the GitHub button) | `AboutDialog.tsx` · `ui/KoluInfoDialog.tsx` | `concepts` |
+| GitHub-CLI recovery popover | `terminal/PrUnavailablePopover.tsx` | `troubleshooting` |
+| Migrate the three legacy sites to `DocLink`/`docUrl` | `WelcomeMoments.tsx` · `kaval/KavalInfoDialog.tsx` · `right-panel/KavalAttachSection.tsx` | (existing) |
+
+Out of scope: `/mcp`, `/agent-fleets`, `/mobile` have no natural in-app link
+site today (the client has no MCP UI at all) — revisit when one grows.
+
+## DOC3 — welcome moments: linked, actionable, state-aware
+
+The current card is what [welcome-revamp](welcome-revamp.html) shipped — three
+static rows whose links point at the kolu.dev home page, and a "Pin it — Installed as an app ✓" row that spends a third of
+the card telling you about something already done. The redesign keeps one card
+but makes it a prioritized list:
+
+- **Moment list, in order**: Pin it · Reach it anywhere · Run agents · Add a
+  host · Shortcuts. Done-predicates: Pin = `app.isInstalled()`; Reach =
+  `location.protocol === "https:"`; Add a host = the host pool has more than
+  one member (via `useHostMembers`); Run agents and Shortcuts are never
+  "done". The card renders the first **three undone** moments; done moments
+  collapse into a single muted header line ("📌 Pinned ✓ · 🌐 Reachable ✓").
+  The selection is a pure function `(pinDone, reachDone, hostsDone) → rows`,
+  unit-tested directly.
+- **Rows act, not just describe** — through the existing action seams, never a
+  parallel path: the Run-agents row invokes the same action its advertised
+  `⌘Enter` keybind fires (`input/actions.ts`); the Shortcuts row opens the
+  `ShortcutsHelp` overlay exactly as `⌘/` does. The one-click Install button
+  stays.
+- **Every moment carries its `DocLink`**: Pin (manual steps) → `install-pwa`;
+  Reach → `remote-access` (replacing the `#remote` home-page anchor, including
+  the insecure-origin Tailscale line); Run agents → `agent-detection`; Add a
+  host → `remote-hosts`; Shortcuts → `keyboard-shortcuts`. The footer "Full
+  guide → kolu.dev" retargets to `first-five-minutes`, and the private
+  `GUIDE_URL` constant dies.
+
+Mobile is untouched — `showsWelcome()` is already false there.
+
+## DOC4 — tips carry doc slugs
+
+`Tip` (in `settings/tips.ts`) grows an optional `doc?: DocSlug`;
+`TipBanner.tsx` renders a trailing "Docs →" `DocLink` when present. Wire the
+tips whose page is obvious: `amb-host-map` → `remote-hosts`, `amb-pwa-install`
+→ `install-pwa`, the theme tips → `theming`, the canvas-gesture tips →
+`canvas`, `amb-tile-maximize` → `tiles`, the inspector tips → `right-panel`,
+the code-tab tips → `code-tab`, `amb-dock-sleeping` → `dock`,
+`amb-export-session`/`amb-screenshot` → `power-features`. Tips without a clean
+mapping stay linkless — no field is forced.
+
+## Done when
+
+- Both DOC1 tests are green — which structurally proves the sweep migrated
+  every legacy literal and the registry matches the website page set.
+- The welcome-moment selection function has direct unit coverage for the
+  collapse/next-tier states.
+- Evidence (per the evidence skill): screenshots of the add-host popover with
+  its restored link, and the welcome card in at least two states (fresh vs.
+  pinned+reachable showing the next-tier moments).
+- The changelog `<Change>` and any stale doc sentences ride the same PR, per
+  `website-docs.instructions.md`.
