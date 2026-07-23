@@ -19,6 +19,7 @@ export const DOC_SLUGS = [
   "clipboard",
   "code-tab",
   "concepts",
+  "deployment",
   "dock",
   "first-five-minutes",
   "install-pwa",

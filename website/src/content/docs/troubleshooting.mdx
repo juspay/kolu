@@ -113,7 +113,7 @@ If it climbs higher than feels right, check these in order:
 2. **Close or sleep what you are done with.** A terminal you will not return to can
    be closed, or put to **sleep** (the ☾ button) to release its shell and GPU
    context while the tile stays on the canvas — see
-   [Power Features](/sessions). Disconnecting a
+   [Sessions, Sleep & Wake](/sessions). Disconnecting a
    [remote host](/remote-hosts) you are not using frees all of its terminals at once.
 3. **Reload the tab.** Memory freed by closing terminals or hosts is reclaimed
    immediately on a reload, and your terminals survive it — they live in the kaval
@@ -123,10 +123,16 @@ The chrome bar shows a live memory figure for each process (server · client ·
 kaval), so you can watch which one is climbing; **Debug → Diagnostic info** in the
 palette has the per-terminal detail.
 
+If the **server or kaval** figure keeps growing rather than the browser, a
+home-manager deployment can write heap snapshots and periodic process stats.
+See [Deployment → Capture memory
+diagnostics](/deployment#capture-memory-diagnostics).
+
 ## Still stuck?
 
 <CardGrid>
   <LinkCard title="Remote Access" href="/remote-access" description="private HTTPS, install prompts, and Tailscale Serve" />
   <LinkCard title="Install as an App" href="/install-pwa" description="browser-specific PWA install paths" />
-  <LinkCard title="GitHub" href="https://github.com/juspay/kolu" description="source, issues, and deployment notes" />
+  <LinkCard title="Deployment" href="/deployment" description="home-manager service, logs, origins, and heap diagnostics" />
+  <LinkCard title="GitHub" href="https://github.com/juspay/kolu" description="source, issues, and pull requests" />
 </CardGrid>
