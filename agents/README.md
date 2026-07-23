@@ -30,7 +30,9 @@ Repo-agnostic skills that don't depend on kolu internals:
 
 The package declares the shared packages these skills call
 (`srid/agency`, `juspay/project-unknown`, `juspay/odu`) as its own
-dependencies, so they come along transitively.
+dependencies, so they come along transitively. It also registers `kolu mcp`
+for every supported agent runtime because `/kolu` is MCP-first; the `kolu`
+binary must be available on the host's `PATH`.
 
 **Project-supplied skills.** The gauntlet references a few skills that are
 intentionally **not** vendored here because they're inherently

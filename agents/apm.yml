@@ -26,6 +26,7 @@ compilation:
 #   srid/agency             — /lowy /hickey /code-police /simplify /forge-pr /fact-check
 #   juspay/project-unknown  — /pu (ephemeral box for heavy work)
 #   juspay/odu              — /odu /odu-mcp
+#   kolu mcp                — /kolu's typed terminal-driving tools
 #
 # A consuming project additionally supplies its OWN /atlas, /test, /dev-server,
 # and (optionally) /evidence skills — these are intentionally project-specific
@@ -35,3 +36,10 @@ dependencies:
     - srid/agency#master
     - juspay/project-unknown
     - juspay/odu
+  mcp:
+    - name: kolu
+      registry: false
+      transport: stdio
+      command: kolu
+      args:
+        - mcp
