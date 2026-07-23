@@ -25,6 +25,7 @@ import {
 import { match } from "ts-pattern";
 import type { Keybind } from "./input/keyboard";
 import { hostLabel } from "./host/hostChipTone";
+import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
 import {
@@ -322,7 +323,7 @@ const CommandPalette: Component<{
     if (last?.name === TERMINALS_GROUP_NAME) return "Type a terminal…";
     if (p.length >= 2 && p[0]?.name === TERMINALS_GROUP_NAME)
       return "Filter terminals…";
-    if (last?.name === "Hosts") return "Filter hosts…";
+    if (last?.name === HOSTS_GROUP_NAME) return "Filter hosts…";
     if (p.length === 0) return "Search everything…";
     return "Type a command...";
   }
@@ -359,26 +360,32 @@ const CommandPalette: Component<{
     return out;
   }
 
-  /** Recursively flatten groups/values so root type-search finds nested
-   *  leaves (`Debug → Diagnostic info`, Recent agents, …) while still
-   *  keeping intermediate groups so "Terminals" / "Hosts" match by name. */
+  /** Root type-search index: top-level drillables (groups/values) for name
+   *  match + drill, plus **nested actions only** (e.g. Debug → Diagnostic
+   *  info). Nested value labels and nested groups are omitted — labels are
+   *  inert in filter mode, and nested groups can't be drilled without an
+   *  ancestor path. */
   function flattenForRootSearch(
     items: readonly (PaletteCommand | PaletteLabel)[],
   ): (PaletteCommand | PaletteLabel)[] {
     const out: (PaletteCommand | PaletteLabel)[] = [];
-    const walk = (list: readonly PaletteItem[]) => {
+    const collectActions = (list: readonly PaletteItem[]) => {
       for (const item of list) {
-        if (item.kind === "hint") continue;
-        if (item.kind === "action" || item.kind === "label") {
-          out.push(item);
-          continue;
-        }
-        // group | value — keep the parent (name match / drill) and recurse.
-        out.push(item);
-        walk(resolveChildren(item));
+        if (item.kind === "action") out.push(item);
+        else if (item.kind === "group") collectActions(resolveChildren(item));
+        // value / label / hint — skip (not executable from root search)
       }
     };
-    walk(items);
+    for (const item of items) {
+      if (item.kind === "label") continue;
+      if (item.kind === "action") {
+        out.push(item);
+        continue;
+      }
+      // Top-level group or value — keep for name match / drillInto.
+      out.push(item);
+      if (item.kind === "group") collectActions(resolveChildren(item));
+    }
     return out;
   }
 
@@ -581,8 +588,9 @@ const CommandPalette: Component<{
     requestAnimationFrame(() => inputRef.focus());
   }
 
-  /** Walk `names` against the live command tree and set path. Stops at the
-   *  first missing segment so a stale deep-link still opens what it can. */
+  /** Walk `names` against the live command tree and set path. **Every**
+   *  segment must resolve — a partial match (e.g. Terminals without a
+   *  missing host) is rejected so deep-links never silently widen. */
   function applyInitialPath(names: readonly string[]) {
     if (names.length === 0) return false;
     let level: PaletteItem[] = props.commands();
@@ -592,11 +600,10 @@ const CommandPalette: Component<{
         (item): item is DrillableKind =>
           isDrillable(item) && item.name === name,
       );
-      if (!match) break;
+      if (!match) return false;
       built.push(match);
       level = resolveChildren(match);
     }
-    if (built.length === 0) return false;
     setPath(built);
     setQuery("");
     setSelectedIndex(0);

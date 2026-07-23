@@ -28,7 +28,9 @@ import { rowRecencyAt } from "../canvas/dock/dockRowRanking";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostScopeOf } from "../hostScope/hostScopes";
 import {
+  type ActivityWindow,
   DEFAULT_ACTIVITY_WINDOW,
+  isActivityWindow,
   windowOption,
 } from "../terminal/activityWindow";
 import { isParked } from "../terminal/useTerminalMetadata";
@@ -142,12 +144,23 @@ type PerHostHandle = {
 };
 
 /** Per-host activity-window threshold for the fleet index — THIS host's
- *  preference when its scope exists, else the default (usually "all"). Never
- *  the active host's window applied to a foreign host. */
+ *  preference. Prefer the live HostScope when born; otherwise read the same
+ *  `kolu-activityWindow:<host>` key createHostPrefs writes so a never-
+ *  activated connected host still honours its persisted window (not DEFAULT). */
 function thresholdMsForHost(host: HostKey): number | null {
-  const window =
-    hostScopeOf(host)?.prefs.activityWindow() ?? DEFAULT_ACTIVITY_WINDOW;
-  return windowOption(window).thresholdMs;
+  const scoped = hostScopeOf(host)?.prefs.activityWindow();
+  if (scoped !== undefined) return windowOption(scoped).thresholdMs;
+  try {
+    const raw = localStorage.getItem(
+      `kolu-activityWindow:${encodeHostKey(host)}`,
+    );
+    if (raw !== null && isActivityWindow(raw)) {
+      return windowOption(raw as ActivityWindow).thresholdMs;
+    }
+  } catch {
+    // SSR / blocked storage — floor to default.
+  }
+  return windowOption(DEFAULT_ACTIVITY_WINDOW).thresholdMs;
 }
 
 /** App-lifetime fleet index — one shared root so the switcher opens per-host

@@ -105,7 +105,6 @@ function terminalSwitchActions(
             meta: row.meta,
           }),
           hostName,
-          encodeHostSearch(row.host),
         ].join(" "),
       },
     };
@@ -146,16 +145,12 @@ function terminalHostGroups(
         kind: "host" as const,
         hostKey: host,
         context: countLabel,
-        searchText: `${label} ${countLabel} ${encodeHostSearch(host)}`,
+        searchText: `${label} ${countLabel}`,
       },
       children: (): PaletteItem[] =>
         terminalSwitchActions(rows, active, switchHost, activate),
     };
   });
-}
-
-function encodeHostSearch(h: HostKey): string {
-  return h.kind === "local" ? "local" : h.target;
 }
 
 /** Host rows for root index and the Hosts scoped group — one source of truth.
