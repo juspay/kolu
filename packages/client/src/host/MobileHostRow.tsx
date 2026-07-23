@@ -36,14 +36,7 @@ import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostFinishedDot } from "./HostFinishedDot";
-import {
-  exceptionDotClass,
-  hostHue,
-  hostLabel,
-  isHostDown,
-  sameHost,
-  statusTitle,
-} from "./hostChipTone";
+import { hostGlance, hostHue, hostLabel, sameHost } from "./hostChipTone";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { hostMarks } from "../attention/attentionMarks";
 import { useHostMembers } from "./useHostMembers";
@@ -63,8 +56,8 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
-  const down = createMemo(() => isHostDown(state()));
-  const exceptionDot = createMemo(() => exceptionDotClass(state()));
+  const glance = createMemo(() => hostGlance(state()));
+  const down = createMemo(() => glance().down);
   // Both marks from the ONE store, bundled once (the host is fixed for this chip).
   const marks = hostMarks(encodeHostKey(props.host));
 
@@ -103,7 +96,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
           !isActive() && down(),
       }}
       style={{ "--host-hue": hostHue(props.host) }}
-      title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
+      title={`${hostLabel(props.host)} — ${glance().title}`}
       // A no-op tap on the already-active chip must not re-write `activeHost`
       // with a new-reference-but-equal key (it would re-notify every
       // `useEntry(activeHost)` consumer for nothing) — guard on `isActive()`,
@@ -117,7 +110,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
         props.onSwitch();
       }}
     >
-      <Show when={exceptionDot()}>
+      <Show when={glance().stripDot}>
         {(cls) => (
           <span
             class={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${cls()}`}
@@ -128,7 +121,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       <HostIdentityLabel
         host={props.host}
         glyphClass="h-3.5 w-3.5"
-        labelClass={`max-w-[10rem] truncate font-medium${down() ? " line-through decoration-red-400/80 decoration-1" : ""}`}
+        labelClass={`max-w-[10rem] truncate font-medium${glance().labelDecoration}`}
       />
       {/* Needs-you pill — shared violet `HostAwaitingPill` (roomier mobile).
        *  Unseen-finished is the amber `HostFinishedDot` beside it. */}

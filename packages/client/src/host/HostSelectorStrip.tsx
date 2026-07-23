@@ -67,15 +67,7 @@ import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useCommandPalette } from "../useCommandPalette";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
-import {
-  exceptionDotClass,
-  hostHue,
-  hostLabel,
-  isHostDown,
-  sameHost,
-  statusLabelShort,
-  statusTitle,
-} from "./hostChipTone";
+import { hostGlance, hostHue, hostLabel, sameHost } from "./hostChipTone";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
@@ -111,9 +103,6 @@ const ADD_BUTTON_RESERVE: number = 38;
 const labelForKey: (key: string) => string = (key) =>
   hostLabel(decodeHostKey(key));
 
-const statusLabel: (host: HostKey) => string = (host) =>
-  statusLabelShort(padiMap.entry(host).state());
-
 /** Hover-open delay so a chip sweep across the strip doesn't flash N panels. */
 const DIAGNOSTICS_HOVER_MS = 280;
 
@@ -146,8 +135,8 @@ const HostChip: Component<{
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
   const isActive = () => sameHost(activeHost(), props.host);
-  const down = () => isHostDown(state());
-  const exceptionDot = () => exceptionDotClass(state());
+  const glance = () => hostGlance(state());
+  const down = () => glance().down;
   // Strip-owned open key — only ONE diagnostics panel mounts at a time.
   const diagOpen = () => !props.measure && props.diagnostics.isOpen(encKey);
 
@@ -228,9 +217,9 @@ const HostChip: Component<{
             if (down()) openThisDiagnostics();
             else if (wasActive) props.diagnostics.toggle(encKey);
           }}
-          title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
+          title={`${hostLabel(props.host)} — ${glance().title}`}
         >
-          <Show when={exceptionDot()}>
+          <Show when={glance().stripDot}>
             {(cls) => (
               <span
                 // Exception-only: healthy chips paint no status pip. Amber pulse
@@ -246,7 +235,7 @@ const HostChip: Component<{
            *  resize, never a host switch. Down: struck-through label. */}
           <HostIdentityLabel
             host={props.host}
-            labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${down() ? " line-through decoration-red-400/80 decoration-1" : ""}`}
+            labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${glance().labelDecoration}`}
           />
           {/* Attention marks — same hue split as dock StatePip:
            *  violet PILL = needs-you count (agents blocked on you), hidden at zero;
@@ -299,9 +288,8 @@ const HostSwitcherRow: Component<{
   const host = decodeHostKey(props.hostKey);
   const isLocal = () => host.kind === "local";
   const isActive = () => sameHost(activeHost(), host);
-  const state = () => padiMap.entry(host).state();
-  const down = () => isHostDown(state());
-  const exceptionDot = () => exceptionDotClass(state());
+  const glance = () => hostGlance(padiMap.entry(host).state());
+  const down = () => glance().down;
   const marks = hostMarks(props.hostKey);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
@@ -330,11 +318,11 @@ const HostSwitcherRow: Component<{
         type="button"
         data-testid={`${props.testIdPrefix}-option-${props.hostKey}`}
         aria-current={isActive() ? "true" : undefined}
-        title={`${hostLabel(host)} — ${statusTitle(state())}`}
+        title={`${hostLabel(host)} — ${glance().title}`}
         class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         onClick={pickHost}
       >
-        <Show when={exceptionDot()}>
+        <Show when={glance().stripDot}>
           {(cls) => (
             <span
               class={`inline-block h-2 w-2 rounded-full shrink-0 ${cls()}`}
@@ -353,7 +341,7 @@ const HostSwitcherRow: Component<{
           >
             <HostIdentityLabel
               host={host}
-              labelClass={`truncate${down() ? " line-through decoration-red-400/80 decoration-1" : ""}`}
+              labelClass={`truncate${glance().labelDecoration}`}
             />
             <Show when={isActive()}>
               <span class="shrink-0 rounded-full border border-accent/45 bg-accent/15 px-1.5 text-[9px] font-semibold leading-4 text-accent">
@@ -369,7 +357,7 @@ const HostSwitcherRow: Component<{
               "text-danger": down(),
             }}
           >
-            {statusLabel(host)}
+            {glance().short}
           </span>
         </span>
         <HostAwaitingPill count={marks.asking()} sizeClass="min-w-4 px-1 h-4" />
@@ -491,9 +479,8 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
   const active = () => activeHost();
-  const activeState = () => padiMap.entry(active()).state();
-  const exceptionDot = () => exceptionDotClass(activeState());
-  const down = () => isHostDown(activeState());
+  const glance = () => hostGlance(padiMap.entry(active()).state());
+  const down = () => glance().down;
   const hostKeys = () => props.hosts.map(encodeHostKey);
 
   return (
@@ -521,7 +508,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
           title={`Switch host — currently ${hostLabel(active())}`}
           onClick={() => setOpen((v) => !v)}
         >
-          <Show when={exceptionDot()}>
+          <Show when={glance().stripDot}>
             {(cls) => (
               <span
                 class={`inline-block h-2 w-2 rounded-full shrink-0 ${cls()}`}
@@ -531,7 +518,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
           </Show>
           <HostIdentityLabel
             host={active()}
-            labelClass={`truncate max-w-[5rem] font-medium${down() ? " line-through decoration-red-400/80 decoration-1" : ""}`}
+            labelClass={`truncate max-w-[5rem] font-medium${glance().labelDecoration}`}
           />
           <span aria-hidden="true" class="text-fg-3">
             ▾

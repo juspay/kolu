@@ -21,21 +21,14 @@ import {
   Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
-import { toast } from "solid-sonner";
 import { hostMarks } from "../attention/attentionMarks";
-import { resetBootDeadline } from "../kaval/bootDeadline";
 import { formatTimeAgo } from "../terminal/staleness";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
-import { client, interpretClientError, padiMap } from "../wire";
+import { interpretClientError, padiMap } from "../wire";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
-import {
-  dotClass,
-  hostLabel,
-  isHostDown,
-  statusLabelShort,
-  statusTitle,
-} from "./hostChipTone";
+import { hostGlance, hostLabel } from "./hostChipTone";
+import { reconnectHost } from "./reconnectHost";
 import { removeHost } from "./removeHost";
 
 const popoverChrome = surface({
@@ -43,18 +36,6 @@ const popoverChrome = surface({
   shadow: "light",
   portalled: true,
 });
-
-/** Force-cycle this host's connector into a fresh dial — same recovery verb
- *  the host-down canvas uses, but keyed on the SPECIFIC host (the canvas
- *  factory always reconnects the active host). */
-const reconnectHost = (host: HostKey): void => {
-  client.hosts
-    .reconnect({ host })
-    .then(() => resetBootDeadline(encodeHostKey(host)))
-    .catch((err: Error) =>
-      toast.error(`Couldn't reconnect ${hostLabel(host)}: ${err.message}`),
-    );
-};
 
 const PopoverRow: Component<{
   label: string;
@@ -98,6 +79,7 @@ export const HostDiagnosticsPopover: Component<{
   anchor?: AnchorSide;
 }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
+  const glance = () => hostGlance(state());
   const marks = hostMarks(encodeHostKey(props.host));
   const isLocal = () => props.host.kind === "local";
   const [confirmRemove, setConfirmRemove] = createSignal(false);
@@ -187,14 +169,14 @@ export const HostDiagnosticsPopover: Component<{
         >
           <div class="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-fg">
             <span
-              class={`inline-block h-2 w-2 shrink-0 rounded-full ${dotClass(state())}`}
+              class={`inline-block h-2 w-2 shrink-0 rounded-full ${glance().detailDot}`}
               aria-hidden="true"
             />
             <span class="truncate">{label()}</span>
           </div>
 
-          <PopoverRow label="state" danger={isHostDown(state())}>
-            {statusLabelShort(state())}
+          <PopoverRow label="state" danger={glance().down}>
+            {glance().short}
           </PopoverRow>
 
           <Show when={failureReason()}>
@@ -290,7 +272,7 @@ export const HostDiagnosticsPopover: Component<{
             </Show>
           </Show>
 
-          <span class="sr-only">{statusTitle(state())}</span>
+          <span class="sr-only">{glance().title}</span>
         </div>
       </Portal>
     </Show>
