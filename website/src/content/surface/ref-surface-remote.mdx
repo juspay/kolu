@@ -162,16 +162,19 @@ leaf a consumer applies to the entry's frame.
 sum, keyed on `phase`: the up arms (`probing` / `copying` / `building` — the ssh
 connector's provisioning phases, `probing` being the warm-check window where the
 agent is looked up but nothing is shipped yet — plus `connecting` / `connected`).
-Every arm carries two fields: a provenance-tagged `log` tail
-(`{ source: "local" | "remote"; line }[]`) and `sinceMs`, the server-stamped elapsed
+Every arm carries three fields: a provenance-tagged `log` tail
+(`{ source: "local" | "remote"; line }[]`); `sinceMs`, the server-stamped elapsed
 of the CURRENT episode in milliseconds — a **duration** on the server's single clock
 (never a foreign epoch the browser would subtract), which the browser extends smoothly
-with its own ticker. Both `log` and `sinceMs` are scoped to the current **campaign**
-(#1908 D3): they are stamped/reset at CAMPAIGN BIRTH — the first (or re-pin) dial, a user
-`reconnect()`/`recheck()`, and a *connected*-link drop — but **NOT** on a backoff retry
-within an ongoing connect campaign. So a wedged provision that retries for ten minutes
-reads ten minutes (not the per-attempt ~1s a per-dial reset showed), and the log survives
-retry dials (capped) so a coming-up card can render the attempt tail. The **`connected`** arm alone additionally carries `clockOffset: number | null`
+with its own ticker; and `campaignEpoch`, the monotonic campaign generation, so a
+client elapsed timer can re-baseline when the same host starts a fresh campaign that
+reopens at `sinceMs: 0` after a quiet multi-minute stretch. Both `log` and `sinceMs`
+are scoped to the current **campaign** (#1908 D3): they are stamped/reset at CAMPAIGN
+BIRTH — the first (or re-pin) dial, a user `reconnect()`/`recheck()`, and a
+*connected*-link drop — but **NOT** on a backoff retry within an ongoing connect
+campaign. So a wedged provision that retries for ten minutes reads ten minutes (not
+the per-attempt ~1s a per-dial reset showed), and the log survives retry dials
+(capped) so a coming-up card can render the attempt tail. The **`connected`** arm alone additionally carries `clockOffset: number | null`
 — the far-end host's wall-clock offset (ms) vs the serving process, measured off the
 framework-reserved `system.clockNow` at admit (RTT-compensated; see
 `measureSurfaceClockOffset` in `@kolu/surface/clock-now`). It is born `null` and re-stamped
