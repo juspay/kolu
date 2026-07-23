@@ -16,18 +16,84 @@
 
 set -euo pipefail
 
-readonly MARKER_TIMEOUT_SEC=10
 readonly POLL_INTERVAL_SEC=0.1
 readonly HEALTH_TIMEOUT_MS=5000
-readonly TICKS=$(awk "BEGIN { print int($MARKER_TIMEOUT_SEC / $POLL_INTERVAL_SEC) }")
+readonly STARTUP_TIMEOUT_SEC=120
+readonly TEARDOWN_TIMEOUT_SEC=10
+readonly TEARDOWN_QUIET_SEC=2
 
 KOLU=$(nix build .#default --no-link --print-out-paths)/bin/kolu
 
 tmp=$(mktemp -d)
 log="$tmp/kolu.log"
+runtime="$tmp/runtime"
+mkdir -m 700 "$runtime"
 state_tmp=""
 pid=""
 state_pid=""
+
+dump_gate_holders() {
+    local gate holder
+    while IFS= read -r gate; do
+        holder=$(tr -d '[:space:]' <"$gate" 2>/dev/null || true)
+        echo "  $gate -> ${holder:-<unreadable>}" >&2
+    done < <(find "$runtime" -name '*.pid' -type f -print)
+}
+
+wait_for_daemons_down() {
+    local logfile=$1 deadline=$((SECONDS + TEARDOWN_TIMEOUT_SEC))
+    local gate holder found quiet_since=-1
+    while true; do
+        found=false
+        while IFS= read -r gate; do
+            [[ -e "$gate" ]] || continue
+            holder=$(tr -d '[:space:]' <"$gate" 2>/dev/null || true)
+            if [[ "$holder" =~ ^[1-9][0-9]*$ ]] && kill -0 "$holder" 2>/dev/null; then
+                found=true
+            else
+                # The gate protocol treats a dead/malformed holder as stale.
+                rm -f -- "$gate"
+            fi
+        done < <(find "$runtime" -name '*.pid' -type f -print)
+        if [[ "$found" == false ]] &&
+            ! find "$runtime" -name '*.pid' -type f -print -quit | grep -q .; then
+            if (( quiet_since < 0 )); then quiet_since=$SECONDS; fi
+            if (( SECONDS - quiet_since >= TEARDOWN_QUIET_SEC )); then
+                return 0
+            fi
+        else
+            quiet_since=-1
+        fi
+        if (( SECONDS >= deadline )); then
+            echo "daemons did not release their gates within ${TEARDOWN_TIMEOUT_SEC}s:" >&2
+            dump_gate_holders
+            cat "$logfile" >&2
+            return 1
+        fi
+        sleep "$POLL_INTERVAL_SEC"
+    done
+}
+
+# The server starts padi asynchronously. Wait until padi is actually serving
+# before terminating its parent; otherwise teardown can observe an empty runtime
+# and remove it while the still-booting grandchild is about to claim its gate.
+wait_for_padi_ready() {
+    local logfile=$1 proc=$2 deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
+    while kill -0 "$proc" 2>/dev/null; do
+        find "$runtime" -name padi.sock -type s -print -quit | grep -q . &&
+            return 0
+        if (( SECONDS >= deadline )); then
+            echo "padi did not start serving within ${STARTUP_TIMEOUT_SEC}s" >&2
+            cat "$logfile" >&2
+            kill -TERM "$proc" 2>/dev/null || true
+            return 1
+        fi
+        sleep "$POLL_INTERVAL_SEC"
+    done
+    echo "kolu exited before padi started serving" >&2
+    cat "$logfile" >&2
+    return 1
+}
 
 cleanup() {
     # Best-effort teardown on EXIT — `|| true` because the trap can race with
@@ -39,27 +105,32 @@ cleanup() {
             wait "$p" 2>/dev/null || true
         fi
     done
+    wait_for_daemons_down "$log" || true
     rm -rf "$tmp" ${state_tmp:+"$state_tmp"}
 }
 trap cleanup EXIT
 
-# Block until $proc logs $marker, dies, or the timeout elapses; the last two are
-# smoke failures (dump the log, abort). The marker is the message TEXT — the
+# Block until $proc logs $marker or dies; death is a smoke failure (dump the
+# log, abort). The generous watchdog keeps a wedged process from consuming the
+# whole CI deadline while leaving normal loaded starts ample room. The marker is
+# the message TEXT — the
 # semantic anchor, stable across pino transports (pino-pretty and JSON alike).
 wait_for_marker() {
     local marker=$1 logfile=$2 proc=$3
-    for _ in $(seq 1 "$TICKS"); do
+    local deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
+    while kill -0 "$proc" 2>/dev/null; do
         grep -q "$marker" "$logfile" 2>/dev/null && return 0
-        if ! kill -0 "$proc" 2>/dev/null; then
-            echo "kolu exited before logging: $marker" >&2
+        if (( SECONDS >= deadline )); then
+            echo "kolu did not log within ${STARTUP_TIMEOUT_SEC}s: $marker" >&2
             cat "$logfile" >&2
-            exit 1
+            kill -TERM "$proc" 2>/dev/null || true
+            return 1
         fi
         sleep "$POLL_INTERVAL_SEC"
     done
-    echo "kolu did not log '$marker' within ${MARKER_TIMEOUT_SEC}s" >&2
+    echo "kolu exited before logging: $marker" >&2
     cat "$logfile" >&2
-    exit 1
+    return 1
 }
 
 # Value of the JSON string field "<name>":"<value>" on the line carrying $marker
@@ -82,14 +153,14 @@ json_field() {
 # Sanitize env so we mirror production: clear IN_NIX_SHELL and devshell
 # pollution. HOME→tmp so the wrapper's default KOLU_STATE_DIR lands there
 # instead of the runner's real ~/.config.
-# KOLU_DAEMON_BIND_PID="$$" binds the padi + kaval this boot spawns to the smoke
-# script's own pid, so they self-reap the moment smoke.sh exits — closing the
-# deterministic daemon leak this smoke otherwise had (it kills only the two
-# kolu-servers below, never their detached daemons) with zero smoke-specific logic:
-# absence would leave the production `forever`. Passed through `env -i` explicitly
-# since it clears the environment.
-env -i HOME="$tmp" KOLU_DAEMON_BIND_PID="$$" \
-    "$KOLU" --host 127.0.0.1 --port 0 >"$log" 2>&1 &
+# Bind padi + kaval to this server process. The subshell's BASHPID becomes the
+# exec'd server's pid, so both daemons self-reap after SIGTERM and release their
+# gates before cleanup removes the isolated runtime/state tree.
+(
+    exec env -i HOME="$tmp" XDG_RUNTIME_DIR="$runtime" \
+        KOLU_DAEMON_BIND_PID="$BASHPID" \
+        "$KOLU" --host 127.0.0.1 --port 0
+) >"$log" 2>&1 &
 pid=$!
 
 # The address is logged from the listen callback (packages/server/src/index.ts).
@@ -118,10 +189,12 @@ fi
 echo "/api/health returned 200"
 
 # Graceful shutdown: SIGTERM, expect exit 0.
+wait_for_padi_ready "$log" "$pid"
 kill -TERM "$pid"
 ec=0
 wait "$pid" || ec=$?
 pid=""  # disarm cleanup trap — we've already waited
+wait_for_daemons_down "$log"
 if [[ $ec -ne 0 ]]; then
     echo "kolu exited with code $ec after SIGTERM" >&2
     cat "$log" >&2
@@ -142,18 +215,22 @@ state_tmp=$(mktemp -d)
 # change that logs the resolved path rather than the raw env value.
 custom_state="$(realpath "$state_tmp")/relocated"
 state_log="$state_tmp/kolu.log"
-env -i HOME="$state_tmp/home" KOLU_STATE_DIR="$custom_state" \
-    KOLU_DAEMON_BIND_PID="$$" \
-    "$KOLU" --host 127.0.0.1 --port 0 >"$state_log" 2>&1 &
+(
+    exec env -i HOME="$state_tmp/home" XDG_RUNTIME_DIR="$runtime" \
+        KOLU_STATE_DIR="$custom_state" KOLU_DAEMON_BIND_PID="$BASHPID" \
+        "$KOLU" --host 127.0.0.1 --port 0
+) >"$state_log" 2>&1 &
 state_pid=$!
 
 wait_for_marker "state directory" "$state_log" "$state_pid"
 logged=$(json_field path "$state_log" "state directory")
+wait_for_padi_ready "$state_log" "$state_pid"
 # Best-effort teardown (same rationale as cleanup()): a stale-PID kill can race
 # the process's own exit, and that error must not mask a real failure.
 kill -TERM "$state_pid" 2>/dev/null || true
 wait "$state_pid" 2>/dev/null || true
 state_pid=""  # disarm cleanup trap — we've already waited
+wait_for_daemons_down "$state_log"
 
 if [[ "$logged" != "$custom_state" ]]; then
     echo "production wrapper ignored KOLU_STATE_DIR (juspay/kolu#1414):" >&2

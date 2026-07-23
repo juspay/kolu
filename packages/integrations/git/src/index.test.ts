@@ -44,6 +44,7 @@ import {
   type GitInfo,
   getDiff,
   getStatus,
+  gitDiffOutputEqual,
   gitInfoEqual,
   parseNameStatus,
   resolveGitInfo,
@@ -211,6 +212,25 @@ describe("getDiff", () => {
 
     expect(result.value.binary).toBe(false);
     expect(result.value.hunks.length).toBe(1);
+  });
+
+  it("does not dedupe a binary-to-text classification change", () => {
+    expect(
+      gitDiffOutputEqual(
+        {
+          oldFileName: null,
+          newFileName: "note.txt",
+          hunks: [],
+          binary: true,
+        },
+        {
+          oldFileName: null,
+          newFileName: "note.txt",
+          hunks: [],
+          binary: false,
+        },
+      ),
+    ).toBe(false);
   });
 });
 
@@ -594,20 +614,57 @@ describe("getStatus local mode includes untracked files alongside tracked change
 
 describe("worktreeCreate", () => {
   let tmpDir: string;
+  let templateDir: string;
+  let templateBare: string;
+  let firstMainCommit: string;
+  let latestMainCommit: string;
 
-  /** Create a bare repo with one commit on a given branch, clone it. */
-  async function setupRepos(defaultBranch = "main") {
-    const bareDir = path.join(tmpDir, "bare.git");
-    const cloneDir = path.join(tmpDir, "clone");
-    const seedDir = path.join(tmpDir, "seed");
+  beforeAll(async () => {
+    templateDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-template-"));
+    const seedDir = path.join(templateDir, "seed");
+    templateBare = path.join(templateDir, "bare.git");
     fs.mkdirSync(seedDir);
     const seedGit = simpleGit(seedDir);
     await seedGit.init();
-    await seedGit.raw(["checkout", "-b", defaultBranch]);
+    await seedGit.raw(["checkout", "-b", "master"]);
     fs.writeFileSync(path.join(seedDir, "README.md"), "init");
     await seedGit.add(".");
     await seedGit.commit("initial commit");
-    await seedGit.raw(["clone", "--bare", seedDir, bareDir]);
+    await seedGit.raw(["checkout", "-b", "main"]);
+    fs.writeFileSync(path.join(seedDir, "new-file.txt"), "main branch");
+    await seedGit.add(".");
+    await seedGit.commit("commit on main");
+    firstMainCommit = (await seedGit.revparse(["HEAD"])).trim();
+    fs.writeFileSync(path.join(seedDir, "new-file.txt"), "new content");
+    await seedGit.add(".");
+    await seedGit.commit("new commit");
+    latestMainCommit = (await seedGit.revparse(["HEAD"])).trim();
+    await seedGit.raw(["clone", "--bare", seedDir, templateBare]);
+    await simpleGit(templateBare).raw([
+      "update-ref",
+      "refs/test/main-first",
+      firstMainCommit,
+    ]);
+  });
+
+  afterAll(() => {
+    fs.rmSync(templateDir, { recursive: true, force: true });
+  });
+
+  /** Copy the immutable bare fixture and clone it. Expensive commit history is
+   * built once for the describe, while every test still owns isolated refs. */
+  async function setupRepos(defaultBranch = "main") {
+    const bareDir = path.join(tmpDir, "bare.git");
+    const cloneDir = path.join(tmpDir, "clone");
+    fs.cpSync(templateBare, bareDir, { recursive: true });
+    const bareGit = simpleGit(bareDir);
+    if (defaultBranch === "master") {
+      await bareGit.raw(["update-ref", "-d", "refs/heads/main"]);
+      await bareGit.raw(["symbolic-ref", "HEAD", "refs/heads/master"]);
+    } else {
+      await bareGit.raw(["update-ref", "refs/heads/main", firstMainCommit]);
+      await bareGit.raw(["symbolic-ref", "HEAD", "refs/heads/main"]);
+    }
     await simpleGit().clone(bareDir, cloneDir);
     return { bareDir, cloneDir };
   }
@@ -622,18 +679,13 @@ describe("worktreeCreate", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-test-"));
     const repos = await setupRepos("master");
 
-    // Change bare repo's default branch to "main"
+    // Change bare repo's default branch to "main" after the clone was made.
     const bareGit = simpleGit(repos.bareDir);
-    const pusherDir = path.join(tmpDir, "pusher");
-    await simpleGit().clone(repos.bareDir, pusherDir);
-    const pusherGit = simpleGit(pusherDir);
-    await pusherGit.raw(["checkout", "-b", "main"]);
-    fs.writeFileSync(path.join(pusherDir, "new-file.txt"), "main branch");
-    await pusherGit.add(".");
-    await pusherGit.commit("commit on main");
-    await pusherGit.push("origin", "main");
-    const mainHead = (await pusherGit.revparse(["HEAD"])).trim();
-
+    await bareGit.raw([
+      "update-ref",
+      "refs/heads/main",
+      "refs/test/main-first",
+    ]);
     await bareGit.raw(["symbolic-ref", "HEAD", "refs/heads/main"]);
 
     const result = await worktreeCreate(repos.cloneDir, "feat-default");
@@ -643,7 +695,7 @@ describe("worktreeCreate", () => {
 
     const worktreeGit = simpleGit(result.value.path);
     const worktreeHead = (await worktreeGit.revparse(["HEAD"])).trim();
-    expect(worktreeHead).toBe(mainHead);
+    expect(worktreeHead).toBe(firstMainCommit);
 
     await simpleGit(repos.cloneDir).raw([
       "worktree",
@@ -657,19 +709,16 @@ describe("worktreeCreate", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-test-"));
     const repos = await setupRepos();
 
-    // Push a new commit to bare (simulating someone else pushing)
-    const pusherDir = path.join(tmpDir, "pusher");
-    await simpleGit().clone(repos.bareDir, pusherDir);
-    const pusherGit = simpleGit(pusherDir);
-    fs.writeFileSync(path.join(pusherDir, "new-file.txt"), "new content");
-    await pusherGit.add(".");
-    await pusherGit.commit("new commit");
-    await pusherGit.push("origin", "main");
-    const latestCommit = (await pusherGit.revparse(["HEAD"])).trim();
+    // Advance the bare ref after cloning, simulating someone else pushing.
+    await simpleGit(repos.bareDir).raw([
+      "update-ref",
+      "refs/heads/main",
+      latestMainCommit,
+    ]);
 
     const cloneGit = simpleGit(repos.cloneDir);
     const staleCommit = (await cloneGit.revparse(["origin/main"])).trim();
-    expect(staleCommit).not.toBe(latestCommit);
+    expect(staleCommit).not.toBe(latestMainCommit);
 
     const result = await worktreeCreate(repos.cloneDir, "feat-fresh");
     expect(result.ok).toBe(true);
@@ -677,7 +726,7 @@ describe("worktreeCreate", () => {
 
     const worktreeGit = simpleGit(result.value.path);
     const worktreeHead = (await worktreeGit.revparse(["HEAD"])).trim();
-    expect(worktreeHead).toBe(latestCommit);
+    expect(worktreeHead).toBe(latestMainCommit);
 
     await cloneGit.raw(["worktree", "remove", result.value.path, "--force"]);
   });

@@ -48,11 +48,43 @@ When(
   "I open the deep link {string} on a cold boot",
   async function (this: KoluWorld, template: string) {
     const hash = expandDeepLink(this, template);
+    const targetId = hash.match(/^#\/t\/[^/]+\/([^/?]+)/)?.[1];
+    assert.ok(targetId, `cold-boot terminal link has no target id: ${hash}`);
+    const expectedIds = [...this.createdTerminalIds];
+    // Install the boot URL without firing `hashchange` in the live app. The
+    // reload is the only delivery edge this scenario exercises.
     await this.page.evaluate((h) => {
-      window.location.hash = h;
+      history.replaceState(null, "", h);
     }, hash);
     await this.page.reload();
     await this.waitForSettled();
+    // `waitForSettled` can return after the first terminal paints. A cold boot
+    // is complete only once the route was consumed, every pre-existing terminal
+    // reattached, and the requested one owns focus.
+    await this.page.waitForFunction(
+      ({ target, ids }) => {
+        const terminals = Array.from(
+          document.querySelectorAll("[data-visible][data-terminal-id]"),
+        );
+        const attached = new Set(
+          terminals
+            .map((el) => el.getAttribute("data-terminal-id"))
+            .filter((id): id is string => id !== null),
+        );
+        return (
+          (history.state as { koluRouted?: boolean } | null)?.koluRouted ===
+            true &&
+          ids.every((id) => attached.has(id)) &&
+          terminals.some(
+            (el) =>
+              el.getAttribute("data-terminal-id") === target &&
+              el.hasAttribute("data-focused"),
+          )
+        );
+      },
+      { target: targetId, ids: expectedIds },
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 

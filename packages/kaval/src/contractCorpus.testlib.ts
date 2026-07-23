@@ -60,18 +60,27 @@ export const CONTRACT_COVERAGE = {
   ],
 } as const;
 
-/** A minimal fully-specified spawn — a plain `$SHELL` run with no login flag,
- *  no rc files. Since B0
+/** A minimal fully-specified spawn — the fixed default shell with a minimal
+ *  sanitized environment, no login flag, and no init files. Since B0
  *  the host derives nothing from policy, so a bare client supplies the complete
  *  `{argv, env, initFiles}` (and this exercises exactly that no-hooks path). The
  *  env crosses the wire verbatim on the socket link. */
 export function spawnInput(cwd: string): PtyHostSpawnInput {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v;
+  const path = process.env.PATH;
+  if (path === undefined) {
+    throw new Error("contract corpus requires PATH");
+  }
   return {
-    argv: [process.env.SHELL || DEFAULT_SPAWN_SHELL],
+    argv: [DEFAULT_SPAWN_SHELL],
     cwd,
-    env,
+    // Keep host shell hooks (ENV, BASH_ENV, ZDOTDIR, inherited SHELL) out of
+    // this transport contract. They can run arbitrary user startup code before
+    // the corpus' first frame and make a socket test depend on the CI account.
+    env: {
+      HOME: cwd,
+      PATH: path,
+      TERM: "xterm-256color",
+    },
     initFiles: [],
   };
 }
@@ -524,16 +533,17 @@ export function runContractCorpus(opts: {
     }, async () => {
       await client().surface.terminal.spawn(spawnInput(opts.makeCwd()));
       await client().surface.terminal.spawn(spawnInput(opts.makeCwd()));
+      // Include any still-exiting PTY from the preceding corpus test, then arm
+      // every completion signal before killAll. The exit streams yield only
+      // after each PTY's onExit path has removed its inventory entry.
+      const before = await client().surface.terminal.list({});
+      const exits = before.entries.map(async ({ id }) =>
+        firstYield(await client().surface.exit.get({ id })),
+      );
       const { killed } = await client().surface.terminal.killAll({});
       expect(killed).toBeGreaterThanOrEqual(2);
-      // kill is async — the entry is removed on the PTY's exit event, not
-      // synchronously — so poll list until it drains rather than racing it.
-      let entries: unknown[] = [];
-      for (let i = 0; i < 80; i++) {
-        ({ entries } = await client().surface.terminal.list({}));
-        if (entries.length === 0) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
+      await Promise.all(exits);
+      const { entries } = await client().surface.terminal.list({});
       expect(entries).toEqual([]);
     });
   });

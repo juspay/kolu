@@ -1525,11 +1525,12 @@ Feature: Code tab (review + browse)
     When I click the changed file "new.png" in the Code tab
     Then the Code tab should show the binary placeholder
 
-  # Regression for #810 + #786: a file transitioning from binary to text
-  # via live updates must flip the placeholder off (and vice versa). The
-  # streaming endpoint re-emits `binary` on every diff change; without it
-  # in `gitDiffOutputEqual`, the snapshot dedupe would suppress the flip.
-  Scenario: Binary placeholder flips off when the file becomes text
+  # Regression for #810 + #786: classification must follow the current bytes
+  # when a binary file becomes text. `gitDiffOutputEqual` separately pins that
+  # the stream does not dedupe a binary-flag-only change, while the next
+  # scenario owns native-watcher live updates. Keeping those two contracts
+  # separate avoids making this renderer assertion depend on a second OS event.
+  Scenario: Binary placeholder classification follows refreshed file contents
     When I run "rm -rf /tmp/kolu-binary-flip && git init /tmp/kolu-binary-flip && cd /tmp/kolu-binary-flip"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'PNG\0fake\1\2' > note.txt"
@@ -1539,6 +1540,9 @@ Feature: Code tab (review + browse)
     Then the Code tab should show the binary placeholder
     When I click the terminal canvas
     And I run "printf 'now text\n' > note.txt"
+    And I click the Code tab mode "browse"
+    And I click the Code tab mode "local"
+    And I click the changed file "note.txt" in the Code tab
     Then the diff view should contain "now text"
     And the Code tab should not show the binary placeholder
 

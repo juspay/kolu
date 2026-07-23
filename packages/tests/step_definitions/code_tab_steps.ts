@@ -1,6 +1,6 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
+import { nudgeDir, nudgeFiles, rewriteFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -8,6 +8,12 @@ import {
   MOD_KEY,
   POLL_TIMEOUT,
 } from "../support/world.ts";
+
+// Repo/file pulses cross two 150ms trailing-edge debounces: the native
+// working-tree watcher, then subscribeRepoChange/subscribeFileChange. Nudging
+// faster than their combined 300ms window continually resets the first timer
+// and prevents any pulse from firing.
+const FILE_WATCH_NUDGE_INTERVAL_MS = 500;
 
 /** Ensure the right panel is expanded for the ACTIVE terminal before touching
  *  the Code tab. Panel collapse is PER-TERMINAL now (#1753): a freshly-created
@@ -748,8 +754,8 @@ Then(
 // FSEvents notification is sometimes dropped under the post-koluBin-build
 // storm, so the iframe freezes on the pre-edit body and the bare assertion
 // above (even at HYDRATION_TIMEOUT) waits forever — no further event ever
-// comes. Re-touch the edited file's mtime each poll tick: each touch is a
-// fresh notification, so a dropped one is recovered. The touch itself no longer
+// comes. Rewrite the already-edited bytes each poll tick: each write is a
+// fresh notification, so a dropped one is recovered. The rewrite itself no longer
 // changes the URL (the `?v=` cache-key hashes CONTENT, not mtime) — it only
 // re-fires the dropped watch; the requery then hashes the already-written
 // post-edit content, whose new hash re-points the iframe `src` and forces the
@@ -767,12 +773,13 @@ Then(
     await pollFor({
       observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
       isDone: (text) => text?.includes(expected) ?? false,
-      onTick: () => nudgeFiles([absFile]),
+      onTick: () => rewriteFiles([absFile]),
       onTimeout: (last) =>
         new Error(
           `iframe preview never refreshed to "${expected}" after editing ${absFile}; ` +
             `last body text: ${JSON.stringify(last)}`,
         ),
+      intervalMs: FILE_WATCH_NUDGE_INTERVAL_MS,
       timeoutMs: HYDRATION_TIMEOUT,
     });
   },

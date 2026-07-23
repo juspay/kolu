@@ -1,7 +1,8 @@
 import fs from "node:fs";
+import type { FSWatcher } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirFilenameWatcher } from "./refcounted-dir-watcher.ts";
 
 /** A promise plus its resolver — lets a test hold a `resolveDir` open and
@@ -34,9 +35,16 @@ describe("createDirFilenameWatcher async install", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "refcounted-watcher-test-"));
+    // These tests pin install/reconcile/refcount semantics, not Node's kernel
+    // watcher. A real fs.watch adds an unrelated inotify/FSEvents scheduling
+    // race to the exact async-install window under test.
+    vi.spyOn(fs, "watch").mockReturnValue({
+      close() {},
+    } as FSWatcher);
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
