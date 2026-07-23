@@ -132,14 +132,13 @@ describe("pipGlyph / agentGlyph — identity marks", () => {
     });
   }
 
-  it("shell is a stroked terminal frame + centered cursor (spin-friendly)", () => {
+  it("shell is a filled # prompt (spin-friendly, distinct from OpenCode frame)", () => {
     const g = pipGlyph("shell");
-    expect(g.paint).toBe("stroke");
-    expect(g.paths).toHaveLength(2);
-    expect(g.strokeWidth).toBe(2.2);
-    // Frame path is the rounded rect; cursor is the small centered block.
-    expect(g.paths[0]).toMatch(/a2 2 0 0 1/);
-    expect(g.paths[1]).toMatch(/h3v3/);
+    expect(g.paint).toBe("fill");
+    // Two verticals + two horizontals.
+    expect(g.paths).toHaveLength(4);
+    // Not a rectangular window frame (OpenCode's shape family).
+    expect(g.paths.join("")).not.toMatch(/a2 2 0 0 1/);
   });
 
   it("GLYPH_SVG_CLASS is the 16px mark inside the 20px dock pip box", () => {

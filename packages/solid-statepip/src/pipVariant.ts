@@ -88,7 +88,7 @@ export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
 /** A brand mark or shell prompt — one render shape for both fill and stroke. */
 export type PipGlyphDef = {
   viewBox: string;
-  /** `fill` for brand marks; `stroke` for the shell terminal frame. */
+  /** `fill` for brand marks and the shell `#`; `stroke` unused today. */
   paint: "fill" | "stroke";
   paths: readonly string[];
   /** Stroke width when `paint === "stroke"`. */
@@ -128,22 +128,24 @@ const GLYPH_OPENCODE = fillMark(
   "M22 24H2V0h20zM17 4.8H7v14.4h10z",
 );
 
-/** Shell — terminal window + centered cursor block.
+/** Shell — filled `#` prompt.
  *
- *  The old chevron+underscore prompt (`❯ _`) was lopsided and looked gnarly
- *  under continuous spin. A rounded frame with a centered cursor is roughly
- *  4-fold symmetric: still reads "terminal" when quiet, and rotation stays
- *  clean (no flailing chevron). Stroked to stay distinct from filled brand
- *  marks. */
+ *  Why not the alternatives:
+ *    · `❯ _` chevron — lopsided, thrashing under continuous spin
+ *    · terminal window frame — too close to OpenCode's filled square mark
+ *  `#` is the classic root-shell prompt: near 4-fold symmetry so spin stays
+ *  clean, and it cannot be confused with any agent brand (OpenCode, Claude,
+ *  Codex, Grok). Filled like the brands so weight matches at 16px. */
 const GLYPH_SHELL: PipGlyphDef = {
   viewBox: "0 0 24 24",
-  paint: "stroke",
-  strokeWidth: 2.2,
+  paint: "fill",
   paths: [
-    // Rounded terminal frame
-    "M6.5 5.5h11a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z",
-    // Centered cursor block
-    "M10.5 10.5h3v3h-3z",
+    // Two verticals
+    "M7.5 3.5h3v17h-3z",
+    "M13.5 3.5h3v17h-3z",
+    // Two horizontals (slightly offset from center for a true #, not a +)
+    "M4 8h16v3H4z",
+    "M4 13h16v3H4z",
   ],
 };
 
