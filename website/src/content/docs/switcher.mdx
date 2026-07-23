@@ -20,13 +20,15 @@ into scoped views of the same surface, not separate apps.
 
 ## What opens at the root
 
-At the empty root you see three bands:
+At the empty root you see:
 
 1. **Recent** — the three most-recent live terminals (the same recency clock
    the [Dock](/dock) uses), so "go back to what I was doing" is often row one.
-2. **Hosts** — every machine in the pool (only when more than local is
-   configured), each with its connection status.
-3. **Commands** — New terminal, active-terminal actions, canvas, UI, help.
+2. **Hosts** — every machine in the pool (when more than local is configured),
+   quiet when healthy; `active` only for the canvas host.
+3. **Terminals** section — the Terminals group (⌘⇧K) and New terminal.
+4. **Further command sections** — Active Terminal, Canvas, UI, Help — as
+   usual, not collapsed into a single “Commands” band until you type.
 
 Type to search **across every kind at once**. Matching is multi-token: every
 whitespace-separated word must appear somewhere in the row's corpus (repo,
@@ -150,12 +152,12 @@ Every result kind paints the same four slots so a mixed list stays scannable:
   over the **same** terminal set.
 - The **host strip** is still ambient multi-host status; ⌘K does not replace it.
 - Sleep, restore, and session memory live under [Sessions](/sessions); the
-  switcher only **finds** terminals that already exist on the active host.
+  switcher only **finds** terminals that already exist on connected hosts.
 
 <Aside type="note" title="Mobile">
-  On a phone the same chords and palette open from the chrome sheet; the
-  spatial canvas is gone, but search and host switch still reach every live
-  terminal and pool member. See [Mobile](/mobile).
+  On a phone the palette still opens from the chrome sheet, but the **⌘⇧K
+  Terminals deep-link is desktop-gated** (`showsWorkspaceSwitcher`); host
+  switch and root search remain available. See [Mobile](/mobile).
 </Aside>
 
 ## Next

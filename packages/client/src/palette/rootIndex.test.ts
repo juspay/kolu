@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   filterAndRankPaletteItems,
   kindRank,
-  RECENT_WORKSPACE_LIMIT,
+  RECENT_TERMINAL_LIMIT,
   searchCorpus,
   type IndexableItem,
 } from "./rootIndex";
@@ -88,7 +88,7 @@ describe("filterAndRankPaletteItems", () => {
     });
     const names = out.map((i) => i.name);
     // Top RECENT_TERMINAL_LIMIT terminals by recency
-    expect(names.slice(0, RECENT_WORKSPACE_LIMIT)).toEqual([
+    expect(names.slice(0, RECENT_TERMINAL_LIMIT)).toEqual([
       "fresh-ws",
       "mid-ws",
       "old-ws",
@@ -97,10 +97,10 @@ describe("filterAndRankPaletteItems", () => {
     expect(names).not.toContain("extra-ws");
     // hosts next
     expect(
-      names.slice(RECENT_WORKSPACE_LIMIT, RECENT_WORKSPACE_LIMIT + 2),
+      names.slice(RECENT_TERMINAL_LIMIT, RECENT_TERMINAL_LIMIT + 2),
     ).toEqual(["gpu-box", "local"]);
     // commands last, by sectionOrder
-    expect(names.slice(RECENT_WORKSPACE_LIMIT + 2)).toEqual([
+    expect(names.slice(RECENT_TERMINAL_LIMIT + 2)).toEqual([
       "New terminal",
       "Set theme",
       "Toggle dock",

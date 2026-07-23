@@ -26,8 +26,14 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createComputed, createMemo, mapArray } from "solid-js";
 import { rowRecencyAt } from "../canvas/dock/dockRowRanking";
 import { createSharedRoot } from "../createSharedRoot";
+import { hostScopeOf } from "../hostScope/hostScopes";
+import {
+  DEFAULT_ACTIVITY_WINDOW,
+  windowOption,
+} from "../terminal/activityWindow";
 import { isParked } from "../terminal/useTerminalMetadata";
-import { useStaleCheck } from "../terminal/staleness";
+import { isStale as isStaleAt } from "../terminal/staleness";
+import { getClockNow } from "../time/clock";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 
 export type FleetTerminalRow = {
@@ -135,11 +141,18 @@ type PerHostHandle = {
   rows: Accessor<FleetTerminalRow[]>;
 };
 
+/** Per-host activity-window threshold for the fleet index — THIS host's
+ *  preference when its scope exists, else the default (usually "all"). Never
+ *  the active host's window applied to a foreign host. */
+function thresholdMsForHost(host: HostKey): number | null {
+  const window =
+    hostScopeOf(host)?.prefs.activityWindow() ?? DEFAULT_ACTIVITY_WINDOW;
+  return windowOption(window).thresholdMs;
+}
+
 /** App-lifetime fleet index — one shared root so the switcher opens per-host
  *  streams once. */
 export const useFleetTerminalIndex = createSharedRoot(() => {
-  const isStale = useStaleCheck();
-
   // Eager per-host roots over the FULL member set (same mapArray shape as
   // useAttention). Each root opens that host's terminal list while connected.
   const roots = mapArray(
@@ -175,6 +188,8 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
 
       const rows = createMemo((): FleetTerminalRow[] => {
         if (!connected()) return [];
+        const now = getClockNow()();
+        const thresholdMs = thresholdMsForHost(host);
         const out: FleetTerminalRow[] = [];
         for (const id of keys()) {
           // Bound collection: `byKey` is a method on the use() result (not a signal).
@@ -184,7 +199,7 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
           if (!isTopLevelTerminal(raw)) continue;
           const meta = reprojectOnHost(host, raw);
           const recencyAt = rowRecencyAt(meta);
-          if (isStale(recencyAt)) continue;
+          if (isStaleAt(recencyAt, now, thresholdMs)) continue;
           out.push({ host, id, meta, recencyAt });
         }
         return out;

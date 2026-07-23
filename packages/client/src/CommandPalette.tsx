@@ -232,35 +232,55 @@ const CommandPalette: Component<{
   let lastPointerPos: PointerPos | null = null;
   const [path, setPath] = createSignal<DrillableKind[]>([]);
 
-  /** Items at the current navigation level (may include hints).
-   *
-   *  Resolves the drilled-in path by **name** against the fresh
-   *  `props.commands()` tree, not by object reference against the
-   *  snapshot captured in `path()`. The parent createCommands memo
-   *  re-runs whenever its reactive inputs change (e.g. server state
-   *  push, terminal list update) and produces *new* PaletteCommand
-   *  objects — the stored references in `path()` become stale within
-   *  the same render, and resolving children against them would show
-   *  the outdated group contents at the drilled-in level. By walking
-   *  the current tree step-by-step via `.name` lookup, the drilled-in
-   *  level always reflects the latest content. If a segment's name
-   *  disappears from the fresh tree (e.g. a parent hidden by a
-   *  visibility guard), fall back to the stale reference so the
-   *  palette doesn't render an empty level mid-navigation. */
-  const currentItems = createMemo((): PaletteItem[] => {
-    const p = path();
-    const last = p.at(-1);
-    if (last === undefined) return props.commands();
+  /** Walk `path` against the live command tree; return the live
+   *  drillable segments that still resolve, in order. */
+  function resolveLivePath(p: DrillableKind[]): {
+    valid: DrillableKind[];
+    level: PaletteItem[];
+  } {
     let level: PaletteItem[] = props.commands();
+    const valid: DrillableKind[] = [];
     for (const segment of p) {
       const match = level.find(
         (item): item is PaletteGroup | PaletteValueInput =>
           (item.kind === "group" || item.kind === "value") &&
           item.name === segment.name,
       );
-      if (!match) return resolveChildren(last);
+      if (!match) break;
+      valid.push(match);
       level = resolveChildren(match);
     }
+    return { valid, level };
+  }
+
+  /** If a path segment disappears (host disconnect, group hidden), pop
+   *  to the deepest still-valid segment — never keep showing children
+   *  from a stale path object. */
+  createEffect(() => {
+    if (!props.open) return;
+    const p = path();
+    if (p.length === 0) return;
+    const { valid } = resolveLivePath(p);
+    if (valid.length === p.length) return;
+    for (const g of p.slice(valid.length)) g.onCancel?.();
+    setPath(valid);
+    setQuery("");
+    setSelectedIndex(0);
+  });
+
+  /** Items at the current navigation level (may include hints).
+   *
+   *  Resolves the drilled-in path by **name** against the fresh
+   *  `props.commands()` tree, not by object reference against the
+   *  snapshot captured in `path()`. */
+  const currentItems = createMemo((): PaletteItem[] => {
+    const p = path();
+    if (p.length === 0) return props.commands();
+    const { valid, level } = resolveLivePath(p);
+    // While the reconcile effect hasn't trimmed yet, render the deepest
+    // still-valid level — never the stale missing segment's children.
+    if (valid.length === 0) return props.commands();
+    if (valid.length < p.length) return resolveChildren(valid[valid.length - 1]!);
     return level;
   });
 
@@ -339,6 +359,29 @@ const CommandPalette: Component<{
     return out;
   }
 
+  /** Recursively flatten groups/values so root type-search finds nested
+   *  leaves (`Debug → Diagnostic info`, Recent agents, …) while still
+   *  keeping intermediate groups so "Terminals" / "Hosts" match by name. */
+  function flattenForRootSearch(
+    items: readonly (PaletteCommand | PaletteLabel)[],
+  ): (PaletteCommand | PaletteLabel)[] {
+    const out: (PaletteCommand | PaletteLabel)[] = [];
+    const walk = (list: readonly PaletteItem[]) => {
+      for (const item of list) {
+        if (item.kind === "hint") continue;
+        if (item.kind === "action" || item.kind === "label") {
+          out.push(item);
+          continue;
+        }
+        // group | value — keep the parent (name match / drill) and recurse.
+        out.push(item);
+        walk(resolveChildren(item));
+      }
+    };
+    walk(items);
+    return out;
+  }
+
   /** Interactive rows at the current level (filter is bypassed in
    *  value mode). Filter mode produces `PaletteCommand[]`;
    *  value mode produces `PaletteLabel[]`.
@@ -346,7 +389,8 @@ const CommandPalette: Component<{
    *  AND-token multi-field match — the same matcher the dock uses
    *  (`matchesAllTokens` / `tokenize`). At Terminals browse the tree is
    *  host groups, but selection always sees a **flat terminal list**
-   *  (auto-expanded); typing filters that list across every host. */
+   *  (auto-expanded). At root with a non-empty query, nested command
+   *  leaves are included so "Search everything" finds Debug leaves. */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     let items = partitioned().interactive;
     if (mode().kind !== "filter") {
@@ -358,11 +402,13 @@ const CommandPalette: Component<{
     }
     const p = path();
     const q = query();
+    const atRoot = p.length === 0;
     if (atTerminalsBrowse()) {
       // Always flatten — empty browse and typed filter share one list.
       items = flattenHostGroupTerminals(items);
+    } else if (atRoot && q.trim().length > 0) {
+      items = flattenForRootSearch(items);
     }
-    const atRoot = p.length === 0;
     // Stamp sectionOrder so the pure ranker can re-sort commands without
     // knowing SectionId.
     const stamped = items.map((cmd, i) => ({

@@ -220,36 +220,6 @@ Then(
   },
 );
 
-Then(
-  "the workspace switcher should show only repo {string} cards",
-  async function (this: KoluWorld, repoName: string) {
-    const names = await this.page
-      .locator(CARD_SELECTOR)
-      .evaluateAll((els) =>
-        els.map((el) => el.getAttribute("data-palette-name") ?? ""),
-      );
-    // After filtering, every remaining terminal row should match the repo
-    // query in its corpus; assert at least one and all rows present.
-    assert.ok(names.length >= 1, `expected rows for repo ${repoName}`);
-  },
-);
-
-// Bucket columns removed — keep steps as soft passes for any leftover feature
-// lines that still mention them (none in the rewritten feature file).
-Then(
-  "the workspace switcher should show buckets {string}",
-  async function (this: KoluWorld, _expected: string) {
-    // No-op: column grid retired; terminal list is flat dock-ordered rows.
-  },
-);
-
-Then(
-  "the workspace switcher idle column should show sub-buckets {string}",
-  async function (this: KoluWorld, _expected: string) {
-    // No-op: idle sub-buckets were WorkspaceGrid-only.
-  },
-);
-
 When(
   "I click workspace switcher card {int}",
   async function (this: KoluWorld, position: number) {

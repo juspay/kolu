@@ -44,14 +44,13 @@ describe("rankFleetTerminalRows", () => {
     expect(ranked.map((r) => r.id)).toEqual(["agent", "plain"]);
   });
 
-  it("uses host encoding as a stable secondary key", () => {
+  it("uses host encoding as a stable secondary key (exact unsorted order)", () => {
     const ranked = rankFleetTerminalRows([
       row(remote, "x", 10),
       row(local, "y", 10),
     ]);
-    // local encodes before remote target string under localeCompare of encodeHostKey
-    expect(ranked.map((r) => r.id).sort()).toEqual(["x", "y"].sort());
-    expect(ranked).toHaveLength(2);
+    // local encodes before remote under localeCompare of encodeHostKey
+    expect(ranked.map((r) => r.id)).toEqual(["y", "x"]);
   });
 });
 
@@ -95,9 +94,10 @@ describe("orderHostsActiveFirst", () => {
   });
 
   it("returns the input order when active is not in the list", () => {
-    expect(orderHostsActiveFirst([local, remote], remote)).toEqual([
-      remote,
+    const other: HostKey = { kind: "remote", target: "other@box" };
+    expect(orderHostsActiveFirst([local, remote], other)).toEqual([
       local,
+      remote,
     ]);
   });
 });

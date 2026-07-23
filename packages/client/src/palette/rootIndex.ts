@@ -24,8 +24,6 @@ export function kindRank(kind: ResultKind): number {
 
 /** Empty-root Recent band: top N terminals by recency. */
 export const RECENT_TERMINAL_LIMIT = 3;
-/** @deprecated Prefer {@link RECENT_TERMINAL_LIMIT} — same value, old name. */
-export const RECENT_WORKSPACE_LIMIT = RECENT_TERMINAL_LIMIT;
 
 /** Fields the root index needs off a palette row. Intentionally minimal so
  *  tests construct plain objects without the full PaletteAction shape. */

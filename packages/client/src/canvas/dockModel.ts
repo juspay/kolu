@@ -1,102 +1,24 @@
+/** Dock / switcher shared presentation leaves — paint buckets and the
+ *  multi-field search corpus. The old WorkspaceGrid mega-model
+ *  (`buildDockModel`, `DockSourceEntry`, repo facets, columns) was retired
+ *  with the grid; only the live leaves remain. */
+
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import {
   type AgentInfo,
   type AgentPaintClass,
   agentPaintClass,
   type PrResult,
-  type TerminalId,
 } from "kolu-common/surface";
-import { matchesAllTokens, tokenize } from "../search";
-import {
-  IDLE_BUCKETS,
-  type IdleBucket,
-  type IdleBucketKey,
-} from "../terminal/activityWindow";
-import {
-  pairDisplayRow,
-  type TerminalDisplayInfo,
-} from "../terminal/terminalDisplay";
-import type { TileLayout } from "./TileLayout";
-
-/** Live-terminal source row before a presentation-specific order is applied.
- *  `info` carries display decorations (colors, key); `meta` is the LIVE
- *  per-terminal record read from `getMetadata` — the search/bucket/render
- *  facts (pr / agent / foreground / lastActivityAt) come off it, never off a
- *  display-info snapshot (see `terminalDisplay.ts`). */
-export interface DockSourceEntry {
-  id: TerminalId;
-  info: TerminalDisplayInfo;
-  meta: TerminalMetadata;
-  layout?: TileLayout;
-}
-
-/** Pair terminal ids with display info, live metadata, and optional canvas
- *  layout. Skips a terminal until BOTH its display info and its live record
- *  have arrived. */
-export function buildWorkspaceEntries(
-  ids: TerminalId[],
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
-  getMetadata: (id: TerminalId) => TerminalMetadata | undefined,
-  getLayout?: (id: TerminalId) => TileLayout | undefined,
-): DockSourceEntry[] {
-  const entries: DockSourceEntry[] = [];
-  for (const id of ids) {
-    const row = pairDisplayRow(getDisplayInfo(id), getMetadata(id));
-    if (!row) continue;
-    entries.push({
-      id,
-      info: row.info,
-      meta: row.meta,
-      layout: getLayout?.(id),
-    });
-  }
-  return entries;
-}
-
-/** Order entries by recency descending, with canvas (`x`, `y`) as the
- *  secondary key and stable input order as the final tiebreak. Pure — the
- *  recency value is plugged in via the accessor. The expanded panel
- *  re-buckets by agent state, so the visible effect there is
- *  recency-within-bucket. */
-export function sortDockEntriesByRecency(
-  entries: DockSourceEntry[],
-  getRecency: (id: TerminalId) => number,
-): DockSourceEntry[] {
-  return [...entries].sort((a, b) => {
-    const ra = getRecency(a.id);
-    const rb = getRecency(b.id);
-    if (ra !== rb) return rb - ra;
-    const ax = a.layout?.x ?? Infinity;
-    const bx = b.layout?.x ?? Infinity;
-    if (ax !== bx) return ax - bx;
-    const ay = a.layout?.y ?? Infinity;
-    const by = b.layout?.y ?? Infinity;
-    return ay - by;
-  });
-}
 
 /** The switcher-column bucket vocabulary — the shared `AgentPaintClass`
  *  (awaiting | working | none) plus the dock's own `idle` triage column.
  *  Declared as an EXTENSION of `AgentPaintClass` (not a re-spelled literal set)
- *  so `Exclude<AgentBucketKind, "idle">` resolves to exactly `AgentPaintClass` —
- *  the paint fold's return type — making the value `paintBucket` feeds into
- *  `StatePip` (typed `DockRowBucket`) a DECLARED widening rather than a literal
- *  coincidence. */
+ *  so `Exclude<AgentBucketKind, "idle">` resolves to exactly `AgentPaintClass`. */
 export type AgentBucketKind = AgentPaintClass | "idle";
 
-/** Stable agent-state buckets shown as columns in the expanded switcher.
- *
- *  Co-locates each bucket's label, empty-state copy, and column visual
- *  encoding — text color, accent CSS variable for the column rule, and the
- *  animated `pill-border-*` class set. Cards render the same `StatePip` as
- *  dock rows (identity + paint + motion + plate + unread) — no per-bucket
- *  text glyphs. ☾ is reserved for genuine sleep affordances (dormant body,
- *  dock footer chip), never the Idle (parked/stale) column.
- *
- *  Idle leads the row — it's the triage column the user opens the
- *  switcher to scan first. Then live attention (Awaiting, Working),
- *  with "No agent" trailing as the narrow plain-shells bucket
- *  (`lastActivityAt === null`, never hosted an agent). */
+/** Stable agent-state bucket descriptors (paint classes + idle). Used by
+ *  minimap / aura presentation, not a column grid. */
 export const AGENT_BUCKETS = [
   {
     key: "idle",
@@ -118,8 +40,6 @@ export const AGENT_BUCKETS = [
     key: "working",
     label: "Working",
     empty: "No agents are running",
-    // Busy orange — same machine-in-flight token as StatePip working /
-    // AgentIndicator (not teal accent, which is chrome selection).
     textClass: "text-busy",
     accentVar: "var(--color-busy)",
     borderClass: "pill-border pill-border-working",
@@ -141,106 +61,8 @@ export const AGENT_BUCKETS = [
   borderClass: string;
 }[];
 
-type DockEntryBase = {
-  id: TerminalId;
-  repoName: string;
-  label: string;
-  suffix?: string;
-  info: TerminalDisplayInfo;
-  /** The live per-terminal record — search text, bucket, and the switcher
-   *  card's pr/agent/foreground reads all come off this, not `info`. */
-  meta: TerminalMetadata;
-  searchText: string;
-};
-
-/** Searchable live-terminal entry. Discriminated on `bucket`: only the
- *  Idle arm carries `idleSub`, so a consumer that narrows on
- *  `entry.bucket === "idle"` reads the sub-bucket key without an
- *  optional dance — and a non-idle entry cannot accidentally carry one. */
-export type DockEntry =
-  | (DockEntryBase & {
-      bucket: "idle";
-      idleSub: IdleBucketKey;
-    })
-  | (DockEntryBase & {
-      bucket: Exclude<AgentBucketKind, "idle">;
-    });
-
-/** Repo facet derived from the current search result set. */
-export type RepoFacet = {
-  repoName: string;
-  count: number;
-  color: string;
-};
-
-/** Idle column sub-row. Empty buckets stay in the array so the column
- *  always shows the full ladder (4–12h, 12–24h, 24–48h, 48h+) — empty
- *  ranges read as a positive signal ("nothing parked here yet"). */
-export type IdleSubBucket = IdleBucket & {
-  entries: DockEntry[];
-};
-
-/** Bucket descriptor narrowed to a specific column key — preserves the
- *  per-key invariant in the descriptor table (label, colours, etc.) so the
- *  discriminated `DockColumn` arms below stay tight to
- *  their own descriptor row. */
-type DescriptorFor<K extends AgentBucketKind> = Extract<
-  (typeof AGENT_BUCKETS)[number],
-  { key: K }
->;
-
-/** Agent bucket plus the entries currently visible in that column.
- *
- *  Discriminated on `key`: only the Idle arm carries `idleSubBuckets`
- *  (always populated, always the full 4-rung ladder). Other arms have
- *  no sub-bucket field at all — so a renderer narrowing on
- *  `column.key === "idle"` reads sub-rows without an optional dance,
- *  and the type system refuses to construct an idle column without
- *  the ladder or an awaiting/working/none column with one. */
-export type DockColumn =
-  | (DescriptorFor<"idle"> & {
-      entries: DockEntry[];
-      idleSubBuckets: IdleSubBucket[];
-    })
-  | (DescriptorFor<Exclude<AgentBucketKind, "idle">> & {
-      entries: DockEntry[];
-    });
-
-/** Complete derived model for the dock's mega-level renderer. */
-export type DockModel = {
-  entries: DockEntry[];
-  visibleEntries: DockEntry[];
-  selectedRepo: string | null;
-  repoFacets: RepoFacet[];
-  columns: DockColumn[];
-};
-
-/** Classify live agent metadata into the dock's agent-state PAINT buckets — the
- *  canvas tile aura, the minimap badge, the expanded-switcher columns. Pure —
- *  does not consider staleness. Callers that have a staleness signal route
- *  parked terminals to the Idle column via `buildDockModel`'s `idleClassifier`
- *  branch, which takes precedence over this paint bucket.
- *
- *  Defers the per-state PAINT decision to `agentPaintClass` in
- *  `@kolu/terminal-vocab/agentProjection`, so the closed agent-state set is
- *  folded to a paint class in ONE schema-fenced file: a new state literal
- *  compile-fails THERE (`state satisfies never`) until its paint class is
- *  decided, rather than silently routing through a hand-copied dock-local
- *  switch. This function adds only the `null` agent → `none` arm (an absent
- *  agent has no glow); the live-agent fold is `agentPaintClass`.
- *
- *  This is the PAINT fold, NOT the needs-you RANKING (that's `dockRowRanking`'s
- *  `agentUrgency`). The paint vocabulary — {awaiting, working, none} — has no
- *  quiet-agent slot, so the post-turn lull (`waiting`) folds to `awaiting`: a
- *  just-finished agent keeps its tile glow until it parks. The ranking reads
- *  `agentUrgency`, where `waiting` is idle. The two legitimately differ on
- *  `waiting` and stay separate functions, co-located behind the schema fence.
- *
- *  Named `paintBucket` — NOT `agentBucket` — so the name carries the concept:
- *  `agentBucket` unambiguously means the shared projection's activity fold
- *  (`@kolu/terminal-vocab/agentProjection`), and `paintBucket` is this
- *  agent-optional paint adapter (the per-state fold itself is `agentPaintClass`
- *  in the projection; this only lifts it over an absent agent). */
+/** Classify live agent metadata into paint buckets. Defers the per-state
+ *  paint decision to `agentPaintClass` in `@kolu/terminal-vocab`. */
 export function paintBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
@@ -248,10 +70,7 @@ export function paintBucket(
   return agentPaintClass(agent.state);
 }
 
-/** Bucket a terminal by its live agent — `paintBucket` over the active arm. A
- *  sleeping/absent terminal has no live agent, so it folds to the idle/"none"
- *  bucket. The single fold so presence surfaces (dock rows, minimap badge,
- *  canvas aura) don't re-spell the active-narrow + bucket at every call site. */
+/** Bucket a terminal by its live agent — `paintBucket` over the active arm. */
 export function metaBucket(
   meta: TerminalMetadata,
 ): Exclude<AgentBucketKind, "idle"> {
@@ -267,8 +86,7 @@ const BUCKET_BY_KEY: Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]> =
     {} as Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]>,
   );
 
-/** Look up a bucket descriptor by its key. Used by presentation code
- *  that has an entry's bucket and needs the matching label/color. */
+/** Look up a bucket descriptor by its key. */
 export function bucketDescriptor(
   bucket: AgentBucketKind,
 ): (typeof AGENT_BUCKETS)[number] {
@@ -281,7 +99,7 @@ function add(values: string[], value: unknown): void {
 }
 
 function prSearchFields(pr: PrResult | undefined): string[] {
-  if (!pr) return []; // sleeping/absent: no live PR
+  if (!pr) return [];
   switch (pr.kind) {
     case "ok":
       return [
@@ -299,9 +117,6 @@ function prSearchFields(pr: PrResult | undefined): string[] {
     case "unsupported":
       return [pr.kind];
     default: {
-      // Exhaustiveness guard (matches `prValueText` in padi-tui): a future
-      // `PrResult` variant added without a case here is a compile error, not a
-      // silent `undefined` return that crashes search on `...prSearchFields(...)`.
       const _exhaustive: never = pr;
       return _exhaustive;
     }
@@ -309,8 +124,8 @@ function prSearchFields(pr: PrResult | undefined): string[] {
 }
 
 /** Multi-field search corpus for a live terminal — repo, branch, intent-related
- *  metadata, agent, foreground, cwd, PR. Shared by the dock mega-level filter
- *  and the command-palette root index so both surfaces match the same tokens. */
+ *  metadata, agent, foreground, cwd, PR. Shared by the dock filter and the
+ *  command-palette terminal index so both surfaces match the same tokens. */
 export function workspaceSearchText(entry: {
   repoName: string;
   label: string;
@@ -319,7 +134,6 @@ export function workspaceSearchText(entry: {
 }): string {
   const { meta } = entry;
   const git = meta.git;
-  // sleeping/absent terminal has no live overlay (arm undefined → fields undefined)
   const arm = activeArm(meta);
   const fg = arm?.foreground;
   const agent = arm?.agent;
@@ -347,152 +161,7 @@ export function workspaceSearchText(entry: {
   add(values, agent?.contextTokens);
   add(values, agent?.taskProgress?.completed);
   add(values, agent?.taskProgress?.total);
+  add(values, meta.intent);
 
   return values.join(" ").toLowerCase();
-}
-
-function matchesQuery(entry: DockEntry, tokens: string[]): boolean {
-  return matchesAllTokens(entry.searchText, tokens);
-}
-
-/** Derive the dock mega-level projections (search, facets, bucket
- *  columns) from one live-terminal entry list. Owns the ordering
- *  pipeline — when `getRecency` is provided, applies
- *  `sortDockEntriesByRecency` internally so callers can't feed unsorted
- *  entries into the grouping. When `idleClassifier` is provided,
- *  parked-by-inactivity entries route to the Idle column with a
- *  populated `idleSub` and the column emits `idleSubBuckets` (4–12h,
- *  12–24h, 24–48h, 48h+). The classifier is the sole clock-aware
- *  input — there is no separate `now` parameter and no separate stale
- *  predicate, so the model can't end up with two inconsistent views
- *  of the same tick. */
-export function buildDockModel(
-  sources: DockSourceEntry[],
-  options: {
-    query?: string;
-    repoFilter?: string | null;
-    getRecency?: (id: TerminalId) => number;
-    idleClassifier?: (lastActivityAt: number | null) => IdleBucketKey | null;
-  } = {},
-): DockModel {
-  const ordered = options.getRecency
-    ? sortDockEntriesByRecency(sources, options.getRecency)
-    : sources;
-  const idleClassifier = options.idleClassifier;
-  const entries: DockEntry[] = ordered.map((source) => {
-    const baseFields = {
-      id: source.id,
-      repoName: source.info.key.group,
-      label: source.info.key.label,
-      suffix: source.info.key.suffix,
-      info: source.info,
-      meta: source.meta,
-    };
-    const searchText = workspaceSearchText(baseFields);
-    const idleSub = idleClassifier?.(source.meta.lastActivityAt) ?? null;
-    if (idleSub !== null) {
-      return { ...baseFields, searchText, bucket: "idle" as const, idleSub };
-    }
-    return {
-      ...baseFields,
-      searchText,
-      bucket: metaBucket(source.meta),
-    };
-  });
-
-  const { repoFacets, selectedRepo, visibleEntries } = searchResults(
-    entries,
-    options.query ?? "",
-    options.repoFilter ?? null,
-  );
-
-  // Single pass: bucket every visible entry (and, for idle entries,
-  // sub-bucket them) in one walk instead of N×M filters.
-  const byBucket: Record<AgentBucketKind, DockEntry[]> = {
-    awaiting: [],
-    working: [],
-    idle: [],
-    none: [],
-  };
-  const byIdleSub: Record<IdleBucketKey, DockEntry[]> = {
-    "4h-12h": [],
-    "12h-24h": [],
-    "24h-48h": [],
-    "48h+": [],
-  };
-  for (const entry of visibleEntries) {
-    byBucket[entry.bucket].push(entry);
-    if (entry.bucket === "idle") byIdleSub[entry.idleSub].push(entry);
-  }
-  const columns: DockColumn[] = AGENT_BUCKETS.map((bucket) => {
-    const bucketEntries = byBucket[bucket.key];
-    if (bucket.key !== "idle") {
-      return { ...bucket, entries: bucketEntries };
-    }
-    // The ladder is always rendered in full so empty rows read as a
-    // positive "nothing parked here yet" signal rather than disappearing.
-    const idleSubBuckets: IdleSubBucket[] = IDLE_BUCKETS.map((sub) => ({
-      ...sub,
-      entries: byIdleSub[sub.key],
-    }));
-    return { ...bucket, entries: bucketEntries, idleSubBuckets };
-  });
-
-  return {
-    entries,
-    visibleEntries,
-    selectedRepo,
-    repoFacets,
-    columns,
-  };
-}
-
-/** Filter, facet, and repo-narrow in one shot. Bundling the three
- *  results makes the dependency explicit: facets count *pre*-repo-
- *  filter matches (so the user can see how many entries would appear
- *  in each repo), `visibleEntries` count *post*-filter (only the
- *  selected repo). Splitting them across separate locals invited a
- *  silent reordering bug. */
-function searchResults(
-  entries: DockEntry[],
-  query: string,
-  repoFilter: string | null,
-): {
-  repoFacets: RepoFacet[];
-  selectedRepo: string | null;
-  visibleEntries: DockEntry[];
-} {
-  const tokens = tokenize(query);
-  const queryMatches =
-    tokens.length === 0
-      ? entries
-      : entries.filter((entry) => matchesQuery(entry, tokens));
-
-  const facetCounts = new Map<string, { count: number; color: string }>();
-  for (const entry of queryMatches) {
-    const facet = facetCounts.get(entry.repoName);
-    if (facet) {
-      facet.count += 1;
-    } else {
-      facetCounts.set(entry.repoName, {
-        count: 1,
-        color: entry.info.repoColor,
-      });
-    }
-  }
-  const repoFacets = [...facetCounts.entries()].map(
-    ([repoName, { count, color }]) => ({
-      repoName,
-      count,
-      color,
-    }),
-  );
-
-  const selectedRepo =
-    repoFilter && facetCounts.has(repoFilter) ? repoFilter : null;
-  const visibleEntries = selectedRepo
-    ? queryMatches.filter((entry) => entry.repoName === selectedRepo)
-    : queryMatches;
-
-  return { repoFacets, selectedRepo, visibleEntries };
 }
