@@ -20,8 +20,23 @@ import { assignColors } from "../terminal/terminalDisplay";
 import {
   encodeVisitHost,
   visitList,
-  visitRankScore,
+  visitedAtOf,
+  type VisitEntry,
 } from "../terminal/visitRecency";
+
+/** Palette ranking policy: max(client visit, server activity). Lives here
+ *  (not in the trail store) so visitRecency stays trail-only. */
+export function terminalRankScore(
+  visits: readonly VisitEntry[],
+  hostKey: string,
+  terminalId: TerminalId,
+  serverActivityAt: number | null | undefined,
+): number {
+  return Math.max(
+    visitedAtOf(visits, hostKey, terminalId),
+    serverActivityAt ?? 0,
+  );
+}
 import { padiMap } from "../wire";
 import {
   type FleetTerminalRow,
@@ -74,14 +89,10 @@ function terminalSwitchActionsForHost(
       );
     }
     const hostName = hostLabel(row.host);
-    // max(client visit, server activity) so ⌘K Recent follows the user's
-    // trail once they navigate, and still ranks by activity on a fresh browser.
-    const recencyAt = visitRankScore(
-      visitList(),
-      encodeVisitHost(row.host),
-      row.id,
-      row.recencyAt,
-    );
+    const hostKey = encodeVisitHost(row.host);
+    // activity clock for paint; rankScore for sort — never jam them into one field.
+    const activityAt = row.recencyAt;
+    const rankAt = terminalRankScore(visitList(), hostKey, row.id, activityAt);
     return {
       kind: "action",
       name: branchLabel,
@@ -96,7 +107,8 @@ function terminalSwitchActionsForHost(
         repoName,
         repoColor,
         branchLabel,
-        recencyAt,
+        recencyAt: activityAt,
+        rankAt,
         searchText: [
           workspaceSearchText({
             repoName,

@@ -1,18 +1,17 @@
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
+  applyHostLiveIds,
   clearHostVisits,
   mruIdsForHost,
   parseVisitList,
-  reconcileHostLiveIds,
   removeVisit,
   upsertVisit,
+  visitedAtOf,
   type VisitEntry,
-  visitRankScore,
 } from "./visitRecency";
 
 const T = (s: string) => s as TerminalId;
-// Real UUIDs — parseVisitList requires TerminalIdSchema.
 const A = T("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 const B = T("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
 const C = T("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
@@ -69,8 +68,8 @@ describe("upsertVisit", () => {
     list = upsertVisit(list, "local", B, 1000);
     expect(list[0]!.terminalId).toBe(B);
     expect(list[0]!.visitedAt).toBeGreaterThan(list[1]!.visitedAt);
-    expect(visitRankScore(list, "local", B, 0)).toBeGreaterThan(
-      visitRankScore(list, "local", A, 0),
+    expect(visitedAtOf(list, "local", B)).toBeGreaterThan(
+      visitedAtOf(list, "local", A),
     );
   });
 });
@@ -126,23 +125,18 @@ describe("parseVisitList", () => {
   });
 });
 
-describe("visitRankScore", () => {
+describe("visitedAtOf", () => {
   const visits: VisitEntry[] = [
     { hostKey: "local", terminalId: A, visitedAt: 1000 },
   ];
 
-  it("is max(visit, activity)", () => {
-    expect(visitRankScore(visits, "local", A, 500)).toBe(1000);
-    expect(visitRankScore(visits, "local", A, 2000)).toBe(2000);
-  });
-
-  it("uses activity alone when never visited", () => {
-    expect(visitRankScore(visits, "local", B, 42)).toBe(42);
-    expect(visitRankScore(visits, "local", B, null)).toBe(0);
+  it("returns stored stamp or 0", () => {
+    expect(visitedAtOf(visits, "local", A)).toBe(1000);
+    expect(visitedAtOf(visits, "local", B)).toBe(0);
   });
 });
 
-describe("mruIdsForHost / reconcileHostLiveIds / clear", () => {
+describe("mruIdsForHost / applyHostLiveIds / clear", () => {
   it("filters host slice", () => {
     const visits: VisitEntry[] = [
       { hostKey: "local", terminalId: A, visitedAt: 3 },
@@ -156,7 +150,7 @@ describe("mruIdsForHost / reconcileHostLiveIds / clear", () => {
     const prev: VisitEntry[] = [
       { hostKey: "remote:zest", terminalId: Z, visitedAt: 9 },
     ];
-    const out = reconcileHostLiveIds(prev, "local", [B, A], 100);
+    const out = applyHostLiveIds(prev, "local", [B, A], 100);
     expect(mruIdsForHost(out, "local")).toEqual([B, A]);
     expect(out.find((e) => e.hostKey === "remote:zest")?.visitedAt).toBe(9);
   });
@@ -168,13 +162,10 @@ describe("mruIdsForHost / reconcileHostLiveIds / clear", () => {
       { hostKey: "local", terminalId: C, visitedAt: 30 },
       { hostKey: "remote:zest", terminalId: Z, visitedAt: 99 },
     ];
-    // Drop C (dead), keep A/B timestamps, append nothing new.
-    const out = reconcileHostLiveIds(prev, "local", [A, B], 1000);
-    const local = out.filter((e) => e.hostKey === "local");
-    expect(local).toEqual([
-      { hostKey: "local", terminalId: A, visitedAt: 50 },
-      { hostKey: "local", terminalId: B, visitedAt: 40 },
-    ]);
+    const out = applyHostLiveIds(prev, "local", [A, B], 1000);
+    expect(out.find((e) => e.terminalId === A)?.visitedAt).toBe(50);
+    expect(out.find((e) => e.terminalId === B)?.visitedAt).toBe(40);
+    expect(out.find((e) => e.terminalId === C)).toBeUndefined();
     expect(out.find((e) => e.terminalId === Z)?.visitedAt).toBe(99);
   });
 
@@ -182,18 +173,17 @@ describe("mruIdsForHost / reconcileHostLiveIds / clear", () => {
     const prev: VisitEntry[] = [
       { hostKey: "local", terminalId: A, visitedAt: 50 },
     ];
-    const out = reconcileHostLiveIds(prev, "local", [A, B], 1000);
+    const out = applyHostLiveIds(prev, "local", [A, B], 1000);
     expect(out.find((e) => e.terminalId === A)?.visitedAt).toBe(50);
     expect(out.find((e) => e.terminalId === B)?.visitedAt).toBeLessThan(50);
   });
 
   it("caps by true recency so newer remote visits survive local reconcile", () => {
-    // 2-cap list: remote visit is newer than local filler after reconcile.
     const prev: VisitEntry[] = [
       { hostKey: "remote:zest", terminalId: Z, visitedAt: 99 },
       { hostKey: "local", terminalId: A, visitedAt: 50 },
     ];
-    const out = reconcileHostLiveIds(prev, "local", [A, B], 1000, 2);
+    const out = applyHostLiveIds(prev, "local", [A, B], 1000, 2);
     expect(out.map((e) => e.terminalId)).toEqual([Z, A]);
     expect(out.find((e) => e.terminalId === Z)?.visitedAt).toBe(99);
   });

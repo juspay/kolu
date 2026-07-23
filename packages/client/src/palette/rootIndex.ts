@@ -44,8 +44,10 @@ export type IndexableItem = {
   row?: {
     kind: ResultKind;
     searchText?: string;
-    /** Higher = more recent. Missing treated as 0. */
+    /** Display age (activity clock). Not used for root sort when rankAt set. */
     recencyAt?: number | null;
+    /** Sort key — max(visit, activity). Higher = more recent. Missing → 0. */
+    rankAt?: number | null;
     /** Host + id — present on fleet terminal rows for Recent exclusion. */
     hostKey?: string | HostKey;
     terminalId?: string;
@@ -79,8 +81,8 @@ export function searchCorpus(item: IndexableItem): string {
   return `${item.name} ${item.description ?? ""}`;
 }
 
-function recencyOf(item: IndexableItem): number {
-  return item.row?.recencyAt ?? 0;
+function rankOf(item: IndexableItem): number {
+  return item.row?.rankAt ?? item.row?.recencyAt ?? 0;
 }
 
 /** Filter by AND-token match, then rank for root (or leave registration
@@ -110,7 +112,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
     const terminals = matched
       .filter((item) => itemKind(item) === "terminal")
       .filter((item) => !isActiveTerminalRow(item, opts.excludeFromRecent))
-      .sort((a, b) => recencyOf(b) - recencyOf(a))
+      .sort((a, b) => rankOf(b) - rankOf(a))
       .slice(0, RECENT_TERMINAL_LIMIT);
     const hosts = matched.filter((item) => itemKind(item) === "host");
     const commands = matched
@@ -125,7 +127,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
     const kr = kindRank(itemKind(a)) - kindRank(itemKind(b));
     if (kr !== 0) return kr;
     if (itemKind(a) === "terminal") {
-      const delta = recencyOf(b) - recencyOf(a);
+      const delta = rankOf(b) - rankOf(a);
       if (delta !== 0) return delta;
     }
     return (a.sectionOrder ?? 0) - (b.sectionOrder ?? 0);

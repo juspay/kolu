@@ -51,11 +51,8 @@ export interface HostViewState {
    *  MRU, clears the tile's unread, and reports it to THIS host's server session.
    *  Named `writeActive` (the facade exposes it as `setActiveSilently`). */
   writeActive: (id: TerminalId | null) => void;
-  /** Seed empty host trail / reconcile live top-level ids without restamping
-   *  surviving visit timestamps. Prefer {@link forgetFromMru} for kill. */
-  setMruOrder: (
-    next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
-  ) => void;
+  /** Seed empty host trail / reconcile live membership (order is seed-only). */
+  reconcileLiveIds: (liveIds: readonly TerminalId[]) => void;
   /** Drop one terminal from the durable visit trail (kill path). */
   forgetFromMru: (id: TerminalId) => void;
   markUnread: (id: TerminalId) => void;
@@ -130,13 +127,10 @@ export function createViewState(host: HostKey): HostViewState {
       });
   }
 
-  function setMruOrder(
-    next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
-  ): void {
-    const ids = typeof next === "function" ? next(mruOrder()) : next;
-    // Empty → seed; non-empty → preserve timestamps, drop dead, append missing.
-    // Never restamps survivors (kill uses forgetFromMru instead).
-    visits.reconcileHost(host, ids);
+  function reconcileLiveIds(liveIds: readonly TerminalId[]): void {
+    // Empty host trail → seed with liveIds order; non-empty → membership only
+    // (argument order is ignored for survivors). Kill uses forgetFromMru.
+    visits.applyLiveIds(host, liveIds);
   }
 
   function forgetFromMru(id: TerminalId): void {
@@ -170,7 +164,7 @@ export function createViewState(host: HostKey): HostViewState {
     activeId,
     mruOrder,
     writeActive,
-    setMruOrder,
+    reconcileLiveIds,
     forgetFromMru,
     markUnread,
     isUnread,

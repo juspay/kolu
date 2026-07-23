@@ -224,7 +224,7 @@ function mountTwoHostFixture() {
     recordPhases: () => ({ awaited: 0, parked: 0, live: 0 }),
     setActiveSilently: view.setActiveSilently,
     activeId: view.activeId,
-    setMruOrder: view.setMruOrder,
+    reconcileLiveIds: view.reconcileLiveIds,
   } as unknown as TerminalStore;
 
   useSessionRestore({ store });

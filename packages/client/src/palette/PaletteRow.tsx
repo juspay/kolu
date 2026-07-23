@@ -45,7 +45,10 @@ export type PaletteRowMeta = {
   kind: ResultKind;
   /** Multi-field AND-token corpus (terminal dock fields / host label+status). */
   searchText?: string;
+  /** Server activity / visit-unrelated age for the right-rail stamp (null = never). */
   recencyAt?: number | null;
+  /** Switcher sort key (max(visit, activity)); never painted as age. */
+  rankAt?: number | null;
   terminalId?: TerminalId;
   /** Meta snapshot for fleet rows (may be off the active host). */
   terminalMeta?: TerminalMetadata;

@@ -131,17 +131,53 @@ export function clearHostVisits(
   return prev.filter((e) => e.hostKey !== hostKey);
 }
 
+/** Seed visits for a host that has none — most-recent-first decreasing stamps. */
+export function seedHostVisits(
+  hostKey: string,
+  liveIds: readonly TerminalId[],
+  now: number,
+): VisitEntry[] {
+  return liveIds.map((terminalId, i) => ({
+    hostKey,
+    terminalId,
+    visitedAt: now - i,
+  }));
+}
+
 /**
- * Reconcile one host's trail against live top-level ids:
- * - drop ids no longer live
- * - keep existing `visitedAt` for survivors (no restamp)
- * - append missing live ids with timestamps below all survivors
- *
- * When the host slice is empty, seeds `ids` most-recent-first (restore /
- * first paint). The global list is then ordered by true visit recency and
- * capped — newer other-host visits always outrank older local filler rows.
+ * Membership reconcile for a host that already has visits:
+ * drop dead, keep survivor timestamps, append missing below oldest survivor.
  */
 export function reconcileHostLiveIds(
+  hostPrev: readonly VisitEntry[],
+  hostKey: string,
+  liveIds: readonly TerminalId[],
+  now: number,
+): VisitEntry[] {
+  const liveSet = new Set(liveIds);
+  const survivors = hostPrev.filter((e) => liveSet.has(e.terminalId));
+  const survivorIds = new Set(survivors.map((e) => e.terminalId));
+  const missing = liveIds.filter((id) => !survivorIds.has(id));
+  const minSurvivor =
+    survivors.length === 0
+      ? now
+      : survivors.reduce(
+          (m, e) => Math.min(m, e.visitedAt),
+          survivors[0]!.visitedAt,
+        );
+  const appended: VisitEntry[] = missing.map((terminalId, i) => ({
+    hostKey,
+    terminalId,
+    visitedAt: minSurvivor - 1 - i,
+  }));
+  return [...survivors, ...appended];
+}
+
+/**
+ * Apply live top-level ids for one host: seed if empty, else membership
+ * reconcile. Merges with other-host visits, sorts by true recency, caps.
+ */
+export function applyHostLiveIds(
   prev: readonly VisitEntry[],
   hostKey: string,
   liveIds: readonly TerminalId[],
@@ -150,42 +186,16 @@ export function reconcileHostLiveIds(
 ): VisitEntry[] {
   const others = prev.filter((e) => e.hostKey !== hostKey);
   const hostPrev = prev.filter((e) => e.hostKey === hostKey);
-  const liveSet = new Set(liveIds);
-
-  let hostNext: VisitEntry[];
-  if (hostPrev.length === 0) {
-    // Empty host trail — seed only. Decreasing timestamps, most-recent first.
-    hostNext = liveIds.map((terminalId, i) => ({
-      hostKey,
-      terminalId,
-      visitedAt: now - i,
-    }));
-  } else {
-    // Preserve timestamps for survivors; drop dead; append missing below oldest.
-    const survivors = hostPrev.filter((e) => liveSet.has(e.terminalId));
-    const survivorIds = new Set(survivors.map((e) => e.terminalId));
-    const missing = liveIds.filter((id) => !survivorIds.has(id));
-    const minSurvivor =
-      survivors.length === 0
-        ? now
-        : survivors.reduce(
-            (m, e) => Math.min(m, e.visitedAt),
-            survivors[0]!.visitedAt,
-          );
-    const appended: VisitEntry[] = missing.map((terminalId, i) => ({
-      hostKey,
-      terminalId,
-      visitedAt: minSurvivor - 1 - i,
-    }));
-    hostNext = [...survivors, ...appended];
-  }
-
+  const hostNext =
+    hostPrev.length === 0
+      ? seedHostVisits(hostKey, liveIds, now)
+      : reconcileHostLiveIds(hostPrev, hostKey, liveIds, now);
   return [...hostNext, ...others]
     .sort((a, b) => b.visitedAt - a.visitedAt)
     .slice(0, cap);
 }
 
-/** Active-host MRU ids (most-recent first) for Ctrl+Tab / WebGL budget. */
+/** Active-host visit ids (most-recent first) for Ctrl+Tab / WebGL budget. */
 export function mruIdsForHost(
   visits: readonly VisitEntry[],
   hostKey: string,
@@ -193,19 +203,17 @@ export function mruIdsForHost(
   return visits.filter((e) => e.hostKey === hostKey).map((e) => e.terminalId);
 }
 
-/** Rank score for a live fleet row: max(client visit, server activity). */
-export function visitRankScore(
+/** Look up a stored visit timestamp (0 if never visited). Trail-only — ranking
+ *  policy lives next to the palette. */
+export function visitedAtOf(
   visits: readonly VisitEntry[],
   hostKey: string,
   terminalId: TerminalId,
-  serverActivityAt: number | null | undefined,
 ): number {
-  const visit = visits.find(
-    (e) => e.hostKey === hostKey && e.terminalId === terminalId,
+  return (
+    visits.find((e) => e.hostKey === hostKey && e.terminalId === terminalId)
+      ?.visitedAt ?? 0
   );
-  const visitedAt = visit?.visitedAt ?? 0;
-  const activity = serverActivityAt ?? 0;
-  return Math.max(visitedAt, activity);
 }
 
 export function visitLiveKey(hostKey: string, terminalId: TerminalId): string {
@@ -223,8 +231,8 @@ type VisitRecencyApi = {
   noteVisit: (host: HostKey, terminalId: TerminalId, at?: number) => void;
   forgetVisit: (host: HostKey, terminalId: TerminalId) => void;
   clearHost: (host: HostKey) => void;
-  /** Seed empty host trail, or reconcile live ids without restamping survivors. */
-  reconcileHost: (host: HostKey, liveIds: readonly TerminalId[]) => void;
+  /** Seed empty host trail, or reconcile live membership without restamping. */
+  applyLiveIds: (host: HostKey, liveIds: readonly TerminalId[]) => void;
   mruForHost: (host: HostKey) => TerminalId[];
 };
 
@@ -260,9 +268,9 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     setVisits((prev) => clearHostVisits(prev, encodeVisitHost(host)));
   }
 
-  function reconcileHost(host: HostKey, liveIds: readonly TerminalId[]): void {
+  function applyLiveIds(host: HostKey, liveIds: readonly TerminalId[]): void {
     setVisits((prev) =>
-      reconcileHostLiveIds(prev, encodeVisitHost(host), liveIds, Date.now()),
+      applyHostLiveIds(prev, encodeVisitHost(host), liveIds, Date.now()),
     );
   }
 
@@ -275,7 +283,7 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     noteVisit,
     forgetVisit,
     clearHost,
-    reconcileHost,
+    applyLiveIds,
     mruForHost,
   };
 });

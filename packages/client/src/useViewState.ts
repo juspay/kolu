@@ -76,9 +76,8 @@ export function useViewState() {
     if (id !== null) setCenterActiveRequest(id);
   }
 
-  const setMruOrder = (
-    next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
-  ): void => view()?.setMruOrder(next);
+  const reconcileLiveIds = (liveIds: readonly TerminalId[]): void =>
+    view()?.reconcileLiveIds(liveIds);
 
   const forgetFromMru = (id: TerminalId): void => view()?.forgetFromMru(id);
 
@@ -104,7 +103,7 @@ export function useViewState() {
     canvasMaximized,
     toggleCanvasMaximized,
     mruOrder,
-    setMruOrder,
+    reconcileLiveIds,
     forgetFromMru,
     centerActiveRequest,
     requestCenterActive,

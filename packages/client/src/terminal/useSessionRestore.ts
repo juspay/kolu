@@ -161,7 +161,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // Seed/reconcile the durable visit trail BEFORE activation. writeActive
     // noteVisit's the pick; if we seed after, a non-empty one-entry trail
     // would skip multi-id restore order (Ctrl+Tab would only see the pick).
-    store.setMruOrder(
+    store.reconcileLiveIds(
       picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
     );
 
