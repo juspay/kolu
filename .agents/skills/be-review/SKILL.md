@@ -151,11 +151,13 @@ only on the real signal (the lens notification, or peer ping), never a timer.
 2. **debate** — require the caller's explicit
    `--agent <claude|codex|grok>`. Capture
    `DEBATE_START=$(git -C "$repoPath" rev-parse HEAD)` first so the later
-   comment includes only this debate's commits. Invoke `/agent-debate` as:
+   comment includes only this debate's commits. Set `peerEffort=xhigh`, except
+   set it to `high` for Grok, whose strongest supported level is `high`. Invoke
+   `/agent-debate` as:
 
    ```text
    review --agent <selected> --repo "$repoPath" --base MB
-   --no-comment --effort xhigh --context <context> --rationale <rationale>
+   --no-comment --effort <peerEffort> --context <context> --rationale <rationale>
    ```
 
    `--no-comment` defers the comment until after the final push. `--repo` keeps
@@ -182,11 +184,11 @@ only on the real signal (the lens notification, or peer ping), never a timer.
    peerName="<selected peer display name>"
    {
      printf '## %s ⇄ %s debate\n\n' "$peerName" "$authorName"
-     printf '✅ Consensus in %s round(s) · peer effort: xhigh\n\n' "$rounds"
+     printf '✅ Consensus in %s round(s) · peer effort: %s\n\n' "$rounds" "$peerEffort"
      if [ "$commits" -gt 0 ]; then
        printf '| Fix commit | SHA | Description |\n|---|---|---|\n'
-       git -C "$repoPath" log --reverse --format='%h	%s' "$DEBATE_START"..HEAD \
-         | nl -w1 -s'	' | while IFS=$'\t' read -r n sha subj; do
+       git -C "$repoPath" log --reverse --format='%h%x09%s' "$DEBATE_START"..HEAD \
+         | nl -w1 -s$'\t' | while IFS=$'\t' read -r n sha subj; do
              printf '| %s | %s | %s |\n' "$n" "$sha" "$subj"
            done
      else
