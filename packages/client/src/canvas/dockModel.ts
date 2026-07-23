@@ -308,7 +308,10 @@ function prSearchFields(pr: PrResult | undefined): string[] {
   }
 }
 
-function searchTextFor(entry: {
+/** Multi-field search corpus for a live terminal — repo, branch, intent-related
+ *  metadata, agent, foreground, cwd, PR. Shared by the dock mega-level filter
+ *  and the command-palette root index so both surfaces match the same tokens. */
+export function workspaceSearchText(entry: {
   repoName: string;
   label: string;
   suffix?: string;
@@ -385,7 +388,7 @@ export function buildDockModel(
       info: source.info,
       meta: source.meta,
     };
-    const searchText = searchTextFor(baseFields);
+    const searchText = workspaceSearchText(baseFields);
     const idleSub = idleClassifier?.(source.meta.lastActivityAt) ?? null;
     if (idleSub !== null) {
       return { ...baseFields, searchText, bucket: "idle" as const, idleSub };

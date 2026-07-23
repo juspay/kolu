@@ -8,6 +8,7 @@ import type { Accessor, Component } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import { aboutDialog } from "./AboutDialog";
+import type { HostKey } from "kolu-common/hostKey";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -17,26 +18,26 @@ import type {
   PaletteValueInput,
 } from "./CommandPalette";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
-import type { DockSourceEntry } from "./canvas/dockModel";
+import { type DockSourceEntry, workspaceSearchText } from "./canvas/dockModel";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
-import { hostLabel, sameHost } from "./host/hostChipTone";
+import { hostLabel, sameHost, statusLabelShort } from "./host/hostChipTone";
 import {
   ACTIONS,
   type ActionContext,
   actionPaletteCommand,
 } from "./input/actions";
-import type { HostKey } from "kolu-common/hostKey";
-import { restartDaemon } from "./kaval/useDaemonRestart";
 import { offerRestartVerb } from "./kaval/daemonPresentation";
+import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
+import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
-import { recentAgents, recentRepos } from "./hostScope/activeWire";
+import { padiMap } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures
  *  the entries accessor + recency lookup in a closure so the palette
@@ -59,6 +60,67 @@ function workspaceGridBody(
       }}
     />
   );
+}
+
+/** Root-level workspace actions — one row per live terminal, ranked by
+ *  recency at the palette root. Selecting activates + pans (same verb as
+ *  the workspace grid). Search corpus is the dock's multi-field text. */
+function workspaceRootActions(
+  entries: DockSourceEntry[],
+  getRecency: (id: TerminalId) => number,
+  activate: (id: TerminalId) => void,
+): PaletteAction[] {
+  return entries.map((entry): PaletteAction => {
+    const repoName = entry.info.key.group;
+    const branchLabel = entry.info.key.label;
+    return {
+      kind: "action",
+      name: branchLabel,
+      description: repoName,
+      onSelect: () => activate(entry.id),
+      row: {
+        kind: "workspace",
+        terminalId: entry.id,
+        repoName,
+        repoColor: entry.info.repoColor,
+        branchLabel,
+        recencyAt: getRecency(entry.id) || entry.meta.lastActivityAt,
+        searchText: workspaceSearchText({
+          repoName,
+          label: branchLabel,
+          suffix: entry.info.key.suffix,
+          meta: entry.meta,
+        }),
+      },
+    };
+  });
+}
+
+/** Root-level (and Switch-host group) host rows — status dot + label +
+ *  short status. Search covers the display label and connection state. */
+function hostRootActions(
+  hosts: HostKey[],
+  active: HostKey,
+  switchHost: (host: HostKey) => void,
+): PaletteAction[] {
+  return hosts.map((h): PaletteAction => {
+    const label = hostLabel(h);
+    const state = padiMap.entry(h).state();
+    const status = sameHost(h, active) ? "active" : statusLabelShort(state);
+    return {
+      kind: "action",
+      name: label,
+      description: status,
+      onSelect: () => {
+        if (!sameHost(h, active)) switchHost(h);
+      },
+      row: {
+        kind: "host",
+        hostKey: h,
+        searchText: `${label} ${status} ${state.kind}`,
+      },
+    };
+  });
 }
 
 /** Live worktree-name validator — reuses the server schema so the rule
@@ -181,17 +243,30 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const crud = useTerminalCrud();
 
   return createMemo((): PaletteCommand[] => [
-    // --- Workspaces ---
+    // --- Root index: live workspaces + hosts (filtered/ranked at root) ---
+    // Empty root caps workspaces to Recent (~3); a query surfaces all matches.
+    // ⌘⇧K / ⌘⇧H still deep-link into the scoped groups below.
+    ...workspaceRootActions(
+      deps.workspaceEntries(),
+      deps.recencyOf,
+      deps.activate,
+    ),
+    ...(deps.hostKeys().length > 1
+      ? hostRootActions(deps.hostKeys(), deps.activeHost(), deps.switchHost)
+      : []),
+
+    // --- Workspaces (drill-ins) ---
     ...(tileStore.tileCount() > 0
       ? [
           {
             kind: "body-group" as const,
             name: "Search workspaces",
-            description: "Switch to a live terminal",
+            description: "Browse by agent state",
             section: "workspaces" as const,
             keybind: ACTIONS.openWorkspaceSwitcher.keybind,
             body: workspacesBody,
             bodyHint: "Pick a workspace to switch",
+            row: { kind: "command" as const },
           },
         ]
       : []),
@@ -199,6 +274,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       kind: "group",
       name: "New terminal",
       section: "workspaces",
+      row: { kind: "command" },
       children: (): PaletteItem[] => {
         const repos = recentRepos();
         return [
@@ -245,18 +321,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             description: "Switch which machine the canvas views",
             section: "workspaces" as const,
             keybind: ACTIONS.openHostSwitcher.keybind,
+            row: { kind: "command" as const },
             children: (): PaletteItem[] =>
-              deps.hostKeys().map(
-                (h): PaletteItem => ({
-                  kind: "action",
-                  name: hostLabel(h),
-                  description: sameHost(h, deps.activeHost())
-                    ? "active"
-                    : undefined,
-                  onSelect: () => {
-                    if (!sameHost(h, deps.activeHost())) deps.switchHost(h);
-                  },
-                }),
+              hostRootActions(
+                deps.hostKeys(),
+                deps.activeHost(),
+                deps.switchHost,
               ),
           },
         ]

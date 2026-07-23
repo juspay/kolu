@@ -24,7 +24,13 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { match } from "ts-pattern";
-import { formatKeybind, type Keybind } from "./input/keyboard";
+import type { Keybind } from "./input/keyboard";
+import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
+import {
+  filterAndRankPaletteItems,
+  itemKind,
+  type ResultKind,
+} from "./palette/rootIndex";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
@@ -32,8 +38,15 @@ import ModalDialog from "./ui/ModalDialog";
 /** Top-level sections, in render order. Items tagged with a section are
  *  grouped under a sticky header at the root level; untagged items
  *  render without a header. Drill-in levels ignore sections entirely
- *  (children of a group all belong to that group). */
+ *  (children of a group all belong to that group).
+ *
+ *  `recent` / `hosts` / `commands` support the unified root index — Recent
+ *  workspaces on empty root, host rows, and the cross-kind Commands umbrella
+ *  while searching. */
 export type SectionId =
+  | "recent"
+  | "hosts"
+  | "commands"
   | "workspaces"
   | "active-terminal"
   | "canvas"
@@ -41,7 +54,10 @@ export type SectionId =
   | "help";
 
 const SECTION_ORDER: readonly SectionId[] = [
+  "recent",
   "workspaces",
+  "hosts",
+  "commands",
   "active-terminal",
   "canvas",
   "ui",
@@ -49,6 +65,9 @@ const SECTION_ORDER: readonly SectionId[] = [
 ];
 
 const SECTION_LABELS: Record<SectionId, string> = {
+  recent: "Recent",
+  hosts: "Hosts",
+  commands: "Commands",
   workspaces: "Workspaces",
   "active-terminal": "Active Terminal",
   canvas: "Canvas",
@@ -88,6 +107,9 @@ interface PaletteBase {
   /** Top-level grouping — only rendered at the root level. Untagged
    *  items appear with no header. Ignored for drill-in children. */
   section?: SectionId;
+  /** Rich-row presentation for the unified root index (workspace / host /
+   *  command). Commands may omit it and paint as kind `"command"`. */
+  row?: PaletteRowMeta;
   /** Called when this item becomes the highlighted item during navigation. */
   onHighlight?: () => void;
   /** Called when leaving this item without executing it (Escape, Backspace, breadcrumb). */
@@ -303,6 +325,10 @@ const CommandPalette: Component<{
   function placeholder(): string {
     const m = mode();
     if (m.kind === "value") return m.leaf.placeholder ?? "Type a command...";
+    if (m.kind === "body") return "Filter workspaces…";
+    const last = path().at(-1);
+    if (last?.name === "Switch host") return "Filter hosts…";
+    if (path().length === 0) return "Search everything…";
     return "Type a command...";
   }
 
@@ -311,43 +337,63 @@ const CommandPalette: Component<{
    *  value mode produces `PaletteLabel[]`; body mode skips the list
    *  entirely. The union covers all three without dynamic typing.
    *
-   *  Substring semantics (case-insensitive) against the row's `name`
-   *  or `description`. Substring was chosen over AND-token because the
-   *  palette also hosts close-name action pairs like "Toggle terminal
-   *  split" vs "Split terminal" — token permutation matches both and
-   *  clicks the wrong one. Workspace search inside the column body
-   *  runs its own AND-token filter on the 20-field corpus
-   *  (`buildDockModel`), which is the right semantics there. */
+   *  AND-token multi-field match — the same matcher the dock workspace
+   *  grid uses (`matchesAllTokens` / `tokenize`), so typing a branch or
+   *  host name at root finds it. Root ranks workspaces → hosts →
+   *  commands (recency within workspaces; recent-cap on empty root). */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     const items = partitioned().interactive;
-    // Stable sort by section index — tagged root items cluster in canonical
-    // order; untagged items (drill-in children, value-input labels) all map
-    // to the same end index, so registration order is preserved by sort
-    // stability.
-    const sorted = [...items].sort(
-      (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
-    );
-    if (mode().kind !== "filter") return sorted;
-    const q = query().toLowerCase();
-    if (!q) return sorted;
-    return sorted.filter(
-      (cmd) =>
-        cmd.name.toLowerCase().includes(q) ||
-        cmd.description?.toLowerCase().includes(q),
-    );
+    if (mode().kind !== "filter") {
+      // Value/body modes don't search — preserve registration order with
+      // a stable section sort for any tagged labels.
+      return [...items].sort(
+        (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
+      );
+    }
+    const atRoot = path().length === 0;
+    // Stamp sectionOrder so the pure ranker can re-sort commands without
+    // knowing SectionId.
+    const stamped = items.map((cmd, i) => ({
+      ...cmd,
+      sectionOrder: sectionIndex(cmd.section) * 1000 + i,
+    }));
+    return filterAndRankPaletteItems(stamped, {
+      query: query(),
+      atRoot,
+    });
   });
 
   /** Annotated render list — interleaves section headers with rows when
-   *  at root with no query. Headers do not participate in selection;
-   *  `index` on row entries still indexes into `filtered()` directly so
-   *  keyboard navigation stays unchanged. */
+   *  at root. Headers do not participate in selection; `index` on row
+   *  entries still indexes into `filtered()` directly so keyboard
+   *  navigation stays unchanged. */
   type DisplayEntry =
     | { kind: "header"; section: SectionId; index?: never }
     | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
 
-  const showSectionHeaders = createMemo(
-    () => path().length === 0 && query() === "" && mode().kind === "filter",
+  const atRootFilter = createMemo(
+    () => path().length === 0 && mode().kind === "filter",
   );
+
+  const showSectionHeaders = createMemo(() => atRootFilter());
+
+  /** Kind tags only during cross-kind root search (empty or queried). */
+  const showKindTag = createMemo(() => atRootFilter());
+
+  /** Map a row to its display section at root. Empty root: workspaces →
+   *  Recent, hosts → Hosts, commands keep their registered section.
+   *  Queried root: kind umbrellas (Workspaces / Hosts / Commands). */
+  function displaySection(
+    cmd: PaletteCommand | PaletteLabel,
+  ): SectionId | undefined {
+    if (!atRootFilter()) return cmd.section;
+    const kind: ResultKind = itemKind(cmd);
+    const hasQuery = query().trim().length > 0;
+    if (kind === "workspace") return hasQuery ? "workspaces" : "recent";
+    if (kind === "host") return "hosts";
+    if (hasQuery) return "commands";
+    return cmd.section;
+  }
 
   const displayed = createMemo((): DisplayEntry[] => {
     const items = filtered();
@@ -357,7 +403,7 @@ const CommandPalette: Component<{
     const out: DisplayEntry[] = [];
     let lastSection: SectionId | undefined;
     items.forEach((cmd, index) => {
-      const section = cmd.section;
+      const section = displaySection(cmd);
       if (section !== undefined && section !== lastSection) {
         out.push({ kind: "header", section });
       }
@@ -366,14 +412,6 @@ const CommandPalette: Component<{
     });
     return out;
   });
-
-  // Reserve a leading icon gutter for the whole list when ANY row carries
-  // an icon, so rows with and without icons stay aligned. Driven by the
-  // unfiltered command tree, not the typed-query subset, so the gutter
-  // doesn't appear/disappear as the user types.
-  const hasAnyIcon = createMemo(() =>
-    partitioned().interactive.some((cmd) => cmd.icon),
-  );
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
@@ -702,115 +740,36 @@ const CommandPalette: Component<{
                     >
                       ⏵
                     </span>
-                    <span class="text-sm text-fg-2">No matching commands</span>
+                    <span class="text-sm text-fg-2">No matches</span>
                     <span class="text-xs text-fg-3/70">
                       Try a different search
                     </span>
                   </div>
                 }
               >
-                <div class="py-1.5 px-2" role="listbox">
+                <div class="py-1 px-1.5" role="listbox">
                   <For each={displayed()}>
                     {(entry) =>
                       entry.kind === "header" ? (
                         <div
                           data-testid="palette-section-header"
                           data-section={entry.section}
-                          class="flex items-center gap-2 px-3 pt-3.5 pb-1.5 text-[0.65rem] font-semibold tracking-[0.16em] uppercase text-fg-3/90 select-none first:pt-1.5"
+                          class="flex items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1"
                         >
-                          <span
-                            aria-hidden="true"
-                            class="w-1 h-1 rounded-full bg-accent/60"
-                          />
                           {SECTION_LABELS[entry.section]}
                         </div>
                       ) : (
-                        <div
-                          role="option"
-                          tabIndex={-1}
-                          aria-selected={selectedIndex() === entry.index}
-                          class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors duration-100"
-                          classList={{
-                            "bg-accent/15 text-fg shadow-[inset_2px_0_0_var(--color-accent)]":
-                              selectedIndex() === entry.index,
-                            "text-fg-2 hover:bg-surface-2/60":
-                              selectedIndex() !== entry.index,
-                          }}
-                          data-selected={
-                            selectedIndex() === entry.index || undefined
-                          }
-                          onMouseEnter={() =>
+                        <PaletteRow
+                          cmd={entry.cmd}
+                          selected={selectedIndex() === entry.index}
+                          query={query()}
+                          showKindTag={showKindTag()}
+                          drillable={isDrillable(entry.cmd)}
+                          onHover={() =>
                             mouseActive() && setSelectedIndex(entry.index)
                           }
-                          onClick={() => execute(entry.cmd)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              execute(entry.cmd);
-                            }
-                          }}
-                        >
-                          <Show when={hasAnyIcon()}>
-                            <span
-                              class="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md transition-colors"
-                              classList={{
-                                "bg-accent/20 text-accent":
-                                  selectedIndex() === entry.index,
-                                "bg-surface-2/60 text-fg-3":
-                                  selectedIndex() !== entry.index,
-                              }}
-                            >
-                              <Dynamic
-                                component={entry.cmd.icon}
-                                class="w-3 h-3"
-                              />
-                            </span>
-                          </Show>
-                          <div class="flex-1 min-w-0 flex items-baseline gap-2">
-                            <span class="truncate">{entry.cmd.name}</span>
-                            <Show when={entry.cmd.description}>
-                              <span class="text-fg-3/80 text-xs truncate min-w-0">
-                                {entry.cmd.description}
-                              </span>
-                            </Show>
-                          </div>
-                          <Show
-                            when={!showSectionHeaders() && entry.cmd.section}
-                          >
-                            {(section) => (
-                              <span
-                                data-testid="palette-section-tag"
-                                class="shrink-0 text-[0.6rem] font-semibold tracking-[0.1em] uppercase text-fg-3 px-2 py-0.5 rounded-full border border-edge/80 bg-surface-2/40"
-                              >
-                                {SECTION_LABELS[section()]}
-                              </span>
-                            )}
-                          </Show>
-                          <Show when={entry.cmd.keybind}>
-                            {(keybind) => {
-                              const kb = keybind();
-                              return (
-                                <span class="shrink-0 flex items-center gap-1.5">
-                                  <For each={Array.isArray(kb) ? kb : [kb]}>
-                                    {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
-                                  </For>
-                                </span>
-                              );
-                            }}
-                          </Show>
-                          <Show when={isDrillable(entry.cmd)}>
-                            <span
-                              aria-hidden="true"
-                              class="shrink-0 text-sm leading-none"
-                              classList={{
-                                "text-accent": selectedIndex() === entry.index,
-                                "text-fg-3/70": selectedIndex() !== entry.index,
-                              }}
-                            >
-                              ›
-                            </span>
-                          </Show>
-                        </div>
+                          onSelect={() => execute(entry.cmd)}
+                        />
                       )
                     }
                   </For>
@@ -880,7 +839,11 @@ const ActionBar: Component<{
       .with({ kind: "filter" }, () => {
         const h = props.highlighted;
         if (!h) return "";
-        return isDrillable(h) ? "Open" : "Run";
+        if (isDrillable(h)) return "Open";
+        // Workspace / host root rows switch context; plain commands run.
+        if (h.row?.kind === "workspace" || h.row?.kind === "host")
+          return "Switch";
+        return "Run";
       })
       .exhaustive();
   }

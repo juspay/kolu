@@ -55,6 +55,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.openWorkspaceSwitcher.keybind)} opens the workspace switcher with search focused`,
   },
   {
+    id: "amb-palette-finds-everything",
+    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} finds workspaces and hosts too — type a branch, repo, or machine name without opening a separate switcher`,
+  },
+  {
     id: "amb-mru",
     text: `${formatKeybind(ACTIONS.cycleTerminalMru.keybind)} cycles terminals in most-recently-used order`,
   },

@@ -145,13 +145,15 @@ The host's chip dot tells you where it is:
 ## Switch hosts, and per-host canvases
 
 **Click a chip** to make that host active — the whole canvas switches to it live,
-no reload, bindings staying warm server-side. From the keyboard, **⌘⇧H**
-(Ctrl+Shift+H elsewhere) — or the **search icon** in the host bar — opens a fuzzy
-host switcher (the sibling of ⌘⇧K's workspace switcher); pick a host and the canvas
-switches. Each host owns its own canvas: its terminals, splits, and focused
-tile are restored as you left them when you switch back. Switching away doesn't tear a host's work down; it keeps running on that
-host. If the active host ever leaves the pool, kolu switches you back to local and
-says so.
+no reload, bindings staying warm server-side. From the keyboard, type a host name
+in **⌘K** (hosts are first-class root results alongside workspaces and commands),
+or press **⌘⇧H** (Ctrl+Shift+H elsewhere) — or the **search icon** in the host bar
+— to deep-link into the scoped host list; pick a host and the canvas switches. The
+host strip stays as ambient status (connection dots, awaiting pills) — glanceable
+without opening anything. Each host owns its own canvas: its terminals, splits,
+and focused tile are restored as you left them when you switch back. Switching
+away doesn't tear a host's work down; it keeps running on that host. If the active
+host ever leaves the pool, kolu switches you back to local and says so.
 
 A chip also carries an **awaiting badge** — a count of agents on that host waiting
 for your input — so a host you're not looking at can tell you it needs you without
