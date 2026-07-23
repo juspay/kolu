@@ -31,7 +31,7 @@ function item(
 }
 
 describe("kindRank", () => {
-  it("orders workspaces above hosts above commands", () => {
+  it("orders terminals above hosts above commands", () => {
     expect(kindRank("terminal")).toBeLessThan(kindRank("host"));
     expect(kindRank("host")).toBeLessThan(kindRank("command"));
   });
@@ -87,7 +87,7 @@ describe("filterAndRankPaletteItems", () => {
       atRoot: true,
     });
     const names = out.map((i) => i.name);
-    // Top RECENT_WORKSPACE_LIMIT workspaces by recency
+    // Top RECENT_TERMINAL_LIMIT terminals by recency
     expect(names.slice(0, RECENT_WORKSPACE_LIMIT)).toEqual([
       "fresh-ws",
       "mid-ws",

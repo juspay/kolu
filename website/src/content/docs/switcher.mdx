@@ -91,7 +91,7 @@ scoping is the existing drill-in path (below), not a mode character.
 | <kbd>Mod</kbd> + <kbd>K</kbd> | Root — search everything |
 | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> | **Terminals** — all hosts' terminals under host headers |
 | Dock search icon | **Terminals › active host** — only that machine's terminals |
-| <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> | Scoped **host list** (switch canvas host) |
+| <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> | **Hosts** — same host rows as root (switch canvas host) |
 
 **Mod** is <kbd>Cmd</kbd> on macOS and <kbd>Ctrl</kbd> on Linux and Windows. The
 full chord table lives under [Keyboard shortcuts](/keyboard-shortcuts).
@@ -111,10 +111,19 @@ a row **switches host if needed and activates** the terminal.
 
 ### Hosts (⌘⇧H)
 
-The scoped host list is the pool as plain rows (connection status, active
-marker). Selecting a host re-keys the canvas to that machine with no reload —
-same as clicking a chip in the [host strip](/remote-hosts). The chrome-bar chips
-stay: they are **ambient status**, not a second switcher.
+**⌘⇧H** opens the **Hosts** scope — the **same host rows** as the root index
+(one source of truth; there is no separate “Switch host” list). Selecting a
+host re-keys the canvas with no reload — same as the [host strip](/remote-hosts).
+
+Host status text is quiet by default:
+
+| Condition | Context text |
+| --- | --- |
+| Canvas’s current host | `active` |
+| Connected, not active | *(none — connected is the default)* |
+| Warming / failed / removed | `connecting` / `unreachable` / `removed` |
+
+The connection **dot** still carries health color on every row.
 
 ## Reading a row
 

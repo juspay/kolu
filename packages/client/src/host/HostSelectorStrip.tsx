@@ -81,6 +81,7 @@ import { toast } from "solid-sonner";
 import DocLink from "../ui/DocLink";
 import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
+import { HOSTS_GROUP_NAME } from "../palette/hostsGroup";
 import { useCommandPalette } from "../useCommandPalette";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
@@ -603,19 +604,19 @@ const AddHostAffordance: Component = () => {
   );
 };
 
-/** The host-bar search affordance — a magnifier that opens the `Switch host`
- *  palette group (the same `⌘⇧H` fuzzy picker), mirroring the Dock's workspace
- *  search button. Only rendered when the pool holds more than the local host. */
+/** The host-bar search affordance — a magnifier that opens the Hosts scoped
+ *  palette group (the same `⌘⇧H` picker as root host rows), mirroring the
+ *  Dock's terminal search button. Only when the pool holds more than local. */
 const HostSearchButton: Component = () => {
   const commandPalette = useCommandPalette();
   return (
     <button
       type="button"
       data-testid="host-search"
-      onClick={() => commandPalette.openGroup("Switch host")}
+      onClick={() => commandPalette.openGroup(HOSTS_GROUP_NAME)}
       class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
-      aria-label="Switch host"
-      title="Switch host (⌘⇧H)"
+      aria-label="Hosts"
+      title="Hosts (⌘⇧H)"
     >
       <SearchIcon class="h-4 w-4" />
     </button>

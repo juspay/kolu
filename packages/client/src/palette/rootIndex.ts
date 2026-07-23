@@ -1,7 +1,7 @@
 /** Root-index ranking + filter for the unified command palette.
  *
  *  Pure helpers so the cross-kind order (terminals → hosts → commands,
- *  recency within workspaces, recent-cap on empty root) is unit-tested
+ *  recency within terminals, recent-cap on empty root) is unit-tested
  *  without mounting the palette. The dock's AND-token matcher
  *  (`matchesAllTokens` / `tokenize`) is the single filter implementation —
  *  this module only composes it with kind rank. */
@@ -10,7 +10,7 @@ import { matchesAllTokens, tokenize } from "../search";
 
 export type ResultKind = "terminal" | "host" | "command";
 
-/** Rank so workspaces float above hosts above commands in a mixed root search. */
+/** Rank so terminals float above hosts above commands in a mixed root search. */
 export function kindRank(kind: ResultKind): number {
   switch (kind) {
     case "terminal":
@@ -22,7 +22,10 @@ export function kindRank(kind: ResultKind): number {
   }
 }
 
-export const RECENT_WORKSPACE_LIMIT = 3;
+/** Empty-root Recent band: top N terminals by recency. */
+export const RECENT_TERMINAL_LIMIT = 3;
+/** @deprecated Prefer {@link RECENT_TERMINAL_LIMIT} — same value, old name. */
+export const RECENT_WORKSPACE_LIMIT = RECENT_TERMINAL_LIMIT;
 
 /** Fields the root index needs off a palette row. Intentionally minimal so
  *  tests construct plain objects without the full PaletteAction shape. */
@@ -69,19 +72,19 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
   if (!opts.atRoot) return matched;
 
   if (tokens.length === 0) {
-    // Empty root: Recent (top N workspaces by recency) · Hosts · Commands.
-    const workspaces = matched
+    // Empty root: Recent (top N terminals by recency) · Hosts · Commands.
+    const terminals = matched
       .filter((item) => itemKind(item) === "terminal")
       .sort((a, b) => recencyOf(b) - recencyOf(a))
-      .slice(0, RECENT_WORKSPACE_LIMIT);
+      .slice(0, RECENT_TERMINAL_LIMIT);
     const hosts = matched.filter((item) => itemKind(item) === "host");
     const commands = matched
       .filter((item) => itemKind(item) === "command")
       .sort((a, b) => (a.sectionOrder ?? 0) - (b.sectionOrder ?? 0));
-    return [...workspaces, ...hosts, ...commands];
+    return [...terminals, ...hosts, ...commands];
   }
 
-  // Queried root: kind rank, recency within workspaces, section among commands.
+  // Queried root: kind rank, recency within terminals, section among commands.
   return matched.sort((a, b) => {
     const kr = kindRank(itemKind(a)) - kindRank(itemKind(b));
     if (kr !== 0) return kr;

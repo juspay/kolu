@@ -10,7 +10,13 @@ import type { EntryState } from "@kolu/surface-map";
 import { testMembershipId } from "@kolu/surface-map/testing";
 import { HostKeySchema } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
-import { dotClass, sameHost, statusTitle } from "./hostChipTone";
+import {
+  dotClass,
+  hostRowContext,
+  sameHost,
+  statusLabelShort,
+  statusTitle,
+} from "./hostChipTone";
 
 const GREEN = "bg-emerald-400";
 
@@ -79,6 +85,38 @@ describe("HostSelectorStrip status title", () => {
     expect(
       statusTitle({ kind: "warming", membershipId: testMembershipId() }),
     ).toBe("connecting…");
+  });
+});
+
+describe("hostRowContext — palette host status vocabulary", () => {
+  const connected = {
+    kind: "connected" as const,
+    membershipId: testMembershipId(),
+    clockOffset: 0,
+  };
+  const warming = {
+    kind: "warming" as const,
+    membershipId: testMembershipId(),
+  };
+  const failed = {
+    kind: "failed" as const,
+    membershipId: testMembershipId(),
+    failure: { cause: "link-failed" as const, reason: "down" },
+  };
+
+  it("marks only the canvas-active host as active", () => {
+    expect(hostRowContext(connected, true)).toBe("active");
+    expect(hostRowContext(warming, true)).toBe("active");
+  });
+
+  it("is quiet for a healthy non-active host (connected is the default)", () => {
+    expect(hostRowContext(connected, false)).toBe("");
+  });
+
+  it("surfaces exception states only", () => {
+    expect(hostRowContext(warming, false)).toBe("connecting");
+    expect(hostRowContext(failed, false)).toBe("unreachable");
+    expect(statusLabelShort(failed)).toBe("unreachable");
   });
 });
 

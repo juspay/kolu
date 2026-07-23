@@ -84,9 +84,26 @@ export function statusTitle(status: EntryState<{ reason: string }>): string {
 const STATUS_LABEL_SHORT: Record<EntryState["kind"], string> = {
   connected: "connected",
   warming: "connecting",
-  failed: "failed",
+  failed: "unreachable",
   "not-a-member": "removed",
 };
 export function statusLabelShort(status: EntryState): string {
   return STATUS_LABEL_SHORT[status.kind];
+}
+
+/** Context line for a host palette row — quiet when healthy, not canvas-active.
+ *
+ *  Vocabulary:
+ *  - **active** — this host is the canvas's current host (only one)
+ *  - **(empty)** — connected and not active (connected is the default; no noise)
+ *  - **connecting** / **unreachable** / **removed** — exception states only
+ *
+ *  Dot color still comes from {@link dotClass}; this is the text slot only. */
+export function hostRowContext(
+  status: EntryState,
+  isCanvasActive: boolean,
+): string {
+  if (isCanvasActive) return "active";
+  if (status.kind === "connected") return "";
+  return statusLabelShort(status);
 }

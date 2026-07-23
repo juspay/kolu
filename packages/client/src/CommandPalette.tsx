@@ -45,14 +45,14 @@ import ModalDialog from "./ui/ModalDialog";
  *  render without a header. Drill-in levels ignore sections entirely
  *  (children of a group all belong to that group).
  *
- *  `recent` / `hosts` / `commands` support the unified root index — Recent
- *  workspaces on empty root, host rows, and the cross-kind Commands umbrella
- *  while searching. */
+ *  `recent` / `hosts` / `terminals` / `commands` support the unified root
+ *  index — Recent terminals on empty root, host rows, the Terminals section
+ *  for fleet navigation, and the Commands umbrella while searching. */
 export type SectionId =
   | "recent"
   | "hosts"
   | "commands"
-  | "workspaces"
+  | "terminals"
   | "active-terminal"
   | "canvas"
   | "ui"
@@ -60,7 +60,7 @@ export type SectionId =
 
 const SECTION_ORDER: readonly SectionId[] = [
   "recent",
-  "workspaces",
+  "terminals",
   "hosts",
   "commands",
   "active-terminal",
@@ -73,7 +73,7 @@ const SECTION_LABELS: Record<SectionId, string> = {
   recent: "Recent",
   hosts: "Hosts",
   commands: "Commands",
-  workspaces: "Terminals",
+  terminals: "Terminals",
   "active-terminal": "Active Terminal",
   canvas: "Canvas",
   ui: "UI",
@@ -302,7 +302,7 @@ const CommandPalette: Component<{
     if (last?.name === TERMINALS_GROUP_NAME) return "Type a terminal…";
     if (p.length >= 2 && p[0]?.name === TERMINALS_GROUP_NAME)
       return "Filter terminals…";
-    if (last?.name === "Switch host") return "Filter hosts…";
+    if (last?.name === "Hosts") return "Filter hosts…";
     if (p.length === 0) return "Search everything…";
     return "Type a command...";
   }
@@ -418,16 +418,16 @@ const CommandPalette: Component<{
   /** Kind tags only during cross-kind root search (empty or queried). */
   const showKindTag = createMemo(() => atRootFilter());
 
-  /** Map a row to its display section at root. Empty root: workspaces →
+  /** Map a row to its display section at root. Empty root: terminals →
    *  Recent, hosts → Hosts, commands keep their registered section.
-   *  Queried root: kind umbrellas (Workspaces / Hosts / Commands). */
+   *  Queried root: kind umbrellas (Terminals / Hosts / Commands). */
   function displaySection(
     cmd: PaletteCommand | PaletteLabel,
   ): SectionId | undefined {
     if (!atRootFilter()) return cmd.section;
     const kind: ResultKind = itemKind(cmd);
     const hasQuery = query().trim().length > 0;
-    if (kind === "terminal") return hasQuery ? "workspaces" : "recent";
+    if (kind === "terminal") return hasQuery ? "terminals" : "recent";
     if (kind === "host") return "hosts";
     if (hasQuery) return "commands";
     return cmd.section;

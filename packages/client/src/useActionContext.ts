@@ -10,6 +10,7 @@ import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher } from "./capabilities";
 import type { ActionContext } from "./input/actions";
+import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useRecorder } from "./recorder/useRecorder";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -59,7 +60,7 @@ export function useActionContext(): ActionContext {
       if (showsWorkspaceSwitcher())
         commandPalette.openGroup(TERMINALS_GROUP_NAME);
     },
-    openHostSwitcher: () => commandPalette.openGroup("Switch host"),
+    openHostSwitcher: () => commandPalette.openGroup(HOSTS_GROUP_NAME),
     togglePalette: commandPalette.toggle,
     toggleShortcutsHelp: shortcutsHelp.toggle,
     toggleSearch: terminalSearch.toggleActive,

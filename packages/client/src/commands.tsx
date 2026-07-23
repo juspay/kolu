@@ -22,7 +22,7 @@ import { workspaceSearchText } from "./canvas/dockModel";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
-import { hostLabel, sameHost, statusLabelShort } from "./host/hostChipTone";
+import { hostLabel, hostRowContext, sameHost } from "./host/hostChipTone";
 import {
   ACTIONS,
   type ActionContext,
@@ -39,6 +39,7 @@ import {
   orderHostsActiveFirst,
   useFleetTerminalIndex,
 } from "./palette/fleetTerminals";
+import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { assignColors } from "./terminal/terminalDisplay";
@@ -157,8 +158,9 @@ function encodeHostSearch(h: HostKey): string {
   return h.kind === "local" ? "local" : h.target;
 }
 
-/** Root-level (and Switch-host group) host rows — status dot + label +
- *  short status. Search covers the display label and connection state. */
+/** Host rows for root index and the Hosts scoped group — one source of truth.
+ *  Context is quiet when connected (not active); "active" for the canvas host;
+ *  exception states only otherwise ({@link hostRowContext}). */
 function hostRootActions(
   hosts: HostKey[],
   active: HostKey,
@@ -167,18 +169,19 @@ function hostRootActions(
   return hosts.map((h): PaletteAction => {
     const label = hostLabel(h);
     const state = padiMap.entry(h).state();
-    const status = sameHost(h, active) ? "active" : statusLabelShort(state);
+    const context = hostRowContext(state, sameHost(h, active));
     return {
       kind: "action",
       name: label,
-      description: status,
+      description: context || undefined,
       onSelect: () => {
         if (!sameHost(h, active)) switchHost(h);
       },
       row: {
         kind: "host",
         hostKey: h,
-        searchText: `${label} ${status} ${state.kind}`,
+        context,
+        searchText: `${label} ${context} ${state.kind}`.trim(),
       },
     };
   });
@@ -263,8 +266,8 @@ export interface CommandDeps extends ActionContext {
   handleClose: () => void;
   // Terminal switcher — activate is enough; row list is useDockOrder (shared
   // with the dock). Host pool still comes from deps.
-  // Host switcher — the pool, the active host, and the switch writer the
-  // "Switch host" group (⌘⇧H) walks to populate its rows.
+  // Host pool — root host rows and the Hosts scoped group (⌘⇧H) share
+  // hostRootActions so they cannot drift.
   hostKeys: Accessor<HostKey[]>;
   activeHost: Accessor<HostKey>;
   switchHost: (host: HostKey) => void;
@@ -327,14 +330,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? hostRootActions(deps.hostKeys(), deps.activeHost(), deps.switchHost)
       : []),
 
-    // --- Terminals: flat terminals, grouped under host headers (optional host drill) ---
+    // --- Terminals section: fleet list + new terminal ---
     ...(terminalsScopeOpen()
       ? [
           {
             kind: "group" as const,
             name: TERMINALS_GROUP_NAME,
-            description: "All hosts' terminals — type to filter",
-            section: "workspaces" as const,
+            description: "Type to filter",
+            section: "terminals" as const,
             keybind: ACTIONS.openWorkspaceSwitcher.keybind,
             row: { kind: "command" as const },
             children: (): PaletteItem[] => hostScopedTerminalGroups(),
@@ -344,7 +347,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     {
       kind: "group",
       name: "New terminal",
-      section: "workspaces",
+      section: "terminals",
       row: { kind: "command" },
       children: (): PaletteItem[] => {
         const repos = recentRepos();
@@ -383,14 +386,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       },
     },
 
-    // --- Switch host (⌘⇧H) — only once the pool holds more than local ---
+    // --- Hosts scoped group (⌘⇧H) — same rows as root host index ---
     ...(deps.hostKeys().length > 1
       ? [
           {
             kind: "group" as const,
-            name: "Switch host",
-            description: "Switch which machine the canvas views",
-            section: "workspaces" as const,
+            name: HOSTS_GROUP_NAME,
+            description: "Switch canvas host",
+            section: "hosts" as const,
             keybind: ACTIONS.openHostSwitcher.keybind,
             row: { kind: "command" as const },
             children: (): PaletteItem[] =>

@@ -208,11 +208,11 @@ const _ACTIONS = {
     handler: (ctx) => ctx.openWorkspaceSwitcher(),
   },
   openHostSwitcher: {
-    label: "Switch host",
-    // `⌘⇧H` (Ctrl+Shift+H elsewhere) — deep-links into the host list group of
-    // the unified palette, mirroring `⌘⇧K`'s terminal switcher and following the
-    // `Mod+Shift+<letter>` convention. `H` = host; free of the terminal chords,
-    // and (unlike a bare `mod`+letter) never collapses to a terminal-colliding
+    label: "Hosts",
+    // `⌘⇧H` (Ctrl+Shift+H elsewhere) — deep-links into the Hosts scoped group
+    // of the unified palette (same host rows as the root index), mirroring
+    // `⌘⇧K`'s Terminals scope. `H` = host; free of the terminal chords, and
+    // (unlike a bare `mod`+letter) never collapses to a terminal-colliding
     // chord off-mac.
     keybind: { key: "H", code: "KeyH", mod: true, shift: true },
     handler: (ctx) => ctx.openHostSwitcher(),

@@ -21,8 +21,8 @@ import {
   dotClass,
   hostHue,
   hostLabel,
+  hostRowContext,
   sameHost,
-  statusLabelShort,
   statusTitle,
 } from "../host/hostChipTone";
 import { HostIdentityLabel } from "../host/HostIdentityLabel";
@@ -208,11 +208,13 @@ const PaletteRow: Component<{
       return props.cmd.description ?? "";
     }
     if (r?.kind === "host" && r.hostKey) {
-      // Explicit context (e.g. "3 terminals" under Terminals) wins over
-      // Switch-host status paint.
+      // Prefer explicit context from hostRootActions / Terminals headers
+      // (may be "" when connected+quiet). Fall back only for unstamped rows.
       if (r.context !== undefined) return r.context;
-      if (sameHost(r.hostKey, activeHost())) return "active";
-      return statusLabelShort(padiMap.entry(r.hostKey).state());
+      return hostRowContext(
+        padiMap.entry(r.hostKey).state(),
+        sameHost(r.hostKey, activeHost()),
+      );
     }
     return props.cmd.description ?? "";
   };
