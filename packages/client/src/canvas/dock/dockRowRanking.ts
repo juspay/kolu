@@ -108,15 +108,16 @@ function classifyDockRow(
 /** The PIP bucket a row paints — separate from the ORDER bucket above so a row's
  *  pip COLOUR is decided once and reads identically across the dock row and the
  *  tile title (both render through `StatePip`). For a live-agent row it is the
- *  shared `agentPaintClass` — the SAME fold `TerminalMeta` feeds its title pip —
- *  so a fresh `waiting` agent paints `awaiting` (the lingering dim-alert dot) in
- *  BOTH places, even though `classifyDockRow` ranks it `idle` for ORDERING. The
- *  dock-only triage buckets that have no agent to paint — `sleeping` (moonlit
- *  identity glyph), `parked` (hidden/empty), and plain shells — map shells to
- *  `idle` paint (shell glyph) even when ORDER ranks them `none`. Order (rank)
- *  and colour (paint) stay decoupled: the row sorts by urgency but paints by
- *  identity + agent state. */
-function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
+ *  shared `agentPaintClass` — the SAME fold title / switcher use via
+ *  `bindStatePip`. A fresh `waiting` agent paints `awaiting` (the lingering
+ *  dim-alert) even though `classifyDockRow` ranks it `idle` for ORDERING.
+ *  Dock-only triage: `sleeping` / `parked` / plain shells → idle paint (shell
+ *  glyph) when order ranks `none`. `parked` defaults false for non-windowed
+ *  surfaces (title/switcher). */
+export function paintDockRow(
+  meta: TerminalMetadata,
+  parked: boolean = false,
+): DockRowBucket {
   // The overlay also runs in the paint fold so the two folds stay aligned by
   // construction — even though a parked pip never paints (`dockTree` drops the
   // row before it can reach a pip).

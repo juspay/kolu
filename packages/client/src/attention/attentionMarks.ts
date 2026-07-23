@@ -4,7 +4,7 @@
  *
  *  It is the ONE store for every host-tab attention mark. Each host carries the
  *  full derived fact:
- *    • `asking` — agents blocked on your input (the amber "needs you" pill);
+ *    • `asking` — agents blocked on your input (the violet needs-you pill);
  *    • `unseenFinished` — terminals that FINISHED a turn while you weren't looking
  *      and you haven't visited the host since (the quiet host-tab dot). It is NOT
  *      "has any finished agent" (a finished agent idles in `waiting` ~forever, so
@@ -21,7 +21,7 @@
 import { createStore, produce } from "solid-js/store";
 
 export interface HostMarks {
-  /** Agents blocked on your input — the amber "needs you" pill, hidden at zero. */
+  /** Agents blocked on your input — the violet needs-you pill, hidden at zero. */
   asking: number;
   /** Finished-but-unvisited terminals on this host — the quiet host-tab dot. */
   unseenFinished: number;
@@ -47,7 +47,7 @@ export function writeHostMarks(
   setMarks(encHost, value);
 }
 
-/** A host's asking count as a reactive read — the amber-pill fodder. */
+/** A host's asking count as a reactive read — the violet needs-you pill fodder. */
 export function hostAsking(encHost: string): number {
   return marks[encHost]?.asking ?? 0;
 }
@@ -57,10 +57,9 @@ export function hostUnseenFinished(encHost: string): number {
   return marks[encHost]?.unseenFinished ?? 0;
 }
 
-/** Both of a host's chip marks as reactive accessors in one call — the amber
- *  asking pill and the quiet unseen-finished dot — so a chip reads them from ONE
- *  place instead of re-deriving each per render site (the desktop chip, the narrow
- *  switcher row, and the mobile chip all bundle from here). */
+/** Both of a host's chip marks as reactive accessors in one call — the violet
+ *  needs-you pill and the quiet amber unseen-finished dot — so a chip reads them
+ *  from ONE place (desktop chip, narrow switcher row, mobile chip). */
 export function hostMarks(encHost: string): {
   asking: () => number;
   unseenFinished: () => number;

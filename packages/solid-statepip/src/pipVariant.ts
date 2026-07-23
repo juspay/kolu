@@ -10,18 +10,10 @@
  *  surface imports, rather than in `dock/` where it used to — location is
  *  structure.
  *
- *  The core is only ONE of three axes the indicator now folds into one glyph
- *  (R-activity-merge). The other two — terminal **liveness** (moving bytes) and
- *  an unread-notification **alert** — were each a SEPARATE dot before, defined
- *  (and drifting) per surface; they now compose here, once, as overlay elements
- *  (`LIVE_RING_CLASS`, `ALERT_BADGE_CLASS`; visuals in `statepip.css`):
- *    - the live PLATE — a faint green disc behind the identity glyph while the
- *      terminal is emitting (contained presence; no glow bleed past the pip);
- *    - the alert BADGE — a small amber `--color-attention` corner dot, the
- *      Dock's old loud `attention` pip retired: a different SHAPE from the plate
- *      so the two never compound into nested rings, and the glyph stays fully
- *      visible.
- *  Both default off, so a bare `<StatePip variant=… />` reads exactly as before.
+ *  The core is identity glyph + state paint; **motion** is the activity channel
+ *  (spin/glow, caller-supplied); the unread **alert** is an amber corner badge
+ *  (`ALERT_BADGE_CLASS` in `statepip.css`). There is no live plate/ring — a disc
+ *  behind the glyph read as a muddy wash on brand marks.
  *
  *  Option C: every core is an **identity glyph** ("who is driving this
  *  terminal") — a real agent brand mark, or the shell prompt for a plain
@@ -56,7 +48,7 @@ import type { AgentPaintClass } from "@kolu/terminal-vocab/agentProjection";
 
 export type PipVariant =
   | "awaiting" // awaiting, already seen: quiet dim (lingering)
-  | "working" // accent + breathe
+  | "working" // busy orange + spin
   | "idle" // muted shell / none-agent
   | "sleeping" // dormant: moonlit paint + still
   | "empty"; // parked / none — render nothing
@@ -88,7 +80,7 @@ export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
 /** A brand mark or shell prompt — one render shape for both fill and stroke. */
 export type PipGlyphDef = {
   viewBox: string;
-  /** `fill` for brand marks; `stroke` for the shell chevron. */
+  /** `fill` for brand marks and the shell `#`; `stroke` unused today. */
   paint: "fill" | "stroke";
   paths: readonly string[];
   /** Stroke width when `paint === "stroke"`. */
@@ -128,12 +120,25 @@ const GLYPH_OPENCODE = fillMark(
   "M22 24H2V0h20zM17 4.8H7v14.4h10z",
 );
 
-/** Shell prompt — chevron + cursor (`❯ _`), stroked so it reads at 14px. */
+/** Shell — filled `#` prompt.
+ *
+ *  Why not the alternatives:
+ *    · `❯ _` chevron — lopsided, thrashing under continuous spin
+ *    · terminal window frame — too close to OpenCode's filled square mark
+ *  `#` is the classic root-shell prompt: near 4-fold symmetry so spin stays
+ *  clean, and it cannot be confused with any agent brand (OpenCode, Claude,
+ *  Codex, Grok). Filled like the brands so weight matches at 16px. */
 const GLYPH_SHELL: PipGlyphDef = {
   viewBox: "0 0 24 24",
-  paint: "stroke",
-  strokeWidth: 2.8,
-  paths: ["M4.5 6.5 11 12l-6.5 5.5", "M13.5 18.5h6"],
+  paint: "fill",
+  paths: [
+    // Two verticals
+    "M7.5 3.5h3v17h-3z",
+    "M13.5 3.5h3v17h-3z",
+    // Two horizontals (slightly offset from center for a true #, not a +)
+    "M4 8h16v3H4z",
+    "M4 13h16v3H4z",
+  ],
 };
 
 /** Agent-kind → brand mark. Exhaustive over `AgentKind` so a new kind forces
@@ -169,26 +174,32 @@ export function pipGlyph(id: PipGlyphId): PipGlyphDef {
  *  classes live in `statepip.css` and carry reduced-motion safety there. */
 export type PipBody = { class: string };
 
-/** Motion classes applied on top of paint. Separated so a `waiting` agent can
- *  keep the lingering violet paint (same `awaiting` PipVariant / agentPaintClass)
- *  while holding still — "animated by state": working→breathe, awaiting_user→glow,
- *  waiting/sleeping→still. Callers suppress glow via `StatePip`'s `still` prop. */
-export const PIP_MOTION: Record<Exclude<PipVariant, "empty">, string | null> = {
-  awaiting:
-    "statepip-anim-glow motion-reduce:animate-none statepip-awaiting-core",
-  working: "statepip-anim-breathe motion-reduce:animate-none",
-  idle: null,
-  sleeping: null,
+/** Motion channel kinds — activity drives which runs. Callers pick via the pure
+ *  dock `pipMotionKind` fold (working→spin, awaiting_user→glow, waiting→
+ *  spin until EF2 quiet, shell→spin while live). */
+export type PipMotionKind = "spin" | "glow" | "none";
+
+/** CSS class tokens per motion kind. `none` is null (still). Glow carries the
+ *  reduced-motion awaiting hollow-outline class so needs-you never degrades to
+ *  colour alone under prefers-reduced-motion. */
+export const PIP_MOTION_CLASS: Record<PipMotionKind, string | null> = {
+  spin: "statepip-anim-spin motion-reduce:animate-none",
+  glow: "statepip-anim-glow motion-reduce:animate-none statepip-awaiting-core",
+  none: null,
 };
 
+/** Post-turn linger violet — pip awaiting paint and AgentIndicator `waiting`. */
+export const AWAITING_LINGER_CLASS = "text-alert/55";
+
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
-  // lingering violet-55% — post-turn (`waiting`) and `awaiting_user` share this
-  // paint via agentPaintClass; motion (glow) is layered from PIP_MOTION unless
-  // the caller sets `still` for the post-turn lull.
-  awaiting: { class: "text-alert/55" },
-  // accent teal; breathe from PIP_MOTION
-  working: { class: "text-accent" },
-  // muted shell (brightens to fg-2 when a foreground process runs — caller)
+  // lingering violet — post-turn (`waiting`) and `awaiting_user` share this
+  // paint via agentPaintClass. Needs-you is still full `text-alert` on
+  // AgentIndicator words + glow motion + host pill.
+  awaiting: { class: AWAITING_LINGER_CLASS },
+  // rust/orange busy — machine in flight (thinking / tools / background).
+  // Deliberately NOT teal accent: accent is chrome selection, not agent work.
+  working: { class: "text-busy" },
+  // muted shell — live shells use SHELL_LIVE_CLASS via binder `shellLive`
   idle: { class: "text-fg-3" },
   // moonlit + still (the ☾ shape retired — moonlit paint carries sleep)
   sleeping: { class: "text-moonlit/65" },
@@ -196,10 +207,8 @@ export const PIP_BODY: Record<PipVariant, PipBody | null> = {
   empty: null,
 };
 
-/** Class applied to the shell glyph when a foreground process is running —
- *  brightens `idle`'s `text-fg-3` to `text-fg-2`. Callers pass `busy` on
- *  `StatePip`; this token is the single source of that brightening. */
-export const SHELL_BUSY_CLASS = "text-fg-2";
+/** Live plain-shell paint — alias of working busy orange (binder sets shellLive). */
+export const SHELL_LIVE_CLASS = PIP_BODY.working!.class;
 
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */
@@ -212,59 +221,51 @@ export const PIP_TITLES: Record<PipVariant, string> = {
 };
 
 /** The merged status indicator's leaf-intrinsic WRAPPER class — content-sized
- *  (no fixed box, so it fits whatever text/gap context the surface drops it in),
- *  and the positioning context for the two outer-axis overlays (R-activity-merge).
- *  `relative` so the live ring + alert badge (absolutely positioned, see
- *  `@kolu/solid-statepip/statepip.css`) anchor to it; `flex-none` so it never
- *  stretches or shrinks beside flexed siblings. A surface that reserves a
- *  fixed-size column passes that box in via `StatePip`'s `class` prop (the dock
- *  rows / fleet rows use `DOCK_ROW_PIP_BOX`); the leaf itself owns no surface
- *  geometry. */
+ *  (no fixed box), positioning context for the amber alert badge (absolute in
+ *  `statepip.css`); `flex-none` so it never stretches beside flexed siblings.
+ *  Surfaces that reserve a column pass `DOCK_ROW_PIP_BOX` / `TITLE_PIP_BOX`. */
 export const INDICATOR_BASE =
   "relative inline-flex flex-none items-center justify-center";
 
-/** The dock-row / fleet-row pip BOX — the fixed 18 px circle a surface that
- *  reserves a column passes to `StatePip` via its `class` prop. 18 px matches the
+/** The dock-row / fleet-row pip BOX — the fixed 20 px circle a surface that
+ *  reserves a column passes to `StatePip` via its `class` prop. 20 px matches the
  *  `DOCK_ROW_GRID` leading track, so the indicator never shifts as the axes flip
  *  and an axis-less pip is an invisible box that still reserves the column. Lives
  *  here beside `INDICATOR_BASE` so the box and the leaf stay co-described, but it
  *  is a CALLER's geometry, not the leaf's — non-row callers (the tile title, the
  *  workspace column header) pass nothing and get an intrinsically-sized pip. */
-export const DOCK_ROW_PIP_BOX = "w-[18px] h-[18px] rounded-full";
+export const DOCK_ROW_PIP_BOX = "w-[20px] h-[20px] rounded-full";
 
 /** The tile-title pip BOX — a smaller fixed circle the canvas title bar passes to
  *  `StatePip`. The title pip carries the `alert` BADGE (the row's `unread`), and
  *  the badge anchors to the wrapper's top-right corner; a content-sized wrapper
  *  for a 6 px core would pin that 6 px badge ON the core and bury it. A reserved
- *  14 px box gives the core (≤10 px, centred) clearance so the corner badge reads
- *  beside it, not over it — sized to the `text-xs` annotation row it leads rather
- *  than the taller dock-row track. Caller's geometry, same as `DOCK_ROW_PIP_BOX`. */
-export const TITLE_PIP_BOX = "w-[14px] h-[14px] rounded-full";
+ *  16 px box gives the 16 px glyph + corner badge room — sized to the title
+ *  chrome rather than the taller dock-row track. Caller's geometry, same as
+ *  `DOCK_ROW_PIP_BOX`. */
+export const TITLE_PIP_BOX = "w-[16px] h-[16px] rounded-full";
 
-/** The live PLATE overlay class — a faint green disc behind the identity glyph
- *  while the terminal is moving bytes (presence only; agent state owns motion).
- *  Visuals in `statepip.css`; both surfaces import it. Export name kept for the
- *  `live` prop contract; the CSS class is `statepip-live-plate`. */
-export const LIVE_RING_CLASS = "statepip-live-plate";
+/** Needs-you / awaiting-you count pill — agents blocked on your input
+ *  (`awaiting_user`). Cool violet (`bg-alert`), same family as StatePip
+ *  awaiting paint/glow. Host tab (`HostAwaitingPill`) uses THIS.
+ *
+ *  Distinct from unread (amber):
+ *    · needs-you  → violet  (state: blocked on you; host pill; pip glow)
+ *    · unread     → amber   (obligation: unopened; corner badge; finished-unseen) */
+export const NEEDS_YOU_PILL_CLASS =
+  "inline-flex items-center justify-center rounded-full bg-alert/90 text-[10px] font-semibold text-black/80 tabular-nums";
 
-/** The shared "amber attention pill" — styling truth for the host-tab
- *  awaiting-count badge (`HostSelectorStrip.tsx`). A Tailwind class STRING so it
- *  is pixel-identical to the chip's utilities; the literal `bg-amber-500/90`
- *  (rather than `--color-attention`) is deliberate: the chip is the designated
- *  pixel reference and must not shift. The Dock's per-terminal unread mark is a
- *  DIFFERENT shape (a 7px corner dot — `ALERT_BADGE_CLASS`); Option C retired
- *  the pill form on the pip so a 14px identity glyph is not crowded by a
- *  count-capsule silhouette. */
-export const ATTENTION_PILL_CLASS =
-  "inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums";
+/** Host-tab finished-unseen soft amber fill — same hue family as
+ *  `ALERT_BADGE_CLASS` (obligation), softer than a corner badge. */
+export const FINISHED_DOT_CLASS = "rounded-full bg-attention/50";
 
-/** The alert overlay class — a small amber CORNER DOT (top-right), not a ring
- *  and not the host-tab count pill. What the badge MEANS is the surface's to
- *  name (`StatePip`'s `alertLabel`): the Dock's unopened-unread. Visuals
- *  (7px circle, `--color-attention` fill, separator ring, pulse) live in
- *  `statepip.css` — Option C mockup. */
+/** Unread / obligation CORNER DOT on StatePip (top-right). Warm amber
+ *  (`--color-attention`) — deliberately a different hue from needs-you
+ *  violet so "state is awaiting" and "you have an unopened notification"
+ *  never collapse into one mark. Host tab's quieter finished-unseen mark
+ *  (`HostFinishedDot`) uses `FINISHED_DOT_CLASS`. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";
 
-/** Glyph size inside the 18 px dock pip box — 14 px mark, 2 px inset each side
- *  (matches the approved Option C prototype). */
-export const GLYPH_SVG_CLASS = "block w-[14px] h-[14px]";
+/** Glyph size inside the 20 px dock pip box — 16 px mark, 2 px inset each side.
+ *  Reads at a glance next to dock row text (14 px was a touch shy). */
+export const GLYPH_SVG_CLASS = "block w-[16px] h-[16px]";

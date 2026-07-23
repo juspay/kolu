@@ -1,5 +1,6 @@
 export {
   type PipGlyphId,
+  type PipMotionKind,
   type PipVariant,
   pipForPaintClass,
   pipGlyph,

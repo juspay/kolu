@@ -6,16 +6,15 @@ import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,
-  ATTENTION_PILL_CLASS,
   DOCK_ROW_PIP_BOX,
+  FINISHED_DOT_CLASS,
   GLYPH_SVG_CLASS,
   INDICATOR_BASE,
-  LIVE_RING_CLASS,
+  NEEDS_YOU_PILL_CLASS,
   PIP_BODY,
-  PIP_MOTION,
+  PIP_MOTION_CLASS,
   PIP_TITLES,
   type PipVariant,
-  SHELL_BUSY_CLASS,
   TITLE_PIP_BOX,
   agentGlyph,
   pipForPaintClass,
@@ -64,7 +63,7 @@ describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
 // lingering violet paint (agentPaintClass → awaiting) while holding still.
 const bodyCases: Array<[PipVariant, string[]]> = [
   ["awaiting", ["text-alert/55"]],
-  ["working", ["text-accent"]],
+  ["working", ["text-busy"]],
   ["idle", ["text-fg-3"]],
   ["sleeping", ["text-moonlit/65"]],
 ];
@@ -84,7 +83,6 @@ describe("PIP_BODY — paint only per variant", () => {
 
   it("sleeping is moonlit paint only — stillness is no motion, not a ☾ glyph", () => {
     expect(PIP_BODY.sleeping).toEqual({ class: "text-moonlit/65" });
-    expect(PIP_MOTION.sleeping).toBeNull();
   });
 
   it("empty renders nothing inside the cell", () => {
@@ -98,21 +96,16 @@ describe("PIP_BODY — paint only per variant", () => {
     expect(PIP_TITLES.empty).toBe("");
     expect(PIP_TITLES.working).toBe("Working");
   });
-
-  it("SHELL_BUSY_CLASS brightens the idle shell mark", () => {
-    expect(SHELL_BUSY_CLASS).toBe("text-fg-2");
-  });
 });
 
-describe("PIP_MOTION — layered on paint unless still", () => {
-  it("working breathes; awaiting glows; idle/sleeping are still", () => {
-    expect(PIP_MOTION.working).toContain("statepip-anim-breathe");
-    expect(PIP_MOTION.working).toContain("motion-reduce:animate-none");
-    expect(PIP_MOTION.awaiting).toContain("statepip-anim-glow");
-    expect(PIP_MOTION.awaiting).toContain("statepip-awaiting-core");
-    expect(PIP_MOTION.awaiting).toContain("motion-reduce:animate-none");
-    expect(PIP_MOTION.idle).toBeNull();
-    expect(PIP_MOTION.sleeping).toBeNull();
+describe("PIP_MOTION_CLASS — activity channel tokens", () => {
+  it("spin / glow / none kinds carry the right class tokens", () => {
+    expect(PIP_MOTION_CLASS.spin).toContain("statepip-anim-spin");
+    expect(PIP_MOTION_CLASS.spin).toContain("motion-reduce:animate-none");
+    expect(PIP_MOTION_CLASS.glow).toContain("statepip-anim-glow");
+    expect(PIP_MOTION_CLASS.glow).toContain("statepip-awaiting-core");
+    expect(PIP_MOTION_CLASS.glow).toContain("motion-reduce:animate-none");
+    expect(PIP_MOTION_CLASS.none).toBeNull();
   });
 });
 
@@ -132,65 +125,60 @@ describe("pipGlyph / agentGlyph — identity marks", () => {
     });
   }
 
-  it("shell is the stroked chevron+cursor prompt", () => {
+  it("shell is a filled # prompt (spin-friendly, distinct from OpenCode frame)", () => {
     const g = pipGlyph("shell");
-    expect(g.paint).toBe("stroke");
-    expect(g.paths).toHaveLength(2);
-    expect(g.strokeWidth).toBe(2.8);
+    expect(g.paint).toBe("fill");
+    // Two verticals + two horizontals.
+    expect(g.paths).toHaveLength(4);
+    // Not a rectangular window frame (OpenCode's shape family).
+    expect(g.paths.join("")).not.toMatch(/a2 2 0 0 1/);
   });
 
-  it("GLYPH_SVG_CLASS is the 14px mark inside the 18px pip box", () => {
+  it("GLYPH_SVG_CLASS is the 16px mark inside the 20px dock pip box", () => {
     expect(GLYPH_SVG_CLASS.split(/\s+/)).toEqual(
-      expect.arrayContaining(["w-[14px]", "h-[14px]"]),
+      expect.arrayContaining(["w-[16px]", "h-[16px]"]),
     );
   });
 });
 
-// The two OUTER axes the merged indicator folds around the core (R-activity-
-// merge): the green live PLATE (a faint disc behind the glyph) and the unread
-// ALERT (a small amber corner dot — a different shape, so it never competes
-// with the plate), drawn as overlay elements whose visuals live in
-// statepip.css. Both surfaces render the same component + import the same CSS.
+// Outer-axis overlay: unread ALERT badge (amber corner dot).
 describe("the indicator wrapper + outer-axis overlays", () => {
-  it("the leaf wrapper is a content-sized relative box (anchors the absolute overlays), no surface geometry", () => {
+  it("the leaf wrapper is a content-sized relative box (anchors the absolute badge), no surface geometry", () => {
     const cls = INDICATOR_BASE.split(/\s+/);
-    expect(cls).toContain("relative"); // positioning context for the overlays
+    expect(cls).toContain("relative"); // positioning context for the badge
     expect(cls).toContain("flex-none"); // never stretch/shrink beside flexed siblings
     // The leaf owns NO fixed box — a surface that reserves a column passes the
     // box in via `DOCK_ROW_PIP_BOX`, so an inline caller sizes to its own text.
-    expect(cls).not.toContain("w-[18px]");
-    expect(cls).not.toContain("border-2"); // no border — overlays carry the rings
+    expect(cls).not.toContain("w-[20px]");
+    expect(cls).not.toContain("border-2");
   });
 
-  it("DOCK_ROW_PIP_BOX is the caller-supplied 18px column box, not baked into the leaf", () => {
+  it("DOCK_ROW_PIP_BOX is the caller-supplied 20px column box, not baked into the leaf", () => {
     const cls = DOCK_ROW_PIP_BOX.split(/\s+/);
-    expect(cls).toContain("w-[18px]");
-    expect(cls).toContain("h-[18px]");
+    expect(cls).toContain("w-[20px]");
+    expect(cls).toContain("h-[20px]");
     expect(cls).toContain("rounded-full");
   });
 
-  it("TITLE_PIP_BOX is the smaller caller-supplied 14px box the tile title reserves so the alert badge anchors to a corner, not onto the core", () => {
+  it("TITLE_PIP_BOX is the smaller caller-supplied 16px box the tile title reserves so the alert badge anchors to a corner, not onto the core", () => {
     const cls = TITLE_PIP_BOX.split(/\s+/);
-    expect(cls).toContain("w-[14px]");
-    expect(cls).toContain("h-[14px]");
+    expect(cls).toContain("w-[16px]");
+    expect(cls).toContain("h-[16px]");
     expect(cls).toContain("rounded-full");
   });
 
-  it("the live plate + alert badge are the shared statepip.css classes", () => {
-    // Export keeps LIVE_RING_CLASS for the live prop contract; CSS is the plate.
-    expect(LIVE_RING_CLASS).toBe("statepip-live-plate");
-    // a corner DOT, not a ring and not the host-tab count pill —
-    // Option C mockup's 7px attention pip.
+  it("the alert badge is the shared statepip.css class (corner amber dot)", () => {
     expect(ALERT_BADGE_CLASS).toBe("statepip-alert-badge");
   });
 
-  // Host-tab awaiting-count pill only — deliberately NOT composed onto the
-  // dock's unread corner dot (that is ALERT_BADGE_CLASS / statepip.css).
-  it("ATTENTION_PILL_CLASS carries the host-tab amber-pill identity (fill + shape + numerals)", () => {
-    const cls = ATTENTION_PILL_CLASS.split(/\s+/);
-    expect(cls).toContain("bg-amber-500/90");
+  it("NEEDS_YOU_PILL_CLASS is violet (awaiting) — not amber unread", () => {
+    const cls = NEEDS_YOU_PILL_CLASS.split(/\s+/);
+    expect(cls).toContain("bg-alert/90");
     expect(cls).toContain("rounded-full");
     expect(cls).toContain("tabular-nums");
-    expect(cls).toContain("text-black/80");
+  });
+
+  it("FINISHED_DOT_CLASS is soft amber attention", () => {
+    expect(FINISHED_DOT_CLASS.split(/\s+/)).toContain("bg-attention/50");
   });
 });

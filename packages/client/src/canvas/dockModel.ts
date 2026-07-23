@@ -86,12 +86,12 @@ export type AgentBucketKind = AgentPaintClass | "idle";
 
 /** Stable agent-state buckets shown as columns in the expanded switcher.
  *
- *  Co-locates each bucket's label, empty-state copy, and full visual
- *  encoding — text color, accent CSS variable for the column rule,
- *  the animated `pill-border-*` class set, and the status glyph used
- *  on cards. Adding or renaming a bucket is a single edit here;
- *  presentation reads from this record rather than re-deriving the
- *  same mapping in each component.
+ *  Co-locates each bucket's label, empty-state copy, and column visual
+ *  encoding — text color, accent CSS variable for the column rule, and the
+ *  animated `pill-border-*` class set. Cards render the same `StatePip` as
+ *  dock rows (identity + paint + motion + plate + unread) — no per-bucket
+ *  text glyphs. ☾ is reserved for genuine sleep affordances (dormant body,
+ *  dock footer chip), never the Idle (parked/stale) column.
  *
  *  Idle leads the row — it's the triage column the user opens the
  *  switcher to scan first. Then live attention (Awaiting, Working),
@@ -105,8 +105,6 @@ export const AGENT_BUCKETS = [
     textClass: "text-fg-3",
     accentVar: "var(--color-fg-3)",
     borderClass: "",
-    // Crescent moon — same vocabulary as the minimap's parked tiles.
-    glyph: "☾",
   },
   {
     key: "awaiting",
@@ -115,16 +113,16 @@ export const AGENT_BUCKETS = [
     textClass: "text-alert",
     accentVar: "var(--color-alert)",
     borderClass: "pill-border pill-border-awaiting",
-    glyph: "⏵",
   },
   {
     key: "working",
     label: "Working",
     empty: "No agents are running",
-    textClass: "text-accent",
-    accentVar: "var(--color-accent)",
+    // Busy orange — same machine-in-flight token as StatePip working /
+    // AgentIndicator (not teal accent, which is chrome selection).
+    textClass: "text-busy",
+    accentVar: "var(--color-busy)",
     borderClass: "pill-border pill-border-working",
-    glyph: "▸",
   },
   {
     key: "none",
@@ -133,7 +131,6 @@ export const AGENT_BUCKETS = [
     textClass: "text-fg-3",
     accentVar: "var(--color-fg-3)",
     borderClass: "",
-    glyph: "·",
   },
 ] as const satisfies readonly {
   key: AgentBucketKind;
@@ -142,7 +139,6 @@ export const AGENT_BUCKETS = [
   textClass: string;
   accentVar: string;
   borderClass: string;
-  glyph: string;
 }[];
 
 type DockEntryBase = {
@@ -185,7 +181,7 @@ export type IdleSubBucket = IdleBucket & {
 };
 
 /** Bucket descriptor narrowed to a specific column key — preserves the
- *  per-key invariant in the descriptor table (label, glyph, etc.) so the
+ *  per-key invariant in the descriptor table (label, colours, etc.) so the
  *  discriminated `DockColumn` arms below stay tight to
  *  their own descriptor row. */
 type DescriptorFor<K extends AgentBucketKind> = Extract<

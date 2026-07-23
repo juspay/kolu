@@ -218,11 +218,9 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             host={props.host}
             labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
           />
-          {/* Attention marks. The amber PILL is the "asking" count (agents blocked
-           *  on you), hidden at zero. The quiet DOT is finished-but-unlooked-at work
-           *  — shown only on a host you are NOT currently viewing, so switching to a
-           *  host clears it; it answers "which host did that finish sound come from"
-           *  without inflating the loud asking count. */}
+          {/* Attention marks — same hue split as dock StatePip:
+           *  violet PILL = needs-you count (agents blocked on you), hidden at zero;
+           *  amber DOT = finished-but-unlooked-at (only on hosts you're not viewing). */}
           <HostAwaitingPill
             count={marks.asking()}
             sizeClass="min-w-4 px-1 h-4"

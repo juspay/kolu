@@ -208,7 +208,7 @@ body {
 .pill-border-working::before {
   background: color-mix(
     in oklch,
-    var(--pill-state-color, var(--color-accent)) 80%,
+    var(--pill-state-color, var(--color-busy)) 80%,
     transparent
   );
   animation: pill-working-pulse 2.4s ease-in-out infinite;
@@ -683,7 +683,7 @@ body {
   border-color: var(--color-alert);
 }
 .dock-rail-chip[data-bucket="working"] {
-  border-color: var(--color-accent);
+  border-color: var(--color-busy);
 }
 .dock-rail-chip[data-bucket="none"] {
   opacity: 0.5;
@@ -693,27 +693,22 @@ body {
 .dock-rail-chip[data-bucket="none"][data-active] {
   opacity: 1;
 }
-/* The state glow lives on a child element (`.dock-rail-chip-glow`) so it can
- * animate opacity/transform on the COMPOSITOR instead of repainting the chip's
- * box-shadow every frame. Animating box-shadow per chip was the dominant
- * rail-mode cost in #1308 (a busy rail turned a few paints/6s into tens of
- * thousands, ~150x the GPU work at idle). The glow's box-shadow is now
- * rasterized ONCE; only opacity+scale (awaiting "breath") or transform:rotate
- * (working "orbit", carrying the directional glow around the perimeter)
- * animate. The child keeps the chip's own `::before` (active halo) and
- * `::after` (unread badge) pseudos free. */
+/* Activity motion on a child (compositor-friendly — #1308). Driven by
+ * bindStatePip's motion kind (data-motion), same fold as cards StatePip:
+ * glow = needs-you; spin = working / live / waiting-until-EF2. */
 .dock-rail-chip-glow {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
 }
-.dock-rail-chip[data-bucket="awaiting"] .dock-rail-chip-glow {
+.dock-rail-chip[data-motion="glow"] .dock-rail-chip-glow {
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-alert) 70%, transparent);
   will-change: opacity, transform;
-  animation: dock-chip-breathe 1.6s ease-in-out infinite;
+  animation: dock-chip-glow var(--motion-glow-duration, 2.2s) ease-in-out
+    infinite;
 }
-@keyframes dock-chip-breathe {
+@keyframes dock-chip-glow {
   0%,
   100% {
     opacity: 0.45;
@@ -724,11 +719,11 @@ body {
     transform: scale(1);
   }
 }
-.dock-rail-chip[data-bucket="working"] .dock-rail-chip-glow {
-  box-shadow: 2px 0 6px
-    color-mix(in oklch, var(--color-accent) 55%, transparent);
+.dock-rail-chip[data-motion="spin"] .dock-rail-chip-glow {
+  box-shadow: 2px 0 6px color-mix(in oklch, var(--color-busy) 55%, transparent);
   will-change: transform;
-  animation: dock-chip-spin-glow 2.4s linear infinite;
+  animation: dock-chip-spin-glow var(--motion-spin-duration, 2.8s) linear
+    infinite;
 }
 @keyframes dock-chip-spin-glow {
   to {
