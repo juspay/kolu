@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 480" font-family="ui-sans-serif,system-ui" font-size="13">
+  <defs>
+    <marker id="ef-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/>
+    </marker>
+    <marker id="ef-arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1b7a3a"/>
+    </marker>
+  </defs>
+
+  <text x="24" y="28" font-weight="700" fill="#1a1c20" font-size="15">EF — phase tree (each box is one mergeable PR)</text>
+  <text x="24" y="48" font-size="12" fill="#5b6470">EF0–EF2 done. EF3 is shared fan-out / e2e / docs polish. Never ship a dead wire beside the old mechanism.</text>
+
+  <!-- spine -->
+  <rect x="40" y="72" width="300" height="56" rx="10" fill="#e6f4ea" stroke="#1b7a3a" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="56" y="96" font-weight="700" fill="#1b7a3a">EF0 · close / capture ✓</text>
+  <text x="56" y="114" font-size="12" fill="#15803d">done · #1938 closed · plan #1944</text>
+
+  <line x1="190" y1="128" x2="190" y2="148" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
+
+  <rect x="40" y="150" width="300" height="100" rx="10" fill="#e6f4ea" stroke="#1b7a3a" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="56" y="174" font-weight="700" fill="#1b7a3a">EF1 · activity cutover ✓</text>
+  <text x="56" y="194" font-size="12" fill="#15803d">shipped #1945 · kaval → padi → client</text>
+  <text x="56" y="212" font-size="12" fill="#1a1c20">no dual path · resize mute at source</text>
+  <text x="56" y="232" font-size="11" fill="#15803d">live dots on host-global fact</text>
+
+  <line x1="190" y1="250" x2="190" y2="270" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
+
+  <rect x="40" y="272" width="300" height="88" rx="10" fill="#e6f4ea" stroke="#1b7a3a" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="56" y="296" font-weight="700" fill="#1b7a3a">EF2 · pure finish fold ✓</text>
+  <text x="56" y="316" font-size="12" fill="#15803d">shipped #1947 · 2nd tracker @ ~5s</text>
+  <text x="56" y="334" font-size="12" fill="#1a1c20">daemon-lifetime · dual-edge urgency</text>
+  <text x="56" y="352" font-size="11" fill="#15803d">sticky-per-episode finished</text>
+
+  <line x1="190" y1="360" x2="190" y2="380" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
+
+  <rect x="40" y="382" width="300" height="48" rx="8" fill="#f0f1f3" stroke="#5b6470" stroke-width="1.2"/>
+  <text x="56" y="404" font-weight="700" fill="#5b6470" font-size="12">EF3 · harden / e2e / docs</text>
+  <text x="56" y="420" font-size="11" fill="#5b6470">shared fan-out · visit regression · polish</text>
+
+  <!-- right: stack detail -->
+  <text x="400" y="88" font-weight="700" fill="#1a1c20" font-size="14">Shipped stack (EF1 + EF2)</text>
+
+  <rect x="400" y="108" width="540" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
+  <text x="416" y="132" font-weight="700" fill="#0b6478">kaval · meaningful-output edge</text>
+  <text x="416" y="150" font-size="12" fill="#1a1c20">onData · resize mute · throttle · contract bump</text>
+
+  <line x1="670" y1="164" x2="670" y2="184" stroke="#5b6470" stroke-width="1.3" marker-end="url(#ef-arr)"/>
+
+  <rect x="400" y="186" width="540" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
+  <text x="416" y="210" font-weight="700" fill="#0b6478">padi · activity live set (EF1)</text>
+  <text x="416" y="228" font-size="12" fill="#1a1c20">fold edge through short idle window · drop byte taps</text>
+
+  <line x1="670" y1="242" x2="670" y2="262" stroke="#5b6470" stroke-width="1.3" marker-end="url(#ef-arr)"/>
+
+  <rect x="400" y="264" width="540" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
+  <text x="416" y="288" font-weight="700" fill="#0b6478">client · isLive mirror (EF1)</text>
+  <text x="416" y="306" font-size="12" fill="#1a1c20">plain array copies · drop suppress / noteOutput · live→idle test</text>
+
+  <rect x="400" y="340" width="540" height="88" rx="10" fill="#e6f4ea" stroke="#1b7a3a" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="416" y="364" font-weight="700" fill="#1b7a3a">EF2 · finish tracker ✓ #1947</text>
+  <text x="416" y="384" font-size="12" fill="#1a1c20">createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)</text>
+  <text x="416" y="402" font-size="12" fill="#1a1c20">noteOutput: enter-waiting · kaval edge · boot seed · resubscribe restamp</text>
+  <text x="416" y="420" font-size="12" fill="#15803d">finished = waiting ∧ sticky quiet · dual-edge · no idle re-chime</text>
+</svg>

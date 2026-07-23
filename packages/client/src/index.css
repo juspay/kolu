@@ -208,7 +208,7 @@ body {
 .pill-border-working::before {
   background: color-mix(
     in oklch,
-    var(--pill-state-color, var(--color-accent)) 80%,
+    var(--pill-state-color, var(--color-busy)) 80%,
     transparent
   );
   animation: pill-working-pulse 2.4s ease-in-out infinite;
@@ -549,31 +549,68 @@ body {
 .dock-cards-section {
   border-left: var(--dock-edge-stripe-w) solid var(--repo-color);
 }
+/* Sticky header band — a quiet repo wash (opaque enough for scroll-under)
+ * plus a hairline that borrows a hint of the repo colour so sections
+ * separate without a hard edge. */
 .dock-cards-section-header {
   position: sticky;
   top: 0;
   z-index: 10;
-  /* Neutral + opaque — matches the dock body (`bg-surface-1`) so the header
-   * reads as no band at all: the repo colour rides the name chip below and
-   * the section's left spine. Opaque so rows scroll cleanly under the pinned
-   * header with no bleed-through. */
-  background: var(--color-surface-1);
+  background: color-mix(in oklab, var(--repo-color) 9%, var(--color-surface-1));
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--repo-color) 18%, var(--color-edge));
 }
-/* The repo name is a filled colour chip — a tag. The old treatment painted
- * the name in the raw `--repo-color` (a light `L=0.75`) on a light tinted
- * band, so in light mode it washed out (light-on-light). A solid chip pops on
- * any ground, per theme: dark mode uses the bright repo colour with dark text
- * (chip lifts off the dark dock); light mode deepens the chip toward the
- * foreground and uses white text (a bold tag on the light dock). */
-.dock-cards-section-name {
+/* Solid colour swatch — a 7×7 mark that anchors the section without the
+ * old filled-name chip. Spine + swatch + tinted band = three echoes of
+ * the same repo colour at different scales. */
+.dock-cards-section-swatch {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
   background: var(--repo-color);
-  color: var(--color-surface-0);
-  padding: 0.1rem 0.4rem;
-  border-radius: 5px;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--repo-color) 35%, transparent);
 }
-:root:not(.dark) .dock-cards-section-name {
-  background: color-mix(in oklch, var(--repo-color) 82%, var(--color-fg));
-  color: #fff;
+/* Repo name — uppercase mono label in the repo colour. Weight + tracking
+ * do the identity work; the swatch and band do the grouping. */
+.dock-cards-section-name {
+  color: var(--repo-color);
+}
+/* Terminal count — a quiet capsule so the number doesn't float as bare
+ * type against a tinted band. */
+.dock-cards-section-count {
+  flex: none;
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 9999px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-3);
+  background: color-mix(in oklab, var(--color-surface-0) 55%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-edge) 55%, transparent);
+}
+/* Branch / intent label on a cards row — slightly denser than body text so
+ * the primary line reads as the row title; colour still comes from the
+ * per-branch `annotationColor` (docs: branch colours distinguish rows
+ * *within* a repo). */
+.dock-cards-row-label {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Soft row dividers — mockup-quiet; last row has none. */
+.dock-cards-section > [data-testid="dock-row"],
+.dock-cards-section > [data-testid="mobile-dock-row"] {
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--color-edge) 28%, transparent);
+}
+.dock-cards-section > [data-testid="dock-row"]:last-child,
+.dock-cards-section > [data-testid="mobile-dock-row"]:last-child {
+  border-bottom: 0;
 }
 
 /* ── Rail-mode chip ────────────────────────────────────────────
@@ -646,7 +683,7 @@ body {
   border-color: var(--color-alert);
 }
 .dock-rail-chip[data-bucket="working"] {
-  border-color: var(--color-accent);
+  border-color: var(--color-busy);
 }
 .dock-rail-chip[data-bucket="none"] {
   opacity: 0.5;
@@ -656,27 +693,22 @@ body {
 .dock-rail-chip[data-bucket="none"][data-active] {
   opacity: 1;
 }
-/* The state glow lives on a child element (`.dock-rail-chip-glow`) so it can
- * animate opacity/transform on the COMPOSITOR instead of repainting the chip's
- * box-shadow every frame. Animating box-shadow per chip was the dominant
- * rail-mode cost in #1308 (a busy rail turned a few paints/6s into tens of
- * thousands, ~150x the GPU work at idle). The glow's box-shadow is now
- * rasterized ONCE; only opacity+scale (awaiting "breath") or transform:rotate
- * (working "orbit", carrying the directional glow around the perimeter)
- * animate. The child keeps the chip's own `::before` (active halo) and
- * `::after` (unread badge) pseudos free. */
+/* Activity motion on a child (compositor-friendly — #1308). Driven by
+ * bindStatePip's motion kind (data-motion), same fold as cards StatePip:
+ * glow = needs-you; spin = working / live / waiting-until-EF2. */
 .dock-rail-chip-glow {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
 }
-.dock-rail-chip[data-bucket="awaiting"] .dock-rail-chip-glow {
+.dock-rail-chip[data-motion="glow"] .dock-rail-chip-glow {
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-alert) 70%, transparent);
   will-change: opacity, transform;
-  animation: dock-chip-breathe 1.6s ease-in-out infinite;
+  animation: dock-chip-glow var(--motion-glow-duration, 2.2s) ease-in-out
+    infinite;
 }
-@keyframes dock-chip-breathe {
+@keyframes dock-chip-glow {
   0%,
   100% {
     opacity: 0.45;
@@ -687,11 +719,11 @@ body {
     transform: scale(1);
   }
 }
-.dock-rail-chip[data-bucket="working"] .dock-rail-chip-glow {
-  box-shadow: 2px 0 6px
-    color-mix(in oklch, var(--color-accent) 55%, transparent);
+.dock-rail-chip[data-motion="spin"] .dock-rail-chip-glow {
+  box-shadow: 2px 0 6px color-mix(in oklch, var(--color-busy) 55%, transparent);
   will-change: transform;
-  animation: dock-chip-spin-glow 2.4s linear infinite;
+  animation: dock-chip-spin-glow var(--motion-spin-duration, 2.8s) linear
+    infinite;
 }
 @keyframes dock-chip-spin-glow {
   to {

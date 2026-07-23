@@ -2,18 +2,23 @@ import {
   type AgentPaintClass,
   agentPaintClass,
 } from "@kolu/terminal-vocab/agentProjection";
+import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,
-  ATTENTION_PILL_CLASS,
   DOCK_ROW_PIP_BOX,
+  FINISHED_DOT_CLASS,
+  GLYPH_SVG_CLASS,
   INDICATOR_BASE,
-  LIVE_RING_CLASS,
+  NEEDS_YOU_PILL_CLASS,
   PIP_BODY,
+  PIP_MOTION_CLASS,
   PIP_TITLES,
   type PipVariant,
   TITLE_PIP_BOX,
+  agentGlyph,
   pipForPaintClass,
+  pipGlyph,
 } from "./pipVariant.ts";
 
 // The shared agent-paint → pip fold both kolu's Dock and the pulam-web fleet
@@ -36,7 +41,7 @@ describe("pipForPaintClass", () => {
 // The cross-surface contract, stated as a test: a given agent STATE renders the
 // same pip on the Dock and pulam-web, because both fold the state through the
 // SAME `agentPaintClass` → `pipForPaintClass` path. `waiting` paints `awaiting`
-// (the lingering "just finished" dot), not `idle` — order≠colour, the
+// (the lingering "just finished" cue), not `idle` — order≠colour, the
 // dock-fleet-mirror contract.
 const stateCases: Array<[Parameters<typeof agentPaintClass>[0], PipVariant]> = [
   ["thinking", "working"],
@@ -54,20 +59,16 @@ describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
   }
 });
 
-// Pin the rendered LOOK of each variant — `StatePip` renders straight from
-// `PIP_BODY`, so asserting the class set here catches an appearance regression
-// (e.g. swapping `working`'s `border-accent` for `border-busy`, or `attention`
-// losing its pulse) that the fold-string tests above would not. The shared
-// `@kolu/theme` tokens it names (`bg-alert`/`border-accent`/`bg-fg-3`/
-// `text-moonlit`) are what make the two surfaces resolve the same colour.
+// Paint and motion are separate so a post-turn `waiting` agent can keep the
+// lingering violet paint (agentPaintClass → awaiting) while holding still.
 const bodyCases: Array<[PipVariant, string[]]> = [
-  ["awaiting", ["bg-alert/55"]],
-  ["working", ["border-accent", "border-t-transparent", "animate-spin"]],
-  ["idle", ["bg-fg-3/55"]],
-  ["sleeping", ["text-moonlit"]],
+  ["awaiting", ["text-alert/55"]],
+  ["working", ["text-busy"]],
+  ["idle", ["text-fg-3"]],
+  ["sleeping", ["text-moonlit/65"]],
 ];
 
-describe("PIP_BODY — the rendered class set per variant", () => {
+describe("PIP_BODY — paint only per variant", () => {
   for (const [variant, tokens] of bodyCases) {
     it(`${variant} carries ${tokens.join(" + ")}`, () => {
       const body = PIP_BODY[variant];
@@ -75,18 +76,13 @@ describe("PIP_BODY — the rendered class set per variant", () => {
       for (const token of tokens) {
         expect(body?.class.split(/\s+/)).toContain(token);
       }
+      // Motion is not mixed into paint.
+      expect(body?.class).not.toMatch(/statepip-anim-/);
     });
   }
 
-  it("the working spin animation is reduced-motion safe", () => {
-    expect(PIP_BODY.working?.class).toContain("motion-reduce:animate-none");
-  });
-
-  it("sleeping is the only variant with a glyph (the ☾)", () => {
-    expect(PIP_BODY.sleeping?.glyph).toBe("☾");
-    for (const v of ["awaiting", "working", "idle"] as const) {
-      expect(PIP_BODY[v]?.glyph).toBeUndefined();
-    }
+  it("sleeping is moonlit paint only — stillness is no motion, not a ☾ glyph", () => {
+    expect(PIP_BODY.sleeping).toEqual({ class: "text-moonlit/65" });
   });
 
   it("empty renders nothing inside the cell", () => {
@@ -102,56 +98,87 @@ describe("PIP_BODY — the rendered class set per variant", () => {
   });
 });
 
-// The two OUTER axes the merged indicator folds around the core (R-activity-
-// merge): the green live RING (a rotating arc) and the unread ALERT (a small
-// amber corner badge — a different shape, so it never competes with the ring or
-// nests into a second circle), drawn as overlay elements whose visuals live in
-// statepip.css. Both surfaces (Dock + pulam-web) render the same component +
-// import the same CSS, so this is the one definition — the "defined twice →
-// drifts" hazard the two separate dots had, closed the way R-pip-unify closed it.
+describe("PIP_MOTION_CLASS — activity channel tokens", () => {
+  it("spin / glow / none kinds carry the right class tokens", () => {
+    expect(PIP_MOTION_CLASS.spin).toContain("statepip-anim-spin");
+    expect(PIP_MOTION_CLASS.spin).toContain("motion-reduce:animate-none");
+    expect(PIP_MOTION_CLASS.glow).toContain("statepip-anim-glow");
+    expect(PIP_MOTION_CLASS.glow).toContain("statepip-awaiting-core");
+    expect(PIP_MOTION_CLASS.glow).toContain("motion-reduce:animate-none");
+    expect(PIP_MOTION_CLASS.none).toBeNull();
+  });
+});
+
+// Identity glyph record — fenced over AgentKind. A new kind without a mark is a
+// compile error in agentGlyph; this test pins that every current kind has a
+// non-empty path and that shell is the stroked prompt.
+const AGENT_KINDS: AgentKind[] = ["claude-code", "codex", "opencode", "grok"];
+
+describe("pipGlyph / agentGlyph — identity marks", () => {
+  for (const kind of AGENT_KINDS) {
+    it(`${kind} is a filled brand mark with a path`, () => {
+      const g = agentGlyph(kind);
+      expect(g.paint).toBe("fill");
+      expect(g.paths.length).toBeGreaterThan(0);
+      expect(g.paths[0]!.length).toBeGreaterThan(10);
+      expect(pipGlyph(kind)).toBe(g);
+    });
+  }
+
+  it("shell is a filled # prompt (spin-friendly, distinct from OpenCode frame)", () => {
+    const g = pipGlyph("shell");
+    expect(g.paint).toBe("fill");
+    // Two verticals + two horizontals.
+    expect(g.paths).toHaveLength(4);
+    // Not a rectangular window frame (OpenCode's shape family).
+    expect(g.paths.join("")).not.toMatch(/a2 2 0 0 1/);
+  });
+
+  it("GLYPH_SVG_CLASS is the 16px mark inside the 20px dock pip box", () => {
+    expect(GLYPH_SVG_CLASS.split(/\s+/)).toEqual(
+      expect.arrayContaining(["w-[16px]", "h-[16px]"]),
+    );
+  });
+});
+
+// Outer-axis overlay: unread ALERT badge (amber corner dot).
 describe("the indicator wrapper + outer-axis overlays", () => {
-  it("the leaf wrapper is a content-sized relative box (anchors the absolute overlays), no surface geometry", () => {
+  it("the leaf wrapper is a content-sized relative box (anchors the absolute badge), no surface geometry", () => {
     const cls = INDICATOR_BASE.split(/\s+/);
-    expect(cls).toContain("relative"); // positioning context for the overlays
+    expect(cls).toContain("relative"); // positioning context for the badge
     expect(cls).toContain("flex-none"); // never stretch/shrink beside flexed siblings
     // The leaf owns NO fixed box — a surface that reserves a column passes the
     // box in via `DOCK_ROW_PIP_BOX`, so an inline caller sizes to its own text.
-    expect(cls).not.toContain("w-[18px]");
-    expect(cls).not.toContain("border-2"); // no border — overlays carry the rings
+    expect(cls).not.toContain("w-[20px]");
+    expect(cls).not.toContain("border-2");
   });
 
-  it("DOCK_ROW_PIP_BOX is the caller-supplied 18px column box, not baked into the leaf", () => {
+  it("DOCK_ROW_PIP_BOX is the caller-supplied 20px column box, not baked into the leaf", () => {
     const cls = DOCK_ROW_PIP_BOX.split(/\s+/);
-    expect(cls).toContain("w-[18px]");
-    expect(cls).toContain("h-[18px]");
+    expect(cls).toContain("w-[20px]");
+    expect(cls).toContain("h-[20px]");
     expect(cls).toContain("rounded-full");
   });
 
-  it("TITLE_PIP_BOX is the smaller caller-supplied 14px box the tile title reserves so the alert badge anchors to a corner, not onto the core", () => {
+  it("TITLE_PIP_BOX is the smaller caller-supplied 16px box the tile title reserves so the alert badge anchors to a corner, not onto the core", () => {
     const cls = TITLE_PIP_BOX.split(/\s+/);
-    expect(cls).toContain("w-[14px]");
-    expect(cls).toContain("h-[14px]");
+    expect(cls).toContain("w-[16px]");
+    expect(cls).toContain("h-[16px]");
     expect(cls).toContain("rounded-full");
   });
 
-  it("the live ring + alert badge are the shared statepip.css classes", () => {
-    expect(LIVE_RING_CLASS).toBe("statepip-live-ring");
-    // a badge, NOT a halo/ring — the alert uses a distinct shape so it never
-    // compounds with the live ring into nested circles.
+  it("the alert badge is the shared statepip.css class (corner amber dot)", () => {
     expect(ALERT_BADGE_CLASS).toBe("statepip-alert-badge");
   });
 
-  // The SINGLE styling source for the amber "needs you / unread" cue, shared by
-  // the host-tab awaiting-count pill and the Dock's unread badge (composed with
-  // ALERT_BADGE_CLASS) so the two can't drift in colour or shape. Pin the
-  // identity tokens — the amber fill, the pill rounding, and tabular numerals —
-  // so a colour swap (e.g. back to the mismatched `--color-attention`) or a shape
-  // change is caught here rather than only by eye across two surfaces.
-  it("ATTENTION_PILL_CLASS carries the shared amber-pill identity (fill + shape + numerals)", () => {
-    const cls = ATTENTION_PILL_CLASS.split(/\s+/);
-    expect(cls).toContain("bg-amber-500/90"); // the chip's amber, now the shared truth
-    expect(cls).toContain("rounded-full"); // the pill shape
-    expect(cls).toContain("tabular-nums"); // steady-width count numerals
-    expect(cls).toContain("text-black/80");
+  it("NEEDS_YOU_PILL_CLASS is violet (awaiting) — not amber unread", () => {
+    const cls = NEEDS_YOU_PILL_CLASS.split(/\s+/);
+    expect(cls).toContain("bg-alert/90");
+    expect(cls).toContain("rounded-full");
+    expect(cls).toContain("tabular-nums");
+  });
+
+  it("FINISHED_DOT_CLASS is soft amber attention", () => {
+    expect(FINISHED_DOT_CLASS.split(/\s+/)).toContain("bg-attention/50");
   });
 });

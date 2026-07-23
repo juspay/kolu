@@ -14,8 +14,8 @@
  *     badge top-right. Tiny tinted dividers between repo groups
  *     carry the cards-mode section-header colour into the rail so
  *     the two modes share one repo-identity vocabulary — every
- *     repo-tinted dock surface (cards spine, sticky header, name,
- *     rail chip bg+ring, rail divider) reads the same `--repo-color`
+ *     repo-tinted dock surface (cards spine, sticky header band + name
+ *     colour, rail chip bg+ring, rail divider) reads the same `--repo-color`
  *     custom property, so the shared socket is a structural fact, not
  *     a comment. (Canvas tiles' `--card-color` / `--aura-c` are a
  *     separate module; converging them onto `--repo-color` is future
@@ -27,20 +27,14 @@
  *     repo's header pushes it off — so a row's repo is legible at a
  *     glance and the label survives the scroll. Rows below stack as
  *     `indicator · branch · pips · time` lines. The leading **status
- *     indicator** (`StatePip`) folds three axes into one glyph: the
- *     agent-state CORE by shape (dim small disk for already-seen
- *     awaiting, hollow spinning ring for working, muted dot for idle,
- *     nothing for parked/none), a thin green **live ring** that gently
- *     sweeps around it while the terminal is moving bytes ("moving bytes
- *     right now", orthogonal to agent state), and a small amber **unread
- *     corner badge** while a fired alert is unopened (a badge, not a
- *     ring, so the two never compound into nested circles) — so one
- *     glance reads overall activity and the state stays fully visible.
- *     Agent kind is not surfaced here — it lives on
- *     the terminal title bar where there's room. PR pip is a link
- *     to the PR with the live checks verdict in its
- *     tooltip; the sub-terminal chip surfaces when there are nested
- *     terminals. The active row gets a quiet highlight
+ *     indicator** (`StatePip`) folds identity · paint · motion · unread
+ *     into one glyph (agent brand mark, state colour, spin/glow while
+ *     active, amber corner badge when unopened) — so one glance reads
+ *     who is driving and whether they need you. Agent kind is not
+ *     labeled in text here — it lives on the terminal title bar where
+ *     there's room. PR pip is a link to the PR with the live checks
+ *     verdict in its tooltip; the sub-terminal chip surfaces when there
+ *     are nested terminals. The active row gets a quiet highlight
  *     (`bg-surface-2` + 3 px accent left-edge stripe); row geometry
  *     stays constant so the dock never reflows when the active
  *     terminal changes. Pip columns share a CSS subgrid across each
@@ -88,7 +82,7 @@ import { annotationLine } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { useTerminalActivity } from "../../terminal/useTerminalActivity";
+import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
@@ -96,8 +90,10 @@ import {
   DOCK_CARDS_GUTTER_NEG_CLASS,
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GAP,
   DOCK_ROW_GRID,
   RAIL_WIDTH_PX,
+  SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { useViewPosture } from "../useViewPosture";
@@ -113,7 +109,6 @@ import {
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { pipVariant } from "./pipVariant";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
@@ -500,48 +495,40 @@ const RepoSection: Component<{
 }> = (props) => (
   // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
   // template): indicator · branch · sub-count · time. The leading
-  // indicator column is a fixed 18px reserved track (not `auto`) holding
-  // the merged `StatePip` — R-activity-merge collapsed the old leading
-  // pair (a 12px live-activity track + a separate state-pip track) into
-  // this one column, the live dot now folded into the pip's green ring —
-  // so the indicator never shifts as its axes flip and pips stay aligned
-  // across rows whether or not each is streaming. PR pip is NOT a grid
-  // column — it lives inline on line 2 (left of the subline text),
-  // anchored to the branch column's left edge so its X stays consistent
-  // across every section. Branch is `minmax(0,1fr)` so it stretches and
-  // truncates; sub-count and time are `auto`, so an empty sub-count
-  // column collapses to 0 and gives its width back to the branch. Each
-  // DockRow is a subgrid item that inherits these columns, keeping the
-  // icons aligned vertically across rows in one section.
+  // indicator column is a fixed 20px reserved track holding `StatePip`
+  // so the indicator never shifts as its axes flip and pips stay
+  // aligned across rows. PR pip is NOT a grid column — it lives inline
+  // on line 2 (left of the subline text), anchored to the branch
+  // column's left edge so its X stays consistent across every section.
+  // Branch is `minmax(0,1fr)` so it stretches and truncates; sub-count
+  // and time are `auto`, so an empty sub-count column collapses to 0
+  // and gives its width back to the branch. Each DockRow is a subgrid
+  // item that inherits these columns, keeping the icons aligned
+  // vertically across rows in one section.
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
     style={{ "--repo-color": props.group.color }}
-    class={`dock-cards-section grid ${DOCK_ROW_GRID} gap-x-2 pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
+    class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
   >
-    {/* Header is a sticky band tinted with the repo colour (see
-     *  `.dock-cards-section-header`), riding above the repo-colour
-     *  spine the section's left border draws — so a `KOLU` /
-     *  `NIXOS-CONFIG` label reads as a coloured section break that
-     *  stays pinned while its rows scroll, not a faint label that
-     *  blends in and slides away. The name carries the repo colour
-     *  too; count stays neutral. Header text and row content both sit
-     *  at `pl-3` (12 px) from the dock's outer edge, so the row's
-     *  leading status indicator aligns with the repo name — the repo
-     *  spine + tinted header band carry the grouping (R-activity-merge
-     *  reclaimed the old `pl-6` row indent). */}
+    {/* Sticky repo header — tinted band + colour swatch + uppercase name
+     *  + quiet count capsule (styles in `index.css`). Spine + swatch +
+     *  wash are three scales of the same `--repo-color`. Content inset
+     *  matches the rows (`pl-3`) so the status indicator lines up under
+     *  the name. */}
     <div
       data-testid="dock-section-header"
-      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-b border-edge/30`}
+      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-2`}
     >
+      <span class="dock-cards-section-swatch" aria-hidden="true" />
       <span
         data-testid="dock-section-name"
-        class="dock-cards-section-name font-mono text-[0.6rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
+        class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
         title={props.group.name}
       >
         {props.group.name}
       </span>
-      <span class="ml-auto font-mono text-[0.6rem] tabular-nums text-fg-3 shrink-0">
+      <span class="dock-cards-section-count font-mono text-[0.6rem]">
         {props.group.rows.length}
       </span>
     </div>
@@ -594,129 +581,128 @@ const DockRow: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileStore = useTileStore();
-  const activity = useTerminalActivity();
   const combined = createDockRowData(props.id);
   // Active-tile highlight follows the TILE registry (so a focused sleeping tile
   // reads as the active row in PR 2); unread is terminal-attention, stays on
   // the terminal store.
-  const active = () => tileStore.activeId() === props.id;
+  const rowActive = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
-      {(c) => (
-        // Row is `<div role="button">` rather than `<button>` so the
-        // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
-        // elements (`<a>` inside `<button>`) produce unreliable
-        // keyboard / screen-reader behaviour; the div+role pattern
-        // keeps the row activatable via mouse, Enter, and Space
-        // without that nesting. Biome's a11y rule wants a native
-        // `<button>` here, but that's exactly what we can't use —
-        // the PR pip must remain a real link (Cmd-click, right-click
-        // context menu) and HTML forbids `<a>` inside `<button>`.
-        // biome-ignore lint/a11y/useSemanticElements: see comment above — native button would nest invalid interactive HTML
-        <div
-          role="button"
-          tabIndex={0}
-          data-testid="dock-row"
-          data-terminal-id={props.id}
-          data-bucket={props.bucket}
-          data-agent-state={activeArm(c().meta)?.agent?.state}
-          data-active={active() ? "" : undefined}
-          data-unread={unread() ? "" : undefined}
-          data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
-          onClick={() => tileStore.activate(props.id)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              tileStore.activate(props.id);
-            }
-          }}
-          class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
-          title="Jump to this terminal"
-        >
-          {/* One merged status indicator — the agent-state CORE
-           *  (`pipVariant`), wrapped by the green live RING when the
-           *  terminal is moving bytes and the amber unread corner BADGE
-           *  when a fired alert is unopened. The old standalone ActivityPip
-           *  column is gone (its dot is now the ring), reclaiming the
-           *  dead left margin. `row-span-2 self-center` centres it across
-           *  both row lines rather than pinning it to line 1. */}
-          <span class="row-span-2 flex self-center">
-            <StatePip
-              variant={pipVariant(props.pip)}
-              live={activity.isLive(props.id)}
-              alert={unread()}
-              alertLabel="unread alert"
-              class={DOCK_ROW_PIP_BOX}
-            />
-          </span>
-          <span
-            class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
-            style={{
-              color: c().info.annotationColor,
-            }}
-          >
-            <IntentMarkdownInline
-              markdown={annotationLine(c().meta.intent, c().info.key.label)}
-            />
-          </span>
-          <SubCountCell subCount={c().info.subCount} />
-          {/* Recency cell — "Xs ago". Shared with the touch drawer; the
-           *  no-reflow width contract lives in RecencyCell. The live signal
-           *  rides the leading StatePip's ring, not here. */}
-          <RecencyCell
-            recencyAt={rowRecencyAt(c().meta)}
-            textSize="text-[0.6rem]"
-          />
-          <Show when={showShortcutHint()}>
-            <span
-              data-testid="dock-row-shortcut-hint"
-              class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
-              aria-hidden="true"
-            >
-              {props.flatIndex + 1}
-            </span>
-          </Show>
-          {/* Second line — flex row spanning the branch column → end.
-           *  Leads with the PR pip (left edge anchored to the branch
-           *  column's left, so PR icons align across every section)
-           *  followed by the subline text (agent summary / state, or
-           *  foreground process title, or an invisible placeholder
-           *  keeping the row two-line tall). */}
+      {(c) => {
+        const agent = () => activeArm(c().meta)?.agent;
+        const pip = useStatePip(
+          () => props.id,
+          () => c().meta,
+          unread,
+          () => props.pip,
+        );
+        return (
+          // Row is `<div role="button">` rather than `<button>` so the
+          // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
+          // elements (`<a>` inside `<button>`) produce unreliable
+          // keyboard / screen-reader behaviour; the div+role pattern
+          // keeps the row activatable via mouse, Enter, and Space
+          // without that nesting. Biome's a11y rule wants a native
+          // `<button>` here, but that's exactly what we can't use —
+          // the PR pip must remain a real link (Cmd-click, right-click
+          // context menu) and HTML forbids `<a>` inside `<button>`.
+          // biome-ignore lint/a11y/useSemanticElements: see comment above — native button would nest invalid interactive HTML
           <div
-            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0`}
-          >
-            <PrPip meta={c().meta} />
-            <Show
-              when={rowSubline(c().meta)}
-              fallback={
-                <span
-                  aria-hidden="true"
-                  class="font-mono text-[0.65rem] leading-tight invisible"
-                >
-                  &nbsp;
-                </span>
+            role="button"
+            tabIndex={0}
+            data-testid="dock-row"
+            data-terminal-id={props.id}
+            data-bucket={props.bucket}
+            data-agent-state={agent()?.state}
+            data-active={rowActive() ? "" : undefined}
+            data-unread={unread() ? "" : undefined}
+            data-sub-count={
+              c().info.subCount > 0 ? c().info.subCount : undefined
+            }
+            data-sleeping={pip().sleeping ? "" : undefined}
+            onClick={() => tileStore.activate(props.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                tileStore.activate(props.id);
               }
+            }}
+            class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+            classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
+            title="Jump to this terminal"
+          >
+            {/* Identity status indicator — one binder shared with title/list. */}
+            <span class="row-span-2 flex self-center">
+              <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
+            </span>
+            <span
+              class="dock-cards-row-label text-[0.84rem]"
+              style={{
+                color: c().info.annotationColor,
+              }}
             >
-              {(line) => (
-                <span
-                  data-testid={
-                    activeArm(c().meta)?.agent
-                      ? "dock-agent-subline"
-                      : "dock-quiet-foreground"
-                  }
-                  class="font-mono text-[0.65rem] leading-tight text-fg-2 truncate min-w-0"
-                  title={line()}
-                >
-                  {line()}
-                </span>
-              )}
+              <IntentMarkdownInline
+                markdown={annotationLine(c().meta.intent, c().info.key.label)}
+              />
+            </span>
+            <SubCountCell subCount={c().info.subCount} />
+            {/* Recency — hidden while active; width reserved. */}
+            <RecencyCell
+              recencyAt={rowRecencyAt(c().meta)}
+              textSize="text-[0.6rem]"
+              hidden={pip().active}
+            />
+            <Show when={showShortcutHint()}>
+              <span
+                data-testid="dock-row-shortcut-hint"
+                class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
+                aria-hidden="true"
+              >
+                {props.flatIndex + 1}
+              </span>
             </Show>
+            {/* Second line — flex row spanning the branch column → end.
+             *  Leads with the PR pip (left edge anchored to the branch
+             *  column's left, so PR icons align across every section)
+             *  followed by the subline text (agent summary / state, or
+             *  foreground process title, or an invisible placeholder
+             *  keeping the row two-line tall). */}
+            <div
+              class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
+            >
+              <PrPip meta={c().meta} />
+              <Show
+                when={rowSubline(c().meta)}
+                fallback={
+                  <span
+                    aria-hidden="true"
+                    class="font-mono text-[0.68rem] leading-tight invisible"
+                  >
+                    &nbsp;
+                  </span>
+                }
+              >
+                {(line) => (
+                  <span
+                    data-testid={
+                      activeArm(c().meta)?.agent
+                        ? "dock-agent-subline"
+                        : "dock-quiet-foreground"
+                    }
+                    class="font-mono text-[0.68rem] leading-snug text-fg-3 truncate min-w-0"
+                    title={line()}
+                  >
+                    {line()}
+                  </span>
+                )}
+              </Show>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      }}
     </Show>
   );
 };
@@ -765,19 +751,26 @@ const RailChip: Component<{
   // the terminal store.
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
-  const activity = useTerminalActivity();
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
       {(c) => {
         const labels = () => chipInitials(c().meta, c().info);
+        // Same hook as cards StatePip — motion/active drive rail glow.
+        const pip = useStatePip(
+          () => props.id,
+          () => c().meta,
+          unread,
+          () => props.pip,
+        );
         return (
           <button
             type="button"
             data-testid="dock-rail"
             data-terminal-id={props.id}
             data-bucket={props.pip}
+            data-motion={pip().motion}
             data-agent-state={activeArm(c().meta)?.agent?.state}
             data-active={active() ? "" : undefined}
             data-unread={unread() ? "" : undefined}
@@ -808,30 +801,14 @@ const RailChip: Component<{
                 {labels().sub}
               </span>
             </span>
-            {/* The glyph-only rail has no timestamp cell to swap, so the live
-             *  dot rides as a corner overlay. It sits BOTTOM-right to stay clear
-             *  of the three already-claimed corners: the unread badge
-             *  (`.dock-rail-chip[data-unread]::after`, top-right) and the
-             *  shortcut hint (`.dock-rail-chip-hint`, top-left) — an unread+live
-             *  chip would otherwise paint both pips in the same top-right corner,
-             *  making each signal ambiguous. The agent-state glow below tracks an
-             *  AGENT's thinking/waiting; this dot is the orthogonal "moving bytes
-             *  right now" signal (a compile, a `tail -f`, any non-agent shell) —
-             *  without it, a live non-agent terminal is indistinguishable from an
-             *  idle one in the rail. */}
-            <Show when={activity.isLive(props.id)}>
+            {/* Live bytes corner — orthogonal to agent motion glow. */}
+            <Show when={pip().bytesLive}>
               <span class="pointer-events-none absolute -bottom-1 -right-1">
                 <LiveActivityDot />
               </span>
             </Show>
-            {/* Agent-state glow on its own child so it animates opacity/transform
-             *  (compositor) rather than repainting the chip's box-shadow every
-             *  frame — see #1308. Gated on the PAINT bucket (`pip`), not the order
-             *  bucket, so a fresh `waiting` agent keeps its lingering glow here as
-             *  it does in cards mode and on its tile title. Only the two paint
-             *  buckets render it; the CSS in index.css picks breath (awaiting) vs
-             *  orbit (working). */}
-            <Show when={props.pip === "awaiting" || props.pip === "working"}>
+            {/* Motion glow/spin from useStatePip (same as cards StatePip). */}
+            <Show when={pip().motion !== "none"}>
               <div class="dock-rail-chip-glow" aria-hidden="true" />
             </Show>
           </button>

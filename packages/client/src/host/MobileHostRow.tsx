@@ -9,13 +9,14 @@
  *
  *  It is the mobile TWIN of `HostSelectorStrip`, not a restyle: a chip consumes
  *  the EXACT desktop vocabulary — `dotClass` for the connection-dot tone (green
- *  only for `connected`), `hostHue` for the per-host identity accent, and
- *  `ATTENTION_PILL_CLASS` (`@kolu/solid-statepip`) for the unread pill — so a
- *  dot / hue / pill means the same thing on a phone as on a laptop. A tap calls
- *  `setActiveHost` (the identical write the desktop strip makes; W9 makes the
- *  switch instant). Adding a host reuses the shared `addHost` mechanism; only
- *  the CONTAINER differs from desktop — a full-width in-sheet section rather
- *  than an anchored popover (the popover clips at phone width).
+ *  only for `connected`), `hostHue` for the per-host identity accent,
+ *  `HostAwaitingPill` (violet needs-you count) and `HostFinishedDot` (amber
+ *  unseen-finished) — so a dot / hue / pill means the same thing on a phone as
+ *  on a laptop. A tap calls `setActiveHost` (the identical write the desktop
+ *  strip makes; W9 makes the switch instant). Adding a host reuses the shared
+ *  `addHost` mechanism; only the CONTAINER differs from desktop — a full-width
+ *  in-sheet section rather than an anchored popover (the popover clips at
+ *  phone width).
  *
  *  Touch ergonomics: every chip and the add trigger are ≥44px hit targets, and
  *  the chip row scrolls horizontally when hosts overflow the viewport width. */
@@ -42,7 +43,6 @@ import {
   statusTitle,
 } from "./hostChipTone";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { hostMarks } from "../attention/attentionMarks";
 import { useHostMembers } from "./useHostMembers";
 
@@ -117,12 +117,11 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
         glyphClass="h-3.5 w-3.5"
         labelClass="max-w-[10rem] truncate font-medium"
       />
-      {/* Unread pill — the shared `HostAwaitingPill` (roomier mobile sizing),
-       *  the same token the desktop chip and switcher row render, hidden at
-       *  zero. */}
+      {/* Needs-you pill — shared violet `HostAwaitingPill` (roomier mobile).
+       *  Unseen-finished is the amber `HostFinishedDot` beside it. */}
       <HostAwaitingPill count={marks.asking()} sizeClass="h-5 min-w-5 px-1.5" />
-      {/* Quiet finished-work dot — the same shared cue, so a phone user sees which
-       *  background host finished (suppressed on the active host). */}
+      {/* Quiet finished-work dot — amber unseen-finished (suppressed on the
+       *  active host). */}
       <HostFinishedDot
         count={marks.unseenFinished()}
         active={isActive()}
@@ -135,8 +134,8 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
 
 /** The in-sheet add-host SECTION — the mobile-native variant of the desktop `+`
  *  popover. A FULL-WIDTH block inside the sheet (no anchored popover to clip at
- *  phone width) carrying the same ALPHA notice and ssh field, committing
- *  through the shared `addHost`. `onClose` collapses it on success or Escape. */
+ *  phone width) with the ssh field, committing through the shared `addHost`.
+ *  `onClose` collapses it on success or Escape. */
 const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
   const [draft, setDraft] = createSignal("");
   let inputEl: HTMLInputElement | undefined;
@@ -157,7 +156,6 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
       // sheet. Same guard the sheet's other controls (palette, settings) wear.
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <RemoteHostsAlphaNotice />
       <div class="flex items-center gap-2">
         <input
           ref={inputEl}
@@ -165,6 +163,7 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
           data-testid="mobile-host-add-input"
           class="h-11 min-w-0 flex-1 rounded-lg border border-edge bg-surface-0 px-3 text-sm text-fg placeholder:text-fg-3 focus:border-accent/50 focus:outline-none"
           placeholder="ssh host, e.g. srid@zest"
+          aria-label="ssh host"
           value={draft()}
           onInput={(e) => setDraft(e.currentTarget.value)}
           onKeyDown={(e) => {

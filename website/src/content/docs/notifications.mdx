@@ -30,25 +30,31 @@ isn't blocked drops to idle instead). The vocabulary of states is
 
 - The **app-icon badge** counts awaiting agents — and it counts them across
   **every connected machine**, not just the one on screen.
-- A backgrounded tab gets a **native OS notification** when an agent finishes,
-  starts waiting, or **stops to ask you something** — a live question or
+- A backgrounded tab gets a **native OS notification** when an agent **effectively
+  finishes** (its turn is done *and* the terminal has been quiet for a few
+  seconds — so background sub-agents still typing do not chime early; once that
+  finished signal has fired, idle statusline ticks do not re-chime), starts
+  waiting on you, or **stops to ask you something** — a live question or
   permission prompt reaches you even when the agent was already sitting in its
   post-turn lull, and usually reads *needs your input* rather than *finished*
   (a prompt that settles in right on the heels of a finished turn may still
-  carry the *finished* wording — but it rings). (If they don't appear, see
+  carry the *finished* wording — but it rings). (If notifications don't appear,
+  see
   [Troubleshooting](/troubleshooting#i-am-not-getting-desktop-notifications).)
 - **Clicking the notification** brings kolu forward, and when the agent is on
   another machine it **switches to that host and focuses the exact terminal** —
   one action, no hunting.
 
 <Aside type="note" title="It fires once per attention episode">
-  kolu tracks each terminal by its own identity and chimes once when it first
-  needs you — when it finishes or starts waiting, *or* when a live question lands
-  over an agent that was already waiting — then stays quiet until the agent goes
-  back to work. Switching hosts, or opening and closing terminals, reorders the
-  list but never manufactures a phantom alert, and a brief flicker between states
-  as a prompt settles won't ding twice — a parked review prompt won't ding again
-  every time you return to its machine.
+  kolu tracks each terminal by its own identity and chimes when it first needs
+  you — when it **effectively finishes** (quiet after a waiting turn) or starts
+  waiting on you, *or* when a live question lands over an agent that was already
+  waiting — then stays quiet until the agent goes fully back to work (a later
+  finish is a fresh episode). Idle TUI redraws after finish do not re-chime.
+  Switching hosts, or opening and closing terminals, reorders the list but never
+  manufactures a phantom alert, and a brief flicker between states as a prompt
+  settles won't ding twice — a parked review prompt won't ding again every time
+  you return to its machine. Pure resize/reveal repaints never count as work.
 </Aside>
 
 ## Across machines

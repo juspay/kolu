@@ -15,9 +15,9 @@ import { dotClass, sameHost, statusTitle } from "./hostChipTone";
 const GREEN = "bg-emerald-400";
 
 // The multi-host feature is no longer gated on `KOLU_PADI_HOST` — the "+ add a
-// host" affordance and every pool member's chip render unconditionally (the
-// alpha warning lives on the "+" popover instead), so the old `hostGateOpen` /
-// `shouldRenderHostChip` gate helpers and their tests are gone.
+// host" affordance and every pool member's chip render unconditionally, so the
+// old `hostGateOpen` / `shouldRenderHostChip` gate helpers and their tests are
+// gone.
 
 describe("HostSelectorStrip dot tone — fact-only green", () => {
   it("emits green ONLY for connected", () => {

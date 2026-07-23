@@ -1,6 +1,6 @@
 ---
 name: ci
-description: Run this repo's CI end-to-end — the kolu-specific operational procedure layered on top of the odu runner. Covers the odu MCP front door, the banned opt-out flags, mandatory two-platform (linux + darwin) coverage, the linux warm-pool lease flow, darwin host arbitration, live fail-fast surfacing, the flaky-test tracker, and the green-gate. Triggers on "run CI", "drive CI", "re-run the pipeline", "close the red check", "warm the pool". For the underlying runner mechanics (subcommands, flags, modes, the socket surface) use the `/odu` skill.
+description: Run this repo's CI end-to-end — the kolu-specific operational procedure layered on top of the odu runner. Covers the odu MCP front door, the banned opt-out flags, mandatory two-platform (linux + darwin) coverage, odu-native venue-pool leasing across both platforms, live fail-fast surfacing, the flaky-test tracker, and the green-gate. Triggers on "run CI", "drive CI", "re-run the pipeline", "close the red check", "warm the pool". For the underlying runner mechanics (subcommands, flags, modes, the socket surface) use the `/odu` skill.
 ---
 
 # CI
@@ -11,41 +11,28 @@ description: Run this repo's CI end-to-end — the kolu-specific operational pro
 
 **Push before CI.** odu's remote lanes `git fetch` the pinned HEAD SHA from origin (no git-bundle transport) — an unpushed commit cannot run on the pool box or rasam. The `/do` flow pushes before the CI step anyway; keep it that way.
 
-**Every CI run covers both platforms — `x86_64-linux` *and* `aarch64-darwin`.** kolu builds on both; a linux-only run is not CI, it leaves the macOS lane's required checks unposted. Pin both lanes explicitly in `mcp__odu__run` (see the flow below) rather than relying on a machine-local hosts file — that way a run is two-platform by construction on any machine, not just one where `~/.config/odu/hosts.json` happens to list the darwin host. **A platform you don't explicitly pin silently drops from the fanout**, so before reporting CI green, confirm the settled run actually *carried* both platforms — a darwin-only or linux-only green is a false single-platform green, not full CI.
+**Every CI run covers both platforms — `x86_64-linux` *and* `aarch64-darwin`.** kolu builds on both; a linux-only run is not CI, it leaves the macOS lane's required checks unposted. **Pin both platforms explicitly** — `mcp__odu__run` with `platforms=["x86_64-linux", "aarch64-darwin"]` — rather than trusting the fanout to a machine-local default: a platform you *don't* name silently drops, but a platform you *do* name with no pool entry in `hosts.json` is **refused** (fails loud, juspay/odu#46), never quietly skipped. odu then leases a free box for each named platform from its venue pool (below). Before reporting CI green, confirm the settled run actually *carried* both platforms — a darwin-only or linux-only green is a false single-platform green, not full CI.
 
-**Darwin build host: coordinator-arbitrated — two boxes, each with a caveat.** When a coordinator is running the campaign, ASK IT before every darwin dispatch (single-tenant rule); solo, pick per the caveats:
+**Darwin build host: leased from the pool `[rasam, sincereintent]` — two boxes, each with a caveat.** With both darwin boxes listed under `aarch64-darwin` in `hosts.json`, odu leases a *free* one for the run — you don't pick by hand. But odu leases blind to the two caveats below, so: when a coordinator is running the campaign, ASK IT before every darwin dispatch (single-tenant rule); and to force a specific box — dodge a co-tenanted/suspect one, or honour the coordinator's arbitration — pin it with `hosts=["aarch64-darwin=<box>"]`, which overrides the pool with that single machine. The caveats:
 - **`rasam`** (`aarch64-darwin=nix-infra@rasam.tail12b27.ts.net`; Apple Silicon T6020, 24 cores, 128 GB): **co-tenanted by a vira CI daemon** (discovered 2026-07-16) that schedules multi-hour builds of other projects at will — check `ps axo pid,etime,command | grep 'nix build'` before dispatching, and expect load-class flakes (and possible ssh-transport death) if you share it mid-build. Its fseventsd has also run pegged for weeks between reboots.
 - **`sincereintent`** (`aarch64-darwin=srid@sincereintent` — BARE tailnet name on a different tailnet, the `.tail12b27.ts.net` suffix does NOT resolve there, and it's `srid@`, not `nix-infra@`): UN-retired for kolu CI by srid (2026-07-16) and since proven by a 5× zero-retry certification. Caveat: a stale-FSEvents history — treat fs-watch-class reds (iframe-refresh, file-watch waitFors) as suspect box environment, report before chasing.
 
 **A companion repo's darwin lane uses `--host`, never inline `$ODU_HOSTS`.** A `@kolu/surface` change drags a downstream repo's CI along (the drishti PR `surface.md` requires) via the shelled-out `nix run … odu -- run` path, not `mcp__odu__run`; its own `hosts.json` may name a different, possibly-dark darwin host. Override it with **`--host aarch64-darwin=<the arbitrated darwin host>`** — **never** by exporting inline JSON into `$ODU_HOSTS`, which odu reads as a *file path*: an inline `$ODU_HOSTS='{…}'` is silently ignored and you burn a run on the dead host. If you must set it, point at a real hosts *file*.
 
-**Linux build host: a leased pool box per run.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. Since the MCP owns the run, the lease can no longer wrap it; [`.apm/skills/ci/pu/lease.sh`](pu/lease.sh) holds the box as a **separate background process** and you pass its box pin to `mcp__odu__run`. The three-step flow:
+**Linux build host: odu leases a free pool box for you — no wrapper.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** (`kolu-ci-1 .. kolu-ci-8`), listed as the `x86_64-linux` pool in `~/.config/odu/hosts.json`. As of [juspay/odu#56](https://github.com/juspay/odu/pull/56) odu **leases natively**: `mcp__odu__run` picks a free box from the pool, holds it for the run's lifetime (remote `flock` via odu-runner, heartbeated over ssh), and releases it on settle or agent death. No `hosts` pin for the pool, no background `lease.sh`, no `.ci/pu-lease.env`, no manual release — the leaser that used to live in a separate process now lives inside odu. The whole flow is just the run itself:
 
-```sh
-pr=$(gh pr view --json number --jq .number)
-
-# 1) Acquire + HOLD a box in the background (Bash run_in_background). It writes
-#    .ci/pu-lease.env and prints PU_LEASE_HOST=x86_64-linux=<box> (empty on the
-#    saturated → cold-ephemeral → hosts.json fallback), then blocks holding it.
-.apm/skills/ci/pu/lease.sh acquire "$pr"   # ← run this in the background
-
-# 2) Read the linux pin and start the run THROUGH the MCP. Pin BOTH lanes and
-#    request BOTH platforms, so every CI run covers linux *and* macOS — never
-#    silently linux-only because a machine-local hosts.json lacks the darwin
-#    entry: the leased linux box, plus the arbitrated darwin host (see above).
-host=$(. .ci/pu-lease.env; echo "$PU_LEASE_HOST")
-#    mcp__odu__run  platforms=["x86_64-linux", "aarch64-darwin"]
-#                   hosts=["$host", "aarch64-darwin=<arbitrated darwin host>"]
-#                   (if $host is empty — pool saturated — drop it but KEEP the darwin pin)
-#    mcp__odu__wait_for_settle          (then read the log resource / node_rerun as needed)
-
-# 3) Release the box (frees the flock; or just stop the backgrounded task).
-.apm/skills/ci/pu/lease.sh release
+```
+#  mcp__odu__run  platforms=["x86_64-linux", "aarch64-darwin"]
+#  mcp__odu__wait_for_settle          (then read the log resource / node_rerun as needed)
 ```
 
-An empty `PU_LEASE_HOST` means the pool was saturated/unreachable and `lease.sh` either took a cold ephemeral box (recorded in `.ci/pu-lease.env`) or left it to `hosts.json` — in that case drop the `$host` pin but **keep the `aarch64-darwin` pin** so the macOS lane still runs. The lease auto-releases even on a hard crash (the `flock` frees when the backgrounded `acquire` fd dies). Why a lease and not the old `pu fork`, the backstops, and the warm-box measurements are all documented in [`lease.sh`](pu/lease.sh)'s header and [`docs/pu-box-ci-ralph-report.md`](docs/pu-box-ci-ralph-report.md). Box lifecycle is the [`pu`](.claude/skills/pu/SKILL.md) skill; runner mechanics [`odu`](.claude/skills/odu/SKILL.md); the MCP face [`odu-mcp`](.claude/skills/odu-mcp/SKILL.md).
+**Pool saturated?** The default is to **wait in line** for a free box; pass `no_wait: true` to `mcp__odu__run` to fail immediately instead. `nix run .#odu -- hosts` prints the pool inventory — free / busy / held-by — without acquiring anything.
 
-**Keep the pool warm and healthy.** A pool box warms on its first real CI run and stays warm across leases. Bring the pool up to strength (and repair any missing/unhealthy slot) with `just ci::pool-ensure`; inspect with `just ci::pool-status`. Keep stores hot by periodically running the linux lane against `master` on idle slots (e.g. after a merge) — `mcp__odu__run` with `platforms=["x86_64-linux"]` and `hosts=["x86_64-linux=kolu-ci-<N>"]` (strict and posting, like every run here; warming targets a specific idle box deliberately, so no lease is needed). (The old `kolu-ci-golden` fork template is retired — the pool boxes are themselves the warm hosts.)
+**Hold a box across reruns.** A plain `run` releases its lease at settle, so a fix → rerun cycle re-queues for a (possibly different) box each time. To keep the *same* hot box across discrete reruns — retry a flake, iterate a fix without losing a warm store — take an **agent-held lease** first with `mcp__odu__lease` (returns immediately, `held` or `waiting`); every subsequent `run` then reuses that host and leaves the lock alone, and `mcp__odu__release` frees it when you're done.
+
+*(Retired by odu-native leasing: the standalone [`.apm/skills/ci/pu/lease.sh`](pu/lease.sh) background holder and its `.ci/pu-lease.env` pin — odu now owns the lease. Box lifecycle is the [`pu`](.claude/skills/pu/SKILL.md) skill; runner mechanics [`odu`](.claude/skills/odu/SKILL.md); the MCP face [`odu-mcp`](.claude/skills/odu-mcp/SKILL.md).)*
+
+**Keep the pool warm and healthy.** A pool box warms on its first real CI run and stays warm across leases. Bring the pool up to strength (and repair any missing/unhealthy slot) with `just ci::pool-ensure`; inspect with `just ci::pool-status`. Keep stores hot by periodically running the linux lane against `master` on idle slots (e.g. after a merge) — `mcp__odu__run` with `platforms=["x86_64-linux"]` and `hosts=["x86_64-linux=kolu-ci-<N>"]` (strict and posting, like every run here; the `hosts` pin overrides the pool to warm *that* box deliberately — odu still leases it, waiting if it's busy). (The old `kolu-ci-golden` fork template is retired — the pool boxes are themselves the warm hosts.)
 
 **Live failure surfacing — fail fast on the MCP, don't drain the pipeline.** `mcp__odu__wait_for_settle` returns the instant a node goes red (`fail_fast` defaults true) with `{settled, passed, failed[], errored[]}` — so you learn about a failure while sibling lanes are still running. **Don't wait for the whole run to finish, and don't poll `gh pr checks` in a loop.** The moment `wait_for_settle` returns a non-empty `failed[]`/`errored[]`, drill in: read the red node's log via the `surface://collections/logs/{id}` MCP resource (or read the `.ci/<sha7>/x86_64-linux/<recipe>.log` path directly — the failing recipe's full output is already on disk). Begin the fix → fmt → commit → retry-CI loop as soon as you have a confirmed failure; you needn't let the rest of the pipeline drain first. (`gh pr checks` / `just ci::protect --dry-run` remain the source of truth for the *final* green-gate below — the MCP is for reacting fast, the checks are for confirming done.) A node in `errored` (as opposed to `failed`) means infrastructure death — a lane's ssh link dropped or the coordinator was interrupted; `mcp__odu__node_rerun` those rather than hunting for a test bug.
 

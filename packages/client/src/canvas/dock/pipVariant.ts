@@ -6,16 +6,23 @@
  *  the pip a given agent paint class shows is defined ONCE — the same fold
  *  a fleet mirror's `pipVariantFor` calls — and can't drift between surfaces.
  *  This function adds only the dock-only `idle`/`sleeping`/`parked` triage
- *  buckets that have no agent paint to share.
+ *  buckets that have no agent paint to share. Dock *rows* paint plain shells
+ *  as `idle` (shell glyph) via `paintDockRow` — `none`→`empty` remains for
+ *  call sites that genuinely mean blank (parked, workspace column legends).
  *
  *  `unread` is NO LONGER folded in here (R-activity-merge): an unread alert used
  *  to REPLACE the whole pip with a loud `attention` disk; it now rides as the
  *  indicator's amber corner BADGE (`StatePip`'s `alert` prop) BESIDE the live
  *  state core instead of hiding it — so the obligation and the state read at
  *  once. The
- *  core is just the bucket's state; the caller passes `alert` separately. */
+ *  core is just the bucket's state; the caller passes `alert` separately.
+ *
+ *  Identity (who is driving the terminal) is a SEPARATE axis — `pipGlyphFor`
+ *  below — so paint and brand mark don't complect. */
 
+import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import {
+  type PipGlyphId,
   type PipVariant,
   pipForPaintClass,
 } from "@kolu/solid-statepip/pipVariant";
@@ -37,4 +44,15 @@ export function pipVariant(bucket: DockRowBucket): PipVariant {
     case "parked":
       return "empty";
   }
+}
+
+/** Identity glyph for a dock/title pip — live agent kind, else the persisted
+ *  resume identity on a sleeping (or just-quit) terminal, else the shell
+ *  prompt. One place every StatePip call site reads "who is driving this". */
+export function pipGlyphFor(meta: TerminalMetadata): PipGlyphId {
+  const live = activeArm(meta)?.agent?.kind;
+  if (live) return live;
+  const target = meta.restoreTarget;
+  if (target?.kind === "exact") return target.agent.kind;
+  return "shell";
 }

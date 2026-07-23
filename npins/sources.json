@@ -35,9 +35,22 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "c506b43e73473dd3a7dd9cf36cf75535130a784a",
-      "url": "https://github.com/juspay/odu/archive/c506b43e73473dd3a7dd9cf36cf75535130a784a.tar.gz",
-      "hash": "sha256-ShcHoPmqnB6E0+AqKP/uSbetFI5ctb4tsnyzFiQR26w="
+      "revision": "204807c13adf13b8ddf31e4746ae49b01362b695",
+      "url": "https://github.com/juspay/odu/archive/204807c13adf13b8ddf31e4746ae49b01362b695.tar.gz",
+      "hash": "sha256-BLoPLP4fo3pg6rZtOS/TlESUI0cIu+AmArYeba7ONhQ="
+    },
+    "rhai-lsp": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "rhaiscript",
+        "repo": "lsp"
+      },
+      "branch": "master",
+      "submodules": false,
+      "revision": "2f1fcd73f43b909d1d5e96123516e599b9aaaa88",
+      "url": "https://github.com/rhaiscript/lsp/archive/2f1fcd73f43b909d1d5e96123516e599b9aaaa88.tar.gz",
+      "hash": "sha256-cgcOjlCYMMGNnI2uUBubX6xbntTKj5F+C1Yi/GVtSQ4="
     }
   },
   "version": 7

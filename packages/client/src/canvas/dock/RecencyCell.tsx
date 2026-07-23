@@ -5,10 +5,10 @@
  *  keys on, so the age a row shows is the age that decides whether the window
  *  hides it.
  *
- *  The live-output signal no longer rides here: it leads the row as the
- *  green RING around the `StatePip` indicator (left edge), so the timestamp
- *  stays put and the two axes — "when last" (right) and "moving now" (left) —
- *  read on separate edges instead of fighting for one slot.
+ *  Active rows hide the label: effectively active terminals (same predicate as
+ *  `pipIsActive` — do not re-derive the formula here) are "just now" by
+ *  definition, so the text is noise. The fixed `w-[8ch]` still reserves the
+ *  column so rows do not jump when the cell appears on quiet.
  *
  *  The fixed `w-[8ch]` reserves the WIDEST `formatTimeAgo` string ("just now" =
  *  8ch, also covering "59m ago" / "23h ago" / "99d ago"), so a changing label
@@ -30,11 +30,14 @@ const RecencyCell: Component<{
   /** Tailwind text-size token — the only thing the desktop and touch rows
    *  differ by (e.g. `text-[0.6rem]` vs `text-[0.65rem]`). */
   textSize: string;
+  /** Hide the label while the terminal is effectively active (`pipIsActive`).
+   *  Column width is still reserved. */
+  hidden?: boolean;
 }> = (props) => (
   <span
     class={`inline-flex justify-end w-[8ch] font-mono tabular-nums text-fg-3 ${props.textSize}`}
   >
-    {formatTimeAgo(props.recencyAt)}
+    {props.hidden ? "" : formatTimeAgo(props.recencyAt)}
   </span>
 );
 

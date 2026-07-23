@@ -731,10 +731,12 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       client: { onError: { kind: "toast", label: "Padi identity" } },
     },
     /** The recency-free urgency projection — read-only on the client; a DERIVED
-     *  member (`derived.cell(($) => recomputeUrgency($.terminals()))` in
+     *  member (dual-edged on terminals + finish-quiet generation in
      *  `servePadi.ts`), so the graph is its one writer: it recomputes whenever the
-     *  `terminals` collection it reads changes, and `equals` is the ONE wire dedup
-     *  point (declared here at the member, per the reactive bridge's law). */
+     *  `terminals` collection it reads changes OR the multi-second quiet timer
+     *  expires, and `equals` is the ONE wire dedup point (declared here at the
+     *  member, per the reactive bridge's law). `finishedIds` is effective quiet
+     *  (waiting ∧ !finishTracker.isLive), not raw waiting. */
     urgency: {
       schema: PadiUrgencySchema,
       default: { awaitingIds: [], finishedIds: [] } satisfies PadiUrgency,

@@ -4,7 +4,7 @@ description: "Run terminals on other machines as first-class canvas tiles — ad
 order: 52
 section: Use Kolu
 koluHero:
-  eyebrow: "remote terminals · alpha"
+  eyebrow: "remote terminals"
   headline: |
     Your terminals,
     on {other} machines.
@@ -15,13 +15,6 @@ import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
-
-<Aside type="caution" title="alpha">
-  Remote hosts are an early preview — you can add one anytime from the **+** on
-  the host row (which shows this same notice and links here). The behaviour and
-  the flags **will change** before this is finalized. The [Known
-  limitations](#known-limitations) at the end are honest, not exhaustive.
-</Aside>
 
 kolu can put terminals from **other machines** right on your canvas. A remote
 host's terminals are first-class tiles — same [Code tab and file
@@ -61,8 +54,7 @@ from another device.
 ## Add a host
 
 The **+ add** affordance on the host row is **always present** — you don't have
-to set anything to reach it. It opens a short form: a reminder that remote hosts
-is alpha (linking back here) and an ssh-target box — an anchored popover on
+to set anything to reach it. It opens an ssh-target box — an anchored popover on
 desktop, a full-width section inside the pull-down sheet on a phone. What you type
 is added to the pool as a chip, and the canvas jumps to it. Your local host is
 always the first, unremovable chip. Two formats work:

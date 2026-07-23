@@ -8,9 +8,15 @@ user-invocable: false
 
 The agent face of [odu](https://github.com/juspay/odu) — an MCP stdio server
 that re-exposes a live CI run as agent tools (`run`, `node_rerun`,
-`wait_for_settle`, `cancel`) and subscribable resources (`surface://streams/nodes`,
-`surface://collections/logs/{id}`), so Claude Code / Codex / opencode / Gemini
-CLI drive CI with structured calls instead of scraping terminal output.
+`wait_for_settle`, `cancel`, `lease`, `release`) and subscribable resources
+(`surface://streams/nodes`, `surface://collections/logs/{id}`), so Claude Code /
+Codex / opencode / Gemini CLI drive CI with structured calls instead of
+scraping terminal output.
+
+`lease` / `release` are the agent-held venue layer: hold a free box across
+discrete tool calls without re-queuing between `run`s. `lease` returns
+immediately (`held` or `waiting`); re-call or inventory to observe the line.
+`run` reuses held hosts and does not release them on exit.
 
 `wait_for_settle` defaults to fail-fast: it returns the instant the first node
 goes red (`fail_fast_tripped: true`, `settled: false`), so the agent drills into
@@ -27,9 +33,11 @@ loud when the live run's commit doesn't match.
 
 `cancel` stops the live run and waits until it's torn down; `run`'s `supersede`
 cancels a run already live here before starting (the "stop this, run the fixed
-commit" move), and `linger` keeps the coordinator serving past settle so a node
-can be rerun afterwards. Together they let the agent loop call off or replace a
-run instead of stranding it or hitting "a run is already in progress".
+commit" move), `linger` keeps the coordinator serving past settle so a node can
+be rerun afterwards, and `no_wait` fails immediately when every host in a venue
+pool is busy (default: wait in line). Together they let the agent loop call off
+or replace a run instead of stranding it or hitting "a run is already in
+progress".
 
 `bin/serve` is self-contained — it resolves odu via `nix run` and serves over
 stdio in the consumer's repo (dialing `.ci/odu.sock`). Set `ODU_FLAKE` to

@@ -22,18 +22,19 @@ import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import { useTerminalActivity } from "../../terminal/useTerminalActivity";
+import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GAP,
   DOCK_ROW_GRID,
+  SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { pipVariant } from "./pipVariant";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
@@ -78,9 +79,8 @@ function DockListSection(props: {
 }) {
   // Subgrid container — same shape as the desktop dock (the shared
   // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
-  // The leading 18px indicator track is fixed (not `auto`) holding the
-  // merged `StatePip` (its green live ring replacing the old standalone
-  // activity dot), so the indicator never shifts as its axes flip. PR
+  // The leading 20px indicator track is fixed (not `auto`) holding
+  // `StatePip`, so the indicator never shifts as its axes flip. PR
   // pip lives on line 2 (left) alongside the subline, anchored to the
   // branch column's left edge so PR icons align across every section.
   //
@@ -94,19 +94,20 @@ function DockListSection(props: {
       data-testid="mobile-dock-section"
       data-repo={props.group.name}
       style={{ "--repo-color": props.group.color }}
-      class={`dock-cards-section grid ${DOCK_ROW_GRID} gap-x-3 pl-3 pr-3`}
+      class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 pr-3`}
     >
       <div
         data-testid="mobile-dock-section-header"
-        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2 border-b border-edge/30"
+        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2.5"
       >
+        <span class="dock-cards-section-swatch" aria-hidden="true" />
         <span
           data-testid="mobile-dock-section-name"
-          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
+          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
         >
           {props.group.name}
         </span>
-        <span class="ml-auto font-mono text-[0.65rem] tabular-nums text-fg-3 shrink-0">
+        <span class="dock-cards-section-count font-mono text-[0.6rem]">
           {props.group.rows.length}
         </span>
       </div>
@@ -140,113 +141,115 @@ function DockListRow(props: {
 }) {
   const store = useTerminalStore();
   const tileStore = useTileStore();
-  const activity = useTerminalActivity();
   const combined = createDockRowData(props.id);
-  const active = () => tileStore.activeId() === props.id;
+  const rowActive = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   return (
     <Show when={combined()}>
-      {(c) => (
-        // Row is `<div role="button">` rather than `<button>` so the
-        // `<a>` PR pip on line 2 stays valid HTML (no `<a>` inside
-        // `<button>` nesting). Activation keyboard handlers mirror
-        // native button behaviour (Enter + Space). Same trade-off
-        // the desktop dock makes; see `Dock.tsx` for the longer
-        // rationale.
-        // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see Dock.tsx
-        <div
-          role="button"
-          tabIndex={0}
-          data-testid="mobile-dock-row"
-          data-terminal-id={props.id}
-          data-bucket={props.bucket}
-          data-active={active() ? "" : undefined}
-          data-unread={unread() ? "" : undefined}
-          data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
-          // stopPropagation on pointerdown keeps Corvu Drawer's
-          // drag-to-dismiss from claiming the tap (no-op in the rail,
-          // load-bearing in the phone drawer).
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => props.onSelect(props.id)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              props.onSelect(props.id);
-            }
-          }}
-          // Right side stays at the call site because the touch list uses
-          // `-mr-3 pr-3` (12 px) — the tighter touch-gutter — while
-          // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
-          // side is symmetric between the two surfaces, so it ships
-          // as one symbol.
-          class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
-        >
-          {/* One merged status indicator — agent-state core, green live
-           *  ring, amber unread corner badge; centred across both row lines.
-           *  See Dock.tsx's DockRow. */}
-          <span class="row-span-2 flex self-center">
-            <StatePip
-              variant={pipVariant(props.pip)}
-              live={activity.isLive(props.id)}
-              alert={unread()}
-              alertLabel="unread alert"
-              class={DOCK_ROW_PIP_BOX}
-            />
-          </span>
-          <span
-            class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
-            style={{
-              color: c().info.annotationColor,
-            }}
-          >
-            <IntentMarkdownInline
-              markdown={annotationLine(c().meta.intent, c().info.key.label)}
-            />
-          </span>
-          <SubCountCell subCount={c().info.subCount} />
-          {/* Recency cell — "Xs ago", same no-reflow width as the desktop
-           *  dock, shared via RecencyCell. Live signal rides the leading
-           *  StatePip's ring. */}
-          <RecencyCell
-            recencyAt={rowRecencyAt(c().meta)}
-            textSize="text-[0.65rem]"
-          />
-          {/* Second line — flex row spanning the branch column → end.
-           *  PR pip on the left (anchored to the branch column's left
-           *  edge so it aligns across every section), subline text
-           *  following. */}
+      {(c) => {
+        const pip = useStatePip(
+          () => props.id,
+          () => c().meta,
+          unread,
+          () => props.pip,
+        );
+        return (
+          // Row is `<div role="button">` rather than `<button>` so the
+          // `<a>` PR pip on line 2 stays valid HTML (no `<a>` inside
+          // `<button>` nesting). Activation keyboard handlers mirror
+          // native button behaviour (Enter + Space). Same trade-off
+          // the desktop dock makes; see `Dock.tsx` for the longer
+          // rationale.
+          // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see Dock.tsx
           <div
-            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0`}
-          >
-            <PrPip meta={c().meta} />
-            <Show
-              when={rowSubline(c().meta)}
-              fallback={
-                <span
-                  aria-hidden="true"
-                  class="font-mono text-[0.7rem] leading-tight invisible"
-                >
-                  &nbsp;
-                </span>
+            role="button"
+            tabIndex={0}
+            data-testid="mobile-dock-row"
+            data-terminal-id={props.id}
+            data-bucket={props.bucket}
+            data-active={rowActive() ? "" : undefined}
+            data-unread={unread() ? "" : undefined}
+            data-sub-count={
+              c().info.subCount > 0 ? c().info.subCount : undefined
+            }
+            data-sleeping={pip().sleeping ? "" : undefined}
+            // stopPropagation on pointerdown keeps Corvu Drawer's
+            // drag-to-dismiss from claiming the tap (no-op in the rail,
+            // load-bearing in the phone drawer).
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => props.onSelect(props.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                props.onSelect(props.id);
               }
+            }}
+            // Right side stays at the call site because the touch list uses
+            // `-mr-3 pr-3` (12 px) — the tighter touch-gutter — while
+            // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
+            // side is symmetric between the two surfaces, so it ships
+            // as one symbol.
+            class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+            classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
+          >
+            {/* Identity status indicator — same binder as Dock/title. */}
+            <span class="row-span-2 flex self-center">
+              <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
+            </span>
+            <span
+              class="dock-cards-row-label text-[0.9rem]"
+              style={{
+                color: c().info.annotationColor,
+              }}
             >
-              {(line) => (
-                <span
-                  data-testid={
-                    activeArm(c().meta)?.agent
-                      ? "mobile-dock-agent-subline"
-                      : "mobile-dock-foreground"
-                  }
-                  class="font-mono text-[0.7rem] leading-tight text-fg-2 truncate min-w-0"
-                  title={line()}
-                >
-                  {line()}
-                </span>
-              )}
-            </Show>
+              <IntentMarkdownInline
+                markdown={annotationLine(c().meta.intent, c().info.key.label)}
+              />
+            </span>
+            <SubCountCell subCount={c().info.subCount} />
+            {/* Recency — hidden while active; width reserved. */}
+            <RecencyCell
+              recencyAt={rowRecencyAt(c().meta)}
+              textSize="text-[0.65rem]"
+              hidden={pip().active}
+            />
+            {/* Second line — flex row spanning the branch column → end.
+             *  PR pip on the left (anchored to the branch column's left
+             *  edge so it aligns across every section), subline text
+             *  following. */}
+            <div
+              class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
+            >
+              <PrPip meta={c().meta} />
+              <Show
+                when={rowSubline(c().meta)}
+                fallback={
+                  <span
+                    aria-hidden="true"
+                    class="font-mono text-[0.7rem] leading-tight invisible"
+                  >
+                    &nbsp;
+                  </span>
+                }
+              >
+                {(line) => (
+                  <span
+                    data-testid={
+                      activeArm(c().meta)?.agent
+                        ? "mobile-dock-agent-subline"
+                        : "mobile-dock-foreground"
+                    }
+                    class="font-mono text-[0.7rem] leading-snug text-fg-3 truncate min-w-0"
+                    title={line()}
+                  >
+                    {line()}
+                  </span>
+                )}
+              </Show>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      }}
     </Show>
   );
 }

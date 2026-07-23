@@ -1,33 +1,31 @@
-/** AI agent state indicator — logo + state label + compact context-token
- *  count + a live running-for duration. Logo animates when active. Renders the
- *  appropriate icon per agent kind (Claude Code, OpenCode). */
+/** AI agent state indicator — state label + compact context-token count + a
+ *  live running-for duration. Words and state color only: the brand mark and
+ *  activity motion live once on the surface in the leading StatePip (T1). No
+ *  per-state CSS animation here (spinning "Tool use" text was a defect). */
 
+import { AWAITING_LINGER_CLASS } from "@kolu/solid-statepip/pipVariant";
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
+import { agentNames, stateLabels } from "../ui/agentDisplay";
 import { useDuration } from "./staleness";
 
 /** Busy = actively working (thinking or running tools). Alert = needs user input
- *  — the same "your turn" token the dock pip and awaiting column use, so a
- *  waiting agent reads one color everywhere (not yellow here, orange there). */
+ *  — same violet family as the dock StatePip. Post-turn `waiting` lingers via
+ *  `AWAITING_LINGER_CLASS` (same token as pip awaiting paint); genuine
+ *  `awaiting_user` is full strength. */
 const BUSY_COLOR = "text-busy";
 
-/** State → display config. Keyed on state, not kind — all agents currently
- *  share the same visual treatment per state. When agents diverge in states,
- *  this becomes a per-kind dispatch (the `agentIcons`/`agentNames` tables
- *  already handle the per-kind axis). */
-const stateConfig: Record<
-  AgentInfo["state"],
-  { color: string; animation: string }
-> = {
-  thinking: { color: BUSY_COLOR, animation: "animate-pulse" },
-  tool_use: { color: BUSY_COLOR, animation: "animate-spin" },
-  waiting: { color: "text-alert", animation: "animate-pulse" },
-  awaiting_user: { color: "text-alert", animation: "animate-pulse" },
-  // Busy, not awaiting: the agent is working in a background task, so use
-  // the busy treatment rather than the alert color reserved for needs-user.
-  running_background: { color: BUSY_COLOR, animation: "animate-spin" },
+/** State → text colour. Keyed on state, not kind — all agents currently share
+ *  the same paint per state. Motion is the StatePip's job, not this cluster. */
+const stateColor: Record<AgentInfo["state"], string> = {
+  thinking: BUSY_COLOR,
+  tool_use: BUSY_COLOR,
+  // Linger violet — same token as StatePip awaiting paint.
+  waiting: AWAITING_LINGER_CLASS,
+  // Full violet — blocked on you (needs-you).
+  awaiting_user: "text-alert",
+  // Busy, not awaiting: background work uses busy, not the needs-user alert.
+  running_background: BUSY_COLOR,
 };
 
 /** "47392" → "47K", "1183456" → "1.2M". Single call site; no helper module
@@ -48,8 +46,7 @@ function contextTokensTooltip(tokens: number, model: string | null): string {
 }
 
 const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
-  const cfg = () => stateConfig[props.agent.state];
-  const Icon = () => agentIcons[props.agent.kind];
+  const color = () => stateColor[props.agent.state];
   const name = () => agentNames[props.agent.kind];
   const label = () => stateLabels[props.agent.state];
   // Live elapsed-since formatter for the running-for badge; ticks every second
@@ -61,15 +58,13 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const runningFor = useDuration();
   return (
     <span
-      class={`inline-flex items-center gap-1 text-xs ${cfg().color}`}
+      class={`inline-flex items-center gap-1 text-xs ${color()}`}
       data-testid="agent-indicator"
       data-agent-kind={props.agent.kind}
       data-agent-state={props.agent.state}
       title={`${name()}: ${label()}`}
     >
-      <span class={`shrink-0 ${cfg().animation}`}>
-        <Dynamic component={Icon()} class="w-3 h-3" />
-      </span>
+      {/* Static label — no spin/pulse; activity motion is the StatePip. */}
       <span class="hidden sm:inline">{label()}</span>
       {/* Wrap the value in an object so `<Show>`'s truthy check fires
        *  even when `contextTokens` is `0` — a legitimate value for a

@@ -4,107 +4,158 @@
  *  This is deliberately NOT `lastActivityAt`: that field bumps only on agent
  *  semantic-key transitions (see `staleness.ts`) and is an hours-scale
  *  staleness clock, so a plain `npm run build`, a `tail -f`, or any non-agent
- *  shell churning output would never light it up. The only honest source for
- *  raw output motion is the PTY data stream itself, so `noteOutput(id)` is
- *  called from `Terminal.tsx`'s attach-stream sink on every chunk that lands
- *  in xterm.
+ *  shell churning output would never light it up. The honest source for raw
+ *  output motion is the PTY byte stream — but the client no longer counts those
+ *  bytes itself. Activity is owned by KAVAL (the one process that sees every PTY
+ *  byte AND every resize): it emits a host-global, resize-EXCLUDED
+ *  meaningful-output edge, padi folds that edge into a live SET (its short idle
+ *  window), and this module just MIRRORS that set per host off
+ *  `padiSurface.streams.activity`. No client-side byte tap, and no resize
+ *  suppress hack: kaval already excluded the reveal/resize repaint at the
+ *  source, so switching to an idle terminal no longer flashes its dot — and the
+ *  dot now works for BACKGROUND (non-attached) terminals too, since the fact
+ *  comes off the wire rather than the tile's own attach sink.
  *
- *  A terminal reads as "live" from the moment a chunk arrives until
- *  `TERMINAL_IDLE_AFTER_MS` pass with no further output — each chunk resets that
- *  timer.
- *  The flag is an explicit boolean rather than a `now - lastOutputAt`
- *  comparison so reactivity needs no global ticking clock: the per-terminal
- *  debounce timer is what flips it back to static.
- *
- *  Not to be merged with `renderRecovery.ts`, which is also a per-terminal
- *  output-debounce primitive fed from the adjacent line of the same attach
- *  sink. They look mergeable but key off different events: this tracker keys to
- *  stream RECEIPT (`noteOutput` fires the instant a chunk arrives), while
- *  `renderRecovery.noteData` keys to xterm PARSE (it runs as `term.write`'s
- *  completion callback, after the chunk has actually landed in the buffer — see
- *  the comment at the `scrollLock.writeData` call in `Terminal.tsx`). That
- *  receipt-vs-parse distinction is load-bearing — a shared "output pulse"
- *  primitive would have to fire on one or the other and be wrong for the other
- *  consumer — and the two also differ in cadence (1000ms idle vs a 250ms
- *  render-stall watchdog), action (flip live=false vs force a repaint), and
- *  lifecycle (an app singleton vs a per-terminal owner-scoped instance). */
+ *  A terminal reads as "live" from the moment kaval reports output until padi's
+ *  idle window (`TERMINAL_IDLE_AFTER_MS`) passes with no further edge. The flag
+ *  is an explicit per-terminal boolean (a `createStore` key) rather than a
+ *  `now - lastOutputAt` comparison so reactivity needs no global ticking clock:
+ *  each host's `activity` frame is the full current live set, and we reconcile
+ *  the flat store to the union across hosts. */
 
-import { TERMINAL_IDLE_AFTER_MS, type TerminalId } from "kolu-common/surface";
+import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
+import { createEffect, mapArray, onCleanup } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { createSharedRoot } from "../createSharedRoot";
+import { hostKeys, interpretClientError, padiMap } from "../wire";
+
+/** Diff one host's previous live-id frame against the next. Pure so the
+ *  sticky-live fence (live → empty must remove) is unit-testable without the
+ *  wire. Callers MUST pass plain arrays — never a Solid store proxy from
+ *  `reconcile` — or `prev` mutates underfoot and removals never apply. */
+export function activityFrameDiff(
+  prev: readonly TerminalId[],
+  frame: readonly TerminalId[],
+): { adds: TerminalId[]; removes: TerminalId[] } {
+  const next = new Set(frame);
+  const prevSet = new Set(prev);
+  const adds: TerminalId[] = [];
+  const removes: TerminalId[] = [];
+  for (const id of frame) if (!prevSet.has(id)) adds.push(id);
+  for (const id of prev) if (!next.has(id)) removes.push(id);
+  return { adds, removes };
+}
+
+/** One host's activity-frame reducer — owns the previous live set as a PLAIN
+ *  snapshot and diffs each incoming frame against it, invoking
+ *  `onChange(adds, removes)` only when the set actually changes.
+ *
+ *  It SNAPSHOTS every frame (`[...frame]`) before storing it as `prev`, which is
+ *  the sticky-live fence: the wire hands `.use()` a Solid `reconcile` proxy that
+ *  mutates in place across ticks, so retaining that value directly as `prev`
+ *  would let a later live→empty reconcile mutate `prev` underfoot — removals
+ *  would never apply and every once-live id would stick true. Owning the
+ *  snapshot HERE (not at the call site) makes the footgun unspellable by a caller
+ *  AND makes the fence unit-testable without any wire. */
+export function createActivityFrameReducer(
+  onChange: (adds: TerminalId[], removes: TerminalId[]) => void,
+): {
+  apply: (frame: readonly TerminalId[]) => void;
+  drain: () => TerminalId[];
+} {
+  let prev: TerminalId[] = [];
+  return {
+    apply(frame) {
+      const next = [...frame];
+      const { adds, removes } = activityFrameDiff(prev, next);
+      if (adds.length > 0 || removes.length > 0) onChange(adds, removes);
+      prev = next;
+    },
+    // Return the still-live ids and clear — the caller drops them from the store
+    // when the host leaves the pool so no dead key lingers.
+    drain() {
+      const held = prev;
+      prev = [];
+      return held;
+    },
+  };
+}
 
 export const useTerminalActivity = createSharedRoot(() => {
   // createStore for per-terminal fine-grained reactivity: setting one
   // terminal's flag wakes only the dots reading that terminal, not every row.
   const [live, setLive] = createStore<Record<TerminalId, boolean>>({});
-  const timers = new Map<TerminalId, ReturnType<typeof setTimeout>>();
-  // Terminals whose output should NOT count as "live" right now — a window the
-  // caller arms around output IT caused, not the user/agent. The motivating case:
-  // revealing or resizing a tile resizes the server PTY (SIGWINCH), and the shell
-  // REPAINTS in response — a genuine PTY delta, but not real activity. Without
-  // this, switching to a quiet terminal blips its live ring for a beat off that
-  // repaint. See `noteOutput` (it early-returns while suppressed).
-  const suppressTimers = new Map<TerminalId, ReturnType<typeof setTimeout>>();
-  const suppressed = new Set<TerminalId>();
 
-  /** Record a chunk of PTY output for `id` — lights its live flag and arms
-   *  (or re-arms) the quiet-period timer that flips it back to static. Output
-   *  arriving inside a `suppress` window is ignored (it's repaint noise from a
-   *  resize the client triggered, not real activity). */
-  function noteOutput(id: TerminalId): void {
-    if (suppressed.has(id)) return;
-    if (!live[id]) setLive(id, true);
-    const pending = timers.get(id);
-    if (pending) clearTimeout(pending);
-    timers.set(
-      id,
-      setTimeout(() => {
-        // Natural idle prunes the key entirely (delete, not flag-false) so the
-        // store stays bounded — a once-active-then-quiet terminal leaves no
-        // residual `false`.
-        timers.delete(id);
-        setLive(produce((s) => void delete s[id]));
-      }, TERMINAL_IDLE_AFTER_MS),
-    );
-  }
-
-  /** Suppress activity for `id` for the next `ms` — output that lands in the
-   *  window won't light the live flag. The caller arms this around output it
-   *  KNOWS isn't real activity (a resize-triggered shell repaint on reveal), so
-   *  a quiet terminal doesn't falsely flash live when you switch to it. A fresh
-   *  call re-arms the window. Genuine output after the window lights it as usual. */
-  function suppress(id: TerminalId, ms: number): void {
-    suppressed.add(id);
-    const prev = suppressTimers.get(id);
-    if (prev) clearTimeout(prev);
-    suppressTimers.set(
-      id,
-      setTimeout(() => {
-        suppressTimers.delete(id);
-        suppressed.delete(id);
-      }, ms),
-    );
-  }
+  // One eager subscription per host to its `activity` live-set stream. Keyed on
+  // the ENCODED host string (a stable primitive) so `mapArray` retains one owner
+  // per host, disposed on membership exit — mirroring `useAttention`'s per-host
+  // urgency roots. A background host is exactly the one whose dots we still want
+  // lit, so the FULL member set is subscribed, not just the active host.
+  const roots = mapArray(
+    () => hostKeys().map(encodeHostKey),
+    (encHost) => {
+      const host = decodeHostKey(encHost);
+      const entry = padiMap.entry(host);
+      // Unlike a cell/collection, a `StreamSpec` has no `client` field to declare
+      // a policy on (see `define.ts`) — so, unlike the SR11 bare `.use()` cells get
+      // for free (`useAttention`'s `urgency`), a stream's use-site MUST supply
+      // `onError` itself or a terminal subscription failure silently freezes this
+      // host's live dots with no surface (the package's own canonical example,
+      // `consume-solid.ts`, does the same). Routed through the shared
+      // `interpretClientError` (`hostToast`) for the same per-host-toast shape the
+      // declared-policy members get. Each frame is the full current live set for
+      // THIS host.
+      const sub = entry.streams.activity.use(() => ({}), {
+        onError: (err) =>
+          interpretClientError({ kind: "hostToast", label: "activity" }, err, {
+            key: host,
+          }),
+      });
+      // The reducer owns this host's previous live set as a plain snapshot, so
+      // feeding it the store proxy `sub()` returns is safe — it copies before
+      // diffing (the sticky-live fence lives inside `apply`, not at this call
+      // site).
+      const reduce = createActivityFrameReducer((adds, removes) =>
+        setLive(
+          produce((s) => {
+            for (const id of adds) s[id] = true;
+            for (const id of removes) delete s[id];
+          }),
+        ),
+      );
+      // Gate on `sub.pending()`, not `sub() === undefined` — the latter also reads
+      // true for a subscription that errored out with no frame ever received
+      // (`subscription-use-pending`: conflating loading with no-data would apply an
+      // empty frame before we even know whether the stream is healthy). Once past
+      // pending, an undefined `sub()` can only mean a terminally-errored
+      // subscription (already toasted above) — falling back to `[]` there is an
+      // honest "we lost this host's live facts", not a hidden default.
+      createEffect(() => {
+        if (sub.pending()) return;
+        reduce.apply(sub() ?? []);
+      });
+      onCleanup(() => {
+        // Host left the pool — drop all of its live flags so no dead key lingers.
+        const held = reduce.drain();
+        if (held.length > 0) {
+          setLive(
+            produce((s) => {
+              for (const id of held) delete s[id];
+            }),
+          );
+        }
+      });
+      return null;
+    },
+  );
+  // Instantiate the roots (mapArray is lazy until read).
+  createEffect(() => void roots());
 
   /** Reactive — true while this terminal's output is actively streaming. */
   function isLive(id: TerminalId): boolean {
     return live[id] ?? false;
   }
 
-  /** Drop all state for `id` — clears any pending quiet-period timer and
-   *  removes the key from both the timer Map and the store. Called from a
-   *  terminal's close path (`Terminal.tsx` onCleanup) so a closed terminal
-   *  leaves no dead key and no late `setLive` firing after it's gone. */
-  function forget(id: TerminalId): void {
-    const pending = timers.get(id);
-    if (pending) clearTimeout(pending);
-    timers.delete(id);
-    const pendingSuppress = suppressTimers.get(id);
-    if (pendingSuppress) clearTimeout(pendingSuppress);
-    suppressTimers.delete(id);
-    suppressed.delete(id);
-    setLive(produce((s) => void delete s[id]));
-  }
-
-  return { noteOutput, isLive, suppress, forget };
+  return { isLive };
 });
