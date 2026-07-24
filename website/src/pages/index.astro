@@ -25,16 +25,16 @@ const docCards = [
     copy: 'Open a repo, name a worktree, launch an agent, and read the dock.',
   },
   {
-    title: 'Install as an app',
-    href: '/install-pwa',
-    eyebrow: 'pwa',
-    copy: 'Pin kolu as a desktop/mobile app and unlock badges and notifications.',
+    title: 'Remote hosts',
+    href: '/remote-hosts',
+    eyebrow: 'ssh',
+    copy: 'Put another machine on the canvas over ssh, and switch hosts live with ⌘⇧H.',
   },
   {
     title: 'Remote access',
     href: '/remote-access',
     eyebrow: 'https',
-    copy: 'Reach kolu from another device with a private Tailscale Serve URL.',
+    copy: 'The other direction: reach the kolu app itself from your phone over a private Tailscale URL.',
   },
 ];
 
@@ -42,7 +42,7 @@ const systemNodes = [
   {
     name: 'kolu',
     role: 'browser workspace',
-    copy: 'the canvas, dock, code browser, PWA shell, and everything you look at.',
+    copy: 'the canvas, dock, code browser, PWA shell — real xterm.js tiles, and everything you look at.',
     logo: href('/favicon.svg'),
     href: href('/quickstart'),
     accent: 'primary',
@@ -87,18 +87,19 @@ const systemNodes = [
       </p>
 
       <h1 class="display hero-title">
-        The terminal<br />built for <span>many</span>.<span class="cursor" aria-hidden="true"></span>
+        Many agents.<br />Many <span>machines</span>.<br />One terminal.<span class="cursor" aria-hidden="true"></span>
       </h1>
 
       <p class="hero-kicker mono">
-        Not a chat-UI wrapper.<br />Not an editor fork.<br />A real terminal — just better at scale.
+        Not a chat-UI wrapper.<br />Not an editor fork.<br />The IDE was built for typing — and your agents don't type.
       </p>
 
       <p class="hero-body">
-        Real <span class="mono">xterm.js</span> tiles on an infinite canvas,
-        backed by padi and kaval so the browser can come and go without losing
-        the shells underneath. <span class="mono">claude</span>, <span class="mono">codex</span>,
-        <span class="mono">opencode</span>, <span class="mono">grok</span> — anything you run in a shell runs in kolu.
+        Real terminals on an infinite canvas — and the canvas isn't stuck on one
+        box. Point kolu at another machine over <span class="mono">ssh</span> and the whole
+        workspace moves there: your shells run on it, you browse and diff its files,
+        and closing the laptop doesn't kill any of it. <span class="mono">claude</span>, <span class="mono">codex</span>, <span class="mono">opencode</span>, <span class="mono">grok</span> — anything
+        you run in a shell runs in kolu, on any machine you can reach.
       </p>
 
       <div class="hero-actions">
@@ -112,6 +113,12 @@ const systemNodes = [
           juspay/kolu
         </a>
       </div>
+
+      <p class="hero-aside">
+        <a href={href('/philosophy')}>
+          Why a terminal and not an editor <span aria-hidden="true">→</span>
+        </a>
+      </p>
     </div>
   </section>
 
@@ -164,11 +171,13 @@ const systemNodes = [
     <div class="system-shell">
       <div class="system-intro">
         <p class="eyebrow">the system</p>
-        <h2 class="display-sm">One terminal experience, split at the right owners.</h2>
+        <h2 class="display-sm">Three programs. One set per machine.</h2>
         <p>
-          Kolu is what you use. Padi remembers the workspace on the host. Kaval
-          owns the shells. That split is why the tab, web server, and PTYs can
-          fail or restart on different clocks.
+          Kolu is what you use. Padi remembers the workspace on a host. Kaval
+          owns the shells there. That split is why the tab, web server, and PTYs
+          can fail or restart on different clocks — and why adding a remote
+          machine isn't a special case. It gets its own padi and kaval,
+          provisioned with Nix over ssh: the same stack, one floor down.
         </p>
         <a href={href('/architecture')} class="system-link">
           See the architecture <span aria-hidden="true">→</span>
@@ -265,7 +274,10 @@ const systemNodes = [
   .hero-title {
     margin-top: 1.25rem;
     color: var(--color-ink);
-    font-size: clamp(3rem, 2.1rem + 4vw, 5rem);
+    /* Three lines, so the cap sits below the old two-line 5rem: at
+       line-height .95 this keeps the headline block about the height it
+       was before the third line arrived. */
+    font-size: clamp(2.6rem, 2rem + 3vw, 4.2rem);
   }
   .hero-title span {
     color: var(--color-kolu-primary);
@@ -322,6 +334,22 @@ const systemNodes = [
   .hero-secondary:hover {
     border-color: var(--color-ink-dim);
     background: var(--color-void-raised);
+  }
+  /* The kicker asserts the editor is the wrong shape for this era; this is the
+     one click to where that argument is actually made. Deliberately quieter
+     than the two hero buttons — it's a third path, not a third call to act. */
+  .hero-aside {
+    margin-top: 1.15rem;
+  }
+  .hero-aside a {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--color-ink-muted);
+    text-decoration: none;
+    transition: color 120ms ease;
+  }
+  .hero-aside a:hover {
+    color: var(--color-kolu-primary);
   }
   .demo-section {
     max-width: 82rem;
