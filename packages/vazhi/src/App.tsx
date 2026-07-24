@@ -146,10 +146,16 @@ export function App({
       setStatus({ kind: "info", text: "no forwards to cancel." });
       return;
     }
-    setStatus({ kind: "info", text: `cancelling ${forward.key}…` });
+    setStatus({
+      kind: "info",
+      text: `cancelling ${formatTarget(forward.target)}…`,
+    });
     try {
       await forwards.cancel(forward.key);
-      setStatus({ kind: "info", text: `cancelled ${forward.key}.` });
+      setStatus({
+        kind: "info",
+        text: `cancelled ${formatTarget(forward.target)}.`,
+      });
     } catch (err) {
       setStatus({ kind: "error", text: messageOf(err) });
     }

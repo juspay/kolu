@@ -25,7 +25,11 @@ export type ForwardTarget =
 /** The identity of a target — one forward per (host, port), so this is the
  *  key of the forward map. `local` is its own namespace: `localhost:5173`
  *  reached over ssh to a host named `localhost` would be a different tunnel
- *  than the same port relayed here. */
+ *  than the same port relayed here.
+ *
+ *  A map key and never display text — it differs from `formatTarget` for local
+ *  targets (`local:5173` vs `localhost:5173`), so anything a user reads must
+ *  come from `formatTarget`. */
 export function targetKey(target: ForwardTarget): string {
   return target.kind === "local"
     ? `local:${target.port}`
