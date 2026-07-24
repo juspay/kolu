@@ -109,6 +109,11 @@ const READY_TIMEOUT_MS = 30_000;
 /** How long a cancelled forward gets to end politely before it is SIGKILLed. */
 const KILL_GRACE_MS = 2_000;
 
+/** How much of ssh's output an attempt keeps. Enough for every startup decision
+ *  (the ready token and the bind-failure line arrive in the first few hundred
+ *  bytes) and for the last words a loss message quotes. */
+const DIAGNOSTIC_TAIL_BYTES = 4096;
+
 /** The `-L` argument. `*:` is load-bearing: it binds the listener on ALL
  *  interfaces regardless of `GatewayPorts`, which is the whole point — the
  *  browser that opens this port is on another machine. The far end is always
@@ -170,13 +175,18 @@ export function openSshAttempt(opts: {
     forwardCommandArgs({ base: SSH_OPTS, host, localPort, remotePort }),
   );
 
+  // Only the TAIL is kept. These buffers live as long as the ssh child, which
+  // is as long as the forward — days, for a box left running — and they serve
+  // two jobs of very different size: the startup decisions (the ready token,
+  // the bind-failure line) all land in the first few hundred bytes, and a later
+  // loss message wants only ssh's last words.
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk: Buffer) => {
-    stdout += chunk.toString();
+    stdout = (stdout + chunk.toString()).slice(-DIAGNOSTIC_TAIL_BYTES);
   });
   child.stderr.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
+    stderr = (stderr + chunk.toString()).slice(-DIAGNOSTIC_TAIL_BYTES);
   });
 
   const detail = (): string =>
