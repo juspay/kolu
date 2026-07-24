@@ -158,8 +158,8 @@ export function sshConnector<C extends AnyContractRouter>(
       host: opts.host,
       derivation,
       onProgress: (line) => ctx.localProgress(line),
-      // Advance at the ONE cold-command boundary. A warm host short-circuits
-      // the ask-only check and stays `probing` → connecting.
+      // Advance before this call's first potentially long required operation:
+      // a cold build or a warm target's root repair.
       onProvisioning: () => ctx.provisioning("provisioning"),
       budgets,
       // The per-dial abort — recheck's abort-in-flight group-kills any provisioning
