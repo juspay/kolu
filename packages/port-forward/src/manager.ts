@@ -267,8 +267,19 @@ export function makeForwardManager(opts: {
       }
     }
     lostWhileClosing.delete(key);
-    settle(failure);
-    return failure;
+
+    // The outcome is the TEARDOWN FACT, not the close call's result: a failure
+    // is reported if and ONLY if this key still holds the listener we failed to
+    // close. Returning the raw rejection let `dispose` claim a forward could
+    // not be torn down while its own map was empty — which happens whenever the
+    // mechanism definitively reported the listener gone AND its close then
+    // rejected, because the loss is the stronger fact and the slot is deleted.
+    const now = slots.get(key);
+    const survived =
+      now !== undefined && now.state === "open" && now.token === slot.token;
+    const outcome = survived ? failure : undefined;
+    settle(outcome);
+    return outcome;
   }
 
   /** Named, so the closing-slot branch can recurse WITHOUT `this`: these

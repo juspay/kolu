@@ -317,6 +317,67 @@ describe("cancel during the opening window", () => {
   }
 });
 
+/** The CLOSING window, generated.
+ *
+ *  Round ten found the hole this closes: a report arriving while a teardown was
+ *  in flight. A definitive loss deletes the slot (the loss is the stronger
+ *  fact), but the close's own rejection was still returned as the outcome — so
+ *  `dispose` claimed a forward could not be torn down while its map was empty.
+ *
+ *  The rule this pins: **the outcome is the map**. A teardown reports failure if
+ *  and only if the forward is still listed afterwards. */
+describe("a report arriving mid-teardown", () => {
+  const REPORTS = ["none", "lost", "fault"] as const;
+  const CLOSES = [
+    { label: "close succeeds", fail: false },
+    { label: "close refuses", fail: true },
+  ] as const;
+  const VIA = ["cancel", "dispose"] as const;
+
+  for (const via of VIA) {
+    for (const report of REPORTS) {
+      for (const close of CLOSES) {
+        it(`${via} · ${report} arrives while closing · ${close.label}`, async () => {
+          let channel: ForwardReport | undefined;
+          const rig = mapOf({
+            onOpen: (r) => (channel = r),
+            deferClose: true,
+          });
+          const { forwards } = rig;
+          const forward = await forwards.create(PU);
+
+          const teardown =
+            via === "cancel"
+              ? forwards.cancel(forward.key).then(
+                  () => ({ failed: false }),
+                  () => ({ failed: true }),
+                )
+              : forwards.dispose().then(
+                  () => ({ failed: false }),
+                  () => ({ failed: true }),
+                );
+          await Promise.resolve();
+          if (report === "lost") channel?.lost("gone mid-teardown");
+          if (report === "fault") channel?.fault("broke mid-teardown");
+          rig.closeSettles(close.fail ? new Error("close refused") : undefined);
+
+          const outcome = await teardown;
+          const listed = forwards.list();
+
+          // THE RULE: the reported outcome and the map agree, always.
+          expect(outcome.failed).toBe(listed.length > 0);
+
+          // A definitive loss is the stronger fact: it is gone even if the
+          // close then failed.
+          if (report === "lost") expect(listed).toEqual([]);
+          // Otherwise a refused close leaves it listed and retryable.
+          if (report !== "lost" && close.fail) expect(listed).toHaveLength(1);
+        });
+      }
+    }
+  }
+});
+
 describe("never publish a corpse", () => {
   it("a loss during the open is never handed back", async () => {
     const { forwards } = mapOf({
