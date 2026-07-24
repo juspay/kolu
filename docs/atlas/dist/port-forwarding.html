@@ -265,6 +265,14 @@ lifecycle is a hard volatility with two genuinely independent apps on top
 upstreamed “common stuff” of the drishti pattern — and why neither app is a
 daemon the other must talk to.</p></div></aside>
 <h2 id="build-plan--the-prt-track">Build plan — the PRT track</h2>
+<p>What each phase changes <strong>for the user</strong> — the sentence you’d put in a
+release note:</p>
+<ul>
+<li><strong>PRT0</strong> — you can forward ports by hand, today, kolu or no kolu: run <code>nix run …#vazhi</code> in any terminal (a kolu terminal keeps it alive across reloads), type <code>a host:4123</code>, and get a live table with a clickable <code>http://…</code> link; <code>q</code> reaps every forward, guaranteed. Kolu’s own UI changes not at all.</li>
+<li><strong>PRT1</strong> — the Inspector answers “what is this terminal serving?”: a live <strong>Ports</strong> section lists every listening port of the session within seconds of it appearing, and ports that are already reachable open in one click. (Loopback-bound ports are listed but not yet openable.)</li>
+<li><strong>PRT2</strong> — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, a <strong>Forwarded Ports</strong> group shows and cancels them (plus a manual ⌘K “Forward a port…”), and forwards clean themselves up when the server dies. This is the headline: <em>the agent started something → you’re looking at it.</em></li>
+<li><strong>PRT3</strong> <em>(deferred)</em> — the page opens inside kolu instead of a browser tab.</li>
+</ul>
 <table>
 <thead>
 <tr>
