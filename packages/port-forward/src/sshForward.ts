@@ -183,21 +183,22 @@ export function openSshAttempt(opts: {
     stderr.trim() === "" ? "" : `: ${stderr.trim()}`;
 
   return new Promise<OpenedForward>((resolve, reject) => {
-    /** The attempt's outcome, written exactly once. `cancelled` is separate: it
-     *  records that WE ended the child, so its exit is not reported as a loss. */
-    let done = false;
-    let cancelled = false;
+    /** Where this attempt has got to. One name for the four states it can be
+     *  in, rather than two booleans whose write order the reader has to hold:
+     *  `opening` settles exactly once into `up` or `failed`, and only something
+     *  that came up can then be `cancelled` by us. */
+    let phase: "opening" | "up" | "cancelled" | "failed" = "opening";
     let timer: NodeJS.Timeout | undefined;
 
-    const settle = (outcome: () => void): void => {
-      if (done) return;
-      done = true;
+    const settle = (next: "up" | "failed", outcome: () => void): void => {
+      if (phase !== "opening") return;
+      phase = next;
       if (timer !== undefined) clearTimeout(timer);
       outcome();
     };
 
     const fail = (err: Error): void => {
-      settle(() => {
+      settle("failed", () => {
         child.kill("SIGKILL");
         reject(err);
       });
@@ -205,7 +206,7 @@ export function openSshAttempt(opts: {
 
     const close = (): Promise<void> =>
       new Promise<void>((closed) => {
-        cancelled = true;
+        phase = "cancelled";
         if (child.exitCode !== null || child.signalCode !== null) {
           closed();
           return;
@@ -228,7 +229,7 @@ export function openSshAttempt(opts: {
     );
 
     child.once("exit", (code, signal) => {
-      if (!done) {
+      if (phase === "opening") {
         // Died before it was ever up. A bind failure is the caller's cue to
         // take a different port; anything else is the forward's own failure.
         fail(
@@ -246,11 +247,12 @@ export function openSshAttempt(opts: {
       // Past readiness, the child ending means the forward is GONE — the host
       // dropped, the network died, someone killed it. Unless we did it
       // ourselves, in which case `close()` is already telling the caller.
-      if (!cancelled) onLost(`the ssh connection to ${host} ended${detail()}`);
+      if (phase === "up")
+        onLost(`the ssh connection to ${host} ended${detail()}`);
     });
 
     child.stdout.on("data", () => {
-      if (done || !stdout.includes(READY_TOKEN)) return;
+      if (phase !== "opening" || !stdout.includes(READY_TOKEN)) return;
       // The far end is running, so ssh set the forwardings up before it. A bind
       // error alongside that means a PARTIAL bind (one address family took the
       // port, the other did not) — half a listener is not a forward.
@@ -263,7 +265,7 @@ export function openSshAttempt(opts: {
         );
         return;
       }
-      settle(() => resolve({ localPort, close }));
+      settle("up", () => resolve({ localPort, close }));
     });
 
     timer = setTimeout(
