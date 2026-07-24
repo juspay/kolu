@@ -161,7 +161,7 @@ describe("HostSession reconnect after give-up", () => {
     vi.clearAllMocks();
   });
 
-  it("re-arms a session that gave up on a nix-copy failure", async () => {
+  it("re-arms a session that gave up on a provisioning failure", async () => {
     const session = failingSession();
 
     // Pin spawns; provision fails every attempt. Drive the backoff

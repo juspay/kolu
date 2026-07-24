@@ -42,9 +42,9 @@ localPadi.onState((s) => {
   }
 });
 
-// The REMOTE ssh arm keeps the default (`SshProv`): `"provisioning"` is its actual
-// opening phase (`remotePadiBinding.ts`'s `initialConnection: "probing"`), so it
-// must stay legal to read here — the split cuts only ONE way.
+// The REMOTE ssh arm keeps the default (`SshProv`): it opens at `"probing"` and can
+// reach `"provisioning"`, so that phase must stay legal to read here — the split
+// cuts only ONE way.
 declare const remotePadi: PadiSession;
 remotePadi.onState((s) => {
   if (s.phase === "provisioning") {

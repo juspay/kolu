@@ -396,9 +396,10 @@ async function pinGcRoot(
   };
 }
 
-/** Ship the `.drv` to `$host` and realise it there. Returns the
- *  output path on the *target* host, ready for
- *  `ssh $host $agentPath/bin/...`. */
+/** Realise an agent derivation in `$host`'s store and commit its required GC
+ *  root. A flake-backed derivation gives one remote-store `nix build` ownership
+ *  of evaluation, transfer, and realisation. Returns the target-store output
+ *  path, ready for `ssh $host $agentPath/bin/...`. */
 export async function provisionAgent(
   opts: ProvisionOptions,
 ): Promise<ProvisionResult> {

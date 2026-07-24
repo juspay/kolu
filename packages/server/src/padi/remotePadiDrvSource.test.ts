@@ -146,7 +146,11 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
 
   it("(c) a source that cannot resolve padi becomes a terminal build fault", async () => {
     h.resolveBakedAgentDrv.mockRejectedValue(
-      new ResolveDrvError("no padi for aarch64-linux", "remote"),
+      new ResolveDrvError("no padi for aarch64-linux", {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      }),
     );
     const resolve = seedAndCaptureResolver();
     await expect(resolve(resolverContext)).rejects.toThrow(

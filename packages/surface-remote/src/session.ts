@@ -235,7 +235,7 @@ export interface Session<
    *  connect / between dials; `anonymous`/`identified` once connected (never
    *  null-forever — every server answers `system.identity`). */
   identity(): SurfaceIdentity;
-  /** Does this session's transport PROVISION (nix-copy a closure) before
+  /** Does this session's transport PROVISION an agent closure before
    *  connecting? The runtime twin of the `Prov` TYPE parameter, which is erased at
    *  runtime: `false` for a non-provisioning arm (`Prov = never`, whose
    *  `initialConnection` is always `"connecting"` — it can never legitimately reach
@@ -433,7 +433,8 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  COMPILE errors there (a session that hasn't dialed yet cannot legally BOOT
    *  already live, already given up, or in a phase its connector can never enter —
    *  that would publish a LYING first frame and could misclassify `provisions`
-   *  below). An ssh `sshConnector` PROVISIONS (nix-copies the closure first), so
+   *  below). An ssh `sshConnector` PROVISIONS (evaluates the exact source, builds
+   *  into the target store, and commits the GC root), so
    *  `Prov = "probing" | "provisioning"` and `initialConnection` narrows to
    *  EXACTLY `Prov` — the connector opens at its FIRST provisioning phase (`"probing"`) and
    *  advances the rest via `ctx.provisioning`. A provisioning session can no longer

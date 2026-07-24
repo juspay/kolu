@@ -10,29 +10,32 @@ export function isLocalHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
-/** A `resolveDrvPath` rejection that marks THIS failure as a NON-transport,
- *  bounded → terminal `"remote"` fault — not a transport blip.
+/** The closed resolver-failure verdicts a connector can act on. Plain errors remain
+ *  retryable network failures; typed resolver failures must choose one of these
+ *  valid cause/terminal combinations. */
+export type ResolveDrvFailure =
+  | {
+      kind: "source-unbaked" | "unavailable";
+      failureCause: "remote";
+      terminal: false;
+    }
+  | {
+      kind: "network-exhausted";
+      failureCause: "network";
+      terminal: true;
+    };
+
+/** A `resolveDrvPath` rejection with an explicit connector verdict.
  *
  *  Why it exists: `sshConnector` runs the caller's `resolveDrvPath` thunk
  *  at the top of every dial and, by default, treats a rejection as `"network"`
  *  — the right call for the common case (the resolver's arch probe is an ssh
  *  round-trip, so a rejection usually means the host is unreachable, which must
  *  retry forever). But a resolver can also fail for a NON-transport reason that
- *  retrying can never fix: it probed the host fine and then found no derivation
- *  baked for that system. Throwing this error lets the resolver say so
- *  explicitly; the session reads `.failureCause` and gives up bounded instead of
- *  assuming `"network"`. A plain `Error` keeps the back-compatible `"network"`
- *  default.
- *
- *  `failureCause` is the LITERAL `"remote"`, not the full `"network" | "remote"`
- *  cause pair: the class exists SOLELY to assert the non-transport fault, so a `"network"`
- *  inhabitant would classify identically to a plain `Error` and buy nothing —
- *  making it representable was an uninhabitable variant. Both real producers
- *  (kolu-server's `makeResolvePadiDrv`) pass `"remote"`; the parameter is pinned
- *  to that literal so the redundant `"network"` state is a COMPILE error, not a
- *  constructible-but-meaningless value (`new ResolveDrvError(msg, "network")` no
- *  longer typechecks). Kept as a required constructor arg — rather than a bare
- *  field — so the two existing producers stay source-compatible.
+ *  retrying can never fix, or exhaust its connector-owned retry budget. Throwing
+ *  this error lets the resolver state the one cause/terminal verdict explicitly.
+ *  The discriminated union above prevents meaningless combinations such as a
+ *  non-terminal exhausted budget or a terminal source-configuration fault.
  *
  *  The discriminant is its OWN field (`failureCause`), NOT the standard
  *  `Error.cause` (the ES2022 options bag). Redeclaring `cause` as a class member
@@ -44,10 +47,18 @@ export function isLocalHost(host: string): boolean {
 export class ResolveDrvError extends Error {
   constructor(
     message: string,
-    readonly failureCause: "remote",
+    readonly resolution: ResolveDrvFailure,
   ) {
     super(message);
     this.name = "ResolveDrvError";
+  }
+
+  get failureCause(): ResolveDrvFailure["failureCause"] {
+    return this.resolution.failureCause;
+  }
+
+  get terminal(): ResolveDrvFailure["terminal"] {
+    return this.resolution.terminal;
   }
 }
 

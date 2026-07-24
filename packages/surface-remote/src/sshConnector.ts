@@ -24,11 +24,7 @@ import {
   isLocalHost,
   ResolveDrvError,
 } from "./host";
-import {
-  AgentResolutionExhaustedError,
-  resolveAgentDrv,
-  type AgentResolutionContext,
-} from "./agentDrv";
+import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import {
   type AgentDerivation,
   makeProvisionBudgets,
@@ -145,12 +141,8 @@ export function sshConnector<C extends AnyContractRouter>(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const cause =
-        err instanceof ResolveDrvError ||
-        err instanceof AgentResolutionExhaustedError
-          ? err.failureCause
-          : "network";
-      const terminal =
-        err instanceof AgentResolutionExhaustedError ? err.terminal : false;
+        err instanceof ResolveDrvError ? err.failureCause : "network";
+      const terminal = err instanceof ResolveDrvError ? err.terminal : false;
       throw new ConnectError(reason, cause, terminal);
     }
 

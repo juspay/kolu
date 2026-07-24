@@ -34,7 +34,11 @@ export class AgentSourceUnbakedError extends ResolveDrvError {
   constructor() {
     super(
       `${SURFACE_AGENT_FLAKE_REF_ENV} is not set — remote agents need the source flake baked into the build. Run the agent client from its Nix wrapper.`,
-      "remote",
+      {
+        kind: "source-unbaked",
+        failureCause: "remote",
+        terminal: false,
+      },
     );
     this.name = "AgentSourceUnbakedError";
   }
@@ -53,12 +57,13 @@ export function readBakedAgentSource(): Result<
 /** A silent evaluation exhausted its connector-owned campaign budget. Its
  * transport cause remains honest (`network`), while terminality is a separate
  * fact the connector must carry into the session immediately. */
-export class AgentResolutionExhaustedError extends Error {
-  readonly failureCause = "network" as const;
-  readonly terminal = true;
-
+export class AgentResolutionExhaustedError extends ResolveDrvError {
   constructor(message: string) {
-    super(message);
+    super(message, {
+      kind: "network-exhausted",
+      failureCause: "network",
+      terminal: true,
+    });
     this.name = "AgentResolutionExhaustedError";
   }
 }
@@ -106,14 +111,22 @@ function evaluationError(
     .with({ kind: "exit" }, () =>
       sawNetworkError
         ? new Error(message)
-        : new ResolveDrvError(message, "remote"),
+        : new ResolveDrvError(message, {
+            kind: "unavailable",
+            failureCause: "remote",
+            terminal: false,
+          }),
     )
     .with({ kind: P.union("spawn-error", "output-error", "signal") }, () => {
       // These are local resource/setup faults, not transport facts. Retrying a
       // missing executable or externally OOM-killed evaluator inside the host
       // reconnect loop would respawn the same failure indefinitely; keep it
       // terminal until an explicit recheck or a new process starts a campaign.
-      return new ResolveDrvError(message, "remote");
+      return new ResolveDrvError(message, {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      });
     })
     .with(
       { kind: P.union("lifetime-expired", "aborted") },
@@ -181,7 +194,11 @@ export async function resolveAgentDrv(
   if (!drv.endsWith(".drv")) {
     throw new ResolveDrvError(
       `${host}: nix eval returned ${JSON.stringify(drv)}, not a derivation path for ${packageName} on system=${system}`,
-      "remote",
+      {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      },
     );
   }
   const derivation = flakeAgentDerivation(drv, installable);

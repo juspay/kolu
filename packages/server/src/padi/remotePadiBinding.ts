@@ -174,7 +174,11 @@ class PadiDrvFault extends ResolveDrvError {
       "agent-source-unbaked" | "agent-drv-unavailable"
     >,
   ) {
-    super(message, "remote");
+    super(message, {
+      kind: "unavailable",
+      failureCause: "remote",
+      terminal: false,
+    });
     this.name = "PadiDrvFault";
   }
 }
@@ -187,9 +191,7 @@ class PadiDrvFault extends ResolveDrvError {
  *  boot-brick that takes the whole server + the healthy local default down with it
  *  (F6). A source that cannot resolve padi for the probed system is likewise a
  *  TERMINAL config fault; an unreachable host rejects plainly → `"network"` (retry). */
-function makeResolvePadiDrv(
-  host: string,
-): SshConnectorOptions["resolveDrvPath"] {
+function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
   return async (ctx) => {
     // Validate the baked ref here (lazy). A missing ref can't self-heal on a
     // retry, so represent it as a TERMINAL `ResolveDrvError("remote")` — the session
@@ -350,7 +352,7 @@ export function ensureRemotePadiBinding(
   // `sshConnector` yields the COMBINED daemon client; the pump + `identity()` need the
   // padi-scoped view (`client.surface.<member>` at /surface/padi/*). So the wrapper
   // stashes the combined (for admit/drain) and hands the session the scoped client.
-  const resolveDrv = makeResolvePadiDrv(host);
+  const resolveDrv = makeResolvePadiDrv();
   const inner = sshConnector<PadiDaemonContract>({
     host,
     binary: "padi",
