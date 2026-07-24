@@ -228,7 +228,7 @@ const WelcomeMoments: Component<{
                 type="button"
                 data-testid="welcome-run-agents"
                 class="cursor-pointer"
-                title="New terminal"
+                title={ACTIONS.createTerminal.label}
                 onClick={runCreateTerminal}
               >
                 <Kbd>{formatKeybind(advertisedNewTerminalKey)}</Kbd>
@@ -241,7 +241,7 @@ const WelcomeMoments: Component<{
           <MomentShell
             testId="welcome-moment-search"
             emoji="⌕"
-            title="Search everything"
+            title={ACTIONS.commandPalette.label}
             body="One box finds terminals, hosts, and commands — type a branch or machine name, no separate switcher."
             docSlug="switcher"
             trailing={

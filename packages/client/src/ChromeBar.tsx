@@ -152,7 +152,7 @@ const ChromeBar: Component<{
           </button>
         </Tip>
         <Tip
-          label={`Toggle right panel (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
+          label={`${ACTIONS.toggleRightPanel.label} (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
         >
           <button
             type="button"
@@ -170,7 +170,7 @@ const ChromeBar: Component<{
             // terminal exists (the keybind/palette no-op via togglePanel too).
             disabled={!rightPanel.hasTerminals()}
             onClick={() => rightPanel.togglePanel()}
-            aria-label="Toggle right panel"
+            aria-label={ACTIONS.toggleRightPanel.label}
           >
             <InspectorToggleIcon active={rightPanel.panelOpen()} />
           </button>
