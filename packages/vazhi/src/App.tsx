@@ -170,6 +170,13 @@ export function App({
     return rows[Math.min(Math.max(at + by, 0), rows.length - 1)]?.key;
   };
 
+  /** The user finished typing a target — one action, however it was reached
+   *  (Enter as a key event, or a pasted line bringing its own newline). */
+  const submit = (value: string): void => {
+    setMode({ kind: "table" });
+    void add(value);
+  };
+
   // Table keys. Inactive while the prompt is up, so typing a host name can
   // never also mean "quit".
   useInput(
@@ -230,18 +237,11 @@ export function App({
       status={status}
       onInputChange={(input) => {
         const read = readPromptInput(input);
-        if (read.kind === "typing") {
-          setMode({ kind: "add", input: read.value });
-          return;
-        }
         // A pasted line brings its own newline: take it as the Enter it is.
-        setMode({ kind: "table" });
-        void add(read.value);
+        if (read.kind === "typing") setMode({ kind: "add", input: read.value });
+        else submit(read.value);
       }}
-      onInputSubmit={(input) => {
-        setMode({ kind: "table" });
-        void add(input);
-      }}
+      onInputSubmit={submit}
     />
   );
 }
