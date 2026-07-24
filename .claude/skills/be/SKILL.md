@@ -70,27 +70,17 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 **not** run `/be-review`, do not run individual reviewers, do not post gauntlet
 PR comments. Note the skip in the Done report. Continue to §5.
 
-Otherwise run **`/be-review`** (Skill tool) — it runs four reviewers **serially**,
-each the sole editor while it runs: `/lens-debate` (two parallel lenses, one
-reconcile-and-apply pass) committing the agreed fixes, then
-`/agent-debate` (its per-round commits are the debate), then `/simplify`, then
-code-police. Each step reads a clean tree (the previous step has committed) and
-applies its own fixes directly — no snapshot, no apply pass. be-review pushes once
-at the end and *then* posts the PR comments (lens, agent-debate, and a code-police
-summary), so no comment advertises a local-only commit.
+Otherwise run **`/be-review`** (Skill tool) — it runs its reviewers **serially**,
+each the sole editor while it runs. It owns the order, the tracks, and the
+push-then-comment discipline; don't restate them here.
 
-**Unless `--skip-gauntlet` was passed, this phase is non-negotiable.** The lens
-step fans its two lenses out as parallel subagents and merges them in one pass;
-`/agent-debate` runs inline against a live split peer, while later passes follow
-their own skill contracts. Context or budget concern is **never** grounds to
-skip a reviewer, run fewer than all four, or
-substitute a hand-rolled review for the real gauntlet — that excuse doesn't
-survive ten seconds of scrutiny, and dropping a step you were told to run is the
-single worst gauntlet failure. `/be`'s autonomy means *don't ask permission for
-each step*, NOT *decide which steps matter*. The only sanctioned skip is the
-explicit `--skip-gauntlet` flag above. If a mandatory step is genuinely
-infeasible, **STOP and ask the user** at that moment — never silently substitute
-and disclose it later in the wrap-up.
+**Unless `--skip-gauntlet` was passed, this phase is non-negotiable.** Context or
+budget concern is **never** grounds to skip a reviewer, run fewer than the full
+set, or substitute a hand-rolled review for the real gauntlet. `/be`'s autonomy
+means *don't ask permission for each step*, NOT *decide which steps matter*. The
+only sanctioned skip is the explicit `--skip-gauntlet` flag above. If a mandatory
+step is genuinely infeasible, **STOP and ask the user** at that moment — never
+silently substitute and disclose it later in the wrap-up.
 
 - Pass the interview's explicit **`--agent`** selection, `base`, the change **`rationale`** (so the lenses don't flag deliberate
   decisions), and **`context`** — the task intent and key decisions you hold from
