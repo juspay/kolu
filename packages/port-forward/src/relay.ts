@@ -68,29 +68,46 @@ export function openRelayWith(opts: {
     outbound.pipe(inbound);
   });
 
-  /** The ONE way this relay goes down, whoever asks. `close()` and a listener
-   *  that failed on its own must do the same work — destroy the live pairs,
-   *  shut the door — and a loss must be announced exactly once, and never for a
-   *  teardown we ourselves ordered. Reporting a failure without tearing down
-   *  was the defect this replaces: the row vanished while the listener could
-   *  still be reachable, and a late second notification could delete a
-   *  REPLACEMENT forward that had reused the same key. */
+  /** The ONE way this relay goes down, whoever asks — `close()` or a listener
+   *  that failed on its own. Three states, kept apart because conflating the
+   *  first two is a race:
+   *
+   *   - `up`      — serving.
+   *   - `closing` — a teardown is in flight; every later caller JOINS that same
+   *                 promise instead of being told "already done" while the
+   *                 server is still closing.
+   *   - `down`    — the server is closed. Only a SUCCESSFUL close gets here; a
+   *                 rejected one returns to `up` so a retry really retries.
+   *
+   *  A loss is announced exactly once, AFTER teardown, and never for a
+   *  teardown we ordered ourselves. */
   let down = false;
-  const teardown = (): Promise<void> =>
-    new Promise<void>((done, fail) => {
-      const wasDown = down;
-      down = true;
+  let inFlight: Promise<void> | undefined;
+
+  const teardown = (): Promise<void> => {
+    if (down) return Promise.resolve();
+    if (inFlight !== undefined) return inFlight;
+    inFlight = new Promise<void>((done, fail) => {
       for (const socket of live) socket.destroy();
       live.clear();
-      if (wasDown || !server.listening) {
+      if (!server.listening) {
+        down = true;
         done();
         return;
       }
       server.close((err) => {
-        if (err !== undefined) fail(err);
-        else done();
+        if (err !== undefined) {
+          // Still up as far as we know: let the next caller try again.
+          inFlight = undefined;
+          fail(err);
+          return;
+        }
+        down = true;
+        done();
       });
     });
+    return inFlight;
+  };
 
   return new Promise((resolve, reject) => {
     const onListenError = (err: Error): void => reject(err);
@@ -101,9 +118,16 @@ export function openRelayWith(opts: {
       // Past the bind, a listener error is a LOSS, not a startup failure. Take
       // the relay down FIRST, then say so — once.
       server.on("error", (err) => {
-        if (down) return;
+        // Only an UNSOLICITED failure is a loss: if a teardown is already in
+        // flight, whoever ordered it is the one being answered.
+        if (down || inFlight !== undefined) return;
         const reason = `the local relay listener failed: ${err.message}`;
-        void teardown().finally(() => onLost(reason));
+        // Tear down FIRST, then say so — once, and with both settlements
+        // handled so a failed close cannot become an unhandled rejection.
+        teardown().then(
+          () => onLost(reason),
+          () => onLost(reason),
+        );
       });
       const address = server.address();
       if (address === null || typeof address === "string") {

@@ -209,6 +209,20 @@ describe("a table bigger than the terminal", () => {
     }
   });
 
+  it("keeps a multi-kilobyte error inside its one row", () => {
+    const lines = plain(
+      frame({
+        forwards: many.slice(0, 3),
+        selectedKey: many[0]?.key,
+        size: { columns: 60, rows: 12 },
+        status: { kind: "error", text: `ssh said: ${"x".repeat(4000)}` },
+      }),
+    ).split("\n");
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(60);
+    // and the legend still made it
+    expect(lines.at(-1)).toContain("a add");
+  });
+
   it("shows a contiguous run and says how many it is hiding", () => {
     const text = plain(
       frame({

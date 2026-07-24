@@ -125,3 +125,17 @@ export function viewport<T extends { readonly key: string }>(opts: {
   const only = rows.slice(anchor, anchor + 1);
   return { rows: only, above: anchor, below: rows.length - anchor - 1 };
 }
+
+/** Squeeze text onto exactly one terminal row.
+ *
+ *  The frame reserves ONE row for the status line, and a status can carry ssh's
+ *  own diagnostics — bounded, but still thousands of characters. Left to wrap,
+ *  it eats the rows the table and the key legend were promised, which is the
+ *  same layout failure the viewport exists to prevent, arriving by another
+ *  door. Newlines become spaces (a wrapped line is still a line) and the tail
+ *  is cut with an ellipsis so it is visible that there was more. */
+export function oneLine(text: string, columns: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const width = Math.max(1, columns);
+  return flat.length <= width ? flat : `${flat.slice(0, width - 1)}…`;
+}

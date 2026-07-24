@@ -12,14 +12,23 @@ function fakeMechanisms(): {
   closes: number[];
   /** Kill the forward opened for `key` the way a dropped ssh master would. */
   killFromOutside: (key: string, reason: string) => void;
+  /** Fire the loss callback of the FIRST forward ever opened — a report that
+   *  arrives after that forward has been cancelled and replaced. */
+  killFirstOpening: (reason: string) => void;
 } {
   const opens: ForwardTarget[] = [];
   const closes: number[] = [];
   const losers = new Map<string, (reason: string) => void>();
+  const everyOpening: Array<(reason: string) => void> = [];
   let nextPort = 61000;
   return {
     opens,
     closes,
+    killFirstOpening: (reason) => {
+      const notify = everyOpening[0];
+      if (notify === undefined) throw new Error("nothing was ever opened");
+      notify(reason);
+    },
     killFromOutside: (key, reason) => {
       const notify = losers.get(key);
       if (notify === undefined) throw new Error(`nothing open for ${key}`);
@@ -30,6 +39,7 @@ function fakeMechanisms(): {
         opens.push(target);
         const localPort = nextPort++;
         losers.set(targetKey(target), onLost);
+        everyOpening.push(onLost);
         return {
           localPort,
           close: async () => {
@@ -327,6 +337,35 @@ describe("the forward map", () => {
 
     expect(second.localPort).not.toBe(first.localPort);
     expect(forwards.list()).toEqual([second]);
+  });
+
+  it("a late loss cannot delete the REPLACEMENT that reused its key", async () => {
+    // The mechanism can report a loss after we have already closed that
+    // forward and opened another on the same key. Without a per-opening
+    // identity the map would delete the newcomer.
+    const fake = fakeMechanisms();
+    const forwards = makeForwardManager({ ...fake, onLost: () => {} });
+    const first = await forwards.create(PU);
+    await forwards.cancel(first.key);
+    const second = await forwards.create(PU);
+
+    fake.killFirstOpening("host dropped, belatedly");
+
+    expect(forwards.list()).toEqual([second]);
+  });
+
+  it("works when its methods are pulled off the object", async () => {
+    // vazhi hands `create` to a component as a bare function; nothing in the
+    // type says it needs its receiver, so nothing may.
+    const fake = fakeMechanisms();
+    const forwards = makeForwardManager({ ...fake, onLost: () => {} });
+    const { create, cancel } = forwards;
+
+    const forward = await create(PU);
+    await cancel(forward.key);
+    const again = await create(PU);
+
+    expect(again.localPort).not.toBe(forward.localPort);
   });
 
   it("opens nothing more once disposed", async () => {

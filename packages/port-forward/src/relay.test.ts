@@ -192,6 +192,27 @@ describe("a relay that fails after it was up", () => {
     expect(losses).toEqual([]);
   });
 
+  it("makes a concurrent close JOIN the teardown already under way", async () => {
+    // "Already closing" must not answer "done" while the server is still
+    // closing: a caller that believed it could then reuse the key, and the
+    // late loss would land on the replacement.
+    const origin = await serveOnLoopback("bye");
+    cleanups.push(origin.stop);
+    const losses: string[] = [];
+    const { relay, server } = await relayWithHandle(origin.port, (reason) =>
+      losses.push(reason),
+    );
+
+    server.emit("error", new Error("listener exploded"));
+    await relay.close();
+
+    // By the time close() resolves the door really is shut.
+    await expect(
+      fetch(`http://127.0.0.1:${relay.localPort}/`),
+    ).rejects.toThrow();
+    expect(losses).toHaveLength(1);
+  });
+
   it("is safe to close twice", async () => {
     const origin = await serveOnLoopback("bye");
     cleanups.push(origin.stop);

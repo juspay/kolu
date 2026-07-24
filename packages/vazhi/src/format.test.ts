@@ -5,6 +5,7 @@ import {
   hyperlink,
   readPromptInput,
   viewport,
+  oneLine,
 } from "./format.ts";
 
 describe("formatUptime", () => {
@@ -139,6 +140,28 @@ describe("viewport", () => {
     );
     expect(viewport({ rows, selectedKey: "k1", lines: 0 }).rows).toHaveLength(
       0,
+    );
+  });
+});
+
+describe("oneLine", () => {
+  it("leaves a short message alone", () => {
+    expect(oneLine("cancelled pu-dev:5173.", 80)).toBe(
+      "cancelled pu-dev:5173.",
+    );
+  });
+
+  it("cuts a long one to the width, visibly", () => {
+    const out = oneLine("x".repeat(500), 40);
+    expect(out).toHaveLength(40);
+    expect(out.endsWith("…")).toBe(true);
+  });
+
+  it("flattens newlines — a wrapped line is still a line", () => {
+    // ssh diagnostics are multi-line; left alone they eat the rows the table
+    // and the key legend were promised.
+    expect(oneLine("bind failed:\n  Address already in use", 80)).toBe(
+      "bind failed: Address already in use",
     );
   });
 });
