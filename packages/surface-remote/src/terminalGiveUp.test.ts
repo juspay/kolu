@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
 import { silentLogger } from "./loggerStubs.testutil";
-import { PROVISION_STEP_MAX_EXPIRIES } from "./nixCopy";
+import { directAgentDerivation, PROVISION_STEP_MAX_EXPIRIES } from "./nixCopy";
 import { type ExitResult, runCapture, runProgress } from "./process";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
@@ -61,7 +61,7 @@ describe("#1908 — a permanently-silent copy reaches `failed`, bounded", () => 
     const connectOnce = sshConnector({
       host: "testhost",
       binary: "agent",
-      resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: DRV }),
+      resolveDrvPath: () => Promise.resolve(directAgentDerivation(DRV)),
       localEnv: {},
     });
     const session = makeSession({

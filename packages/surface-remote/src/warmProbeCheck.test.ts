@@ -17,7 +17,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
-import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
+import {
+  directAgentDerivation,
+  makeProvisionBudgets,
+  provisionAgent,
+} from "./nixCopy";
 import { type CaptureResult, runCapture, runProgress } from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
@@ -79,7 +83,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     const res = await provisionAgent({
       host: "testhost",
-      derivation: { kind: "drv-path", drvPath: DRV },
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -104,7 +108,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     await provisionAgent({
       host: "testhost",
-      derivation: { kind: "drv-path", drvPath: DRV },
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -115,7 +119,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     await provisionAgent({
       host: "testhost",
-      derivation: { kind: "drv-path", drvPath: DRV },
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -129,7 +133,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit(`${STORE}\n${STORE2}\n`);
     const res = await provisionAgent({
       host: "testhost",
-      derivation: { kind: "drv-path", drvPath: DRV },
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });

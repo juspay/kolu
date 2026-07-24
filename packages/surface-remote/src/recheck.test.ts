@@ -25,7 +25,7 @@ import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import {
   type DownSessionState,
   makeSession,
@@ -129,10 +129,9 @@ describe("HostSession child-exit classification", () => {
         binary: "agent",
         localEnv: {},
         resolveDrvPath: () =>
-          Promise.resolve({
-            kind: "drv-path",
-            drvPath: "/nix/store/deadbeef-agent.drv",
-          }),
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 10,
       label: "testhost",
@@ -178,10 +177,9 @@ describe("HostSession.recheck", () => {
         binary: "agent",
         localEnv: {},
         resolveDrvPath: () =>
-          Promise.resolve({
-            kind: "drv-path",
-            drvPath: "/nix/store/deadbeef-agent.drv",
-          }),
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 50,
       label: "testhost",
@@ -220,10 +218,9 @@ describe("HostSession.recheck", () => {
         binary: "agent",
         localEnv: {},
         resolveDrvPath: () =>
-          Promise.resolve({
-            kind: "drv-path",
-            drvPath: "/nix/store/deadbeef-agent.drv",
-          }),
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 50,
       label: "testhost",
@@ -258,10 +255,9 @@ describe("HostSession.recheck", () => {
         binary: "agent",
         localEnv: {},
         resolveDrvPath: () =>
-          Promise.resolve({
-            kind: "drv-path",
-            drvPath: "/nix/store/deadbeef-agent.drv",
-          }),
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       label: "testhost",
     });

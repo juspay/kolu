@@ -14,6 +14,7 @@ import { resolveSystem } from "./arch";
 import { looksLikeNetworkError, ResolveDrvError } from "./host";
 import {
   type AgentDerivation,
+  flakeAgentDerivation,
   PROVISION_STEP_SILENCE_BASE_MS,
 } from "./nixCopy";
 import { describeExit, type ExitResult, runCapture } from "./process";
@@ -120,11 +121,7 @@ export async function resolveAgentDrv(
       "remote",
     );
   }
-  const derivation: AgentDerivation = {
-    kind: "flake-installable",
-    drvPath: drv,
-    installable,
-  };
+  const derivation = flakeAgentDerivation(drv, installable);
   drvCache.set(installable, derivation);
   return derivation;
 }

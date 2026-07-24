@@ -90,9 +90,9 @@ export interface SshConnectorOptions {
    *  no derivation is baked for its system), reject with a {@link ResolveDrvError}
    *  carrying `failureCause: "remote"`.
    *
-   *  Pass a constant `{ kind: "drv-path", drvPath }` when the caller already
-   *  owns the store path and has no probe to defer. A flake-backed resolver must
-   *  return its installable too, so Nix owns the evaluate-to-copy GC lifetime. */
+   *  Pass `directAgentDerivation(drvPath)` when the caller already owns the
+   *  store path and has no probe to defer. `resolveAgentDrv` constructs the
+   *  nominal flake-backed arm so Nix owns the evaluate-to-copy GC lifetime. */
   resolveDrvPath: (ctx: ResolveDrvPathContext) => Promise<AgentDerivation>;
   /** Extra args appended after `--stdio` on the agent command line — a generic
    *  spawn-arg carrier; what the args mean is the caller's concern. POSIX-quoted for

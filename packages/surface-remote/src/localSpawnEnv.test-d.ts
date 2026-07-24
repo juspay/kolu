@@ -7,7 +7,22 @@
  */
 import { dialAgentOnce } from "./dialAgentOnce";
 import { buildAgentCommand } from "./host";
+import { type AgentDerivation, directAgentDerivation } from "./nixCopy";
 import { sshConnector } from "./sshConnector";
+
+// AgentDerivation is nominal: consumers must use the validated direct constructor,
+// and cannot forge a path/installable pair that resolves different agents.
+// @ts-expect-error — the private brand is constructible only inside nixCopy.ts.
+const _forgedDirect: AgentDerivation = {
+  kind: "drv-path",
+  drvPath: "/nix/store/x-agent.drv",
+};
+// @ts-expect-error — resolveAgentDrv alone constructs the flake-backed arm.
+const _forgedFlake: AgentDerivation = {
+  kind: "flake-installable",
+  drvPath: "/nix/store/x-agent.drv",
+  installable: "/nix/store/source#packages.x86_64-linux.other-agent",
+};
 
 // A composed env supplied → the only legal shape.
 buildAgentCommand({
@@ -34,7 +49,8 @@ buildAgentCommand({ host: "localhost", agentPath: "/p", binary: "a" });
 sshConnector({
   host: "h",
   binary: "a",
-  resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: "d" }),
+  resolveDrvPath: () =>
+    Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
   localEnv: {},
 });
 
@@ -43,14 +59,16 @@ sshConnector(
   {
     host: "h",
     binary: "a",
-    resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: "d" }),
+    resolveDrvPath: () =>
+      Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
   },
 );
 
 sshConnector({
   host: "h",
   binary: "a",
-  resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: "d" }),
+  resolveDrvPath: () =>
+    Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
   // @ts-expect-error — `localEnv` may not be `undefined` on the connector either.
   localEnv: undefined,
 });

@@ -55,6 +55,7 @@ export {
 } from "./hostFanout";
 export {
   type AgentDerivation,
+  directAgentDerivation,
   makeProvisionBudgets,
   makeStepBudget,
   type ProvisionBudgets,

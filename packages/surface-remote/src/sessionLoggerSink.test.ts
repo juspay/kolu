@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
 
@@ -81,10 +81,9 @@ describe("session diagnostics land in a receiver-sensitive structured logger", (
         binary: "agent",
         localEnv: {},
         resolveDrvPath: () =>
-          Promise.resolve({
-            kind: "drv-path",
-            drvPath: "/nix/store/deadbeef-agent.drv",
-          }),
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 1000,
       // The logger is handed over WHOLE — the session dispatches severity

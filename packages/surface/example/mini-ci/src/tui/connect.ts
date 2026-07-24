@@ -15,6 +15,7 @@
 
 import {
   type AgentClient,
+  directAgentDerivation,
   makeSession,
   type Session,
   type SessionState,
@@ -71,7 +72,7 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
       ),
       // Constant resolver: the justfile already picked the host-arch drv. A
       // consumer that defers the probe would call `resolveSystem(host)` here.
-      resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: drv }),
+      resolveDrvPath: () => Promise.resolve(directAgentDerivation(drv)),
     }),
     label: `host:${opts.host}`,
   });

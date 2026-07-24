@@ -198,20 +198,60 @@ export interface ProvisionOptions {
   signal?: AbortSignal;
 }
 
+const agentDerivationBrand = Symbol("AgentDerivation");
+
 /** A derivation source whose variants make the GC ownership contract explicit.
  *
  * A direct `.drv` caller already owns keeping that store path valid. A flake
  * caller carries both the evaluated path (needed for the remote realise) and
  * the installable that can recreate and temporarily root it inside `nix copy`.
- * Keeping this as a sum prevents callers from supplying a flake path without
- * the source required to survive local garbage collection. */
+ * The private symbol makes the sum nominal: callers cannot hand-assemble a
+ * mismatched path/installable pair. */
 export type AgentDerivation =
-  | { kind: "drv-path"; drvPath: string }
+  | {
+      kind: "drv-path";
+      drvPath: string;
+      readonly [agentDerivationBrand]: "drv-path";
+    }
   | {
       kind: "flake-installable";
       drvPath: string;
       installable: string;
+      readonly [agentDerivationBrand]: "flake-installable";
     };
+
+/** Construct the public direct-path arm. The caller owns keeping this path valid. */
+export function directAgentDerivation(drvPath: string): AgentDerivation {
+  if (!drvPath.endsWith(".drv")) {
+    throw new Error(
+      `agent derivation must be a .drv store path, got ${JSON.stringify(drvPath)}`,
+    );
+  }
+  return {
+    kind: "drv-path",
+    drvPath,
+    [agentDerivationBrand]: "drv-path",
+  };
+}
+
+/** Package-internal constructor for the flake arm. Deliberately not re-exported
+ * from `@kolu/surface-remote`: only `resolveAgentDrv` may pair these values. */
+export function flakeAgentDerivation(
+  drvPath: string,
+  installable: string,
+): AgentDerivation {
+  if (!drvPath.endsWith(".drv") || installable.trim().length === 0) {
+    throw new Error(
+      `invalid flake agent derivation: drvPath=${JSON.stringify(drvPath)}, installable=${JSON.stringify(installable)}`,
+    );
+  }
+  return {
+    kind: "flake-installable",
+    drvPath,
+    installable,
+    [agentDerivationBrand]: "flake-installable",
+  };
+}
 
 export type ProvisionResult =
   | { ok: true; agentPath: string }

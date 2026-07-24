@@ -37,6 +37,7 @@
 
 import { spawn } from "node:child_process";
 import split from "split2";
+import { match } from "ts-pattern";
 
 /** The lifetime policy every fire-and-collect spawn MUST carry (#1908 D1b) — a
  *  CLOSED union that carves a real joint (the gate PROVED it; do not collapse it):
@@ -121,22 +122,24 @@ const TERM_GRACE_MS = 2000;
 /** A human-readable tail describing how a run ended — honest across every
  *  {@link ExitResult} arm (never "code null" for a signal/spawn/policy/abort case). */
 export function describeExit(res: ExitResult): string {
-  switch (res.kind) {
-    case "exit":
-      return `exited with code ${res.code}`;
-    case "signal":
-      return `killed by signal ${res.signal}`;
-    case "spawn-error":
-      return `failed to spawn: ${res.message}`;
-    case "output-error":
-      return `invalid process output: ${res.message}`;
-    case "lifetime-expired":
-      return res.policy.kind === "deadline"
-        ? `lifetime deadline (${res.policy.ms}ms) expired — killed by ${res.signal}`
-        : `no output for ${res.policy.silenceMs}ms — killed by ${res.signal}`;
-    case "aborted":
-      return "aborted by the caller";
-  }
+  return match(res)
+    .with({ kind: "exit" }, ({ code }) => `exited with code ${code}`)
+    .with({ kind: "signal" }, ({ signal }) => `killed by signal ${signal}`)
+    .with(
+      { kind: "spawn-error" },
+      ({ message }) => `failed to spawn: ${message}`,
+    )
+    .with(
+      { kind: "output-error" },
+      ({ message }) => `invalid process output: ${message}`,
+    )
+    .with({ kind: "lifetime-expired" }, ({ policy, signal }) =>
+      policy.kind === "deadline"
+        ? `lifetime deadline (${policy.ms}ms) expired — killed by ${signal}`
+        : `no output for ${policy.silenceMs}ms — killed by ${signal}`,
+    )
+    .with({ kind: "aborted" }, () => "aborted by the caller")
+    .exhaustive();
 }
 
 /** Map a `close` event's `(code, signal)` onto the honest {@link ExitResult} arm.

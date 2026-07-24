@@ -27,7 +27,7 @@ shared pool; key your own map and `destroy()` them yourself.
 | `dialAgentOnce<C>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<binary>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live |
 | `SURFACE_AGENT_FLAKE_REF_ENV` | `.` | canonical name of the wrapper-baked exact agent source; `dialAgentOnce` validates its value eagerly, while long-lived consumers validate it at their own typed failure boundary |
 | `resolveAgentDrv(host, flakeRef, packageName, { signal, onProgress })` | `.` | probe the host system and lazily resolve one package as `{ kind: "flake-installable", drvPath, installable }` inside the owning dial's cancellation/progress path; the installable lets provisioning evaluate, temporarily root, and copy in one Nix operation, so local GC cannot break the handoff |
-| `AgentDerivation` | `.` | closed provisioning-source union: `{ kind: "drv-path", drvPath }` when the caller owns a direct store path, or `{ kind: "flake-installable", drvPath, installable }` when Nix must recreate and root an evaluated derivation through copy/build |
+| `AgentDerivation` / `directAgentDerivation(drvPath)` | `.` | nominal provisioning source: use the validated constructor when the caller owns a direct `.drv`; `resolveAgentDrv` alone constructs the flake-backed arm, so a path cannot be paired with an unrelated installable |
 | `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
@@ -36,7 +36,7 @@ ssh target (`"localhost"` short-circuits), `binary` the exe name inside the real
 closure, `resolveDrvPath: ({ signal, localProgress }) => Promise<AgentDerivation>` resolves
 the agent derivation for the *target* arch as an `AgentDerivation` inside the
 owning dial's cancellation and progress lifetime. A direct path is
-`{ kind: "drv-path", drvPath }`; `resolveAgentDrv` returns the flake-backed arm
+`directAgentDerivation(drvPath)`; `resolveAgentDrv` returns the flake-backed arm
 that survives local garbage collection. **`localEnv: Record<string, string>` is the REQUIRED env for a
 `localhost` dial's direct spawn** (see the caution below). `dialAgentOnce`'s
 `dispose()` tears down only its own session; it is what `kaval-tui --host`,

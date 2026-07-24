@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import type { ConnectContext } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
 
@@ -76,10 +76,7 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
       host: "localhost",
       binary: "agent",
       resolveDrvPath: () =>
-        Promise.resolve({
-          kind: "drv-path",
-          drvPath: "/nix/store/x-agent.drv",
-        }),
+        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
       localEnv,
     });
     await connector(noopCtx);
@@ -94,10 +91,7 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
       host: "bob.example",
       binary: "agent",
       resolveDrvPath: () =>
-        Promise.resolve({
-          kind: "drv-path",
-          drvPath: "/nix/store/x-agent.drv",
-        }),
+        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
       localEnv: { HOME: "/home/x", PATH: "/usr/bin" },
     });
     await connector(noopCtx);

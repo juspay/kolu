@@ -25,7 +25,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectLogger } from "./loggerStubs.testutil";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import {
   type DownSessionState,
   makeSession,
@@ -73,10 +73,7 @@ function failingSession() {
       binary: "agent",
       localEnv: {},
       resolveDrvPath: () =>
-        Promise.resolve({
-          kind: "drv-path",
-          drvPath: "/nix/store/deadbeef-agent.drv",
-        }),
+        Promise.resolve(directAgentDerivation("/nix/store/deadbeef-agent.drv")),
     }),
     reconnectDelayMs: 1000,
     label: "testhost",
@@ -126,10 +123,9 @@ describe("HostSession log sink (alt-screen consumers divert all diagnostics)", (
         binary: "agent",
         localEnv: {},
         resolveDrvPath: () =>
-          Promise.resolve({
-            kind: "drv-path",
-            drvPath: "/nix/store/deadbeef-agent.drv",
-          }),
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 1000,
       log: collectLogger((l) => lines.push(l)),

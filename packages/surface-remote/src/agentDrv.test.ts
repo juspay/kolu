@@ -40,7 +40,7 @@ describe("resolveAgentDrv", () => {
         "padi",
         resolutionOptions,
       ),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       kind: "flake-installable",
       drvPath: "/nix/store/padi.drv",
       installable: "/nix/store/source-a#packages.aarch64-darwin.padi",

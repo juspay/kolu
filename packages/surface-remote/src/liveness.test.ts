@@ -20,7 +20,7 @@ import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
   type Connector,
@@ -91,10 +91,7 @@ function buildSession(extra: Record<string, unknown> = {}) {
       binary: "agent",
       localEnv: {},
       resolveDrvPath: () =>
-        Promise.resolve({
-          kind: "drv-path",
-          drvPath: "/nix/store/x-agent.drv",
-        }),
+        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
     }),
     reconnectDelayMs: 50,
     // One `liveness` knob: tune the cadence as an object (the same 15s/10s the
