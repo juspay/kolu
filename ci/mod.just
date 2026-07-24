@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -89,6 +89,26 @@ pnpm-hash-fresh: nix
 nix:
     bash ci/flake-build .
     nix flake check --no-build --accept-flake-config -L
+
+# Evaluate every remote-agent package from the exact minimal source flake baked
+# into Kolu's wrappers. The package names come from the shared agent contract,
+# and the system comes from Nix itself: no platform or consumer-owned map can
+# drift from the source flake. Keep this CI-only so a fresh `nix run` does not
+# pay to evaluate remote agents it may never provision.
+agent-flake-nix: nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    agent_flake_ref="$(nix build ./ci#agent-flake-source --no-link --print-out-paths)"
+    system="$(nix eval --impure --raw --expr builtins.currentSystem)"
+    agent_packages="$({{ nix_shell }} jq -r '.packages[]' packages/surface-remote/agent-env.json)"
+    [[ -n "$agent_packages" ]]
+    while IFS= read -r package; do
+      drv="$(nix eval --accept-flake-config --raw "$agent_flake_ref#packages.$system.$package.drvPath")"
+      case "$drv" in
+        *.drv) ;;
+        *) echo "$package resolved to '$drv', not a derivation path" >&2; exit 1 ;;
+      esac
+    done <<< "$agent_packages"
 
 # Build and schema-check the website subflake after the root Kolu build exits.
 # Packages and checks are both required; the website intentionally has no

@@ -196,7 +196,7 @@ describe("resolveAgentDrv", () => {
     await expect(failure).rejects.toBeInstanceOf(ResolveDrvError);
   });
 
-  it("keeps an externally killed Nix evaluation terminal", async () => {
+  it("keeps an externally killed Nix evaluation terminal to avoid OOM retry thrash", async () => {
     h.resolveSystem.mockResolvedValue("x86_64-linux");
     h.runCapture.mockResolvedValue({
       ok: false,

@@ -30,7 +30,7 @@
  *       host,
  *       binary,
  *       localEnv,  // the composed env a `localhost` dial spawns with (never ambient process.env)
- *       resolveDrvPath: async () => {
+ *       resolveDrvPath: async (_ctx) => {
  *         const sys = await resolveSystem(host);
  *         return resolveDrvForSystem(sys);
  *       },
@@ -45,9 +45,10 @@ import { describeExit, runCapture } from "./process";
 /** Sanity-guard shape for a nix-system identifier: `<cpu>-<os>`, e.g.
  *  `x86_64-linux`, `aarch64-darwin`. Deliberately NOT a closed
  *  allow-list — a host reporting a system this library has never seen
- *  (`riscv64-linux`, …) resolves fine, as long as the caller baked a
- *  matching `.drv`. The guard only rejects output that clearly isn't a
- *  system string (empty, a warning line, multi-token noise). */
+ *  (`riscv64-linux`, …) passes the probe; resolution succeeds only when the
+ *  baked agent flake exposes `packages.<system>.<package>`. The guard only
+ *  rejects output that clearly isn't a system string (empty, a warning line,
+ *  multi-token noise). */
 const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 
 /** In-memory, per-process arch cache keyed by host. A host's nix-system is

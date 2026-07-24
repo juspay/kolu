@@ -9,12 +9,19 @@
     let
       platform = import ./nix/each-system.nix;
       commitHash = builtins.readFile ./commit-hash;
+      agentPackages =
+        (builtins.fromJSON
+          (builtins.readFile ./packages/surface-remote/agent-env.json)).packages;
     in
     {
       packages = platform.withPkgs (pkgs:
         let kolu = import ./default.nix { inherit pkgs commitHash; };
-        in {
-          inherit (kolu) kaval padi;
-        });
+        in
+        builtins.listToAttrs (map
+          (name: {
+            inherit name;
+            value = kolu.${name};
+          })
+          agentPackages));
     };
 }

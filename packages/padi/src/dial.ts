@@ -89,8 +89,10 @@ export {
  *  `.surface.padi` (via `scopeSibling`). Structurally identical to
  *  surface-remote's `AgentClient<PadiDaemonContract>` (both are
  *  `ContractRouterClient<C, ClientRetryPluginContext>` — the shape `stdioLink`
- *  returns), spelled from padi's OWN oRPC deps so the dial kit adds no
- *  surface-remote edge to padi's closure. */
+ *  returns), spelled from padi's OWN oRPC deps so the type needs no AgentClient
+ *  import. The one-shot remote dial deliberately depends on
+ *  `@kolu/surface-remote`; only this client entry loads that edge, never padi's
+ *  daemon entrypoints. */
 export type PadiDaemonClient = ContractRouterClient<
   PadiDaemonContract,
   ClientRetryPluginContext

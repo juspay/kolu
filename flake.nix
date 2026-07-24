@@ -42,9 +42,9 @@
         let
           kolu = koluBySystem.${system};
         in
-        # `koluEnv` and `typecheck` are internal; pnpmDeps remains a Kolu
-          # dependency output used by the hash-fresh gate.
-        removeAttrs kolu [ "koluEnv" "typecheck" ]);
+        # `agentFlakeSrc`, `koluEnv`, and `typecheck` are internal; pnpmDeps
+          # remains a Kolu dependency output used by the hash-fresh gate.
+        removeAttrs kolu [ "agentFlakeSrc" "koluEnv" "typecheck" ]);
       # Type gates on every system. The build environment (nodejs/pnpm and the
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,
       # so each platform's `tsc`/`astro check` is its own proof — a darwin-only

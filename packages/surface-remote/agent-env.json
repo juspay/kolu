@@ -1,3 +1,4 @@
 {
-  "flakeRef": "SURFACE_AGENT_FLAKE_REF"
+  "flakeRef": "SURFACE_AGENT_FLAKE_REF",
+  "packages": ["kaval", "padi"]
 }

@@ -592,5 +592,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
 }

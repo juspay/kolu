@@ -1,13 +1,16 @@
-# Kolu's npins-pinned Odu coordinator, kept outside the runnable Kolu flake.
+# CI-only Nix outputs kept outside the runnable Kolu flake: the npins-pinned
+# Odu coordinator and the exact remote-agent source used by its contract gate.
 {
-  outputs = { ... }:
+  outputs = { self, ... }:
     let
       platform = import ../nix/each-system.nix;
+      commitHash = self.shortRev or self.dirtyShortRev or "dev";
     in
     {
       packages = platform.withPkgs (pkgs:
         let
           sources = import ../npins;
+          kolu = import ../default.nix { inherit pkgs commitHash; };
           upstream = import sources.odu {
             pkgs = import (sources.odu + "/nix/nixpkgs.nix") {
               system = pkgs.stdenv.hostPlatform.system;
@@ -16,6 +19,7 @@
           };
         in
         {
+          agent-flake-source = kolu.agentFlakeSrc;
           default = upstream.odu;
           odu = upstream.odu;
         });

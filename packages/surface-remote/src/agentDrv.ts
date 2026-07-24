@@ -62,6 +62,10 @@ function evaluationError(
         : new ResolveDrvError(message, "remote");
     case "spawn-error":
     case "signal":
+      // These are local resource/setup faults, not transport facts. Retrying a
+      // missing executable or externally OOM-killed evaluator inside the host
+      // reconnect loop would respawn the same failure indefinitely; keep it
+      // terminal until an explicit recheck or a new process starts a campaign.
       return new ResolveDrvError(message, "remote");
     case "lifetime-expired":
     case "aborted":
