@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { PortUnavailableError } from "./portChoice.ts";
+import type { ForwardReport } from "./mechanism.ts";
 import {
   forwardCommandArgs,
   forwardSpec,
@@ -143,14 +144,17 @@ function flush(): Promise<void> {
   return new Promise((done) => setImmediate(done));
 }
 
-function attempt(fake: FakeSsh, onLost: (reason: string) => void = () => {}) {
+function attempt(
+  fake: FakeSsh,
+  report: ForwardReport = { lost: () => {}, fault: () => {} },
+) {
   const spawnSsh: SpawnSsh = () =>
     fake as unknown as ChildProcessWithoutNullStreams;
   return openSshAttempt({
     host: "pu-dev",
     remotePort: 5173,
     localPort: 4123,
-    onLost,
+    report,
     spawnSsh,
   });
 }
@@ -224,7 +228,7 @@ describe("one ssh forward attempt", () => {
   it("calls onLost exactly once when the connection dies after it was up", async () => {
     const onLost = vi.fn<(reason: string) => void>();
     const fake = new FakeSsh();
-    const opening = attempt(fake, onLost);
+    const opening = attempt(fake, { lost: onLost, fault: () => {} });
     await fake.says("PORT-FORWARD-READY\n");
     await opening;
 
@@ -239,7 +243,7 @@ describe("one ssh forward attempt", () => {
     // again as a LOSS would put an error on screen for a cancel that worked.
     const onLost = vi.fn<(reason: string) => void>();
     const fake = new FakeSsh();
-    const opening = attempt(fake, onLost);
+    const opening = attempt(fake, { lost: onLost, fault: () => {} });
     await fake.says("PORT-FORWARD-READY\n");
     const forward = await opening;
 

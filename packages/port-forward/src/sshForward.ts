@@ -32,7 +32,7 @@
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { stripVTControlCharacters } from "node:util";
-import type { OpenedForward } from "./mechanism.ts";
+import type { ForwardReport, OpenedForward } from "./mechanism.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 
 /** The options every forward connection is opened with.
@@ -203,10 +203,10 @@ export function openSshAttempt(opts: {
   host: string;
   remotePort: number;
   localPort: number;
-  onLost: (reason: string) => void;
+  report: ForwardReport;
   spawnSsh: SpawnSsh;
 }): Promise<OpenedForward> {
-  const { host, remotePort, localPort, onLost } = opts;
+  const { host, remotePort, localPort, report } = opts;
   const child = opts.spawnSsh(
     forwardCommandArgs({ base: SSH_OPTS, host, localPort, remotePort }),
   );
@@ -313,7 +313,7 @@ export function openSshAttempt(opts: {
       // dropped, the network died, someone killed it. Unless we did it
       // ourselves, in which case `close()` is already telling the caller.
       if (phase === "up")
-        onLost(`the ssh connection to ${host} ended${detail()}`);
+        report.lost(`the ssh connection to ${host} ended${detail()}`);
     });
 
     child.stdout.on("data", () => {
@@ -351,7 +351,7 @@ export function openSshAttempt(opts: {
 export async function openSshForward(
   host: string,
   remotePort: number,
-  onLost: (reason: string) => void,
+  report: ForwardReport,
   spawnSsh: SpawnSsh,
 ): Promise<OpenedForward> {
   // The target's own port number first — `pu-dev:4123` answers on
@@ -361,6 +361,6 @@ export async function openSshForward(
   return await openPreferringPort({
     preferred: remotePort,
     open: (localPort) =>
-      openSshAttempt({ host, remotePort, localPort, onLost, spawnSsh }),
+      openSshAttempt({ host, remotePort, localPort, report, spawnSsh }),
   });
 }

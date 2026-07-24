@@ -74,10 +74,17 @@ export function App({
     // A forward can die without being cancelled — the host drops, the ssh
     // connection goes away. It leaves the table AND says why; a dead row that
     // still looks live is the one thing this screen must never show.
-    onLost: ({ forward, reason }) => {
+    onLost: ({ forward, reason, kind }) => {
+      // "gone" and "degraded" read differently on purpose: a gone forward has
+      // left the table, while a degraded one is STILL THERE and may still be
+      // reachable — saying "lost" about a row the user can still see would be
+      // the screen contradicting itself.
       setStatus({
         kind: "error",
-        text: `lost ${formatTarget(forward.target)} — ${reason}`,
+        text:
+          kind === "gone"
+            ? `lost ${formatTarget(forward.target)} — ${reason}`
+            : `${formatTarget(forward.target)} is in trouble — ${reason}`,
       });
       sync();
     },

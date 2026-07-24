@@ -32,7 +32,7 @@ function fakeManager(): {
       const forward = live.get(key);
       if (forward === undefined) throw new Error(`nothing open for ${key}`);
       live.delete(key);
-      notify?.({ forward, reason: "host dropped" });
+      notify?.({ forward, reason: "host dropped", kind: "gone" });
     },
     create: (opts) => {
       notify = opts.onLost;

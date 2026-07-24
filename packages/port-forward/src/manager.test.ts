@@ -35,11 +35,11 @@ function fakeMechanisms(): {
       notify(reason);
     },
     mechanisms: {
-      async open(target, onLost) {
+      async open(target, report) {
         opens.push(target);
         const localPort = nextPort++;
-        losers.set(targetKey(target), onLost);
-        everyOpening.push(onLost);
+        losers.set(targetKey(target), report.lost);
+        everyOpening.push(report.lost);
         return {
           localPort,
           close: async () => {
@@ -203,6 +203,7 @@ describe("the forward map", () => {
     expect(onLost).toHaveBeenCalledWith({
       forward,
       reason: "the ssh connection to pu-dev ended",
+      kind: "gone",
     });
   });
 
@@ -432,8 +433,8 @@ describe("the forward map", () => {
     // The loss can land before `open()` resolves. Publishing it would put a
     // corpse in the map.
     const early: ForwardMechanisms = {
-      open: async (_target, onLost) => {
-        onLost("the ssh connection ended before it was up");
+      open: async (_target, report) => {
+        report.lost("the ssh connection ended before it was up");
         return { localPort: 4123, close: async () => {} };
       },
     };
@@ -444,6 +445,63 @@ describe("the forward map", () => {
 
     await expect(forwards.create(PU)).rejects.toThrow(/lost as it came up/);
     expect(forwards.list()).toEqual([]);
+  });
+
+  it("does not restore a listener the mechanism already called dead", async () => {
+    // Early loss, THEN dispose, THEN a close that rejects. The disposed branch
+    // used to restore the slot without consulting the loss, publishing a
+    // listener the mechanism had definitively reported gone.
+    let arrive: (() => void) | undefined;
+    const doomed: ForwardMechanisms = {
+      open: async (_target, report) => {
+        report.lost("the ssh connection ended before it was up");
+        await new Promise<void>((resolve) => {
+          arrive = resolve;
+        });
+        return {
+          localPort: 4123,
+          close: async () => {
+            throw new Error("close refused");
+          },
+        };
+      },
+    };
+    const forwards = makeForwardManager({
+      mechanisms: doomed,
+      onLost: () => {},
+    });
+
+    const creating = forwards.create(PU);
+    const disposing = forwards.dispose();
+    arrive?.();
+
+    await expect(creating).rejects.toThrow(/lost as it came up/);
+    await disposing.catch(() => {});
+    expect(forwards.list()).toEqual([]);
+  });
+
+  it("keeps a forward whose listener broke but could not be closed", async () => {
+    // A fault is not a loss: the listener may still be reachable, so the row
+    // stays — visible and retryable — and the trouble is still reported.
+    const reports: ForwardLoss[] = [];
+    let fault: ((reason: string) => void) | undefined;
+    const flaky: ForwardMechanisms = {
+      open: async (_target, report) => {
+        fault = report.fault;
+        return { localPort: 4123, close: async () => {} };
+      },
+    };
+    const forwards = makeForwardManager({
+      mechanisms: flaky,
+      onLost: (loss) => reports.push(loss),
+    });
+    const forward = await forwards.create(PU);
+
+    fault?.("the listener failed, and closing it failed too");
+
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.kind).toBe("degraded");
+    expect(forwards.list()).toEqual([forward]);
   });
 
   it("opens nothing more once disposed", async () => {

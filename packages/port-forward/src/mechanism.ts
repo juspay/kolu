@@ -22,11 +22,25 @@ export interface OpenedForward {
   close(): Promise<void>;
 }
 
+/** What a mechanism can tell the map about a forward after it is up.
+ *
+ *  Two channels, because they are two different facts and the map acts on them
+ *  differently. Collapsing them was a real defect: a relay whose listener
+ *  errored AND whose teardown then failed is not gone — it may still be
+ *  reachable — so reporting it as `lost` would make the map drop its only
+ *  handle on it, while reporting nothing at all left the operator looking at a
+ *  row that was quietly broken. */
+export interface ForwardReport {
+  /** It is GONE. The map drops it and tells its consumer why. */
+  lost(reason: string): void;
+  /** Something failed and the forward may still be out there — the mechanism
+   *  could not clean up. The map KEEPS it (a listener nobody can close must
+   *  stay visible and retryable) and passes the trouble on. */
+  fault(reason: string): void;
+}
+
 /** How the map opens forwards. One method, dispatching on the target kind, so
  *  the map itself stays a map — and so a test can hand it a fake. */
 export interface ForwardMechanisms {
-  open(
-    target: ForwardTarget,
-    onLost: (reason: string) => void,
-  ): Promise<OpenedForward>;
+  open(target: ForwardTarget, report: ForwardReport): Promise<OpenedForward>;
 }

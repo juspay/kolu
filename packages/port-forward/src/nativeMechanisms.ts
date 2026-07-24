@@ -12,10 +12,10 @@ import { openSshForward, spawnSshChild } from "./sshForward.ts";
 
 export function nativeMechanisms(): ForwardMechanisms {
   return {
-    open(target, onLost) {
+    open(target, report) {
       return target.kind === "local"
-        ? openRelay(target.port, onLost)
-        : openSshForward(target.host, target.port, onLost, spawnSshChild);
+        ? openRelay(target.port, report)
+        : openSshForward(target.host, target.port, report, spawnSshChild);
     },
   };
 }

@@ -13,15 +13,16 @@
  */
 
 import { connect, createServer, type Server, type Socket } from "node:net";
-import type { OpenedForward } from "./mechanism.ts";
+import type { ForwardReport, OpenedForward } from "./mechanism.ts";
 
 /** The address a `local` target listens on — loopback, by definition of the
  *  problem this solves. */
 const LOOPBACK = "127.0.0.1";
 
 /** Relay `0.0.0.0:<local>` → `127.0.0.1:<port>`. Resolves once the door is
- *  open; rejects (never half-opens) if the bind fails. `onLost` fires if the
- *  listener dies on its own afterwards.
+ *  open; rejects (never half-opens) if the bind fails. `report` carries what
+ *  happens to it afterwards — `lost` when it is gone, `fault` when it broke
+ *  and could not be cleaned up.
  *
  *  The kernel picks the local port, and unlike the ssh mechanism there is no
  *  "prefer the target's own number" here — that number is the ONE number this
@@ -32,9 +33,9 @@ const LOOPBACK = "127.0.0.1";
  *  ~29,000 file descriptors in 1.5 seconds. */
 export function openRelay(
   port: number,
-  onLost: (reason: string) => void,
+  report: ForwardReport,
 ): Promise<OpenedForward> {
-  return openRelayWith({ port, onLost, listen: createServer });
+  return openRelayWith({ port, report, listen: createServer });
 }
 
 /** The relay with its listener injected — the seam the "what happens when the
@@ -42,10 +43,10 @@ export function openRelay(
  *  provoked through a real socket. `openRelay` supplies node's own. */
 export function openRelayWith(opts: {
   port: number;
-  onLost: (reason: string) => void;
+  report: ForwardReport;
   listen: (onConnection: (socket: Socket) => void) => Server;
 }): Promise<OpenedForward> {
-  const { port, onLost } = opts;
+  const { port, report } = opts;
   const live = new Set<Socket>();
 
   const server = opts.listen((inbound) => {
@@ -135,8 +136,19 @@ export function openRelayWith(opts: {
         // to close it. A failed teardown keeps the relay owned and retryable
         // instead; the next `close()` retries and surfaces the error.
         teardown().then(
-          () => onLost(reason),
-          () => {},
+          () => report.lost(reason),
+          (closeError: unknown) =>
+            // Could not clean up: the listener may still be reachable, so this
+            // is NOT a loss (the owner would drop its only handle on it). It is
+            // a fault — the row stays, and the trouble is passed on rather than
+            // swallowed.
+            report.fault(
+              `${reason}, and closing it failed too: ${
+                closeError instanceof Error
+                  ? closeError.message
+                  : String(closeError)
+              }`,
+            ),
         );
       });
       const address = server.address();
