@@ -262,8 +262,8 @@ the subcommand: `kaval-tui list --socket …`).
 ## Reaching a remote kaval — `--host`
 
 `--host <ssh>` drives a kaval on **another machine** over ssh. There's nothing
-to install first: kaval-tui **provisions** the daemon with Nix (`nix copy
---derivation` ships the right-arch closure, the remote realises it), runs
+to install first: kaval-tui **provisions** the daemon with Nix (one remote-store
+build evaluates, transfers, realises, and roots the right-arch closure), runs
 `kaval --stdio`, and dials it — the same `ptyHostSurface` client, just over ssh
 stdio instead of a local socket. Every subcommand works unchanged:
 

@@ -1,4 +1,5 @@
-# Kolu CI pipeline — consumed by odu (github.com/juspay/odu — npins-pinned and re-exported as `nix run .#odu`).
+# Kolu CI pipeline — consumed by odu (github.com/juspay/odu — npins-pinned
+# by the independent `ci/flake.nix`).
 #
 # The runner discovers the recipe tagged [metadata("ci")] (exactly one across
 # this justfile and its submodules), expands its reachable dependency subgraph,
@@ -34,8 +35,11 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 # maximally, so the wall-clock is the *critical path* — the longest dependency
 # chain. We keep that path as short as honestly possible:
 #
-#   * `nix` owns the root flake: packages, checks, and dev shells, plus the
-#     whole-flake evaluation/schema gate.
+#   * `nix` owns the runnable Kolu flake: packages, checks, and dev shells,
+#     plus its whole-flake evaluation/schema gate.
+#   * Website, example, and CI-tool Nix outputs live in independent subflakes.
+#     Their nodes depend on `nix` so Nix builds do not fight over CPU, memory,
+#     and store locks; each remains a separate status and source boundary.
 #   * Every other node that invokes `nix build` depends on `nix`:
 #     home-manager, e2e's `.#koluBin`, smoke's `.#default`, and the pnpm hash
 #     rebuild. Their commands remain self-contained, but start from a warmed
@@ -47,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -59,10 +63,9 @@ default: nix home-manager e2e smoke fmt biome unit daemon surface-example-build 
 install:
     {{ nix_shell }} pnpm install --frozen-lockfile
 
-# Verify the declared pnpmDeps hashes match what fetchPnpmDeps produces from
-# the current pnpm-lock.yaml files. Covers both the main kolu lockfile
-# (./pnpm-lock.yaml → .#pnpmDeps) and the website lockfile
-# (./website/pnpm-lock.yaml → .#website-pnpm-deps).
+# Verify the root pnpmDeps hash matches what fetchPnpmDeps produces from
+# ./pnpm-lock.yaml. The website's independent twin is
+# `website-pnpm-hash-fresh`.
 #
 # Two builds are required, not one: `nix build --rebuild` errors with
 # "outputs ... are not valid, so checking is not possible" when the store
@@ -72,8 +75,8 @@ install:
 # or cache.nixos.asia) can't silently satisfy a hash that no longer
 # matches the lockfile.
 pnpm-hash-fresh: nix
-    nix build .#pnpmDeps .#website-pnpm-deps --no-link
-    nix build --rebuild .#pnpmDeps .#website-pnpm-deps --no-link
+    nix build .#pnpmDeps --no-link
+    nix build --rebuild .#pnpmDeps --no-link
 
 # The single ordinary-Nix gate for each platform:
 #
@@ -86,6 +89,57 @@ pnpm-hash-fresh: nix
 nix:
     bash ci/flake-build .
     nix flake check --no-build --accept-flake-config -L
+
+# Evaluate every remote-agent package from the exact minimal source flake baked
+# into Kolu's wrappers. The package names come from Kolu's agent manifest,
+# and the system comes from Nix itself: no platform or consumer-owned map can
+# drift from the source flake. Keep this CI-only so a fresh `nix run` does not
+# pay to evaluate remote agents it may never provision.
+agent-flake-nix: nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    agent_flake_ref="$(nix build ./ci#agent-flake-source --no-link --print-out-paths)"
+    system="$(nix eval --impure --raw --expr builtins.currentSystem)"
+    agent_packages="$({{ nix_shell }} jq -r '.[]' nix/agent-packages.json)"
+    [[ -n "$agent_packages" ]]
+    while IFS= read -r package; do
+      drv="$(nix eval --accept-flake-config --raw "$agent_flake_ref#packages.$system.$package.drvPath")"
+      case "$drv" in
+        *.drv) ;;
+        *) echo "$package resolved to '$drv', not a derivation path" >&2; exit 1 ;;
+      esac
+    done <<< "$agent_packages"
+
+# Build and schema-check the website subflake after the root Kolu build exits.
+# Packages and checks are both required; the website intentionally has no
+# development shell of its own.
+website-nix: nix
+    bash ci/flake-build --kinds packages,checks ./website
+    nix flake check ./website --no-build --accept-flake-config -L
+
+# Verify website/pnpm-lock.yaml against the website subflake's declared fixed
+# output hash. The first build realizes the path; --rebuild then proves the
+# cached path was not masking a stale hash.
+website-pnpm-hash-fresh: website-nix
+    nix build ./website#pnpm-deps --no-link
+    nix build --rebuild ./website#pnpm-deps --no-link
+
+# Build every Nix package shipped by the @kolu/surface examples. These depend
+# on Kolu's workspace source and pnpm closure, so run after the root Nix gate.
+surface-examples-nix: nix
+    bash ci/flake-build --kinds packages ./packages/surface/example
+    nix flake check ./packages/surface/example --no-build --accept-flake-config -L
+
+# Build the @kolu/solid-browser docsite from its independent example subflake.
+solid-browser-example-nix: nix
+    bash ci/flake-build --kinds packages ./packages/solid-browser/example
+    nix flake check ./packages/solid-browser/example --no-build --accept-flake-config -L
+
+# Build the repository-pinned Odu coordinator from ci/flake.nix. Odu drives the
+# pipeline, but its package must not make `nix run` evaluate CI tooling.
+odu-nix: nix
+    bash ci/flake-build --kinds packages ./ci
+    nix flake check ./ci --no-build --accept-flake-config -L
 
 # Build the separate home-manager example flake after the root Nix gate has
 # warmed kolu's store paths. Darwin checks the activation package and launchd
@@ -147,7 +201,8 @@ daemon: install
 # regressions the workspace-wide typecheck doesn't see — broken Tailwind imports,
 # JSX errors, missing imports in the production bundle. These are LIVING DOCS: the
 # tutorial pages embed this code, so its clients must BUILD, not just typecheck.
-# (The fleet-top-agent binary is a flake package output, built by the `nix` lane.)
+# (The fleet-top-agent binary is a subflake package output, built by
+# `surface-examples-nix`.)
 # Cheap (~1s).
 surface-example-build: install
     {{ nix_shell }} pnpm --filter "@kolu/surface-example*" build:client
@@ -161,7 +216,7 @@ surface-app-example-build: install
     {{ nix_shell }} pnpm --filter @kolu/surface-app-example build:client
 
 fmt: install
-    {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
+    {{ nix_shell }} just _fmt-check
 
 # Biome lint — recommended preset with each deliberately-advisory rule
 # explicitly off (with a reason) in biome.jsonc. `--error-on-warnings` makes
@@ -183,12 +238,12 @@ atlas-sync:
 
 
 # ── odu convenience (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
-# Thin wrappers over `nix run .#odu` so the live dashboard is one just away.
+# Thin wrappers over `nix run ./ci#odu` so the live dashboard is one just away.
 # Unreachable from `default`, so the runner never schedules them.
 
 # Attach a live dashboard to a run in progress (paints over `.ci/odu.sock`).
 attach:
-    nix run .#odu -- attach
+    nix run ./ci#odu -- attach
 
 # The final green-gate: print the required `<recipe>@<platform>` status
 # contexts the canonical DAG produces for BOTH CI platforms (x86_64-linux +
@@ -199,7 +254,7 @@ attach:
 # straight through to odu, so `just ci::protect --dry-run` prints the contexts
 # without touching the PR.
 protect *args:
-    nix run .#odu protect -- --platform x86_64-linux --platform aarch64-darwin {{ args }}
+    nix run ./ci#odu -- protect --platform x86_64-linux --platform aarch64-darwin {{ args }}
 
 # ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # These run on the machine driving CI (not on a pool box), so they're

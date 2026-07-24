@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
 
@@ -26,7 +26,7 @@ vi.mock("./nixCopy", async (importOriginal) => ({
 
 const PROVISION_FAILURE = {
   ok: false as const,
-  reason: "strictlog: 'nix copy --derivation' exited with code 1",
+  reason: "strictlog: 'nix build --store' exited with code 1",
   // Reached the host, it rejected the closure — terminal (no retry storm).
   cause: "remote" as const,
 };
@@ -80,7 +80,10 @@ describe("session diagnostics land in a receiver-sensitive structured logger", (
         host: "strictlog",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 1000,
       // The logger is handed over WHOLE — the session dispatches severity

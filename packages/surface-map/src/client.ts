@@ -119,8 +119,8 @@ export interface EntryClock {
  *  with that link dead (`live === false`) we can no longer hear a demotion, so a stale
  *  `connected` must NOT keep presenting as connected — it downgrades to `warming` (#1568:
  *  no status renders green over a dead transport). And the domain-opaque `connection` word
- *  is just as stale over a dead link (a cell frozen at `building`/`copying` keeps narrating
- *  a build that is no longer live), so it is DROPPED to `undefined` across EVERY session-
+ *  is just as stale over a dead link (a frozen in-progress word keeps narrating work that
+ *  is no longer live), so it is DROPPED to `undefined` across EVERY session-
  *  backed arm — `undefined` is domain-neutral, so surface-map stays volatility-neutral
  *  (it never enumerates what a domain's connection states are). Membership identity rides
  *  through untouched (the floor is about liveness, not identity), so the demoted `warming`

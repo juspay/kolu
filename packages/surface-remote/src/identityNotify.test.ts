@@ -11,7 +11,7 @@
  * parity across the async-probe boundary.
  *
  * Mocks `node:child_process` + `nixCopy` (same approach as `liveness.test.ts`) so
- * no real ssh / `nix copy` runs; the child serves the real surface over a loopback
+ * no real ssh / remote-store Nix command runs; the child serves the real surface over a loopback
  * pair, so `implementSurface` auto-answers `system.identity` (as `anonymous` — no
  * build declared) with no hand-wiring.
  */
@@ -24,7 +24,7 @@ import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import { makeSession } from "./session";
 import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 
@@ -81,7 +81,8 @@ describe("makeSession identity republish (F1)", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
       }),
       reconnectDelayMs: 50,
       liveness: false,

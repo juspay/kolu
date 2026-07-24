@@ -222,7 +222,7 @@ function makeSession() {
   let clientPromise: Promise<AgentClient<typeof toySurface.contract>> | null =
     null;
   let state: SessionState<SshProv> = {
-    phase: "copying",
+    phase: "provisioning",
     log: [],
     sinceMs: 0,
     campaignEpoch: 0,

@@ -1,8 +1,7 @@
 # Kolu website — Astro static site.
 #
 # Imported from the root justfile as `mod website`. The website is built
-# by the root flake (packages.${system}.website); there is no separate
-# website flake. Recipes reuse the root's default devShell.
+# by website/flake.nix. Recipes still reuse the root development shell.
 #
 # NB: in just's module system `justfile_directory()` returns the root
 # justfile's dir, not this module's. Use `source_directory()` for paths
@@ -39,12 +38,12 @@ search-preview: build
 
 # Build the static site via Nix (reproducible) — prints the store path
 nix-build:
-    nix build {{ root }}#website --print-out-paths
+    nix build {{ here }} --print-out-paths
 
 # Serve the Nix-built site locally to inspect the deploy artefact
 preview:
     #!/usr/bin/env bash
     set -euo pipefail
-    out=$(nix build {{ root }}#website --print-out-paths --no-link)
+    out=$(nix build {{ here }} --print-out-paths --no-link)
     echo "Serving $out on http://127.0.0.1:4321"
     cd {{ here }} && {{ nix_shell }} pnpm exec astro preview --port 4321

@@ -325,7 +325,7 @@ const hostScoped = createRoot(() => {
     });
   }
   // The ACTIVE host's link health (W6 — "the honest connect"): its `phase`
-  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a cold
+  // (probing/provisioning/connecting/…) + live `log` tail drive the connect overlay so a cold
   // remote provision narrates its real phase instead of a mute "Connecting…".
   //
   // SR9 — ONE connection authority. This is NO LONGER a second `connection` cell
@@ -455,10 +455,10 @@ export const activePadiRpc = hostScoped.procedures;
 export const activePadiStreams = hostScoped.streams;
 
 /** The ACTIVE host's link-health value (`phase` + `log` tail), or `undefined` before its
- *  first frame. Drives the connect overlay's copying/building narration. Already floored on
+ *  first frame. Drives the connect overlay's probing/provisioning narration. Already floored on
  *  the map's transport liveness at the ONE floor — `active.state()` runs through surface-map's
  *  `floorOnLiveness`, which drops the fine `connection` word (as well as demoting the dot) when
- *  our link to the publisher is dead/half-open, so a frozen `building`/`copying` phase stops
+ *  our link to the publisher is dead/half-open, so a frozen `probing`/`provisioning` phase stops
  *  asserting a live phase (#1568). No client-side re-floor: the word inherits the SAME liveness
  *  decision as the dot by construction, so the two can never disagree. */
 export const connectionInfo = (): ConnectionInfo | undefined =>

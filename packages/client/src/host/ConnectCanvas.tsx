@@ -1,7 +1,7 @@
 /** The connect overlay (W6 — "the honest connect"): the canvas surface shown while
  *  the ACTIVE host's binding is coming up. It reads that host's `connection` cell and
- *  switches on `phase` — so a cold remote provision NARRATES its real phase (copying
- *  the recipe → building it, with a live log tail + an elapsed timer) instead of the
+ *  switches on `phase` — so a cold remote provision narrates its owned
+ *  evaluation/transfer/build lifetime, with a live log tail + an elapsed timer, instead of the
  *  mute "Connecting…" the whole canvas used to show, indistinguishable from a hang.
  *
  *  Two callers funnel through the one `warming` CanvasMode arm:
@@ -17,7 +17,7 @@
  *  cached agent…" → "…already provisioned — skipped copy") the instant it arrives, instead of
  *  a SILENT wait. The warm path still reads calm: a warm host short-circuits FAST, so `sinceMs`
  *  stays under the 1s elapsed threshold (no "0s" flash) and its tail is reassuring real output,
- *  not a scary build. A genuine COLD `copying`/`building` shows the same tail + a climbing
+ *  not a scary build. Genuine cold `provisioning` shows the same tail + a climbing
  *  elapsed as it runs. Failure is deliberately NOT handled here:
  *  `disconnected`/`failed` are owned by the Skew-UX host-down card (a `host-failed`
  *  CanvasMode), so this overlay renders only the up-but-not-yet-connected phases and

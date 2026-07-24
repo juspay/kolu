@@ -7,6 +7,13 @@
  */
 
 export { resolveSystem } from "./arch";
+export {
+  AgentSourceUnbakedError,
+  type AgentResolutionContext,
+  readBakedAgentSource,
+  resolveBakedAgentDrv,
+  SURFACE_AGENT_FLAKE_REF_ENV,
+} from "./agentDrv";
 // SR9 — one connection authority. Link health is no longer a per-host `connection`
 // CELL (that second wire channel + its `pipeSessionStateToCell` pump + the
 // `mirroredSurface`/`seedConnectionCell` seam are gone); it rides the host-map entry's
@@ -25,7 +32,6 @@ export {
   type AgentDial,
   type DialAgentOnceOptions,
   dialAgentOnce,
-  parseDrvBySystem,
 } from "./dialAgentOnce";
 export {
   buildAgentCommand,
@@ -50,6 +56,8 @@ export {
   type RemotePoolOptions,
 } from "./hostFanout";
 export {
+  type AgentDerivation,
+  directAgentDerivation,
   makeProvisionBudgets,
   makeStepBudget,
   type ProvisionBudgets,
@@ -63,9 +71,7 @@ export {
   type ExitResult,
   type LifetimePolicy,
   type RunOptions,
-  type RunProgressOptions,
   runCapture,
-  runProgress,
 } from "./process";
 export {
   type DeltaMembers,
@@ -112,6 +118,7 @@ export {
 } from "./session";
 export {
   type AgentClient,
+  type ResolveDrvPathContext,
   type SshConnectorOptions,
   type SshProv,
   sshConnector,

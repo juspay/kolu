@@ -69,7 +69,9 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     h.host = { kind: "remote", target: "zest" };
     dispose = render(
       () => (
-        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+        <BootStalledCanvas
+          recovery={{ via: "connector", phase: "provisioning" }}
+        />
       ),
       document.body,
     );
@@ -81,7 +83,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     ).not.toBeNull();
     expect(document.body.textContent).toContain(CONNECTOR_STALLED_COPY.title);
     // Phase detail — the wedged-but-retrying build names WHERE it is.
-    expect(document.body.textContent).toContain("building");
+    expect(document.body.textContent).toContain("provisioning");
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).not.toBeNull();
@@ -96,7 +98,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     h.host = { kind: "remote", target: "zest" };
     const [rec, setRec] = createSignal<BootStalledRecovery>({
       via: "connector",
-      phase: "building",
+      phase: "provisioning",
     });
     dispose = render(
       () => <BootStalledCanvas recovery={rec()} />,
@@ -110,7 +112,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     expect(document.activeElement).toBe(btn);
 
     // A fresh-but-EQUAL recovery object (the every-tick case): same DOM node, focus intact.
-    setRec({ via: "connector", phase: "building" });
+    setRec({ via: "connector", phase: "provisioning" });
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).toBe(btn);

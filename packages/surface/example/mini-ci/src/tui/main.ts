@@ -1,9 +1,9 @@
 /**
  * mini-ci — a CI-runner TUI over oRPC stdio.
  *
- * Connects to the runner via `@kolu/surface-remote`'s `HostSession` (the
- * drishti way: `nix copy` the runner closure + realise + run over ssh;
- * localhost runs it directly) and paints a live dashboard: a node-status
+ * Connects to the runner via `@kolu/surface-remote` (provision and root the
+ * runner through Nix, then run it over ssh; localhost runs it directly) and
+ * paints a live dashboard: a node-status
  * table (from the `nodes` cell) plus the attached node's log tail (from the
  * `nodeLog` stream). The default pipeline runs real CI for the
  * remote-process-monitor example. Keys:
@@ -61,7 +61,7 @@ function parseArgs(argv: string[]): Args {
 
 /** Iterate the `nodes` cell until the pipeline settles, calling `onState` for
  *  every yield. Flips the session to `connected` on the first frame (the
- *  HostSession watchdog reaps the link otherwise). */
+ *  session watchdog reaps the link otherwise). */
 async function pumpUntilDone(
   conn: Connection,
   onState: (state: NodesSnapshot) => void,
@@ -249,8 +249,8 @@ async function main(): Promise<void> {
     process.stdin.isTTY === true &&
     process.stdout.isTTY === true;
 
-  // HostSession's own copying/connecting progress goes to stderr; a one-liner
-  // up front frames it while the closure is copied + realised.
+  // The session's provisioning/connecting progress goes to stderr; a one-liner
+  // up front frames it while the closure is prepared.
   process.stderr.write(`mini-ci: connecting to ${args.host}…\n`);
   const conn = await connect({ host: args.host });
 

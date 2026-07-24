@@ -496,7 +496,7 @@ const App: Component = () => {
           </Match>
           <Match when={mode().kind === "warming"}>
             {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold
-                provision off the connection cell (copying → building, live log tail +
+                provision off the connection cell (probing → provisioning, live log tail +
                 elapsed) instead of a mute "Connecting…"; a kaval-restart warming
                 (daemonState defined) keeps the neutral label.
                 Key on the STABLE boolean `kind === "warming"` — NOT a mode object.

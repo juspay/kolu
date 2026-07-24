@@ -114,7 +114,7 @@ export type PadiEntry = EntryState<PadiEntryFailure, ConnectionInfo>;
  *  (`warming`/`connected`/`failed`/`not-a-member`) plus, on `failed`, the typed
  *  {@link PadiEntryFailure} value. `canvasModeResolver` keys its facts on this
  *  ONE read: the `failed` arm drives the host-down card's cause-typed copy, while a
- *  REMOTE host merely still `warming` (nix-copy + build, which projects to the `warming`
+ *  REMOTE host merely still `warming` (source evaluation + remote-store build, which projects to the `warming`
  *  entry status, see `@kolu/surface-map`'s `server.ts`) accrues against the generous remote
  *  boot-deadline cell — never the LOCAL 30s ceiling (see `bootDeadline.ts`'s ceiling table).
  *  A reactive accessor; read it inside a tracking scope. */
@@ -125,7 +125,7 @@ export function activeEntryState(): PadiEntry {
 /** True while the ACTIVE host is the unremovable LOCAL default — it selects the boot
  *  deadline's ceiling CLASS (local = 30s, mirroring the LOCAL session's own connect watchdog;
  *  a remote accrues against the generous provisioning/handshake cells instead, since a fresh
- *  remote padi legitimately takes longer than 30s — ssh dial + nix copy + build) and routes
+ *  remote padi legitimately takes longer than 30s — ssh provisioning) and routes
  *  the daemon-leg escape (a hung LOCAL kaval → the byte-identical down/dead card). A reactive
  *  accessor; read it inside a tracking scope. */
 export function isActiveHostLocal(): boolean {

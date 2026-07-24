@@ -17,13 +17,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
-import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
-import { type CaptureResult, runCapture, runProgress } from "./process";
+import {
+  directAgentDerivation,
+  makeProvisionBudgets,
+  provisionAgent,
+} from "./nixCopy";
+import { type CaptureResult, runCapture } from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),
   runCapture: vi.fn(),
-  runProgress: vi.fn(),
 }));
 
 const STORE = "/nix/store/x8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent";
@@ -39,7 +42,7 @@ const okOut = (stdout: string): CaptureResult => ({
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 
 function provArgs() {
-  return { budgets: makeProvisionBudgets(), campaignEpoch: 0 };
+  return { budgets: makeProvisionBudgets() };
 }
 
 /** A warm host: outputs computed locally, present on the host, pin ok. */
@@ -79,7 +82,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -104,22 +107,50 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
     expect(checkValidityCall()![2].policy.kind).toBe("deadline");
   });
 
-  it("a warm HIT short-circuits — no nix copy is issued", async () => {
+  it("a warm HIT short-circuits — no remote-store build is issued", async () => {
     mockWarmHit();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
-    expect(runProgress).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(runCapture)
+        .mock.calls.some((call) => call[1].includes("--print-out-paths")),
+    ).toBe(false);
+  });
+
+  it("enters provisioning before the mandatory warm root commit", async () => {
+    mockWarmHit();
+    const onProvisioning = vi.fn();
+    await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV),
+      onProgress: () => {},
+      onProvisioning,
+      ...provArgs(),
+    });
+    expect(onProvisioning).toHaveBeenCalledTimes(1);
+    const rootIndex = vi
+      .mocked(runCapture)
+      .mock.calls.findIndex((call) => call[1].includes("--add-root"));
+    expect(rootIndex).toBeGreaterThanOrEqual(0);
+    const phaseOrder = onProvisioning.mock.invocationCallOrder[0];
+    const rootOrder = vi.mocked(runCapture).mock.invocationCallOrder[rootIndex];
+    expect(phaseOrder).toBeDefined();
+    expect(rootOrder).toBeDefined();
+    if (phaseOrder !== undefined && rootOrder !== undefined) {
+      expect(phaseOrder).toBeLessThan(rootOrder);
+    }
   });
 
   it("a MULTI-output agent derivation fails loud — no silent wrong-output pick (F7)", async () => {
@@ -129,7 +160,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit(`${STORE}\n${STORE2}\n`);
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });

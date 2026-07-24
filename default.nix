@@ -7,7 +7,7 @@
 #
 # Used by flake.nix (thin wrapper), shell.nix, and nix-build directly.
 { pkgs ? import ./nix/nixpkgs.nix { }
-, commitHash ? "dev"
+, commitHash ? ""
   # TEST-ONLY hook: when set (e.g. "9.0"), rewrite the daemon's
   # `PTY_HOST_CONTRACT_VERSION` so this build's server *and* the kaval it spawns
   # speak an incompatible wire. Used by the adoption-skew VM test to build a
@@ -36,101 +36,35 @@
   # padi-build skew to the drain-on-build-mismatch convergence (#1670). Consumed by
   # the `adoption-padi-upgrade` VM arm; the real build always takes the source hash.
 , padiBuildIdOverride ? null
-  # Per-system `{ system → kaval .drv }` map, baked onto the kaval-tui wrapper as
-  # KAVAL_AGENT_DRVS_JSON so `kaval-tui --host <ssh>` can ship the target-arch
-  # kaval derivation (provisionAgent copies+realises it on the remote). default.nix
-  # is single-system, so the map is built across all systems in flake.nix and
-  # threaded in here. Defaults to "{}" for a bare `nix-build default.nix` (no
-  # --host map; --host then fails with a clear "run from the Nix wrapper" error).
-, kavalAgentDrvsJson ? "{}"
-  # Per-system `{ system → padi .drv }` map, baked onto kolu-server's wrapper
-  # (koluBin) as PADI_AGENT_DRVS_JSON so a `KOLU_PADI_HOST=<ssh>` remote binding
-  # (W3.1) can ship the target-arch padi derivation (provisionAgent copies+realises
-  # it on the remote). kaval rides INSIDE padi's closure (padi's wrapper bakes
-  # KOLU_KAVAL_BIN), so this ONE drv provisions BOTH daemons. Same shape as
-  # kavalAgentDrvsJson; defaults to "{}" (KOLU_PADI_HOST then fails with a clear
-  # "run from the Nix wrapper" error).
-, padiAgentDrvsJson ? "{}"
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
+  workspace = import ./nix/workspace.nix { inherit pkgs; };
+  inherit (workspace) version src pnpmDeps;
 
-  # App version — the SINGLE source of truth is packages/server/package.json
-  # (`/release` bumps it before tagging; the server reads the same file at
-  # runtime via pkg.version). Read it here so the nix artifact's version tracks
-  # it with no duplicated literal to drift.
-  version = (pkgs.lib.importJSON ./packages/server/package.json).version;
-
-  # INVARIANT: this fileset must include every workspace package that has a
-  # `typecheck` script — the typecheck derivation (nix/pnpm-typecheck.nix) reuses
-  # this `src`, so a package omitted here is silently skipped by the type
-  # gate even though `just check` (full working tree) would catch it.
-  # packages/tests is the only workspace member intentionally absent: it has
-  # no typecheck script, so it's outside the gate's scope either way.
-  src = pkgs.lib.fileset.toSource {
-    root = ./.;
-    fileset = pkgs.lib.fileset.unions [
-      ./package.json
-      ./pnpm-workspace.yaml
-      ./pnpm-lock.yaml
-      ./tsconfig.base.json
-      ./packages/surface
-      ./packages/surface-map
-      ./packages/surface-mcp
-      ./packages/surface-remote
-      ./packages/surface-app
-      ./packages/surface-daemon
-      ./packages/surface-daemon-supervisor
-      ./packages/solid-pierre
-      ./packages/solid-markdown
-      ./packages/solid-pwa-install
-      ./packages/solid-fileview
-      ./packages/solid-browser
-      ./packages/solid-statepip
-      ./packages/common
-      ./packages/daemon-test-gate
-      ./packages/integrations
-      ./packages/nonempty
-      ./packages/shared
-      ./packages/terminal-themes
-      ./packages/theme
-      ./packages/memorable-names
-      ./packages/terminal-vocab
-      ./packages/terminal-protocol
-      ./packages/kaval
-      ./packages/kaval-tui
-      ./packages/kolu-cli
-      ./packages/kolu-mcp
-      ./packages/padi
-      ./packages/padi-tui
-      ./packages/server
-      ./packages/client
-      ./packages/transcript-core
-      ./packages/transcript-html
-      ./packages/artifact-sdk
-      ./packages/serve-dir
-      ./packages/heap-diag
-      ./packages/html-escape
-      ./packages/shell-quote
-      ./packages/url-shape
-      ./packages/log
-      ./packages/xterm-kit
-    ];
-  };
-
-  pnpmDeps = pkgs.fetchPnpmDeps {
-    pname = "kolu";
-    inherit version src;
-    # Platform-independent. fetchPnpmDeps runs `pnpm install --force`, which
-    # sets includeIncompatiblePackages=true and bypasses pnpm's os/cpu/libc
-    # gating (pkg-manager/headless/src/index.ts:260 in pnpm 10.32.1), so
-    # Darwin and Linux populate byte-identical pnpm stores. `just ci::pnpm-
-    # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
-    # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
-    # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-8XNU5fOdJ7Y7D7G1mKB1pD5npfI95M70DoYfJFTjyAs=";
-    fetcherVersion = 3;
-  };
+  # Exact source flake with a minimal remote-agent output surface.
+  #
+  # Baking root `self` would keep the whole repository (website, Atlas, evidence)
+  # in every Kolu runtime closure. Instead, assemble the agent flake from the
+  # canonical Kolu workspace source above plus the Nix/npins machinery that
+  # evaluates it. `commit-hash` preserves the parent build's derived identity
+  # even though a store-path flake has no Git metadata. The flake exposes only
+  # Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix; selecting
+  # an agent remains independent of this derivation,
+  # so evaluating the nested flake is acyclic.
+  agentFlakeSrc = pkgs.runCommand "kolu-agent-flake-source" { } ''
+    mkdir -p "$out"
+    cp -R ${src}/. "$out/"
+    cp ${./default.nix} "$out/default.nix"
+    cp ${./nix/agent-flake.nix} "$out/flake.nix"
+    cp -R ${./nix} "$out/nix"
+    cp -R ${./npins} "$out/npins"
+    printf '%s' ${pkgs.lib.escapeShellArg commitHash} > "$out/commit-hash"
+  '';
+  agentFlakeRefEnv =
+    (pkgs.lib.importJSON ./packages/surface-remote/agent-env.json).flakeRef;
+  agentFlakeRefBakeArg =
+    ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
 
   # Build uses a placeholder so docs-only commits don't bust the derivation
   # cache; koluStamped sed-replaces it with the real hash afterwards.
@@ -476,7 +410,7 @@ let
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
       --set PADI_BUILD_ID "${padiIdentity.buildId}" \
-      --set PADI_AGENT_DRVS_JSON '${padiAgentDrvsJson}' \
+      ${agentFlakeRefBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
@@ -598,19 +532,17 @@ let
   '';
 
   # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
-  # closure whose `--host <ssh>` path ships a TARGET-arch agent derivation to a
-  # remote. kaval-tui and padi-tui both consume it (the two thin, single-daemon
-  # `--host` CLIs): name, entrypoint, and the per-system `{ system → agent .drv }`
-  # map env var are the only volatile axes. The map is
-  # baked with `--set` (NOT `--set-default`): it is a baked build
-  # fact — the exact derivations this wrapper ships and realises on the remote —
+  # closure whose `--host <ssh>` path resolves and ships a TARGET-arch agent
+  # derivation to a remote. kaval-tui and padi-tui both consume it. The source
+  # flake ref is baked with `--set` (NOT `--set-default`): it is a build fact —
+  # the exact source whose derivation this wrapper ships and realises remotely —
   # not a tunable. `--set-default` would let an ambient/stale
-  # `*_AGENT_DRVS_JSON` inherited from the caller's env silently override the
-  # Nix-computed source of truth and make the wrapper provision the WRONG agent,
+  # `SURFACE_AGENT_FLAKE_REF` inherited from the caller silently override the source
+  # of truth and make the wrapper provision the WRONG agent,
   # which is exactly the override-knob the repo's fail-fast rule forbids. openssh
   # + nix are on PATH for the provision (resolveSystem's ssh arch-probe +
-  # provisionAgent's `nix copy` / `nix-store`).
-  mkAgentTuiWrapper = { name, entry, envVar, agentDrvsJson }:
+  # provisionAgent's Nix remote-store build / `nix-store` probe and pin).
+  mkAgentTuiWrapper = { name, entry }:
     pkgs.runCommand name
       {
         nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -619,7 +551,7 @@ let
       mkdir -p $out/bin
       makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/${name} \
         --add-flags "${kolu}/${entry}" \
-        --set ${envVar} '${agentDrvsJson}' \
+        ${agentFlakeRefBakeArg} \
         --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
     '';
 
@@ -629,14 +561,11 @@ let
   # (so kaval + @kolu/surface resolve identically) under tsx — no client bundle,
   # no state dir, just nodejs.
   #
-  # R-2's `--host <ssh>` rides this wrapper: KAVAL_AGENT_DRVS_JSON carries the
-  # per-system `{ system → kaval .drv }` map so the CLI can ship the target-arch
-  # kaval derivation to a remote.
+  # R-2's `--host <ssh>` rides this wrapper: the baked source ref lets the CLI
+  # evaluate and ship the target system's kaval derivation on demand.
   kaval-tui = mkAgentTuiWrapper {
     name = "kaval-tui";
     entry = "packages/kaval-tui/src/main.ts";
-    envVar = "KAVAL_AGENT_DRVS_JSON";
-    agentDrvsJson = kavalAgentDrvsJson;
   };
 
   # padi-tui (W2.3): the terminal-side CLI that dials a running padi's digest-keyed
@@ -645,55 +574,11 @@ let
   # `create` (a terminal / split tile / worktree'd agent). kaval-tui's sibling and
   # `pulam-tui`'s replacement (see `packages/padi-tui/README.md`). Runs from the
   # SAME built workspace closure as `kolu` under tsx, via `mkAgentTuiWrapper`.
-  # `PADI_AGENT_DRVS_JSON` carries the per-system `{ system → padi .drv }` map
-  # (W3.1) — the SAME map baked onto koluBin, whose remote binding is W3.1's real
-  # consumer; padi-tui's own `--host` leg is a later, thin wrapper over the same
-  # dial, but the map is baked here now so it is ready the moment that lands.
+  # The same source ref baked onto koluBin lets padi-tui resolve the target
+  # system's padi derivation on demand.
   padi-tui = mkAgentTuiWrapper {
     name = "padi-tui";
     entry = "packages/padi-tui/src/main.ts";
-    envVar = "PADI_AGENT_DRVS_JSON";
-    agentDrvsJson = padiAgentDrvsJson;
-  };
-
-  # @kolu/surface example demos — derivations live next to each demo's
-  # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
-  # so the fixed-output fetch is cached once.
-  remoteProcessMonitor = import ./packages/surface/example/remote-process-monitor/default.nix {
-    inherit pkgs src pnpmDeps;
-  };
-  miniCi = import ./packages/surface/example/mini-ci/default.nix {
-    inherit pkgs src pnpmDeps;
-  };
-  # fleet-top-agent — the remote agent the multi-host tutorials ship over ssh.
-  # Exposed so the tutorials' `nix eval --raw .#fleet-top-agent.drvPath` works as
-  # written (FLEET_TOP_AGENT_DRV has no fallback; the reader needs a real drv).
-  fleetTop = import ./packages/surface/example/fleet-top/default.nix {
-    inherit pkgs src pnpmDeps;
-  };
-
-  # odu — the CI runner that grew out of the mini-ci example (Atlas:
-  # mini-ci-vs-justci) and graduated to github.com/juspay/odu. kolu consumes
-  # it back via npins (`npins update odu` to bump) and re-exports `odu` so
-  # `nix run .#odu` runs this repo's pinned coordinator. The lane runner is no
-  # longer re-exported: odu resolves it from its OWN flake (juspay/odu#30), so
-  # we thread `selfFlake = oduSources.odu` to bake ODU_RUNNER_FLAKE onto the
-  # wrapper — the same value a flake build derives from `self.outPath`. odu is
-  # built with its own pinned nixpkgs + kolu pin (it consumes @kolu/surface
-  # upstream, the drishti pattern) — the import threads the system + self-flake.
-  oduSources = import ./npins;
-  oduUpstream = import oduSources.odu {
-    pkgs = import (oduSources.odu + "/nix/nixpkgs.nix") {
-      system = pkgs.stdenv.hostPlatform.system;
-    };
-    selfFlake = oduSources.odu;
-  };
-  oduPackages = { inherit (oduUpstream) odu; };
-
-  # @kolu/solid-browser docsite — a standalone second consumer of createBrowser
-  # (the history electricity), built so CI proves the reuse claim doesn't rot.
-  docsiteExample = import ./packages/solid-browser/example/docsite/default.nix {
-    inherit pkgs src pnpmDeps;
   };
 
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
@@ -707,5 +592,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
-} // remoteProcessMonitor // miniCi // fleetTop // docsiteExample // oduPackages
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
+}

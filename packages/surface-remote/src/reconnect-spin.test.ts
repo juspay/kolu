@@ -22,7 +22,7 @@ import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import { makeSession, type Session } from "./session";
 import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
@@ -93,7 +93,10 @@ describe("reconnect bridge loop", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 50,
       label: "testhost",
@@ -150,7 +153,10 @@ describe("reconnect bridge loop", () => {
         host: "destroyhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       // Long backoff so the second next() is genuinely parked, not racing a fast
       // respawn.

@@ -2,7 +2,7 @@
  * D1b pins (#1908) — the fire-and-collect seam OWNS its child's lifetime.
  *
  * The field incident: a `nix-store --realise` ssh child wedged ~10 minutes because
- * `runProgress`/`runCapture` spawned with no timeout, no kill path, resolving only on
+ * `runCapture` spawned with no timeout, no kill path, resolving only on
  * the child's own `close`. These are the flipped RED bodies (R9: rewrites, not
  * `it.fails → it`), exercising the REAL helpers against REAL children:
  *
@@ -15,7 +15,7 @@
  *   - an abort settles as its own `aborted` arm.
  */
 import { describe, expect, it } from "vitest";
-import { runCapture, runProgress } from "./process";
+import { runCapture } from "./process";
 
 // A never-closing child self-reaps at 5s so a REGRESSION (no bound) can't leak forever;
 // the bounds we assert (≤1s) are far under it, so only the policy can settle these runs.
@@ -26,7 +26,7 @@ describe("D1b — deadline policy (#1908)", () => {
     timeout: 10_000,
   }, async () => {
     const start = Date.now();
-    const res = await runProgress("sh", SLEEP_5, {
+    const res = await runCapture("sh", SLEEP_5, {
       policy: { kind: "deadline", ms: 400 },
     });
     expect(res.kind).toBe("lifetime-expired");
@@ -52,7 +52,7 @@ describe("D1b — deadline policy (#1908)", () => {
     timeout: 10_000,
   }, async () => {
     const start = Date.now();
-    const res = await runProgress("sh", ["-c", 'trap "" TERM; sleep 30'], {
+    const res = await runCapture("sh", ["-c", 'trap "" TERM; sleep 30'], {
       policy: { kind: "deadline", ms: 400 },
     });
     // We settle at expiry (never waiting for the child to honour TERM); the grace
@@ -63,6 +63,35 @@ describe("D1b — deadline policy (#1908)", () => {
 });
 
 describe("D1b — progress-liveness policy (#1908)", () => {
+  it("reassembles stderr lines split across child chunks", async () => {
+    const lines: string[] = [];
+    const res = await runCapture(
+      "sh",
+      [
+        "-c",
+        "printf 'Could not ' >&2; sleep 0.05; printf 'resolve host\\n' >&2",
+      ],
+      {
+        policy: { kind: "deadline", ms: 5000 },
+        onProgress: (line) => lines.push(line),
+      },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(lines).toEqual(["Could not resolve host"]);
+  });
+
+  it("fails loudly instead of buffering an unbounded stderr line", async () => {
+    const res = await runCapture(
+      process.execPath,
+      ["-e", 'process.stderr.write("x".repeat(1024 * 1024))'],
+      { policy: { kind: "deadline", ms: 5000 } },
+    );
+
+    expect(res.kind).toBe("output-error");
+    expect(res.ok).toBe(false);
+  });
+
   it("kills a SILENT child once the silence bound passes", {
     timeout: 10_000,
   }, async () => {
@@ -78,12 +107,12 @@ describe("D1b — progress-liveness policy (#1908)", () => {
     timeout: 10_000,
   }, async () => {
     // Emits on stderr every 150ms for ~600ms — never 400ms silent → clean exit.
-    const res = await runProgress(
+    const res = await runCapture(
       "sh",
       ["-c", "for i in 1 2 3 4; do echo tick 1>&2; sleep 0.15; done"],
       { policy: { kind: "progress-liveness", silenceMs: 400 } },
     );
-    expect(res).toEqual({ ok: true, kind: "exit", code: 0 });
+    expect(res).toEqual({ ok: true, kind: "exit", code: 0, stdout: "" });
   });
 
   it("resets on ANY output — a STDOUT-only child is not killed (R4d)", {
@@ -126,7 +155,7 @@ describe("D1b — abort (#1908 R6b)", () => {
       policy: { kind: "deadline", ms: 5000 },
       signal: ac.signal,
     });
-    // Settles aborted with no output — the command (a stand-in for `nix copy`) never ran.
+    // Settles aborted with no output — the side-effecting command never ran.
     expect(res.kind).toBe("aborted");
     expect(res.stdout).not.toContain("RAN");
   });
@@ -153,16 +182,17 @@ describe("D1b — group reap (#1908 F1)", () => {
     expect(() => process.kill(-pgid, 0)).toThrow();
   });
 
-  it("runProgress resets progress-liveness on STDOUT (not just stderr) — F11", {
+  it("runCapture resets progress-liveness on STDOUT (not just stderr) — F11", {
     timeout: 10_000,
   }, async () => {
-    // runProgress ignores stdout for capture, but must still DRAIN it to bump liveness,
-    // or a healthy stdout-only child is killed as silent. Emits stdout only, every 150ms.
-    const res = await runProgress(
+    // A healthy stdout-only child must bump liveness rather than be killed as
+    // silent. Emits stdout only, every 150ms.
+    const res = await runCapture(
       "sh",
       ["-c", "for i in 1 2 3 4; do echo out; sleep 0.15; done"],
       { policy: { kind: "progress-liveness", silenceMs: 400 } },
     );
-    expect(res).toEqual({ ok: true, kind: "exit", code: 0 });
+    expect(res.ok).toBe(true);
+    expect(res.stdout).toContain("out");
   });
 });

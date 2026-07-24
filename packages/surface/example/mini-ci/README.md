@@ -6,22 +6,22 @@ This is **Phase 0** of [`kolu-tui`](../../../../docs/atlas/src/content/atlas/pty
 
 ## Architecture
 
-The runner is shipped to the host the **drishti way** — as a prebuilt nix closure copied + realised over ssh — and reached through [`@kolu/surface-remote`](../../../surface-remote)'s `HostSession`, exactly as remote-process-monitor does it:
+The runner is provisioned on the host through [`@kolu/surface-remote`](../../../surface-remote): one remote-store Nix build owns evaluation, transfer, and realisation, then a required target-store GC-root commit protects the output before the session runs it.
 
 ```
 ┌──────────────────────┐                                              ┌──────────────────────────────────┐
 │      mini-ci TUI     │                                              │   mini-ci-runner (on the host)   │
 │   (ephemeral client) │                                              │   serveOverStdio({ router })     │
-│                      │  HostSession                                 │                                  │
-│  session = getHost-  │  ── nix copy closure (skipped on localhost)─▶│   task DAG: per-node child proc  │
-│   Session({ host,    │  ── nix-store --realise ────────────────────▶│   runs `pnpm --filter … type-    │
+│                      │  makeSession + sshConnector                  │                                  │
+│  session = make-     │  ── nix build (eval/transfer/realise) ─────▶│   task DAG: per-node child proc  │
+│   Session({ host,    │  ── required GC-root commit ────────────────▶│   runs `pnpm --filter … type-    │
 │    binary,           │  ── ssh $host mini-ci-runner --stdio ───────▶│   check` against the bundled     │
 │    resolveDrvPath })│                                              │   workspace (surfaceExampleBase) │
 │                      │  ◀─ nodes Cell  +  nodeLog Stream (ssh stdio)│                                  │
 └──────────────────────┘                                              └──────────────────────────────────┘
 ```
 
-`HostSession` owns the ref-count, reconnect, and a connection-state cell (`copying → connecting → connected`). The TUI calls `session.markConnected()` on the first `nodes` frame and `session.destroy()` on quit. `localhost` skips the `nix copy` and runs the realised binary directly — **the same `HostSession`, only the transport differs.**
+`makeSession` owns reconnect and the connection state (`probing → provisioning → connecting → connected`); `sshConnector` owns Nix and ssh. The TUI calls `session.markConnected()` on the first `nodes` frame and `session.destroy()` on quit. `localhost` uses the same composition while running the realised binary directly.
 
 ## Surface shape
 
@@ -57,14 +57,14 @@ just run                         # local (host = localhost)
 just run user@host               # remote — needs passwordless ssh + Nix on the host
 just run localhost --json        # run to completion, print final state, exit non-zero on failure
 just run localhost --headless    # stream status transitions as plain lines
-nix run .#mini-ci                # standalone — bakes the current system's runner .drv
+nix run ..#mini-ci                 # standalone — wrapper bakes the exact source flake
 ```
 
-`just run [host]` probes the host's nix-system, resolves the matching `mini-ci-runner` `.drv`, and passes it as `MINI_CI_RUNNER_DRV` (exactly like drishti's `KOLU_AGENT_DRV`); [`src/probe-arch.ts`](src/probe-arch.ts) is the thin arch-probe wrapper over `@kolu/surface-remote`'s `resolveSystem`. The TUI then drives the runner via `getHostSession({ host, binary: "mini-ci-runner", resolveDrvPath })`. Remote hosts only need passwordless ssh + Nix; the runner is built once for the host's arch and `nix copy`d over.
+`just run [host]` supplies the independent example flake as the exact agent source. The TUI drives `mini-ci-runner` through `makeSession({ connectOnce: sshConnector(...) })`; Surface Remote probes the host, selects the target-architecture package, and provisions and roots its result. Remote hosts only need passwordless ssh + Nix.
 
 ## Detach (and why there's no `~`-escape)
 
-kolu-tui's Phase-2 ssh-style `~`-escape exists because that client is a **raw VT passthrough** where every byte must reach the inner program, so it needs an unambiguous escape that never collides with the inner tool. mini-ci's dashboard renders **structured state** and owns the keyboard directly, so it binds plain keys — the `~`-escape decision is recorded for kolu-tui, not needed here. Likewise, because the runner is reached over a single `HostSession` (or dies with the ssh pipe), this is _client-side_ come-and-go, not server-restart survival — exactly the honest-scope line the plan draws between kolu-tui (client detach while the server runs) and the daemon plan (server survival).
+kolu-tui's Phase-2 ssh-style `~`-escape exists because that client is a **raw VT passthrough** where every byte must reach the inner program, so it needs an unambiguous escape that never collides with the inner tool. mini-ci's dashboard renders **structured state** and owns the keyboard directly, so it binds plain keys — the `~`-escape decision is recorded for kolu-tui, not needed here. Likewise, because the runner is reached over one client-owned Surface Remote session (or dies with the ssh pipe), this is _client-side_ come-and-go, not server-restart survival.
 
 ## Falsifiability checklist — what `mini-ci.test.ts` proves
 
@@ -76,7 +76,7 @@ The unit test drives the _real_ runner surface through the _real_ stdio transpor
 4. **Rerun re-runs the closure** — `node.rerun` resets the node + its dependents to `pending` and they settle `ok` again.
 5. **No false greens** — a failed dependency `skip`s its dependents.
 
-Plus the live e2e: `just run localhost --json` type-checks remote-process-monitor's dependency closure green over a real `HostSession` + ssh stdio.
+Plus the live e2e: `just run localhost --json` type-checks remote-process-monitor's dependency closure green over a real Surface Remote session + stdio link.
 
 ## What's not in this demo
 
