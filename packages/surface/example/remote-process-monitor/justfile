@@ -21,23 +21,17 @@ default:
 install:
     cd {{ repo_root }} && {{ nix_shell }} pnpm install
 
-# Boot parent (:7720) + Vite (:5175). Resolves the agent's `.drv` for
-# the *target host's* architecture via `@kolu/surface-remote`'s
-# `resolveSystem` (see `src/probe-arch.ts` — one library helper covers
-# both the local and ssh paths), then exports `KOLU_AGENT_DRV` so the
-# parent's HostSession can ship the derivation to the host and realise
-# it there. This is platform-neutral — copying a built linux closure
-# to a darwin remote is the bug we explicitly avoid.
+# Boot parent (:7720) + Vite (:5175). Supplies the independent example flake as
+# the exact agent source; Surface Remote probes the target and selects its
+# package for that architecture.
 dev host='localhost' *args: install
     #!/usr/bin/env bash
     set -euo pipefail
     cd {{ justfile_directory() }}
-    sys=$({{ nix_shell }} pnpm exec tsx src/probe-arch.ts {{ host }})
-    echo "» target host: {{ host }} (system=$sys)"
-    drv=$(nix eval --raw "{{ repo_root }}/packages/surface/example#packages.$sys.process-monitor-agent.drvPath")
-    echo "» agent .drv:  $drv"
+    agent_env=$({{ nix_shell }} node -p "require('{{ repo_root }}/packages/surface-remote/agent-env.json').flakeRef")
+    echo "» target host: {{ host }}"
+    env "$agent_env={{ repo_root }}/packages/surface/example" \
     HOST={{ host }} \
-    KOLU_AGENT_DRV=$drv \
     {{ nix_shell }} pnpm run dev {{ args }}
 
 # Typecheck this example only

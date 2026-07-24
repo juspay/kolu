@@ -1,16 +1,17 @@
 /**
- * `.drv`-copy provisioning for a remote agent.
+ * Target-store provisioning for a remote agent.
  *
- * The model: the caller has a *derivation* (`.drv`) — a platform-
- * neutral description of how to build the agent — and ships THAT to
- * the remote, which realises (builds) it for its own architecture. No
- * pre-built linux closure smuggled onto a darwin host.
+ * The preferred model: the caller names one exact source flake and package.
+ * The connector has already selected the target system, and one Nix build
+ * evaluates, transfers, and realises that installable against the target
+ * store. A direct `.drv` remains the lower-level input for callers that
+ * already own derivation selection. No pre-built linux closure is smuggled
+ * onto a darwin host.
  *
  *   Preamble: the caller passes a `/nix/store/…-agent.drv` path. The
- *      package doesn't care HOW the caller obtained it; `nix eval --raw
- *      .#packages.<system>.<agent>.drvPath` is the typical recipe
- *      (use `resolveSystem(host)` to get the remote's `<system>` first,
- *      so the derivation is for the *remote's* architecture).
+ *      package doesn't care HOW the caller obtained it. Source-based callers
+ *      normally use `resolveAgentDrv`; direct-derivation callers are
+ *      responsible for selecting the remote's architecture.
  *   1. (Remote, warm) an ASK-ONLY check (#1908 D1a): compute the `.drv`'s
  *      output path(s) LOCALLY on the sender (`nix-store -q --outputs`, no
  *      network), then ask the host, bounded, whether they are already valid
@@ -24,10 +25,13 @@
  *      concurrent GC cannot collect the just-transferred derivation between
  *      separate copy and build commands. Plain `-v` lets Nix's own transfer and
  *      build lines reach the connect overlay.
- *   4. `ssh $host nix-store --realise $out --add-root $link --indirect`
- *      pins that output behind a per-agent GC root on the target, so a
+ *   3. `ssh $host nix-store --realise $out --add-root $link --indirect`
+ *      atomically proves the output still exists (restoring it if possible)
+ *      and commits it behind a per-agent GC root on the target, so a
  *      `nix-collect-garbage` there can't delete the agent out from
  *      under a live session (or force a rebuild on the next reconnect).
+ *      This command is the provisioning commit point: any failure is returned,
+ *      and no agent path escapes unrooted.
  *      See `agentGcRootPath` for the "latest"-link semantics.
  *   Spawn: the output path becomes `agentPath`; the caller then spawns
  *      `ssh $host $agentPath/bin/<binary> --stdio` via the connector.
@@ -267,9 +271,9 @@ export type ProvisionResult =
  *  previous output drops out of the root set and becomes GC-eligible.
  *
  *  Remote: the path is relative, so it resolves against the ssh login
- *  user's home dir. Local: anchor to this process's `$HOME` explicitly —
- *  and if `$HOME` is unset we return `null` rather than a cwd-relative
- *  path; the caller then skips the (best-effort) pin. */
+ *  user's home dir. Local: anchor to this process's `$HOME` explicitly.
+ *  If `$HOME` is unset we return `null`; provisioning then fails because
+ *  returning an unrooted agent would violate its ownership contract. */
 export function agentGcRootPath(
   isLocal: boolean,
   drvPath: string,
@@ -339,17 +343,12 @@ function expiredResult(
   };
 }
 
-/** Pin `target` behind the indirect per-agent GC root at `rootPath` — the SHARED
- *  best-effort step both the warm-HIT path and the cold step-4 use (#1908 R5d: one
- *  pin, one failure semantics). Re-realising a path that is STILL valid is instant.
- *  There is a bounded race (F12): the validity check and this pin are separate commands,
- *  so a concurrent `nix-collect-garbage` on the host could remove the unrooted output
- *  between them, after which `--realise <output>` is allowed to substitute (fetch) it.
- *  That surprise fetch is bounded by the `deadline` policy — it is killed at the deadline
- *  and degrades to "runs, unpinned" — so the warm path never wedges on it, but it is NOT
- *  the "substitution is impossible" the earlier comment over-claimed. A `deadline` expiry
- *  (or any genuine failure) here is non-fatal; only a user `aborted` is surfaced (F9).
- *  Best-effort throughout. */
+/** Commit `target` behind the target store's indirect per-agent GC root.
+ *
+ * `nix-store --realise ... --add-root` makes validity and durable ownership one
+ * target-store operation. The preceding warm check/cold build may race a GC,
+ * but their unrooted output is never treated as success: this operation either
+ * re-establishes the target and its root together or fails the dial. */
 async function pinGcRoot(
   host: string,
   target: string,
@@ -358,6 +357,7 @@ async function pinGcRoot(
   signal: AbortSignal | undefined,
 ): Promise<ProvisionResult | null> {
   onProgress(`${host}: pinning GC root at '${rootPath}'…`);
+  let sawNetworkError = false;
   const pin = buildSshProbeCommand(
     host,
     "nix-store",
@@ -368,28 +368,24 @@ async function pinGcRoot(
     "--indirect",
   );
   const pinRes = await runCapture(pin.command, pin.args, {
-    onProgress,
+    onProgress: (line) => {
+      sawNetworkError ||= looksLikeNetworkError(line);
+      onProgress(line);
+    },
     policy: probePolicy(),
     signal,
   });
-  // A user ABORT during the pin is NOT a swallowable pin failure (F9): it is a live
-  // cancellation, so it propagates as a retryable `"network"` result the caller RETURNS
-  // (never a false `{ ok: true }`). A GENUINE pin failure (a remote error, or a `deadline`
-  // expiry) stays best-effort — the agent still runs, just unpinned — so `null` means
-  // "continue".
-  if (pinRes.kind === "aborted") {
-    return {
-      ok: false,
-      reason: `${host}: provisioning aborted during GC-root pin`,
-      cause: "network",
-    };
-  }
-  if (!pinRes.ok) {
-    onProgress(
-      `${host}: GC-root pin ${describeExit(pinRes)}; agent runs but is unpinned`,
-    );
-  }
-  return null;
+  if (pinRes.ok) return null;
+  const network =
+    pinRes.kind === "aborted" ||
+    pinRes.kind === "lifetime-expired" ||
+    sawNetworkError ||
+    (pinRes.kind === "exit" && pinRes.code === 255);
+  return {
+    ok: false,
+    reason: `${host}: could not establish the agent GC root: ${describeExit(pinRes)}`,
+    cause: network ? "network" : "remote",
+  };
 }
 
 /** Ship the `.drv` to `$host` and realise it there. Returns the
@@ -485,8 +481,8 @@ export async function provisionAgent(
         signal,
       });
       if (checkRes.ok) {
-        // Warm hit. Refresh the GC root via the SHARED best-effort pin, then short-circuit
-        // — but a non-null return is a user-abort-during-pin bail the caller must honour.
+        // Warm hit. The shared root operation is the commit point: only a rooted,
+        // still-valid target may short-circuit as success.
         const bail = await pinGcRoot(
           opts.host,
           agentPath,
@@ -495,6 +491,7 @@ export async function provisionAgent(
           signal,
         );
         if (bail) return bail;
+        budgets.provisioning.reset();
         onProgress(
           `${opts.host}: already provisioned at ${agentPath} — skipped copy`,
         );
@@ -573,14 +570,15 @@ export async function provisionAgent(
   }
   onProgress(`${opts.host}: agent realised at ${agentPath}`);
 
-  // 4. Pin the realised output behind a stable, per-agent GC root — the SHARED
-  //    best-effort pin (same as the warm-hit path). If the root path can't be formed
-  //    (local $HOME unset) we warn and continue; a non-null return is a user-abort-during-
-  //    pin bail (F9) the caller honours rather than falsely reporting success.
+  // 3. Commit the realised output behind a stable, per-agent GC root. This is
+  //    the same required operation as the warm-hit path; provision success
+  //    means both "valid" and "durably rooted", never merely "was built".
   if (rootPath === null) {
-    opts.onProgress(
-      `${opts.host}: HOME unset, can't place a GC root; agent runs but is unpinned`,
-    );
+    return {
+      ok: false,
+      reason: `${opts.host}: HOME is unset, so the agent GC root path cannot be formed`,
+      cause: "remote",
+    };
   } else {
     const bail = await pinGcRoot(
       opts.host,

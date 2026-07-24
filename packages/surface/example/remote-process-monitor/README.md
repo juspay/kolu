@@ -39,15 +39,15 @@ just dev user@somehost     # any ssh target
 
 Open <http://localhost:5175>. Requires passwordless ssh into the target (set up `~/.ssh/authorized_keys` for your own user if you haven't), and the remote's nix-daemon must trust the parent's user (`trusted-users` in `nix.conf`) so it accepts the unsigned closure the parent ships.
 
-`just dev` boots the parent server (`:7720`) + Vite client (`:5175`). It probes the host's architecture via `@kolu/surface-remote`'s `resolveSystem` (the thin CLI wrapper lives at [`src/probe-arch.ts`](src/probe-arch.ts) — one helper covers both the local and ssh paths), then evaluates `nix eval --raw ..#packages.<remote-system>.process-monitor-agent.drvPath` to get the *target-arch* derivation, and exports it as `KOLU_AGENT_DRV`. The parent's `HostSession` then:
+`just dev` boots the parent server (`:7720`) + Vite client (`:5175`) and supplies the independent example flake as the exact agent source. Surface Remote probes the host's architecture and selects `process-monitor-agent` from that source. The parent session then:
 
-1. `nix copy --derivation --to ssh-ng://$host $KOLU_AGENT_DRV` — ships the `.drv` (plus any inputs the remote doesn't have) to the host.
-2. `ssh $host nix-store --realise $KOLU_AGENT_DRV` — builds it on the remote, returning a path on the remote's store.
-3. `ssh $host $realisedPath/bin/process-monitor-agent --stdio` — runs it.
+1. `nix build --eval-store auto --store ssh-ng://$host "$source#packages.$system.process-monitor-agent"` — evaluates the exact source, then transfers and realises its target-system agent through one Nix-owned lifetime.
+2. `ssh $host nix-store --realise $output --add-root … --indirect` — commits the realised output behind its stable target-store GC root.
+3. `ssh $host $output/bin/process-monitor-agent --stdio` — runs it.
 
-`KOLU_AGENT_DRV` is **required, no fallback** — the operator is the only one who knows which derivation/architecture is correct. The UI shows copy + realise progress while waiting; subsequent connects skip both if the closure is already realised on the remote.
+The source is **required, no fallback** and is baked into `nix run` wrappers; `just dev` supplies the working example flake explicitly. The UI shows provisioning progress while waiting; a cached, rooted closure takes the warm path.
 
-The whole demo also ships as a single binary that bakes its own agent `.drv` for the current system:
+The whole demo also ships as a single binary whose wrapper bakes the same exact source flake:
 
 ```sh
 nix run ..#process-monitor-monitor -- user@somehost
@@ -67,13 +67,13 @@ The plan's 12-row table maps to observable behavior in this app:
 1. **Stdio link over ssh** — `ssh $host $agent --stdio` connects; the typed RPC client `surface.system.get(...)` round-trips.
 2. **Peer-server pumps typed router** — the agent's `serveOverStdio({ router })` serves a non-trivial surface (system cell + processes collection + kill procedure).
 3. **Snapshot-then-delta on collections** — open devtools, watch the WebSocket frames: first frame for the processes collection is the full PID map, subsequent frames are per-PID upserts/removes.
-4. **Snapshot-then-delta on state listeners** — the "Connecting…" overlay attaches before `connect()` returns and still sees the initial `state === "connecting"`. The parent's `HostSession.onState(cb)` fires `cb(current)` synchronously.
-5. **Deferred heartbeat** — no heartbeat in this PR; the link survives a cold `nix copy` of arbitrary length because there's no premature "disconnected" transition. The parent transitions to `connected` only after the first system snapshot arrives.
-6. **Single host session per host** — opening multiple browser tabs against the same parent shares ONE ssh subprocess. `getHostSession({host, agentPath})` ref-counts.
+4. **Snapshot-then-delta on state listeners** — the "Connecting…" overlay attaches before `connect()` returns and still sees the initial connection state. The parent session's `onState(cb)` fires `cb(current)` synchronously.
+5. **Deferred heartbeat** — no heartbeat in this PR; the link survives a long cold provision because there's no premature "disconnected" transition. The parent transitions to `connected` only after the first system snapshot arrives.
+6. **Single host session per host** — opening multiple browser tabs against the same parent shares one server-owned session and ssh subprocess.
 7. **Instant pane + async fill** — the monitor pane renders the moment the browser connects (with a "Copying…" / "Connecting…" overlay); transport readiness is signalled by the first snapshot arriving.
-8. **Wire-shape drift impossible by construction** — the parent ships a target-arch `.drv` (computed once via `nix eval --raw ..#packages.<remote-system>.process-monitor-agent.drvPath`) and realises it on the remote, so parent and agent are always the same nix derivation. (Kolu's production dial resolves the same shape lazily from its Nix-wrapper-baked `SURFACE_AGENT_FLAKE_REF`; this demo's `KOLU_AGENT_DRV` is the explicit file-shape twin.)
-9. **Remote command builder** — `HostSession.spawn` builds `ssh -o BatchMode=yes $host $agentPath/bin/process-monitor-agent --stdio`. File-shape twin of R-2's `install.ts` `remoteAgentCommand`.
-10. **Auto `.drv` provisioning** — first connect runs `nix copy --derivation --to ssh-ng://$host $KOLU_AGENT_DRV` then `ssh $host nix-store --realise $KOLU_AGENT_DRV` (the copy is skipped on localhost; realise is a local build there). Progress lines are forwarded to the UI's progress tail.
+8. **Wire-shape drift impossible by construction** — the wrapper and development recipe name one exact source flake; the connector selects and realises that source's target-architecture agent, so parent and agent come from the same build.
+9. **Remote command builder** — `sshConnector` builds `ssh -o BatchMode=yes $host $agentPath/bin/process-monitor-agent --stdio`.
+10. **Auto `.drv` provisioning** — first connect runs one remote-store `nix build` for evaluation, transfer, and realisation, then requires the target-store GC-root commit before the agent path can escape. Progress lines are forwarded to the UI's progress tail.
 11. **Stdout is the protocol; logs go to fd 2** — agent logs route to `process.stderr` via the local `log()` helper. Run `pnpm run dev:agent -- --broken-stdout-log` to reproduce lesson #4 — the parent's link surfaces `SyntaxError: Unexpected token '«'` rather than hanging.
 12. **Reconnect → state reconciles, no ghosts** — kill the agent (`pkill -f process-monitor-agent` on the remote, or `Ctrl-C` on the localhost dev agent). The session's reconnect timer fires after 2s; the processes collection re-snaps on the new link; processes that ended during the gap drop out of the UI cleanly.
 
@@ -81,4 +81,3 @@ The plan's 12-row table maps to observable behavior in this app:
 
 - **A real CLI for `kill` signal selection.** The UI hardcodes `TERM`. The procedure schema accepts `KILL`/`HUP`/`INT` — a button group is left as an exercise.
 - **Per-PID streaming value refresh.** The collection's `byKey` snapshot is filled on first key arrival; subsequent value changes ride the system poll cadence rather than per-key channels. R-2 would generate per-key channels for richer per-tile updates.
-- **Standalone `nix run` for the whole demo.** The agent ships as a flake derivation (`..#process-monitor-agent`), but the parent server + Vite client still run from source via `just dev`. Bundling the parent + a pre-built client into a single `nix run ..#process-monitor-monitor` is straightforward and a reasonable follow-up.

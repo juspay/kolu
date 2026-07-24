@@ -25,10 +25,14 @@ import {
   ResolveDrvError,
 } from "./host";
 import {
+  AgentResolutionExhaustedError,
+  resolveAgentDrv,
+  type AgentResolutionContext,
+} from "./agentDrv";
+import {
   type AgentDerivation,
   makeProvisionBudgets,
   provisionAgent,
-  type StepBudget,
 } from "./nixCopy";
 import {
   type ClosedInfo,
@@ -68,12 +72,9 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
 export type SshProv = "probing" | "provisioning";
 
 /** The owning dial context a deferred derivation resolver may consume. */
-export interface ResolveDrvPathContext {
+export interface ResolveDrvPathContext extends AgentResolutionContext {
   signal: AbortSignal;
   localProgress: (line: string) => void;
-  /** Connector-owned evaluation budget, persistent across retry dials in one
-   * campaign and reset only by a successful evaluation or a new campaign. */
-  budget: StepBudget;
 }
 
 export interface SshConnectorOptions {
@@ -137,13 +138,24 @@ export function sshConnector<C extends AnyContractRouter>(
       derivation = await opts.resolveDrvPath({
         signal: ctx.signal,
         localProgress: ctx.localProgress,
-        budget: budgets.evaluation,
+        resolveAgentDrv: (flakeRef, packageName) =>
+          resolveAgentDrv(opts.host, flakeRef, packageName, {
+            signal: ctx.signal,
+            onProgress: ctx.localProgress,
+            onEvaluation: () => ctx.provisioning("provisioning"),
+            budget: budgets.evaluation,
+          }),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const cause =
-        err instanceof ResolveDrvError ? err.failureCause : "network";
-      throw new ConnectError(reason, cause);
+        err instanceof ResolveDrvError ||
+        err instanceof AgentResolutionExhaustedError
+          ? err.failureCause
+          : "network";
+      const terminal =
+        err instanceof AgentResolutionExhaustedError ? err.terminal : false;
+      throw new ConnectError(reason, cause, terminal);
     }
 
     const provision = await provisionAgent({

@@ -17,7 +17,6 @@
 import {
   AgentSourceUnbakedError,
   ResolveDrvError,
-  makeProvisionBudgets,
   type ResolveDrvPathContext,
   type SshConnectorOptions,
 } from "@kolu/surface-remote";
@@ -73,7 +72,7 @@ function fakeSession() {
 const resolverContext: ResolveDrvPathContext = {
   signal: new AbortController().signal,
   localProgress: vi.fn(),
-  budget: makeProvisionBudgets().evaluation,
+  resolveAgentDrv: vi.fn(),
 };
 
 function seedAndCaptureResolver(): SshConnectorOptions["resolveDrvPath"] {
@@ -139,11 +138,10 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
       drvPath: "/nix/store/bbb-padi.drv",
       installable: "/nix/store/source#packages.x86_64-linux.padi",
     });
-    expect(h.resolveBakedAgentDrv).toHaveBeenCalledWith("nix@prod", "padi", {
-      signal: resolverContext.signal,
-      onProgress: resolverContext.localProgress,
-      budget: resolverContext.budget,
-    });
+    expect(h.resolveBakedAgentDrv).toHaveBeenCalledWith(
+      "padi",
+      resolverContext,
+    );
   });
 
   it("(c) a source that cannot resolve padi becomes a terminal build fault", async () => {

@@ -30,6 +30,7 @@ import {
   type SshProv,
 } from "@kolu/surface-remote";
 import type { EntryConnectionState } from "@kolu/surface-map/server";
+import { match, P } from "ts-pattern";
 import type { HostFailure } from "../common/map";
 import {
   DEFAULT_LOAD,
@@ -61,25 +62,29 @@ export interface HostBinding {
 function projectState(
   s: SessionState<SshProv>,
 ): EntryConnectionState<"copying", HostFailure> {
-  switch (s.phase) {
-    case "probing":
-    case "provisioning":
-      return { kind: "copying" };
-    case "connecting":
-      return { kind: "connecting" };
-    case "connected":
+  return match(s)
+    .with({ phase: P.union("probing", "provisioning") }, () => ({
+      kind: "copying" as const,
+    }))
+    .with({ phase: "connecting" }, () => ({ kind: "connecting" as const }))
+    .with({ phase: "connected" }, (connected) => ({
       // LINK-liveness readiness: connected either way; a null offset is carried
       // through (not-yet-measured), never demoted to `connecting`.
-      return { kind: "connected", clockOffset: s.clockOffset };
-    case "disconnected":
+      kind: "connected" as const,
+      clockOffset: connected.clockOffset,
+    }))
+    .with({ phase: "disconnected" }, () => ({
       // Transient — no domain failure attached, so it projects to `warming` (an
       // unreachable box self-heals; it does not become `failed`).
-      return { kind: "disconnected" };
-    case "failed":
+      kind: "disconnected" as const,
+    }))
+    .with({ phase: "failed" }, (failed) => ({
       // A bounded terminal give-up — a failed entry must carry the schema-valid
       // domain failure it publishes.
-      return { kind: "failed", failure: { reason: s.error } };
-  }
+      kind: "failed" as const,
+      failure: { reason: failed.error },
+    }))
+    .exhaustive();
 }
 
 export function buildHostBinding(host: string, agentDrv: string): HostBinding {
@@ -101,9 +106,9 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
           .map((k): [string, string | undefined] => [k, process.env[k]])
           .filter((e): e is [string, string] => e[1] !== undefined),
       ),
-      // Constant resolver — this demo takes the agent .drv from the environment.
-      // A consumer that picks the .drv per host's nix-system passes an async
-      // `resolveSystem(host)` probe here instead.
+      // Constant resolver — this demo takes the already-selected agent .drv from
+      // the environment. Source-based consumers call `ctx.resolveAgentDrv`
+      // instead; the connector owns system selection and evaluation policy.
       resolveDrvPath: () => Promise.resolve(directAgentDerivation(agentDrv)),
     }),
     label: `host:${host}`,

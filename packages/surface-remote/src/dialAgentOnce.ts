@@ -2,8 +2,9 @@
  * `dialAgentOnce<C>` — the one-shot CLI dial: provision a Nix-shipped surface
  * agent on a remote host over ssh and hand back a `{ client, dispose }` with the
  * link already proven live. This is the missing receptacle that sat one step
- * short of the socket every `--host` consumer needs: `HostSession` owns the
- * HARD volatility (ssh/reconnect/provision), but each CLI was re-wiring the same
+ * short of the socket every `--host` consumer needs: `makeSession` plus
+ * `sshConnector` own the HARD volatility (ssh/reconnect/provision), but each CLI
+ * was re-wiring the same
  * composition on top of it — source-ref validation, target derivation resolution, and the
  * pin → probe → markConnected → leak-safe-destroy lifecycle. That composition is
  * a single primitive; it lives here, once.
@@ -13,12 +14,12 @@
  * wrapper at its own boundary. Proving the link is the framework's job, not the
  * CLI's: the dial
  * defaults to the reserved `system.live` round-trip (`probeSurfaceLive`) — the
- * same receptacle HostSession's periodic watchdog plugs into — so no CLI
+ * same reserved probe the session's periodic watchdog uses — so no CLI
  * nominates its own liveness verb. A CLI overrides `probe` only for a protocol
  * assertion that goes beyond liveness (padi-tui's padiSurface contract-version gate).
  *
  * This is the *one-shot* shape: it fires `markConnected()` itself and discards
- * the `HostSession`, because a one-shot CLI needs no copying/connecting overlay
+ * the session, because a one-shot CLI needs no provisioning/connecting overlay
  * and never reads `onState`. A long-lived consumer that wants the session's
  * `onState`/`markConnected` seam composes its own variant carrying `session`
  * (as mini-ci's dialer does) — it does NOT reuse this `{ client, dispose }`.
@@ -56,7 +57,7 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
   /** Roundtrip one cheap RPC on `client` to prove the link before
    *  `markConnected` flips the connect watchdog off. Optional — it DEFAULTS to the
    *  framework-reserved `system.live` round-trip (`probeSurfaceLive`), the same
-   *  receptacle HostSession's periodic watchdog plugs into, so every
+   *  reserved probe the session's periodic watchdog plugs into, so every
    *  `defineSurface` agent is provable without nominating an app verb. Override
    *  ONLY for a genuine protocol assertion that goes BEYOND liveness — padi-tui
    *  gates the padiSurface contract version, which is a contract check,
@@ -65,7 +66,7 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
   probe?: (client: AgentClient<C>) => Promise<unknown>;
   /** Extra args appended after `--stdio` on the remote agent command. Omit to let
    *  the agent's own default apply. The same generic spawn-arg carrier as
-   *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
+   *  `SshConnectorOptions.extraArgs` / `buildAgentCommand` — what the args mean is
    *  the caller's concern (see the remote padi binding's `--state-root` call site). */
   extraArgs?: readonly string[];
   /** The COMPLETE env for a localhost dial's direct `spawn` — REQUIRED (threaded to
@@ -76,7 +77,7 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  kolu-pty's `composeSpawnEnv`; surface-remote stays policy-free. */
   localEnv: Record<string, string>;
   /** Structured diagnostic logger, forwarded to `MakeSessionOptions.log`. Omit
-   *  and the session writes its `nix copy` progress / connection transitions /
+   *  and the session writes its provisioning progress / connection transitions /
    *  forwarded remote stderr to `process.stderr` (what a plain CLI wants). An
    *  alt-screen consumer (an OpenTUI board) passes its own logger so these
    *  never corrupt the rendered screen — the lines stay in the session state
@@ -91,14 +92,16 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
  *  The baked source ref is validated ONCE, eagerly — before any session exists.
  *  A missing ref is a terminal config error (the user ran the
  *  raw entrypoint instead of the Nix wrapper), so it throws synchronously here
- *  rather than inside the deferred resolver, where `HostSession` would
+ *  rather than inside the deferred resolver, where the session would
  *  misclassify it as a retryable `"network"` fault and a long-lived consumer
  *  would spin on it forever. The genuinely-per-host arch probe and one-package
  *  Nix evaluation stay deferred inside `resolveDrvPath`. */
 export async function dialAgentOnce<C extends AnyContractRouter>(
   opts: DialAgentOnceOptions<C>,
 ): Promise<AgentDial<C>> {
-  const flakeRef = readBakedAgentSource();
+  const source = readBakedAgentSource();
+  if (source.isErr()) throw source.error;
+  const flakeRef = source.value;
   // A fresh `makeSession` per dial (no shared pool — the pool is deleted, S10). A
   // one-shot dial is independent by contract: its `dispose()` calls
   // `session.destroy()`, and each dial gets its own connector (source resolver)
@@ -110,12 +113,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       binary: opts.binary,
       extraArgs: opts.extraArgs,
       localEnv: opts.localEnv,
-      resolveDrvPath: (ctx) =>
-        resolveAgentDrv(opts.host, flakeRef, opts.binary, {
-          signal: ctx.signal,
-          onProgress: ctx.localProgress,
-          budget: ctx.budget,
-        }),
+      resolveDrvPath: (ctx) => ctx.resolveAgentDrv(flakeRef, opts.binary),
     }),
     // The ssh connector PROVISIONS — it nix-copies the agent closure to the remote
     // before the transport is up — so this session opens at "probing" (the arch probe +
@@ -123,7 +121,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     initialConnection: "probing",
     log: opts.log,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag
-    // every `HostSession` line carried), so an alt-screen consumer's log filtering
+    // every session line carried), so an alt-screen consumer's log filtering
     // and the failure-read tail are unchanged.
     label: `host:${opts.host}`,
   });
@@ -178,8 +176,9 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // a server embedding this dialer) would keep redialing/spawning ssh children
   // for as long as that process lives — the leak this destroy still prevents.
   try {
-    // `pin()` runs the provision (`nix copy` → realise — which happens BEFORE
-    // the connect watchdog arms, so a cold copy doesn't time it out) and spawns
+    // `pin()` runs the provision (one Nix evaluation/transfer/realisation
+    // operation followed by the required target-store root commit, BEFORE the
+    // connect watchdog arms) and spawns
     // the ssh child, resolving once the stdio link is live. Pin (not acquire)
     // because this is a process-lifetime hold released only by `dispose`.
     const client = await session.pin();
@@ -187,7 +186,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // the connect watchdog that would otherwise SIGTERM the ssh child mid a
     // long-running command, and proves the link works in both directions before
     // any real command. Default to the framework-reserved `system.live` probe —
-    // the receptacle HostSession's periodic watchdog also plugs into — so a CLI
+    // the session's periodic watchdog also plugs into — so a CLI
     // need not nominate its own liveness verb; only a deliberate protocol
     // assertion (padi-tui's contract-version gate) overrides it.
     const probe = opts.probe ?? probeSurfaceLive;

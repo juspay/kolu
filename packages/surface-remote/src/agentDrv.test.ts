@@ -12,6 +12,7 @@ vi.mock("./process", async (importOriginal) => {
 });
 
 import {
+  AgentResolutionExhaustedError,
   AgentSourceUnbakedError,
   readBakedAgentSource,
   resolveAgentDrv,
@@ -30,6 +31,7 @@ const success = (stdout: string) => ({
 const resolutionOptions = {
   signal: new AbortController().signal,
   onProgress: vi.fn(),
+  onEvaluation: vi.fn(),
   budget: makeProvisionBudgets().evaluation,
 };
 
@@ -42,12 +44,18 @@ afterEach(() => {
 describe("readBakedAgentSource", () => {
   it("normalizes the wrapper-baked source at the framework boundary", () => {
     vi.stubEnv(SURFACE_AGENT_FLAKE_REF_ENV, "  /nix/store/source  ");
-    expect(readBakedAgentSource()).toBe("/nix/store/source");
+    const source = readBakedAgentSource();
+    expect(source.isOk()).toBe(true);
+    if (source.isOk()) expect(source.value).toBe("/nix/store/source");
   });
 
   it("fails with a typed configuration error when the wrapper value is absent", () => {
     vi.stubEnv(SURFACE_AGENT_FLAKE_REF_ENV, "  ");
-    expect(() => readBakedAgentSource()).toThrow(AgentSourceUnbakedError);
+    const source = readBakedAgentSource();
+    expect(source.isErr()).toBe(true);
+    if (source.isErr()) {
+      expect(source.error).toBeInstanceOf(AgentSourceUnbakedError);
+    }
   });
 });
 
@@ -329,7 +337,7 @@ describe("resolveAgentDrv", () => {
       );
     }
     await expect(resolveAgentDrv(...args)).rejects.toBeInstanceOf(
-      ResolveDrvError,
+      AgentResolutionExhaustedError,
     );
   });
 

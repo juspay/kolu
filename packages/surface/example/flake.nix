@@ -3,7 +3,7 @@
 # The examples depend on Kolu's workspace source and pnpm closure, but the
 # runnable Kolu flake does not depend on the examples.
 {
-  outputs = { ... }:
+  outputs = { self, ... }:
     let
       platform = import ../../../nix/each-system.nix;
     in
@@ -16,9 +16,15 @@
             inherit (workspace) src;
             pnpmDeps = workspace.pnpmDeps;
           };
+          remote = shared // {
+            agentFlakeRef = self.outPath;
+            agentFlakeRefEnv =
+              (builtins.fromJSON
+                (builtins.readFile ../../surface-remote/agent-env.json)).flakeRef;
+          };
         in
-        import ./remote-process-monitor/default.nix shared
-        // import ./mini-ci/default.nix shared
+        import ./remote-process-monitor/default.nix remote
+        // import ./mini-ci/default.nix remote
         // import ./fleet-top/default.nix shared);
     };
 }

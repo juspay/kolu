@@ -1591,6 +1591,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
       quick-lru:
         specifier: ^7.3.0
         version: 7.3.0
@@ -1814,6 +1817,9 @@ importers:
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       ws:
         specifier: ^8.21.0
         version: 8.21.0
@@ -1973,6 +1979,9 @@ importers:
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6

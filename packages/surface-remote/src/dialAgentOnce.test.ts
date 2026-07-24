@@ -52,7 +52,6 @@ vi.mock("./sshConnector", () => ({ sshConnector: h.sshConnector }));
 
 import { dialAgentOnce } from "./dialAgentOnce";
 import { SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
-import { makeProvisionBudgets } from "./nixCopy";
 
 /** Wire the mocks: `sshConnector(opts)` records its transport opts and returns a
  *  dummy connector; `makeSession(opts)` mints a fresh fake session whose `pin()`
@@ -99,7 +98,7 @@ const FLAKE_REF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source";
 const resolverContext = {
   signal: new AbortController().signal,
   localProgress: vi.fn(),
-  budget: makeProvisionBudgets().evaluation,
+  resolveAgentDrv: h.resolveAgentDrv,
 };
 
 beforeEach(() => {
@@ -166,16 +165,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
       drvPath: "/nix/store/aaa-agent.drv",
       installable: "/nix/store/source#packages.x86_64-linux.agent",
     });
-    expect(h.resolveAgentDrv).toHaveBeenCalledWith(
-      "nix@prod",
-      FLAKE_REF,
-      "agent",
-      {
-        signal: resolverContext.signal,
-        onProgress: resolverContext.localProgress,
-        budget: resolverContext.budget,
-      },
-    );
+    expect(h.resolveAgentDrv).toHaveBeenCalledWith(FLAKE_REF, "agent");
   });
 
   it("threads extraArgs to the connector (the --kaval passthrough)", async () => {

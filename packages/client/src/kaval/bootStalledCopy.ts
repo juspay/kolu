@@ -18,6 +18,7 @@
  *  rather than pretending a long, still-running campaign failed the instant the ceiling passed. */
 
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
+import { match } from "ts-pattern";
 import type { ClientStalledLeg } from "./canvasModeResolver";
 
 /** A card's copy — a short title and a plain-language body. Both non-empty
@@ -89,14 +90,13 @@ export function bootStalledCopy(leg: ClientStalledLeg): BootStalledCopy {
 export function bootStalledPhaseDetail(
   phase: ConnectPhase | undefined,
 ): string | undefined {
-  switch (phase) {
-    case "probing":
-      return "Still checking whether this host already has the agent…";
-    case "provisioning":
-      return "Still provisioning the agent on the host…";
-    case "connecting":
-      return "Still connecting to the host's agent…";
-    case undefined:
-      return undefined;
-  }
+  return match(phase)
+    .with(
+      "probing",
+      () => "Still checking whether this host already has the agent…",
+    )
+    .with("provisioning", () => "Still provisioning the agent on the host…")
+    .with("connecting", () => "Still connecting to the host's agent…")
+    .with(undefined, () => undefined)
+    .exhaustive();
 }

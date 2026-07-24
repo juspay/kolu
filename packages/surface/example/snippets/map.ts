@@ -42,6 +42,7 @@ import {
   serveSurfaceMap,
 } from "@kolu/surface-map/server";
 import { createSignal } from "solid-js";
+import { match, P } from "ts-pattern";
 import { z } from "zod";
 
 // ── The per-host entry surface — one machine's `top` ─────────────────────
@@ -95,33 +96,37 @@ interface HostBinding {
 }
 
 // Project the session's connection state onto the map's per-entry state — one
-// dead box becomes exactly one honest `failed` chip. The ssh connector's two
-// provisioning phases (`copying`/`building`) both fold to the map's coarse
-// `copying` bucket; the fine phase rides the per-host `connection` cell.
+// dead box becomes exactly one honest `failed` chip. The ssh connector's
+// `probing`/`provisioning` phases fold to the map's coarse `copying` bucket;
+// the fine phase rides the per-host `connection` fact.
 function projectState(
   s: SessionState<SshProv>,
 ): EntryConnectionState<"copying", HostFailure> {
-  switch (s.phase) {
-    case "probing":
-    case "provisioning":
-      return { kind: "copying" };
-    case "connecting":
-      return { kind: "connecting" };
-    case "connected":
+  return match(s)
+    .with({ phase: P.union("probing", "provisioning") }, () => ({
+      kind: "copying" as const,
+    }))
+    .with({ phase: "connecting" }, () => ({ kind: "connecting" as const }))
+    .with({ phase: "connected" }, (connected) => ({
       // `makeSession` measures the far-end wall-clock offset off the reserved
       // `system.clockNow` at admit and carries it on the `connected` arm — propagate
       // that real value (`number | null`), don't fake a 0. Readiness is link-liveness,
       // NOT clock-measured: a connected session is `connected` whether or not the offset
       // has landed. `null` (not-yet-measured) rides THROUGH; the clock reader renders "—"
       // for it until the probe lands. (A `0` on a skewed host would mis-map its timestamps.)
-      return { kind: "connected", clockOffset: s.clockOffset };
-    case "disconnected":
+      kind: "connected" as const,
+      clockOffset: connected.clockOffset,
+    }))
+    .with({ phase: "disconnected" }, () => ({
       // Transient (no domain failure) → projects to `warming`, self-heals.
-      return { kind: "disconnected" };
-    case "failed":
+      kind: "disconnected" as const,
+    }))
+    .with({ phase: "failed" }, (failed) => ({
       // A terminal give-up carries the schema-valid domain failure it publishes.
-      return { kind: "failed", failure: { reason: s.error } };
-  }
+      kind: "failed" as const,
+      failure: { reason: failed.error },
+    }))
+    .exhaustive();
 }
 
 // #region binding

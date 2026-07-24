@@ -1,22 +1,19 @@
 /**
- * Connect the TUI to the runner via `@kolu/surface-remote`'s `HostSession`
- * — **the drishti way**. `nix copy`s the prebuilt `mini-ci-runner` closure to
- * the host (skipped for localhost), realises it there, and runs
- * `mini-ci-runner --stdio` over ssh; `HostSession` owns the ref-count,
- * reconnect, watchdog, and connection-state cell. The closure bundles the
+ * Connect the TUI to the runner via `makeSession` + `sshConnector`.
+ * Surface Remote selects `mini-ci-runner` from the wrapper-baked source,
+ * provisions and roots it on the target, and runs it over ssh stdio. The
+ * session owns reconnect, watchdog, and connection state. The closure bundles the
  * workspace (`surfaceExampleBase`), so the runner's `pnpm --filter …` CI
  * tasks run against it on whatever host it lands on.
  *
- * The runner's `.drv` is named per the host's nix-system. `just run [host]`
- * resolves it (arch probe + `nix eval`) and passes `MINI_CI_RUNNER_DRV`,
- * exactly like drishti's `KOLU_AGENT_DRV`; the example flake's `mini-ci` package bakes the
- * current system's drv.
+ * The source flake is baked by `nix run`; `just run [host]` supplies the same
+ * independent example flake explicitly for development.
  */
 
 import {
   type AgentClient,
-  directAgentDerivation,
   makeSession,
+  resolveBakedAgentDrv,
   type Session,
   type SessionState,
   sshConnector,
@@ -33,7 +30,7 @@ export interface Connection {
   /** The typed runner client, once the link is live. */
   client: RunnerClient;
   /** The session — the TUI calls `markConnected()` on the first frame and
-   *  reads `onState` for the copying/connecting overlay. */
+   *  reads `onState` for the provisioning/connecting overlay. */
   session: RunnerSession;
   dispose(): void;
 }
@@ -41,21 +38,13 @@ export interface Connection {
 export interface ConnectOptions {
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
-  /** Connection-state updates (copying / building / connecting / connected / …). */
+  /** Connection-state updates (probing / provisioning / connecting / connected / …). */
   onState?: (state: SessionState<SshProv>) => void;
 }
 
-/** Open a session and resolve once the link is up (the agent spawned). The
- *  `nix copy` + realise happen inside this await — `onState` reports
- *  `copying`/`connecting` while it's pending. */
+/** Open a session and resolve once the link is up (the agent spawned).
+ *  Provisioning happens inside this await and is reported through `onState`. */
 export async function connect(opts: ConnectOptions): Promise<Connection> {
-  const drv = process.env.MINI_CI_RUNNER_DRV;
-  if (drv === undefined || drv.length === 0) {
-    throw new Error(
-      "mini-ci: MINI_CI_RUNNER_DRV is required — the mini-ci-runner .drv for the host's nix-system.\n" +
-        "  Use `just run [host]` (resolves it via an arch probe), or `nix run ..#mini-ci` (bakes the current system's drv).",
-    );
-  }
   const session = makeSession<RunnerClient, SshProv>({
     initialConnection: "probing",
     connectOnce: sshConnector<typeof surface.contract>({
@@ -70,9 +59,7 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
           .map((k): [string, string | undefined] => [k, process.env[k]])
           .filter((e): e is [string, string] => e[1] !== undefined),
       ),
-      // Constant resolver: the justfile already picked the host-arch drv. A
-      // consumer that defers the probe would call `resolveSystem(host)` here.
-      resolveDrvPath: () => Promise.resolve(directAgentDerivation(drv)),
+      resolveDrvPath: (ctx) => resolveBakedAgentDrv("mini-ci-runner", ctx),
     }),
     label: `host:${opts.host}`,
   });

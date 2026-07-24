@@ -15,6 +15,7 @@
 // re-export, NOT re-listed here. Adding an `SshProv` provisioning phase then fails
 // {@link connectCanvasCopy}'s switch to compile (missing case) — the drift signal.
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
+import { match, P } from "ts-pattern";
 
 export interface ConnectCopy {
   /** The headline line. PURE title — there is NO per-phase show/hide knob: ConnectCanvas
@@ -37,18 +38,14 @@ export function connectCanvasCopy(
   phase: ConnectPhase | undefined,
   host: string,
 ): ConnectCopy {
-  switch (phase) {
-    // The gap + the two calm phases collapse to ONE title: the arch probe / post-provision
-    // handshake / "nothing known yet".
-    case undefined:
-    case "probing":
-    case "connecting":
-      return { title: `Connecting to ${host}…` };
-    case "provisioning":
-      return {
-        title: `Provisioning kolu on ${host}… this can take a few minutes`,
-      };
-  }
+  return match(phase)
+    .with(P.union(undefined, "probing", "connecting"), () => ({
+      title: `Connecting to ${host}…`,
+    }))
+    .with("provisioning", () => ({
+      title: `Provisioning kolu on ${host}… this can take a few minutes`,
+    }))
+    .exhaustive();
 }
 
 /** Is this a phase the connect overlay narrates? (The provisioning phases + the

@@ -9,8 +9,8 @@
  *   - `kill`       — imperative procedure (the only mutation).
  *
  * Plus one named connection-progress event so the parent can stream
- * "Copying agent to remote…" lines to the browser while `nix copy` is in
- * flight (row 7: instant pane + async fill).
+ * provisioning lines to the browser while Nix is working (row 7: instant
+ * pane + async fill).
  *
  * Symmetry with R-2: this maps row-for-row onto kolu's terminals surface:
  *
@@ -134,7 +134,7 @@ export const surface = defineSurface({
  *
  *  Note (SR9): **connection presentation is a host-map concept.** A single re-served
  *  surface like this carries no per-host connection state — the honest link health
- *  (copying/building/connecting + the log tail) rides a `@kolu/surface-map` host map's
+ *  (probing/provisioning/connecting + the log tail) rides a `@kolu/surface-map` host map's
  *  `entries` channel as its fine `connection` payload, produced by `serveHostMap` from
  *  the SAME session frame as the coarse dot (one authority; see
  *  `@kolu/surface-remote`'s `serveHostMap`). A standalone re-serve that genuinely needs

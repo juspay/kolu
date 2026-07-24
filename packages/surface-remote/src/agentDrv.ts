@@ -20,6 +20,7 @@ import {
 import { describeExit, type ExitResult, runCapture } from "./process";
 import { appendProgressLine } from "./progressTail";
 import agentEnv from "../agent-env.json" with { type: "json" };
+import { err, ok, type Result } from "neverthrow";
 import QuickLRU from "quick-lru";
 import { match, P } from "ts-pattern";
 
@@ -41,10 +42,25 @@ export class AgentSourceUnbakedError extends ResolveDrvError {
 
 /** Read the exact source flake baked by the Nix wrapper. This is the sole
  * process-environment adapter for the Surface Remote provisioning stack. */
-export function readBakedAgentSource(): string {
+export function readBakedAgentSource(): Result<
+  string,
+  AgentSourceUnbakedError
+> {
   const flakeRef = process.env[SURFACE_AGENT_FLAKE_REF_ENV]?.trim();
-  if (!flakeRef) throw new AgentSourceUnbakedError();
-  return flakeRef;
+  return flakeRef ? ok(flakeRef) : err(new AgentSourceUnbakedError());
+}
+
+/** A silent evaluation exhausted its connector-owned campaign budget. Its
+ * transport cause remains honest (`network`), while terminality is a separate
+ * fact the connector must carry into the session immediately. */
+export class AgentResolutionExhaustedError extends Error {
+  readonly failureCause = "network" as const;
+  readonly terminal = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentResolutionExhaustedError";
+  }
 }
 
 /** Bound the shared successful-value cache so repeated exact-source upgrades
@@ -64,8 +80,21 @@ export interface AgentDrvResolutionOptions {
   /** Forward evaluation output into the session's liveness and visible progress
    * path while retaining only a bounded private tail for a final error. */
   onProgress: (line: string) => void;
+  /** Advance the owning connector into its long-running provisioning phase
+   * immediately before an uncached Nix evaluation starts. */
+  onEvaluation: () => void;
   /** Connector-owned campaign budget for the local Nix evaluation. */
   budget: StepBudget;
+}
+
+/** Stable capability exposed to a source resolver. The connector owns the
+ * retry policy and binds it behind this operation; consumers choose only the
+ * exact source and package they need. */
+export interface AgentResolutionContext {
+  resolveAgentDrv(
+    flakeRef: string,
+    packageName: string,
+  ): Promise<AgentDerivation>;
 }
 
 function evaluationError(
@@ -105,7 +134,10 @@ export async function resolveAgentDrv(
   packageName: string,
   opts: AgentDrvResolutionOptions,
 ): Promise<AgentDerivation> {
-  const system = await resolveSystem(host);
+  const system = await resolveSystem(host, {
+    signal: opts.signal,
+    onProgress: opts.onProgress,
+  });
   const installable = `${flakeRef}#packages.${system}.${packageName}`;
   const cached = drvCache.get(installable);
   if (cached !== undefined) {
@@ -115,6 +147,7 @@ export async function resolveAgentDrv(
 
   const diagnostics: string[] = [];
   let sawNetworkError = false;
+  opts.onEvaluation();
   const result = await runCapture(
     "nix",
     ["eval", "--accept-flake-config", "--raw", `${installable}.drvPath`],
@@ -137,7 +170,9 @@ export async function resolveAgentDrv(
     const message = `${host}: could not resolve ${packageName} for system=${system} from the baked agent flake: nix eval ${describeExit(result)}${detail}`;
     if (result.kind === "lifetime-expired") {
       throw opts.budget.recordExpiry()
-        ? new ResolveDrvError(message, "remote")
+        ? new AgentResolutionExhaustedError(
+            `${message} — giving up (silent too many times)`,
+          )
         : new Error(message);
     }
     throw evaluationError(message, result, sawNetworkError);
@@ -157,9 +192,11 @@ export async function resolveAgentDrv(
 
 /** Resolve a package from the wrapper-baked source at the owning dial boundary. */
 export function resolveBakedAgentDrv(
-  host: string,
   packageName: string,
-  opts: AgentDrvResolutionOptions,
+  ctx: AgentResolutionContext,
 ): Promise<AgentDerivation> {
-  return resolveAgentDrv(host, readBakedAgentSource(), packageName, opts);
+  const source = readBakedAgentSource();
+  return source.isErr()
+    ? Promise.reject(source.error)
+    : ctx.resolveAgentDrv(source.value, packageName);
 }

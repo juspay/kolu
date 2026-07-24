@@ -1,10 +1,8 @@
 /**
  * Detect a host's nix-system identifier by asking the host's own Nix.
  *
- * The companion piece to `provisionAgent`'s docstring contract: the
- * library deliberately takes one `.drv` per session and ships exactly
- * that, leaving arch selection to the caller. `resolveSystem(host)` is
- * the canonical probe to feed that selection — it returns the
+ * The companion piece to source-based agent resolution. `resolveSystem(host,
+ * opts)` is the canonical target-system probe — it returns the
  * nix-system string (`x86_64-linux`, `aarch64-darwin`, …) that
  * `resolveAgentDrv` uses to select one package from the baked source flake.
  *
@@ -30,8 +28,8 @@
  *       host,
  *       binary,
  *       localEnv,  // the composed env a `localhost` dial spawns with (never ambient process.env)
- *       resolveDrvPath: async (_ctx) => {
- *         const sys = await resolveSystem(host);
+ *       resolveDrvPath: async (ctx) => {
+ *         const sys = await resolveSystem(host, ctx);
  *         return resolveDrvForSystem(sys);
  *       },
  *     }),
@@ -53,41 +51,44 @@ const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 
 /** In-memory, per-process arch cache keyed by host. A host's nix-system is
  *  stable for the lifetime of this process, so the ssh round-trip the probe
- *  costs needn't be re-paid on every dial — the second redundant round-trip
- *  P2.7 left alone, which P2.8 removes (the first is the provision check,
- *  now multiplexed). It caches the *promise*, not the value, so two dials
- *  that race the first probe of a host coalesce onto one ssh.
+ *  costs needn't be re-paid on every dial. Only SETTLED facts are cached:
+ *  unresolved probes belong to one dial's cancellation lifetime and must not
+ *  be shared with a replacement dial after recheck/destroy.
  *
  *  Deliberately in-memory only: an on-disk arch cache is REJECTED — a third
  *  source of truth that goes stale on a reimage / hostname reuse, the same
  *  reason the provisioned-state cache was rejected. A cold process re-probes
  *  once; that is always correct. */
-const archCache = new Map<string, Promise<string>>();
+const archCache = new Map<string, string>();
+
+export interface ResolveSystemOptions {
+  signal: AbortSignal;
+  onProgress: (line: string) => void;
+}
 
 /** Ask `host`'s Nix for its `builtins.currentSystem` and return it,
  *  memoized per host for this process (see `archCache`). Runs locally for
  *  `isLocalHost`, over `ssh` otherwise. Rejects if the probe can't run, or
  *  returns something that isn't a nix-system — a rejection is NOT cached
  *  (see `delete`-on-reject below): a host unreachable at probe time is a
- *  transport fault, not a fact about the host, so the next dial re-probes
- *  rather than serving a poisoned cache forever. Signature unchanged from
- *  the un-cached version — callers see only a faster repeat probe. */
-export async function resolveSystem(host: string): Promise<string> {
+ *  transport fault, not a fact about the host, so the next dial re-probes. */
+export async function resolveSystem(
+  host: string,
+  opts: ResolveSystemOptions,
+): Promise<string> {
   const cached = archCache.get(host);
   if (cached !== undefined) return cached;
-  const probe = probeSystem(host);
-  archCache.set(host, probe);
-  // A failed probe is a transient-unreachable signal, not the host's arch:
-  // drop it so the next dial re-probes instead of re-throwing forever.
-  probe.catch(() => {
-    if (archCache.get(host) === probe) archCache.delete(host);
-  });
-  return probe;
+  const system = await probeSystem(host, opts);
+  archCache.set(host, system);
+  return system;
 }
 
 /** The actual ssh arch probe, un-memoized — `resolveSystem` wraps it with
  *  the per-host cache. */
-async function probeSystem(host: string): Promise<string> {
+async function probeSystem(
+  host: string,
+  opts: ResolveSystemOptions,
+): Promise<string> {
   const { command, args } = buildSshProbeCommand(
     host,
     "nix-instantiate",
@@ -101,6 +102,8 @@ async function probeSystem(host: string): Promise<string> {
     // and pin use it too): the "how long a quick nix/ssh round-trip may run" policy shape
     // lives in ONE place, not re-spelled here.
     policy: probePolicy(),
+    signal: opts.signal,
+    onProgress: opts.onProgress,
   });
   if (!res.ok) {
     throw new Error(

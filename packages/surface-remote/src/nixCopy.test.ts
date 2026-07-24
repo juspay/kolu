@@ -1,5 +1,5 @@
 /**
- * Coverage for `provisionAgent`'s cold path: GC-root pinning (step 4), the
+ * Coverage for `provisionAgent`'s cold path: GC-root commit (step 3), the
  * ControlMaster/keepalive env on provisioning, cause classification, and the #1908
  * lifetime-policy handling (a `lifetime-expired`/`aborted` step is retryable and
  * budget-aware). Keeps off real ssh / nix by mocking `./process`; the real `./host`
@@ -228,19 +228,22 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(res.ok && res.agentPath).toBe(STORE);
   });
 
-  it("treats a pin failure as non-fatal — the agent still provisions", async () => {
-    const lines: string[] = [];
+  it("does not expose an agent path when the durable root cannot be established", async () => {
     const res = await (() => {
       mockNix({ pin: failOut });
       return provisionAgent({
         host: "testhost",
         derivation: directAgentDerivation(DRV),
-        onProgress: (l) => lines.push(l),
+        onProgress: () => {},
         ...provArgs(),
       });
     })();
-    expect(res).toEqual({ ok: true, agentPath: STORE });
-    expect(lines.some((l) => l.includes("unpinned"))).toBe(true);
+    expect(res).toEqual({
+      ok: false,
+      reason:
+        "testhost: could not establish the agent GC root: exited with code 1",
+      cause: "remote",
+    });
   });
 
   it("does not pin when the realise itself fails", async () => {
@@ -372,6 +375,21 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
       ...provArgs(b),
     });
     expect(spy).toHaveBeenCalled();
+  });
+
+  it("a warm rooted hit resets a previously charged provisioning budget", async () => {
+    const b = makeProvisionBudgets();
+    b.provisioning.recordExpiry();
+    const spy = vi.spyOn(b.provisioning, "reset");
+    mockNix({ checkValidity: okOut("") });
+    const result = await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV),
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(result).toEqual({ ok: true, agentPath: STORE });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it("onCampaign is MONOTONIC — a stale older epoch does not reset a newer campaign (F6)", () => {

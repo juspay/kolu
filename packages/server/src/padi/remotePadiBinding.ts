@@ -196,11 +196,7 @@ function makeResolvePadiDrv(
     // settles on `failed` and the entry publishes the reason, rather than retrying a
     // config/deploy fault forever.
     try {
-      return await resolveBakedAgentDrv(host, "padi", {
-        signal: ctx.signal,
-        onProgress: ctx.localProgress,
-        budget: ctx.budget,
-      });
+      return await resolveBakedAgentDrv("padi", ctx);
     } catch (err) {
       if (err instanceof AgentSourceUnbakedError) {
         throw new PadiDrvFault(

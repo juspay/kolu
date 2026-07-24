@@ -9,10 +9,9 @@
 export { resolveSystem } from "./arch";
 export {
   AgentSourceUnbakedError,
-  type AgentDrvResolutionOptions,
+  type AgentResolutionContext,
   readBakedAgentSource,
   resolveBakedAgentDrv,
-  resolveAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "./agentDrv";
 // SR9 — one connection authority. Link health is no longer a per-host `connection`

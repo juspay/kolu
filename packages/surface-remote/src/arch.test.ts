@@ -1,8 +1,7 @@
 /**
  * Coverage for the in-memory per-host arch cache in `resolveSystem`: a
- * host's nix-system is probed once per process, concurrent first-probes
- * coalesce onto one ssh, and a FAILED probe is not cached (the next dial
- * re-probes — a transient-unreachable host must not poison the cache).
+ * host's settled nix-system is probed once per process. In-flight work remains
+ * per-dial so cancellation never leaks across a recheck; failures are not cached.
  * Mocks `./process` so no ssh is ever spawned; each test uses a distinct
  * host so the module-level cache never bleeds across tests.
  */
@@ -12,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSystem } from "./arch";
 import { __resetControlMemo } from "./controlMaster";
-import { runCapture } from "./process";
+import { type CaptureResult, runCapture } from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -43,38 +42,71 @@ afterEach(() => {
 
 const okSystem = (sys: string) =>
   ({ ok: true, kind: "exit", code: 0, stdout: `"${sys}"\n` }) as const;
+const opts = () => ({
+  signal: new AbortController().signal,
+  onProgress: vi.fn(),
+});
 
 describe("resolveSystem arch cache", () => {
   it("probes a host once and memoizes for the process", async () => {
     vi.mocked(runCapture).mockResolvedValue(okSystem("x86_64-linux"));
-    const a = await resolveSystem("h-memo");
-    const b = await resolveSystem("h-memo");
+    const a = await resolveSystem("h-memo", opts());
+    const b = await resolveSystem("h-memo", opts());
     expect(a).toBe("x86_64-linux");
     expect(b).toBe("x86_64-linux");
     expect(runCapture).toHaveBeenCalledTimes(1); // one ssh for both dials
     // A distinct host is a distinct cache key → a fresh probe.
-    await resolveSystem("h-memo-2");
+    await resolveSystem("h-memo-2", opts());
     expect(runCapture).toHaveBeenCalledTimes(2);
   });
 
-  it("coalesces concurrent first-probes onto one ssh", async () => {
+  it("keeps concurrent first probes in their owning dial lifetimes", async () => {
     vi.mocked(runCapture).mockResolvedValue(okSystem("aarch64-darwin"));
     const [a, b] = await Promise.all([
-      resolveSystem("h-race"),
-      resolveSystem("h-race"),
+      resolveSystem("h-race", opts()),
+      resolveSystem("h-race", opts()),
     ]);
     expect(a).toBe("aarch64-darwin");
     expect(b).toBe("aarch64-darwin");
-    expect(runCapture).toHaveBeenCalledTimes(1); // shared in-flight promise
+    expect(runCapture).toHaveBeenCalledTimes(2);
   });
 
   it("does not cache a failed probe — the next dial re-probes", async () => {
     vi.mocked(runCapture)
       .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // unreachable
       .mockResolvedValueOnce(okSystem("x86_64-linux")); // host answers now
-    await expect(resolveSystem("h-reject")).rejects.toThrow();
-    const sys = await resolveSystem("h-reject");
+    await expect(resolveSystem("h-reject", opts())).rejects.toThrow();
+    const sys = await resolveSystem("h-reject", opts());
     expect(sys).toBe("x86_64-linux");
     expect(runCapture).toHaveBeenCalledTimes(2); // the failure was not cached
+  });
+
+  it("keeps an unresolved probe owned by its dial's abort signal", async () => {
+    const first = new AbortController();
+    vi.mocked(runCapture)
+      .mockImplementationOnce(
+        async (_command, _args, runOpts): Promise<CaptureResult> =>
+          await new Promise<CaptureResult>((resolve) => {
+            runOpts.signal?.addEventListener(
+              "abort",
+              () => resolve({ ok: false, kind: "aborted", stdout: "" }),
+              { once: true },
+            );
+          }),
+      )
+      .mockResolvedValueOnce(okSystem("aarch64-darwin"));
+
+    const abandoned = resolveSystem("h-abort-owner", {
+      signal: first.signal,
+      onProgress: vi.fn(),
+    });
+    first.abort();
+    await expect(abandoned).rejects.toThrow(/aborted/);
+
+    await expect(resolveSystem("h-abort-owner", opts())).resolves.toBe(
+      "aarch64-darwin",
+    );
+    expect(runCapture).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(runCapture).mock.calls[0]?.[2]?.signal).toBe(first.signal);
   });
 });

@@ -6,8 +6,8 @@
  *   browser  ─WS oRPC─▶  this server  ─stdio oRPC─▶  remote agent
  *
  * Browser ↔ server uses the framework's existing WebSocket transport
- * (`@orpc/server/ws`). Server ↔ agent uses R-1.5's new stdio link via
- * `HostSession`. The bridge is symmetrical with R-2's
+ * (`@orpc/server/ws`). Server ↔ agent uses the Surface Remote session and
+ * ssh connector over stdio. The bridge is symmetrical with R-2's
  * `RemoteTerminalBackend`: same transport stack, same lifecycle, same
  * snapshot-then-delta invariant — just with process data instead of
  * terminal data.
@@ -16,13 +16,9 @@
  *
  *   HOST                          ssh target (default: localhost — see
  *                                 plan §R-1.5 "Localhost is a valid target")
- *   KOLU_AGENT_DRV  (required)    path to the agent's `.drv`; the
- *                                 derivation is shipped to the target
- *                                 host and realised there for the
- *                                 right architecture. **No fallback** —
- *                                 the operator names this explicitly
- *                                 (lesson #2: matched-pair-by-operator-
- *                                 named-input).
+ *   SURFACE_AGENT_FLAKE_REF       exact source selected by the Nix wrapper
+ *                                 (or the development recipe). Required by
+ *                                 Surface Remote; no fallback.
  *   PORT                          HTTP+WS port (default 7720)
  *   KOLU_SURFACE_EXAMPLE_DIST     when set, serve the pre-built client
  *                                 bundle from this dir (production mode)
@@ -37,8 +33,8 @@ import {
   type UpgradeSocket,
 } from "@kolu/surface/ws-origin";
 import {
-  directAgentDerivation,
   makeSession,
+  resolveBakedAgentDrv,
   sshConnector,
 } from "@kolu/surface-remote";
 import { RPCHandler } from "@orpc/server/ws";
@@ -48,7 +44,6 @@ import type { surface } from "../common/surface";
 import { buildRouter } from "./router";
 
 const HOST = process.env.HOST ?? "localhost";
-const DRV_PATH = process.env.KOLU_AGENT_DRV;
 const PORT = Number(process.env.PORT ?? 7720);
 // CSWSH gate: this demo binds 0.0.0.0 (below), so the Origin check is what
 // keeps a cross-site page from driving the unauthenticated RPC surface.
@@ -56,20 +51,14 @@ const PORT = Number(process.env.PORT ?? 7720);
 const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 
 /** Tag every parent-side log so `[server]` lines are visually distinct
- *  from `[host:<h> local]` (HostSession) and `[host:<h> remote]`
+ *  from `[host:<h> local]` (the session) and `[host:<h> remote]`
  *  (forwarded agent stderr). Demo logs are intentionally chatty. */
 function log(line: string): void {
   process.stderr.write(`[server] ${line}\n`);
 }
 
 async function main(): Promise<void> {
-  if (DRV_PATH === undefined || DRV_PATH.length === 0) {
-    log(
-      'KOLU_AGENT_DRV is required (no fallback). Set it to the agent\'s .drv path — e.g. `KOLU_AGENT_DRV=$(nix eval --raw "$(git rev-parse --show-toplevel)/packages/surface/example#packages.<system>.process-monitor-agent.drvPath")`.',
-    );
-    process.exit(1);
-  }
-  log(`host=${HOST}, agent drv=${DRV_PATH}`);
+  log(`host=${HOST}`);
 
   const session = makeSession({
     initialConnection: "probing",
@@ -85,11 +74,8 @@ async function main(): Promise<void> {
           .map((k): [string, string | undefined] => [k, process.env[k]])
           .filter((e): e is [string, string] => e[1] !== undefined),
       ),
-      // This example takes the .drv straight from the environment (no arch
-      // probe), so the resolver is a constant. Consumers that pick the .drv
-      // per host's nix-system pass an async probe here instead — see
-      // `resolveSystem` in @kolu/surface-remote.
-      resolveDrvPath: () => Promise.resolve(directAgentDerivation(DRV_PATH)),
+      resolveDrvPath: (ctx) =>
+        resolveBakedAgentDrv("process-monitor-agent", ctx),
     }),
     label: `host:${HOST}`,
   });

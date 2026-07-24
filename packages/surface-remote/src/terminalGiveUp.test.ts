@@ -94,4 +94,47 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
     expect(provisionCalls.length).toBe(PROVISION_STEP_MAX_EXPIRIES);
     session.destroy();
   });
+
+  it("carries evaluation-budget exhaustion to the session as terminal", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
+      if (args.includes("builtins.currentSystem")) {
+        return {
+          ok: true,
+          kind: "exit",
+          code: 0,
+          stdout: '"x86_64-linux"\n',
+        };
+      }
+      if (args[0] === "eval") return EXPIRED_PROVISION;
+      throw new Error(`unexpected command: ${args.join(" ")}`);
+    });
+    const connectOnce = sshConnector({
+      host: "silent-evaluator",
+      binary: "agent",
+      resolveDrvPath: (ctx) =>
+        ctx.resolveAgentDrv("/nix/store/source", "agent"),
+      localEnv: {},
+    });
+    const session = makeSession({
+      connectOnce,
+      initialConnection: "probing",
+      liveness: false,
+      reconnectDelayMs: 1,
+      log: silentLogger,
+    });
+
+    session.pin().catch(() => {});
+    for (let i = 0; i < 40 && session.currentState().phase !== "failed"; i++) {
+      await vi.advanceTimersByTimeAsync(5);
+    }
+
+    const final = session.currentState();
+    expect(final.phase).toBe("failed");
+    expect(final.phase === "failed" && final.cause).toBe("network");
+    const evalCalls = vi
+      .mocked(runCapture)
+      .mock.calls.filter((call) => call[1][0] === "eval");
+    expect(evalCalls).toHaveLength(PROVISION_STEP_MAX_EXPIRIES);
+    session.destroy();
+  });
 });
