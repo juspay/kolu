@@ -1,3 +1,7 @@
 ---
 version: Unreleased
 ---
+
+### [vazhi](/vazhi)
+
+- <Change kind="added" title="Open the port an agent just started — vazhi" prs={[1975]}>An agent starts a dev server on `127.0.0.1:5173` and the URL scrolls away — and even when you find it, loopback never leaves the machine it is on, so a port on a remote box or on kolu's own host is invisible from the laptop you are looking at. **vazhi** (Tamil: *way, passage*) is a small standalone TUI that fixes exactly that: press **a**, type `host:port`, and the service answers at `http://<this machine>:<port>` — a real terminal hyperlink you can click. The local port **is** the remote port whenever that number is free, so the URL is predictable and bookmarkable; when it is taken, the row shows the one you got. **x** cancels the selected forward and **q** quits, taking every forward down with it — and so does a crash or a `kill -9`, because each forward is its own ssh connection owned by the vazhi process rather than a listener parked on a shared one. Run it with `nix run github:juspay/kolu#vazhi`, on any host you can already `ssh` to without a prompt. A forwarded port is unauthenticated on every interface of the machine running vazhi — the same exposure as starting the dev server on `0.0.0.0` yourself — so keep it to a network you trust.</Change>

@@ -1,4 +1,4 @@
-import type { Forward } from "@kolu/port-forward";
+import { type Forward, targetKey } from "@kolu/port-forward";
 import { render } from "ink-testing-library";
 import { describe, expect, it } from "vitest";
 import { Screen } from "./Screen.tsx";
@@ -14,7 +14,7 @@ function forward(
   upMs: number,
 ): Forward {
   return {
-    key: `${host}:${port}`,
+    key: targetKey({ kind: "remote", host, port }),
     target: { kind: "remote", host, port },
     localPort,
     createdAt: NOW - upMs,
@@ -89,7 +89,7 @@ describe("the forward table", () => {
           forward("pu-dev", 5173, 4123, 1000),
           forward("zest", 8080, 8080, 1000),
         ],
-        selectedKey: "zest:8080",
+        selectedKey: "remote:zest:8080",
       }),
     ).split("\n");
     expect(lines.filter((line) => line.includes("›"))).toHaveLength(1);
@@ -102,7 +102,7 @@ describe("the forward table", () => {
     const lines = plain(
       frame({
         forwards: [forward("zest", 8080, 8080, 1000)],
-        selectedKey: "zest:8080",
+        selectedKey: "remote:zest:8080",
       }),
     ).split("\n");
     expect(lines.find((line) => line.includes("›"))).toContain("zest:8080");
@@ -112,7 +112,7 @@ describe("the forward table", () => {
     const text = plain(
       frame({
         forwards: [forward("pu-dev", 5173, 4123, 1000)],
-        selectedKey: "zest:8080",
+        selectedKey: "remote:zest:8080",
       }),
     );
     expect(text).not.toContain("›");
@@ -174,5 +174,41 @@ describe("the status line", () => {
     expect(plain(text)).toContain("Host key verification failed");
     // Errors are the one thing that must not read like ordinary chatter.
     expect(text).toContain(`${ESC}[31m`);
+  });
+});
+
+describe("a table bigger than the terminal", () => {
+  const many = Array.from({ length: 20 }, (_, i) =>
+    forward(`h${i + 1}`, 5000 + i, 40000 + i, i * 1000),
+  );
+
+  it("keeps the selected row, the status line and the legend on screen", () => {
+    const text = plain(
+      frame({
+        forwards: many,
+        selectedKey: many[9]?.key,
+        size: { columns: 90, rows: 10 },
+        status: { kind: "info", text: "opening h10:5009…" },
+      }),
+    );
+    expect(text).toContain("h10:5009");
+    expect(text).toContain("opening h10:5009…");
+    expect(text).toContain("a add · x cancel");
+  });
+
+  it("shows a contiguous run and says how many it is hiding", () => {
+    const text = plain(
+      frame({
+        forwards: many,
+        selectedKey: many[9]?.key,
+        size: { columns: 90, rows: 10 },
+      }),
+    );
+    const shown = [...text.matchAll(/h(\d+):/g)].map((m) => Number(m[1]));
+    for (let i = 1; i < shown.length; i++) {
+      expect(shown[i]).toBe((shown[i - 1] ?? 0) + 1);
+    }
+    expect(text).toMatch(/↑ \d+ more/);
+    expect(text).toMatch(/↓ \d+ more/);
   });
 });

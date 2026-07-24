@@ -7,7 +7,9 @@ import {
   forwardCommandArgs,
   forwardSpec,
   openSshAttempt,
+  plainDiagnostic,
   reportsBindFailure,
+  SSH_OPTS,
   type SpawnSsh,
 } from "./sshForward.ts";
 
@@ -162,6 +164,20 @@ describe("one ssh forward attempt", () => {
     await expect(opening).resolves.toMatchObject({ localPort: 4123 });
   });
 
+  it("remembers a bind failure the far end tried to flood out of view", async () => {
+    // The diagnostic buffer keeps only a tail. The far end writes to this same
+    // stream, so it could otherwise push the bind line past the window with a
+    // few kilobytes of noise and have the ready token resolve a half-bound
+    // forward. The FACT is latched; only the text is truncated.
+    const fake = new FakeSsh();
+    const opening = attempt(fake);
+    await fake.complains("bind [0.0.0.0]:4123: Address already in use\n");
+    await fake.complains(`${"noise from the far end\n".repeat(400)}`);
+    await fake.says("PORT-FORWARD-READY\n");
+
+    await expect(opening).rejects.toThrow(PortUnavailableError);
+  });
+
   it("is NOT up when ssh bound only half the port", async () => {
     // `*:` asks for both address families; a taken v4 with a free v6 leaves ssh
     // running the remote command as if all were well. Half a listener is the
@@ -219,5 +235,63 @@ describe("one ssh forward attempt", () => {
     await closing;
 
     expect(onLost).not.toHaveBeenCalled();
+  });
+});
+
+describe("the argv's preconditions", () => {
+  // These are not style: each one is a behaviour the mechanism's guarantees
+  // rest on, and every one of them is settable in a per-host ssh_config stanza
+  // for exactly the aliases this library invites people to use.
+  const args = forwardCommandArgs({
+    base: SSH_OPTS,
+    host: "pu-dev",
+    localPort: 4123,
+    remotePort: 5173,
+  });
+  const opt = (name: string): string | undefined =>
+    args.find((a) => a.startsWith(`${name}=`));
+
+  it("keeps ssh talking, so a bind failure cannot be silenced by config", () => {
+    expect(opt("LogLevel")).toBe("LogLevel=ERROR");
+  });
+
+  it("keeps stdin a live pipe, so the hold-open command is not handed EOF", () => {
+    expect(opt("StdinNull")).toBe("StdinNull=no");
+  });
+
+  it("refuses a PTY, so the far end cannot drive our terminal", () => {
+    expect(opt("RequestTTY")).toBe("RequestTTY=no");
+  });
+
+  it("refuses to background, so the forward's life stays this process's life", () => {
+    expect(opt("ForkAfterAuthentication")).toBe("ForkAfterAuthentication=no");
+  });
+});
+
+describe("plainDiagnostic", () => {
+  const ESC = String.fromCharCode(27);
+  const BEL = String.fromCharCode(7);
+
+  it("keeps ssh's actual words", () => {
+    expect(plainDiagnostic("bind [0.0.0.0]:4123: Address already in use")).toBe(
+      "bind [0.0.0.0]:4123: Address already in use",
+    );
+  });
+
+  it("strips colour the far end used to rewrite what the operator reads", () => {
+    expect(plainDiagnostic(`${ESC}[31mall fine${ESC}[0m`)).toBe("all fine");
+  });
+
+  it("strips an OSC 8 hyperlink the far end tried to inject", () => {
+    const attack = `${ESC}]8;;http://evil.example${BEL}click me${ESC}]8;;${BEL}`;
+    const safe = plainDiagnostic(attack);
+    expect(safe).not.toContain(ESC);
+    expect(safe).not.toContain(BEL);
+    expect(safe).toContain("click me");
+  });
+
+  it("leaves no control character behind at all", () => {
+    const safe = plainDiagnostic("a\u0000b\u001bc\u009fd\re");
+    expect(/[\u0000-\u001f\u007f-\u009f]/.test(safe)).toBe(false);
   });
 });

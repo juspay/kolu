@@ -1,8 +1,8 @@
-import type {
-  Forward,
-  ForwardLoss,
-  ForwardManager,
-  ForwardTarget,
+import {
+  type Forward,
+  type ForwardLoss,
+  type ForwardManager,
+  targetKey,
 } from "@kolu/port-forward";
 import { render } from "ink-testing-library";
 import { describe, expect, it } from "vitest";
@@ -22,10 +22,9 @@ function fakeManager(): {
   let notify: ((loss: ForwardLoss) => void) | undefined;
   let gone = false;
   let nextPort = 61000;
-  const keyOf = (target: ForwardTarget): string =>
-    target.kind === "local"
-      ? `local:${target.port}`
-      : `${target.host}:${target.port}`;
+  // The library owns what a key IS — a fake that spells it itself would drift
+  // the moment the encoding changes (it did: the kind is part of the key now).
+  const keyOf = targetKey;
   return {
     disposed: () => gone,
     cancelled: () => cancelled,
@@ -121,7 +120,7 @@ describe("vazhi's screen", () => {
     stdin.write("pu-dev:5173\r");
     await settle();
 
-    fake.killFromOutside("pu-dev:5173");
+    fake.killFromOutside("remote:pu-dev:5173");
     await settle();
 
     const text = plain(lastFrame() ?? "");
@@ -141,7 +140,7 @@ describe("vazhi's screen", () => {
     stdin.write("x");
     await settle();
 
-    expect(fake.cancelled()).toEqual(["pu-dev:5173"]);
+    expect(fake.cancelled()).toEqual(["remote:pu-dev:5173"]);
     expect(plain(lastFrame() ?? "")).toContain("nothing forwarded yet");
   });
 
@@ -166,7 +165,7 @@ describe("vazhi's screen", () => {
     stdin.write("x");
     await settle();
 
-    expect(fake.cancelled()).toEqual(["pu-dev:5173"]);
+    expect(fake.cancelled()).toEqual(["remote:pu-dev:5173"]);
   });
 
   it("tears every forward down before it lets the process end", async () => {

@@ -71,3 +71,52 @@ const BEL = String.fromCharCode(7);
 export function hyperlink(url: string): string {
   return `${OSC}8;;${url}${BEL}${url}${OSC}8;;${BEL}`;
 }
+
+/** What the table can actually show, and what is scrolled out of sight.
+ *
+ *  Ink's flex layout does NOT do this for us: given more rows than fit, it
+ *  shrinks the column and drops a *sample* (measured: 20 forwards in a 10-row
+ *  terminal rendered h2, h5, h8, h11, … and pushed the status line and the key
+ *  legend off the screen entirely). A sample is the one thing a list of things
+ *  you can act on must never be — `x` would cancel a row the operator cannot
+ *  see. So the window is computed, not delegated: a CONTIGUOUS run that always
+ *  contains the selection, with the counts on either side reported so the
+ *  screen can say what it is hiding.
+ *
+ *  `lines` is every line the table may occupy, INCLUDING the "N more"
+ *  indicators — they are rows on the screen too, and forgetting to pay for them
+ *  is how the shrink comes back (measured, once, in this same function). */
+export function viewport<T extends { readonly key: string }>(opts: {
+  rows: readonly T[];
+  selectedKey: string | undefined;
+  lines: number;
+}): { rows: readonly T[]; above: number; below: number } {
+  const { rows, selectedKey } = opts;
+  const lines = Math.max(0, Math.floor(opts.lines));
+  if (lines === 0 || rows.length === 0) {
+    return { rows: [], above: 0, below: rows.length };
+  }
+  if (rows.length <= lines) return { rows, above: 0, below: 0 };
+
+  const anchor = Math.max(
+    0,
+    rows.findIndex((row) => row.key === selectedKey),
+  );
+  // One indicator if the window is pinned to an end, two if it floats. Try the
+  // roomier shape first and keep it only if it really needs just one.
+  for (const capacity of [lines - 1, lines - 2]) {
+    if (capacity < 1) continue;
+    const start = Math.min(
+      Math.max(anchor - Math.floor(capacity / 2), 0),
+      rows.length - capacity,
+    );
+    const above = start;
+    const below = rows.length - start - capacity;
+    const indicators = (above > 0 ? 1 : 0) + (below > 0 ? 1 : 0);
+    if (capacity + indicators <= lines) {
+      return { rows: rows.slice(start, start + capacity), above, below };
+    }
+  }
+  // One line to work with, and more rows than that: say so and show nothing.
+  return { rows: [], above: anchor, below: rows.length - anchor };
+}

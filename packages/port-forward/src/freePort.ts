@@ -30,14 +30,28 @@ import { createServer } from "node:net";
  *  lost race surfaces as ssh failing to bind, which is a loud error rather than
  *  a wrong answer. */
 export function canBindLocally(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = createServer();
-    server.once("error", () => resolve(false));
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      // Only "this port is not available to us" is an ANSWER. Anything else —
+      // EMFILE, ENFILE, a broken network stack — is a real failure of this
+      // process, and relabelling it "something is listening there" would send
+      // the caller to a fallback port that is about to fail the same way.
+      if (PORT_UNAVAILABLE_CODES.has(err.code ?? "")) resolve(false);
+      else reject(err);
+    });
     server.listen({ host: "0.0.0.0", port }, () => {
       server.close(() => resolve(true));
     });
   });
 }
+
+/** The bind errors that mean THIS PORT, as opposed to this machine. */
+const PORT_UNAVAILABLE_CODES = new Set([
+  "EADDRINUSE",
+  "EACCES", // a privileged port, from an unprivileged process
+  "EADDRNOTAVAIL",
+]);
 
 /** A free TCP port on all interfaces, as the kernel hands it out. */
 export function pickFreePort(): Promise<number> {

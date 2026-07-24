@@ -19,7 +19,7 @@
 import { type Forward, formatTarget } from "@kolu/port-forward";
 import { Box, Text } from "ink";
 import TextInput from "ink-text-input";
-import { formatUptime, forwardUrl, hyperlink } from "./format.ts";
+import { formatUptime, forwardUrl, hyperlink, viewport } from "./format.ts";
 
 /** The bottom line: the keybind legend, or the `host:port` prompt. */
 export type Mode = { kind: "table" } | { kind: "add"; input: string };
@@ -60,6 +60,16 @@ export function Screen({
     0,
   );
 
+  // Rows the table may use: the terminal, minus the header, the blank line
+  // under it, the status line, the blank line above the legend, and the legend.
+  // Reserved explicitly, because letting flex decide loses the legend first.
+  const CHROME_ROWS = 5;
+  const shown = viewport({
+    rows: forwards,
+    selectedKey,
+    lines: Math.max(1, size.rows - CHROME_ROWS),
+  });
+
   return (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
       <Box>
@@ -76,16 +86,24 @@ export function Screen({
             pu-dev:5173)
           </Text>
         ) : (
-          forwards.map((row) => (
-            <Row
-              key={row.key}
-              forward={row}
-              hostname={hostname}
-              now={now}
-              selected={row.key === selectedKey}
-              targetWidth={targetWidth}
-            />
-          ))
+          <>
+            {shown.above > 0 && (
+              <Text dimColor>{`  ↑ ${shown.above} more`}</Text>
+            )}
+            {shown.rows.map((row) => (
+              <Row
+                key={row.key}
+                forward={row}
+                hostname={hostname}
+                now={now}
+                selected={row.key === selectedKey}
+                targetWidth={targetWidth}
+              />
+            ))}
+            {shown.below > 0 && (
+              <Text dimColor>{`  ↓ ${shown.below} more`}</Text>
+            )}
+          </>
         )}
       </Box>
 

@@ -35,6 +35,24 @@ export interface Forward {
   readonly createdAt: number;
 }
 
+/** Rejects a `create` that finished opening after `dispose` had already run:
+ *  the listener it produced was closed immediately, so this is the map keeping
+ *  its promise, not a teardown failure. `dispose` tells the two apart by this
+ *  type — a flight that rejects for any OTHER reason means a teardown it
+ *  ordered did not happen. */
+export class DisposedMidOpenError extends Error {
+  constructor() {
+    super(
+      "port-forward: the forward map was disposed while this forward was opening; it has been closed.",
+    );
+    this.name = "DisposedMidOpenError";
+  }
+}
+
+function isDisposedMidOpen(reason: unknown): boolean {
+  return reason instanceof DisposedMidOpenError;
+}
+
 /** A forward that went away on its own, and why. */
 export interface ForwardLoss {
   readonly forward: Forward;
@@ -111,9 +129,7 @@ export function makeForwardManager(opts: {
           // now, so it has to be closed now — otherwise `dispose` would have
           // returned while a listener it never saw was still coming up.
           await opened.close();
-          throw new Error(
-            "port-forward: the forward map was disposed while this forward was opening; it has been closed.",
-          );
+          throw new DisposedMidOpenError();
         }
         const forward: Forward = {
           key,
@@ -157,11 +173,13 @@ export function makeForwardManager(opts: {
           `port-forward: there is no forward named "${key}" to cancel.`,
         );
       }
-      // Drop it from the map first: the caller asked for it to be gone, so it
-      // must not linger in the list if the teardown itself reports trouble —
-      // that trouble surfaces as this rejection instead.
-      slots.delete(key);
+      // Delete only on SUCCESS. A rejecting `close` means the mechanism could
+      // not take the listener down, so the listener may still be reachable —
+      // forgetting it here would make `list` lie and leave nothing to retry.
+      // The error surfaces either way; what differs is whether the map still
+      // knows about a door that may still be open.
       await open.opened.close();
+      slots.delete(key);
     },
 
     list() {
@@ -174,25 +192,37 @@ export function makeForwardManager(opts: {
 
     async dispose() {
       disposed = true;
+      const failures: unknown[] = [];
       // Wait for anything still opening to settle first: those flights close
       // themselves once they see `disposed`, and until they have, "every
-      // forward is down" is not yet true.
+      // forward is down" is not yet true. Their outcomes are NOT discarded —
+      // a flight that rejects because its own teardown failed is a listener
+      // that may still be live, which is exactly what dispose exists to rule
+      // out. The deliberate "you lost the dispose race" rejection is not a
+      // failure and carries `disposedMidOpen` to say so.
       const flights: Promise<Forward>[] = [];
       for (const slot of slots.values()) {
         if (slot.state === "opening") flights.push(slot.flight);
       }
-      await Promise.allSettled(flights);
-      const open: OpenedForward[] = [];
-      for (const slot of slots.values()) {
-        if (slot.state === "open") open.push(slot.opened);
+      for (const outcome of await Promise.allSettled(flights)) {
+        if (
+          outcome.status === "rejected" &&
+          !isDisposedMidOpen(outcome.reason)
+        ) {
+          failures.push(outcome.reason);
+        }
       }
-      slots.clear();
-      const failures: unknown[] = [];
+      const open: Array<[string, OpenedForward]> = [];
+      for (const [key, slot] of slots.entries()) {
+        if (slot.state === "open") open.push([key, slot.opened]);
+      }
       // Every forward gets its teardown attempted even if an earlier one
-      // failed — a half-torn-down map is the one outcome worth avoiding.
-      for (const opened of open) {
+      // failed — a half-torn-down map is the one outcome worth avoiding. A
+      // refused teardown keeps its slot, for the same reason `cancel` does.
+      for (const [key, opened] of open) {
         try {
           await opened.close();
+          slots.delete(key);
         } catch (err) {
           failures.push(err);
         }
@@ -200,7 +230,7 @@ export function makeForwardManager(opts: {
       if (failures.length > 0) {
         throw new AggregateError(
           failures,
-          `port-forward: ${failures.length} of ${open.length} forwards could not be torn down.`,
+          `port-forward: ${failures.length} forward(s) could not be torn down; they are still in the map.`,
         );
       }
     },

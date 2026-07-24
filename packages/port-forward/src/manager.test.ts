@@ -50,7 +50,7 @@ describe("the forward map", () => {
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
 
     const forward = await forwards.create(PU);
-    expect(forward.key).toBe("pu-dev:5173");
+    expect(forward.key).toBe("remote:pu-dev:5173");
     expect(forward.localPort).toBe(61000);
     expect(forwards.list()).toEqual([forward]);
   });
@@ -65,9 +65,9 @@ describe("the forward map", () => {
     await forwards.create({ kind: "local", port: 5173 });
 
     expect(forwards.list().map((f) => f.key)).toEqual([
-      "pu-dev:5173",
-      "pu-dev:9229",
-      "zest:8080",
+      "remote:pu-dev:5173",
+      "remote:pu-dev:9229",
+      "remote:zest:8080",
       "local:5173",
     ]);
   });
@@ -255,6 +255,39 @@ describe("the forward map", () => {
     expect(forwards.list()).toEqual([]);
   });
 
+  it("reports a teardown that failed while the forward was still opening", async () => {
+    // dispose's whole job is "nothing survives me". A flight that finishes
+    // after dispose closes its own listener — and if THAT close fails, the
+    // listener may still be live, so dispose must not return success.
+    let arrive: (() => void) | undefined;
+    const stubborn: ForwardMechanisms = {
+      open: async () => {
+        await new Promise<void>((resolve) => {
+          arrive = resolve;
+        });
+        return {
+          localPort: 4123,
+          close: async () => {
+            throw new Error("the listener refused to close");
+          },
+        };
+      },
+    };
+    const forwards = makeForwardManager({
+      mechanisms: stubborn,
+      onLost: () => {},
+    });
+
+    const creating = forwards.create(PU);
+    const disposing = forwards.dispose();
+    arrive?.();
+
+    // The create learns the REAL reason it has nothing: not "you were
+    // disposed" (the clean case) but the teardown that refused.
+    await expect(creating).rejects.toThrow(/refused to close/);
+    await expect(disposing).rejects.toThrow(AggregateError);
+  });
+
   it("opens nothing more once disposed", async () => {
     const fake = fakeMechanisms();
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
@@ -264,7 +297,10 @@ describe("the forward map", () => {
     expect(fake.opens).toEqual([]);
   });
 
-  it("still attempts every teardown when one fails, then reports the failures", async () => {
+  it("keeps a forward whose teardown was REFUSED, and still tears down the rest", async () => {
+    // A rejecting close means the listener may still be reachable. Forgetting
+    // it would make list() lie and leave nothing to retry — the error must
+    // surface AND the forward must stay represented.
     const closed: number[] = [];
     let port = 100;
     const flaky: ForwardMechanisms = {
@@ -291,6 +327,31 @@ describe("the forward map", () => {
 
     await expect(forwards.dispose()).rejects.toThrow(AggregateError);
     expect(closed).toEqual([100, 102]);
+    expect(forwards.list().map((f) => f.key)).toEqual(["remote:zest:8080"]);
+  });
+
+  it("lets a refused cancel be retried once the mechanism recovers", async () => {
+    let refuse = true;
+    const stubborn: ForwardMechanisms = {
+      open: async () => ({
+        localPort: 4123,
+        close: async () => {
+          if (refuse) throw new Error("ssh exited 255");
+        },
+      }),
+    };
+    const forwards = makeForwardManager({
+      mechanisms: stubborn,
+      onLost: () => {},
+    });
+    const forward = await forwards.create(PU);
+
+    await expect(forwards.cancel(forward.key)).rejects.toThrow(/255/);
+    // Still there, because it may still be listening.
+    expect(forwards.list()).toEqual([forward]);
+
+    refuse = false;
+    await forwards.cancel(forward.key);
     expect(forwards.list()).toEqual([]);
   });
 });

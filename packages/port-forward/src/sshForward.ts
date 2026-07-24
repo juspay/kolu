@@ -31,6 +31,7 @@
  */
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { stripVTControlCharacters } from "node:util";
 import type { OpenedForward } from "./mechanism.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 
@@ -46,7 +47,7 @@ import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
  *    to someone else.
  *  - `ExitOnForwardFailure=yes` — a local bind that fails must END the child,
  *    loudly, rather than leave a connection with no listener on it. */
-const SSH_OPTS: readonly string[] = [
+export const SSH_OPTS: readonly string[] = [
   "-o",
   "BatchMode=yes",
   "-o",
@@ -59,6 +60,25 @@ const SSH_OPTS: readonly string[] = [
   "ControlPath=none",
   "-o",
   "ExitOnForwardFailure=yes",
+  // The four below are not policy — they are this mechanism's PRECONDITIONS,
+  // pinned on the argv because ssh_config is per-host and the aliases we
+  // deliberately support may legitimately set any of them:
+  //   LogLevel   — QUIET hides the bind-failure line that tells a half-bound
+  //                forward from a healthy one.
+  //   StdinNull  — yes hands the remote hold-open command an immediate EOF, so
+  //                the connection (and the forward) would end as it began.
+  //   RequestTTY — a PTY lets the far end's output carry terminal control into
+  //                our diagnostics, and changes how the session ends.
+  //   ForkAfterAuthentication — yes backgrounds the client, cutting the very
+  //                process lifetime this forward's lifetime is tied to.
+  "-o",
+  "LogLevel=ERROR",
+  "-o",
+  "StdinNull=no",
+  "-o",
+  "RequestTTY=no",
+  "-o",
+  "ForkAfterAuthentication=no",
 ];
 
 /** The far end announces itself with this, then holds the connection open.
@@ -93,6 +113,22 @@ const HOLD_OPEN_COMMAND = `echo ${READY_TOKEN}; cat`;
  *  the worst it could still buy is a fallback port — never a forward reported
  *  as up when it is not. */
 const BIND_FAILURE = /^(?:bind \[|Could not request local forwarding)/m;
+
+/** Make ssh's own words safe to put in an error string.
+ *
+ *  Everything on that stream is UNTRUSTED: the remote command's stderr is
+ *  merged into it, so a hostile or careless far end can emit SGR (rewriting
+ *  what the operator reads) or OSC 8 (a clickable link of its choosing) — and
+ *  these strings are rendered verbatim by vazhi's TUI today and kolu's
+ *  Inspector later. Sanitising in one renderer would leave the other exposed,
+ *  so the library hands out plain text and nothing else. `stripVTControlCharacters`
+ *  removes ANSI sequences; the remaining C0/C1 characters (including the bare
+ *  ESC and BEL that OSC 8 rides on) become spaces. */
+export function plainDiagnostic(text: string): string {
+  return stripVTControlCharacters(text)
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .trim();
+}
 
 /** Did ssh report that it could not bind the local port? Read from the stderr
  *  accumulated so far — see `BIND_FAILURE` for why the match is line-anchored
@@ -182,15 +218,27 @@ export function openSshAttempt(opts: {
   // loss message wants only ssh's last words.
   let stdout = "";
   let stderr = "";
+  /** Whether ssh has EVER reported a failed bind — latched, because the
+   *  diagnostic tail is not a place to keep a fact. The far end can write to
+   *  this same stream, so it could otherwise push the bind line out of the
+   *  window with a few kilobytes of noise and have the ready token resolve a
+   *  half-bound forward. A latched boolean cannot be evicted. */
+  let sawBindFailure = false;
   child.stdout.on("data", (chunk: Buffer) => {
     stdout = (stdout + chunk.toString()).slice(-DIAGNOSTIC_TAIL_BYTES);
   });
   child.stderr.on("data", (chunk: Buffer) => {
-    stderr = (stderr + chunk.toString()).slice(-DIAGNOSTIC_TAIL_BYTES);
+    // Scan the JOIN of the retained tail and the new chunk, so a line split
+    // across two chunks is still seen, then truncate for diagnostics only.
+    const seen = stderr + chunk.toString();
+    if (reportsBindFailure(seen)) sawBindFailure = true;
+    stderr = seen.slice(-DIAGNOSTIC_TAIL_BYTES);
   });
 
-  const detail = (): string =>
-    stderr.trim() === "" ? "" : `: ${stderr.trim()}`;
+  const detail = (): string => {
+    const text = plainDiagnostic(stderr);
+    return text === "" ? "" : `: ${text}`;
+  };
 
   return new Promise<OpenedForward>((resolve, reject) => {
     /** Where this attempt has got to. One name for the four states it can be
@@ -243,7 +291,7 @@ export function openSshAttempt(opts: {
         // Died before it was ever up. A bind failure is the caller's cue to
         // take a different port; anything else is the forward's own failure.
         fail(
-          reportsBindFailure(stderr)
+          sawBindFailure
             ? new PortUnavailableError(
                 localPort,
                 `ssh could not bind it${detail()}`,
@@ -266,7 +314,7 @@ export function openSshAttempt(opts: {
       // The far end is running, so ssh set the forwardings up before it. A bind
       // error alongside that means a PARTIAL bind (one address family took the
       // port, the other did not) — half a listener is not a forward.
-      if (reportsBindFailure(stderr)) {
+      if (sawBindFailure) {
         fail(
           new PortUnavailableError(
             localPort,

@@ -60,7 +60,15 @@ describe("parseTarget", () => {
 describe("targetKey", () => {
   it("keys a remote target by host and port", () => {
     expect(targetKey({ kind: "remote", host: "zest", port: 8080 })).toBe(
-      "zest:8080",
+      "remote:zest:8080",
+    );
+  });
+
+  it('does not collide with an ssh host literally called "local"', () => {
+    // `local` is a legal ssh alias. Without the kind in the key both of these
+    // would be "local:5173" and the map would hand out whichever came first.
+    expect(targetKey({ kind: "local", port: 5173 })).not.toBe(
+      targetKey({ kind: "remote", host: "local", port: 5173 }),
     );
   });
 

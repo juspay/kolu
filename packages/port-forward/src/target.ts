@@ -31,9 +31,13 @@ export type ForwardTarget =
  *  targets (`local:5173` vs `localhost:5173`), so anything a user reads must
  *  come from `formatTarget`. */
 export function targetKey(target: ForwardTarget): string {
+  // Every encoding carries the KIND, because the two namespaces genuinely
+  // overlap: `local` is a legal ssh alias, so a bare `local:5173` would name
+  // both the loopback relay on 5173 and a tunnel to a host called `local` —
+  // and the map would hand out whichever of them was created first.
   return target.kind === "local"
     ? `local:${target.port}`
-    : `${target.host}:${target.port}`;
+    : `remote:${target.host}:${target.port}`;
 }
 
 /** The target as a human types it — the inverse of `parseTarget`. */
