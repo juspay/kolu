@@ -21,15 +21,11 @@ import {
 } from "@kolu/port-forward";
 import { Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { forwardUrl, readPromptInput } from "./format.ts";
+import { forwardUrl, messageOf, readPromptInput } from "./format.ts";
 import { type Mode, Screen, type Status } from "./Screen.tsx";
 
 /** How often the uptime column moves and the list is re-read. */
 const TICK_MS = 1000;
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 export function App({
   hostname,

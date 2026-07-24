@@ -6,6 +6,11 @@
  * terminal will linkify — are testable without rendering anything.
  */
 
+/** Whatever a thrown value has to say for itself. */
+export function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** How long a forward has been up, in the coarsest unit that still says
  *  something: seconds under a minute, then minutes, then hours, then days.
  *

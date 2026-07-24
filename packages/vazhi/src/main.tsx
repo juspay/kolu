@@ -31,6 +31,7 @@ import { hostname } from "node:os";
 import { createForwardManager } from "@kolu/port-forward";
 import { render } from "ink";
 import { App } from "./App.tsx";
+import { messageOf } from "./format.ts";
 
 function fail(message: string): never {
   process.stderr.write(`vazhi: ${message}\n`);
@@ -63,5 +64,5 @@ try {
   await app.waitUntilExit();
   process.exit(0);
 } catch (err) {
-  fail(err instanceof Error ? err.message : String(err));
+  fail(messageOf(err));
 }
