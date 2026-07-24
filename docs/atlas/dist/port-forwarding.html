@@ -219,7 +219,14 @@ PRT2 should settle rather than inherit: <code>list()</code> is pull-only, so a c
 keeps its own mirror and re-reads after every create/cancel/loss (vazhi does,
 in four places). If the Inspector wants the same, the map should hand out a
 subscription instead — an additive change to the same contract, decided once
-there are two consumers to design it against rather than one.</span></span></span></p>
+there are two consumers to design it against rather than one. A second shape
+question PRT2 should settle: <code>create</code> rejects with the mechanism’s own message,
+so “the local port was taken”, “the host is unreachable”, “no ssh on PATH” and
+“the tunnel never came up” are one untyped <code>Error</code> above the map. vazhi only
+prints it; the Inspector will want to branch on it (retry, pick another port,
+mark the host down), so the map should reject with a single tagged error
+carrying a <code>kind</code> — additive to the same contract, decided once there are two
+consumers to design it against.</span></span></span></p>
 <p>Two consumers, no runtime link between them — the drishti pattern proper
 (shared libraries, independent apps):</p>
 <ul>
