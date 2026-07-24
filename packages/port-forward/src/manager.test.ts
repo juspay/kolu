@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { makeForwardManager } from "./manager.ts";
 import type { ForwardLoss } from "./manager.ts";
+import { makeForwardManager } from "./manager.ts";
 import type { ForwardMechanisms } from "./opened.ts";
-import type { ForwardTarget } from "./target.ts";
+import { type ForwardTarget, targetKey } from "./target.ts";
 
 /** A mechanism that opens instantly and records what it was asked for, so the
  *  map's own semantics are what's under test. */
@@ -29,12 +29,7 @@ function fakeMechanisms(): {
       async open(target, onLost) {
         opens.push(target);
         const localPort = nextPort++;
-        losers.set(
-          target.kind === "local"
-            ? `local:${target.port}`
-            : `${target.host}:${target.port}`,
-          onLost,
-        );
+        losers.set(targetKey(target), onLost);
         return {
           localPort,
           close: async () => {
