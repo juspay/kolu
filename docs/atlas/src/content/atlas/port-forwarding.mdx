@@ -85,13 +85,26 @@ library package, `packages/port-forward/` (`@kolu/port-forward`): the forward
 map (`(host, remotePort) → local listener`, N hosts × N ports), `ssh -O
 forward` / `ssh -O cancel` against ControlMaster sockets, the loopback TCP
 relay, free-port picking, and teardown. Its ssh side needs no connection
-management of its own: `controlMaster.ts` computes the `ControlPath`
-deterministically from the destination and `ControlMaster=auto` makes whoever
-connects first the master — so any process using the same `controlOptPairs`
-helper shares masters with kolu automatically. The ControlPath convention
-*is* the integration, with zero coordination code.<Footnote>Forwards die with
-their master connection, so a dropped host can never leak tunnels; the
-library's cancel path handles the deliberate case.</Footnote>
+management of its own: the `ControlPath` is computed deterministically from
+the destination (ssh's `%C` token under the per-user runtime dir) and
+`ControlMaster=auto` makes whoever connects first the master — so any process
+that spells the same `ControlPath` shares masters with kolu automatically. The
+ControlPath convention *is* the integration, with zero coordination
+code.<Footnote>As built, the library **restates** that ~30-line convention
+rather than importing `surface-remote`'s `controlOptPairs`, which keeps
+`@kolu/port-forward` dependency-free (node builtins only, so vazhi drags no
+kolu world in) and avoids widening a drishti-gated export for a helper. A unit
+test pins the two spellings against each other — same app namespace, same `%C`
+file, same `ControlPersist` — so they cannot drift into two
+masters.</Footnote> One measured wrinkle the build had to answer: a forward
+listener does **not** keep a `ControlPersist` master busy, so a master holding
+nothing but forwards reaps itself on the idle timer and takes them down with
+it. The library therefore holds one *anchor* session per forwarded host — an
+`ssh … <host> cat` child on a pipe it never writes to — which moves no
+traffic, opens the master when there isn't one, and dies with the
+process.<Footnote>Forwards die with their master connection, so a dropped host
+can never leak tunnels; the library's cancel path handles the deliberate case,
+and the anchor makes "the process went away" the same case.</Footnote>
 
 Two consumers, no runtime link between them — the drishti pattern proper
 (shared libraries, independent apps):

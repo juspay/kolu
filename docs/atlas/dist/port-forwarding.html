@@ -169,13 +169,26 @@ special case in v1.</span></span></span></p>
 library package, <code>packages/port-forward/</code> (<code>@kolu/port-forward</code>): the forward
 map (<code>(host, remotePort) → local listener</code>, N hosts × N ports), <code>ssh -O forward</code> / <code>ssh -O cancel</code> against ControlMaster sockets, the loopback TCP
 relay, free-port picking, and teardown. Its ssh side needs no connection
-management of its own: <code>controlMaster.ts</code> computes the <code>ControlPath</code>
-deterministically from the destination and <code>ControlMaster=auto</code> makes whoever
-connects first the master — so any process using the same <code>controlOptPairs</code>
-helper shares masters with kolu automatically. The ControlPath convention
-<em>is</em> the integration, with zero coordination code.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Forwards die with
-their master connection, so a dropped host can never leak tunnels; the
-library’s cancel path handles the deliberate case.</span></span></span></p>
+management of its own: the <code>ControlPath</code> is computed deterministically from
+the destination (ssh’s <code>%C</code> token under the per-user runtime dir) and
+<code>ControlMaster=auto</code> makes whoever connects first the master — so any process
+that spells the same <code>ControlPath</code> shares masters with kolu automatically. The
+ControlPath convention <em>is</em> the integration, with zero coordination
+code.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>As built, the library <strong>restates</strong> that ~30-line convention
+rather than importing <code>surface-remote</code>’s <code>controlOptPairs</code>, which keeps
+<code>@kolu/port-forward</code> dependency-free (node builtins only, so vazhi drags no
+kolu world in) and avoids widening a drishti-gated export for a helper. A unit
+test pins the two spellings against each other — same app namespace, same <code>%C</code>
+file, same <code>ControlPersist</code> — so they cannot drift into two
+masters.</span></span></span> One measured wrinkle the build had to answer: a forward
+listener does <strong>not</strong> keep a <code>ControlPersist</code> master busy, so a master holding
+nothing but forwards reaps itself on the idle timer and takes them down with
+it. The library therefore holds one <em>anchor</em> session per forwarded host — an
+<code>ssh … &lt;host&gt; cat</code> child on a pipe it never writes to — which moves no
+traffic, opens the master when there isn’t one, and dies with the
+process.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Forwards die with their master connection, so a dropped host
+can never leak tunnels; the library’s cancel path handles the deliberate case,
+and the anchor makes “the process went away” the same case.</span></span></span></p>
 <p>Two consumers, no runtime link between them — the drishti pattern proper
 (shared libraries, independent apps):</p>
 <ul>
