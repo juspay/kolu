@@ -64,7 +64,7 @@ to reach kolu.</p>
   <text x="456" y="121" font-size="11.5" font-family="ui-monospace,monospace" fill="#1a1c20">(host, remotePort) → local listener</text>
   <text x="456" y="139" font-size="11.5" fill="#1a1c20">remote host → ssh -L on shared ControlMaster</text>
   <text x="456" y="156" font-size="11.5" fill="#1a1c20">kolu-host loopback → plain TCP relay</text>
-  <text x="456" y="173" font-size="11" fill="#7a6b93">consumers: vazhi CLI · vazhi TUI · kolu</text>
+  <text x="456" y="173" font-size="11" fill="#7a6b93">one binary: TUI when interactive · headless under kolu</text>
 
   <rect x="440" y="216" width="320" height="72" rx="8" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
   <text x="456" y="237" font-size="13" font-weight="700" fill="#3a6ea5">kolu server surface — exists</text>
@@ -148,12 +148,23 @@ convention <em>is</em> the integration, with zero coordination
 code.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Forwards die with their master connection, so a dropped host
 can never leak tunnels; vazhi’s own cancel path handles the deliberate
 case.</span></span></span></p>
-<p>Three consumers from day one: a <strong>daemon</strong> serving the forwards state over a
-<code>@kolu/surface</code> app (dogfooding the same stack kolu consumes), a <strong>CLI</strong>
-(<code>vazhi add pu-dev:5173</code> · <code>vazhi ls</code> · <code>vazhi rm pu-dev:5173</code>), and a <strong>TUI</strong>
-(kaval-tui-style live table across hosts). vazhi is <em>mechanism only</em> — create,
-cancel, list, pick a free port, self-clean. Every policy decision (when to
-forward, when to auto-cancel, what to show) belongs to its consumers.</p>
+<p><strong>One binary, serve-or-attach.</strong> There is no separate daemon/CLI/TUI trio —
+vazhi is a single executable and the <em>first one to run becomes the resident</em>:
+it serves the forwards state over a <code>@kolu/surface</code> app (dogfooding the same
+stack kolu consumes), owns the relays, and — when it has a TTY — renders a
+kaval-tui-style live table. Every later invocation attaches to the resident
+as a client: <code>vazhi</code> in a terminal is the TUI face, <code>vazhi add pu-dev:5173</code> ·
+<code>vazhi ls</code> · <code>vazhi rm pu-dev:5173</code> are one-shot verbs, and kolu supervises a
+headless (TTY-less) resident on the server host. The socket arbitration is
+not new invention — <code>surface-daemon-supervisor</code> exists precisely to decide
+who owns the socket, the kaval pattern.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The lifetime semantics fall
+out naturally: run standalone, the TUI <em>is</em> the resident, and closing it
+closes your tunnels — the same intuition as closing a hand-rolled <code>ssh -L</code>.
+Run alongside kolu, the kolu-supervised resident holds the forwards and the
+TUI is a mere viewer, so closing it severs nothing.</span></span></span> vazhi is
+<em>mechanism only</em> — create, cancel, list, pick a free port, self-clean. Every
+policy decision (when to forward, when to auto-cancel, what to show) belongs
+to its consumers.</p>
 <aside class="callout callout-note" data-astro-cid-q2ml7llr><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>Security posture, stated:</strong> a vazhi listener is unauthenticated raw TCP on
 the kolu server’s serving interface — anyone on the tailnet can connect, the
 same exposure as running the dev server on <code>0.0.0.0</code> yourself. That is the
@@ -195,9 +206,10 @@ ticks to the section.</p>
 module inside kaval — a bounded one-shot scan with kaval as its only consumer
 — and graduates only if it grows independent consumers or its own streaming
 volatility. The <em>forward manager</em> is the opposite case: ssh
-connection/forward lifecycle is a hard volatility with three consumers (CLI,
-TUI, kolu), which is exactly why vazhi is an app of its own rather than a
-module in kolu’s server.</p></div></aside>
+connection/forward lifecycle is a hard volatility with genuinely independent
+consumers (interactive standalone use, one-shot verbs, kolu), which is
+exactly why vazhi is an app of its own rather than a module in kolu’s server
+— one binary with a serve-or-attach rule, not three artifacts.</p></div></aside>
 <h2 id="build-plan--the-prt-track">Build plan — the PRT track</h2>
 <table>
 <thead>
@@ -211,7 +223,7 @@ module in kolu’s server.</p></div></aside>
 <tbody>
 <tr>
 <td>PRT0</td>
-<td>vazhi: daemon · CLI · TUI · own flake.nix</td>
+<td>vazhi: one serve-or-attach binary (TUI · headless · verbs) · own flake.nix</td>
 <td>—</td>
 <td>standalone forward on a real remote box, no kolu running</td>
 </tr>
@@ -238,13 +250,17 @@ module in kolu’s server.</p></div></aside>
 <p>PRT0 and PRT1 are independent and can proceed in parallel; only PRT2 needs
 both.</p>
 <h3 id="prt0--vazhi-one-pr">PRT0 — vazhi (one PR)</h3>
-<p>Package with its own <code>flake.nix</code> (<code>nix run .#vazhi</code>), surface-app daemon, CLI,
-TUI. <strong>Done when</strong>, with <strong>no kolu running</strong>: <code>vazhi add &lt;box&gt;:5173</code> against a
-real remote box (pu harness) prints the listener port, <code>curl http://&lt;vazhi-host&gt;:&lt;port&gt;</code> <strong>from a different machine</strong> returns the remote
-server’s body (proving the non-loopback bind), <code>vazhi rm</code> tears it down, and
-the TUI shows the row live. Plus the socket-sharing proof: with kolu’s mirror
-connected to the same host, <code>vazhi add</code> must create <strong>no second ssh master</strong>
-(assert one master via <code>ssh -O check</code> + process count) — the criterion the
+<p>Package with its own <code>flake.nix</code> (<code>nix run .#vazhi</code>): the single
+serve-or-attach binary — resident (surface server + relays, TUI when it has a
+TTY, headless when not) and client verbs. <strong>Done when</strong>, with <strong>no kolu
+running</strong>: <code>vazhi add &lt;box&gt;:5173</code> against a real remote box (pu harness)
+prints the listener port, <code>curl http://&lt;vazhi-host&gt;:&lt;port&gt;</code> <strong>from a
+different machine</strong> returns the remote server’s body (proving the
+non-loopback bind), <code>vazhi rm</code> tears it down, and a <code>vazhi</code> TUI attached to
+the same resident shows the row live — proving serve-or-attach, not just
+serve. Plus the socket-sharing proof: with kolu’s mirror connected to the
+same host, <code>vazhi add</code> must create <strong>no second ssh master</strong> (assert one
+master via <code>ssh -O check</code> + process count) — the criterion the
 ControlPath-convention design exists to satisfy.</p>
 <h3 id="prt1--detection--ports-section-one-pr">PRT1 — detection + Ports section (one PR)</h3>
 <p>Scanner, <code>ports</code> schema field, sensor fold, the Inspector section, direct-open

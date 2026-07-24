@@ -46,7 +46,7 @@
   <text x="456" y="121" font-size="11.5" font-family="ui-monospace,monospace" fill="#1a1c20">(host, remotePort) → local listener</text>
   <text x="456" y="139" font-size="11.5" fill="#1a1c20">remote host → ssh -L on shared ControlMaster</text>
   <text x="456" y="156" font-size="11.5" fill="#1a1c20">kolu-host loopback → plain TCP relay</text>
-  <text x="456" y="173" font-size="11" fill="#7a6b93">consumers: vazhi CLI · vazhi TUI · kolu</text>
+  <text x="456" y="173" font-size="11" fill="#7a6b93">one binary: TUI when interactive · headless under kolu</text>
 
   <rect x="440" y="216" width="320" height="72" rx="8" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
   <text x="456" y="237" font-size="13" font-weight="700" fill="#3a6ea5">kolu server surface — exists</text>
