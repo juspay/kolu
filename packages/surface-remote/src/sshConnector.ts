@@ -24,7 +24,11 @@ import {
   isLocalHost,
   ResolveDrvError,
 } from "./host";
-import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
+import {
+  type AgentDerivation,
+  makeProvisionBudgets,
+  provisionAgent,
+} from "./nixCopy";
 import {
   type ClosedInfo,
   ConnectError,
@@ -77,7 +81,7 @@ export interface SshConnectorOptions {
   /** Executable name inside the realised closure — the full spawn path is
    *  `${agentPath}/bin/${binary}`, run as `<binary> --stdio`. */
   binary: string;
-  /** Resolve the agent's `.drv` for this host. Called at the top of EVERY dial (not
+  /** Resolve the agent derivation for this host. Called at the top of EVERY dial (not
    *  once up front), so the round-trip that picks the derivation — typically an ssh
    *  `nix-instantiate` arch probe via `resolveSystem` — lives inside the session's
    *  own reconnect machinery. An unreachable host makes the resolver reject, which
@@ -86,9 +90,10 @@ export interface SshConnectorOptions {
    *  no derivation is baked for its system), reject with a {@link ResolveDrvError}
    *  carrying `failureCause: "remote"`.
    *
-   *  Pass a constant as `() => Promise.resolve(drv)` when the caller already knows
-   *  the path and has no probe to defer. */
-  resolveDrvPath: (ctx: ResolveDrvPathContext) => Promise<string>;
+   *  Pass a constant `{ kind: "drv-path", drvPath }` when the caller already
+   *  owns the store path and has no probe to defer. A flake-backed resolver must
+   *  return its installable too, so Nix owns the evaluate-to-copy GC lifetime. */
+  resolveDrvPath: (ctx: ResolveDrvPathContext) => Promise<AgentDerivation>;
   /** Extra args appended after `--stdio` on the agent command line — a generic
    *  spawn-arg carrier; what the args mean is the caller's concern. POSIX-quoted for
    *  a real remote; verbatim for localhost. See `buildAgentCommand`. */
@@ -126,9 +131,9 @@ export function sshConnector<C extends AnyContractRouter>(
     // classified `"network"` (retry forever) unless it is a `ResolveDrvError`
     // carrying an explicit cause (an unsupported/mis-baked system → `"remote"`,
     // bounded → terminal).
-    let drvPath: string;
+    let derivation: AgentDerivation;
     try {
-      drvPath = await opts.resolveDrvPath({
+      derivation = await opts.resolveDrvPath({
         signal: ctx.signal,
         localProgress: ctx.localProgress,
       });
@@ -141,7 +146,7 @@ export function sshConnector<C extends AnyContractRouter>(
 
     const provision = await provisionAgent({
       host: opts.host,
-      drvPath,
+      derivation,
       onProgress: (line) => ctx.localProgress(line),
       // Advance the phase at the REAL command boundaries (cold path only), so the
       // overlay names what is actually happening: `probing → copying` when `nix copy`

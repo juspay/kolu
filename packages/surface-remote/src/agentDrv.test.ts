@@ -40,7 +40,11 @@ describe("resolveAgentDrv", () => {
         "padi",
         resolutionOptions,
       ),
-    ).resolves.toBe("/nix/store/padi.drv");
+    ).resolves.toEqual({
+      kind: "flake-installable",
+      drvPath: "/nix/store/padi.drv",
+      installable: "/nix/store/source-a#packages.aarch64-darwin.padi",
+    });
 
     expect(h.runCapture).toHaveBeenCalledWith(
       "nix",
@@ -62,9 +66,7 @@ describe("resolveAgentDrv", () => {
 
   it("reuses the resolved derivation for later dials", async () => {
     h.resolveSystem.mockResolvedValue("x86_64-linux");
-    h.runCapture
-      .mockResolvedValueOnce(success("/nix/store/kaval.drv"))
-      .mockResolvedValueOnce(success(""));
+    h.runCapture.mockResolvedValueOnce(success("/nix/store/kaval.drv"));
 
     const args = [
       "builder",
@@ -75,43 +77,7 @@ describe("resolveAgentDrv", () => {
     await resolveAgentDrv(...args);
     await resolveAgentDrv(...args);
 
-    expect(h.runCapture).toHaveBeenCalledTimes(2);
-    expect(h.runCapture).toHaveBeenLastCalledWith(
-      "nix-store",
-      ["--check-validity", "/nix/store/kaval.drv"],
-      expect.objectContaining({
-        policy: { kind: "deadline", ms: expect.any(Number) },
-        signal: resolutionOptions.signal,
-      }),
-    );
-  });
-
-  it("evicts a cached derivation removed by garbage collection", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
-    h.runCapture
-      .mockResolvedValueOnce(success("/nix/store/old-kaval.drv"))
-      .mockResolvedValueOnce({
-        ok: false,
-        kind: "exit",
-        code: 1,
-        stdout: "",
-      })
-      .mockResolvedValueOnce(success("/nix/store/new-kaval.drv"));
-
-    const args = [
-      "builder",
-      "/nix/store/source-gc",
-      "kaval",
-      resolutionOptions,
-    ] as const;
-    await expect(resolveAgentDrv(...args)).resolves.toBe(
-      "/nix/store/old-kaval.drv",
-    );
-    await expect(resolveAgentDrv(...args)).resolves.toBe(
-      "/nix/store/new-kaval.drv",
-    );
-
-    expect(h.runCapture).toHaveBeenCalledTimes(3);
+    expect(h.runCapture).toHaveBeenCalledTimes(1);
   });
 
   it("leaves an arch-probe failure as a retryable transport error", async () => {
@@ -182,9 +148,9 @@ describe("resolveAgentDrv", () => {
     ] as const;
     const first = resolveAgentDrv(...args);
     await expect(first).rejects.not.toBeInstanceOf(ResolveDrvError);
-    await expect(resolveAgentDrv(...args)).resolves.toBe(
-      "/nix/store/recovered-fetch-padi.drv",
-    );
+    await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
+      drvPath: "/nix/store/recovered-fetch-padi.drv",
+    });
 
     expect(h.runCapture).toHaveBeenCalledTimes(2);
   });
@@ -308,9 +274,9 @@ describe("resolveAgentDrv", () => {
     const first = resolveAgentDrv(...args);
     await expect(first).rejects.toThrow(/no output/);
     await expect(first).rejects.not.toBeInstanceOf(ResolveDrvError);
-    await expect(resolveAgentDrv(...args)).resolves.toBe(
-      "/nix/store/recovered-padi.drv",
-    );
+    await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
+      drvPath: "/nix/store/recovered-padi.drv",
+    });
 
     expect(h.runCapture).toHaveBeenCalledTimes(2);
   });

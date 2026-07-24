@@ -24,6 +24,7 @@
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "quick-lru": "^7.3.0",
+    "split2": "^4.2.0",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },
@@ -31,6 +32,7 @@
     "@kolu/daemon-test-gate": "workspace:*",
     "@orpc/server": "^1.13.13",
     "@types/node": "^22.0.0",
+    "@types/split2": "^4.2.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"

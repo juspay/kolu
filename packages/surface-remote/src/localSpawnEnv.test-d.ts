@@ -34,7 +34,7 @@ buildAgentCommand({ host: "localhost", agentPath: "/p", binary: "a" });
 sshConnector({
   host: "h",
   binary: "a",
-  resolveDrvPath: () => Promise.resolve("d"),
+  resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: "d" }),
   localEnv: {},
 });
 
@@ -43,14 +43,14 @@ sshConnector(
   {
     host: "h",
     binary: "a",
-    resolveDrvPath: () => Promise.resolve("d"),
+    resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: "d" }),
   },
 );
 
 sshConnector({
   host: "h",
   binary: "a",
-  resolveDrvPath: () => Promise.resolve("d"),
+  resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: "d" }),
   // @ts-expect-error — `localEnv` may not be `undefined` on the connector either.
   localEnv: undefined,
 });

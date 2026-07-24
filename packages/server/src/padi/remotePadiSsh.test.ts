@@ -234,7 +234,10 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         // The localhost arm's composed env — this suite dials a real ssh host, so it
         // is unused, but the type requires it (PR1.5 / #1872).
         localEnv: {},
-        resolveDrvPath: async () => PADI_DRV as string,
+        resolveDrvPath: async () => ({
+          kind: "drv-path",
+          drvPath: PADI_DRV as string,
+        }),
       }),
       log: collectLogger((l) => console.log(`[host] ${l}`)),
     });

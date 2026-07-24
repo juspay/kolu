@@ -139,7 +139,11 @@ describe("dialAgentOnce: eager source-ref validation", () => {
 
 describe("dialAgentOnce: deferred drv resolution", () => {
   it("resolves the binary's package from the baked source flake", async () => {
-    h.resolveAgentDrv.mockResolvedValue("/nix/store/aaa-agent.drv");
+    h.resolveAgentDrv.mockResolvedValue({
+      kind: "flake-installable",
+      drvPath: "/nix/store/aaa-agent.drv",
+      installable: "/nix/store/source#packages.x86_64-linux.agent",
+    });
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
@@ -150,9 +154,11 @@ describe("dialAgentOnce: deferred drv resolution", () => {
       probe: async () => undefined,
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
-    await expect(resolveDrvPath(resolverContext)).resolves.toBe(
-      "/nix/store/aaa-agent.drv",
-    );
+    await expect(resolveDrvPath(resolverContext)).resolves.toEqual({
+      kind: "flake-installable",
+      drvPath: "/nix/store/aaa-agent.drv",
+      installable: "/nix/store/source#packages.x86_64-linux.agent",
+    });
     expect(h.resolveAgentDrv).toHaveBeenCalledWith(
       "nix@prod",
       FLAKE_REF,

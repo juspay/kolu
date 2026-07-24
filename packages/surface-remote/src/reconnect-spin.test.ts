@@ -93,7 +93,11 @@ describe("reconnect bridge loop", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/deadbeef-agent.drv",
+          }),
       }),
       reconnectDelayMs: 50,
       label: "testhost",
@@ -150,7 +154,11 @@ describe("reconnect bridge loop", () => {
         host: "destroyhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/deadbeef-agent.drv",
+          }),
       }),
       // Long backoff so the second next() is genuinely parked, not racing a fast
       // respawn.

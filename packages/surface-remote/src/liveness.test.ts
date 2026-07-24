@@ -90,7 +90,11 @@ function buildSession(extra: Record<string, unknown> = {}) {
       host: "testhost",
       binary: "agent",
       localEnv: {},
-      resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+      resolveDrvPath: () =>
+        Promise.resolve({
+          kind: "drv-path",
+          drvPath: "/nix/store/x-agent.drv",
+        }),
     }),
     reconnectDelayMs: 50,
     // One `liveness` knob: tune the cadence as an object (the same 15s/10s the

@@ -17,6 +17,7 @@ import {
 import type { SurfaceSink } from "@kolu/surface/mirror";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import {
+  type AgentDerivation,
   type AgentClient,
   makeSession,
   pumpRemoteSurface,
@@ -43,8 +44,11 @@ type Pid = SF["collections"]["processes"]["Key"];
 type Proc = SF["collections"]["processes"]["Value"];
 const DEFAULT_LOAD: SF["cells"]["load"]["Value"] = { avg: [0, 0, 0] };
 
-const resolveDrv = (_host: string): Promise<string> =>
-  Promise.resolve("/nix/store/…-my-agent.drv");
+const resolveDrv = (_host: string): Promise<AgentDerivation> =>
+  Promise.resolve({
+    kind: "drv-path",
+    drvPath: "/nix/store/…-my-agent.drv",
+  });
 
 // #region dial
 const session: Session<

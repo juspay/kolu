@@ -72,7 +72,11 @@ function failingSession() {
       host: "testhost",
       binary: "agent",
       localEnv: {},
-      resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+      resolveDrvPath: () =>
+        Promise.resolve({
+          kind: "drv-path",
+          drvPath: "/nix/store/deadbeef-agent.drv",
+        }),
     }),
     reconnectDelayMs: 1000,
     label: "testhost",
@@ -121,7 +125,11 @@ describe("HostSession log sink (alt-screen consumers divert all diagnostics)", (
         host: "altscreen",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/deadbeef-agent.drv",
+          }),
       }),
       reconnectDelayMs: 1000,
       log: collectLogger((l) => lines.push(l)),

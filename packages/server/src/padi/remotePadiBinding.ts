@@ -44,6 +44,7 @@ import {
   resolveAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
   type Session,
+  type SshConnectorOptions,
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
@@ -188,7 +189,7 @@ class PadiDrvFault extends ResolveDrvError {
  *  TERMINAL config fault; an unreachable host rejects plainly → `"network"` (retry). */
 function makeResolvePadiDrv(
   host: string,
-): (ctx: ResolveDrvPathContext) => Promise<string> {
+): SshConnectorOptions["resolveDrvPath"] {
   return async (ctx) => {
     // Validate the baked ref here (lazy). A missing ref can't self-heal on a
     // retry, so represent it as a TERMINAL `ResolveDrvError("remote")` — the session

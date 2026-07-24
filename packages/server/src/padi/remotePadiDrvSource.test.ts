@@ -17,6 +17,7 @@
 import {
   ResolveDrvError,
   type ResolveDrvPathContext,
+  type SshConnectorOptions,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "@kolu/surface-remote";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -75,14 +76,10 @@ const resolverContext: ResolveDrvPathContext = {
   localProgress: vi.fn(),
 };
 
-function seedAndCaptureResolver(): (
-  ctx: ResolveDrvPathContext,
-) => Promise<string> {
-  let captured: ((ctx: ResolveDrvPathContext) => Promise<string>) | undefined;
+function seedAndCaptureResolver(): SshConnectorOptions["resolveDrvPath"] {
+  let captured: SshConnectorOptions["resolveDrvPath"] | undefined;
   h.sshConnector.mockImplementation(
-    (opts: {
-      resolveDrvPath: (ctx: ResolveDrvPathContext) => Promise<string>;
-    }) => {
+    (opts: { resolveDrvPath: SshConnectorOptions["resolveDrvPath"] }) => {
       captured = opts.resolveDrvPath;
       // The connector is never invoked (makeSession is mocked); return a dummy.
       return async () => {
@@ -109,7 +106,11 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
     h.makeSession.mockReset();
     h.resolveAgentDrv.mockReset();
     h.makeSession.mockReturnValue(fakeSession());
-    h.resolveAgentDrv.mockResolvedValue("/nix/store/aaa-padi.drv");
+    h.resolveAgentDrv.mockResolvedValue({
+      kind: "flake-installable",
+      drvPath: "/nix/store/aaa-padi.drv",
+      installable: "/nix/store/source#packages.x86_64-linux.padi",
+    });
   });
   afterEach(() => {
     if (prior === undefined) delete process.env[ENV];
@@ -136,9 +137,17 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
 
   it("(b) a baked source ref resolves padi for the remote host", async () => {
     process.env[ENV] = "/nix/store/kolu-source";
-    h.resolveAgentDrv.mockResolvedValue("/nix/store/bbb-padi.drv");
+    h.resolveAgentDrv.mockResolvedValue({
+      kind: "flake-installable",
+      drvPath: "/nix/store/bbb-padi.drv",
+      installable: "/nix/store/source#packages.x86_64-linux.padi",
+    });
     const resolve = seedAndCaptureResolver();
-    expect(await resolve(resolverContext)).toBe("/nix/store/bbb-padi.drv");
+    expect(await resolve(resolverContext)).toEqual({
+      kind: "flake-installable",
+      drvPath: "/nix/store/bbb-padi.drv",
+      installable: "/nix/store/source#packages.x86_64-linux.padi",
+    });
     expect(h.resolveAgentDrv).toHaveBeenCalledWith(
       "nix@prod",
       "/nix/store/kolu-source",

@@ -128,7 +128,11 @@ describe("HostSession child-exit classification", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/deadbeef-agent.drv",
+          }),
       }),
       reconnectDelayMs: 10,
       label: "testhost",
@@ -173,7 +177,11 @@ describe("HostSession.recheck", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/deadbeef-agent.drv",
+          }),
       }),
       reconnectDelayMs: 50,
       label: "testhost",
@@ -211,7 +219,11 @@ describe("HostSession.recheck", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/deadbeef-agent.drv",
+          }),
       }),
       reconnectDelayMs: 50,
       label: "testhost",
@@ -245,7 +257,11 @@ describe("HostSession.recheck", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/deadbeef-agent.drv",
+          }),
       }),
       label: "testhost",
     });

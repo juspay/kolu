@@ -35,6 +35,7 @@ vi.mock("./process", async (importOriginal) => ({
 
 const STORE = "/nix/store/x8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent";
 const DRV = "/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-agent.drv";
+const FLAKE_INSTALLABLE = "/nix/store/source#packages.x86_64-linux.agent";
 
 const okExit: ExitResult = { ok: true, kind: "exit", code: 0 };
 const okOut = (stdout: string): CaptureResult => ({
@@ -101,7 +102,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -125,7 +126,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -142,7 +143,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -165,11 +166,34 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(buildArgs).toContain(`'${DRV}^*'`);
   });
 
+  it("copies a flake installable so Nix owns the evaluate-to-transfer GC root", async () => {
+    mockNix();
+    await provisionAgent({
+      host: "testhost",
+      derivation: {
+        kind: "flake-installable",
+        drvPath: DRV,
+        installable: FLAKE_INSTALLABLE,
+      },
+      onProgress: () => {},
+      ...provArgs(),
+    });
+
+    const copyArgs = vi.mocked(runProgress).mock.calls[0]![1];
+    expect(copyArgs).toContain(FLAKE_INSTALLABLE);
+    expect(copyArgs).not.toContain(DRV);
+    const buildArgs = vi
+      .mocked(runCapture)
+      .mock.calls.map((c) => c[1])
+      .find((args) => args.includes("--print-out-paths"));
+    expect(buildArgs).toContain(`'${DRV}^*'`);
+  });
+
   it("localhost realise keeps the installable unquoted (direct spawn, no shell)", async () => {
     mockNix();
     await provisionAgent({
       host: "localhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -183,11 +207,33 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(buildArgs).not.toContain(`'${DRV}^*'`);
   });
 
+  it("re-evaluates the flake installable for a localhost cold build", async () => {
+    mockNix();
+    await provisionAgent({
+      host: "localhost",
+      derivation: {
+        kind: "flake-installable",
+        drvPath: DRV,
+        installable: FLAKE_INSTALLABLE,
+      },
+      onProgress: () => {},
+      ...provArgs(),
+    });
+
+    expect(runProgress).not.toHaveBeenCalled();
+    const buildArgs = vi
+      .mocked(runCapture)
+      .mock.calls.map((c) => c[1])
+      .find((args) => args.includes("--print-out-paths"));
+    expect(buildArgs).toContain(FLAKE_INSTALLABLE);
+    expect(buildArgs).not.toContain(`${DRV}^*`);
+  });
+
   it("returns the immutable store path, not the moving root link", async () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -200,7 +246,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       mockNix({ pin: failOut });
       return provisionAgent({
         host: "testhost",
-        drvPath: DRV,
+        derivation: { kind: "drv-path", drvPath: DRV },
         onProgress: (l) => lines.push(l),
         ...provArgs(),
       });
@@ -213,7 +259,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix({ realise: failOut });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -231,7 +277,7 @@ describe("provisionAgent cause classification", () => {
     mockNix({ realise: { ok: false, kind: "exit", code: 255, stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -257,7 +303,7 @@ describe("provisionAgent cause classification", () => {
     vi.mocked(runProgress).mockResolvedValue(okExit); // copy succeeds
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -290,7 +336,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ copy: EXPIRED_COPY });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -305,7 +351,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ copy: EXPIRED_COPY });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -322,7 +368,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ copy: { ok: false, kind: "aborted" } });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -336,7 +382,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -359,7 +405,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ pin: { ok: false, kind: "aborted", stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -372,7 +418,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
       signal: AbortSignal.abort(),

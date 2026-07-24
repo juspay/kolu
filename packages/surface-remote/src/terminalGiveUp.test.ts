@@ -61,7 +61,7 @@ describe("#1908 — a permanently-silent copy reaches `failed`, bounded", () => 
     const connectOnce = sshConnector({
       host: "testhost",
       binary: "agent",
-      resolveDrvPath: () => Promise.resolve(DRV),
+      resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: DRV }),
       localEnv: {},
     });
     const session = makeSession({

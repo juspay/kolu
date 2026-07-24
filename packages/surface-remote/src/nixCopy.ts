@@ -174,10 +174,10 @@ export function makeProvisionBudgets(): ProvisionBudgets {
 
 export interface ProvisionOptions {
   host: string;
-  /** `KOLU_AGENT_DRV` from the operator — a `/nix/store/…-agent.drv`
-   *  path. The derivation is what gets shipped; the realisation
-   *  happens on the target host. */
-  drvPath: string;
+  /** The derivation to provision. A direct store derivation is copied as-is;
+   *  a flake-backed derivation keeps its installable so one `nix copy` process
+   *  evaluates, temporarily roots, and transfers it without a GC race. */
+  derivation: AgentDerivation;
   onProgress: (line: string) => void;
   /** Fired ONCE, on the COLD path, right before `nix copy --derivation` starts —
    *  the moment a real copy actually begins (the warm check has already MISSED). The
@@ -197,6 +197,21 @@ export interface ProvisionOptions {
    *  budget-EXEMPT fault. Threaded into every child. */
   signal?: AbortSignal;
 }
+
+/** A derivation source whose variants make the GC ownership contract explicit.
+ *
+ * A direct `.drv` caller already owns keeping that store path valid. A flake
+ * caller carries both the evaluated path (needed for the remote realise) and
+ * the installable that can recreate and temporarily root it inside `nix copy`.
+ * Keeping this as a sum prevents callers from supplying a flake path without
+ * the source required to survive local garbage collection. */
+export type AgentDerivation =
+  | { kind: "drv-path"; drvPath: string }
+  | {
+      kind: "flake-installable";
+      drvPath: string;
+      installable: string;
+    };
 
 export type ProvisionResult =
   | { ok: true; agentPath: string }
@@ -353,6 +368,7 @@ export async function provisionAgent(
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
   const { signal, budgets } = opts;
+  const { drvPath } = opts.derivation;
   // Already aborted before we start ⇒ do NO work: a user abort is a budget-EXEMPT,
   // retryable `"network"` fault (C3/F6). (The connector already reconciled the campaign
   // budget reset via `budgets.onCampaign` before calling here — that is monotonic, so a
@@ -392,22 +408,23 @@ export async function provisionAgent(
       : "remote";
   };
 
-  const rootPath = agentGcRootPath(isLocal, opts.drvPath);
+  const rootPath = agentGcRootPath(isLocal, drvPath);
 
   // 1. Warm fast-path (remote only) — the ASK-ONLY check (#1908 D1a). Compute the
-  //    output path(s) LOCALLY (the sender holds the .drv it just resolved; no network,
-  //    instant), then ask the host whether they are already valid there. A HIT skips
-  //    the redundant copy/realise. A MISS (or the local compute failing — the sender
-  //    GC'd the .drv) falls through to the full provision, whose copy fails loudly if
-  //    the .drv is genuinely gone (#1908 R5c — the honest replacement for "no
-  //    regression"). Localhost never copies, so the fast-path is remote-only.
+  //    output path(s) LOCALLY (no network, instant), then ask the host whether they
+  //    are already valid there. A HIT skips the redundant copy/realise. A MISS (or
+  //    the local query failing because GC collected the evaluated .drv) falls through
+  //    to the full provision. A flake source is re-evaluated inside the copy/build
+  //    process, which owns a temporary root across the handoff; a direct drv-path
+  //    caller owns keeping its path valid. Localhost never copies, so the fast-path
+  //    is remote-only.
   if (!isLocal && rootPath !== null) {
     // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
     onProgress(`${opts.host}: checking for a cached agent…`);
     // Local compute of the derivation's output path(s) — no ssh, no substitution.
     const outsRes = await runCapture(
       "nix-store",
-      ["-q", "--outputs", opts.drvPath],
+      ["-q", "--outputs", drvPath],
       { policy: probePolicy(), signal },
     );
     // `-q --outputs` prints ONE line PER OUTPUT — the agent contract is single-output
@@ -454,11 +471,14 @@ export async function provisionAgent(
     }
   }
 
-  // 2. Copy the .drv (and its build-inputs) to the remote. Skipped for localhost.
+  // 2. Copy the .drv (and its build-inputs) to the remote. A flake-backed
+  //    derivation is passed as its installable, not its previously evaluated path:
+  //    this lets the ONE nix process evaluate, temporarily root, and transfer the
+  //    derivation without a GC race between those activities. Skipped for localhost.
   if (!isLocal) {
     // The warm check MISSED (cold path) — signal the `probing → copying` boundary.
     opts.onCopying?.();
-    onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
+    onProgress(`${opts.host}: copying derivation '${drvPath}'…`);
     // Plain `-v`: nix's own per-path lines ("copying path '…'") reach the
     // connect tail untouched. No structured-progress parser — one long fetch
     // may be quiet; the wall-clock elapsed timer covers liveness (#1962).
@@ -471,7 +491,9 @@ export async function provisionAgent(
         "--derivation",
         "--to",
         `ssh-ng://${opts.host}`,
-        opts.drvPath,
+        opts.derivation.kind === "flake-installable"
+          ? opts.derivation.installable
+          : drvPath,
       ],
       {
         onProgress,
@@ -519,8 +541,8 @@ export async function provisionAgent(
   opts.onBuilding?.();
   onProgress(
     isLocal
-      ? `localhost: realising '${opts.drvPath}'…`
-      : `${opts.host}: realising '${opts.drvPath}' on remote…`,
+      ? `localhost: realising '${drvPath}'…`
+      : `${opts.host}: realising '${drvPath}' on remote…`,
   );
   const build = buildSshProbeCommand(
     opts.host,
@@ -530,7 +552,9 @@ export async function provisionAgent(
     "--print-out-paths",
     "--no-link",
     // `^*` = all outputs of the derivation (see comment above).
-    `${opts.drvPath}^*`,
+    isLocal && opts.derivation.kind === "flake-installable"
+      ? opts.derivation.installable
+      : `${drvPath}^*`,
   );
   const realiseRes = await runCapture(build.command, build.args, {
     onProgress,

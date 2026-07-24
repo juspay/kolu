@@ -5,13 +5,17 @@
  * The source ref is cheap to bake: unlike a `{ system → .drv }` map, it does not
  * evaluate every supported platform while `nix run .` is deciding what to run.
  * The first remote dial probes that host's Nix system, evaluates only the matching
- * package's `.drvPath`, then the existing provisioning path copies and realises
- * that derivation remotely.
+ * package's `.drvPath`, then return it together with the package installable.
+ * Provisioning passes that installable to one `nix copy` process, which keeps the
+ * evaluated derivation temporarily rooted until transfer finishes.
  */
 
 import { resolveSystem } from "./arch";
 import { looksLikeNetworkError, ResolveDrvError } from "./host";
-import { probePolicy, PROVISION_STEP_SILENCE_BASE_MS } from "./nixCopy";
+import {
+  type AgentDerivation,
+  PROVISION_STEP_SILENCE_BASE_MS,
+} from "./nixCopy";
 import { describeExit, type ExitResult, runCapture } from "./process";
 import { appendProgressLine } from "./progressTail";
 import agentEnv from "../agent-env.json" with { type: "json" };
@@ -26,7 +30,7 @@ export const SURFACE_AGENT_FLAKE_REF_ENV = agentEnv.flakeRef;
  * old store ref for the lifetime of a long-running server. In-flight work is not
  * shared because its cancellation and progress belong to one dial. */
 const MAX_CACHED_AGENT_DERIVATIONS = 32;
-const drvCache = new QuickLRU<string, string>({
+const drvCache = new QuickLRU<string, AgentDerivation>({
   maxSize: MAX_CACHED_AGENT_DERIVATIONS,
 });
 
@@ -51,7 +55,7 @@ function evaluationError(
         ? new Error(message)
         : new ResolveDrvError(message, "remote"),
     )
-    .with({ kind: P.union("spawn-error", "signal") }, () => {
+    .with({ kind: P.union("spawn-error", "output-error", "signal") }, () => {
       // These are local resource/setup faults, not transport facts. Retrying a
       // missing executable or externally OOM-killed evaluator inside the host
       // reconnect loop would respawn the same failure indefinitely; keep it
@@ -65,30 +69,9 @@ function evaluationError(
     .exhaustive();
 }
 
-/** A successful cache entry is only a hint: `.drv` paths are not GC roots.
- * Check the local store before reuse so garbage collection evicts the hint and
- * the exact flake is evaluated again instead of returning a permanently dead
- * path. */
-async function cachedDrvIsValid(
-  drv: string,
-  opts: AgentDrvResolutionOptions,
-): Promise<boolean> {
-  const result = await runCapture("nix-store", ["--check-validity", drv], {
-    policy: probePolicy(),
-    signal: opts.signal,
-  });
-  if (result.ok) return true;
-  if (result.kind === "exit") return false;
-  throw evaluationError(
-    `could not validate cached agent derivation ${drv}: nix-store ${describeExit(result)}`,
-    result,
-    false,
-  );
-}
-
 /**
- * Probe `host`, then evaluate only `packages.<host-system>.<packageName>.drvPath`
- * from `flakeRef`. Host-probe failures remain plain transport errors so the
+ * Probe `host`, then resolve only `packages.<host-system>.<packageName>` from
+ * `flakeRef` as a flake-backed {@link AgentDerivation}. Host-probe failures remain plain transport errors so the
  * session retries them. Deterministic local Nix failures are terminal build
  * faults; transient fetch and owned-lifetime failures remain retryable.
  */
@@ -97,20 +80,17 @@ export async function resolveAgentDrv(
   flakeRef: string,
   packageName: string,
   opts: AgentDrvResolutionOptions,
-): Promise<string> {
+): Promise<AgentDerivation> {
   const system = await resolveSystem(host);
-  const installable = `${flakeRef}#packages.${system}.${packageName}.drvPath`;
+  const installable = `${flakeRef}#packages.${system}.${packageName}`;
   const cached = drvCache.get(installable);
-  if (cached !== undefined) {
-    if (await cachedDrvIsValid(cached, opts)) return cached;
-    drvCache.delete(installable);
-  }
+  if (cached !== undefined) return cached;
 
   const diagnostics: string[] = [];
   let sawNetworkError = false;
   const result = await runCapture(
     "nix",
-    ["eval", "--accept-flake-config", "--raw", installable],
+    ["eval", "--accept-flake-config", "--raw", `${installable}.drvPath`],
     {
       // Evaluating a fresh exact source may fetch and build its Nix graph.
       // Treat it like the other long-running Nix steps: output proves
@@ -140,6 +120,11 @@ export async function resolveAgentDrv(
       "remote",
     );
   }
-  drvCache.set(installable, drv);
-  return drv;
+  const derivation: AgentDerivation = {
+    kind: "flake-installable",
+    drvPath: drv,
+    installable,
+  };
+  drvCache.set(installable, derivation);
+  return derivation;
 }

@@ -142,7 +142,8 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
           .map((k): [string, string | undefined] => [k, process.env[k]])
           .filter((e): e is [string, string] => e[1] !== undefined),
       ),
-      resolveDrvPath: () => Promise.resolve(agentDrv), // deferred per dial
+      resolveDrvPath: () =>
+        Promise.resolve({ kind: "drv-path", drvPath: agentDrv }), // deferred per dial
     }),
   });
 

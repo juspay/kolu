@@ -85,7 +85,8 @@ async function main(): Promise<void> {
       // probe), so the resolver is a constant. Consumers that pick the .drv
       // per host's nix-system pass an async probe here instead — see
       // `resolveSystem` in @kolu/surface-remote.
-      resolveDrvPath: () => Promise.resolve(DRV_PATH),
+      resolveDrvPath: () =>
+        Promise.resolve({ kind: "drv-path", drvPath: DRV_PATH }),
     }),
     label: `host:${HOST}`,
   });

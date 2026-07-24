@@ -65,7 +65,8 @@ const built = makeSession({
     host: "h",
     binary: "b",
     localEnv: {},
-    resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+    resolveDrvPath: () =>
+      Promise.resolve({ kind: "drv-path", drvPath: "/nix/store/x-agent.drv" }),
   }),
 });
 const looseBuilt: Session<SurfaceClientLike, string> = built;

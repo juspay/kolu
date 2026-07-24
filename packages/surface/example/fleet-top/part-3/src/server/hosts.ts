@@ -104,7 +104,8 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
       // Constant resolver — this demo takes the agent .drv from the environment.
       // A consumer that picks the .drv per host's nix-system passes an async
       // `resolveSystem(host)` probe here instead.
-      resolveDrvPath: () => Promise.resolve(agentDrv),
+      resolveDrvPath: () =>
+        Promise.resolve({ kind: "drv-path", drvPath: agentDrv }),
     }),
     label: `host:${host}`,
   });

@@ -79,7 +79,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -104,7 +104,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -115,7 +115,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });
@@ -129,7 +129,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit(`${STORE}\n${STORE2}\n`);
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: { kind: "drv-path", drvPath: DRV },
       onProgress: () => {},
       ...provArgs(),
     });

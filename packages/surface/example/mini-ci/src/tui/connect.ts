@@ -71,7 +71,7 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
       ),
       // Constant resolver: the justfile already picked the host-arch drv. A
       // consumer that defers the probe would call `resolveSystem(host)` here.
-      resolveDrvPath: () => Promise.resolve(drv),
+      resolveDrvPath: () => Promise.resolve({ kind: "drv-path", drvPath: drv }),
     }),
     label: `host:${opts.host}`,
   });

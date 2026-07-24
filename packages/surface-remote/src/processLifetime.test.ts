@@ -81,6 +81,17 @@ describe("D1b — progress-liveness policy (#1908)", () => {
     expect(lines).toEqual(["Could not resolve host"]);
   });
 
+  it("fails loudly instead of buffering an unbounded stderr line", async () => {
+    const res = await runCapture(
+      process.execPath,
+      ["-e", 'process.stderr.write("x".repeat(1024 * 1024))'],
+      { policy: { kind: "deadline", ms: 5000 } },
+    );
+
+    expect(res.kind).toBe("output-error");
+    expect(res.ok).toBe(false);
+  });
+
   it("kills a SILENT child once the silence bound passes", {
     timeout: 10_000,
   }, async () => {

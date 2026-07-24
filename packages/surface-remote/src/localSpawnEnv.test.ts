@@ -75,7 +75,11 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
     const connector = sshConnector({
       host: "localhost",
       binary: "agent",
-      resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+      resolveDrvPath: () =>
+        Promise.resolve({
+          kind: "drv-path",
+          drvPath: "/nix/store/x-agent.drv",
+        }),
       localEnv,
     });
     await connector(noopCtx);
@@ -89,7 +93,11 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
     const connector = sshConnector({
       host: "bob.example",
       binary: "agent",
-      resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+      resolveDrvPath: () =>
+        Promise.resolve({
+          kind: "drv-path",
+          drvPath: "/nix/store/x-agent.drv",
+        }),
       localEnv: { HOME: "/home/x", PATH: "/usr/bin" },
     });
     await connector(noopCtx);

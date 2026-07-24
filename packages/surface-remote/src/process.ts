@@ -36,7 +36,7 @@
  *  rather than open-coding a fresh `spawn` dance. */
 
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
+import split from "split2";
 
 /** The lifetime policy every fire-and-collect spawn MUST carry (#1908 D1b) — a
  *  CLOSED union that carves a real joint (the gate PROVED it; do not collapse it):
@@ -65,6 +65,9 @@ export type LifetimePolicy =
  *                           `signal`), NOT by us: an external kill / OOM `SIGKILL`.
  *                           Stays terminal-classified — its meaning is unchanged.
  *   - `spawn-error`      — the child never started (`error` event: bad exe, EACCES).
+ *   - `output-error`     — a diagnostic line exceeded the stderr stream's own
+ *                           buffer bound. The child is killed rather than silently
+ *                           dropping text or retaining an unbounded partial line.
  *   - `lifetime-expired` — OUR {@link LifetimePolicy} killed it (deadline hit, or
  *                           progress-silence past the bound). Its OWN arm — never
  *                           `signal` — so `nixCopy`'s `causeFor` can classify it
@@ -81,6 +84,7 @@ export type ExitResult =
   | { ok: boolean; kind: "exit"; code: number }
   | { ok: false; kind: "signal"; signal: NodeJS.Signals }
   | { ok: false; kind: "spawn-error"; message: string }
+  | { ok: false; kind: "output-error"; message: string }
   | {
       ok: false;
       kind: "lifetime-expired";
@@ -124,6 +128,8 @@ export function describeExit(res: ExitResult): string {
       return `killed by signal ${res.signal}`;
     case "spawn-error":
       return `failed to spawn: ${res.message}`;
+    case "output-error":
+      return `invalid process output: ${res.message}`;
     case "lifetime-expired":
       return res.policy.kind === "deadline"
         ? `lifetime deadline (${res.policy.ms}ms) expired — killed by ${res.signal}`
@@ -290,13 +296,19 @@ function runWithLifetime(
     });
     proc.stderr?.setEncoding("utf-8");
     if (proc.stderr !== null) {
-      // Child streams split at arbitrary byte boundaries. readline owns the
-      // trailing partial line so diagnostics and their classification never
-      // depend on how libuv happened to chunk a phrase.
-      createInterface({
-        input: proc.stderr,
-        crlfDelay: Number.POSITIVE_INFINITY,
-      }).on("line", o.onProgress);
+      // Child streams split at arbitrary byte boundaries. `split2` owns the
+      // trailing partial line so classification never depends on libuv chunks,
+      // while its bound prevents a newline-free child from retaining an
+      // ever-growing fragment. Use the stream's own buffering contract as the
+      // bound instead of inventing a second magic size.
+      const lines = proc.stderr.pipe(
+        split({ maxLength: proc.stderr.readableHighWaterMark }),
+      );
+      lines.on("data", (line: string) => o.onProgress(line));
+      lines.on("error", (err: Error) => {
+        killGroup();
+        settle({ ok: false, kind: "output-error", message: err.message });
+      });
       proc.stderr.on("data", bumpLiveness);
     }
 

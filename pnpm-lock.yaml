@@ -1594,6 +1594,9 @@ importers:
       quick-lru:
         specifier: ^7.3.0
         version: 7.3.0
+      split2:
+        specifier: ^4.2.0
+        version: 4.2.0
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -1610,6 +1613,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      '@types/split2':
+        specifier: ^4.2.3
+        version: 4.2.3
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
@@ -3372,6 +3378,9 @@ packages:
 
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
+
+  '@types/split2@4.2.3':
+    resolution: {integrity: sha512-59OXIlfUsi2k++H6CHgUQKEb2HKRokUA39HY1i1dS8/AIcqVjtAAFdf8u+HxTWK/4FUHMJQlKSZ4I6irCBJ1Zw==}
 
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
@@ -6434,6 +6443,10 @@ snapshots:
       undici-types: 6.21.0
 
   '@types/normalize-package-data@2.4.4': {}
+
+  '@types/split2@4.2.3':
+    dependencies:
+      '@types/node': 22.19.15
 
   '@types/trusted-types@2.0.7':
     optional: true

@@ -81,7 +81,11 @@ describe("makeSession identity republish (F1)", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/x-agent.drv",
+          }),
       }),
       reconnectDelayMs: 50,
       liveness: false,

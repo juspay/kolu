@@ -80,7 +80,11 @@ describe("session diagnostics land in a receiver-sensitive structured logger", (
         host: "strictlog",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve({
+            kind: "drv-path",
+            drvPath: "/nix/store/deadbeef-agent.drv",
+          }),
       }),
       reconnectDelayMs: 1000,
       // The logger is handed over WHOLE — the session dispatches severity
