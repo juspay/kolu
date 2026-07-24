@@ -138,7 +138,7 @@ describe("HostSession child-exit classification", () => {
     });
     session.pin().catch(() => {});
 
-    // 5 attempts of copying→connecting→exit 127→backoff (10/20/40/80ms).
+    // 5 attempts of probing→provisioning→connecting→exit 127→backoff (10/20/40/80ms).
     await vi.advanceTimersByTimeAsync(3000);
     expect(session.currentState().phase).toBe("failed");
     expect(down(session.currentState()).cause).toBe("remote");

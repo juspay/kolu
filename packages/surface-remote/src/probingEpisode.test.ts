@@ -5,7 +5,8 @@
  *    ask-only warm check, where nothing is being shipped) and advances through the
  *    connector's OWN vocabulary — `probing → provisioning → connecting →
  *    connected` — each step driven by the connector at a real command boundary
- *    (`ctx.provisioning`). A WARM host short-circuits from `probing` (calm path).
+ *    (`ctx.provisioning`). A WARM host skips evaluation and build, but still crosses
+ *    `provisioning` for its mandatory root refresh (normally too briefly to paint).
  *
  *  - THE EPISODE CLOCK (#1908 D3/R7, REWRITTEN): `sinceMs` (the published episode
  *    duration) and the `log` tail are stamped/reset at CAMPAIGN BIRTH (`startEpisode`),
