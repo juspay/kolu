@@ -333,46 +333,60 @@ describe("a report arriving mid-teardown", () => {
     { label: "close refuses", fail: true },
   ] as const;
   const VIA = ["cancel", "dispose"] as const;
+  /** One caller, or TWO of the same kind at once — two cancels racing each
+   *  other, two disposals racing each other. They are supposed to JOIN the one
+   *  teardown through `closeSlot`; that was verified by inspection, which is
+   *  not the same as pinned, so it is generated here. */
+  const CALLERS = [1, 2] as const;
 
   for (const via of VIA) {
-    for (const report of REPORTS) {
-      for (const close of CLOSES) {
-        it(`${via} · ${report} arrives while closing · ${close.label}`, async () => {
-          let channel: ForwardReport | undefined;
-          const rig = mapOf({
-            onOpen: (r) => (channel = r),
-            deferClose: true,
+    for (const callers of CALLERS) {
+      for (const report of REPORTS) {
+        for (const close of CLOSES) {
+          it(`${callers === 1 ? via : `${via} × 2 at once`} · ${report} arrives while closing · ${close.label}`, async () => {
+            let channel: ForwardReport | undefined;
+            const rig = mapOf({
+              onOpen: (r) => (channel = r),
+              deferClose: true,
+            });
+            const { forwards } = rig;
+            const forward = await forwards.create(PU);
+
+            const fire = () =>
+              (via === "cancel"
+                ? forwards.cancel(forward.key)
+                : forwards.dispose()
+              ).then(
+                () => ({ failed: false }),
+                () => ({ failed: true }),
+              );
+            const teardowns = Array.from({ length: callers }, fire);
+            await Promise.resolve();
+            if (report === "lost") channel?.lost("gone mid-teardown");
+            if (report === "fault") channel?.fault("broke mid-teardown");
+            rig.closeSettles(
+              close.fail ? new Error("close refused") : undefined,
+            );
+
+            const outcomes = await Promise.all(teardowns);
+            const listed = forwards.list();
+
+            // THE RULE: the reported outcome and the map agree, always.
+            for (const outcome of outcomes) {
+              expect(outcome.failed).toBe(listed.length > 0);
+            }
+            // Same-kind callers JOIN one teardown rather than each running their
+            // own, so they cannot disagree and the mechanism is asked once.
+            expect(new Set(outcomes.map((o) => o.failed)).size).toBe(1);
+            expect(rig.closeCount()).toBe(1);
+
+            // A definitive loss is the stronger fact: it is gone even if the
+            // close then failed.
+            if (report === "lost") expect(listed).toEqual([]);
+            // Otherwise a refused close leaves it listed and retryable.
+            if (report !== "lost" && close.fail) expect(listed).toHaveLength(1);
           });
-          const { forwards } = rig;
-          const forward = await forwards.create(PU);
-
-          const teardown =
-            via === "cancel"
-              ? forwards.cancel(forward.key).then(
-                  () => ({ failed: false }),
-                  () => ({ failed: true }),
-                )
-              : forwards.dispose().then(
-                  () => ({ failed: false }),
-                  () => ({ failed: true }),
-                );
-          await Promise.resolve();
-          if (report === "lost") channel?.lost("gone mid-teardown");
-          if (report === "fault") channel?.fault("broke mid-teardown");
-          rig.closeSettles(close.fail ? new Error("close refused") : undefined);
-
-          const outcome = await teardown;
-          const listed = forwards.list();
-
-          // THE RULE: the reported outcome and the map agree, always.
-          expect(outcome.failed).toBe(listed.length > 0);
-
-          // A definitive loss is the stronger fact: it is gone even if the
-          // close then failed.
-          if (report === "lost") expect(listed).toEqual([]);
-          // Otherwise a refused close leaves it listed and retryable.
-          if (report !== "lost" && close.fail) expect(listed).toHaveLength(1);
-        });
+        }
       }
     }
   }
