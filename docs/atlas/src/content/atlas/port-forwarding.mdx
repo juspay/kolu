@@ -195,6 +195,31 @@ listening TCP sockets against each subtree:
 - **linux** — pid table from `/proc/*/stat`; LISTEN rows (with their **bind address**) from `/proc/net/tcp` + `tcp6`, joined to pids via `/proc/<pid>/fd` socket-inode readlinks (the `socketHolder.ts:100` technique), walking **only the union of terminal subtrees**. Expect and tolerate per-pid `EACCES`/`ENOENT` outside the subtrees — but `EACCES` on a *requested* subtree surfaces as a scan error, never an empty port list. Do not spawn `ss` (measured ~7× slower, and it hides other-users' pid attribution anyway).
 - **darwin** — `ps -axo pid,ppid,comm` for the table; **`netstat -anv -p tcp`** for ports — *not* `lsof`, and not as a fallback either: measured on real hardware, netstat is ~11× faster (1.4 ms vs 15.6 ms median) *and* more complete (it reports pid+comm for other users' listeners where non-root lsof shows only your own). Filter to `LISTEN`, accept `tcp4|tcp6|tcp46` (dual-stack), parse the port from the final dot of the address column, and run it under a **Node-side kill timer** — macOS ships no GNU `timeout`. Both platforms gate CI; the darwin path is day-one work.
 
+**Attribution is the live ppid subtree — and nothing more.** Backgrounded
+(`&`) processes, pipelines, and grandchildren all keep the shell as an
+ancestor, so the walk sees them; a *true* daemon (setsid/double-fork,
+reparented to init) leaves the subtree and is deliberately out of scope — no
+session-id heuristics, no host-wide orphan matching. If you daemonized it, it
+is no longer "this terminal's server".
+
+**Cadence: a 5-second baseline, nudged by output.** The tick alone means up
+to ~5 s between a dev server's "ready" banner and its chip — the one UX cost
+the spike numbers don't excuse. So terminal-output bursts and OSC 633
+command marks (the same signals the foreground sampler keys on) trigger an
+immediate off-schedule scan — single-flight, ≥1 s floor between passes —
+while the tick remains the baseline that catches quiet binds and port
+*death* (which auto-cancel in PRT2 rides on). Output is only ever a hint
+about **when to look**; the socket table stays the sole source of facts — a
+printed URL never creates a chip.<Footnote>VS Code's output mode is the
+cautionary tale for crossing that line: its terminal-URL regex *creates
+forwards* with no liveness check, and its own settings text documents the
+consequence — bogus URLs yield stale forwards that survive until reload, and
+its process scanner exists only on Linux remotes (macOS/Windows get the
+regex, full stop). Most of its knob matrix — autoForwardPortsSource, the
+20-forward hybrid fallback, per-port action overrides, focus-gated toasts —
+compensates for eager forwarding on uncertain evidence. Kolu's lazy,
+scanner-derived design needs none of it.</Footnote>
+
 Spike-measured on real hosts (2026-07-24, 10 runs each, non-root): a complete
 linux scan is **3.0 ms** wall (~0.06% of a core at the 5 s cadence, 30-process
 box); the macOS pair is **~17 ms** (420-process box). The 5-second cadence has
