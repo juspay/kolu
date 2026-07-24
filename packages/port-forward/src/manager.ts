@@ -13,7 +13,8 @@
  *    click-a-port flow safe to click twice.
  *  - `cancel` on an unknown key **throws**. Nothing is "already fine" about
  *    cancelling a forward that was never there; it means the caller's view of
- *    the map disagrees with the map.
+ *    the map disagrees with the map. A key that is still OPENING is not
+ *    unknown, though — cancel waits for it to arrive and then takes it down.
  *  - a forward that dies on its own (its ssh master went away, its listener
  *    failed) leaves the map and is reported via `onLost` — a dead forward must
  *    never keep rendering as live.
@@ -53,10 +54,17 @@ export interface ForwardManager {
   dispose(): Promise<void>;
 }
 
-interface Entry {
-  readonly forward: Forward;
-  readonly opened: OpenedForward;
-}
+/** One key's place in the map, in whichever of its two states it is in. ONE
+ *  container, not an open map beside an opening map: "is this key in the map?"
+ *  must have a single answer, or every method has to remember to ask twice and
+ *  a key can be legitimately in both. */
+type Slot =
+  | { readonly state: "opening"; readonly flight: Promise<Forward> }
+  | {
+      readonly state: "open";
+      readonly forward: Forward;
+      readonly opened: OpenedForward;
+    };
 
 /** Build a forward map over the given mechanisms. Production callers want
  *  `createForwardManager` from the package index, which supplies the real ones;
@@ -65,18 +73,17 @@ export function makeForwardManager(opts: {
   mechanisms: ForwardMechanisms;
   onLost: (loss: ForwardLoss) => void;
 }): ForwardManager {
-  const entries = new Map<string, Entry>();
-  const pending = new Map<string, Promise<Forward>>();
+  const slots = new Map<string, Slot>();
   /** Set by `dispose`. A forward that was still opening when the map was
    *  disposed must not quietly become a live listener nobody is tracking —
    *  the whole point of dispose is that nothing survives it. */
   let disposed = false;
 
   function lose(key: string, reason: string): void {
-    const entry = entries.get(key);
-    if (entry === undefined) return;
-    entries.delete(key);
-    opts.onLost({ forward: entry.forward, reason });
+    const slot = slots.get(key);
+    if (slot?.state !== "open") return;
+    slots.delete(key);
+    opts.onLost({ forward: slot.forward, reason });
   }
 
   return {
@@ -88,13 +95,12 @@ export function makeForwardManager(opts: {
       }
       assertTarget(target);
       const key = targetKey(target);
-      const live = entries.get(key);
-      if (live !== undefined) return live.forward;
+      const slot = slots.get(key);
       // Two creates for the same target that overlap in time must produce ONE
       // listener, so the second joins the first's flight rather than opening
       // its own.
-      const inflight = pending.get(key);
-      if (inflight !== undefined) return await inflight;
+      if (slot?.state === "open") return slot.forward;
+      if (slot?.state === "opening") return await slot.flight;
 
       const flight = (async () => {
         const opened = await opts.mechanisms.open(target, (reason) =>
@@ -115,20 +121,38 @@ export function makeForwardManager(opts: {
           localPort: opened.localPort,
           createdAt: Date.now(),
         };
-        entries.set(key, { forward, opened });
+        slots.set(key, { state: "open", forward, opened });
         return forward;
       })();
-      pending.set(key, flight);
+      slots.set(key, { state: "opening", flight });
       try {
         return await flight;
-      } finally {
-        pending.delete(key);
+      } catch (err) {
+        // A flight that failed leaves nothing behind: the slot is still the
+        // one this call put there (a success would have replaced it), so drop
+        // it and let the next create try again.
+        const current = slots.get(key);
+        if (current?.state === "opening" && current.flight === flight) {
+          slots.delete(key);
+        }
+        throw err;
       }
     },
 
     async cancel(key) {
-      const entry = entries.get(key);
-      if (entry === undefined) {
+      const slot = slots.get(key);
+      if (slot === undefined) {
+        throw new Error(
+          `port-forward: there is no forward named "${key}" to cancel.`,
+        );
+      }
+      // Still opening is NOT "not there": the caller asked for a key the map
+      // is demonstrably creating, so wait for it to arrive and then take it
+      // down. A flight that fails on its own rejects here too — there is then
+      // nothing left to close.
+      if (slot.state === "opening") await slot.flight;
+      const open = slots.get(key);
+      if (open?.state !== "open") {
         throw new Error(
           `port-forward: there is no forward named "${key}" to cancel.`,
         );
@@ -136,14 +160,16 @@ export function makeForwardManager(opts: {
       // Drop it from the map first: the caller asked for it to be gone, so it
       // must not linger in the list if the teardown itself reports trouble —
       // that trouble surfaces as this rejection instead.
-      entries.delete(key);
-      await entry.opened.close();
+      slots.delete(key);
+      await open.opened.close();
     },
 
     list() {
-      return [...entries.values()]
-        .map((entry) => entry.forward)
-        .sort((a, b) => a.createdAt - b.createdAt);
+      const live: Forward[] = [];
+      for (const slot of slots.values()) {
+        if (slot.state === "open") live.push(slot.forward);
+      }
+      return live.sort((a, b) => a.createdAt - b.createdAt);
     },
 
     async dispose() {
@@ -151,15 +177,22 @@ export function makeForwardManager(opts: {
       // Wait for anything still opening to settle first: those flights close
       // themselves once they see `disposed`, and until they have, "every
       // forward is down" is not yet true.
-      await Promise.allSettled([...pending.values()]);
-      const open = [...entries.values()];
-      entries.clear();
+      const flights: Promise<Forward>[] = [];
+      for (const slot of slots.values()) {
+        if (slot.state === "opening") flights.push(slot.flight);
+      }
+      await Promise.allSettled(flights);
+      const open: OpenedForward[] = [];
+      for (const slot of slots.values()) {
+        if (slot.state === "open") open.push(slot.opened);
+      }
+      slots.clear();
       const failures: unknown[] = [];
       // Every forward gets its teardown attempted even if an earlier one
       // failed — a half-torn-down map is the one outcome worth avoiding.
-      for (const entry of open) {
+      for (const opened of open) {
         try {
-          await entry.opened.close();
+          await opened.close();
         } catch (err) {
           failures.push(err);
         }

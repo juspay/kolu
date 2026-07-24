@@ -131,6 +131,39 @@ describe("the forward map", () => {
     expect(forwards.list()).toEqual([]);
   });
 
+  it("cancels a forward that is still opening", async () => {
+    // A key the map is demonstrably creating right now is not an unknown key.
+    // The listener comes up after the cancel is issued, and must still go down.
+    let arrive: (() => void) | undefined;
+    const closed: number[] = [];
+    const slow: ForwardMechanisms = {
+      open: async () => {
+        await new Promise<void>((resolve) => {
+          arrive = resolve;
+        });
+        return {
+          localPort: 4123,
+          close: async () => {
+            closed.push(4123);
+          },
+        };
+      },
+    };
+    const forwards = makeForwardManager({
+      mechanisms: slow,
+      onLost: () => {},
+    });
+
+    const creating = forwards.create(PU);
+    const cancelling = forwards.cancel(targetKey(PU));
+    arrive?.();
+
+    await creating;
+    await cancelling;
+    expect(closed).toEqual([4123]);
+    expect(forwards.list()).toEqual([]);
+  });
+
   it("lets a create be retried after a failure, leaving nothing behind", async () => {
     const failing: ForwardMechanisms = {
       open: async () => {
