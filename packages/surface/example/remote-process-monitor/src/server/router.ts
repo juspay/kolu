@@ -196,7 +196,7 @@ async function bridgeAgentToParent(
   fragment: FragmentCtx,
   browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {
-  log("pinning HostSession (parent-lifetime ref)…");
+  log("pinning remote session for the parent lifetime…");
   // Pin once. Swallow the initial promise — we'll fetch a fresh client
   // (possibly a re-spawned one) in the loop below regardless of whether
   // this first spawn succeeded.

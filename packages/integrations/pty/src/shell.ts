@@ -176,7 +176,7 @@ let envWhitelist: Set<string> | undefined;
  *     the same wrapper-baked-env leak as `KOLU_*`, one prefix over.
  *
  * Note this is NOT the `KAVAL_*` namespace wholesale: a user could legitimately
- * have their own `KAVAL_*` env, and `KAVAL_AGENT_DRVS_JSON` (kaval-tui) is a
+ * have their own `KAVAL_*` env, and `SURFACE_AGENT_FLAKE_REF` (kaval-tui) is a
  * different concern. Only the two identity vars the kolu wrapper bakes are
  * internal, so they're listed explicitly rather than matched by prefix.
  */

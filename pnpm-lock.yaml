@@ -834,6 +834,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
+      '@kolu/surface-remote':
+        specifier: workspace:*
+        version: link:../surface-remote
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
@@ -1600,6 +1603,18 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
+      quick-lru:
+        specifier: ^7.3.0
+        version: 7.3.0
+      split2:
+        specifier: ^4.2.0
+        version: 4.2.0
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1613,6 +1628,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      '@types/split2':
+        specifier: ^4.2.3
+        version: 4.2.3
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
@@ -1811,6 +1829,9 @@ importers:
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       ws:
         specifier: ^8.21.0
         version: 8.21.0
@@ -1970,6 +1991,9 @@ importers:
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -3401,6 +3425,9 @@ packages:
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
 
+  '@types/split2@4.2.3':
+    resolution: {integrity: sha512-59OXIlfUsi2k++H6CHgUQKEb2HKRokUA39HY1i1dS8/AIcqVjtAAFdf8u+HxTWK/4FUHMJQlKSZ4I6irCBJ1Zw==}
+
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
 
@@ -4628,6 +4655,10 @@ packages:
 
   quick-format-unescaped@4.0.4:
     resolution: {integrity: sha512-tYC1Q1hgyRuHgloV/YXs2w15unPVh8qfu/qCTfhTYamaw7fyhumKa2yGpdSo87vY32rIclj+4fWYQXUMs9EHvg==}
+
+  quick-lru@7.3.0:
+    resolution: {integrity: sha512-k9lSsjl36EJdK7I06v7APZCbyGT2vMTsYSRX1Q2nbYmnkBqgUhRkAuzH08Ciotteu/PLJmIF2+tti7o3C/ts2g==}
+    engines: {node: '>=18'}
 
   radash@12.1.1:
     resolution: {integrity: sha512-h36JMxKRqrAxVD8201FrCpyeNuUY9Y5zZwujr20fFO77tpUtGa6EZzfKw/3WaiBX95fq7+MpsuMLNdSnORAwSA==}
@@ -6459,6 +6490,10 @@ snapshots:
 
   '@types/normalize-package-data@2.4.4': {}
 
+  '@types/split2@4.2.3':
+    dependencies:
+      '@types/node': 22.19.15
+
   '@types/trusted-types@2.0.7':
     optional: true
 
@@ -7570,6 +7605,8 @@ snapshots:
       side-channel: 1.1.0
 
   quick-format-unescaped@4.0.4: {}
+
+  quick-lru@7.3.0: {}
 
   radash@12.1.1: {}
 

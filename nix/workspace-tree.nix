@@ -6,7 +6,9 @@
 # vazhi TUI — wants only this: install, copy, done. Skipping the bundle and the
 # native rebuild is the difference between a minute and several.
 #
-# Inputs come from the root composer (`default.nix`):
+# Inputs come from whichever composer is building — the independent
+# Surface-example flake, or Kolu's own default.nix for vazhi — and are the
+# canonical ones from nix/workspace.nix either way:
 #   pkgs     — the per-system nixpkgs.
 #   src      — the workspace source fileset.
 #   pnpmDeps — the workspace pnpm fetch (~395 MB; one source of truth).

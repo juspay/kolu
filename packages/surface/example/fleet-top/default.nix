@@ -3,13 +3,13 @@
 # The multi-host tutorials (Across the hosts / A fleet of surfaces) mirror a
 # `top` surface from another box: `@kolu/surface-remote`'s `sshConnector` ships
 # this agent's `.drv` to each host, realises it, and runs
-# `<out>/bin/fleet-top-agent --stdio`. The tutorials read its drvPath with
-# `nix eval --raw .#fleet-top-agent.drvPath` and pass it as FLEET_TOP_AGENT_DRV.
+# `<out>/bin/fleet-top-agent --stdio`. The tutorials read its drvPath from the
+# Surface example flake and pass it as FLEET_TOP_AGENT_DRV.
 #
 # Same makeWrapper-over-tsx shape as the remote-process-monitor example agent;
-# reuses the workspace-wide `src` + `pnpmDeps` (passed through from the root
-# composer) so the pnpm fetch is cached once. Agent-only — the tutorials run the
-# parent server + Vite client from source via `pnpm run dev`.
+# reuses the canonical workspace-wide `src` + `pnpmDeps` passed by the
+# independent Surface-example flake. Agent-only — the tutorials run the parent
+# server + Vite client from source via `pnpm run dev`.
 { pkgs, src, pnpmDeps }:
 let
   # Shared "workspace tree + pnpm install, tsx-runnable" base

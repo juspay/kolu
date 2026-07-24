@@ -171,7 +171,7 @@ export function projectState<Prov extends string>(
     return { kind: "connected", clockOffset };
   }
   if (s.phase === "connecting") return { kind: "connecting" };
-  // A connector-declared provisioning phase (ssh's `probing`/`copying`/`building`) —
+  // A connector-declared provisioning phase (ssh's `probing`/`provisioning`) —
   // the map's coarse "warming" bucket (its `EntryStatus` collapses them all to
   // `warming`; the fine phase rides the entry's own `SessionState`, which the browser
   // now reads off the entry directly — no separate `connection` cell).
@@ -210,7 +210,7 @@ export interface ServeHostMapOptions<K, S, Failure = unknown, Conn = unknown> {
   /** Classify a DOWN session into the map's schema-valid domain `failure` — this
    *  adapter is transport-only (it projects a bare {@link DownSessionState}, which
    *  carries only the transport-axis `cause`, "network" vs "remote"); a domain
-   *  classification (padi's contract-skew-refused / unconverged / drv-unbaked /
+   *  classification (padi's contract-skew-refused / unconverged / agent-source-unbaked /
    *  link-failed / … — a DIFFERENT axis, one layer up) is the app's own knowledge,
    *  so it is injected here rather than guessed. REQUIRED and TOTAL (PR4): a map
    *  member cannot enter the `failed` state without a schema-valid domain failure,

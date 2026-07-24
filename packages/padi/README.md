@@ -81,25 +81,28 @@ remote host — reusing the local arm's seam, not a parallel one:
   the byte relay, minus ssh.
 - **The binding** (`packages/server/src/padi/remotePadiBinding.ts`). The knob
   **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
-  branches kolu-server onto `getHostSession({ binary: "padi", extraArgs:
-  ["--stdio"] })` (`@kolu/surface-remote`, the exact stack `kaval-tui --host`
-  rides). It re-runs `@kolu/padi/dial`'s control-core `hello` + skew refusal over
-  the ssh-bridged link, scopes to `.surface.padi`, and re-serves through the SAME
-  `RemoteMirrorSession` seam the local `PadiBindingSession` plugs into. Unset →
-  today's local binding, byte-identical.
-- **One drv provisions both daemons.** kolu-server's Nix wrapper bakes
-  **`PADI_AGENT_DRVS_JSON`**, an arch-keyed `{ system → padi .drv }` map (built in
-  `flake.nix`, the retired `pulamAgentDrvsJson` pattern). Because padi's wrapper
-  bakes `KOLU_KAVAL_BIN` (kaval rides INSIDE padi's closure), provisioning that ONE
-  drv ships both — `resolveSystem` probes the remote arch, `provisionAgent`
-  `nix copy`s + realises it, and `ssh <host> padi --stdio` runs it.
-- **Convergence needs nothing new.** adopt-or-spawn + re-adopt fall out of
-  `getHostSession` + `frontDaemonOverStdio` (kill the remote padi → the reconnect
-  respawns it; restart kolu-server → it re-adopts the still-running daemon, PTYs
-  intact). The remote **nix-built padi wrapper** supplies `KOLU_PADI_STATE_DIR` on
-  the host (no silent code default — #1334); the binder passes nothing unless it
-  isolates via `KOLU_REMOTE_PADI_STATE_DIR` / `--state-root`. A fresh host's
-  legacy import correctly no-ops.
+  branches kolu-server onto a Surface Remote `makeSession` +
+  `sshConnector({ binary: "padi", extraArgs: ["--stdio"] })` composition (the
+  exact stack `kaval-tui --host` rides). It re-runs `@kolu/padi/dial`'s
+  control-core `hello` + skew refusal over the ssh-bridged link, scopes to
+  `.surface.padi`, and re-serves through the SAME `RemoteMirrorSession` seam the
+  local `PadiBindingSession` plugs into. Unset → today's local binding,
+  byte-identical.
+- **One drv provisions both daemons.** kolu-server's Nix wrapper bakes the
+  exact source flake as **`SURFACE_AGENT_FLAKE_REF`**. On the first remote dial,
+  `@kolu/surface-remote` probes the host's Nix system and evaluates only that
+  source's matching padi `.drv`. Because padi's wrapper bakes `KOLU_KAVAL_BIN`
+  (kaval rides INSIDE padi's closure), provisioning that ONE drv ships both —
+  `provisionAgent` evaluates, transfers, realises, and roots it through Nix, and
+  `ssh <host> padi --stdio` runs it.
+- **Convergence needs nothing new.** adopt-or-spawn + re-adopt fall out of the
+  reconnecting Surface Remote session + `frontDaemonOverStdio` (kill the remote
+  padi → the reconnect respawns it; restart kolu-server → it re-adopts the
+  still-running daemon, PTYs intact). The remote **nix-built padi wrapper**
+  supplies `KOLU_PADI_STATE_DIR` on the host (no silent code default — #1334);
+  the binder passes nothing unless it isolates via
+  `KOLU_REMOTE_PADI_STATE_DIR` / `--state-root`. A fresh host's legacy import
+  correctly no-ops.
 - **The ssh-user 0700 caveat.** The remote padi runs AS THE SSH USER, and (like
   kaval) serves its socket in a `0700` owner-only runtime dir — so the SSH identity
   **is** the daemon owner. Two ssh users get two isolated padis by construction; a

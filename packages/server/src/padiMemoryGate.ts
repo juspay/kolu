@@ -12,7 +12,7 @@
  * `connecting` AND (because `scheduleReconnect` retains the rejected dial) through entire
  * reconnect backoff windows, so the retired gate republished the mirror's held stale reading
  * the whole time. Reading the phase folds every up-but-not-connected phase (`connecting`,
- * and a remote arm's `probing`/`copying`/`building`) and every down phase
+ * and a remote arm's `probing`/`provisioning`) and every down phase
  * (`disconnected`/`failed`) to the honest `absent` — the gate, not the held store, deciding
  * down-ness.
  *

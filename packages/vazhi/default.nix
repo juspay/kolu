@@ -4,8 +4,9 @@
 # because vazhi imports one dependency-free library and node builtins. It needs
 # openssh on PATH (that is the forward mechanism) and nodejs to run.
 #
-# Inputs come from the root composer (`default.nix`), so the pnpm fetch is
-# cached once across every consumer:
+# Inputs come from whichever composer is building — Kolu's root `default.nix`
+# or vazhi's own flake — and are the canonical ones from nix/workspace.nix
+# either way, so the pnpm fetch is cached once across every consumer:
 #   pkgs     — the per-system nixpkgs.
 #   src      — the workspace source fileset.
 #   pnpmDeps — the workspace pnpm fetch.

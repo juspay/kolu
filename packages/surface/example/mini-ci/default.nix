@@ -7,17 +7,22 @@
 #                     default pipeline's `pnpm --filter …` CI tasks for the
 #                     remote-process-monitor example run against it on whatever
 #                     host the closure lands on. Needs nodejs + pnpm.
-#   mini-ci         — `nix run .#mini-ci [host]`. The TUI. Drives the runner
-#                     the drishti way via @kolu/surface-remote's HostSession:
-#                     `nix copy` the mini-ci-runner closure to the host (skipped
-#                     for localhost), realise + run it over ssh. Needs nix +
-#                     openssh, and bakes the current system's runner `.drv` as
-#                     MINI_CI_RUNNER_DRV (the justfile overrides it per host via
-#                     an arch probe — like drishti's KOLU_AGENT_DRV).
+#   mini-ci         — `nix run ..#mini-ci [host]`. The TUI. Drives the runner
+#                     via @kolu/surface-remote: a remote-store Nix build owns
+#                     evaluation, transfer, and realisation, then the rooted
+#                     result runs over ssh. Needs nix + openssh. The wrapper
+#                     bakes the independent example flake as the exact source;
+#                     Surface Remote selects the target system's runner.
 #
-# Inputs come from the root composer (`default.nix`) — same `src` + `pnpmDeps`
-# the kolu build uses, so the pnpm fetch is cached once.
-{ pkgs, src, pnpmDeps }:
+# Inputs come from the independent Surface-example flake. It reuses the
+# canonical `src` + `pnpmDeps` from `nix/workspace.nix`.
+{
+  pkgs,
+  src,
+  pnpmDeps,
+  agentFlakeRef,
+  agentFlakeRefEnv,
+}:
 let
   base = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
   entry = "${base}/packages/surface/example/mini-ci/src";
@@ -39,9 +44,8 @@ let
         pkgs.coreutils
       ]}
   '';
-
-  # The TUI drives HostSession, which shells out to nix (copy / realise) and
-  # ssh; the baked drv lets `nix run .#mini-ci` work standalone on localhost.
+  # The TUI drives makeSession + sshConnector, which shell out to Nix and
+  # ssh; the baked source ref lets the example flake's `mini-ci` run standalone.
   mini-ci = pkgs.runCommand "mini-ci"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -50,7 +54,7 @@ let
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/mini-ci \
       --add-flags "${entry}/tui/main.ts" \
-      --set-default MINI_CI_RUNNER_DRV "${mini-ci-runner.drvPath}" \
+      --set ${agentFlakeRefEnv} "${agentFlakeRef}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [
         pkgs.nodejs
         pkgs.bash

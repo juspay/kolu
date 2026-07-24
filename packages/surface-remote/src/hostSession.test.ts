@@ -3,7 +3,7 @@
  * which short-circuit before any ssh child is created:
  *
  *   1. "Reconnect does nothing" — when the link gives up because
- *      `nix copy --derivation` provisioning failed, `spawn()` throws
+ *      target-store provisioning failed, `spawn()` throws
  *      before any child exists, so `handleChildDone` (the usual site that
  *      nulls `clientPromise`) never runs. If the terminal `failed`
  *      transition doesn't clear the slot itself, it keeps the last
@@ -20,12 +20,12 @@
  *      *never* give up, so a roaming laptop reconnects on its own once the
  *      host is reachable again, instead of stranding in terminal `failed`.
  *
- * Both keep off real ssh / `nix copy`: case 1 mocks `provisionAgent` to
+ * Both keep off real ssh / Nix provisioning: case 1 mocks `provisionAgent` to
  * fail; case 2's resolver rejects before `provisionAgent` is ever reached.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectLogger } from "./loggerStubs.testutil";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import {
   type DownSessionState,
   makeSession,
@@ -40,7 +40,7 @@ vi.mock("./nixCopy", async (importOriginal) => ({
 
 const PROVISION_FAILURE = {
   ok: false as const,
-  reason: "testhost: 'nix copy --derivation' exited with code 1",
+  reason: "testhost: 'nix build --store' exited with code 1",
   // Reached the host, it rejected the closure (trusted-users) — terminal.
   cause: "remote" as const,
 };
@@ -50,7 +50,7 @@ const PROVISION_FAILURE = {
 // keep retrying, not give up.
 const PROVISION_NETWORK_FAILURE = {
   ok: false as const,
-  reason: "testhost: 'nix copy --derivation' exited with code 1",
+  reason: "testhost: 'nix build --store' exited with code 1",
   cause: "network" as const,
 };
 
@@ -72,7 +72,8 @@ function failingSession() {
       host: "testhost",
       binary: "agent",
       localEnv: {},
-      resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+      resolveDrvPath: () =>
+        Promise.resolve(directAgentDerivation("/nix/store/deadbeef-agent.drv")),
     }),
     reconnectDelayMs: 1000,
     label: "testhost",
@@ -121,7 +122,10 @@ describe("HostSession log sink (alt-screen consumers divert all diagnostics)", (
         host: "altscreen",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 1000,
       log: collectLogger((l) => lines.push(l)),
@@ -157,7 +161,7 @@ describe("HostSession reconnect after give-up", () => {
     vi.clearAllMocks();
   });
 
-  it("re-arms a session that gave up on a nix-copy failure", async () => {
+  it("re-arms a session that gave up on a provisioning failure", async () => {
     const session = failingSession();
 
     // Pin spawns; provision fails every attempt. Drive the backoff
@@ -171,7 +175,7 @@ describe("HostSession reconnect after give-up", () => {
     // spawn promise because no child ever exited to clear it.
     expect(session.currentClient()).toBeNull();
 
-    // The button. `spawn()` sets "copying" synchronously before its first
+    // The button. `spawn()` sets "probing" synchronously before its first
     // await, so re-arming is observable immediately. Pre-fix, the guard
     // saw a non-null slot and returned without spawning — state stuck.
     session.reconnect();
@@ -199,7 +203,7 @@ describe("HostSession reconnect after give-up", () => {
 
   it("keeps retrying a network-class provision failure instead of giving up", async () => {
     // A provision failure isn't automatically terminal: if the host went
-    // unreachable mid-`nix copy` (after the arch probe succeeded),
+    // unreachable mid-provision (after the arch probe succeeded),
     // `provisionAgent` reports `cause: "network"`, and that must retry like
     // any transport fault rather than burn the give-up budget.
     vi.mocked(provisionAgent).mockResolvedValue(
@@ -237,7 +241,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // reconnect machinery rather than rejecting before any session is
     // created (which previously crashed the parent server at boot when one
     // initial host was unreachable). A rejecting resolver is a `"network"`
-    // fault — copying → disconnected → backoff → copying → …
+    // fault — probing → disconnected → backoff → probing → …
     session.pin().catch(() => {});
 
     await vi.advanceTimersByTimeAsync(5_000);
@@ -290,7 +294,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // `clientPromise` stays non-null during backoff (so `ensureSpawned` can't
     // race a second spawn), and `recheck()` takes its backoff branch: it
     // cancels the timer, drops the stale rejected handle, and respawns —
-    // `spawn()` sets "copying" before its first await, so the re-arm is
+    // `spawn()` sets "probing" before its first await, so the re-arm is
     // observable synchronously.
     session.recheck();
     expect(session.currentState().phase).toBe("probing");

@@ -38,19 +38,19 @@ export const HOST_DOWN_COPY = {
       "take it over. Point that other kolu at this host instead, or isolate this " +
       "one with its own KOLU_REMOTE_PADI_STATE_DIR so the two don't contend.",
   },
-  "drv-unbaked": {
-    title: "This host's padi wasn't built with Nix",
+  "agent-source-unbaked": {
+    title: "This kolu run is missing its agent source",
     body:
-      "The agent derivations aren't baked into this run (PADI_AGENT_DRVS_JSON is " +
-      "unset), so padi has nothing to deploy to the host. Launch kolu through its " +
-      "Nix wrapper, which bakes them in, then try again.",
+      "The agent source isn't baked into this run (SURFACE_AGENT_FLAKE_REF is " +
+      "unset), so padi cannot resolve the matching build for this host. Launch " +
+      "kolu through its Nix wrapper, which bakes the source in, then try again.",
   },
-  "drv-missing-for-system": {
-    title: "No build for this host's architecture",
+  "agent-drv-unavailable": {
+    title: "Kolu couldn't prepare padi for this host",
     body:
-      "The baked agent derivations don't include one for this host's system " +
-      "(its CPU/OS pair), so padi can't deploy to it. Rebuild kolu with that " +
-      "system included, or switch back to your local host.",
+      "The baked agent source could not resolve padi for this host. The detail " +
+      "below has the Nix error, including an unsupported CPU/OS pair when that " +
+      "is the cause. Fix that source error, or switch back to your local host.",
   },
   unconverged: {
     title: "This host's padi never settled",

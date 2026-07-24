@@ -1,10 +1,8 @@
 # @kolu/surface mini-ci — standalone example.
 #
-# `just run [host]` runs the TUI. It probes the host's nix-system, resolves the
-# matching `mini-ci-runner` .drv, then drives the runner the drishti way via
-# @kolu/surface-remote's HostSession: nix copy the closure to the host
-# (skipped for localhost), realise + run it over ssh stdio. The default
-# pipeline runs real CI for the remote-process-monitor example.
+# `just run [host]` runs the TUI with the independent example flake as its
+# exact agent source. @kolu/surface-remote probes the host and provisions the
+# matching runner through its connector-owned Nix lifetime.
 #
 #   just run                    local (host = localhost)
 #   just run user@host          remote (needs passwordless ssh + Nix on host)
@@ -21,17 +19,15 @@ default:
 install:
     cd {{ repo_root }} && {{ nix_shell }} pnpm install
 
-# Run the pipeline on `host` (default localhost). Probes arch, resolves the
-# mini-ci-runner .drv, and drives it via HostSession — like drishti's just dev.
+# Run the pipeline on `host` (default localhost).
 run host='localhost' *args: install
     #!/usr/bin/env bash
     set -euo pipefail
     cd {{ justfile_directory() }}
-    sys=$({{ nix_shell }} pnpm exec tsx src/probe-arch.ts {{ host }})
-    echo "» host: {{ host }} (system=$sys)" >&2
-    drv=$(nix eval --raw "{{ repo_root }}#packages.$sys.mini-ci-runner.drvPath")
-    echo "» runner drv: $drv" >&2
-    MINI_CI_RUNNER_DRV="$drv" {{ nix_shell }} pnpm start -- {{ host }} {{ args }}
+    agent_env=$({{ nix_shell }} node -p "require('{{ repo_root }}/packages/surface-remote/agent-env.json').flakeRef")
+    echo "» host: {{ host }}" >&2
+    env "$agent_env={{ repo_root }}/packages/surface/example" \
+      {{ nix_shell }} pnpm start -- {{ host }} {{ args }}
 
 # Typecheck this example only
 typecheck:

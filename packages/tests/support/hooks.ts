@@ -854,7 +854,7 @@ async function startServerChild(koluServer: string): Promise<void> {
           // byte-identical, and none of the per-worker padi-state isolation above
           // changes. Run single-worker over ssh: the remote padi uses ITS OWN default
           // state-root (the binder passes nothing), so parallel workers would collide
-          // on one remote daemon. The remote host needs the padi drv map baked
+          // on one remote daemon. The remote host needs the agent source baked
           // (a nix-built koluBin — `just test`, not `just test-quick`).
           ...(process.env.KOLU_E2E_PADI_HOST
             ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST }

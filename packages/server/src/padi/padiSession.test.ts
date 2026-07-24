@@ -37,7 +37,7 @@ const disconnected = (
   campaignEpoch: 0,
 });
 
-// `provisions`: false = the LOCAL endpoint arm (no nix-copy), true = a provisioning
+// `provisions`: false = the LOCAL endpoint arm (no agent provisioning), true = a provisioning
 // ssh arm. It's the runtime twin of the session's `Prov` and the discriminant
 // `padiFailureOf` uses to name a no-detail terminal give-up.
 const LOCAL = false;

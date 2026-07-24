@@ -1,6 +1,6 @@
 /**
- * Coverage for `provisionAgent`'s cold path: GC-root pinning (step 4), the
- * ControlMaster/keepalive env on the copy, cause classification, and the #1908
+ * Coverage for `provisionAgent`'s cold path: GC-root commit (step 3), the
+ * ControlMaster/keepalive env on provisioning, cause classification, and the #1908
  * lifetime-policy handling (a `lifetime-expired`/`aborted` step is retryable and
  * budget-aware). Keeps off real ssh / nix by mocking `./process`; the real `./host`
  * builds the argv so the assertions see exactly what would hit the wire. The
@@ -13,30 +13,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
 import {
   agentGcRootPath,
+  directAgentDerivation,
+  flakeAgentDerivation,
   makeProvisionBudgets,
   makeStepBudget,
   type ProvisionBudgets,
   provisionAgent,
 } from "./nixCopy";
-import {
-  type CaptureResult,
-  type ExitResult,
-  runCapture,
-  runProgress,
-} from "./process";
+import { type CaptureResult, runCapture } from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
   // subprocess-spawning entry points.
   ...(await importOriginal<typeof import("./process")>()),
   runCapture: vi.fn(),
-  runProgress: vi.fn(),
 }));
 
 const STORE = "/nix/store/x8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent";
 const DRV = "/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-agent.drv";
+const FLAKE_INSTALLABLE = "/nix/store/source#packages.x86_64-linux.agent";
 
-const okExit: ExitResult = { ok: true, kind: "exit", code: 0 };
 const okOut = (stdout: string): CaptureResult => ({
   ok: true,
   kind: "exit",
@@ -54,15 +50,12 @@ function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
 
 /** Route the mocked `runCapture` by the command it was handed (robust to call
  *  order): the sender-local `-q --outputs`, the ssh `--check-validity`, the
- *  `--realise … --add-root` pin, and the `nix build --print-out-paths` realise.
- *  `runProgress` is the single `nix copy`. Each arm defaults to the cold happy
- *  path; override any. */
+ *  `--realise … --add-root` pin, and the atomic `nix build` provision. */
 function mockNix(over?: {
   outputs?: CaptureResult;
   checkValidity?: CaptureResult;
   realise?: CaptureResult;
   pin?: CaptureResult;
-  copy?: ExitResult;
 }): void {
   vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
     if (args.includes("--outputs")) return over?.outputs ?? okOut(`${STORE}\n`);
@@ -78,7 +71,6 @@ function mockNix(over?: {
     if (args.includes("--realise")) return over?.realise ?? okOut(`${STORE}\n`);
     return failOut;
   });
-  vi.mocked(runProgress).mockImplementation(async () => over?.copy ?? okExit);
 }
 
 const tmpDirs: string[] = [];
@@ -97,11 +89,17 @@ afterEach(() => {
 });
 
 describe("provisionAgent GC-root pinning (cold path)", () => {
+  it("rejects a direct source that is not a derivation path", () => {
+    expect(() => directAgentDerivation("/nix/store/not-an-output")).toThrow(
+      /\.drv/,
+    );
+  });
+
   it("pins the realised output with an indirect per-agent root", async () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -121,16 +119,19 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(pinArgs).not.toContain(DRV);
   });
 
-  it("rides the P2.8 ControlMaster in nix copy's NIX_SSHOPTS env", async () => {
+  it("rides the P2.8 ControlMaster in the remote store's NIX_SSHOPTS env", async () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
-    expect(runProgress).toHaveBeenCalledTimes(1);
-    const opts = vi.mocked(runProgress).mock.calls[0]![2];
+    const provisionCall = vi
+      .mocked(runCapture)
+      .mock.calls.find((call) => call[1].includes("--print-out-paths"));
+    expect(provisionCall).toBeDefined();
+    const opts = provisionCall![2];
     const nixSshOpts = opts.env?.NIX_SSHOPTS ?? "";
     expect(nixSshOpts).toContain("-o ControlMaster=auto");
     expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C(\s|$)/);
@@ -138,19 +139,14 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(nixSshOpts).toContain("-o ServerAliveInterval=10");
   });
 
-  it("runs nix copy + nix build with plain -v and $drv^* realise (#1962)", async () => {
+  it("uses one remote-store Nix build for transfer and realisation", async () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
-    const copyArgs = vi.mocked(runProgress).mock.calls[0]![1];
-    expect(copyArgs).toContain("-v");
-    expect(copyArgs).not.toContain("--log-format");
-    expect(copyArgs).not.toContain("internal-json");
-    expect(copyArgs).toContain("copy");
     const buildArgs = vi
       .mocked(runCapture)
       .mock.calls.map((c) => c[1])
@@ -159,17 +155,40 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     expect(buildArgs).toContain("-v");
     expect(buildArgs).not.toContain("--log-format");
     expect(buildArgs).toContain("build");
+    expect(buildArgs).toEqual(
+      expect.arrayContaining([
+        "--eval-store",
+        "auto",
+        "--store",
+        "ssh-ng://testhost",
+      ]),
+    );
     expect(buildArgs).toContain("--no-link");
-    // Bare `$drv` would echo the .drv path (spawn ENOTDIR); `^*` realises outputs.
-    // Remote arm shell-quotes the installable so zsh/bash don't glob `*` (#1964).
-    expect(buildArgs).toContain(`'${DRV}^*'`);
+    expect(buildArgs).toContain(`${DRV}^*`);
+  });
+
+  it("builds a flake installable so Nix owns evaluation through realisation", async () => {
+    mockNix();
+    await provisionAgent({
+      host: "testhost",
+      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE),
+      onProgress: () => {},
+      ...provArgs(),
+    });
+
+    const buildArgs = vi
+      .mocked(runCapture)
+      .mock.calls.map((c) => c[1])
+      .find((args) => args.includes("--print-out-paths"));
+    expect(buildArgs).toContain(FLAKE_INSTALLABLE);
+    expect(buildArgs).not.toContain(`${DRV}^*`);
   });
 
   it("localhost realise keeps the installable unquoted (direct spawn, no shell)", async () => {
     mockNix();
     await provisionAgent({
       host: "localhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -178,42 +197,60 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       .mock.calls.map((c) => c[1])
       .find((args) => args.includes("--print-out-paths"));
     expect(buildArgs).toBeDefined();
-    // Localhost is spawn(argv) — no remote shell, so no quoting.
     expect(buildArgs).toContain(`${DRV}^*`);
-    expect(buildArgs).not.toContain(`'${DRV}^*'`);
+  });
+
+  it("re-evaluates the flake installable for a localhost cold build", async () => {
+    mockNix();
+    await provisionAgent({
+      host: "localhost",
+      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE),
+      onProgress: () => {},
+      ...provArgs(),
+    });
+
+    const buildArgs = vi
+      .mocked(runCapture)
+      .mock.calls.map((c) => c[1])
+      .find((args) => args.includes("--print-out-paths"));
+    expect(buildArgs).toContain(FLAKE_INSTALLABLE);
+    expect(buildArgs).not.toContain(`${DRV}^*`);
   });
 
   it("returns the immutable store path, not the moving root link", async () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
     expect(res.ok && res.agentPath).toBe(STORE);
   });
 
-  it("treats a pin failure as non-fatal — the agent still provisions", async () => {
-    const lines: string[] = [];
+  it("does not expose an agent path when the durable root cannot be established", async () => {
     const res = await (() => {
       mockNix({ pin: failOut });
       return provisionAgent({
         host: "testhost",
-        drvPath: DRV,
-        onProgress: (l) => lines.push(l),
+        derivation: directAgentDerivation(DRV),
+        onProgress: () => {},
         ...provArgs(),
       });
     })();
-    expect(res).toEqual({ ok: true, agentPath: STORE });
-    expect(lines.some((l) => l.includes("unpinned"))).toBe(true);
+    expect(res).toEqual({
+      ok: false,
+      reason:
+        "testhost: could not establish the agent GC root: exited with code 1",
+      cause: "remote",
+    });
   });
 
   it("does not pin when the realise itself fails", async () => {
     mockNix({ realise: failOut });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -231,16 +268,14 @@ describe("provisionAgent cause classification", () => {
     mockNix({ realise: { ok: false, kind: "exit", code: 255, stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
     expect(res.ok === false && res.cause).toBe("network");
   });
 
-  it("clears a stale probe network blip once the copy succeeds", async () => {
-    // A network-looking line on the (suppressed) check, but the copy then SUCCEEDS
-    // (host reachable) and a later realise fails for a genuine REMOTE reason → remote.
+  it("does not let a stale warm-probe network blip poison cold provisioning", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
       if (args.includes("--outputs")) return okOut(`${STORE}\n`);
       if (args.includes("--check-validity")) {
@@ -249,15 +284,13 @@ describe("provisionAgent cause classification", () => {
         );
         return { ok: false, kind: "exit", code: 255, stdout: "" };
       }
-      // Cold realise is `nix build --print-out-paths`; pin still uses `--realise`.
       if (args.includes("--print-out-paths")) return failOut; // genuine remote failure
       if (args.includes("--realise")) return failOut;
       return failOut;
     });
-    vi.mocked(runProgress).mockResolvedValue(okExit); // copy succeeds
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -265,32 +298,33 @@ describe("provisionAgent cause classification", () => {
   });
 });
 
-const EXPIRED_COPY = {
+const EXPIRED_PROVISION = {
   ok: false as const,
   kind: "lifetime-expired" as const,
   policy: { kind: "progress-liveness" as const, silenceMs: 120_000 },
   signal: "SIGTERM" as const,
+  stdout: "",
 };
 
-/** A fused ProvisionBudgets with an overridable copy step (default: normal). */
-function budgetsWithCopy(
-  copy: ReturnType<typeof makeStepBudget>,
+/** A fused ProvisionBudgets with an overridable provisioning step. */
+function budgetsWithProvisioning(
+  provisioning: ReturnType<typeof makeStepBudget>,
 ): ProvisionBudgets {
   return {
-    copy,
-    build: makeStepBudget(120_000, 4),
+    evaluation: makeStepBudget(120_000, 4),
+    provisioning,
     onCampaign: () => {},
   };
 }
 
 describe("provisionAgent lifetime-policy handling (#1908)", () => {
-  it("a lifetime-expired copy is retryable (network) and records the budget", async () => {
+  it("a lifetime-expired provision is retryable and records the budget", async () => {
     const b = makeProvisionBudgets();
-    const spy = vi.spyOn(b.copy, "recordExpiry");
-    mockNix({ copy: EXPIRED_COPY });
+    const spy = vi.spyOn(b.provisioning, "recordExpiry");
+    mockNix({ realise: EXPIRED_PROVISION });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -299,13 +333,13 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("a budget-EXHAUSTED silent copy becomes GENUINELY TERMINAL (terminal:true)", async () => {
+  it("a budget-exhausted silent provision becomes terminal", async () => {
     // A tight budget: one expiry exhausts it.
-    const b = budgetsWithCopy(makeStepBudget(120_000, 1));
-    mockNix({ copy: EXPIRED_COPY });
+    const b = budgetsWithProvisioning(makeStepBudget(120_000, 1));
+    mockNix({ realise: EXPIRED_PROVISION });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -316,13 +350,13 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     expect(res.ok === false && res.reason).toMatch(/giving up/i);
   });
 
-  it("an aborted copy is retryable (network) and does NOT touch the budget", async () => {
+  it("an aborted provision is retryable and does not touch the budget", async () => {
     const b = makeProvisionBudgets();
-    const spy = vi.spyOn(b.copy, "recordExpiry");
-    mockNix({ copy: { ok: false, kind: "aborted" } });
+    const spy = vi.spyOn(b.provisioning, "recordExpiry");
+    mockNix({ realise: { ok: false, kind: "aborted", stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -330,28 +364,54 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("a successful copy RESETS the copy budget's doubling", async () => {
+  it("resets its budget only after the rooted transaction succeeds", async () => {
     const b = makeProvisionBudgets();
-    const spy = vi.spyOn(b.copy, "reset");
+    const spy = vi.spyOn(b.provisioning, "reset");
     mockNix();
     await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(b),
     });
-    expect(spy).toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const pinIndex = vi
+      .mocked(runCapture)
+      .mock.calls.findIndex((call) => call[1].includes("--add-root"));
+    expect(pinIndex).toBeGreaterThanOrEqual(0);
+    const resetOrder = spy.mock.invocationCallOrder[0];
+    const pinOrder = vi.mocked(runCapture).mock.invocationCallOrder[pinIndex];
+    expect(resetOrder).toBeDefined();
+    expect(pinOrder).toBeDefined();
+    if (resetOrder !== undefined && pinOrder !== undefined) {
+      expect(resetOrder).toBeGreaterThan(pinOrder);
+    }
+  });
+
+  it("a warm rooted hit resets a previously charged provisioning budget", async () => {
+    const b = makeProvisionBudgets();
+    b.provisioning.recordExpiry();
+    const spy = vi.spyOn(b.provisioning, "reset");
+    mockNix({ checkValidity: okOut("") });
+    const result = await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV),
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(result).toEqual({ ok: true, agentPath: STORE });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it("onCampaign is MONOTONIC — a stale older epoch does not reset a newer campaign (F6)", () => {
     const b = makeProvisionBudgets();
-    const copyReset = vi.spyOn(b.copy, "reset");
+    const provisioningReset = vi.spyOn(b.provisioning, "reset");
     b.onCampaign(2); // establish campaign 2
-    copyReset.mockClear();
+    provisioningReset.mockClear();
     b.onCampaign(1); // a STALE dial from campaign 1 resolving late → must be IGNORED
-    expect(copyReset).not.toHaveBeenCalled();
+    expect(provisioningReset).not.toHaveBeenCalled();
     b.onCampaign(3); // a genuinely newer campaign still resets
-    expect(copyReset).toHaveBeenCalledTimes(1);
+    expect(provisioningReset).toHaveBeenCalledTimes(1);
   });
 
   it("an abort DURING the GC-root pin is a retryable failure, not a false success (F9)", async () => {
@@ -359,7 +419,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ pin: { ok: false, kind: "aborted", stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -368,11 +428,40 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     expect(res.ok === false && res.reason).toMatch(/aborted/i);
   });
 
+  it("a silent GC-root commit charges the provisioning budget", async () => {
+    const b = makeProvisionBudgets();
+    const spy = vi.spyOn(b.provisioning, "recordExpiry");
+    mockNix({ pin: EXPIRED_PROVISION });
+    const res = await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV),
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.terminal).toBeFalsy();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a budget-exhausted silent GC-root commit becomes terminal", async () => {
+    const b = budgetsWithProvisioning(makeStepBudget(120_000, 1));
+    mockNix({ pin: EXPIRED_PROVISION });
+    const res = await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV),
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.terminal).toBe(true);
+    expect(res.ok === false && res.reason).toMatch(/giving up/i);
+  });
+
   it("provisioning aborted before it starts does no work and returns network (F6)", async () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      drvPath: DRV,
+      derivation: directAgentDerivation(DRV),
       onProgress: () => {},
       ...provArgs(),
       signal: AbortSignal.abort(),

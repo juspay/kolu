@@ -24,7 +24,7 @@
  *                   in-process terminals (`$XDG_RUNTIME_DIR/kolu/pty-host.sock`).
  *   --host <ssh>    a REMOTE kaval over ssh (R-2): provision the daemon's
  *                   closure with Nix, run `kaval --stdio`, and dial it — the
- *                   same client over a different transport (see `hostConnect.ts`).
+ *                   same client over a different transport.
  *                   A remote PTY survives the link: `create` on prod, then a
  *                   later `attach` finds it.
  *
@@ -34,6 +34,7 @@
 import { fstatSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isContractVersionCompatible } from "@kolu/surface/define";
+import { dialAgentOnce } from "@kolu/surface-remote";
 import {
   ACCEPTED_KEY_NAMES,
   encodeKey,
@@ -47,6 +48,7 @@ import {
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
+import { kavalHostDialOptions } from "./hostConnect.ts";
 import {
   buildCreateInput,
   buildRemoteCreateInput,
@@ -55,7 +57,6 @@ import {
 } from "./create.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import { materializeHistoryPage } from "./historyPage.ts";
-import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
 import {
   planSend,
@@ -958,7 +959,7 @@ function connectLocal(socketPath: string): Promise<Connection> {
  *  actionable rather than an opaque hang — the CLI is one-shot, so it surfaces
  *  the first failure instead of spinning on HostSession's reconnect loop. */
 function connectHost(host: string): Promise<Connection> {
-  return connectPtyHostViaHost(host).catch((err) =>
+  return dialAgentOnce(kavalHostDialOptions(host, process.env)).catch((err) =>
     fail(`could not reach kaval on ${host} — ${(err as Error).message}`),
   );
 }

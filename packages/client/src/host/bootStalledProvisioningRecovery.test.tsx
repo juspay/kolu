@@ -76,7 +76,9 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
   it("connector-card copy is non-terminal while the connector still retries", () => {
     dispose = render(
       () => (
-        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+        <BootStalledCanvas
+          recovery={{ via: "connector", phase: "provisioning" }}
+        />
       ),
       document.body,
     );
@@ -97,7 +99,9 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
       .mockImplementation(() => {});
     dispose = render(
       () => (
-        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+        <BootStalledCanvas
+          recovery={{ via: "connector", phase: "provisioning" }}
+        />
       ),
       document.body,
     );
@@ -119,7 +123,9 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
     h.reconnect.mockImplementationOnce(() => Promise.reject(new Error("nope")));
     dispose = render(
       () => (
-        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+        <BootStalledCanvas
+          recovery={{ via: "connector", phase: "provisioning" }}
+        />
       ),
       document.body,
     );

@@ -1,4 +1,4 @@
-/** One-shot fire-and-collect subprocess helpers that OWN their child's
+/** One-shot fire-and-collect subprocess helper that OWNS its child's
  *  lifetime. Two semantics worth centralising:
  *
  *  1. Drain-before-settle. Use `"close"` (not `"exit"`) so the last stdio
@@ -30,23 +30,24 @@
  *  Out of scope: the long-lived bidirectional agent spawn in `sshConnector.ts`
  *  — that subprocess outlives a single round-trip and is owned by `makeSession`
  *  (teardown + watchdogs). It is a distinct activity, not a user of these
- *  helpers.
+ *  helper.
  *
- *  New fire-and-collect callers should reach for `runCapture`/`runProgress`
- *  rather than open-coding a fresh `spawn` dance. */
+ *  New fire-and-collect callers should reach for `runCapture` rather than
+ *  open-coding a fresh `spawn` dance. */
 
 import { spawn } from "node:child_process";
-import { forEachLine } from "./host";
+import split from "split2";
+import { match } from "ts-pattern";
 
 /** The lifetime policy every fire-and-collect spawn MUST carry (#1908 D1b) — a
  *  CLOSED union that carves a real joint (the gate PROVED it; do not collapse it):
  *
  *   - `deadline`          — a HARD seconds-scale bound for a genuinely quick child
- *                           (an arch probe, the warm `check-validity`, the pin).
+ *                           (an arch probe or warm `check-validity`).
  *                           Killed unconditionally `ms` after spawn.
  *   - `progress-liveness` — UNBOUNDED-but-ALIVE for a child that legitimately runs
- *                           for minutes (the `nix copy` transfer, the `nix build`
- *                           realise): killed only if it produces NO output
+ *                           for minutes (the `nix build` provision or required
+ *                           root commit): killed only if it produces NO output
  *                           (stdout OR stderr) for `silenceMs`. A responsive-but-slow
  *                           build keeps its output flowing and is never capped; only a
  *                           genuinely silent (wedged) child trips it. The CALLER owns
@@ -65,6 +66,9 @@ export type LifetimePolicy =
  *                           `signal`), NOT by us: an external kill / OOM `SIGKILL`.
  *                           Stays terminal-classified — its meaning is unchanged.
  *   - `spawn-error`      — the child never started (`error` event: bad exe, EACCES).
+ *   - `output-error`     — a diagnostic line exceeded the stderr stream's own
+ *                           buffer bound. The child is killed rather than silently
+ *                           dropping text or retaining an unbounded partial line.
  *   - `lifetime-expired` — OUR {@link LifetimePolicy} killed it (deadline hit, or
  *                           progress-silence past the bound). Its OWN arm — never
  *                           `signal` — so `nixCopy`'s `causeFor` can classify it
@@ -81,6 +85,7 @@ export type ExitResult =
   | { ok: boolean; kind: "exit"; code: number }
   | { ok: false; kind: "signal"; signal: NodeJS.Signals }
   | { ok: false; kind: "spawn-error"; message: string }
+  | { ok: false; kind: "output-error"; message: string }
   | {
       ok: false;
       kind: "lifetime-expired";
@@ -92,22 +97,17 @@ export type ExitResult =
 /** An {@link ExitResult} that also buffered stdout (from `runCapture`). */
 export type CaptureResult = ExitResult & { stdout: string };
 
-/** Shared options for both helpers: an optional progress sink for stderr lines, the
- *  REQUIRED lifetime policy, and an optional user-abort signal (recheck's
- *  abort-in-flight, #1908 R6b). */
+/** Options for the helper: an optional progress sink for stderr lines, the
+ *  REQUIRED lifetime policy, an optional child-environment overlay, and an
+ *  optional user-abort signal (recheck's abort-in-flight, #1908 R6b). */
 export interface RunOptions {
   onProgress?: (line: string) => void;
+  env?: Readonly<Record<string, string>>;
   /** REQUIRED — a caller cannot spawn without deciding who kills a stuck child. */
   policy: LifetimePolicy;
   /** Aborting this settles the run as `{ kind: "aborted" }` and group-kills the child
    *  (and its ssh grandchild). Threaded from the connector's per-dial abort. */
   signal?: AbortSignal;
-}
-
-/** `runProgress` additionally merges `env` onto the parent environment — the `nix
- *  copy` caller injects `NIX_SSHOPTS` so the ssh it forks inherits the keepalive. */
-export interface RunProgressOptions extends RunOptions {
-  env?: Readonly<Record<string, string>>;
 }
 
 /** How long a group waits after `SIGTERM` before we escalate to `SIGKILL` — a child
@@ -117,26 +117,30 @@ const TERM_GRACE_MS = 2000;
 /** A human-readable tail describing how a run ended — honest across every
  *  {@link ExitResult} arm (never "code null" for a signal/spawn/policy/abort case). */
 export function describeExit(res: ExitResult): string {
-  switch (res.kind) {
-    case "exit":
-      return `exited with code ${res.code}`;
-    case "signal":
-      return `killed by signal ${res.signal}`;
-    case "spawn-error":
-      return `failed to spawn: ${res.message}`;
-    case "lifetime-expired":
-      return res.policy.kind === "deadline"
-        ? `lifetime deadline (${res.policy.ms}ms) expired — killed by ${res.signal}`
-        : `no output for ${res.policy.silenceMs}ms — killed by ${res.signal}`;
-    case "aborted":
-      return "aborted by the caller";
-  }
+  return match(res)
+    .with({ kind: "exit" }, ({ code }) => `exited with code ${code}`)
+    .with({ kind: "signal" }, ({ signal }) => `killed by signal ${signal}`)
+    .with(
+      { kind: "spawn-error" },
+      ({ message }) => `failed to spawn: ${message}`,
+    )
+    .with(
+      { kind: "output-error" },
+      ({ message }) => `invalid process output: ${message}`,
+    )
+    .with({ kind: "lifetime-expired" }, ({ policy, signal }) =>
+      policy.kind === "deadline"
+        ? `lifetime deadline (${policy.ms}ms) expired — killed by ${signal}`
+        : `no output for ${policy.silenceMs}ms — killed by ${signal}`,
+    )
+    .with({ kind: "aborted" }, () => "aborted by the caller")
+    .exhaustive();
 }
 
 /** Map a `close` event's `(code, signal)` onto the honest {@link ExitResult} arm.
  *  Node guarantees EXACTLY ONE of the pair is non-null on `close`: a non-null
  *  `signal` means the OS killed the child (no exit code), otherwise it exited with
- *  `code`. Shared by both helpers so the demux lives in one place. NB a policy/abort
+ *  `code`. NB a policy/abort
  *  kill settles BEFORE this runs (the `settled` guard makes the later `close` inert),
  *  so a `signal` here is always an EXTERNAL kill, honestly `kind: "signal"`. */
 function exitFromClose(
@@ -151,8 +155,6 @@ function exitFromClose(
 interface LifetimeSpawn {
   cmd: string;
   args: readonly string[];
-  /** `true` → pipe + buffer stdout (`runCapture`); `false` → ignore it (`runProgress`). */
-  captureStdout: boolean;
   env?: Readonly<Record<string, string>>;
   onProgress: (line: string) => void;
   policy: LifetimePolicy;
@@ -160,15 +162,14 @@ interface LifetimeSpawn {
 }
 
 /** Spawn a child that OWNS its lifetime: forward stderr lines to `onProgress`,
- *  (optionally) buffer stdout, and enforce `policy` — killing the whole process
- *  group and settling at the kill on expiry/abort, never on a post-kill `close`.
- *  Both public helpers wrap this; they differ only in stdio + return shape. */
+ *  buffer stdout, and enforce `policy` — killing the whole process group and
+ *  settling at the kill on expiry/abort, never on a post-kill `close`. */
 function runWithLifetime(
   o: LifetimeSpawn,
 ): Promise<{ result: ExitResult; stdout: string }> {
   return new Promise((resolve) => {
-    // Already aborted before we spawn ⇒ never start the (side-effecting: `nix copy`,
-    // realise, pin) child at all — a post-spawn kill can't prevent work a forked child
+    // Already aborted before we spawn ⇒ never start the side-effecting Nix child
+    // at all — a post-spawn kill can't prevent work a forked child
     // races to begin. Settle `aborted` up front. (#1908 codex-debate F2.)
     if (o.signal?.aborted) {
       resolve({ result: { ok: false, kind: "aborted" }, stdout: "" });
@@ -181,9 +182,8 @@ function runWithLifetime(
       // the stderr pipe. Without this, `process.kill(-pid)` would hit the PARENT's
       // group. (#1908 R2.)
       detached: true,
-      // Always PIPE stdout: `runCapture` buffers it, `runProgress` drains it only to
-      // bump progress-liveness — so the policy's "resets on ANY output" contract holds
-      // for both helpers, and a stdout-only child is never killed as silent (F11).
+      // PIPE stdout so it can be returned and can bump progress-liveness. A
+      // stdout-only child must never be killed as silent (F11).
       stdio: ["ignore", "pipe", "pipe"],
       env: o.env ? { ...process.env, ...o.env } : undefined,
     });
@@ -205,8 +205,7 @@ function runWithLifetime(
       settled = true;
       clearPolicyTimer();
       o.signal?.removeEventListener("abort", onAbort);
-      // Pair the arm with the buffered stdout — `runCapture` keeps it, `runProgress`
-      // drops it (so its declared `ExitResult` carries no stray `stdout` field).
+      // Pair the arm with the buffered stdout.
       resolve({ result, stdout });
     };
 
@@ -285,14 +284,26 @@ function runWithLifetime(
 
     proc.stdout?.setEncoding("utf-8");
     proc.stdout?.on("data", (chunk: string) => {
-      if (o.captureStdout) stdout += chunk;
+      stdout += chunk;
       bumpLiveness();
     });
     proc.stderr?.setEncoding("utf-8");
-    proc.stderr?.on("data", (chunk: string) => {
-      forEachLine(chunk, o.onProgress);
-      bumpLiveness();
-    });
+    if (proc.stderr !== null) {
+      // Child streams split at arbitrary byte boundaries. `split2` owns the
+      // trailing partial line so classification never depends on libuv chunks,
+      // while its bound prevents a newline-free child from retaining an
+      // ever-growing fragment. Use the stream's own buffering contract as the
+      // bound instead of inventing a second magic size.
+      const lines = proc.stderr.pipe(
+        split({ maxLength: proc.stderr.readableHighWaterMark }),
+      );
+      lines.on("data", (line: string) => o.onProgress(line));
+      lines.on("error", (err: Error) => {
+        killGroup();
+        settle({ ok: false, kind: "output-error", message: err.message });
+      });
+      proc.stderr.on("data", bumpLiveness);
+    }
 
     // The child (the group LEADER) exited. Settle from its `close`, but clear the SIGKILL
     // escalation ONLY if the whole GROUP is gone — a grandchild that ignored SIGTERM and
@@ -319,25 +330,6 @@ function runWithLifetime(
   });
 }
 
-/** Run a child with stdout ignored; forward stderr lines to `onProgress`. Used for
- *  `nix copy` where the only output the parent cares about is progress chatter on
- *  stderr. The lifetime `policy` is REQUIRED (see {@link LifetimePolicy}). */
-export function runProgress(
-  cmd: string,
-  args: readonly string[],
-  opts: RunProgressOptions,
-): Promise<ExitResult> {
-  return runWithLifetime({
-    cmd,
-    args,
-    captureStdout: false,
-    env: opts.env,
-    onProgress: opts.onProgress ?? (() => {}),
-    policy: opts.policy,
-    signal: opts.signal,
-  }).then(({ result }) => result);
-}
-
 /** Run a child and buffer its stdout; forward stderr lines to `onProgress`. Used for
  *  `nix build --print-out-paths` (output path on stdout), the GC-root pin
  *  (`nix-store --realise … --add-root`), and `nix-instantiate --eval` (system
@@ -350,7 +342,7 @@ export function runCapture(
   return runWithLifetime({
     cmd,
     args,
-    captureStdout: true,
+    env: opts.env,
     onProgress: opts.onProgress ?? (() => {}),
     policy: opts.policy,
     signal: opts.signal,

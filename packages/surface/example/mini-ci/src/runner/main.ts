@@ -6,9 +6,8 @@
  * real CI for the remote-process-monitor example, so tasks spawn with `cwd` =
  * the workspace root (auto-detected by walking up to `pnpm-workspace.yaml`,
  * or `--workspace` / `MINI_CI_WORKSPACE`). The `mini-ci-runner` nix closure
- * bundles that workspace, so the TUI can `nix copy` it to a remote host and
- * run this there over ssh — the drishti way, via `@kolu/surface-remote`'s
- * `HostSession`.
+ * bundles that workspace, so Surface Remote can provision it on a remote host
+ * and run it there over ssh.
  *
  * **Stdout is the protocol channel** (lesson #4): all diagnostics go to
  * fd 2 via `log()`. `serveOverStdio` defensively redirects `console.log` to

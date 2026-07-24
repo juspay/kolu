@@ -42,8 +42,8 @@ export type PipelineSpec = z.infer<typeof PipelineSpecSchema>;
  *  are the same `tsc --noEmit` gates the repo's CI runs.
  *
  *  Tasks run against the workspace the `mini-ci-runner` closure bundles
- *  (workspace + `node_modules`, via `surfaceExampleBase`), so a `nix copy` of
- *  that closure to a remote host ships everything the checks need.
+ *  (workspace + `node_modules`, via `surfaceExampleBase`), so provisioning
+ *  that closure on a remote host carries everything the checks need.
  *
  *  Only **read-only** checks (typecheck) are in the default pipeline: the
  *  closure lives in the read-only nix store, so write-heavy tasks (a `vite`

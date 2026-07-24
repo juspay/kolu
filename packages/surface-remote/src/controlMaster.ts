@@ -1,8 +1,8 @@
 /**
  * ssh connection multiplexing (`ControlMaster`) for the ssh this package
  * spawns — the P2.8 warm-path speedup. The three commands a single
- * `kaval-tui --host` dial issues over ssh (the arch probe, the provision
- * check + `nix copy`, and the agent dial) each used to pay their own ~5s
+ * `kaval-tui --host` dial issues over ssh (the arch probe, provision/root
+ * commands, and the agent dial) each used to pay their own ~5s
  * ssh handshake because nothing reused the connection. `ControlMaster`
  * collapses them onto ONE shared tunnel: the first ssh opens a master,
  * `ControlPersist` keeps it warm, and the rest ride it as near-instant
@@ -19,8 +19,8 @@
  *
  * Why no `~/.ssh/config` touch: the opts ride the existing `SSH_OPT_PAIRS`
  * render path (`SSH_COMMON_OPTS` argv + `NIX_SSHOPTS` env), so every ssh
- * this package causes to be spawned — including the one `nix copy --to
- * ssh-ng://` forks internally — inherits them with no user configuration.
+ * this package causes to be spawned — including the one the remote-store
+ * Nix client forks internally — inherits them with no user configuration.
  *
  * Why a *kolu-private* `ControlPath` (never `~/.ssh`): the control socket
  * is an IPC rendezvous exactly like the pty-host socket, so it uses the
@@ -102,7 +102,7 @@ let memo: readonly (readonly [string, string])[] | undefined;
  *  `[]` when multiplexing can't be set up SAFELY, in which case ssh
  *  connects un-multiplexed (correct, just no speedup). This is the
  *  self-hooking ensure-dir: every spawn site renders its ssh opts through
- *  here (the agent dial, the probe/realise, and the `nix copy` env), so the
+ *  here (the agent dial, the probe/root commands, and the remote-store Nix env), so the
  *  control dir is created lazily before the first ssh and never from a
  *  module import.
  *

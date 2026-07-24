@@ -5,7 +5,7 @@
  * that the derivation is sound for BOTH arms now that
  * `MakeSessionOptions.initialConnection` is narrowed to exactly the
  * connector's TRUE opening phase — `"connecting"` for the local/endpoint arm
- * (`Prov = never`), `Prov` for the provisioning arm (`"copying"` for ssh) —
+ * (`Prov = never`), `Prov` for the provisioning arm (`"probing"` for ssh) —
  * rather than the broad local phase set the local arm used to admit (which
  * would have let a local session's TYPE claim `"failed"`/`"connected"`/
  * `"disconnected"` as a boot state, a lying first frame). See
@@ -31,7 +31,7 @@ describe("session.provisions", () => {
     session.destroy();
   });
 
-  it("is TRUE for the provisioning arm (Prov = SshProv, opens at 'copying')", () => {
+  it("is TRUE for the provisioning arm (Prov = SshProv, opens at 'probing')", () => {
     const session = makeSession<unknown, SshProv>({
       connectOnce: neverDial,
       initialConnection: "probing",

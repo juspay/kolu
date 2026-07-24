@@ -1,27 +1,32 @@
 # Nix derivations for the @kolu/surface remote-process-monitor demo.
 #
-# Inputs come from the root composer (`default.nix`) so this file can
-# reuse the workspace's pnpm fetch (~395 MB; one source of truth) and
-# the same `src` fileset the kolu build uses.
+# Inputs come from the independent Surface-example flake, which reads the
+# canonical workspace source and pnpm closure from `nix/workspace.nix`.
 #
 #   pkgs       — the per-system nixpkgs.
-#   src        — the workspace source fileset (root default.nix's `src`).
-#   pnpmDeps   — the workspace pnpm fetch (root default.nix's `pnpmDeps`).
+#   src        — the canonical workspace source fileset.
+#   pnpmDeps   — the canonical workspace pnpm fetch.
 #
 # Three derivations land here:
 #
 #   surfaceExampleBase     — workspace tree + pnpm install. Skips
 #                            kolu's vite-bundle + node-gyp; neither is
 #                            used by surface examples' agents.
-#   processMonitorAgent    — `nix run .#process-monitor-agent --
+#   processMonitorAgent    — `nix run ..#process-monitor-agent --
 #                            --stdio`. Backed by surfaceExampleBase.
 #   processMonitorClient   — vite-built browser bundle for the demo.
 #   processMonitorMonitor  — single-binary entrypoint: serves the
 #                            client bundle + spawns the agent via ssh.
-#                            Bakes `KOLU_AGENT_DRV` to the agent's .drv
-#                            for the current system (override the env
-#                            var for cross-arch remotes).
-{ pkgs, src, pnpmDeps }:
+#                            Bakes the independent example flake as the
+#                            exact agent source; Surface Remote selects
+#                            the target system's package.
+{
+  pkgs,
+  src,
+  pnpmDeps,
+  agentFlakeRef,
+  agentFlakeRefEnv,
+}:
 let
   # Shared "workspace tree + pnpm install, tsx-runnable" base — also used by
   # the mini-ci example and vazhi. See ../../../../nix/workspace-tree.nix.
@@ -37,7 +42,6 @@ let
       --add-flags "${surfaceExampleBase}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
   '';
-
   processMonitorClient = pkgs.stdenv.mkDerivation {
     pname = "process-monitor-client";
     version = "0.1.0";
@@ -68,7 +72,7 @@ let
       --set-default HOST localhost \
       --set-default PORT 7720 \
       --set KOLU_SURFACE_EXAMPLE_DIST "${processMonitorClient}" \
-      --set-default KOLU_AGENT_DRV "${processMonitorAgent.drvPath}" \
+      --set ${agentFlakeRefEnv} "${agentFlakeRef}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
   '';
 in

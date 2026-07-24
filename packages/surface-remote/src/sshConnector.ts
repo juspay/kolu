@@ -24,7 +24,12 @@ import {
   isLocalHost,
   ResolveDrvError,
 } from "./host";
-import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
+import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
+import {
+  type AgentDerivation,
+  makeProvisionBudgets,
+  provisionAgent,
+} from "./nixCopy";
 import {
   type ClosedInfo,
   ConnectError,
@@ -46,24 +51,23 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
 
 /** The ssh connector's OWN provisioning-phase vocabulary — the `Prov` a
  *  `makeSession` over {@link sshConnector} carries. Each phase names what is
- *  ACTUALLY happening, split at the real command boundaries `nixCopy.ts` runs:
- *   - `"probing"`  — the OPENING phase: the ssh arch probe (`resolveDrvPath`) plus
- *                     the ASK-ONLY warm check (a sender-local `nix-store -q --outputs`
- *                     then a bounded `nix-store --check-validity` — "does the host already
- *                     have the closure?", never a substituting `--realise`). No copy
- *                     exists yet; on a WARM host
- *                     this is the whole provisioning story and it never enters
- *                     `copying`. This is why the warm path stays CALM — a warm dial
- *                     goes `probing → connecting → connected` with no build UI.
- *   - `"copying"`  — `nix copy --derivation …` is ACTUALLY pushing the `.drv` (the
- *                     COLD path only; entered at the copy command boundary).
- *   - `"building"` — `ssh $host nix build -v --print-out-paths --no-link $drv^*`
- *                     is compiling/substituting it (the minutes, on a first connect
- *                     to a fresh host).
- *  A session opens at `"probing"` and advances to `"copying"` then `"building"` via
- *  `ctx.provisioning`, each at its real command boundary (`nixCopy`'s `onCopying`/
- *  `onBuilding` hooks). */
-export type SshProv = "probing" | "copying" | "building";
+ *  ACTUALLY happening at the real command boundaries `nixCopy.ts` runs:
+ *   - `"probing"`  — the OPENING phase: the ssh architecture probe and ASK-ONLY
+ *                     target warm check. No potentially minutes-long Nix operation
+ *                     runs here.
+ *   - `"provisioning"` — an uncached exact-source evaluation and/or the cold target
+ *                        `nix build`, plus every required GC-root commit. A warm
+ *                        target still crosses this phase before its root refresh,
+ *                        because a GC race can turn that commit into a restoration.
+ *  A session opens at `"probing"` and advances once to `"provisioning"` before
+ *  the first potentially long Nix operation or mandatory root commit. */
+export type SshProv = "probing" | "provisioning";
+
+/** The owning dial context a deferred derivation resolver may consume. */
+export interface ResolveDrvPathContext extends AgentResolutionContext {
+  signal: AbortSignal;
+  localProgress: (line: string) => void;
+}
 
 export interface SshConnectorOptions {
   /** ssh target; `localhost` runs the realised binary directly. */
@@ -71,7 +75,7 @@ export interface SshConnectorOptions {
   /** Executable name inside the realised closure — the full spawn path is
    *  `${agentPath}/bin/${binary}`, run as `<binary> --stdio`. */
   binary: string;
-  /** Resolve the agent's `.drv` for this host. Called at the top of EVERY dial (not
+  /** Resolve the agent derivation for this host. Called at the top of EVERY dial (not
    *  once up front), so the round-trip that picks the derivation — typically an ssh
    *  `nix-instantiate` arch probe via `resolveSystem` — lives inside the session's
    *  own reconnect machinery. An unreachable host makes the resolver reject, which
@@ -80,9 +84,10 @@ export interface SshConnectorOptions {
    *  no derivation is baked for its system), reject with a {@link ResolveDrvError}
    *  carrying `failureCause: "remote"`.
    *
-   *  Pass a constant as `() => Promise.resolve(drv)` when the caller already knows
-   *  the path and has no probe to defer. */
-  resolveDrvPath: () => Promise<string>;
+   *  Pass `directAgentDerivation(drvPath)` when the caller already owns the
+   *  store path and has no probe to defer. `resolveAgentDrv` constructs the
+   *  nominal flake-backed arm so Nix owns evaluation through realisation. */
+  resolveDrvPath: (ctx: ResolveDrvPathContext) => Promise<AgentDerivation>;
   /** Extra args appended after `--stdio` on the agent command line — a generic
    *  spawn-arg carrier; what the args mean is the caller's concern. POSIX-quoted for
    *  a real remote; verbatim for localhost. See `buildAgentCommand`. */
@@ -120,26 +125,37 @@ export function sshConnector<C extends AnyContractRouter>(
     // classified `"network"` (retry forever) unless it is a `ResolveDrvError`
     // carrying an explicit cause (an unsupported/mis-baked system → `"remote"`,
     // bounded → terminal).
-    let drvPath: string;
+    let derivation: AgentDerivation;
     try {
-      drvPath = await opts.resolveDrvPath();
+      derivation = await opts.resolveDrvPath({
+        signal: ctx.signal,
+        localProgress: ctx.localProgress,
+        resolveAgentDrv: (flakeRef, packageName) =>
+          resolveAgentDrv(opts.host, flakeRef, packageName, {
+            signal: ctx.signal,
+            onProgress: ctx.localProgress,
+            onEvaluation: () => ctx.provisioning("provisioning"),
+            budget: budgets.evaluation,
+          }),
+      });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const cause =
-        err instanceof ResolveDrvError ? err.failureCause : "network";
-      throw new ConnectError(reason, cause);
+        err instanceof ResolveDrvError
+          ? err.resolution.failureCause
+          : "network";
+      const terminal =
+        err instanceof ResolveDrvError ? err.resolution.terminal : false;
+      throw new ConnectError(reason, cause, terminal);
     }
 
     const provision = await provisionAgent({
       host: opts.host,
-      drvPath,
+      derivation,
       onProgress: (line) => ctx.localProgress(line),
-      // Advance the phase at the REAL command boundaries (cold path only), so the
-      // overlay names what is actually happening: `probing → copying` when `nix copy`
-      // starts, `copying → building` at the realise boundary. A WARM host skips both
-      // (the ask-only check short-circuits) and stays `probing` → connecting.
-      onCopying: () => ctx.provisioning("copying"),
-      onBuilding: () => ctx.provisioning("building"),
+      // Advance before this call's first potentially long required operation:
+      // a cold build or a warm target's root repair.
+      onProvisioning: () => ctx.provisioning("provisioning"),
       budgets,
       // The per-dial abort — recheck's abort-in-flight group-kills any provisioning
       // child so the session can redial NOW instead of waiting out a wedge (#1908 R6b).
@@ -148,7 +164,7 @@ export function sshConnector<C extends AnyContractRouter>(
     if (!provision.ok) {
       // `provisionAgent` classifies why: a `"remote"` rejection (e.g. `trusted-users`
       // won't accept the closure) is bounded → terminal; a `"network"` failure (the
-      // host went unreachable mid-copy, after the probe succeeded) keeps retrying; a
+      // host went unreachable mid-provision, after the probe succeeded) keeps retrying; a
       // budget-EXHAUSTED silent step is `terminal` → give up NOW (#1908 C5).
       throw new ConnectError(
         provision.reason,

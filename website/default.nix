@@ -3,11 +3,10 @@
 # Output: $out/ is the dist/ directory produced by `pnpm build`, ready to
 # be served as a static site (GitHub Pages, Cloudflare Pages, etc.).
 #
-# Imported from the root flake.nix and exposed as packages.${system}.website.
-# Reuses the root's npins-pinned nixpkgs (via ../nix/nixpkgs.nix) so there's
-# no duplicate pin to keep in sync. `src` is optional and self-contained — it
-# resolves the public/ asset symlinks (see below), so the root flake just does
-# `import ./website { inherit pkgs; }` with no synthesis of its own.
+# Imported from website/flake.nix. Reuses the repository's npins-pinned
+# nixpkgs (via ../nix/nixpkgs.nix) so there is no duplicate pin to keep in
+# sync. `src` is optional and self-contained — it resolves the public/ asset
+# symlinks below.
 { pkgs ? import ../nix/nixpkgs.nix { }
 , src ? # Self-contained website source for the Nix sandbox. The working tree keeps
   # public/{favicon,kaval-logo,padi-logo}.svg as symlinks into packages/ (one SVG
@@ -151,7 +150,7 @@ let
   # The type gate for website/ (juspay/kolu#1049): `astro sync && tsc --noEmit`.
   # `pnpm build` (astro build) transpiles TS without typechecking, exactly like
   # the main app, so a type error in the site's TS/TSX would otherwise deploy
-  # green. The root flake exposes this as checks.${system}.website-typecheck.
+  # green. website/flake.nix exposes this as checks.${system}.typecheck.
   typecheck = import ../nix/pnpm-typecheck.nix {
     inherit pkgs src pnpmDeps version;
     pname = "kolu-website-typecheck";

@@ -16,7 +16,7 @@
  * refuses those and demands an alias that routes to a real sshd:
  *
  *   KOLU_E2E_SSH_HOST   an ssh host/alias (NOT loopback) reaching a real sshd whose
- *                       user's Nix store this test can `nix copy` into.
+ *                       user's remote Nix store this test can build into.
  *   KOLU_E2E_PADI_DRV   the padi `.drv` to provision (e.g. `nix-instantiate .#padi`).
  *
  * Run on a `pu` box (or any host with a self-alias to its own sshd), never in the
@@ -47,6 +47,7 @@ import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import {
+  directAgentDerivation,
   isLocalHost,
   makeSession,
   type SshProv,
@@ -234,7 +235,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         // The localhost arm's composed env — this suite dials a real ssh host, so it
         // is unused, but the type requires it (PR1.5 / #1872).
         localEnv: {},
-        resolveDrvPath: async () => PADI_DRV as string,
+        resolveDrvPath: async () => directAgentDerivation(PADI_DRV as string),
       }),
       log: collectLogger((l) => console.log(`[host] ${l}`)),
     });
@@ -248,7 +249,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
 
   it("provisions padi over ssh, handshakes the control core, and round-trips a terminal", async () => {
     const session = dial();
-    // pin() runs resolveDrvPath → provisionAgent (nix copy --derivation + realise)
+    // pin() runs resolveDrvPath → provisionAgent (remote-store nix build + GC root)
     // → ssh <host> padi --stdio → stdioLink. The remote padi (and its kaval) is
     // durable behind the front.
     const combined = (await session.pin()) as PadiDaemonClient;

@@ -3,9 +3,10 @@
  *
  *  - THE PROBING SEQUENCE: an ssh session opens at `probing` (the arch probe + the
  *    ask-only warm check, where nothing is being shipped) and advances through the
- *    connector's OWN vocabulary — `probing → copying → building → connecting →
+ *    connector's OWN vocabulary — `probing → provisioning → connecting →
  *    connected` — each step driven by the connector at a real command boundary
- *    (`ctx.provisioning`). A WARM host short-circuits from `probing` (calm path).
+ *    (`ctx.provisioning`). A WARM host skips evaluation and build, but still crosses
+ *    `provisioning` for its mandatory root refresh (normally too briefly to paint).
  *
  *  - THE EPISODE CLOCK (#1908 D3/R7, REWRITTEN): `sinceMs` (the published episode
  *    duration) and the `log` tail are stamped/reset at CAMPAIGN BIRTH (`startEpisode`),
@@ -75,7 +76,7 @@ function harness() {
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe("ssh session phase sequence (probing)", () => {
-  it("opens at `probing` and advances probing → copying → building → connecting → connected", async () => {
+  it("opens at `probing` and advances through provisioning to connected", async () => {
     const h = harness();
     const session = makeSession<unknown, SshProv>({
       connectOnce: h.connectOnce,
@@ -88,8 +89,7 @@ describe("ssh session phase sequence (probing)", () => {
 
     const pinned = session.pin();
     await flush();
-    h.ctx().provisioning("copying");
-    h.ctx().provisioning("building");
+    h.ctx().provisioning("provisioning");
     h.ctx().connecting();
     h.connect();
     await pinned;
@@ -99,15 +99,14 @@ describe("ssh session phase sequence (probing)", () => {
     const distinct = phases.filter((p, i) => p !== phases[i - 1]);
     expect(distinct).toEqual([
       "probing",
-      "copying",
-      "building",
+      "provisioning",
       "connecting",
       "connected",
     ]);
     session.destroy();
   });
 
-  it("a WARM host short-circuits from `probing` straight to connecting — never enters copying/building", async () => {
+  it("a warm root refresh advances through provisioning", async () => {
     const h = harness();
     const session = makeSession<unknown, SshProv>({
       connectOnce: h.connectOnce,
@@ -120,18 +119,22 @@ describe("ssh session phase sequence (probing)", () => {
 
     const pinned = session.pin();
     await flush();
-    // Warm path: the ask-only check hits, so the connector NEVER calls
-    // `provisioning("copying")` — it goes straight to `connecting`.
+    // Even a warm target must refresh its required root. A GC race can make
+    // that operation long, so the connector advances before it begins.
+    h.ctx().provisioning("provisioning");
     h.ctx().connecting();
     h.connect();
     await pinned;
     session.markConnected();
     await flush();
 
-    expect(phases).not.toContain("copying");
-    expect(phases).not.toContain("building");
     const distinct = phases.filter((p, i) => p !== phases[i - 1]);
-    expect(distinct).toEqual(["probing", "connecting", "connected"]);
+    expect(distinct).toEqual([
+      "probing",
+      "provisioning",
+      "connecting",
+      "connected",
+    ]);
     session.destroy();
   });
 });
@@ -171,10 +174,9 @@ describe("episode clock spans the CAMPAIGN, not the dial (#1908 D3/R7)", () => {
     session.pin().catch(() => {});
     await Promise.resolve();
     vi.setSystemTime(1_000_500);
-    h.ctx().provisioning("copying");
+    h.ctx().provisioning("provisioning");
     h.ctx().localProgress("copying path a");
     vi.setSystemTime(1_002_000);
-    h.ctx().provisioning("building");
     h.ctx().remoteProgress("configurePhase");
 
     const mid = latest();
@@ -234,7 +236,7 @@ describe("episode clock spans the CAMPAIGN, not the dial (#1908 D3/R7)", () => {
 
     session.pin().catch(() => {});
     await Promise.resolve();
-    h.ctx().provisioning("copying");
+    h.ctx().provisioning("provisioning");
     h.ctx().localProgress("copying path a");
     h.ctx().connecting();
     h.connect();
