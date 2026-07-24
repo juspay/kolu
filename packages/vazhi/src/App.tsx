@@ -20,7 +20,7 @@ import {
   parseTarget,
 } from "@kolu/port-forward";
 import { Text, useApp, useInput, useWindowSize } from "ink";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { clampSelection, forwardUrl, readPromptInput } from "./format.ts";
 import { type Mode, Screen, type Status } from "./Screen.tsx";
 
@@ -58,6 +58,19 @@ export function App({
    *  second map would mean a second set of ssh children with the first set
    *  leaked. */
   const managerRef = useRef<ForwardManager | undefined>(undefined);
+
+  /** Re-read the map. The map is the truth and `rows` is this screen's snapshot
+   *  of it, so every place the map can have moved ends with this ONE call —
+   *  never with an edit to the snapshot, which would be a second definition of
+   *  what the map's own removal means. */
+  const sync = useCallback((): void => {
+    const map = managerRef.current;
+    if (map === undefined) {
+      throw new Error("vazhi: the forward map was read before it was built.");
+    }
+    setRows(map.list());
+  }, []);
+
   managerRef.current ??= createForwards({
     // A forward can die without being cancelled — the host drops, the ssh
     // connection goes away. It leaves the table AND says why; a dead row that
@@ -67,22 +80,18 @@ export function App({
         kind: "error",
         text: `lost ${formatTarget(forward.target)} — ${reason}`,
       });
-      setRows((live) => live.filter((row) => row.key !== forward.key));
+      sync();
     },
   });
   const forwards = managerRef.current;
 
-  /** Re-read the map. The map is the truth and `rows` is this screen's snapshot
-   *  of it, so every place the map can have moved ends with this one call. */
-  const refresh = (): void => setRows(forwards.list());
-
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(Date.now());
-      setRows(forwards.list());
+      sync();
     }, TICK_MS);
     return () => clearInterval(timer);
-  }, [forwards]);
+  }, [sync]);
 
   /** Every forward this process opened goes down with it. A teardown that
    *  refuses is carried out through Ink's exit so the process ends non-zero —
@@ -118,11 +127,14 @@ export function App({
         kind: "info",
         text: `${formatTarget(forward.target)} is answering on ${forwardUrl(hostname, forward.localPort)}`,
       });
-      refresh();
-      setSelected(forwards.list().findIndex((row) => row.key === forward.key));
+      // One snapshot: the list the selection indexes into is the list that
+      // renders.
+      const live = forwards.list();
+      setRows(live);
+      setSelected(live.findIndex((row) => row.key === forward.key));
     } catch (err) {
       setStatus({ kind: "error", text: messageOf(err) });
-      refresh();
+      sync();
     }
   };
 
@@ -140,7 +152,7 @@ export function App({
     } catch (err) {
       setStatus({ kind: "error", text: messageOf(err) });
     }
-    refresh();
+    sync();
   };
 
   // Table keys. Inactive while the prompt is up, so typing a host name can
