@@ -10,7 +10,7 @@
  */
 
 export const SITE_DESCRIPTION =
-  "kolu is a terminal system built for scale: a browser workspace backed by padi, the per-host workspace daemon, and kaval, the PTY daemon that keeps shells alive.";
+  "kolu is a browser terminal workspace that spans machines: point it at a box over ssh and the whole canvas runs there — terminals, code, git, agents — backed by padi and kaval on every host.";
 
 export const SITE_TAGLINE = "the best way to run terminals";
 
