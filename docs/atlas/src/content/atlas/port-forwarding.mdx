@@ -160,12 +160,21 @@ data arrives on the terminal's metadata like everything else). The flows:
 
 ## Detection: ports, attributed to the terminal
 
-Process facts belong to the PTY owner, so the scanner is a new module in kaval
-— `packages/kaval/src/processScan.ts`, beside the existing foreground sampler
-(`ptyHost.ts:620`). One host-wide pass every 5 seconds<Footnote>Cadence and
-the unref'd, non-overlapping poll shape copy
+The scanner is a **padi sensor** — `packages/padi/src/portScan.ts` — not a
+kaval module. The repo's own taxonomy draws the line: facts that require the
+PTY itself live in kaval (foreground needs `tcgetpgrp` on the PTY fd, cwd is
+parsed from OSC sequences), while facts derived by OS inspection from a
+snapshot key live in padi (git status is derived from `cwd`; kaval knows
+nothing about git by design). The port scan needs zero PTY access — its only
+input is each shell's root pid, which padi already reads off kaval's list
+surface — so it sits beside the git sensor, keeps subprocess-spawning out of
+the memory-sensitive kaval, and **changes no kaval wire contract** (contract
+skew on remote hosts has its own bug note; not growing `ptyHostSurface` is a
+feature). One host-wide pass every 5 seconds<Footnote>Cadence and the
+unref'd, non-overlapping poll shape copy
 `packages/padi/src/memorySampler.ts` and its `derived.cell(source({ read,
-install: everyMsOr(…) }))` wiring in `servePadi.ts:247`.</Footnote> builds the
+install: everyMsOr(…) }))` wiring in `servePadi.ts:247` — a padi idiom,
+which is one more reason the scanner lives there.</Footnote> builds the
 pid→ppid table once, partitions it into per-shell subtrees, and joins
 listening TCP sockets against each subtree:
 
@@ -174,19 +183,19 @@ listening TCP sockets against each subtree:
 
 Each terminal's sample — `PortInfo { port, name, wildcard }` in
 `packages/terminal-vocab/src/schema.ts`, beside `ForegroundSchema:145` — is
-**deduped by structural equality** before publishing on the `ptyHostSurface`
-contract, so an unchanged scan emits nothing: the churn guard that keeps a
-5-second ticker from thrashing SolidJS. From there every layer exists: the
-padi sensor set folds it into `TerminalSnapshot`, the surface serves it
+**deduped by structural equality** before it touches the snapshot, so an
+unchanged scan emits nothing: the churn guard that keeps a 5-second ticker
+from thrashing SolidJS. From there every layer exists: the sensor set folds
+it into `TerminalSnapshot`, the surface serves it
 (snapshot-then-deltas invariant, `.claude/rules/streaming.md`), and the
 reconcile-backed store in `useTerminalMetadata.ts:180` delivers leaf-grained
 ticks to the section.
 
 <Callout>
 **Architecture verdicts, conditioned on this build:** the *scanner* is a leaf
-module inside kaval — a bounded one-shot scan with kaval as its only consumer
-— and graduates only if it grows independent consumers or its own streaming
-volatility. `@kolu/port-forward` is the opposite case: ssh connection/forward
+sensor module inside padi — a bounded one-shot scan with padi as its only
+consumer — and graduates only if it grows independent consumers or its own
+streaming volatility. `@kolu/port-forward` is the opposite case: ssh connection/forward
 lifecycle is a hard volatility with two genuinely independent apps on top
 (kolu and vazhi), which is exactly why it is a *library* package — the
 upstreamed "common stuff" of the drishti pattern — and why neither app is a
@@ -206,7 +215,7 @@ release note:
 | id | ships | needs | proof |
 | --- | --- | --- | --- |
 | PRT0 | `@kolu/port-forward` library + vazhi TUI (own flake.nix) | — | standalone forward on a real remote box, no kolu running |
-| PRT1 | kaval scanner · Ports section · direct open | — | e2e: spawned listener's chip appears + opens |
+| PRT1 | padi port sensor · Ports section · direct open | — | e2e: spawned listener's chip appears + opens |
 | PRT2 | kolu embeds the library: lazy forward · Forwarded Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
 | PRT3 | embedded in-kolu preview pane | PRT2 | deferred — not planned yet |
 
@@ -233,7 +242,7 @@ chips, the tip. **Done when** an e2e scenario runs
 `node -e 'require("http").createServer((_,r)=>r.end("ok")).listen(8123,"0.0.0.0")'`
 in a real kolu terminal and asserts the `8123` chip appears within two scan
 ticks and clicking it opens the page at `location.hostname:8123` — pinning the
-real path (kaval scan → `ptyHostSurface` → padi snapshot → surface → reconcile
+real path (padi scan → snapshot → surface → reconcile
 store), which no client-side mock can satisfy. Parser unit tests run on
 fixture `/proc` trees *and* fixture `lsof -F pcn` output; the darwin gate
 (`aarch64-darwin`) must be green, not skipped. Loopback-bound chips render

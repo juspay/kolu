@@ -45,7 +45,7 @@ port is made to answer <em>there</em>, and the client builds URLs from
   <text x="54" y="179" font-size="11" fill="#8a8574">the shell's process subtree</text>
 
   <rect x="40" y="220" width="300" height="72" rx="8" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
-  <text x="56" y="241" font-size="13" font-weight="700" fill="#1b7a3a">kaval processScan · new (PRT1)</text>
+  <text x="56" y="241" font-size="13" font-weight="700" fill="#1b7a3a">padi portScan · new (PRT1)</text>
   <text x="56" y="260" font-size="11.5" fill="#1a1c20">/proc walk (linux) · ps + lsof (darwin) — / 5 s</text>
   <text x="56" y="278" font-size="11.5" fill="#1a1c20">subtree join → ports + bind address</text>
 
@@ -236,11 +236,20 @@ data arrives on the terminal’s metadata like everything else). The flows:</p>
 <li><strong>Discoverability.</strong> One tip in <code>settings/tips.ts</code>: “Click a port in the Inspector to open the server an agent just started.”</li>
 </ul>
 <h2 id="detection-ports-attributed-to-the-terminal">Detection: ports, attributed to the terminal</h2>
-<p>Process facts belong to the PTY owner, so the scanner is a new module in kaval
-— <code>packages/kaval/src/processScan.ts</code>, beside the existing foreground sampler
-(<code>ptyHost.ts:620</code>). One host-wide pass every 5 seconds<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Cadence and
-the unref’d, non-overlapping poll shape copy
-<code>packages/padi/src/memorySampler.ts</code> and its <code>derived.cell(source({ read, install: everyMsOr(…) }))</code> wiring in <code>servePadi.ts:247</code>.</span></span></span> builds the
+<p>The scanner is a <strong>padi sensor</strong> — <code>packages/padi/src/portScan.ts</code> — not a
+kaval module. The repo’s own taxonomy draws the line: facts that require the
+PTY itself live in kaval (foreground needs <code>tcgetpgrp</code> on the PTY fd, cwd is
+parsed from OSC sequences), while facts derived by OS inspection from a
+snapshot key live in padi (git status is derived from <code>cwd</code>; kaval knows
+nothing about git by design). The port scan needs zero PTY access — its only
+input is each shell’s root pid, which padi already reads off kaval’s list
+surface — so it sits beside the git sensor, keeps subprocess-spawning out of
+the memory-sensitive kaval, and <strong>changes no kaval wire contract</strong> (contract
+skew on remote hosts has its own bug note; not growing <code>ptyHostSurface</code> is a
+feature). One host-wide pass every 5 seconds<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Cadence and the
+unref’d, non-overlapping poll shape copy
+<code>packages/padi/src/memorySampler.ts</code> and its <code>derived.cell(source({ read, install: everyMsOr(…) }))</code> wiring in <code>servePadi.ts:247</code> — a padi idiom,
+which is one more reason the scanner lives there.</span></span></span> builds the
 pid→ppid table once, partitions it into per-shell subtrees, and joins
 listening TCP sockets against each subtree:</p>
 <ul>
@@ -249,17 +258,17 @@ listening TCP sockets against each subtree:</p>
 </ul>
 <p>Each terminal’s sample — <code>PortInfo { port, name, wildcard }</code> in
 <code>packages/terminal-vocab/src/schema.ts</code>, beside <code>ForegroundSchema:145</code> — is
-<strong>deduped by structural equality</strong> before publishing on the <code>ptyHostSurface</code>
-contract, so an unchanged scan emits nothing: the churn guard that keeps a
-5-second ticker from thrashing SolidJS. From there every layer exists: the
-padi sensor set folds it into <code>TerminalSnapshot</code>, the surface serves it
+<strong>deduped by structural equality</strong> before it touches the snapshot, so an
+unchanged scan emits nothing: the churn guard that keeps a 5-second ticker
+from thrashing SolidJS. From there every layer exists: the sensor set folds
+it into <code>TerminalSnapshot</code>, the surface serves it
 (snapshot-then-deltas invariant, <code>.claude/rules/streaming.md</code>), and the
 reconcile-backed store in <code>useTerminalMetadata.ts:180</code> delivers leaf-grained
 ticks to the section.</p>
 <aside class="callout callout-note" data-astro-cid-q2ml7llr><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>Architecture verdicts, conditioned on this build:</strong> the <em>scanner</em> is a leaf
-module inside kaval — a bounded one-shot scan with kaval as its only consumer
-— and graduates only if it grows independent consumers or its own streaming
-volatility. <code>@kolu/port-forward</code> is the opposite case: ssh connection/forward
+sensor module inside padi — a bounded one-shot scan with padi as its only
+consumer — and graduates only if it grows independent consumers or its own
+streaming volatility. <code>@kolu/port-forward</code> is the opposite case: ssh connection/forward
 lifecycle is a hard volatility with two genuinely independent apps on top
 (kolu and vazhi), which is exactly why it is a <em>library</em> package — the
 upstreamed “common stuff” of the drishti pattern — and why neither app is a
@@ -291,7 +300,7 @@ release note:</p>
 </tr>
 <tr>
 <td>PRT1</td>
-<td>kaval scanner · Ports section · direct open</td>
+<td>padi port sensor · Ports section · direct open</td>
 <td>—</td>
 <td>e2e: spawned listener’s chip appears + opens</td>
 </tr>
@@ -327,7 +336,7 @@ chips, the tip. <strong>Done when</strong> an e2e scenario runs
 <code>node -e &#39;require(&quot;http&quot;).createServer((_,r)=&gt;r.end(&quot;ok&quot;)).listen(8123,&quot;0.0.0.0&quot;)&#39;</code>
 in a real kolu terminal and asserts the <code>8123</code> chip appears within two scan
 ticks and clicking it opens the page at <code>location.hostname:8123</code> — pinning the
-real path (kaval scan → <code>ptyHostSurface</code> → padi snapshot → surface → reconcile
+real path (padi scan → snapshot → surface → reconcile
 store), which no client-side mock can satisfy. Parser unit tests run on
 fixture <code>/proc</code> trees <em>and</em> fixture <code>lsof -F pcn</code> output; the darwin gate
 (<code>aarch64-darwin</code>) must be green, not skipped. Loopback-bound chips render
