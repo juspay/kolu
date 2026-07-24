@@ -134,10 +134,16 @@ export function makeForwardManager(opts: {
    *  forward: the loss is the stronger fact. */
   const lostWhileClosing = new Set<string>();
 
-  /** Losses reported for a forward that had not finished opening yet, by
-   *  token. The flight consults this when it lands: a listener the mechanism
-   *  has already called dead must not be published as live. */
-  const lostWhileOpening = new Map<object, string>();
+  /** What a mechanism reported about a forward that had not finished opening
+   *  yet, by token — the DISPOSITION as well as the reason, because the two
+   *  demand opposite things of the flight: a `gone` listener must not be
+   *  published, while a `degraded` one may still be reachable and therefore
+   *  must not be forgotten. Collapsing them to a string stranded exactly the
+   *  listener the fault channel exists to keep hold of. */
+  const reportedWhileOpening = new Map<
+    object,
+    { reason: string; kind: "gone" | "degraded" }
+  >();
 
   /** Openings genuinely in flight. A mechanism can call back from INSIDE
    *  `open()`, before this key has a slot at all, so "no slot" alone cannot
@@ -160,7 +166,7 @@ export function makeForwardManager(opts: {
     if (slot === undefined || slot.state === "opening") {
       // Only an opening that is genuinely still in flight can be told about a
       // loss; a callback from a forward that has come and gone is ignored.
-      if (opening.has(token)) lostWhileOpening.set(token, reason);
+      if (opening.has(token)) reportedWhileOpening.set(token, { reason, kind });
       return;
     }
     // Not ours: this loss belongs to a forward that has already gone, and the
@@ -284,14 +290,48 @@ export function makeForwardManager(opts: {
       // and clear the record on every path out, so a failed post-dispose close
       // cannot restore a listener already reported dead and no token record is
       // left behind.
-      const diedOnArrival = lostWhileOpening.get(token);
-      lostWhileOpening.delete(token);
+      const early = reportedWhileOpening.get(token);
+      reportedWhileOpening.delete(token);
       opening.delete(token);
-      if (diedOnArrival !== undefined) {
-        await opened.close().catch(() => {});
-        throw new Error(
-          `port-forward: the forward to ${key} was lost as it came up — ${diedOnArrival}`,
-        );
+      if (early !== undefined) {
+        if (early.kind === "gone") {
+          // The mechanism called it dead before it ever reached us. Publishing
+          // it would put a corpse in the map; close it (best effort — it is
+          // already gone) and fail loudly.
+          await opened.close().catch(() => {});
+          throw new Error(
+            `port-forward: the forward to ${key} was lost as it came up — ${early.reason}`,
+          );
+        }
+        // Degraded: it broke, and the mechanism could not clean it up, so it
+        // may still be reachable. Try once more here — if THAT close works it
+        // really is gone and this create has nothing to hand back; if it fails
+        // the listener is still out there and must be OWNED (visible in the
+        // list, retryable by cancel) rather than dropped on the floor.
+        // NB the outcome is recorded, not thrown from inside the `try` — a
+        // throw there would be caught by this function's own `catch` and the
+        // clean case would take the stranded-listener path (it did).
+        let reallyGone = false;
+        try {
+          await opened.close();
+          reallyGone = true;
+        } catch {
+          reallyGone = false;
+        }
+        if (reallyGone) {
+          throw new Error(
+            `port-forward: the forward to ${key} broke as it came up — ${early.reason}`,
+          );
+        }
+        const forward: Forward = {
+          key,
+          target,
+          localPort: opened.localPort,
+          createdAt: Date.now(),
+        };
+        slots.set(key, { state: "open", forward, opened, token });
+        opts.onLost({ forward, reason: early.reason, kind: "degraded" });
+        return forward;
       }
       if (disposed) {
         // The map was torn down while this one was still opening. It exists
@@ -332,7 +372,7 @@ export function makeForwardManager(opts: {
       // and let the next create try again. The exception is a flight that
       // opened a listener and then failed to CLOSE it during dispose: that
       // listener may still be live, so its slot stays (see `closeFailed`).
-      lostWhileOpening.delete(token);
+      reportedWhileOpening.delete(token);
       opening.delete(token);
       const current = slots.get(key);
       if (current?.state === "opening" && current.flight === flight) {
