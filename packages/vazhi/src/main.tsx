@@ -20,8 +20,11 @@
  * kolu's PTY persistence keeps it alive across browser reloads for free; run it
  * on a box with no kolu at all and it works the same.
  *
- * This module owns only the process edges — the TTY precondition, ink's
- * alternate-screen mode, and the exit code. Everything visible is `App.tsx`.
+ * This module owns the process edges that exist BEFORE the screen does — the
+ * TTY precondition, ink's alternate-screen mode, and the exit code. Every way
+ * of *stopping* — `q`, Ctrl+C, and SIGINT/SIGTERM/SIGHUP — belongs to
+ * `App.tsx`, because all of them must run the same forward teardown before the
+ * process is allowed to end.
  */
 
 import { hostname } from "node:os";

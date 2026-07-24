@@ -19,7 +19,7 @@ import {
   parseTarget,
 } from "@kolu/port-forward";
 import { Text, useApp, useInput, useWindowSize } from "ink";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { clampSelection, forwardUrl, readPromptInput } from "./format.ts";
 import { type Mode, Screen, type Status } from "./Screen.tsx";
 
@@ -81,6 +81,12 @@ export function App({ hostname }: { hostname: string }) {
       exit(err instanceof Error ? err : new Error(messageOf(err)));
     }
   };
+
+  /** The signal handlers are claimed once at mount (below), so they reach the
+   *  CURRENT `quit` through this rather than closing over the one that existed
+   *  at mount. */
+  const quitRef = useRef(quit);
+  quitRef.current = quit;
 
   const add = async (text: string): Promise<void> => {
     let target: ReturnType<typeof parseTarget>;
@@ -154,8 +160,11 @@ export function App({ hostname }: { hostname: string }) {
 
   useEffect(() => {
     // An external stop must tear the forwards down exactly as `q` does.
+    // Registered ONCE at mount: everything `quit` closes over is stable, and
+    // without the empty dependency list the uptime tick would tear all three
+    // handlers off and put them back every second for the life of the process.
     const onSignal = (): void => {
-      void quit();
+      void quitRef.current();
     };
     for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
       process.on(signal, onSignal);
@@ -165,7 +174,7 @@ export function App({ hostname }: { hostname: string }) {
         process.off(signal, onSignal);
       }
     };
-  });
+  }, []);
 
   if (quitting) {
     return <Text>tearing down forwards…</Text>;
