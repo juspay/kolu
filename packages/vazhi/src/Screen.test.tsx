@@ -1,7 +1,7 @@
 import type { Forward } from "@kolu/port-forward";
 import { render } from "ink-testing-library";
 import { describe, expect, it } from "vitest";
-import { Screen } from "./App.tsx";
+import { Screen } from "./Screen.tsx";
 
 const NOW = 1_700_000_000_000;
 const ESC = String.fromCharCode(27);
