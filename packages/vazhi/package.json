@@ -5,17 +5,20 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "start": "tsx src/main.ts",
+    "start": "tsx src/main.tsx",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
   "dependencies": {
     "@kolu/port-forward": "workspace:*",
-    "columnify": "^1.6.0"
+    "ink": "^7.1.1",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.8"
   },
   "devDependencies": {
-    "@types/columnify": "^1.5.4",
     "@types/node": "^22.0.0",
+    "@types/react": "^19.2.17",
+    "ink-testing-library": "^4.0.0",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"

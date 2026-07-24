@@ -6,28 +6,38 @@ A standalone TUI for ssh port forwards. Tamil: *way, passage*.
 nix run github:juspay/kolu#vazhi
 ```
 
+A full-screen terminal app — it takes the window, redraws on resize, and gives
+your scrollback back untouched when you quit:
+
 ```
 vazhi · 1 forward · answering on pureintent
 
- › pu-dev:5173  →  0.0.0.0:61010  up 12m
+ › pu-dev:5173  →  http://pureintent:5173  up 12m
 
-a add · x cancel · j/k move · q quit
+
+a add · x cancel · ↑/↓ move · q quit
 ```
 
-That row means: whatever listens on pu-dev's own `127.0.0.1:5173` now answers on
-port `61010` of **this** machine, on every interface — so
-`http://pureintent:61010` opens it from any browser on the network, which
-pu-dev's loopback could never do.
+That row means: whatever listens on pu-dev's own `127.0.0.1:5173` now answers at
+`http://pureintent:5173` — a port on **this** machine, bound on every interface
+— so any browser on the network can open it, which pu-dev's loopback could
+never do. The URL is a real terminal hyperlink (OSC 8): **click it**.
+
+The local port is the remote port whenever that number is free here, so the
+URL is predictable. When it isn't free, the kernel picks one and the row shows
+which — a forward is never refused just because its number is busy.
 
 | key | |
 | --- | --- |
 | `a` | add a forward — type `host:port` (or `:port` for a loopback server on this machine) |
 | `x` | cancel the selected forward |
-| `j` / `k` / arrows | move the selection |
+| `↑` / `↓` (or `j` / `k`) | move the selection |
 | `q` | quit — every forward vazhi opened goes down with it |
 
 No subcommands, no daemon, no config file. It is an app in the spirit of
-opencode: you run it, you look at it, you quit it.
+opencode: you run it, you look at it, you quit it. The screen is
+[Ink](https://github.com/vadimdemedes/ink) — see `App.tsx` for why not OpenTUI,
+which would otherwise have been the SolidJS-shaped choice.
 
 ## What it is for
 
