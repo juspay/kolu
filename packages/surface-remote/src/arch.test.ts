@@ -2,8 +2,7 @@
  * Coverage for `resolveSystem`'s dial-owned host probe. Every dial asks the
  * target because a hostname can change identity while Kolu remains open, and
  * cancellation must never leak across a recheck.
- * Mocks `./process` so no ssh is ever spawned; each test uses a distinct
- * host so the module-level cache never bleeds across tests.
+ * Mocks `./process` so no ssh is ever spawned.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +17,6 @@ vi.mock("./process", async (importOriginal) => ({
   // subprocess-spawning entry points.
   ...(await importOriginal<typeof import("./process")>()),
   runCapture: vi.fn(),
-  runProgress: vi.fn(),
 }));
 
 const tmpDirs: string[] = [];

@@ -6,8 +6,9 @@
  * verbs run byte-for-byte unchanged over ssh.
  *
  * The reach + provision + one-shot-dial composition is padi's shared client
- * dial kit: it resolves padi's `.drv` for the host's arch, ships it
- * (`nix copy --derivation` → realise), runs `ssh <host> padi --stdio`, and speaks
+ * dial kit: it selects padi from the exact baked source for the host's
+ * architecture, provisions and roots it through the target Nix store, runs
+ * `ssh <host> padi --stdio`, and speaks
  * the COMBINED `padiDaemonContract` (padiSurface + the frozen control core) over
  * that child's stdio. padi's `--stdio` mode fronts the *durable* daemon (see
  * `padi/src/stdioBridge.ts`), so a terminal a remote `create` spawns — and its

@@ -105,7 +105,7 @@ describe("ssh session phase sequence (probing)", () => {
     session.destroy();
   });
 
-  it("a resolver-cache hit plus target warm hit skips provisioning", async () => {
+  it("a warm root refresh advances through provisioning", async () => {
     const h = harness();
     const session = makeSession<unknown, SshProv>({
       connectOnce: h.connectOnce,
@@ -118,17 +118,22 @@ describe("ssh session phase sequence (probing)", () => {
 
     const pinned = session.pin();
     await flush();
-    // Fully warm path: source resolution was cached and the target ask-only
-    // check hits, so the connector goes straight to `connecting`.
+    // Even a warm target must refresh its required root. A GC race can make
+    // that operation long, so the connector advances before it begins.
+    h.ctx().provisioning("provisioning");
     h.ctx().connecting();
     h.connect();
     await pinned;
     session.markConnected();
     await flush();
 
-    expect(phases).not.toContain("provisioning");
     const distinct = phases.filter((p, i) => p !== phases[i - 1]);
-    expect(distinct).toEqual(["probing", "connecting", "connected"]);
+    expect(distinct).toEqual([
+      "probing",
+      "provisioning",
+      "connecting",
+      "connected",
+    ]);
     session.destroy();
   });
 });

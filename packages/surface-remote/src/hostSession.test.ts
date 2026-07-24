@@ -3,7 +3,7 @@
  * which short-circuit before any ssh child is created:
  *
  *   1. "Reconnect does nothing" — when the link gives up because
- *      `nix copy --derivation` provisioning failed, `spawn()` throws
+ *      target-store provisioning failed, `spawn()` throws
  *      before any child exists, so `handleChildDone` (the usual site that
  *      nulls `clientPromise`) never runs. If the terminal `failed`
  *      transition doesn't clear the slot itself, it keeps the last
@@ -20,7 +20,7 @@
  *      *never* give up, so a roaming laptop reconnects on its own once the
  *      host is reachable again, instead of stranding in terminal `failed`.
  *
- * Both keep off real ssh / `nix copy`: case 1 mocks `provisionAgent` to
+ * Both keep off real ssh / Nix provisioning: case 1 mocks `provisionAgent` to
  * fail; case 2's resolver rejects before `provisionAgent` is ever reached.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,7 +40,7 @@ vi.mock("./nixCopy", async (importOriginal) => ({
 
 const PROVISION_FAILURE = {
   ok: false as const,
-  reason: "testhost: 'nix copy --derivation' exited with code 1",
+  reason: "testhost: 'nix build --store' exited with code 1",
   // Reached the host, it rejected the closure (trusted-users) — terminal.
   cause: "remote" as const,
 };
@@ -50,7 +50,7 @@ const PROVISION_FAILURE = {
 // keep retrying, not give up.
 const PROVISION_NETWORK_FAILURE = {
   ok: false as const,
-  reason: "testhost: 'nix copy --derivation' exited with code 1",
+  reason: "testhost: 'nix build --store' exited with code 1",
   cause: "network" as const,
 };
 
@@ -203,7 +203,7 @@ describe("HostSession reconnect after give-up", () => {
 
   it("keeps retrying a network-class provision failure instead of giving up", async () => {
     // A provision failure isn't automatically terminal: if the host went
-    // unreachable mid-`nix copy` (after the arch probe succeeded),
+    // unreachable mid-provision (after the arch probe succeeded),
     // `provisionAgent` reports `cause: "network"`, and that must retry like
     // any transport fault rather than burn the give-up budget.
     vi.mocked(provisionAgent).mockResolvedValue(

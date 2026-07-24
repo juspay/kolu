@@ -56,17 +56,15 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
 /** The ssh connector's OWN provisioning-phase vocabulary — the `Prov` a
  *  `makeSession` over {@link sshConnector} carries. Each phase names what is
  *  ACTUALLY happening at the real command boundaries `nixCopy.ts` runs:
- *   - `"probing"`  — the OPENING phase: the ssh architecture probe and, when the
- *                     exact derivation is already cached locally, the ASK-ONLY target
- *                     warm check. No potentially minutes-long Nix operation runs here.
+ *   - `"probing"`  — the OPENING phase: the ssh architecture probe and ASK-ONLY
+ *                     target warm check. No potentially minutes-long Nix operation
+ *                     runs here.
  *   - `"provisioning"` — an uncached exact-source evaluation and/or the cold target
- *                        `nix build` + required GC-root commit. Once evaluation starts,
- *                        the phase stays honest and monotonic even when the later target
- *                        check finds an already-realised closure.
+ *                        `nix build`, plus every required GC-root commit. A warm
+ *                        target still crosses this phase before its root refresh,
+ *                        because a GC race can turn that commit into a restoration.
  *  A session opens at `"probing"` and advances once to `"provisioning"` before
- *  the first potentially long Nix operation. A resolver-cache hit plus target
- *  warm hit goes directly `probing → connecting`; target warmth alone does not
- *  suppress an uncached source evaluation. */
+ *  the first potentially long Nix operation or mandatory root commit. */
 export type SshProv = "probing" | "provisioning";
 
 /** The owning dial context a deferred derivation resolver may consume. */

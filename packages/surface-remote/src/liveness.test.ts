@@ -9,7 +9,7 @@
  *   3. `liveness: false` opts out.
  *
  * Mocks `node:child_process` + `nixCopy` (same approach as `recheck.test.ts`) so
- * no real ssh / `nix copy` runs.
+ * no real ssh / remote-store Nix command runs.
  */
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";

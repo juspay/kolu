@@ -2,8 +2,8 @@
  * `kolu mcp --host <ssh>` — reach a padi on a remote machine over ssh and hand
  * back a `KoluCliConnection` of the SAME shape the local dial returns, so the
  * MCP face is transport-blind. Padi's client dial kit owns the one-shot recipe
- * shared with padi-tui: resolve padi's
- * `.drv` for the host's arch, ship it (`nix copy` → realise), run
+ * shared with padi-tui: select padi from the exact baked source for the host's
+ * architecture, provision and root it through the target Nix store, then run
  * `ssh <host> padi --stdio`, and speak the COMBINED `padiDaemonContract` over
  * that child's stdio. padi's `--stdio` mode fronts the *durable* daemon, so a
  * terminal a remote create spawns — and its kaval and PTYs — outlives the ssh

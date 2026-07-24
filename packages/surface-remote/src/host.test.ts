@@ -266,7 +266,7 @@ describe("buildAgentCommand", () => {
 
 describe("NIX_SSHOPTS", () => {
   it("renders the same keepalive policy as the spawned-ssh argv", () => {
-    // `nix copy --to ssh-ng://` forks its own ssh out of reach of our
+    // Remote-store Nix forks its own ssh out of reach of our
     // argv; this env string is the only handle on its dead-peer
     // behaviour, so it must carry the identical policy. Parse it back
     // through the argv reader (NIX_SSHOPTS is word-split by nix) and
@@ -300,7 +300,7 @@ describe("ssh multiplexing (ControlMaster)", () => {
     );
   });
 
-  it("nix copy's ssh fork targets the SAME socket (env form == argv form)", () => {
+  it("remote-store Nix's ssh fork targets the SAME socket (env form == argv form)", () => {
     const argvPath = sshOpts(
       buildAgentCommand({
         host: "bob.example",

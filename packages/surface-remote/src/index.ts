@@ -72,7 +72,6 @@ export {
   type LifetimePolicy,
   type RunOptions,
   runCapture,
-  runProgress,
 } from "./process";
 export {
   type DeltaMembers,

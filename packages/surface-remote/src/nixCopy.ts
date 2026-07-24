@@ -16,9 +16,10 @@
  *      output path(s) LOCALLY on the sender (`nix-store -q --outputs`, no
  *      network), then ask the host, bounded, whether they are already valid
  *      there (`nix-store --check-validity`). Present ⇒ warm hit: refresh the
- *      GC root and short-circuit, skipping the redundant copy/realise/pin.
+ *      GC root and short-circuit, skipping the redundant remote-store build.
  *      The check NEVER substitutes (the old fused `--realise` did — the
- *      #1908 wedge); substitution belongs to step 3, narrated as a build.
+ *      #1908 wedge). If GC races the check, restoration belongs to the required
+ *      step-3 root commit, narrated as provisioning.
  *   2. One `nix build --eval-store auto --store ssh-ng://$host` evaluates
  *      locally, transfers the derivation, and realises it remotely. One Nix
  *      process owns the temporary roots across that whole handoff, so a
@@ -36,13 +37,12 @@
  *   Spawn: the output path becomes `agentPath`; the caller then spawns
  *      `ssh $host $agentPath/bin/<binary> --stdio` via the connector.
  *
- * Localhost shortcut: the .drv is already in the local store, so
- * `nix build` is a local build. The copy step is a no-op.
+ * Localhost shortcut: `nix build` and the root commit both target the local store.
  *
  * **Lifetime ownership (#1908 D1b/D1c).** Every child spawns through
  * `process.ts` with a REQUIRED {@link LifetimePolicy}: the quick steps
- * (arch probe, warm check, pin) get a hard `deadline`; the minutes-long
- * `provisioning` gets `progress-liveness` (killed only on real silence),
+ * (arch probe and warm check) get a hard `deadline`; the minutes-long build
+ * and required root commit get `progress-liveness` (killed only on real silence),
  * with a per-step doubling + kill budget ({@link StepBudget}) the CALLER
  * owns across retries so a healthy slow transfer is never livelocked. A
  * per-dial abort `signal` (recheck's abort-in-flight, R6b) group-kills any
@@ -179,8 +179,8 @@ export interface ProvisionOptions {
    *  owns evaluation, transfer, and realisation without a GC race. */
   derivation: AgentDerivation;
   onProgress: (line: string) => void;
-  /** Fired once on the cold path, immediately before the single Nix command
-   *  starts its evaluate/transfer/build lifetime. */
+  /** Fired once immediately before this call's first potentially long required
+   *  operation: the cold target build or a warm target's GC-root commit. */
   onProvisioning?: () => void;
   /** The fused per-step progress-liveness budgets (#1908 R4/C5) — CONNECTOR-owned so
    *  their doubling/terminal state persists across a campaign's retries. The connector
@@ -289,9 +289,9 @@ export function agentGcRootPath(
 }
 
 /** A hard-`deadline` {@link LifetimePolicy} for the QUICK ssh/local steps — the arch
- *  probe, the warm `check-validity`, the GC-root pin. One place so every quick step
- *  shares the "how long a quick nix/ssh round-trip may run" bound (exported so `arch.ts`
- *  rides the same shape rather than re-spelling the literal). */
+ *  probe and warm `check-validity`. One place so every quick step shares the
+ *  "how long a quick nix/ssh round-trip may run" bound (exported so `arch.ts` rides
+ *  the same shape rather than re-spelling the literal). */
 export function probePolicy(): LifetimePolicy {
   return { kind: "deadline", ms: PROVISION_PROBE_DEADLINE_MS };
 }
@@ -491,6 +491,7 @@ export async function provisionAgent(
       if (checkRes.ok) {
         // Warm hit. The shared root operation is the commit point: only a rooted,
         // still-valid target may short-circuit as success.
+        opts.onProvisioning?.();
         const bail = await pinGcRoot(
           opts.host,
           agentPath,

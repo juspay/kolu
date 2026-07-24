@@ -10,7 +10,7 @@
  * the LOCAL ssh client, which legitimately needs `SSH_AUTH_SOCK` / `~/.ssh`).
  *
  * Mocks `node:child_process` + `nixCopy` (same approach as `liveness.test.ts`) so no
- * real ssh / `nix copy` runs; the connector is driven once with a no-op context.
+ * real ssh / remote-store Nix command runs; the connector is driven once with a no-op context.
  */
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";

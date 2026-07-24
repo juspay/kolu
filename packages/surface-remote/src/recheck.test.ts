@@ -14,7 +14,7 @@
  * to time out.
  *
  * Mocks `node:child_process` + `nixCopy` (same approach as
- * `reconnect-spin.test.ts`) so no real ssh / `nix copy` runs.
+ * `reconnect-spin.test.ts`) so no real ssh / remote-store Nix command runs.
  */
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";

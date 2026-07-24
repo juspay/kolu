@@ -1,5 +1,5 @@
-/** Helpers for `host`-string handling shared between `provisionAgent`
- *  (nix copy) and `HostSession` (ssh subprocess spawn). Keeps the
+/** Helpers for `host`-string handling shared between target-store provisioning
+ *  and the ssh agent subprocess. Keeps the
  *  "are we talking to ourselves?" check and the per-line stderr fanout
  *  in one place so they evolve together. */
 
@@ -13,8 +13,8 @@ export function isLocalHost(host: string): boolean {
 /** A `resolveDrvPath` rejection that marks THIS failure as a NON-transport,
  *  bounded → terminal `"remote"` fault — not a transport blip.
  *
- *  Why it exists: `HostSession.spawn` runs the caller's `resolveDrvPath` thunk
- *  at the top of every spawn and, by default, treats a rejection as `"network"`
+ *  Why it exists: `sshConnector` runs the caller's `resolveDrvPath` thunk
+ *  at the top of every dial and, by default, treats a rejection as `"network"`
  *  — the right call for the common case (the resolver's arch probe is an ssh
  *  round-trip, so a rejection usually means the host is unreachable, which must
  *  retry forever). But a resolver can also fail for a NON-transport reason that
@@ -51,10 +51,10 @@ export class ResolveDrvError extends Error {
   }
 }
 
-/** Heuristic: does an ssh / `nix copy` stderr line look like a *transport*
+/** Heuristic: does an ssh / remote-store Nix stderr line look like a *transport*
  *  failure (host unreachable) rather than a remote rejection? Used to
- *  upgrade a provisioning failure's cause to `"network"` — `nix copy`
- *  forks its own ssh and reports connection errors on stderr while exiting
+ *  upgrade a provisioning failure's cause to `"network"` — Nix forks its
+ *  own ssh and reports connection errors on stderr while exiting
  *  with nix's own code (not ssh's 255), so the exit code alone can't tell
  *  "host asleep" from "daemon refused the closure". Matched against the
  *  text ssh/nix actually emit; a miss only means we fall back to the safe
@@ -66,8 +66,7 @@ export function looksLikeNetworkError(line: string): boolean {
 }
 
 /** Forward every non-blank `\n`-terminated line in `chunk` to `onLine`.
- *  Used identically by `nix copy`'s subprocess stderr forwarder and
- *  `HostSession`'s ssh-child stderr forwarder. */
+ *  Used by Nix progress and ssh-child stderr forwarding. */
 export function forEachLine(
   chunk: string,
   onLine: (line: string) => void,
@@ -79,7 +78,7 @@ export function forEachLine(
 
 /** ssh options shared by *every* non-interactive ssh this package causes
  *  to be spawned — the long-lived agent session, the one-shot
- *  probe/realise/pin commands, AND the ssh that `nix copy --to ssh-ng://`
+ *  probe/root commands, AND the ssh that `nix build --store ssh-ng://…`
  *  forks internally. They split into two jobs:
  *
  *   - `BatchMode=yes` — never block on a password/passphrase prompt.
@@ -88,9 +87,8 @@ export function forEachLine(
  *     blocking forever on a half-open connection.
  *
  *  That second job is load-bearing for the one-shot commands too, which
- *  is why these opts are no longer agent-only. `nix-store --realise`
- *  over ssh — and the `nix copy` that precedes it — is a *remote build*
- *  / *remote transfer*, not a quick round-trip: the channel can sit idle
+ *  is why these opts are no longer agent-only. A remote-store `nix build`
+ *  is a *remote build/transfer*, not a quick round-trip: the channel can sit idle
  *  for minutes while the far end compiles or fetches. If the host
  *  degrades mid-flight (network drop, sshd wedge, box overload), an ssh
  *  with no keepalive parks on the half-open socket until the OS TCP
@@ -115,7 +113,7 @@ export function forEachLine(
  *  Declared once as `(key, value)` pairs — the single source of truth —
  *  then rendered into the two shapes its consumers need: an ssh `-o`
  *  argv (`SSH_COMMON_OPTS`) for the ssh commands we spawn directly, and
- *  a whitespace-joined `NIX_SSHOPTS` string for the ssh `nix copy` forks
+ *  a whitespace-joined `NIX_SSHOPTS` string for the remote-store ssh fork
  *  out of reach of our argv. Values MUST stay whitespace-free: the argv
  *  renderer emits one option per pair and nix word-splits `NIX_SSHOPTS`,
  *  so a value with a space would silently corrupt the env form while the
@@ -135,7 +133,7 @@ const toArgv = (pairs: readonly (readonly [string, string])[]): string[] =>
   pairs.flatMap(([key, value]) => ["-o", `${key}=${value}`]);
 
 /** Render `(key, value)` opt pairs into the whitespace-joined `-o Key=Value`
- *  env string `nix copy --to ssh-ng://` word-splits out of `NIX_SSHOPTS`.
+ *  env string Nix word-splits out of `NIX_SSHOPTS`.
  *  The one wire-format definition for the env shape — both `NIX_SSHOPTS` and
  *  `nixSshOpts()` go through here. */
 const toEnv = (pairs: readonly (readonly [string, string])[]): string =>
@@ -150,18 +148,18 @@ const toEnv = (pairs: readonly (readonly [string, string])[]): string =>
  *  the argv shapes this package spawns itself.) */
 export const SSH_COMMON_OPTS: readonly string[] = toArgv(SSH_OPT_PAIRS);
 
-/** The same policy as the `NIX_SSHOPTS` env string that `nix copy --to
- *  ssh-ng://` reads. That copy spawns its *own* ssh which never sees our
- *  argv, so this env var is the only handle on its dead-peer behaviour —
- *  without it the copy step is exposed to the exact hang `SSH_COMMON_OPTS`
+/** The same policy as the `NIX_SSHOPTS` env string that a remote-store Nix
+ *  command reads. Nix spawns its *own* ssh which never sees our argv, so this
+ *  env var is the only handle on its dead-peer behaviour — without it the
+ *  remote-store step is exposed to the exact hang `SSH_COMMON_OPTS`
  *  closes for the commands we spawn directly. */
 export const NIX_SSHOPTS: string = toEnv(SSH_OPT_PAIRS);
 
-/** The `NIX_SSHOPTS` env string for `nix copy --to ssh-ng://`, as a
+/** The `NIX_SSHOPTS` env string for remote-store Nix commands, as a
  *  function (not the const above) so it can additionally carry the
  *  runtime-computed `ControlMaster` pairs (see `controlOptPairs`). The
  *  const stays for external direct importers and is the static keepalive
- *  policy alone; THIS is what `nixCopy` passes, so the ssh `nix copy` forks
+ *  policy alone; THIS is what `nixCopy` passes, so Nix's internal ssh
  *  internally rides the SAME shared master the arch probe opened — not a
  *  fresh ~5s handshake. When multiplexing is unavailable `controlOptPairs()`
  *  returns `[]`, so this degrades back to exactly the const's value. */

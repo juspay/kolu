@@ -26,7 +26,7 @@ vi.mock("./nixCopy", async (importOriginal) => ({
 
 const PROVISION_FAILURE = {
   ok: false as const,
-  reason: "strictlog: 'nix copy --derivation' exited with code 1",
+  reason: "strictlog: 'nix build --store' exited with code 1",
   // Reached the host, it rejected the closure — terminal (no retry storm).
   cause: "remote" as const,
 };

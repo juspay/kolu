@@ -407,6 +407,7 @@ fmt: install
 # Check formatting without modifying files (used by CI)
 fmt-check: install _fmt-check
 
+# Shared private formatting check used by the public `fmt-check` recipe.
 [private]
 _fmt-check:
     {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check {{ nix_format_paths }}'

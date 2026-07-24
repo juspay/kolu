@@ -57,6 +57,62 @@ afterEach(() => {
 });
 
 describe("#1908 — a permanently silent provision reaches `failed`, bounded", () => {
+  it("publishes provisioning while a warm target's root commit is stalled", async () => {
+    vi.mocked(runCapture).mockImplementation(
+      async (_cmd, args, runOpts): Promise<CaptureResult> => {
+        if (args.includes("--outputs")) {
+          return {
+            ok: true,
+            kind: "exit",
+            code: 0,
+            stdout: `${STORE}\n`,
+          };
+        }
+        if (args.includes("--check-validity")) {
+          return { ok: true, kind: "exit", code: 0, stdout: "" };
+        }
+        if (args.includes("--add-root")) {
+          return await new Promise<CaptureResult>((resolve) => {
+            const settleAborted = (): void =>
+              resolve({ ok: false, kind: "aborted", stdout: "" });
+            if (runOpts.signal?.aborted) {
+              settleAborted();
+            } else {
+              runOpts.signal?.addEventListener("abort", settleAborted, {
+                once: true,
+              });
+            }
+          });
+        }
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    );
+    const session = makeSession({
+      connectOnce: sshConnector({
+        host: "warm-root-stall",
+        binary: "agent",
+        resolveDrvPath: () => Promise.resolve(directAgentDerivation(DRV)),
+        localEnv: {},
+      }),
+      initialConnection: "probing",
+      liveness: false,
+      log: silentLogger,
+    });
+
+    session.pin().catch(() => {});
+    for (
+      let i = 0;
+      i < 10 && session.currentState().phase !== "provisioning";
+      i++
+    ) {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    expect(session.currentState().phase).toBe("provisioning");
+    session.destroy();
+    await vi.advanceTimersByTimeAsync(0);
+  });
+
   it("gives up terminally after the provisioning budget is exhausted", async () => {
     const connectOnce = sshConnector({
       host: "testhost",
