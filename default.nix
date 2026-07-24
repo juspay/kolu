@@ -591,7 +591,7 @@ let
   # Unlike kaval-tui / padi-tui it does NOT wrap the full `kolu` build: vazhi
   # imports one dependency-free library, so the vite bundle and the node-pty
   # rebuild would be pure cost.
-  vazhiPackages = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
+  vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
 
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
   # package. Reuses this build's `src` + `pnpmDeps` — every package with a
@@ -604,5 +604,5 @@ let
   };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
-} // vazhiPackages
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi;
+}

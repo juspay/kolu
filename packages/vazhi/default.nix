@@ -29,20 +29,18 @@
 let
   tree = import ../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
 in
+pkgs.runCommand "vazhi"
 {
-  vazhi = pkgs.runCommand "vazhi"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta = {
-        description = "A standalone TUI for ssh port forwards";
-        mainProgram = "vazhi";
-      };
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/vazhi \
-      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
-      --add-flags "${tree}/packages/vazhi/src/main.tsx" \
-      --set TSX_TSCONFIG_PATH "${tree}/packages/vazhi/tsconfig.json" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh ]}
-  '';
-}
+  nativeBuildInputs = [ pkgs.makeWrapper ];
+  meta = {
+    description = "A standalone TUI for ssh port forwards";
+    mainProgram = "vazhi";
+  };
+} ''
+  mkdir -p $out/bin
+  makeWrapper ${pkgs.nodejs}/bin/node $out/bin/vazhi \
+    --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+    --add-flags "${tree}/packages/vazhi/src/main.tsx" \
+    --set TSX_TSCONFIG_PATH "${tree}/packages/vazhi/tsconfig.json" \
+    --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh ]}
+''

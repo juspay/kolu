@@ -22,11 +22,11 @@
       packages = platform.withPkgs (pkgs:
         let
           workspace = import ../../nix/workspace.nix { inherit pkgs; };
-          vazhiPackages = import ./default.nix {
+          vazhi = import ./default.nix {
             inherit pkgs;
             inherit (workspace) src pnpmDeps;
           };
         in
-        vazhiPackages // { default = vazhiPackages.vazhi; });
+        { inherit vazhi; default = vazhi; });
     };
 }
