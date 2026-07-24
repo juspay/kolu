@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 530" font-family="ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a6ea5"/>
+    </marker>
+    <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1b7a3a"/>
+    </marker>
+    <marker id="arrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c2611b"/>
+    </marker>
+    <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#6d4fa3"/>
+    </marker>
+  </defs>
+
+  <!-- ══════════ Remote host ══════════ -->
+  <rect x="20" y="40" width="340" height="410" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="38" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">REMOTE HOST — OWNS THE TERMINAL</text>
+
+  <rect x="40" y="80" width="185" height="108" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="54" y="101" font-size="12" font-family="ui-monospace,monospace" fill="#1a1c20" font-weight="700">fish        27872</text>
+  <text x="54" y="121" font-size="12" font-family="ui-monospace,monospace" fill="#1a1c20">├─ node     30588</text>
+  <text x="54" y="141" font-size="12" font-family="ui-monospace,monospace" fill="#6d4fa3" font-weight="700">│   listens :5173</text>
+  <text x="54" y="161" font-size="12" font-family="ui-monospace,monospace" fill="#1a1c20">└─ workerd  30596</text>
+  <text x="54" y="179" font-size="11" fill="#8a8574">the shell's process subtree</text>
+
+  <rect x="40" y="220" width="300" height="72" rx="8" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="56" y="241" font-size="13" font-weight="700" fill="#1b7a3a">kaval processScan · new (PRT1)</text>
+  <text x="56" y="260" font-size="11.5" fill="#1a1c20">/proc walk (linux) · ps + lsof (darwin) — / 5 s</text>
+  <text x="56" y="278" font-size="11.5" fill="#1a1c20">subtree join → ports + bind address</text>
+
+  <rect x="40" y="324" width="300" height="62" rx="8" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
+  <text x="56" y="346" font-size="13" font-weight="700" fill="#3a6ea5">padi TerminalSnapshot — exists</text>
+  <text x="56" y="366" font-size="12" fill="#1b7a3a" font-family="ui-monospace,monospace" font-weight="700">+ ports  (new field)</text>
+
+  <line x1="140" y1="190" x2="140" y2="216" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#arrG)"/>
+  <line x1="140" y1="294" x2="140" y2="320" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#arrG)"/>
+
+  <!-- ══════════ Kolu server host ══════════ -->
+  <rect x="420" y="40" width="360" height="410" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="438" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">KOLU SERVER HOST — e.g. pureintent (HEADLESS)</text>
+
+  <rect x="440" y="80" width="320" height="100" rx="8" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="456" y="101" font-size="13" font-weight="700" fill="#6d4fa3">vazhi — forwards daemon · new (PRT0)</text>
+  <text x="456" y="121" font-size="11.5" font-family="ui-monospace,monospace" fill="#1a1c20">(host, remotePort) → local listener</text>
+  <text x="456" y="139" font-size="11.5" fill="#1a1c20">remote host → ssh -L on shared ControlMaster</text>
+  <text x="456" y="156" font-size="11.5" fill="#1a1c20">kolu-host loopback → plain TCP relay</text>
+  <text x="456" y="173" font-size="11" fill="#7a6b93">consumers: vazhi CLI · vazhi TUI · kolu</text>
+
+  <rect x="440" y="216" width="320" height="72" rx="8" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
+  <text x="456" y="237" font-size="13" font-weight="700" fill="#3a6ea5">kolu server surface — exists</text>
+  <text x="456" y="256" font-size="11.5" fill="#5b7691">serves the UI to any viewer</text>
+  <text x="456" y="273" font-size="11.5" fill="#5b7691">policy: lazy on click · auto-cancel on port death</text>
+
+  <rect x="440" y="396" width="320" height="40" rx="8" fill="#f5f1fb" stroke="#6d4fa3" stroke-dasharray="4 3"/>
+  <text x="600" y="420" font-size="12" text-anchor="middle" font-family="ui-monospace,monospace" fill="#6d4fa3" font-weight="700">0.0.0.0:61000  ⇄  tunnel / relay</text>
+
+  <line x1="600" y1="216" x2="600" y2="184" stroke="#c2611b" stroke-width="1.6" marker-end="url(#arrO)"/>
+  <text x="612" y="205" font-size="11" fill="#8a5b34">create / cancel (PRT2)</text>
+  <polyline points="440,150 428,150 428,416 436,416" fill="none" stroke="#6d4fa3" stroke-width="1.6" marker-end="url(#arrP)"/>
+
+  <!-- tunnel lane -->
+  <line x1="440" y1="120" x2="229" y2="140" stroke="#6d4fa3" stroke-width="2" marker-end="url(#arrP)"/>
+  <text x="243" y="110" font-size="10.5" font-family="ui-monospace,monospace" fill="#6d4fa3">ssh -L *:61000:127.0.0.1:5173</text>
+
+  <!-- mirror lane -->
+  <line x1="340" y1="355" x2="436" y2="252" stroke="#3a6ea5" stroke-width="2" marker-end="url(#arrB)"/>
+  <text x="392" y="322" font-size="11" fill="#3a6ea5" font-weight="700">surface</text>
+  <text x="392" y="337" font-size="11" fill="#3a6ea5" font-weight="700">mirror</text>
+
+  <!-- ══════════ Viewer ══════════ -->
+  <rect x="840" y="40" width="320" height="410" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="858" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">VIEWER — e.g. zest (MACBOOK, TAILSCALE)</text>
+
+  <rect x="860" y="80" width="280" height="128" rx="8" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="876" y="101" font-size="13" font-weight="700" fill="#1b7a3a">kolu UI in the browser</text>
+  <text x="876" y="125" font-size="11.5" font-family="ui-monospace,monospace" fill="#1a1c20">PORTS  5173 node ⤴ ⇄ :61000</text>
+  <text x="876" y="144" font-size="11.5" font-family="ui-monospace,monospace" fill="#1a1c20">       61922 workerd ⤴</text>
+  <text x="876" y="164" font-size="11" fill="#54785f">Forwarded Ports · ＋ forward a port…</text>
+  <text x="876" y="188" font-size="11" fill="#54785f">Inspector Ports section — new (PRT1 · PRT2)</text>
+
+  <rect x="860" y="264" width="280" height="64" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="876" y="285" font-size="13" font-weight="700" fill="#1a1c20">new tab</text>
+  <text x="876" y="304" font-size="12" font-family="ui-monospace,monospace" fill="#6d4fa3">http://pureintent:61000</text>
+  <text x="876" y="321" font-size="10.5" fill="#8a8574">location.hostname — never "localhost"</text>
+
+  <line x1="1000" y1="212" x2="1000" y2="260" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#arrG)"/>
+  <text x="1012" y="240" font-size="11" fill="#54785f">window.open</text>
+
+  <!-- viewer lanes -->
+  <line x1="762" y1="250" x2="856" y2="150" stroke="#3a6ea5" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrB)"/>
+  <text x="772" y="172" font-size="10.5" fill="#7d94ad">kolu UI</text>
+  <line x1="856" y1="298" x2="764" y2="410" stroke="#6d4fa3" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrP)"/>
+  <text x="800" y="342" font-size="10.5" fill="#7a6b93">raw TCP</text>
+  <text x="782" y="380" font-size="10.5" fill="#8a8574">over tailscale</text>
+
+  <!-- ══════════ Legend ══════════ -->
+  <rect x="180" y="490" width="14" height="14" rx="3" fill="#eaf1f8" stroke="#3a6ea5"/>
+  <text x="202" y="501" font-size="12" fill="#1a1c20">exists today</text>
+  <rect x="310" y="490" width="14" height="14" rx="3" fill="#efe9f8" stroke="#6d4fa3"/>
+  <text x="332" y="501" font-size="12" fill="#1a1c20">PRT0 — vazhi</text>
+  <rect x="460" y="490" width="14" height="14" rx="3" fill="#e3f4e9" stroke="#1b7a3a"/>
+  <text x="482" y="501" font-size="12" fill="#1a1c20">PRT1 — detection + Ports UI</text>
+  <rect x="680" y="490" width="14" height="14" rx="3" fill="#fbeadd" stroke="#c2611b"/>
+  <text x="702" y="501" font-size="12" fill="#1a1c20">PRT2 — kolu ⇄ vazhi wiring</text>
+</svg>

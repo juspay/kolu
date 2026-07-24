@@ -1,0 +1,207 @@
+---
+title: Port Forwarding — vazhi & Inspector Port Links
+description: vazhi, a standalone multi-host ssh forward manager (drishti-style app), plus live openable port chips for every terminal in the Inspector.
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-24
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import Kbd from "../../components/Kbd.astro";
+import Svg from "../../components/Svg.astro";
+import arch from "../../diagrams/port-forwarding-arch.svg?raw";
+
+export const Mockup = () => (
+  <div style="font-family:ui-sans-serif,system-ui;max-width:24rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)">
+    <div style="padding:.9rem 1rem .3rem;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PORTS <span style="float:right;color:#5b6470">3</span></div>
+    <div style="padding:.1rem 1rem .6rem;font:.78rem/1.9 ui-monospace,monospace;color:#d6dae2">
+      <div>🌐 <b>5173</b> <span style="color:#8b93a3">node</span> <span style="float:right"><span style="color:#4da3ff">⤴ open</span> <span style="background:#2a2138;color:#b79df0;border-radius:5px;padding:.05rem .4rem">⇄ :61000</span></span></div>
+      <div>🌐 <b>9229</b> <span style="color:#8b93a3">node</span> <span style="float:right;color:#4da3ff">⤴ open</span></div>
+      <div>🌐 <b>61922</b> <span style="color:#8b93a3">workerd</span> <span style="float:right;color:#4da3ff">⤴ open</span></div>
+      <div style="color:#5b6470">＋ Forward a port…</div>
+    </div>
+    <div style="padding:.4rem 1rem .7rem;border-top:1px solid #232834;font:.68rem/1.7 ui-monospace,monospace;color:#5b6470">FORWARDED PORTS<br/><span style="color:#a9b0be">⇄ pu-dev:5173 → :61000 · auto · ⨯&nbsp;&nbsp;&nbsp;⇄ zest:8080 → :61003 · manual · ⨯</span></div>
+    <div style="padding:.55rem 1rem .8rem;border-top:1px solid #232834;background:#0e1116;font:.72rem/1.8 ui-monospace,monospace">
+      <span style="color:#3fbf6f">$</span> <span style="color:#d6dae2">vazhi ls</span><br/>
+      <span style="color:#8b93a3">pu-dev:5173 → 0.0.0.0:61000&nbsp;&nbsp;ssh · up 4m</span><br/>
+      <span style="color:#8b93a3">zest:8080&nbsp;&nbsp;&nbsp;→ 0.0.0.0:61003&nbsp;&nbsp;ssh · up 1m</span>
+    </div>
+  </div>
+);
+
+Agents constantly start dev servers, and the URL scrolls away into the
+scrollback. This feature answers the one question kolu can't answer today —
+**where is the thing the agent just ran?** — with exactly one concept:
+listening TCP ports, attributed to their terminal, one click from your
+browser.<Footnote>The inspiration, [kero.sh](https://kero.sh/), also shows a
+process list with CPU% and memory. We drop processes from the plan entirely
+(KISS): CPU% is the most expensive part to build for the least payoff, and a
+name+pid list is decoration. The process-subtree walk survives only *inside*
+the scanner, as the mechanism that attributes a port to a terminal.</Footnote>
+It ships as two things: **vazhi** (Tamil: *way, passage*) — a standalone
+forward manager, an app of its own in the drishti mold — and a live **Ports**
+section in kolu's Inspector built on top of it.
+
+The plan is built for kolu's real deployment shape: the server runs on a
+headless Linux box (*pureintent*) while the browser runs elsewhere (*zest*, a
+macbook on the tailnet). So "open this port" **never means `localhost`** — a
+reachable endpoint always lives on the kolu server host, and the client builds
+URLs from `window.location.hostname`, the same name the browser already uses
+to reach kolu.
+
+<Svg
+  svg={arch}
+  wide
+  caption="Three machines, two lanes. Detection (green → blue): a 5-second scan in kaval fills a new ports field on TerminalSnapshot, which rides the existing ssh surface mirror like every other terminal fact. Reachability (purple): vazhi maps any (host, port) to a listener on the kolu server host — an ssh -L tunnel for remote hosts, a plain TCP relay for kolu-host loopback ports — and the viewer's browser opens it via location.hostname. For wildcard-bound ports on the kolu host, no vazhi hop is needed at all."
+/>
+
+## vazhi — a forward manager that stands alone
+
+vazhi is the PRT0 deliverable and the reason this plan has a phase 0: like
+drishti for the surface stack, it is a real app with its own users that keeps
+the capability honest — not a kolu-internal module. It lives at
+`packages/vazhi/` as a workspace package **with its own `flake.nix`**, to be
+externalized into its own repo later; in-repo first, so it can import
+`surface-remote`'s ControlMaster helper directly and skip the drishti-style
+pair-PR burden until the API settles.
+
+One model, two mechanisms. vazhi owns a map of forwards, N hosts × N ports —
+`(host, remotePort) → local listener` — where every listener binds a
+**non-loopback** address on the machine vazhi runs on:
+
+- **Remote host** → `ssh -L *:61000:127.0.0.1:5173 <host>` — added and removed on a *live* multiplexed connection via `ssh -O forward` / `ssh -O cancel`, no new handshake.
+- **Kolu-host loopback** → a plain TCP relay (`0.0.0.0:61000 → 127.0.0.1:5173`), no ssh involved. Needed because even the server host's own loopback is unreachable from a viewer on another machine.
+
+The ssh side needs no connection management of its own: `controlMaster.ts`
+computes the `ControlPath` deterministically from the destination and
+`ControlMaster=auto` makes whoever connects first the master. vazhi uses the
+same `controlOptPairs` helper, so standalone it creates its own masters, and
+alongside kolu it silently shares the mirror's sockets — the ControlPath
+convention *is* the integration, with zero coordination
+code.<Footnote>Forwards die with their master connection, so a dropped host
+can never leak tunnels; vazhi's own cancel path handles the deliberate
+case.</Footnote>
+
+Three consumers from day one: a **daemon** serving the forwards state over a
+`@kolu/surface` app (dogfooding the same stack kolu consumes), a **CLI**
+(`vazhi add pu-dev:5173` · `vazhi ls` · `vazhi rm pu-dev:5173`), and a **TUI**
+(kaval-tui-style live table across hosts). vazhi is *mechanism only* — create,
+cancel, list, pick a free port, self-clean. Every policy decision (when to
+forward, when to auto-cancel, what to show) belongs to its consumers.
+
+<Callout>
+**Security posture, stated:** a vazhi listener is unauthenticated raw TCP on
+the kolu server's serving interface — anyone on the tailnet can connect, the
+same exposure as running the dev server on `0.0.0.0` yourself. That is the
+accepted v1 trust model (the tailnet is the trust boundary, as it already is
+for kolu's own UI); per-forward auth would be a later, separate feature.
+</Callout>
+
+## Port links in the Inspector
+
+<Mockup />
+
+A **Ports** section joins the existing blocks in
+`packages/client/src/right-panel/MetadataInspector.tsx` (pure rendering — the
+data arrives on the terminal's metadata like everything else). The flows:
+
+- **Open.** Click a chip → `window.open` on `http://${location.hostname}:…`, matching the Code tab's external-open idiom (`CodeTab.tsx:1114`). Wildcard-bound ports on the kolu server host open **directly** on their own port — no forward. Loopback-bound and remote ports go through vazhi: the client calls `create`, gets the listener port, opens it, and the chip gains a `⇄ :61000` badge. Forwarding is **lazy — first click only**, never eager for every detected port.<Footnote>An agent session can hold six listening ports; auto-tunneling all of them VS-Code-style keeps idle listeners alive for ports nobody opens. Lazy costs one `ssh -O forward` round-trip (~ms on the multiplexed socket) on first click. This also covers the corner where the terminal's host *is* the viewer's machine (zest as a kolu remote host, viewed from zest): traffic loops zest → pureintent → ssh → zest — roundabout but correct, and not worth a special case in v1.</Footnote>
+- **Manage.** A **Forwarded Ports** group lists every active vazhi forward — `host:remotePort → :localPort`, origin `auto` (chip click) or `manual`, cancel `⨯` per row. Kolu auto-cancels an `auto` forward when the scanner sees its remote port die; `manual` forwards persist until cancelled or their host disconnects.
+- **Manual forward.** The `＋ Forward a port…` row and a <Kbd keys="⌘+K" /> command accept `host:port` — for a port the scanner missed or one outside any terminal's subtree.
+- **Discoverability.** One tip in `settings/tips.ts`: "Click a port in the Inspector to open the server an agent just started."
+
+## Detection: ports, attributed to the terminal
+
+Process facts belong to the PTY owner, so the scanner is a new module in kaval
+— `packages/kaval/src/processScan.ts`, beside the existing foreground sampler
+(`ptyHost.ts:620`). One host-wide pass every 5 seconds<Footnote>Cadence and
+the unref'd, non-overlapping poll shape copy
+`packages/padi/src/memorySampler.ts` and its `derived.cell(source({ read,
+install: everyMsOr(…) }))` wiring in `servePadi.ts:247`.</Footnote> builds the
+pid→ppid table once, partitions it into per-shell subtrees, and joins
+listening TCP sockets against each subtree:
+
+- **linux** — pid table from `/proc/*/stat`; LISTEN rows (with their **bind address**) from `/proc/net/tcp` + `tcp6`, joined to pids via `/proc/<pid>/fd` socket-inode readlinks — the same technique `surface-daemon-supervisor/src/socketHolder.ts:100` uses for unix sockets.
+- **darwin** — `ps -axo pid,ppid,comm` for the table; `lsof -iTCP -sTCP:LISTEN -P -n -F pcn` for ports, under a hard `timeout` and SIGKILLed if wedged, as `socketHolder.ts:157` does. Both platforms gate CI; the darwin path is day-one work.
+
+Each terminal's sample — `PortInfo { port, name, wildcard }` in
+`packages/terminal-vocab/src/schema.ts`, beside `ForegroundSchema:145` — is
+**deduped by structural equality** before publishing on the `ptyHostSurface`
+contract, so an unchanged scan emits nothing: the churn guard that keeps a
+5-second ticker from thrashing SolidJS. From there every layer exists: the
+padi sensor set folds it into `TerminalSnapshot`, the surface serves it
+(snapshot-then-deltas invariant, `.claude/rules/streaming.md`), and the
+reconcile-backed store in `useTerminalMetadata.ts:180` delivers leaf-grained
+ticks to the section.
+
+<Callout>
+**Architecture verdicts, conditioned on this build:** the *scanner* is a leaf
+module inside kaval — a bounded one-shot scan with kaval as its only consumer
+— and graduates only if it grows independent consumers or its own streaming
+volatility. The *forward manager* is the opposite case: ssh
+connection/forward lifecycle is a hard volatility with three consumers (CLI,
+TUI, kolu), which is exactly why vazhi is an app of its own rather than a
+module in kolu's server.
+</Callout>
+
+## Build plan — the PRT track
+
+| id | ships | needs | proof |
+| --- | --- | --- | --- |
+| PRT0 | vazhi: daemon · CLI · TUI · own flake.nix | — | standalone forward on a real remote box, no kolu running |
+| PRT1 | kaval scanner · Ports section · direct open | — | e2e: spawned listener's chip appears + opens |
+| PRT2 | kolu ⇄ vazhi: lazy forward · Forwarded Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200 via shared master |
+| PRT3 | embedded in-kolu preview pane | PRT2 | deferred — not planned yet |
+
+PRT0 and PRT1 are independent and can proceed in parallel; only PRT2 needs
+both.
+
+### PRT0 — vazhi (one PR)
+
+Package with its own `flake.nix` (`nix run .#vazhi`), surface-app daemon, CLI,
+TUI. **Done when**, with **no kolu running**: `vazhi add <box>:5173` against a
+real remote box (pu harness) prints the listener port, `curl
+http://<vazhi-host>:<port>` **from a different machine** returns the remote
+server's body (proving the non-loopback bind), `vazhi rm` tears it down, and
+the TUI shows the row live. Plus the socket-sharing proof: with kolu's mirror
+connected to the same host, `vazhi add` must create **no second ssh master**
+(assert one master via `ssh -O check` + process count) — the criterion the
+ControlPath-convention design exists to satisfy.
+
+### PRT1 — detection + Ports section (one PR)
+
+Scanner, `ports` schema field, sensor fold, the Inspector section, direct-open
+chips, the tip. **Done when** an e2e scenario runs
+`node -e 'require("http").createServer((_,r)=>r.end("ok")).listen(8123,"0.0.0.0")'`
+in a real kolu terminal and asserts the `8123` chip appears within two scan
+ticks and clicking it opens the page at `location.hostname:8123` — pinning the
+real path (kaval scan → `ptyHostSurface` → padi snapshot → surface → reconcile
+store), which no client-side mock can satisfy. Parser unit tests run on
+fixture `/proc` trees *and* fixture `lsof -F pcn` output; the darwin gate
+(`aarch64-darwin`) must be green, not skipped. Loopback-bound chips render
+with a "needs a forward" affordance that activates in PRT2.
+
+### PRT2 — kolu ⇄ vazhi (one PR)
+
+Kolu supervises the vazhi daemon, consumes its surface; chip click → lazy
+create; tunnel badges; Forwarded Ports group; manual forward + ⌘K command;
+auto-cancel policy. **Done when**, verified with the `remote-host-testing`
+harness against a real remote box *and* a viewer on a different machine than
+the kolu server: clicking a remote terminal's chip creates the forward
+**through vazhi over the shared ControlMaster socket** (a second ssh
+connection does not satisfy this), the opened
+`http://<kolu-host>:<localPort>` returns the remote server's body, cancelling
+the row severs it, and stopping the remote server auto-cancels the `auto`
+forward within two scan ticks. Evidence video of the click-to-page flow.
+
+### PRT3 — embedded preview (deferred)
+
+Open the forwarded page inside kolu — a browser pane in the Code tab, in the
+spirit of the Codex desktop app — instead of a new tab. Explicitly out of
+scope until PRT2 ships<Footnote>A cross-origin iframe surface for arbitrary
+dev servers is a genuinely bigger build, and any server sending
+`X-Frame-Options: DENY` / `frame-ancestors` refuses framing — the new-tab
+path must remain the fallback regardless.</Footnote>; no design here yet —
+when it matures this section is rewritten, not layered.
