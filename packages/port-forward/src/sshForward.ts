@@ -134,15 +134,6 @@ export function forwardCommandArgs(opts: {
   return [...opts.base, "-L", forwardSpec(opts), opts.host, HOLD_OPEN_COMMAND];
 }
 
-/** The ssh side of the forward map. */
-export interface SshForwards {
-  open(
-    host: string,
-    remotePort: number,
-    onLost: (reason: string) => void,
-  ): Promise<OpenedForward>;
-}
-
 /** Open one forward on its own ssh connection.
  *
  *  Resolves when the FAR END announces itself and no bind error was logged;
@@ -278,36 +269,38 @@ function openOne(opts: {
   });
 }
 
-export function createSshForwards(): SshForwards {
-  return {
-    async open(host, remotePort, onLost) {
-      assertHost(host);
-      assertPort(remotePort, `the port on ${host}`);
-      // The target's own port number first — `pu-dev:4123` answers on
-      // `0.0.0.0:4123` when that number is free here. A taken port makes ssh
-      // exit (that is what `ExitOnForwardFailure` is for), which is exactly the
-      // signal the preference falls back on.
-      return await openPreferringPort({
-        preferred: remotePort,
-        open: async (choice) => {
-          if (choice !== "any" && !(await canBindLocally(choice))) {
-            // Something local already answers on this number. ssh would listen
-            // beside it (SO_REUSEADDR) and the number would then mean two
-            // different servers depending on the address dialled — take a free
-            // port instead. See `canBindLocally`.
-            throw new PortUnavailableError(
-              choice,
-              "something local is already listening on it",
-            );
-          }
-          return await openOne({
-            host,
-            remotePort,
-            localPort: choice === "any" ? await pickFreePort() : choice,
-            onLost,
-          });
-        },
+/** Open one forward on its own ssh connection — the `remote` generator behind
+ *  `ForwardMechanisms`, peer to `openRelay`. */
+export async function openSshForward(
+  host: string,
+  remotePort: number,
+  onLost: (reason: string) => void,
+): Promise<OpenedForward> {
+  assertHost(host);
+  assertPort(remotePort, `the port on ${host}`);
+  // The target's own port number first — `pu-dev:4123` answers on
+  // `0.0.0.0:4123` when that number is free here. A taken port makes ssh exit
+  // (that is what `ExitOnForwardFailure` is for), which is exactly the signal
+  // the preference falls back on.
+  return await openPreferringPort({
+    preferred: remotePort,
+    open: async (choice) => {
+      if (choice !== "any" && !(await canBindLocally(choice))) {
+        // Something local already answers on this number. ssh would listen
+        // beside it (SO_REUSEADDR) and the number would then mean two
+        // different servers depending on the address dialled — take a free
+        // port instead. See `canBindLocally`.
+        throw new PortUnavailableError(
+          choice,
+          "something local is already listening on it",
+        );
+      }
+      return await openOne({
+        host,
+        remotePort,
+        localPort: choice === "any" ? await pickFreePort() : choice,
+        onLost,
       });
     },
-  };
+  });
 }
