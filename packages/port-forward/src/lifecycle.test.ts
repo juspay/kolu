@@ -41,6 +41,8 @@ function scripted(script: {
   refuseCloses?: number;
   /** Hold `close` until released. */
   deferClose?: boolean;
+  /** Make the mechanism's `open` REJECT — no listener is ever produced. */
+  openFails?: boolean;
 }) {
   let releaseOpen: (() => void) | undefined;
   let releaseClose: ((fail?: Error) => void) | undefined;
@@ -53,6 +55,9 @@ function scripted(script: {
         await new Promise<void>((resolve) => {
           releaseOpen = resolve;
         });
+      }
+      if (script.openFails === true) {
+        throw new Error("the mechanism could not open anything");
       }
       return {
         localPort: 4123 + closes,
@@ -160,6 +165,10 @@ describe("never lose a listener", () => {
  *  Every combination is generated here, and each is checked against the same
  *  two invariants rather than a hand-written expectation. */
 describe("the opening window, every combination", () => {
+  const OPENS = [
+    { label: "open succeeds", openFails: false },
+    { label: "open rejects", openFails: true },
+  ] as const;
   const REPORTS = ["lost", "fault"] as const;
   const CLOSES = [
     { label: "close succeeds", refuseCloses: 0 },
@@ -167,56 +176,65 @@ describe("the opening window, every combination", () => {
   ] as const;
   const DISPOSALS = [false, true] as const;
 
-  for (const report of REPORTS) {
-    for (const close of CLOSES) {
-      for (const disposing of DISPOSALS) {
-        it(`${report} during the open · ${close.label} · ${disposing ? "dispose races it" : "no dispose"}`, async () => {
-          const rig = mapOf({
-            deferOpen: true,
-            refuseCloses: close.refuseCloses,
-            onOpen: (r) => {
-              if (report === "lost") r.lost("gone while coming up");
-              else r.fault("broke while coming up");
-            },
+  for (const opening of OPENS) {
+    for (const report of REPORTS) {
+      for (const close of CLOSES) {
+        for (const disposing of DISPOSALS) {
+          it(`${opening.label} · ${report} during the open · ${close.label} · ${disposing ? "dispose races it" : "no dispose"}`, async () => {
+            const rig = mapOf({
+              deferOpen: true,
+              openFails: opening.openFails,
+              refuseCloses: close.refuseCloses,
+              onOpen: (r) => {
+                if (report === "lost") r.lost("gone while coming up");
+                else r.fault("broke while coming up");
+              },
+            });
+            const { forwards } = rig;
+
+            const creating = forwards.create(PU).then(
+              (f) => ({ ok: true as const, f }),
+              (e: Error) => ({ ok: false as const, e }),
+            );
+            const disposal = disposing
+              ? forwards.dispose().then(
+                  () => ({ failed: false }),
+                  () => ({ failed: true }),
+                )
+              : undefined;
+            rig.openArrives();
+            const created = await creating;
+            const disposed = await disposal;
+
+            const listed = forwards.list();
+            // Nothing can be stranded if nothing was ever opened.
+            const stranded =
+              !opening.openFails &&
+              close.refuseCloses > 0 &&
+              report === "fault";
+
+            // INVARIANT — never lose a listener: if the mechanism could not close
+            // it and never said it was gone, it stays in the map.
+            expect(listed.length).toBe(stranded ? 1 : 0);
+
+            // INVARIANT — never publish a corpse: a `lost` forward is never
+            // handed back, and neither is one that never opened.
+            if (report === "lost" || opening.openFails) {
+              expect(created.ok).toBe(false);
+            }
+
+            // A create that resolved must be a forward that is actually listed.
+            if (created.ok) {
+              expect(listed.map((f) => f.key)).toContain(created.f.key);
+            }
+
+            // And dispose must agree with the map: it fails if and only if
+            // something is still there.
+            if (disposed !== undefined) {
+              expect(disposed.failed).toBe(stranded);
+            }
           });
-          const { forwards } = rig;
-
-          const creating = forwards.create(PU).then(
-            (f) => ({ ok: true as const, f }),
-            (e: Error) => ({ ok: false as const, e }),
-          );
-          const disposal = disposing
-            ? forwards.dispose().then(
-                () => ({ failed: false }),
-                () => ({ failed: true }),
-              )
-            : undefined;
-          rig.openArrives();
-          const created = await creating;
-          const disposed = await disposal;
-
-          const listed = forwards.list();
-          const stranded = close.refuseCloses > 0 && report === "fault";
-
-          // INVARIANT — never lose a listener: if the mechanism could not close
-          // it and never said it was gone, it stays in the map.
-          expect(listed.length).toBe(stranded ? 1 : 0);
-
-          // INVARIANT — never publish a corpse: a `lost` forward is never
-          // handed back, whatever else happened.
-          if (report === "lost") expect(created.ok).toBe(false);
-
-          // A create that resolved must be a forward that is actually listed.
-          if (created.ok) {
-            expect(listed.map((f) => f.key)).toContain(created.f.key);
-          }
-
-          // And dispose must agree with the map: it fails if and only if
-          // something is still there.
-          if (disposed !== undefined) {
-            expect(disposed.failed).toBe(stranded);
-          }
-        });
+        }
       }
     }
   }

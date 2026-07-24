@@ -49,8 +49,23 @@ export class DisposedMidOpenError extends Error {
   }
 }
 
-function isDisposedMidOpen(reason: unknown): boolean {
-  return reason instanceof DisposedMidOpenError;
+/** Thrown by a flight that opened a listener `dispose` then failed to close:
+ *  the listener is still out there and still in the map.
+ *
+ *  `dispose` counts THESE and nothing else. The rule used to be the other way
+ *  round — every rejection except the clean mid-open one was treated as a
+ *  teardown failure — which made an ordinary `open()` rejection (no listener
+ *  was ever created) come out as "a forward could not be torn down", over an
+ *  empty map. Counting only the failure that names itself means a new rejection
+ *  path cannot be miscounted into that claim by accident. */
+export class SurvivedTeardownError extends Error {
+  constructor(
+    message: string,
+    readonly cause: unknown,
+  ) {
+    super(message);
+    this.name = "SurvivedTeardownError";
+  }
 }
 
 /** Something happened to a forward that nobody asked for, and what it means.
@@ -343,8 +358,9 @@ export function makeForwardManager(opts: {
         };
         slots.set(key, { state: "open", forward, opened, token });
         if (disposed) {
-          throw new Error(
+          throw new SurvivedTeardownError(
             `port-forward: the forward to ${key} broke as it came up and could not be closed — ${early.reason}`,
+            early.reason,
           );
         }
         opts.onLost({ forward, reason: early.reason, kind: "degraded" });
@@ -365,9 +381,15 @@ export function makeForwardManager(opts: {
         } catch (err) {
           // It came up and refused to go down: exactly the listener dispose
           // exists to rule out, so it must be REPRESENTED — visible to
-          // `list` and retryable by `cancel` — not just reported.
+          // `list` and retryable by `cancel` — and named as the one failure
+          // dispose counts.
           slots.set(key, { state: "open", forward, opened, token });
-          throw err;
+          throw new SurvivedTeardownError(
+            `port-forward: the forward to ${key} could not be torn down — ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            err,
+          );
         }
         throw new DisposedMidOpenError();
       }
@@ -452,9 +474,13 @@ export function makeForwardManager(opts: {
       // what dispose exists to rule out. The deliberate "you lost the dispose
       // race" rejection is not a failure and says so by its type.
       for (const outcome of await Promise.allSettled(flights)) {
+        // ONLY a listener that survived its teardown counts. A flight that
+        // rejected because the mechanism could not open anything at all left
+        // nothing behind, and reporting it here would have dispose claim a
+        // forward remains when the map is empty.
         if (
           outcome.status === "rejected" &&
-          !isDisposedMidOpen(outcome.reason)
+          outcome.reason instanceof SurvivedTeardownError
         ) {
           failures.push(outcome.reason);
         }
