@@ -11,6 +11,8 @@ export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+import cliTruncate from "cli-truncate";
+
 /** How long a forward has been up, in the coarsest unit that still says
  *  something: seconds under a minute, then minutes, then hours, then days.
  *
@@ -132,10 +134,15 @@ export function viewport<T extends { readonly key: string }>(opts: {
  *  own diagnostics — bounded, but still thousands of characters. Left to wrap,
  *  it eats the rows the table and the key legend were promised, which is the
  *  same layout failure the viewport exists to prevent, arriving by another
- *  door. Newlines become spaces (a wrapped line is still a line) and the tail
- *  is cut with an ellipsis so it is visible that there was more. */
+ *  door. Newlines become spaces first (a wrapped line is still a line).
+ *
+ *  The cut is by terminal COLUMNS, not by string length: those are different
+ *  numbers the moment the text is not ASCII, and ssh diagnostics are allowed to
+ *  contain anything. 60 CJK characters have `.length` 60 and occupy 120 cells,
+ *  so a length-based slice would sail past the width and wrap anyway — and
+ *  could cut a surrogate pair in half. `cli-truncate` (already in the tree,
+ *  underneath Ink) counts cells and respects code points. */
 export function oneLine(text: string, columns: number): string {
   const flat = text.replace(/\s+/g, " ").trim();
-  const width = Math.max(1, columns);
-  return flat.length <= width ? flat : `${flat.slice(0, width - 1)}…`;
+  return cliTruncate(flat, Math.max(1, columns), { position: "end" });
 }

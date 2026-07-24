@@ -77,7 +77,13 @@ export interface ForwardManager {
  *  must have a single answer, or every method has to remember to ask twice and
  *  a key can be legitimately in both. */
 type Slot =
-  | { readonly state: "opening"; readonly flight: Promise<Forward> }
+  | {
+      readonly state: "opening";
+      readonly flight: Promise<Forward>;
+      /** The identity of THIS opening, installed before the mechanism can call
+       *  back, so a loss it reports before `open()` resolves is attributable. */
+      readonly token: object;
+    }
   | {
       readonly state: "open";
       readonly forward: Forward;
@@ -95,7 +101,12 @@ type Slot =
       readonly state: "closing";
       readonly forward: Forward;
       readonly opened: OpenedForward;
-      readonly closing: Promise<void>;
+      /** The teardown's OUTCOME — the failure, or `undefined` for success. It
+       *  never rejects, because every joiner must be able to await it, and it
+       *  must not erase the failure: a `dispose` joining a `cancel` has to see
+       *  that the close failed, or it would report success over a listener that
+       *  may still be live. */
+      readonly closing: Promise<unknown | undefined>;
       readonly token: object;
     };
 
@@ -117,12 +128,26 @@ export function makeForwardManager(opts: {
    *  forward: the loss is the stronger fact. */
   const lostWhileClosing = new Set<string>();
 
+  /** Losses reported for a forward that had not finished opening yet, by
+   *  token. The flight consults this when it lands: a listener the mechanism
+   *  has already called dead must not be published as live. */
+  const lostWhileOpening = new Map<object, string>();
+
   function lose(key: string, reason: string, token: object): void {
     const slot = slots.get(key);
-    if (slot === undefined) return;
+    // No slot yet, or still opening: the mechanism can report a loss from
+    // INSIDE `open()`, before its own promise resolves and therefore before
+    // this key has a slot at all. Keyed by token, so only the flight it
+    // belongs to will read it.
+    if (slot === undefined || slot.state === "opening") {
+      if (slot === undefined || slot.token === token) {
+        lostWhileOpening.set(token, reason);
+      }
+      return;
+    }
     // Not ours: this loss belongs to a forward that has already gone, and the
     // key now holds someone else's listener.
-    if (slot.state !== "opening" && slot.token !== token) return;
+    if (slot.token !== token) return;
     if (slot.state === "closing") {
       // Already on its way out — remember the loss so a failed close cannot
       // put it back, and say nothing: whoever asked for the teardown is the
@@ -151,48 +176,51 @@ export function makeForwardManager(opts: {
   async function closeSlot(key: string): Promise<unknown | undefined> {
     const slot = slots.get(key);
     if (slot === undefined || slot.state === "opening") return undefined;
-    if (slot.state === "closing") {
-      // Someone is already taking it down; their outcome is the outcome.
-      return await slot.closing.then(
-        () => undefined,
-        (err: unknown) => err,
-      );
-    }
-    const closing = slot.opened.close();
+    // Someone is already taking it down; their outcome is the outcome — and it
+    // is the REAL one, failure included.
+    if (slot.state === "closing") return await slot.closing;
+
+    // Install the transition BEFORE asking the mechanism to close, so a loss
+    // that arrives synchronously from inside `close()` lands on a slot that is
+    // already `closing` — otherwise it would delete the open slot and this
+    // function would then overwrite the deletion.
+    let settle: (outcome: unknown | undefined) => void = () => {};
+    const closing = new Promise<unknown | undefined>((resolve) => {
+      settle = resolve;
+    });
     const mine: Slot = {
       state: "closing",
       forward: slot.forward,
       opened: slot.opened,
       token: slot.token,
-      closing: closing.then(
-        () => undefined,
-        () => undefined,
-      ),
+      closing,
     };
     slots.set(key, mine);
+
+    let failure: unknown | undefined;
     try {
-      await closing;
-      if (slots.get(key) === mine) slots.delete(key);
-      lostWhileClosing.delete(key);
-      return undefined;
+      await slot.opened.close();
     } catch (err) {
-      if (slots.get(key) === mine) {
-        if (lostWhileClosing.has(key)) {
-          // The mechanism told us it was dead while we were closing it. Do not
-          // resurrect it on the strength of a failed close.
-          slots.delete(key);
-        } else {
-          slots.set(key, {
-            state: "open",
-            forward: slot.forward,
-            opened: slot.opened,
-            token: slot.token,
-          });
-        }
-      }
-      lostWhileClosing.delete(key);
-      return err;
+      failure = err;
     }
+    if (slots.get(key) === mine) {
+      if (failure === undefined || lostWhileClosing.has(key)) {
+        // Gone: either it closed, or the mechanism told us it was dead anyway —
+        // a failed close must not resurrect a listener already reported lost.
+        slots.delete(key);
+      } else {
+        // It may still be out there: visible and retryable.
+        slots.set(key, {
+          state: "open",
+          forward: slot.forward,
+          opened: slot.opened,
+          token: slot.token,
+        });
+      }
+    }
+    lostWhileClosing.delete(key);
+    settle(failure);
+    return failure;
   }
 
   /** Named, so the closing-slot branch can recurse WITHOUT `this`: these
@@ -220,9 +248,11 @@ export function makeForwardManager(opts: {
       return await create(target);
     }
 
+    // One identity per opening, minted BEFORE the mechanism can call back —
+    // and before the slot exists, so the slot can carry it and a loss reported
+    // during the open is attributable to exactly this attempt.
+    const token = {};
     const flight = (async () => {
-      // One identity per opening, minted BEFORE the mechanism can call back.
-      const token = {};
       const opened = await opts.mechanisms.open(target, (reason) =>
         lose(key, reason, token),
       );
@@ -247,6 +277,17 @@ export function makeForwardManager(opts: {
         }
         throw new DisposedMidOpenError();
       }
+      const diedOnArrival = lostWhileOpening.get(token);
+      if (diedOnArrival !== undefined) {
+        // The mechanism called this listener dead before its own `open()` had
+        // even resolved. Publishing it would put a corpse in the map, so close
+        // it (best effort — it is already gone) and fail loudly instead.
+        lostWhileOpening.delete(token);
+        await opened.close().catch(() => {});
+        throw new Error(
+          `port-forward: the forward to ${key} was lost as it came up — ${diedOnArrival}`,
+        );
+      }
       const forward: Forward = {
         key,
         target,
@@ -256,7 +297,7 @@ export function makeForwardManager(opts: {
       slots.set(key, { state: "open", forward, opened, token });
       return forward;
     })();
-    slots.set(key, { state: "opening", flight });
+    slots.set(key, { state: "opening", flight, token });
     try {
       return await flight;
     } catch (err) {
@@ -308,17 +349,23 @@ export function makeForwardManager(opts: {
     async dispose() {
       disposed = true;
       const failures: unknown[] = [];
-      // Wait for anything still opening to settle first: those flights close
-      // themselves once they see `disposed`, and until they have, "every
-      // forward is down" is not yet true. Their outcomes are NOT discarded —
-      // a flight that rejects because its own teardown failed is a listener
-      // that may still be live, which is exactly what dispose exists to rule
-      // out. The deliberate "you lost the dispose race" rejection is not a
-      // failure and says so by its type.
+      // WHICH slots this pass owns is decided BEFORE anything is awaited.
+      // A flight that lands during the await can restore a slot whose teardown
+      // it already attempted and already reported; closing that slot again
+      // here would count one forward twice, or delete a forward this very call
+      // is about to say could not be torn down.
+      const mine: string[] = [];
       const flights: Promise<Forward>[] = [];
-      for (const slot of slots.values()) {
+      for (const [key, slot] of slots.entries()) {
         if (slot.state === "opening") flights.push(slot.flight);
+        else mine.push(key);
       }
+      // The opening flights close themselves once they see `disposed`, and
+      // until they have, "every forward is down" is not yet true. Their
+      // outcomes are NOT discarded — a flight that rejects because its own
+      // teardown failed is a listener that may still be live, which is exactly
+      // what dispose exists to rule out. The deliberate "you lost the dispose
+      // race" rejection is not a failure and says so by its type.
       for (const outcome of await Promise.allSettled(flights)) {
         if (
           outcome.status === "rejected" &&
@@ -327,11 +374,10 @@ export function makeForwardManager(opts: {
           failures.push(outcome.reason);
         }
       }
-      // Then every slot that is now open or already closing, each through the
-      // ONE transition — so a slot a concurrent `cancel` is closing is JOINED
-      // rather than closed twice, a slot this pass restored after a failure is
-      // not immediately retried, and a failure is counted once.
-      for (const key of [...slots.keys()]) {
+      // Then the slots this pass owns, each through the ONE transition — so a
+      // slot a concurrent `cancel` is closing is JOINED (and its real failure
+      // observed) rather than closed twice.
+      for (const key of mine) {
         const failure = await closeSlot(key);
         if (failure !== undefined) failures.push(failure);
       }

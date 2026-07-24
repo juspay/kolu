@@ -87,7 +87,7 @@ export function openRelayWith(opts: {
   const teardown = (): Promise<void> => {
     if (down) return Promise.resolve();
     if (inFlight !== undefined) return inFlight;
-    inFlight = new Promise<void>((done, fail) => {
+    const attempt = new Promise<void>((done, fail) => {
       for (const socket of live) socket.destroy();
       live.clear();
       if (!server.listening) {
@@ -96,17 +96,23 @@ export function openRelayWith(opts: {
         return;
       }
       server.close((err) => {
-        if (err !== undefined) {
-          // Still up as far as we know: let the next caller try again.
-          inFlight = undefined;
-          fail(err);
-          return;
+        if (err !== undefined) fail(err);
+        else {
+          down = true;
+          done();
         }
-        down = true;
-        done();
       });
     });
-    return inFlight;
+    inFlight = attempt;
+    // Clear the cache on the PROMISE, not inside the close callback: a
+    // mechanism that fails synchronously would otherwise clear the slot before
+    // the assignment above ran, and the failed attempt would be cached forever
+    // — every retry handed the same old rejection. Identity-checked so a later
+    // attempt's cache is never dropped by an earlier one's failure.
+    attempt.catch(() => {
+      if (inFlight === attempt) inFlight = undefined;
+    });
+    return attempt;
   };
 
   return new Promise((resolve, reject) => {
@@ -122,11 +128,15 @@ export function openRelayWith(opts: {
         // flight, whoever ordered it is the one being answered.
         if (down || inFlight !== undefined) return;
         const reason = `the local relay listener failed: ${err.message}`;
-        // Tear down FIRST, then say so — once, and with both settlements
-        // handled so a failed close cannot become an unhandled rejection.
+        // Tear down FIRST, and announce the loss ONLY once the relay really is
+        // down. `onLost` is the definitive channel — it makes the owner drop
+        // its only handle on this relay — so saying it after a FAILED teardown
+        // would strand a listener that may still be reachable with nobody left
+        // to close it. A failed teardown keeps the relay owned and retryable
+        // instead; the next `close()` retries and surfaces the error.
         teardown().then(
           () => onLost(reason),
-          () => onLost(reason),
+          () => {},
         );
       });
       const address = server.address();

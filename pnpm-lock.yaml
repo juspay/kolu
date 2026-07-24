@@ -2172,6 +2172,9 @@ importers:
       '@kolu/port-forward':
         specifier: workspace:*
         version: link:../port-forward
+      cli-truncate:
+        specifier: ^6.1.1
+        version: 6.1.1
       ink:
         specifier: ^7.1.1
         version: 7.1.1(@types/react@19.2.17)(react@19.2.8)
@@ -2191,6 +2194,9 @@ importers:
       ink-testing-library:
         specifier: ^4.0.0
         version: 4.0.0(@types/react@19.2.17)
+      string-width:
+        specifier: ^8.2.2
+        version: 8.2.2
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

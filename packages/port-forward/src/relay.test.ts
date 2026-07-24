@@ -213,6 +213,45 @@ describe("a relay that fails after it was up", () => {
     expect(losses).toHaveLength(1);
   });
 
+  it("does not report a loss when the teardown itself failed", async () => {
+    // `onLost` makes the owner drop its only handle. After a FAILED teardown
+    // the relay may still be reachable, so claiming it is gone would strand it.
+    const origin = await serveOnLoopback("stuck");
+    cleanups.push(origin.stop);
+    const losses: string[] = [];
+    let refuse = true;
+    let server: Server | undefined;
+    const relay = await openRelayWith({
+      port: origin.port,
+      onLost: (reason) => losses.push(reason),
+      listen: (onConnection) => {
+        server = createNetServer(onConnection);
+        const realClose = server.close.bind(server);
+        server.close = ((cb?: (err?: Error) => void) => {
+          if (refuse) {
+            cb?.(new Error("close refused"));
+            return server as Server;
+          }
+          return realClose(cb);
+        }) as Server["close"];
+        return server;
+      },
+    });
+    cleanups.push(async () => {
+      refuse = false;
+      await relay.close().catch(() => {});
+    });
+
+    server?.emit("error", new Error("listener exploded"));
+    await new Promise((done) => setTimeout(done, 50));
+
+    expect(losses).toEqual([]);
+
+    // Still owned, and a retry once the mechanism recovers really retries.
+    refuse = false;
+    await expect(relay.close()).resolves.toBeUndefined();
+  });
+
   it("is safe to close twice", async () => {
     const origin = await serveOnLoopback("bye");
     cleanups.push(origin.stop);

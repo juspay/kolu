@@ -1,3 +1,4 @@
+import stringWidth from "string-width";
 import { describe, expect, it } from "vitest";
 import {
   formatUptime,
@@ -155,6 +156,22 @@ describe("oneLine", () => {
     const out = oneLine("x".repeat(500), 40);
     expect(out).toHaveLength(40);
     expect(out.endsWith("…")).toBe(true);
+  });
+
+  it("cuts by terminal COLUMNS, not string length", () => {
+    // 30 CJK characters have .length 30 but occupy 60 cells; a length-based
+    // cut would sail past the width and wrap the "one row" into two.
+    const wide = "宽".repeat(30);
+    const out = oneLine(wide, 20);
+    expect(stringWidth(out)).toBeLessThanOrEqual(20);
+  });
+
+  it("never cuts a code point in half", () => {
+    const emoji = "🙂".repeat(20);
+    const out = oneLine(emoji, 9);
+    expect(stringWidth(out)).toBeLessThanOrEqual(9);
+    expect(out).not.toContain("\ufffd");
+    expect([...out].every((c) => c.codePointAt(0) !== undefined)).toBe(true);
   });
 
   it("flattens newlines — a wrapped line is still a line", () => {

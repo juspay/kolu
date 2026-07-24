@@ -368,6 +368,84 @@ describe("the forward map", () => {
     expect(again.localPort).not.toBe(forward.localPort);
   });
 
+  it("attempts one teardown per forward in a dispose, even when the first fails", async () => {
+    // The mid-open restore and the later pass are the SAME forward: closing it
+    // twice would count one failure twice, or delete a forward this dispose is
+    // about to report as still there.
+    let closes = 0;
+    let arrive: (() => void) | undefined;
+    const once: ForwardMechanisms = {
+      open: async () => {
+        await new Promise<void>((resolve) => {
+          arrive = resolve;
+        });
+        return {
+          localPort: 4123,
+          close: async () => {
+            closes += 1;
+            throw new Error("close refused");
+          },
+        };
+      },
+    };
+    const forwards = makeForwardManager({ mechanisms: once, onLost: () => {} });
+
+    const creating = forwards.create(PU);
+    const disposing = forwards.dispose();
+    arrive?.();
+
+    await expect(creating).rejects.toThrow(/close refused/);
+    const err = await disposing.catch((e: AggregateError) => e);
+    expect(err).toBeInstanceOf(AggregateError);
+    expect((err as AggregateError).errors).toHaveLength(1);
+    expect(closes).toBe(1);
+    // And it is still represented, exactly as the error says.
+    expect(forwards.list()).toHaveLength(1);
+  });
+
+  it("lets a joining dispose see the failure of the close it joined", async () => {
+    // A dispose that joins a cancel's teardown must observe the REAL outcome;
+    // a swallowed one would let dispose report success over a live listener.
+    let release: ((err?: Error) => void) | undefined;
+    const slow: ForwardMechanisms = {
+      open: async () => ({
+        localPort: 4123,
+        close: () =>
+          new Promise<void>((done, fail) => {
+            release = (err) => (err === undefined ? done() : fail(err));
+          }),
+      }),
+    };
+    const forwards = makeForwardManager({ mechanisms: slow, onLost: () => {} });
+    const forward = await forwards.create(PU);
+
+    const cancelling = forwards.cancel(forward.key).catch((e: Error) => e);
+    await Promise.resolve();
+    const disposing = forwards.dispose().catch((e: unknown) => e);
+    release?.(new Error("close refused"));
+
+    expect(await cancelling).toBeInstanceOf(Error);
+    expect(await disposing).toBeInstanceOf(AggregateError);
+  });
+
+  it("does not publish a forward the mechanism killed before it arrived", async () => {
+    // The loss can land before `open()` resolves. Publishing it would put a
+    // corpse in the map.
+    const early: ForwardMechanisms = {
+      open: async (_target, onLost) => {
+        onLost("the ssh connection ended before it was up");
+        return { localPort: 4123, close: async () => {} };
+      },
+    };
+    const forwards = makeForwardManager({
+      mechanisms: early,
+      onLost: () => {},
+    });
+
+    await expect(forwards.create(PU)).rejects.toThrow(/lost as it came up/);
+    expect(forwards.list()).toEqual([]);
+  });
+
   it("opens nothing more once disposed", async () => {
     const fake = fakeMechanisms();
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
