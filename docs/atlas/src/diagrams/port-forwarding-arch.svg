@@ -41,33 +41,34 @@
   <rect x="420" y="40" width="360" height="410" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
   <text x="438" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">KOLU SERVER HOST — e.g. pureintent (HEADLESS)</text>
 
-  <rect x="440" y="80" width="320" height="100" rx="8" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
-  <text x="456" y="101" font-size="13" font-weight="700" fill="#6d4fa3">vazhi — forwards daemon · new (PRT0)</text>
-  <text x="456" y="121" font-size="11.5" font-family="ui-monospace,monospace" fill="#1a1c20">(host, remotePort) → local listener</text>
-  <text x="456" y="139" font-size="11.5" fill="#1a1c20">remote host → ssh -L on shared ControlMaster</text>
-  <text x="456" y="156" font-size="11.5" fill="#1a1c20">kolu-host loopback → plain TCP relay</text>
-  <text x="456" y="173" font-size="11" fill="#7a6b93">one binary: TUI when interactive · headless under kolu</text>
+  <rect x="440" y="80" width="320" height="96" rx="8" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
+  <text x="456" y="101" font-size="13" font-weight="700" fill="#3a6ea5">kolu server surface — exists</text>
+  <text x="456" y="121" font-size="12" font-weight="700" fill="#c2611b">embeds @kolu/port-forward · new (PRT2)</text>
+  <text x="456" y="140" font-size="11.5" fill="#5b7691">forwards = a cell on the existing surface</text>
+  <text x="456" y="158" font-size="11.5" fill="#5b7691">policy: lazy on click · auto-cancel on port death</text>
 
-  <rect x="440" y="216" width="320" height="72" rx="8" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
-  <text x="456" y="237" font-size="13" font-weight="700" fill="#3a6ea5">kolu server surface — exists</text>
-  <text x="456" y="256" font-size="11.5" fill="#5b7691">serves the UI to any viewer</text>
-  <text x="456" y="273" font-size="11.5" fill="#5b7691">policy: lazy on click · auto-cancel on port death</text>
+  <rect x="440" y="212" width="320" height="40" rx="8" fill="#f5f1fb" stroke="#6d4fa3" stroke-dasharray="4 3"/>
+  <text x="600" y="236" font-size="12" text-anchor="middle" font-family="ui-monospace,monospace" fill="#6d4fa3" font-weight="700">0.0.0.0:61000  ⇄  tunnel / relay</text>
 
-  <rect x="440" y="396" width="320" height="40" rx="8" fill="#f5f1fb" stroke="#6d4fa3" stroke-dasharray="4 3"/>
-  <text x="600" y="420" font-size="12" text-anchor="middle" font-family="ui-monospace,monospace" fill="#6d4fa3" font-weight="700">0.0.0.0:61000  ⇄  tunnel / relay</text>
+  <line x1="600" y1="176" x2="600" y2="208" stroke="#c2611b" stroke-width="1.6" marker-end="url(#arrO)"/>
 
-  <line x1="600" y1="216" x2="600" y2="184" stroke="#c2611b" stroke-width="1.6" marker-end="url(#arrO)"/>
-  <text x="612" y="205" font-size="11" fill="#8a5b34">create / cancel (PRT2)</text>
-  <polyline points="440,150 428,150 428,416 436,416" fill="none" stroke="#6d4fa3" stroke-width="1.6" marker-end="url(#arrP)"/>
+  <rect x="440" y="300" width="320" height="96" rx="8" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="456" y="321" font-size="13" font-weight="700" fill="#6d4fa3">vazhi — standalone TUI · new (PRT0)</text>
+  <text x="456" y="341" font-size="11.5" font-family="ui-monospace,monospace" fill="#1a1c20">same library · its own forwards</text>
+  <text x="456" y="359" font-size="11.5" fill="#1a1c20">no link to kolu — that's the point</text>
+  <text x="456" y="377" font-size="11" fill="#7a6b93">runs in a kolu terminal — kaval keeps it alive</text>
+
+  <!-- library tag spanning both consumers -->
+  <text x="600" y="428" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace" fill="#6d4fa3" font-weight="700">@kolu/port-forward — one library, two apps (PRT0)</text>
 
   <!-- tunnel lane -->
-  <line x1="440" y1="120" x2="229" y2="140" stroke="#6d4fa3" stroke-width="2" marker-end="url(#arrP)"/>
-  <text x="243" y="110" font-size="10.5" font-family="ui-monospace,monospace" fill="#6d4fa3">ssh -L *:61000:127.0.0.1:5173</text>
+  <line x1="440" y1="112" x2="229" y2="138" stroke="#6d4fa3" stroke-width="2" marker-end="url(#arrP)"/>
+  <text x="240" y="102" font-size="10.5" font-family="ui-monospace,monospace" fill="#6d4fa3">ssh -L *:61000:127.0.0.1:5173</text>
 
   <!-- mirror lane -->
-  <line x1="340" y1="355" x2="436" y2="252" stroke="#3a6ea5" stroke-width="2" marker-end="url(#arrB)"/>
-  <text x="392" y="322" font-size="11" fill="#3a6ea5" font-weight="700">surface</text>
-  <text x="392" y="337" font-size="11" fill="#3a6ea5" font-weight="700">mirror</text>
+  <line x1="340" y1="355" x2="436" y2="164" stroke="#3a6ea5" stroke-width="2" marker-end="url(#arrB)"/>
+  <text x="352" y="262" font-size="11" fill="#3a6ea5" font-weight="700">surface</text>
+  <text x="352" y="277" font-size="11" fill="#3a6ea5" font-weight="700">mirror</text>
 
   <!-- ══════════ Viewer ══════════ -->
   <rect x="840" y="40" width="320" height="410" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
@@ -89,19 +90,19 @@
   <text x="1012" y="240" font-size="11" fill="#54785f">window.open</text>
 
   <!-- viewer lanes -->
-  <line x1="762" y1="250" x2="856" y2="150" stroke="#3a6ea5" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrB)"/>
-  <text x="772" y="172" font-size="10.5" fill="#7d94ad">kolu UI</text>
-  <line x1="856" y1="298" x2="764" y2="410" stroke="#6d4fa3" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrP)"/>
-  <text x="800" y="342" font-size="10.5" fill="#7a6b93">raw TCP</text>
-  <text x="782" y="380" font-size="10.5" fill="#8a8574">over tailscale</text>
+  <line x1="762" y1="140" x2="856" y2="128" stroke="#3a6ea5" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrB)"/>
+  <text x="782" y="122" font-size="10.5" fill="#7d94ad">kolu UI</text>
+  <line x1="856" y1="298" x2="764" y2="240" stroke="#6d4fa3" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrP)"/>
+  <text x="790" y="286" font-size="10.5" fill="#7a6b93">raw TCP</text>
+  <text x="778" y="300" font-size="10.5" fill="#8a8574">over tailscale</text>
 
   <!-- ══════════ Legend ══════════ -->
-  <rect x="180" y="490" width="14" height="14" rx="3" fill="#eaf1f8" stroke="#3a6ea5"/>
-  <text x="202" y="501" font-size="12" fill="#1a1c20">exists today</text>
-  <rect x="310" y="490" width="14" height="14" rx="3" fill="#efe9f8" stroke="#6d4fa3"/>
-  <text x="332" y="501" font-size="12" fill="#1a1c20">PRT0 — vazhi</text>
-  <rect x="460" y="490" width="14" height="14" rx="3" fill="#e3f4e9" stroke="#1b7a3a"/>
-  <text x="482" y="501" font-size="12" fill="#1a1c20">PRT1 — detection + Ports UI</text>
-  <rect x="680" y="490" width="14" height="14" rx="3" fill="#fbeadd" stroke="#c2611b"/>
-  <text x="702" y="501" font-size="12" fill="#1a1c20">PRT2 — kolu ⇄ vazhi wiring</text>
+  <rect x="120" y="490" width="14" height="14" rx="3" fill="#eaf1f8" stroke="#3a6ea5"/>
+  <text x="142" y="501" font-size="12" fill="#1a1c20">exists today</text>
+  <rect x="250" y="490" width="14" height="14" rx="3" fill="#efe9f8" stroke="#6d4fa3"/>
+  <text x="272" y="501" font-size="12" fill="#1a1c20">PRT0 — @kolu/port-forward + vazhi</text>
+  <rect x="510" y="490" width="14" height="14" rx="3" fill="#e3f4e9" stroke="#1b7a3a"/>
+  <text x="532" y="501" font-size="12" fill="#1a1c20">PRT1 — detection + Ports UI</text>
+  <rect x="730" y="490" width="14" height="14" rx="3" fill="#fbeadd" stroke="#c2611b"/>
+  <text x="752" y="501" font-size="12" fill="#1a1c20">PRT2 — kolu embeds the library</text>
 </svg>
