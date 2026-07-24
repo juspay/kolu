@@ -28,6 +28,7 @@ import {
   type AgentDerivation,
   makeProvisionBudgets,
   provisionAgent,
+  type StepBudget,
 } from "./nixCopy";
 import {
   type ClosedInfo,
@@ -50,29 +51,29 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
 
 /** The ssh connector's OWN provisioning-phase vocabulary — the `Prov` a
  *  `makeSession` over {@link sshConnector} carries. Each phase names what is
- *  ACTUALLY happening, split at the real command boundaries `nixCopy.ts` runs:
+ *  ACTUALLY happening at the real command boundaries `nixCopy.ts` runs:
  *   - `"probing"`  — the OPENING phase: the ssh arch probe (`resolveDrvPath`) plus
  *                     the ASK-ONLY warm check (a sender-local `nix-store -q --outputs`
  *                     then a bounded `nix-store --check-validity` — "does the host already
  *                     have the closure?", never a substituting `--realise`). No copy
  *                     exists yet; on a WARM host
  *                     this is the whole provisioning story and it never enters
- *                     `copying`. This is why the warm path stays CALM — a warm dial
+ *                     `provisioning`. This is why the warm path stays CALM — a warm dial
  *                     goes `probing → connecting → connected` with no build UI.
- *   - `"copying"`  — `nix copy --derivation …` is ACTUALLY pushing the `.drv` (the
- *                     COLD path only; entered at the copy command boundary).
- *   - `"building"` — `ssh $host nix build -v --print-out-paths --no-link $drv^*`
- *                     is compiling/substituting it (the minutes, on a first connect
- *                     to a fresh host).
- *  A session opens at `"probing"` and advances to `"copying"` then `"building"` via
- *  `ctx.provisioning`, each at its real command boundary (`nixCopy`'s `onCopying`/
- *  `onBuilding` hooks). */
-export type SshProv = "probing" | "copying" | "building";
+ *   - `"provisioning"` — one `nix build` owns local evaluation, transfer to the
+ *                        remote store, and remote realisation (the minutes-long
+ *                        cold path on a first connect).
+ *  A session opens at `"probing"` and advances once to `"provisioning"` via
+ *  `ctx.provisioning`, at `nixCopy`'s single cold-command boundary. */
+export type SshProv = "probing" | "provisioning";
 
 /** The owning dial context a deferred derivation resolver may consume. */
 export interface ResolveDrvPathContext {
   signal: AbortSignal;
   localProgress: (line: string) => void;
+  /** Connector-owned evaluation budget, persistent across retry dials in one
+   * campaign and reset only by a successful evaluation or a new campaign. */
+  budget: StepBudget;
 }
 
 export interface SshConnectorOptions {
@@ -92,7 +93,7 @@ export interface SshConnectorOptions {
    *
    *  Pass `directAgentDerivation(drvPath)` when the caller already owns the
    *  store path and has no probe to defer. `resolveAgentDrv` constructs the
-   *  nominal flake-backed arm so Nix owns the evaluate-to-copy GC lifetime. */
+   *  nominal flake-backed arm so Nix owns evaluation through realisation. */
   resolveDrvPath: (ctx: ResolveDrvPathContext) => Promise<AgentDerivation>;
   /** Extra args appended after `--stdio` on the agent command line — a generic
    *  spawn-arg carrier; what the args mean is the caller's concern. POSIX-quoted for
@@ -136,6 +137,7 @@ export function sshConnector<C extends AnyContractRouter>(
       derivation = await opts.resolveDrvPath({
         signal: ctx.signal,
         localProgress: ctx.localProgress,
+        budget: budgets.evaluation,
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -148,12 +150,9 @@ export function sshConnector<C extends AnyContractRouter>(
       host: opts.host,
       derivation,
       onProgress: (line) => ctx.localProgress(line),
-      // Advance the phase at the REAL command boundaries (cold path only), so the
-      // overlay names what is actually happening: `probing → copying` when `nix copy`
-      // starts, `copying → building` at the realise boundary. A WARM host skips both
-      // (the ask-only check short-circuits) and stays `probing` → connecting.
-      onCopying: () => ctx.provisioning("copying"),
-      onBuilding: () => ctx.provisioning("building"),
+      // Advance at the ONE cold-command boundary. A warm host short-circuits
+      // the ask-only check and stays `probing` → connecting.
+      onProvisioning: () => ctx.provisioning("provisioning"),
       budgets,
       // The per-dial abort — recheck's abort-in-flight group-kills any provisioning
       // child so the session can redial NOW instead of waiting out a wedge (#1908 R6b).
@@ -162,7 +161,7 @@ export function sshConnector<C extends AnyContractRouter>(
     if (!provision.ok) {
       // `provisionAgent` classifies why: a `"remote"` rejection (e.g. `trusted-users`
       // won't accept the closure) is bounded → terminal; a `"network"` failure (the
-      // host went unreachable mid-copy, after the probe succeeded) keeps retrying; a
+      // host went unreachable mid-provision, after the probe succeeded) keeps retrying; a
       // budget-EXHAUSTED silent step is `terminal` → give up NOW (#1908 C5).
       throw new ConnectError(
         provision.reason,

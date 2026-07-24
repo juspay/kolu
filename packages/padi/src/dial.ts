@@ -32,11 +32,7 @@ import {
   DaemonContractSkewError,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
-import {
-  type AgentDial,
-  dialAgentOnce,
-  SURFACE_AGENT_FLAKE_REF_ENV,
-} from "@kolu/surface-remote";
+import { type AgentDial, dialAgentOnce } from "@kolu/surface-remote";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import { composeSpawnEnv } from "kolu-pty";
@@ -200,7 +196,6 @@ export function dialPadiViaHost(
     host,
     localEnv: composeSpawnEnv(process.env),
     binary: "padi",
-    agentFlakeRef: process.env[SURFACE_AGENT_FLAKE_REF_ENV],
     fatalPrefix: "padi --stdio:",
     probe: async (client) => {
       const hello = await client.surface.control.core.hello();

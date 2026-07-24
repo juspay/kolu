@@ -8,9 +8,10 @@
  * pin → probe → markConnected → leak-safe-destroy lifecycle. That composition is
  * a single primitive; it lives here, once.
  *
- * A CLI supplies only its genuinely-volatile values: the binary name and the
- * already-read source-flake ref baked by its Nix wrapper. Proving the link is the
- * framework's job, not the CLI's: the dial
+ * A CLI supplies only its genuinely-volatile values: the binary name and
+ * protocol policy. Surface Remote reads the source flake baked by the Nix
+ * wrapper at its own boundary. Proving the link is the framework's job, not the
+ * CLI's: the dial
  * defaults to the reserved `system.live` round-trip (`probeSurfaceLive`) — the
  * same receptacle HostSession's periodic watchdog plugs into — so no CLI
  * nominates its own liveness verb. A CLI overrides `probe` only for a protocol
@@ -26,7 +27,7 @@
 import type { Logger } from "@kolu/log";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
-import { resolveAgentDrv, SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
+import { readBakedAgentSource, resolveAgentDrv } from "./agentDrv";
 import { makeSession } from "./session";
 import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 
@@ -42,9 +43,6 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
   host: string;
   /** Executable name inside the realised closure, run as `<binary> --stdio`. */
   binary: string;
-  /** The source flake ref baked into the Nix wrapper. Its package output must
-   *  share `binary`'s name, so the exact package and executable cannot drift. */
-  agentFlakeRef: string | undefined;
   /** The EXACT stderr prefix the remote agent writes before its fatal message,
    *  right before exiting (e.g. the retired pulam's `pulam:`, or `kaval --stdio:`). Required and
    *  caller-supplied because it is NOT always `${binary}:` — kaval's `--stdio`
@@ -100,12 +98,7 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
 export async function dialAgentOnce<C extends AnyContractRouter>(
   opts: DialAgentOnceOptions<C>,
 ): Promise<AgentDial<C>> {
-  const flakeRef = opts.agentFlakeRef?.trim();
-  if (!flakeRef) {
-    throw new Error(
-      `${SURFACE_AGENT_FLAKE_REF_ENV} is not set — remote agents need the source flake baked into the build. Run the agent client from its Nix wrapper.`,
-    );
-  }
+  const flakeRef = readBakedAgentSource();
   // A fresh `makeSession` per dial (no shared pool — the pool is deleted, S10). A
   // one-shot dial is independent by contract: its `dispose()` calls
   // `session.destroy()`, and each dial gets its own connector (source resolver)
@@ -121,11 +114,12 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
         resolveAgentDrv(opts.host, flakeRef, opts.binary, {
           signal: ctx.signal,
           onProgress: ctx.localProgress,
+          budget: ctx.budget,
         }),
     }),
     // The ssh connector PROVISIONS — it nix-copies the agent closure to the remote
     // before the transport is up — so this session opens at "probing" (the arch probe +
-    // warm check), advancing to "copying"/"building" only when a real cold copy runs.
+    // warm check), advancing to "provisioning" only when a real cold provision runs.
     initialConnection: "probing",
     log: opts.log,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag

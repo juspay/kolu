@@ -8,10 +8,7 @@ vi.mock("@kolu/surface-remote", async (importOriginal) => {
   return { ...actual, dialAgentOnce: h.dialAgentOnce };
 });
 
-import {
-  dialAgentOnce,
-  SURFACE_AGENT_FLAKE_REF_ENV,
-} from "@kolu/surface-remote";
+import { dialAgentOnce } from "@kolu/surface-remote";
 import { dialPadiViaHost } from "./dial.ts";
 
 function fakeCombinedClient(surfaceVersion: string) {
@@ -35,15 +32,12 @@ describe("dialPadiViaHost", () => {
       client: fakeCombinedClient(PADI_SURFACE_VERSION),
       dispose: () => {},
     });
-    vi.stubEnv(SURFACE_AGENT_FLAKE_REF_ENV, "/nix/store/source");
-
     await dialPadiViaHost("nix@prod");
 
     expect(dialAgentOnce).toHaveBeenCalledWith(
       expect.objectContaining({
         host: "nix@prod",
         binary: "padi",
-        agentFlakeRef: "/nix/store/source",
         fatalPrefix: "padi --stdio:",
       }),
     );

@@ -11,8 +11,14 @@ vi.mock("./process", async (importOriginal) => {
   return { ...actual, runCapture: h.runCapture };
 });
 
-import { resolveAgentDrv } from "./agentDrv";
+import {
+  AgentSourceUnbakedError,
+  readBakedAgentSource,
+  resolveAgentDrv,
+  SURFACE_AGENT_FLAKE_REF_ENV,
+} from "./agentDrv";
 import { ResolveDrvError } from "./host";
+import { makeProvisionBudgets } from "./nixCopy";
 
 const success = (stdout: string) => ({
   ok: true,
@@ -24,9 +30,26 @@ const success = (stdout: string) => ({
 const resolutionOptions = {
   signal: new AbortController().signal,
   onProgress: vi.fn(),
+  budget: makeProvisionBudgets().evaluation,
 };
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  resolutionOptions.budget.reset();
+});
+
+describe("readBakedAgentSource", () => {
+  it("normalizes the wrapper-baked source at the framework boundary", () => {
+    vi.stubEnv(SURFACE_AGENT_FLAKE_REF_ENV, "  /nix/store/source  ");
+    expect(readBakedAgentSource()).toBe("/nix/store/source");
+  });
+
+  it("fails with a typed configuration error when the wrapper value is absent", () => {
+    vi.stubEnv(SURFACE_AGENT_FLAKE_REF_ENV, "  ");
+    expect(() => readBakedAgentSource()).toThrow(AgentSourceUnbakedError);
+  });
+});
 
 describe("resolveAgentDrv", () => {
   it("derives the installable from the host-reported system and package name", async () => {
@@ -279,6 +302,35 @@ describe("resolveAgentDrv", () => {
     });
 
     expect(h.runCapture).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after the campaign's silent evaluation budget is exhausted", async () => {
+    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.runCapture.mockResolvedValue({
+      ok: false,
+      kind: "lifetime-expired",
+      policy: { kind: "progress-liveness", silenceMs: 120_000 },
+      signal: "SIGTERM",
+      stdout: "",
+    });
+
+    const args = [
+      "builder",
+      "/nix/store/source-exhausted",
+      "padi",
+      {
+        ...resolutionOptions,
+        budget: makeProvisionBudgets().evaluation,
+      },
+    ] as const;
+    for (let attempt = 1; attempt < 4; attempt += 1) {
+      await expect(resolveAgentDrv(...args)).rejects.not.toBeInstanceOf(
+        ResolveDrvError,
+      );
+    }
+    await expect(resolveAgentDrv(...args)).rejects.toBeInstanceOf(
+      ResolveDrvError,
+    );
   });
 
   it("rejects output that is not a derivation path", async () => {

@@ -4,7 +4,7 @@
  * OTHER arm's opening phase is UNREPRESENTABLE, not merely unused, in BOTH
  * directions — AND the down-arm error shape is unforgeable.
  *
- * The ssh connector's provisioning phases (`SshProv = "copying" | "building"`) are
+ * The ssh connector's phases (`SshProv = "probing" | "provisioning"`) are
  * remote-only facts. A `makeSession<_, never>` (the non-provisioning endpoint arm,
  * `Prov = never`) types `initialConnection` as EXACTLY `"connecting"` — so declaring
  * a provisioning phase is a type error. `tsc` GREEN over this file ⇒ the guarantee
@@ -33,17 +33,10 @@ makeSession<unknown, never>({
 
 makeSession<unknown, never>({
   connectOnce: localConnector,
-  // @ts-expect-error — `"copying"` is a remote-only provisioning phase; the local arm
+  // @ts-expect-error — `"provisioning"` is a remote-only phase; the local arm
   // (`Prov = never`, `initialConnection: "connecting"`) cannot declare it. If this
   // line ever compiles, the type-level unrepresentability has regressed.
-  initialConnection: "copying",
-});
-
-makeSession<unknown, never>({
-  connectOnce: localConnector,
-  // @ts-expect-error — `"building"` is likewise a remote-only provisioning phase the
-  // local arm can never spell.
-  initialConnection: "building",
+  initialConnection: "provisioning",
 });
 
 makeSession<unknown, never>({
@@ -61,7 +54,7 @@ makeSession<unknown, SshProv>({
 });
 
 // PIN (#1808): a provisioning arm's `initialConnection` can ONLY be a `Prov` value
-// (`"copying"`/`"building"`) — a LOCAL-set phase is a compile error there too.
+// (`"probing"`/`"provisioning"`) — a LOCAL-set phase is a compile error there too.
 makeSession<unknown, SshProv>({
   connectOnce: sshConnector,
   // @ts-expect-error — `"connecting"` is a LOCAL-set phase; the provisioning arm
@@ -84,7 +77,7 @@ makeSession<unknown, never>({
 makeSession<unknown, SshProv>({
   connectOnce: sshConnector,
   // @ts-expect-error — same for the provisioning arm: only its own `Prov` values
-  // ("probing"/"copying"/"building") are legal opening phases, never a down state.
+  // ("probing"/"provisioning") are legal opening phases, never a down state.
   initialConnection: "failed",
 });
 

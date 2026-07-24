@@ -103,8 +103,7 @@ function projectState(
 ): EntryConnectionState<"copying", HostFailure> {
   switch (s.phase) {
     case "probing":
-    case "copying":
-    case "building":
+    case "provisioning":
       return { kind: "copying" };
     case "connecting":
       return { kind: "connecting" };

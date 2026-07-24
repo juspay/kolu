@@ -3,9 +3,9 @@
  *  decision are unit-testable without mounting the connection-cell subscription
  *  (see `connectCanvasCopy.test.ts`).
  *
- *  Only the UP-but-not-yet-connected phases narrate here: the ssh connector's two
- *  provisioning phases (`copying` = `nix copy` the derivation; `building` = the remote
- *  `nix build`, the minutes-long compile / binary-cache fetch) and the brief
+ *  Only the UP-but-not-yet-connected phases narrate here: the ssh connector's
+ *  atomic `provisioning` phase (one Nix lifetime for evaluation, transfer, and
+ *  remote build) and the brief
  *  post-provision `connecting` handshake. `connected` needs no overlay (the workspace
  *  shows), and `disconnected`/`failed` are owned by the Skew-UX host-down card — NOT
  *  narrated here (a second failure surface is exactly what this must not build). */
@@ -31,7 +31,7 @@ export interface ConnectCopy {
  *  `connected`/down phase narrowed out at the facts boundary. The gap returns the SAME
  *  "Connecting to <host>…" title as `probing`/`connecting`, so a routing flap between the
  *  boot-gate `connecting` mode and the `warming` overlay produces IDENTICAL pixels — the
- *  flicker srid saw dies WITHOUT hiding the state machine (a real `copying`/`building` still
+ *  flicker srid saw dies WITHOUT hiding the state machine (real `provisioning` still
  *  gets its distinct title, and its tail/elapsed render off the frame's data). */
 export function connectCanvasCopy(
   phase: ConnectPhase | undefined,
@@ -44,12 +44,10 @@ export function connectCanvasCopy(
     case "probing":
     case "connecting":
       return { title: `Connecting to ${host}…` };
-    case "copying":
+    case "provisioning":
       return {
-        title: `Provisioning kolu onto ${host}… (first connect ships the recipe)`,
+        title: `Provisioning kolu on ${host}… this can take a few minutes`,
       };
-    case "building":
-      return { title: `Building on ${host}… this can take a few minutes` };
   }
 }
 
@@ -57,17 +55,14 @@ export function connectCanvasCopy(
  *  post-provision handshake — never a down phase, which the host-down card owns.) */
 export function isConnectPhase(phase: string): phase is ConnectPhase {
   return (
-    phase === "probing" ||
-    phase === "copying" ||
-    phase === "building" ||
-    phase === "connecting"
+    phase === "probing" || phase === "provisioning" || phase === "connecting"
   );
 }
 
-/** Is this the ACTIVELY-PROVISIONING phase pair — `nix copy` (`copying`) or the minutes-long
- *  remote `building`? The single authority for "which phases are a cold provision" (vs the quick
+/** Is this the actively provisioning phase? The single authority for "which phase is a cold
+ *  provision" (vs the quick
  *  `probing`/`connecting` handshake), so `bootDeadline`'s ceiling class and the stalled-leg
- *  derivation read it here instead of re-spelling the `copying || building` literal pair. */
+ *  derivation reads it here instead of re-spelling the literal. */
 export function isProvisioningPhase(phase: ConnectPhase | undefined): boolean {
-  return phase === "copying" || phase === "building";
+  return phase === "provisioning";
 }

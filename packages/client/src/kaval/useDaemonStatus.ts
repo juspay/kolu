@@ -125,7 +125,7 @@ export function activeEntryState(): PadiEntry {
 /** True while the ACTIVE host is the unremovable LOCAL default — it selects the boot
  *  deadline's ceiling CLASS (local = 30s, mirroring the LOCAL session's own connect watchdog;
  *  a remote accrues against the generous provisioning/handshake cells instead, since a fresh
- *  remote padi legitimately takes longer than 30s — ssh dial + nix copy + build) and routes
+ *  remote padi legitimately takes longer than 30s — ssh provisioning) and routes
  *  the daemon-leg escape (a hung LOCAL kaval → the byte-identical down/dead card). A reactive
  *  accessor; read it inside a tracking scope. */
 export function isActiveHostLocal(): boolean {

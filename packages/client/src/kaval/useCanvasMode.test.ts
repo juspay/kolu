@@ -89,29 +89,29 @@ describe("canvasMode — #1908 R8a campaign backstop escapes a persistently-wedg
   it("a warming-remote campaign whose FLAPPING phase re-zeros the class anchor forever still reaches the NON-terminal connector card once the client-MONOTONIC campaign clock passes the backstop", () => {
     h.entryKind = "warming";
     h.local = false;
-    // One frame at monotonic time `t` with connect `phase` — the phase flaps building↔connecting
+    // One frame at monotonic time `t` with connect `phase` — the phase flaps provisioning↔connecting
     // each frame so the class cell re-anchors every tick (remote-provisioning↔remote-handshake)
     // and NEVER reaches its own ceiling. Every frame is the connector-owned `provisioning` leg,
     // so the campaign cell is armed once at t=0 and HELD.
-    const flap = (t: number, phase: "building" | "connecting") => {
+    const flap = (t: number, phase: "provisioning" | "connecting") => {
       h.connInfo = { phase };
       return frameAt(t);
     };
-    expect(flap(0, "building")).toEqual({
+    expect(flap(0, "provisioning")).toEqual({
       kind: "warming",
       daemonState: undefined,
     });
     for (let t = 100_000; t < CAMPAIGN_CEILING_MS; t += 100_000) {
-      const phase = (t / 100_000) % 2 === 0 ? "building" : "connecting";
+      const phase = (t / 100_000) % 2 === 0 ? "provisioning" : "connecting";
       // The class cell keeps re-zeroing on each flap and the campaign is still under ceiling →
       // it holds the neutral warming surface the whole way, never escaping via the class cell.
       expect(flap(t, phase).kind).toBe("warming");
     }
     // Past the client-monotonic campaign backstop → the non-terminal connector card (Retry
     // connection), never the reload lie. The class cell was freshly re-anchored ~100s ago.
-    expect(flap(CAMPAIGN_CEILING_MS + 100_000, "building")).toEqual({
+    expect(flap(CAMPAIGN_CEILING_MS + 100_000, "provisioning")).toEqual({
       kind: "boot-stalled",
-      recovery: { via: "connector", phase: "building" },
+      recovery: { via: "connector", phase: "provisioning" },
     });
   });
 });

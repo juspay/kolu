@@ -98,21 +98,16 @@ export type ExitResult =
 export type CaptureResult = ExitResult & { stdout: string };
 
 /** Shared options for both helpers: an optional progress sink for stderr lines, the
- *  REQUIRED lifetime policy, and an optional user-abort signal (recheck's
- *  abort-in-flight, #1908 R6b). */
+ *  REQUIRED lifetime policy, an optional child-environment overlay, and an
+ *  optional user-abort signal (recheck's abort-in-flight, #1908 R6b). */
 export interface RunOptions {
   onProgress?: (line: string) => void;
+  env?: Readonly<Record<string, string>>;
   /** REQUIRED — a caller cannot spawn without deciding who kills a stuck child. */
   policy: LifetimePolicy;
   /** Aborting this settles the run as `{ kind: "aborted" }` and group-kills the child
    *  (and its ssh grandchild). Threaded from the connector's per-dial abort. */
   signal?: AbortSignal;
-}
-
-/** `runProgress` additionally merges `env` onto the parent environment — the `nix
- *  copy` caller injects `NIX_SSHOPTS` so the ssh it forks inherits the keepalive. */
-export interface RunProgressOptions extends RunOptions {
-  env?: Readonly<Record<string, string>>;
 }
 
 /** How long a group waits after `SIGTERM` before we escalate to `SIGKILL` — a child
@@ -346,7 +341,7 @@ function runWithLifetime(
 export function runProgress(
   cmd: string,
   args: readonly string[],
-  opts: RunProgressOptions,
+  opts: RunOptions,
 ): Promise<ExitResult> {
   return runWithLifetime({
     cmd,
@@ -372,6 +367,7 @@ export function runCapture(
     cmd,
     args,
     captureStdout: true,
+    env: opts.env,
     onProgress: opts.onProgress ?? (() => {}),
     policy: opts.policy,
     signal: opts.signal,

@@ -11,11 +11,10 @@
  *     (no shared pool — S10 deleted it), so repeated and concurrent same-host/binary
  *     dials never share state or cross-dispose (the F1 regression).
  *
- * The CLI wrappers (kaval-tui / padi-tui) supply only their binary, baked
- * source ref, fatalPrefix, and probe; those thin seams are tested in
- * their own packages.
+ * The CLI wrappers (kaval-tui / padi-tui) supply only their binary,
+ * fatalPrefix, and probe; those thin seams are tested in their own packages.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   markConnected: vi.fn(),
@@ -52,6 +51,8 @@ vi.mock("./session", () => ({ makeSession: h.makeSession }));
 vi.mock("./sshConnector", () => ({ sshConnector: h.sshConnector }));
 
 import { dialAgentOnce } from "./dialAgentOnce";
+import { SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
+import { makeProvisionBudgets } from "./nixCopy";
 
 /** Wire the mocks: `sshConnector(opts)` records its transport opts and returns a
  *  dummy connector; `makeSession(opts)` mints a fresh fake session whose `pin()`
@@ -98,10 +99,16 @@ const FLAKE_REF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source";
 const resolverContext = {
   signal: new AbortController().signal,
   localProgress: vi.fn(),
+  budget: makeProvisionBudgets().evaluation,
 };
+
+beforeEach(() => {
+  vi.stubEnv(SURFACE_AGENT_FLAKE_REF_ENV, FLAKE_REF);
+});
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   h.sessions.length = 0;
   h.state = {
     phase: "connecting",
@@ -116,23 +123,24 @@ describe("dialAgentOnce: eager source-ref validation", () => {
   const base = {
     host: "nix@prod",
     binary: "agent",
-    agentFlakeRef: FLAKE_REF,
     fatalPrefix: "agent:",
     localEnv: {},
     probe: async () => undefined,
   };
 
   it("fails when the source ref is missing (ran outside the Nix wrapper)", async () => {
-    await expect(
-      dialAgentOnce({ ...base, agentFlakeRef: undefined }),
-    ).rejects.toThrow(/SURFACE_AGENT_FLAKE_REF is not set/);
+    delete process.env[SURFACE_AGENT_FLAKE_REF_ENV];
+    await expect(dialAgentOnce(base)).rejects.toThrow(
+      /SURFACE_AGENT_FLAKE_REF is not set/,
+    );
     expect(h.makeSession).not.toHaveBeenCalled();
   });
 
   it("rejects an empty source ref", async () => {
-    await expect(
-      dialAgentOnce({ ...base, agentFlakeRef: "  " }),
-    ).rejects.toThrow(/SURFACE_AGENT_FLAKE_REF is not set/);
+    process.env[SURFACE_AGENT_FLAKE_REF_ENV] = "  ";
+    await expect(dialAgentOnce(base)).rejects.toThrow(
+      /SURFACE_AGENT_FLAKE_REF is not set/,
+    );
     expect(h.makeSession).not.toHaveBeenCalled();
   });
 });
@@ -148,7 +156,6 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "agent",
-      agentFlakeRef: FLAKE_REF,
       fatalPrefix: "agent:",
       localEnv: {},
       probe: async () => undefined,
@@ -166,6 +173,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
       {
         signal: resolverContext.signal,
         onProgress: resolverContext.localProgress,
+        budget: resolverContext.budget,
       },
     );
   });
@@ -175,7 +183,6 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "pulam",
-      agentFlakeRef: FLAKE_REF,
       fatalPrefix: "pulam:",
       localEnv: {},
       probe: async () => undefined,
@@ -191,7 +198,6 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "pulam",
-      agentFlakeRef: FLAKE_REF,
       fatalPrefix: "pulam:",
       localEnv: {},
       probe: async () => undefined,
@@ -207,7 +213,6 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "widget",
-      agentFlakeRef: FLAKE_REF,
       fatalPrefix: "widget:",
       localEnv: {},
       probe: async () => undefined,
@@ -233,7 +238,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     const dial = await dialAgentOnce({
       host: "nix@prod",
       binary: "agent",
-      agentFlakeRef: FLAKE_REF,
       fatalPrefix: "agent:",
       localEnv,
       probe,
@@ -258,7 +262,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       dialAgentOnce({
         host: "nix@prod",
         binary: "agent",
-        agentFlakeRef: FLAKE_REF,
         fatalPrefix: "agent:",
         localEnv: {},
         probe: async () => {
@@ -314,7 +317,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "pulam",
-      agentFlakeRef: FLAKE_REF,
       fatalPrefix: "pulam:",
       localEnv: {},
       probe: async () => {
@@ -358,7 +360,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "kaval",
-      agentFlakeRef: FLAKE_REF,
       fatalPrefix: "kaval --stdio:",
       localEnv: {},
       probe: async () => {
@@ -382,7 +383,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       dialAgentOnce({
         host: "nix@prod",
         binary: "agent",
-        agentFlakeRef: FLAKE_REF,
         fatalPrefix: "agent:",
         localEnv: {},
         probe: async () => {
@@ -401,7 +401,6 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
   const dialArgs = {
     host: "nix@prod",
     binary: "agent",
-    agentFlakeRef: FLAKE_REF,
     fatalPrefix: "agent:",
     localEnv: {},
     probe: async () => "ok",

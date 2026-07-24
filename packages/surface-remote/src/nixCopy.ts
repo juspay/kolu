@@ -18,13 +18,12 @@
  *      GC root and short-circuit, skipping the redundant copy/realise/pin.
  *      The check NEVER substitutes (the old fused `--realise` did — the
  *      #1908 wedge); substitution belongs to step 3, narrated as a build.
- *   2. `nix copy --derivation --to ssh-ng://$host $drvPath` pushes the
- *      .drv (plus its inputs' .drvs and source paths the remote
- *      doesn't have).
- *   3. `ssh $host nix build -v --print-out-paths --no-link $drv^*` builds
- *      (or substitutes) it on the remote, returning the output path. Plain
- *      `-v` so nix's own per-path lines reach the connect overlay; a single
- *      large fetch may be quiet — the wall-clock elapsed timer covers liveness.
+ *   2. One `nix build --eval-store auto --store ssh-ng://$host` evaluates
+ *      locally, transfers the derivation, and realises it remotely. One Nix
+ *      process owns the temporary roots across that whole handoff, so a
+ *      concurrent GC cannot collect the just-transferred derivation between
+ *      separate copy and build commands. Plain `-v` lets Nix's own transfer and
+ *      build lines reach the connect overlay.
  *   4. `ssh $host nix-store --realise $out --add-root $link --indirect`
  *      pins that output behind a per-agent GC root on the target, so a
  *      `nix-collect-garbage` there can't delete the agent out from
@@ -39,7 +38,7 @@
  * **Lifetime ownership (#1908 D1b/D1c).** Every child spawns through
  * `process.ts` with a REQUIRED {@link LifetimePolicy}: the quick steps
  * (arch probe, warm check, pin) get a hard `deadline`; the minutes-long
- * `copy`/`build` get `progress-liveness` (killed only on real silence),
+ * `provisioning` gets `progress-liveness` (killed only on real silence),
  * with a per-step doubling + kill budget ({@link StepBudget}) the CALLER
  * owns across retries so a healthy slow transfer is never livelocked. A
  * per-dial abort `signal` (recheck's abort-in-flight, R6b) group-kills any
@@ -61,7 +60,6 @@ import {
   type ExitResult,
   type LifetimePolicy,
   runCapture,
-  runProgress,
 } from "./process";
 
 /** Hard deadline for the QUICK ssh/local steps — the arch probe, the warm
@@ -69,7 +67,7 @@ import {
  *  link doesn't false-fail, far short of the 10-minute wedge this bounds. */
 export const PROVISION_PROBE_DEADLINE_MS = 30_000;
 
-/** Base progress-silence bound for the minutes-long `copy`/`build` steps (#1908
+/** Base progress-silence bound for the minutes-long provisioning step (#1908
  *  R4/C1). nix's stderr is per-path, so one large NAR on a slow link is legitimately
  *  silent for a while — MINUTES-scale, not seconds. Doubles per consecutive expiry
  *  (see {@link StepBudget}). */
@@ -78,7 +76,7 @@ export const PROVISION_STEP_SILENCE_BASE_MS = 120_000;
 /** How many consecutive `lifetime-expired` kills of the SAME step before it is
  *  genuinely terminal (#1908 R4c/C5). With base 120s and N=4 the last budgeted
  *  silence is 120×2³ = 960s (16 min); the session-level backstop (R8b) sits above
- *  that so R4 always fires first on a copy/build step. */
+ *  that so R4 always fires first during provisioning. */
 export const PROVISION_STEP_MAX_EXPIRIES = 4;
 
 /** A per-step progress-liveness budget (#1908 R4/C5):
@@ -93,7 +91,7 @@ export const PROVISION_STEP_MAX_EXPIRIES = 4;
  *
  *  Terminal-ness is DECOUPLED from the session's `MAX_CONSECUTIVE_FAILURES` give-up
  *  counter: an exhausted budget makes provisioning fail TERMINALLY at once (a
- *  distinct give-up), so a permanently-silent copy/build reaches `failed` in a bounded
+ *  distinct give-up), so a permanently silent provision reaches `failed` in a bounded
  *  number of attempts — NOT the "one `remote` of five" the pre-connected backstop
  *  would otherwise reset before it ever counted (the composed-mechanism hole the
  *  architecture gate caught). */
@@ -106,7 +104,7 @@ export interface StepBudget {
 /** Build a {@link StepBudget}. `baseMs` doubles per consecutive expiry; `maxExpiries`
  *  is the terminal count. The maximum silence it ever asks for is `base × 2^(maxExpiries
  *  − 1)` (the last non-terminal grant), which MUST stay under the session's pre-connected
- *  backstop bound so the step's own kill always fires first on a copy/build — see
+ *  backstop bound so the step's own kill always fires first during provisioning — see
  *  `PROVISION_STEP_*` and `DEFAULT_PRE_CONNECTED_LIVENESS_MS`. */
 export function makeStepBudget(
   baseMs: number,
@@ -128,14 +126,12 @@ export function makeStepBudget(
   };
 }
 
-/** The two provisioning step budgets fused into ONE value the connector holds and
- *  `provisionAgent` takes whole (#1908 C5 + the C3 ergonomics fusion): the copy and
- *  build {@link StepBudget}s plus the campaign-epoch reconciliation, so a connector
- *  keeps ONE object and does NO hand-kept `lastCampaignEpoch` bookkeeping. */
+/** The provisioning step budgets fused into ONE value the connector holds: local
+ *  evaluation and the atomic transfer/build plus campaign-epoch reconciliation. */
 export interface ProvisionBudgets {
-  readonly copy: StepBudget;
-  readonly build: StepBudget;
-  /** Reset both step budgets when the campaign changes (a fresh episode / user verb).
+  readonly evaluation: StepBudget;
+  readonly provisioning: StepBudget;
+  /** Reset every step budget when the campaign changes (a fresh episode / user verb).
    *  Idempotent within a campaign — a no-op until `epoch` moves. The connector
    *  (session↔nixCopy bridge) must call this with `ctx.campaignEpoch` before
    *  `provisionAgent` — provisionAgent itself is campaign-ignorant. */
@@ -145,18 +141,18 @@ export interface ProvisionBudgets {
 /** Build a {@link ProvisionBudgets}. One construction per connector (persists across a
  *  campaign's retry dials); the campaign reset lives INSIDE it. */
 export function makeProvisionBudgets(): ProvisionBudgets {
-  const copy = makeStepBudget(
+  const evaluation = makeStepBudget(
     PROVISION_STEP_SILENCE_BASE_MS,
     PROVISION_STEP_MAX_EXPIRIES,
   );
-  const build = makeStepBudget(
+  const provisioning = makeStepBudget(
     PROVISION_STEP_SILENCE_BASE_MS,
     PROVISION_STEP_MAX_EXPIRIES,
   );
   let lastEpoch = -1;
   return {
-    copy,
-    build,
+    evaluation,
+    provisioning,
     onCampaign(epoch: number): void {
       // MONOTONIC (F6): reset only on a STRICTLY NEWER campaign. A stale dial N whose
       // `resolveDrvPath` resolved after dial N+1 already began provisioning would
@@ -166,26 +162,22 @@ export function makeProvisionBudgets(): ProvisionBudgets {
       // ignore it.
       if (epoch <= lastEpoch) return;
       lastEpoch = epoch;
-      copy.reset();
-      build.reset();
+      evaluation.reset();
+      provisioning.reset();
     },
   };
 }
 
 export interface ProvisionOptions {
   host: string;
-  /** The derivation to provision. A direct store derivation is copied as-is;
-   *  a flake-backed derivation keeps its installable so one `nix copy` process
-   *  evaluates, temporarily roots, and transfers it without a GC race. */
+  /** The derivation to provision. A direct store derivation is used as-is;
+   *  a flake-backed derivation keeps its installable so one `nix build` process
+   *  owns evaluation, transfer, and realisation without a GC race. */
   derivation: AgentDerivation;
   onProgress: (line: string) => void;
-  /** Fired ONCE, on the COLD path, right before `nix copy --derivation` starts —
-   *  the moment a real copy actually begins (the warm check has already MISSED). The
-   *  connector uses it to advance its phase `probing → copying`. Optional. */
-  onCopying?: () => void;
-  /** Fired ONCE, on the COLD path, at the copy→build boundary — right before
-   *  `nix build` starts the BUILD. Advances `copying → building`. Optional. */
-  onBuilding?: () => void;
+  /** Fired once on the cold path, immediately before the single Nix command
+   *  starts its evaluate/transfer/build lifetime. */
+  onProvisioning?: () => void;
   /** The fused per-step progress-liveness budgets (#1908 R4/C5) — CONNECTOR-owned so
    *  their doubling/terminal state persists across a campaign's retries. The connector
    *  reconciles the per-campaign reset (`budgets.onCampaign(ctx.campaignEpoch)`) at the
@@ -203,8 +195,8 @@ const agentDerivationBrand = Symbol("AgentDerivation");
 /** A derivation source whose variants make the GC ownership contract explicit.
  *
  * A direct `.drv` caller already owns keeping that store path valid. A flake
- * caller carries both the evaluated path (needed for the remote realise) and
- * the installable that can recreate and temporarily root it inside `nix copy`.
+ * caller carries both the evaluated path (needed for the warm probe) and the
+ * installable that one `nix build` can evaluate and provision as an owned unit.
  * The private symbol makes the sum nominal: callers cannot hand-assemble a
  * mismatched path/installable pair. */
 export type AgentDerivation =
@@ -324,10 +316,10 @@ function multiOutputError(host: string, count: number): ProvisionResult {
 }
 
 /** Shape the `ProvisionResult` for a step that went silent and got killed
- *  (`lifetime-expired`) — the SHARED derivation both the copy and build steps use (#1908
+ *  (`lifetime-expired`) — the shared derivation provisioning uses (#1908
  *  C5). Charges the step's budget: `recordExpiry()` returns `true` when the budget is
  *  EXHAUSTED, making the step GENUINELY TERMINAL (`terminal: true`) so the session gives
- *  up NOW, decoupled from the retry counter — a permanently-silent copy/build can't loop
+ *  up NOW, decoupled from the retry counter — a permanently silent provision can't loop
  *  forever. The `cause` stays honest `"network"` (a silent-then-killed step is a transport
  *  fault); `terminal` is the orthogonal give-up axis the session's gate keys off. */
 function expiredResult(
@@ -422,7 +414,7 @@ export async function provisionAgent(
   }
 
   // Watch the streamed output for ssh/nix connection errors as it flows by, so a
-  // host that went unreachable mid-`nix copy` (which exits with nix's code, not
+  // host that went unreachable mid-provision (which exits with Nix's code, not
   // ssh's 255) is still classified `"network"`. We only flip a flag.
   let sawNetworkError = false;
   const scanForNetworkError = (line: string): void => {
@@ -454,7 +446,7 @@ export async function provisionAgent(
   //    output path(s) LOCALLY (no network, instant), then ask the host whether they
   //    are already valid there. A HIT skips the redundant copy/realise. A MISS (or
   //    the local query failing because GC collected the evaluated .drv) falls through
-  //    to the full provision. A flake source is re-evaluated inside the copy/build
+  //    to the full provision. A flake source is re-evaluated inside the provisioning
   //    process, which owns a temporary root across the handoff; a direct drv-path
   //    caller owns keeping its path valid. Localhost never copies, so the fast-path
   //    is remote-only.
@@ -511,98 +503,50 @@ export async function provisionAgent(
     }
   }
 
-  // 2. Copy the .drv (and its build-inputs) to the remote. A flake-backed
-  //    derivation is passed as its installable, not its previously evaluated path:
-  //    this lets the ONE nix process evaluate, temporarily root, and transfer the
-  //    derivation without a GC race between those activities. Skipped for localhost.
-  if (!isLocal) {
-    // The warm check MISSED (cold path) — signal the `probing → copying` boundary.
-    opts.onCopying?.();
-    onProgress(`${opts.host}: copying derivation '${drvPath}'…`);
-    // Plain `-v`: nix's own per-path lines ("copying path '…'") reach the
-    // connect tail untouched. No structured-progress parser — one long fetch
-    // may be quiet; the wall-clock elapsed timer covers liveness (#1962).
-    const copyRes = await runProgress(
-      "nix",
-      [
-        "-v",
-        "copy",
-        "--no-check-sigs",
-        "--derivation",
-        "--to",
-        `ssh-ng://${opts.host}`,
-        opts.derivation.kind === "flake-installable"
-          ? opts.derivation.installable
-          : drvPath,
-      ],
-      {
-        onProgress,
-        // The copy is a transfer that can sit idle for minutes; progress-liveness kills
-        // it only on real silence (#1908 R4). The ssh nix forks internally rides the
-        // shared master + dead-peer keepalive via NIX_SSHOPTS.
-        policy: budgets.copy.policy(),
-        env: { NIX_SSHOPTS: nixSshOpts() },
-        signal,
-      },
-    );
-    if (copyRes.kind === "lifetime-expired") {
-      return expiredResult(
-        opts.host,
-        "nix copy --derivation",
-        budgets.copy,
-        copyRes,
-      );
-    }
-    if (!copyRes.ok) {
-      return {
-        ok: false,
-        reason: `${opts.host}: 'nix copy --derivation' ${describeExit(copyRes)}`,
-        cause: causeFor(copyRes),
-      };
-    }
-    budgets.copy.reset(); // success clears the doubling
-    onProgress(`${opts.host}: derivation copy complete`);
-    // The copy reached the host, so it's provably reachable *now* — clear any network
-    // flag a speculative check blip set, so a later genuine *remote* realise failure
-    // isn't misclassified `"network"`.
-    sawNetworkError = false;
-  }
-
-  // 3. Realise (build) the .drv on the target — the minutes-long compile / binary-cache
-  //    fetch. Signal the `copying → building` boundary (cold path only; a warm host
-  //    returned at step 1). Uses `nix build -v --print-out-paths --no-link` (not the
-  //    classic `nix-store --realise`) so nix's own verbose per-path lines reach the
-  //    connect tail. The installable is `$drv^*` (all outputs): a bare `$drv` path is
-  //    a derivation installable that `--print-out-paths` echoes back as itself (spawn
-  //    ENOTDIR), while `^*` realises and prints the store output path(s). Same
-  //    single-output contract as before (multi-output still fails loud via
-  //    `multiOutputError`). Remote arm shell-quotes the installable so zsh does not
-  //    glob `*` (#1964).
-  opts.onBuilding?.();
+  // 2. Provision the cold target in ONE Nix process. `--eval-store auto`
+  //    keeps flake evaluation in the caller's store while `--store ssh-ng://…`
+  //    makes the destination store own transfer and realisation. Nix therefore
+  //    carries its temporary roots across the whole evaluation→copy→build
+  //    lifetime; there is no command boundary at which remote GC can collect the
+  //    transferred derivation. Localhost uses the same installable without the
+  //    remote-store split.
+  // The cold command establishes its own current transport evidence. Do not let
+  // a speculative warm-probe miss poison the classification of this operation.
+  sawNetworkError = false;
+  opts.onProvisioning?.();
   onProgress(
     isLocal
       ? `localhost: realising '${drvPath}'…`
-      : `${opts.host}: realising '${drvPath}' on remote…`,
+      : `${opts.host}: provisioning '${drvPath}' on remote…`,
   );
-  const build = buildSshProbeCommand(
-    opts.host,
-    "nix",
+  const installable =
+    opts.derivation.kind === "flake-installable"
+      ? opts.derivation.installable
+      : `${drvPath}^*`;
+  const provisionArgs = [
     "-v",
     "build",
+    "--accept-flake-config",
+    ...(isLocal
+      ? []
+      : ["--eval-store", "auto", "--store", `ssh-ng://${opts.host}`]),
     "--print-out-paths",
     "--no-link",
-    // `^*` = all outputs of the derivation (see comment above).
-    isLocal && opts.derivation.kind === "flake-installable"
-      ? opts.derivation.installable
-      : `${drvPath}^*`,
-  );
-  const realiseRes = await runCapture(build.command, build.args, {
+    installable,
+  ];
+  const realiseRes = await runCapture("nix", provisionArgs, {
     onProgress,
-    policy: budgets.build.policy(),
+    policy: budgets.provisioning.policy(),
+    env: isLocal ? undefined : { NIX_SSHOPTS: nixSshOpts() },
     signal,
   });
   if (realiseRes.kind === "lifetime-expired") {
-    return expiredResult(opts.host, "nix build", budgets.build, realiseRes);
+    return expiredResult(
+      opts.host,
+      "nix build",
+      budgets.provisioning,
+      realiseRes,
+    );
   }
   if (!realiseRes.ok) {
     return {
@@ -611,7 +555,7 @@ export async function provisionAgent(
       cause: causeFor(realiseRes),
     };
   }
-  budgets.build.reset();
+  budgets.provisioning.reset();
   // Same single-output contract as the warm path (see `multiOutputError`): a multi-output
   // realise is ambiguous — fail loud rather than pick the wrong output.
   const outPaths = parseOutputs(realiseRes.stdout);

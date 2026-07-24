@@ -42,7 +42,7 @@ from another device.
   </Card>
   <Card title="Nix on the remote">
     The host has Nix installed and your user is **trusted by its nix-daemon** —
-    kolu provisions [padi](/padi) there by copying a Nix closure over ssh.
+    kolu provisions [padi](/padi) there with Nix over ssh.
   </Card>
   <Card title="A Nix-wrapped kolu">
     Launch kolu through its Nix wrapper, which bakes in its exact agent source.
@@ -93,9 +93,9 @@ connect a machine.
 ## First connect — provisioning over ssh
 
 The first time you switch to a host that has never run padi, kolu **provisions it
-over ssh**: it copies the padi closure to the machine with Nix. A cold copy can
-take **minutes**. You don't install anything on the host by hand — the closure
-carries everything.
+over ssh**: one Nix operation evaluates the exact agent, transfers what the
+machine needs, and realises it there. A cold provision can take **minutes**. You
+don't install anything on the host by hand.
 
 Each host is a **tab**: **local** is a Home icon plus the machine hostname
 kolu is running on; remotes show the ssh target. Every tab carries a
@@ -106,7 +106,7 @@ kolu is running on; remotes show the ssh target. Every tab carries a
 | Home + hostname | this machine (local) |
 | `user@host` | a remote ssh target |
 | green pip | connected and live |
-| amber pip (pulsing) | connecting or copying — coming up |
+| amber pip (pulsing) | connecting or provisioning — coming up |
 | red pip + struck label | unreachable — open diagnostics for the real error and **retry** |
 
 Click the **connection pip** for the **diagnostics popover** — connection
@@ -115,10 +115,9 @@ The **label** (Home or hostname) only switches hosts; diagnostics is never
 hover-opened.
 
 <Aside type="note" title="What a cold connect shows you">
-  A first-time provisioning **narrates itself** on the canvas. It names the real
-  phase — **“Provisioning kolu onto `<host>`…”** while it ships the closure, then
-  **“Building on `<host>`… this can take a few minutes”** during the compile / binary-cache
-  fetch — with a **live tail of nix's own verbose lines** (per-path copy/download chatter)
+  A first-time provisioning **narrates itself** on the canvas:
+  **“Provisioning kolu on `<host>`… this can take a few minutes”**, with a
+  **live tail of nix's own verbose lines** (per-path transfer/build chatter)
   and an **elapsed timer** that **keeps climbing every second** even when the log is quiet
   during one large fetch. So a slow-but-working cold connect reads as *in progress*, not a
   hang. There's no fake progress bar — the reassurance is the named phase, nix's real
@@ -126,11 +125,11 @@ hover-opened.
   straight to connected, with no build UI at all.
 
   And if a connect **genuinely stalls**, the canvas stops narrating past a **finite deadline**
-  (a short one for your local machine; a generously longer one while a remote is still copying
-  or building, so a real cold connect is never cut short) and shows an honest card — but the
+  (a short one for your local machine; a generously longer one while a remote is still
+  provisioning, so a real cold connect is never cut short) and shows an honest card — but the
   card tells the truth about **who can fix it**:
 
-  - While a **remote** machine is still **setting itself up** — probing, copying, or building
+  - While a **remote** machine is still **setting itself up** — probing or provisioning
     its agent over ssh — the card stays **non-terminal**: it says kolu is **still retrying**
     (naming the phase it's on), and its recovery verb is **Retry connection**, which recycles
     the **server-side** connection — the only thing that can move a stuck dial, where a browser
@@ -148,7 +147,7 @@ hover-opened.
   unchanged.)
 
   The canvas shows a **tail**; the full firehose still lives in the **kolu server logs** —
-  the complete `nix copy` and build output, and the actual reason if a connect genuinely
+  the complete Nix provisioning output, and the actual reason if a connect genuinely
   fails. Under systemd that's `journalctl` for your kolu service; padi also keeps its own
   log in its state-root on the host.
 </Aside>

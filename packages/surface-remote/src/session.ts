@@ -19,7 +19,7 @@
  * the connector's first provisioning phase (the ssh connector's `probing`) — and
  * advances through the connector's own provisioning vocabulary before `connecting`:
  *
- *     <open>       ──connectOnce ok──────▶ connecting   (ssh: probing → [copying → building] → connecting)
+ *     <open>       ──connectOnce ok──────▶ connecting   (ssh: probing → [provisioning] → connecting)
  *     <open>       ──connectOnce reject──▶ disconnected (backoff, then retry)
  *     connecting   ──markConnected ──────▶ connected
  *     connecting   ──watchdog timeout ───▶ disconnected (tear down, then retry)
@@ -80,7 +80,7 @@ export const DEFAULT_PRE_CONNECTED_LIVENESS_MS = 1_200_000;
  *  UNREPRESENTABLE:
  *
  *   - UP (`connecting`/`connected`/a connector-declared provisioning `Prov`, e.g.
- *     the ssh connector's `"probing"`/`"copying"`/`"building"`) — no `error`/`cause`
+ *     the ssh connector's `"probing"`/`"provisioning"`) — no `error`/`cause`
  *     FIELDS at all (there is nothing to report). The `connected` arm ALONE also
  *     carries `clockOffset` — the far-end host's wall-clock offset (ms) vs THIS
  *     process, measured off the framework-reserved `system.clockNow` at the admit
@@ -108,8 +108,8 @@ export const DEFAULT_PRE_CONNECTED_LIVENESS_MS = 1_200_000;
  *
  *  `Prov` is the connector's OWN provisioning-phase vocabulary (`= never` for a
  *  non-provisioning endpoint — the local arm, whose up phases are exactly
- *  `connecting`/`connected`, so `"copying"` is unspellable there; `= "probing" |
- *  "copying" | "building"` for the ssh connector). The browser cell `ConnectionInfo`
+ *  `connecting`/`connected`, so `"provisioning"` is unspellable there; `=
+ *  "probing" | "provisioning"` for the ssh connector). The browser cell `ConnectionInfo`
  *  (`./connection`) IS this sum at `Prov = SshProv` on the wire. */
 export type SessionState<Prov extends string = never> = {
   /** The link's provenance-tagged log tail (last {@link MAX_PROGRESS_LINES}) —
@@ -320,7 +320,7 @@ export interface ConnectContext<Prov extends string = never> {
   /** Push a `remote`-tagged forwarded remote-agent stderr line. */
   remoteProgress(line: string): void;
   /** Advance to one of the connector's OWN provisioning phases (e.g. the ssh
-   *  connector's `probing → copying → building`, each at its real command boundary). The
+   *  connector's `probing → provisioning`, each at its real command boundary). The
    *  session opens at the connector's first provisioning phase; this moves it
    *  forward through the rest. Uncallable for `Prov = never`. */
   provisioning(phase: Prov): void;
@@ -434,7 +434,7 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  already live, already given up, or in a phase its connector can never enter —
    *  that would publish a LYING first frame and could misclassify `provisions`
    *  below). An ssh `sshConnector` PROVISIONS (nix-copies the closure first), so
-   *  `Prov = "probing" | "copying" | "building"` and `initialConnection` narrows to
+   *  `Prov = "probing" | "provisioning"` and `initialConnection` narrows to
    *  EXACTLY `Prov` — the connector opens at its FIRST provisioning phase (`"probing"`) and
    *  advances the rest via `ctx.provisioning`. A provisioning session can no longer
    *  be constructed with a non-provisioning opening phase (juspay/kolu#1808): that
@@ -823,7 +823,7 @@ export function makeSession<
   };
 
   /** Transition to an UP arm (`connecting`/`connected`/a provisioning `Prov`, e.g.
-   *  `"probing"`/`"copying"`/`"building"`) — constructed with EXACTLY its fields: no
+   *  `"probing"`/`"provisioning"`) — constructed with EXACTLY its fields: no
    *  `error`/`cause` (the up arm has none to carry, stale or otherwise). The episode
    *  CLOCK is stamped by {@link startEpisode} at campaign birth, never here — so `setUp`
    *  infers nothing (#1908 R7). The `log` drops ONCE per campaign: a `campaignEpoch`
@@ -1579,8 +1579,8 @@ export function makeSession<
         launchAttempt();
         return;
       }
-      // No live link, no backoff timer: a dial is IN FLIGHT (`probing`/`copying`/
-      // `building`, `clientPromise` pending) OR the session is idle/`failed`
+      // No live link, no backoff timer: a dial is IN FLIGHT
+      // (`probing`/`provisioning`, `clientPromise` pending) OR the session is idle/`failed`
       // (`clientPromise` null). Either way ABORT any in-flight dial — group-killing its
       // provisioning children (#1908 R6b) — and dial fresh NOW with no backoff (C4). The
       // aborted dial's late rejection is made inert by `attempt`'s C2 epoch guard, so it

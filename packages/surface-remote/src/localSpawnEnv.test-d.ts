@@ -80,7 +80,6 @@ sshConnector({
 void dialAgentOnce({
   host: "h",
   binary: "a",
-  agentFlakeRef: "github:example/agent",
   fatalPrefix: "a:",
   localEnv: {},
 });
@@ -88,7 +87,6 @@ void dialAgentOnce({
 void dialAgentOnce({
   host: "h",
   binary: "a",
-  agentFlakeRef: "github:example/agent",
   fatalPrefix: "a:",
   // @ts-expect-error — `localEnv` may not be `undefined` on the one-shot dial either.
   localEnv: undefined,
@@ -99,7 +97,6 @@ void dialAgentOnce(
   {
     host: "h",
     binary: "a",
-    agentFlakeRef: "github:example/agent",
     fatalPrefix: "a:",
   },
 );

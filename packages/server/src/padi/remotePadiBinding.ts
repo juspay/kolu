@@ -37,12 +37,12 @@ import { daemonBuild, decide } from "@kolu/surface-daemon-supervisor";
 import {
   type Admit,
   type AdmitVerdict,
+  AgentSourceUnbakedError,
   type Connector,
   makeSession,
   type ResolveDrvPathContext,
   ResolveDrvError,
-  resolveAgentDrv,
-  SURFACE_AGENT_FLAKE_REF_ENV,
+  resolveBakedAgentDrv,
   type Session,
   type SshConnectorOptions,
   sshConnector,
@@ -195,19 +195,19 @@ function makeResolvePadiDrv(
     // retry, so represent it as a TERMINAL `ResolveDrvError("remote")` — the session
     // settles on `failed` and the entry publishes the reason, rather than retrying a
     // config/deploy fault forever.
-    const flakeRef = process.env[SURFACE_AGENT_FLAKE_REF_ENV]?.trim();
-    if (!flakeRef) {
-      throw new PadiDrvFault(
-        `${SURFACE_AGENT_FLAKE_REF_ENV} is not set — remote agents need the source flake baked into the build. Run Kolu from its Nix wrapper, or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
-        "agent-source-unbaked",
-      );
-    }
     try {
-      return await resolveAgentDrv(host, flakeRef, "padi", {
+      return await resolveBakedAgentDrv(host, "padi", {
         signal: ctx.signal,
         onProgress: ctx.localProgress,
+        budget: ctx.budget,
       });
     } catch (err) {
+      if (err instanceof AgentSourceUnbakedError) {
+        throw new PadiDrvFault(
+          `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
+          "agent-source-unbaked",
+        );
+      }
       if (!(err instanceof ResolveDrvError)) throw err;
       throw new PadiDrvFault(err.message, "agent-drv-unavailable");
     }
@@ -673,10 +673,9 @@ export function ensureRemotePadiBinding(
     SshProv
   >({
     connectOnce: rawConnector,
-    // The REMOTE ssh connector PROVISIONS — it nix-copies the padi closure to the
-    // host before the transport is up (`copying`), then advances to `building`
-    // (`ctx.provisioning`) when the remote compile begins — so this session opens
-    // at "copying", its first provisioning phase.
+    // The remote ssh connector provisions padi before the transport is up. It
+    // opens at `probing`, then advances to the one owned `provisioning` lifetime
+    // only on a cold host.
     initialConnection: "probing",
     admit,
     // The session dispatches severity internally on the receiver (SK1); the

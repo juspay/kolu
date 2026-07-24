@@ -49,8 +49,8 @@ let
   # canonical Kolu workspace source above plus the Nix/npins machinery that
   # evaluates it. `commit-hash` preserves the parent build's derived identity
   # even though a store-path flake has no Git metadata. The flake exposes only
-  # padi + kaval via
-  # nix/agent-flake.nix; selecting either remains independent of this derivation,
+  # Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix; selecting
+  # an agent remains independent of this derivation,
   # so evaluating the nested flake is acyclic.
   agentFlakeSrc = pkgs.runCommand "kolu-agent-flake-source" { } ''
     mkdir -p "$out"
@@ -541,7 +541,7 @@ let
   # of truth and make the wrapper provision the WRONG agent,
   # which is exactly the override-knob the repo's fail-fast rule forbids. openssh
   # + nix are on PATH for the provision (resolveSystem's ssh arch-probe +
-  # provisionAgent's `nix copy` / `nix-store`).
+  # provisionAgent's Nix remote-store build / `nix-store` probe and pin).
   mkAgentTuiWrapper = { name, entry }:
     pkgs.runCommand name
       {

@@ -50,7 +50,7 @@ export interface HostBinding {
 }
 
 /** Project the session's connection state onto the map's per-entry state. A
- *  copying/reconnecting window reads `warming` (in motion, self-heals); only a
+ *  provisioning/reconnecting window reads `warming` (in motion, self-heals); only a
  *  bounded remote fault reads `failed` (needs intervention) — an unreachable box
  *  stays `warming` and retries, it does not become `failed`. Readiness is
  *  LINK-liveness: a `connected` session projects to `connected` REGARDLESS of the
@@ -63,8 +63,7 @@ function projectState(
 ): EntryConnectionState<"copying", HostFailure> {
   switch (s.phase) {
     case "probing":
-    case "copying":
-    case "building":
+    case "provisioning":
       return { kind: "copying" };
     case "connecting":
       return { kind: "connecting" };

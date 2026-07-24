@@ -59,7 +59,7 @@ const connectedWithPhase: CanvasFacts = {
   channelLive: true,
   // @ts-expect-error — `connectPhase` does not exist on the connected arm (A'): the overlay
   // cannot be routed while the map reports the host connected.
-  connectPhase: "building",
+  connectPhase: "provisioning",
 };
 void connectedWithPhase;
 
@@ -83,7 +83,7 @@ void connectedArm.connectPhase;
 const warming: CanvasFacts = {
   ...liveness,
   entry: "warming",
-  connectPhase: "building",
+  connectPhase: "provisioning",
   // @ts-expect-error — `daemonState` is a CONNECTED-arm-only kaval fact; a warming
   // host's re-served daemonStatus is stale, so the type makes it unspellable here.
   daemonState,

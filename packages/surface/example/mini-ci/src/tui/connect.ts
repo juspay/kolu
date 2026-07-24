@@ -26,7 +26,7 @@ import type { surface } from "../common/surface";
 
 export type RunnerClient = AgentClient<typeof surface.contract>;
 // The ssh connector PROVISIONS, so the session's `Prov` is `SshProv`
-// (`"copying" | "building"`) — the runner overlay narrates both.
+// (`"provisioning"`) — the runner overlay narrates it.
 export type RunnerSession = Session<RunnerClient, SshProv>;
 
 export interface Connection {

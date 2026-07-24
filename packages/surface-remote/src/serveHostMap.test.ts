@@ -189,7 +189,7 @@ async function entriesGet(
 
 describe("projectState — SessionState → EntryConnectionState", () => {
   it("maps each connection state; readiness is link-liveness, the offset rides through", () => {
-    expect(projectState(st("copying"))).toEqual({ kind: "copying" });
+    expect(projectState(st("provisioning"))).toEqual({ kind: "copying" });
     expect(projectState(st("connecting"))).toEqual({ kind: "connecting" });
     expect(projectState(connected(5))).toEqual({
       kind: "connected",
@@ -217,7 +217,7 @@ describe("projectState — SessionState → EntryConnectionState", () => {
 describe("serveHostMap belt — a non-provisioning session can never project 'copying' (juspay/kolu#1716)", () => {
   it("RUNTIME pin: a PROVISIONING session in 'copying' projects 'copying' fine (the remote path warms-via-copy)", async () => {
     const p = fakePool();
-    p.add("remote", fakeSession(st("copying"), true)); // provisions: true — legitimate
+    p.add("remote", fakeSession(st("provisioning"), true)); // provisions: true — legitimate
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       failureOf: classify,
@@ -238,7 +238,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     // Force a non-provisioning session into "copying" — the endpoint arm's type
     // (`makeSession<_, never>`) makes this UNCONSTRUCTIBLE, so this models a
     // regression / a wrong widening.
-    p.add("local", fakeSession(st("copying"), false));
+    p.add("local", fakeSession(st("provisioning"), false));
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       failureOf: classify,
@@ -255,8 +255,8 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const p = fakePool();
     // Two independent non-provisioning members, both illegally in "copying" — the
     // old `localKey?: K` option could only ever belt ONE of these.
-    p.add("local-a", fakeSession(st("copying"), false));
-    p.add("local-b", fakeSession(st("copying"), false));
+    p.add("local-a", fakeSession(st("provisioning"), false));
+    p.add("local-b", fakeSession(st("provisioning"), false));
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       failureOf: classify,
@@ -418,8 +418,7 @@ describe("the joint connection-authority invariant (SR9, drishti#102)", () => {
   // so it is RED until the fine payload rides the served `EntryStatus`.
   const cases: Array<{ name: string; state: SessionState<SshProv> }> = [
     { name: "connecting", state: st("connecting") },
-    { name: "copying", state: st("copying") },
-    { name: "building", state: st("building") },
+    { name: "provisioning", state: st("provisioning") },
     { name: "connected(measured)", state: connected(42) },
     { name: "connected(unmeasured)", state: connected(null) },
     { name: "disconnected", state: st("disconnected", "boom") },

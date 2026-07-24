@@ -5,7 +5,7 @@
  *
  * Two shapes, one per recovery arm:
  *   - `via: "connector"` — a warming REMOTE campaign the server ssh connector is STILL retrying
- *     (probing / copying / building / connecting). NON-TERMINAL copy from {@link CONNECTOR_STALLED_COPY}
+ *     (probing / provisioning / connecting). NON-TERMINAL copy from {@link CONNECTOR_STALLED_COPY}
  *     plus the live `phase` detail, and the recovery verb **[Retry connection]** calls
  *     `client.hosts.reconnect` — which PR1 gave a real abort-in-flight `recheck()` that recycles
  *     the held server session into a fresh dial. `location.reload()` could not recycle a

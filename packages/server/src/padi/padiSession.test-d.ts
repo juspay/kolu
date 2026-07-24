@@ -1,7 +1,7 @@
 /**
  * TYPE-LEVEL pin (juspay/kolu#1716's copying-unrepresentable split, carried down
  * to its LAST consumer): a LOCAL padi session's `onState` — AND its synchronous
- * twin `currentState()` — can never report `"copying"` — the local endpoint
+ * twin `currentState()` — can never report `"provisioning"` — the local endpoint
  * connector provisions nothing (the daemon is already here), so the provisioning
  * phase is a remote-only fact. Before
  * `PadiSession` became generic over `Prov`, `asPadiSession` took a fixed
@@ -33,21 +33,21 @@ const localPadi: PadiSession<never> = asPadiSession(localBase, {
 
 localPadi.onState((s) => {
   // @ts-expect-error — a LOCAL padi session's connection can never be
-  // `"copying"` (the local endpoint connector provisions nothing); the up-arm
+  // `"provisioning"` (the local endpoint connector provisions nothing); the up-arm
   // union here is exactly `"connecting" | "connected"`. If this line ever
   // compiles, the copying-unrepresentable split has regressed for padi's last
   // consumer.
-  if (s.phase === "copying") {
+  if (s.phase === "provisioning") {
     // unreachable — pinned above, not exercised at runtime.
   }
 });
 
-// The REMOTE ssh arm keeps the default (`SshProv`): `"copying"` is its actual
+// The REMOTE ssh arm keeps the default (`SshProv`): `"provisioning"` is its actual
 // opening phase (`remotePadiBinding.ts`'s `initialConnection: "probing"`), so it
 // must stay legal to read here — the split cuts only ONE way.
 declare const remotePadi: PadiSession;
 remotePadi.onState((s) => {
-  if (s.phase === "copying") {
+  if (s.phase === "provisioning") {
     // reachable for the remote (provisioning) arm — no `@ts-expect-error` here.
   }
 });
@@ -62,15 +62,15 @@ remotePadi.onState((s) => {
 // the only thing that would catch it.
 {
   const local = localPadi.currentState();
-  // @ts-expect-error — a LOCAL padi session's `currentState()` can never be `"copying"`
+  // @ts-expect-error — a LOCAL padi session's `currentState()` can never be `"provisioning"`
   // (the up-arm union here is exactly `"connecting" | "connected"`).
-  if (local.phase === "copying") {
+  if (local.phase === "provisioning") {
     // unreachable — pinned above, not exercised at runtime.
   }
 }
 {
   const remote = remotePadi.currentState();
-  if (remote.phase === "copying") {
+  if (remote.phase === "provisioning") {
     // reachable for the remote (provisioning) arm — no `@ts-expect-error` here.
   }
 }

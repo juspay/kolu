@@ -171,7 +171,7 @@ export function projectState<Prov extends string>(
     return { kind: "connected", clockOffset };
   }
   if (s.phase === "connecting") return { kind: "connecting" };
-  // A connector-declared provisioning phase (ssh's `probing`/`copying`/`building`) —
+  // A connector-declared provisioning phase (ssh's `probing`/`provisioning`) —
   // the map's coarse "warming" bucket (its `EntryStatus` collapses them all to
   // `warming`; the fine phase rides the entry's own `SessionState`, which the browser
   // now reads off the entry directly — no separate `connection` cell).

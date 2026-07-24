@@ -5,9 +5,9 @@
  * The source ref is cheap to bake: unlike a `{ system → .drv }` map, it does not
  * evaluate every supported platform while `nix run .` is deciding what to run.
  * The first remote dial probes that host's Nix system, evaluates only the matching
- * package's `.drvPath`, then return it together with the package installable.
- * Provisioning passes that installable to one `nix copy` process, which keeps the
- * evaluated derivation temporarily rooted until transfer finishes.
+ * package's `.drvPath`, then returns it together with the package installable.
+ * Provisioning passes that installable to one `nix build` process, which owns
+ * evaluation, transfer, and remote realisation as one lifetime.
  */
 
 import { resolveSystem } from "./arch";
@@ -15,7 +15,7 @@ import { looksLikeNetworkError, ResolveDrvError } from "./host";
 import {
   type AgentDerivation,
   flakeAgentDerivation,
-  PROVISION_STEP_SILENCE_BASE_MS,
+  type StepBudget,
 } from "./nixCopy";
 import { describeExit, type ExitResult, runCapture } from "./process";
 import { appendProgressLine } from "./progressTail";
@@ -26,10 +26,31 @@ import { match, P } from "ts-pattern";
 /** The framework-owned wrapper boundary for an agent source flake. */
 export const SURFACE_AGENT_FLAKE_REF_ENV = agentEnv.flakeRef;
 
-/** A running Kolu normally sees two entries (padi + kaval). Bound the shared
- * successful-value cache so repeated exact-source upgrades cannot retain every
- * old store ref for the lifetime of a long-running server. In-flight work is not
- * shared because its cancellation and progress belong to one dial. */
+/** The wrapper-baked source is absent. Typed so a long-lived consumer can
+ * project the framework fault into its own entry vocabulary without reading or
+ * re-parsing the environment handoff itself. */
+export class AgentSourceUnbakedError extends ResolveDrvError {
+  constructor() {
+    super(
+      `${SURFACE_AGENT_FLAKE_REF_ENV} is not set — remote agents need the source flake baked into the build. Run the agent client from its Nix wrapper.`,
+      "remote",
+    );
+    this.name = "AgentSourceUnbakedError";
+  }
+}
+
+/** Read the exact source flake baked by the Nix wrapper. This is the sole
+ * process-environment adapter for the Surface Remote provisioning stack. */
+export function readBakedAgentSource(): string {
+  const flakeRef = process.env[SURFACE_AGENT_FLAKE_REF_ENV]?.trim();
+  if (!flakeRef) throw new AgentSourceUnbakedError();
+  return flakeRef;
+}
+
+/** Bound the shared successful-value cache so repeated exact-source upgrades
+ * cannot retain every old store ref for the lifetime of a long-running
+ * consumer. In-flight work is not shared because its cancellation and progress
+ * belong to one dial. */
 const MAX_CACHED_AGENT_DERIVATIONS = 32;
 const drvCache = new QuickLRU<string, AgentDerivation>({
   maxSize: MAX_CACHED_AGENT_DERIVATIONS,
@@ -43,6 +64,8 @@ export interface AgentDrvResolutionOptions {
   /** Forward evaluation output into the session's liveness and visible progress
    * path while retaining only a bounded private tail for a final error. */
   onProgress: (line: string) => void;
+  /** Connector-owned campaign budget for the local Nix evaluation. */
+  budget: StepBudget;
 }
 
 function evaluationError(
@@ -85,7 +108,10 @@ export async function resolveAgentDrv(
   const system = await resolveSystem(host);
   const installable = `${flakeRef}#packages.${system}.${packageName}`;
   const cached = drvCache.get(installable);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    opts.budget.reset();
+    return cached;
+  }
 
   const diagnostics: string[] = [];
   let sawNetworkError = false;
@@ -96,10 +122,7 @@ export async function resolveAgentDrv(
       // Evaluating a fresh exact source may fetch and build its Nix graph.
       // Treat it like the other long-running Nix steps: output proves
       // liveness, while a genuinely silent process is retried by the session.
-      policy: {
-        kind: "progress-liveness",
-        silenceMs: PROVISION_STEP_SILENCE_BASE_MS,
-      },
+      policy: opts.budget.policy(),
       signal: opts.signal,
       onProgress: (line) => {
         sawNetworkError ||= looksLikeNetworkError(line);
@@ -112,6 +135,11 @@ export async function resolveAgentDrv(
     const detail =
       diagnostics.length === 0 ? "" : `\n${diagnostics.join("\n")}`;
     const message = `${host}: could not resolve ${packageName} for system=${system} from the baked agent flake: nix eval ${describeExit(result)}${detail}`;
+    if (result.kind === "lifetime-expired") {
+      throw opts.budget.recordExpiry()
+        ? new ResolveDrvError(message, "remote")
+        : new Error(message);
+    }
     throw evaluationError(message, result, sawNetworkError);
   }
   const drv = result.stdout.trim();
@@ -122,6 +150,16 @@ export async function resolveAgentDrv(
     );
   }
   const derivation = flakeAgentDerivation(drv, installable);
+  opts.budget.reset();
   drvCache.set(installable, derivation);
   return derivation;
+}
+
+/** Resolve a package from the wrapper-baked source at the owning dial boundary. */
+export function resolveBakedAgentDrv(
+  host: string,
+  packageName: string,
+  opts: AgentDrvResolutionOptions,
+): Promise<AgentDerivation> {
+  return resolveAgentDrv(host, readBakedAgentSource(), packageName, opts);
 }

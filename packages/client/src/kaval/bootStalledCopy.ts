@@ -80,7 +80,7 @@ export function bootStalledCopy(leg: ClientStalledLeg): BootStalledCopy {
 }
 
 /** The live connect-phase DETAIL line for the CONNECTOR card, rendered beside its static body so
- *  a wedged-but-retrying remote campaign names WHERE it is (checking / copying / building /
+ *  a wedged-but-retrying remote campaign names WHERE it is (checking / provisioning /
  *  connecting) rather than a bare title. Lives HERE (this is the card's copy authority — the
  *  module doc's own claim) rather than inline in `BootStalledCanvas`, so all of the card's
  *  plain-language copy has one home and one test. Total over {@link ConnectPhase} PLUS `undefined`
@@ -92,10 +92,8 @@ export function bootStalledPhaseDetail(
   switch (phase) {
     case "probing":
       return "Still checking whether this host already has the agent…";
-    case "copying":
-      return "Still copying the recipe to the host…";
-    case "building":
-      return "Still building on the host…";
+    case "provisioning":
+      return "Still provisioning the agent on the host…";
     case "connecting":
       return "Still connecting to the host's agent…";
     case undefined:

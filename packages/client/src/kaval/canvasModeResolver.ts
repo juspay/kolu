@@ -47,14 +47,14 @@ import type { DaemonDownState } from "./daemonPresentation";
 
 /** Which per-host episode ceiling a boot overlay accrues against (#1763). Every
  *  class is FINITE — an unbounded cell would recreate the no-escape bug the ceiling
- *  exists to kill (a link-live frozen `building` would never escape). The concrete
+ *  exists to kill (a link-live frozen `provisioning` would never escape). The concrete
  *  millisecond values live beside the anchor in `bootDeadline.ts`. */
 export type CeilingClass = "local" | "remote-provisioning" | "remote-handshake";
 
 /** Which boot leg is still unsettled when the deadline fires — carried on the escape
  *  surface so the failure card can NAME what never arrived (not a mute spinner).
  *  `provisioning` = a remote host binding still coming up — the WHOLE connector-owned warming
- *  campaign in ANY phase (probing / copying / building / connecting), the ssh connector still
+ *  campaign in ANY phase (probing / provisioning / connecting), the ssh connector still
  *  retrying. So it does NOT imply the `remote-provisioning` {@link CeilingClass}: a probing
  *  remote is `leg=provisioning` under the `remote-handshake` ceiling. `membership` = the
  *  `entries` snapshot never grounded the active host; `session` = the session/list
@@ -76,8 +76,8 @@ export type ClientStalledLeg = Exclude<StalledLeg, "provisioning">;
  *     reached its own terminal `failed` verdict — that flips the entry to `failed` → the
  *     host-down card, so this arm is always non-terminal). Recovery RECYCLES the server
  *     connector (`client.hosts.reconnect`, the verb PR1 gave a real abort-in-flight `recheck()`),
- *     and the copy stays NON-TERMINAL; `phase` narrates where the campaign is (probing / copying /
- *     building / connecting). `location.reload()` cannot recycle a server-side dial, so it would
+ *     and the copy stays NON-TERMINAL; `phase` narrates where the campaign is (probing /
+ *     provisioning / connecting). `location.reload()` cannot recycle a server-side dial, so it would
  *     be a lie here.
  *   - `client`: a genuinely client-side leg (a connected host's session / daemon subscription, a
  *     membership stall). A fresh boot re-runs that subscription, so the verb is `location.reload()`
@@ -157,7 +157,7 @@ interface EntryLivenessFacts {
   isLoading: boolean;
   daemonPending: boolean;
   /** True while the ACTIVE host is the unremovable LOCAL default. It selects the
-   *  boot-deadline CEILING CLASS (local = 30s; a remote's ssh dial + nix copy + build
+   *  boot-deadline CEILING CLASS (local = 30s; a remote's ssh provisioning
    *  legitimately outlasts that, so it accrues against a generous remote cell instead)
    *  and routes the daemon-leg escape (a hung LOCAL kaval → the byte-identical
    *  down/dead card; any other leg → the boot-stalled card). */
@@ -186,7 +186,7 @@ type NotYetConnectedFacts = EntryLivenessFacts & {
 export type CanvasFacts =
   | (NotYetConnectedFacts & {
       /** The active entry is `warming` — the host binding itself is still coming up
-       *  (a remote's ssh dial + nix copy + build), NOT the kaval daemon restarting
+       *  (a remote's ssh provisioning), NOT the kaval daemon restarting
        *  (that is a CONNECTED-arm fact). Carries `connectPhase` via {@link NotYetConnectedFacts}. */
       entry: "warming";
     })
@@ -240,7 +240,7 @@ const clear = (mode: CanvasMode): Precedence => ({ mode, tag: CLEAR });
 const retain = (mode: CanvasMode): Precedence => ({ mode, tag: RETAIN });
 
 /** The ONE ceiling-class derivation — host-locality + connect phase → {@link CeilingClass}:
- *  local (30s), a remote actively provisioning (copying/building — the minutes-scale cell), or
+ *  local (30s), a remote actively provisioning (the minutes-scale cell), or
  *  a remote handshake (probing/connecting/undefined — a shorter but still finite cell). Both the
  *  not-yet-connected {@link bindingCeiling} and the connected-arm loading gate read it (the
  *  connected fact has no connect phase → `undefined`), so the ceiling policy lives in one place. */
@@ -285,7 +285,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
           // The boot overlay's leg + ceiling, declared here (C3). A not-a-member entry is a
           // MEMBERSHIP stall (even when it reaches the bindingUp `warming` return). A REMOTE
           // warming entry is the connector-owned `provisioning` leg for its WHOLE coming-up
-          // campaign — ANY phase (probing / copying / building / connecting), not just nix-copy/
+          // campaign — ANY phase (probing / provisioning / connecting), not just
           // build (#1908 D2): the ssh connector still owns the retry loop, so its escape routes to
           // the NON-TERMINAL connector card, never the reload lie. A LOCAL warming entry is a
           // kaval restart-drain (`daemon`, 30s local ceiling) — a hung one escapes to the

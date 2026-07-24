@@ -15,17 +15,18 @@
  */
 
 import {
+  AgentSourceUnbakedError,
   ResolveDrvError,
+  makeProvisionBudgets,
   type ResolveDrvPathContext,
   type SshConnectorOptions,
-  SURFACE_AGENT_FLAKE_REF_ENV,
 } from "@kolu/surface-remote";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   sshConnector: vi.fn(),
   makeSession: vi.fn(),
-  resolveAgentDrv: vi.fn(),
+  resolveBakedAgentDrv: vi.fn(),
 }));
 
 // Partial mock — override ONLY the ssh seam (the connector + the session appliance +
@@ -37,13 +38,11 @@ vi.mock("@kolu/surface-remote", async (importOriginal) => {
     ...actual,
     sshConnector: h.sshConnector,
     makeSession: h.makeSession,
-    resolveAgentDrv: h.resolveAgentDrv,
+    resolveBakedAgentDrv: h.resolveBakedAgentDrv,
   };
 });
 
 import { ensureRemotePadiBinding } from "./remotePadiBinding.ts";
-
-const ENV = SURFACE_AGENT_FLAKE_REF_ENV;
 
 /** A minimal `Session` stand-in — the arm calls `onState` (snapshot-then-delta) at
  *  construction and spreads the rest through `asPadiSession`. Seed `onState` with a
@@ -74,6 +73,7 @@ function fakeSession() {
 const resolverContext: ResolveDrvPathContext = {
   signal: new AbortController().signal,
   localProgress: vi.fn(),
+  budget: makeProvisionBudgets().evaluation,
 };
 
 function seedAndCaptureResolver(): SshConnectorOptions["resolveDrvPath"] {
@@ -97,28 +97,20 @@ function seedAndCaptureResolver(): SshConnectorOptions["resolveDrvPath"] {
 }
 
 describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
-  // Save/restore the baked env around EACH test so no case leaks (the parser reads
-  // process.env at RESOLVE time now, not construction).
-  let prior: string | undefined;
   beforeEach(() => {
-    prior = process.env[ENV];
     h.sshConnector.mockReset();
     h.makeSession.mockReset();
-    h.resolveAgentDrv.mockReset();
+    h.resolveBakedAgentDrv.mockReset();
     h.makeSession.mockReturnValue(fakeSession());
-    h.resolveAgentDrv.mockResolvedValue({
+    h.resolveBakedAgentDrv.mockResolvedValue({
       kind: "flake-installable",
       drvPath: "/nix/store/aaa-padi.drv",
       installable: "/nix/store/source#packages.x86_64-linux.padi",
     });
   });
-  afterEach(() => {
-    if (prior === undefined) delete process.env[ENV];
-    else process.env[ENV] = prior;
-  });
 
   it("(a) UNSET → seed does NOT throw; resolver rejects TERMINAL with the not-baked reason", async () => {
-    delete process.env[ENV];
+    h.resolveBakedAgentDrv.mockRejectedValue(new AgentSourceUnbakedError());
     const resolve = seedAndCaptureResolver();
     await expect(resolve(resolverContext)).rejects.toThrow(
       /SURFACE_AGENT_FLAKE_REF is not set/,
@@ -130,14 +122,13 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
   });
 
   it("(a') a whitespace-only ref → resolver rejects (same not-baked arm)", async () => {
-    process.env[ENV] = "  ";
+    h.resolveBakedAgentDrv.mockRejectedValue(new AgentSourceUnbakedError());
     const resolve = seedAndCaptureResolver();
     await expect(resolve(resolverContext)).rejects.toThrow(/is not set/);
   });
 
   it("(b) a baked source ref resolves padi for the remote host", async () => {
-    process.env[ENV] = "/nix/store/kolu-source";
-    h.resolveAgentDrv.mockResolvedValue({
+    h.resolveBakedAgentDrv.mockResolvedValue({
       kind: "flake-installable",
       drvPath: "/nix/store/bbb-padi.drv",
       installable: "/nix/store/source#packages.x86_64-linux.padi",
@@ -148,20 +139,15 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
       drvPath: "/nix/store/bbb-padi.drv",
       installable: "/nix/store/source#packages.x86_64-linux.padi",
     });
-    expect(h.resolveAgentDrv).toHaveBeenCalledWith(
-      "nix@prod",
-      "/nix/store/kolu-source",
-      "padi",
-      {
-        signal: resolverContext.signal,
-        onProgress: resolverContext.localProgress,
-      },
-    );
+    expect(h.resolveBakedAgentDrv).toHaveBeenCalledWith("nix@prod", "padi", {
+      signal: resolverContext.signal,
+      onProgress: resolverContext.localProgress,
+      budget: resolverContext.budget,
+    });
   });
 
   it("(c) a source that cannot resolve padi becomes a terminal build fault", async () => {
-    process.env[ENV] = "/nix/store/kolu-source";
-    h.resolveAgentDrv.mockRejectedValue(
+    h.resolveBakedAgentDrv.mockRejectedValue(
       new ResolveDrvError("no padi for aarch64-linux", "remote"),
     );
     const resolve = seedAndCaptureResolver();
@@ -174,8 +160,7 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
   });
 
   it("(d) an unreachable host remains a retryable transport failure", async () => {
-    process.env[ENV] = "/nix/store/kolu-source";
-    h.resolveAgentDrv.mockRejectedValue(new Error("ssh timed out"));
+    h.resolveBakedAgentDrv.mockRejectedValue(new Error("ssh timed out"));
     const resolve = seedAndCaptureResolver();
     await expect(resolve(resolverContext)).rejects.toThrow(/ssh timed out/);
     await expect(resolve(resolverContext)).rejects.not.toBeInstanceOf(

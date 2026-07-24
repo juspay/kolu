@@ -91,7 +91,7 @@ nix:
     nix flake check --no-build --accept-flake-config -L
 
 # Evaluate every remote-agent package from the exact minimal source flake baked
-# into Kolu's wrappers. The package names come from the shared agent contract,
+# into Kolu's wrappers. The package names come from Kolu's agent manifest,
 # and the system comes from Nix itself: no platform or consumer-owned map can
 # drift from the source flake. Keep this CI-only so a fresh `nix run` does not
 # pay to evaluate remote agents it may never provision.
@@ -100,7 +100,7 @@ agent-flake-nix: nix
     set -euo pipefail
     agent_flake_ref="$(nix build ./ci#agent-flake-source --no-link --print-out-paths)"
     system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-    agent_packages="$({{ nix_shell }} jq -r '.packages[]' packages/surface-remote/agent-env.json)"
+    agent_packages="$({{ nix_shell }} jq -r '.[]' nix/agent-packages.json)"
     [[ -n "$agent_packages" ]]
     while IFS= read -r package; do
       drv="$(nix eval --accept-flake-config --raw "$agent_flake_ref#packages.$system.$package.drvPath")"

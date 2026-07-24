@@ -8,7 +8,10 @@
 
 export { resolveSystem } from "./arch";
 export {
+  AgentSourceUnbakedError,
   type AgentDrvResolutionOptions,
+  readBakedAgentSource,
+  resolveBakedAgentDrv,
   resolveAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "./agentDrv";
@@ -69,7 +72,6 @@ export {
   type ExitResult,
   type LifetimePolicy,
   type RunOptions,
-  type RunProgressOptions,
   runCapture,
   runProgress,
 } from "./process";

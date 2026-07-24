@@ -10,7 +10,6 @@ const h = vi.hoisted(() => ({
 
 vi.mock("kolu-pty", () => ({ composeSpawnEnv: h.composeSpawnEnv }));
 
-import { SURFACE_AGENT_FLAKE_REF_ENV } from "@kolu/surface-remote";
 import { composeSpawnEnv } from "kolu-pty";
 import { kavalHostDialOptions } from "./hostConnect.ts";
 
@@ -20,9 +19,7 @@ describe("kavalHostDialOptions", () => {
   it("composes kaval's complete Surface Remote policy", () => {
     const localEnv = { PATH: "/nix/store/path" };
     h.composeSpawnEnv.mockReturnValue(localEnv);
-    const env = {
-      [SURFACE_AGENT_FLAKE_REF_ENV]: "/nix/store/agent-source",
-    };
+    const env = { PATH: "/nix/store/path" };
 
     const options = kavalHostDialOptions("nix@prod", env);
 
@@ -31,7 +28,6 @@ describe("kavalHostDialOptions", () => {
       host: "nix@prod",
       localEnv,
       binary: "kaval",
-      agentFlakeRef: "/nix/store/agent-source",
       fatalPrefix: "kaval --stdio:",
     });
   });
