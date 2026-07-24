@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-24T22:19:03.311962+00:00'
+generated_at: '2026-07-24T22:46:51.348837+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -56,9 +56,9 @@ dependencies:
   - .claude/skills/surface
   - .claude/skills/surface/SKILL.md
   deployed_file_hashes:
-    .agents/skills/agent-debate/SKILL.md: sha256:8bd01cf3e9b2fa69cd5f03f4f90c483cc175377990a458582e9136c011d1b18f
+    .agents/skills/agent-debate/SKILL.md: sha256:a04b470f63d2cbe4e75ce4eb5d5b774b49832ddc19d5f0654185c5e62ec80f79
     .agents/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
-    .agents/skills/be-review/SKILL.md: sha256:b173eff3093ceead5bab256d63c58afe5904e2baaff9730f660542a97610b0b1
+    .agents/skills/be-review/SKILL.md: sha256:977fd7ee7921e4880819f96dbc0d7e6023176dbe7180287e3bc7de0153ca26cf
     .agents/skills/be/SKILL.md: sha256:78403123540d18b750350c56dd385b918bbb69954782a954d91eeaf69ff39404
     .agents/skills/bridge/SKILL.md: sha256:f9220d5e89b38bc6370cf9e601229992aa1f642fae3ef6d92d9c5a884d5b1cca
     .agents/skills/bridge/dashboard/index.html: sha256:7289bb60245087ce5b57c833bd8bb2b766153cec31b92a413647547b3e9742b0
@@ -67,12 +67,12 @@ dependencies:
     .agents/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .agents/skills/kolu/SKILL.md: sha256:4688c89300aca3571358285502c0dbb8612656020baee760c86f34ff6b979291
     .agents/skills/kolu/TUI.md: sha256:e7a206b1f1d2738bdaf2e2af3bdfdb785da94872df03d45e7ac47ae92361244c
-    .agents/skills/lens-debate/SKILL.md: sha256:e7e5039bfa19b7b7ea400d66af785240de4e32567647f7301dfe0301ababae50
+    .agents/skills/lens-debate/SKILL.md: sha256:2897062e91ba21f58a54ee29f98c15ea6594f648b310131f20dcd9532521f482
     .agents/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .agents/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
-    .claude/skills/agent-debate/SKILL.md: sha256:8bd01cf3e9b2fa69cd5f03f4f90c483cc175377990a458582e9136c011d1b18f
+    .claude/skills/agent-debate/SKILL.md: sha256:a04b470f63d2cbe4e75ce4eb5d5b774b49832ddc19d5f0654185c5e62ec80f79
     .claude/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
-    .claude/skills/be-review/SKILL.md: sha256:b173eff3093ceead5bab256d63c58afe5904e2baaff9730f660542a97610b0b1
+    .claude/skills/be-review/SKILL.md: sha256:977fd7ee7921e4880819f96dbc0d7e6023176dbe7180287e3bc7de0153ca26cf
     .claude/skills/be/SKILL.md: sha256:78403123540d18b750350c56dd385b918bbb69954782a954d91eeaf69ff39404
     .claude/skills/bridge/SKILL.md: sha256:f9220d5e89b38bc6370cf9e601229992aa1f642fae3ef6d92d9c5a884d5b1cca
     .claude/skills/bridge/dashboard/index.html: sha256:7289bb60245087ce5b57c833bd8bb2b766153cec31b92a413647547b3e9742b0
@@ -81,7 +81,7 @@ dependencies:
     .claude/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .claude/skills/kolu/SKILL.md: sha256:4688c89300aca3571358285502c0dbb8612656020baee760c86f34ff6b979291
     .claude/skills/kolu/TUI.md: sha256:e7a206b1f1d2738bdaf2e2af3bdfdb785da94872df03d45e7ac47ae92361244c
-    .claude/skills/lens-debate/SKILL.md: sha256:e7e5039bfa19b7b7ea400d66af785240de4e32567647f7301dfe0301ababae50
+    .claude/skills/lens-debate/SKILL.md: sha256:2897062e91ba21f58a54ee29f98c15ea6594f648b310131f20dcd9532521f482
     .claude/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .claude/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
   source: local
@@ -804,7 +804,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:8bd01cf3e9b2fa69cd5f03f4f90c483cc175377990a458582e9136c011d1b18f
+  content_hash: sha256:a04b470f63d2cbe4e75ce4eb5d5b774b49832ddc19d5f0654185c5e62ec80f79
 - kind: project-relative
   target: claude
   value: .claude/skills/architecture-first-principles
@@ -867,7 +867,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:b173eff3093ceead5bab256d63c58afe5904e2baaff9730f660542a97610b0b1
+  content_hash: sha256:977fd7ee7921e4880819f96dbc0d7e6023176dbe7180287e3bc7de0153ca26cf
 - kind: project-relative
   target: claude
   value: .claude/skills/be/SKILL.md
@@ -1254,7 +1254,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:e7e5039bfa19b7b7ea400d66af785240de4e32567647f7301dfe0301ababae50
+  content_hash: sha256:2897062e91ba21f58a54ee29f98c15ea6594f648b310131f20dcd9532521f482
 - kind: project-relative
   target: claude
   value: .claude/skills/lowy
@@ -1641,7 +1641,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:8bd01cf3e9b2fa69cd5f03f4f90c483cc175377990a458582e9136c011d1b18f
+  content_hash: sha256:a04b470f63d2cbe4e75ce4eb5d5b774b49832ddc19d5f0654185c5e62ec80f79
 - kind: project-relative
   target: codex
   value: .agents/skills/architecture-first-principles
@@ -1686,7 +1686,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:b173eff3093ceead5bab256d63c58afe5904e2baaff9730f660542a97610b0b1
+  content_hash: sha256:977fd7ee7921e4880819f96dbc0d7e6023176dbe7180287e3bc7de0153ca26cf
 - kind: project-relative
   target: codex
   value: .agents/skills/be/SKILL.md
@@ -1974,7 +1974,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:e7e5039bfa19b7b7ea400d66af785240de4e32567647f7301dfe0301ababae50
+  content_hash: sha256:2897062e91ba21f58a54ee29f98c15ea6594f648b310131f20dcd9532521f482
 - kind: project-relative
   target: codex
   value: .agents/skills/lowy

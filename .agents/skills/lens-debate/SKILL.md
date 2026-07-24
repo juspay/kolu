@@ -95,6 +95,11 @@ run concurrently), each with `model: opus`. Each prompt says:
   back.
 - Pass the author's **rationale** when you have one, so deliberate decisions
   aren't flagged as defects.
+- **Write your findings to `<repoPath>/.lens-debate/<lens>-findings.md` as your
+  last act, then return only a one-paragraph summary.** The file is the artifact
+  every later stage reads; your returned text is not. Never let the invoking
+  agent transcribe your findings — it authored the diff you just reviewed, so a
+  paraphrase by it is exactly the curation this skill exists to prevent.
 
 The **lowy** prompt additionally carries the electricity probe: name the
 **receptacle** (the stable interface consumers plug into), the **volatile
@@ -105,10 +110,11 @@ invent one.
 
 ### 3. Reconcile and apply — one pass
 
-Hand **both finding lists verbatim** to a single reconcile-and-apply subagent
-(`model: opus`, `repoPath` and `MB` threaded through). It merges and implements;
-it does **not** re-review, invent findings, or drop one silently. Every input
-finding leaves this pass with exactly one outcome:
+Point a single reconcile-and-apply subagent (`model: opus`, `repoPath` and `MB`
+threaded through) at **both findings files** — it reads them off disk, so the
+lists reach it exactly as each lens wrote them. It merges and implements; it does
+**not** re-review, invent findings, or drop one silently. Every input finding
+leaves this pass with exactly one outcome:
 
 - **`fix` findings both lenses raised about the same issue** — two independent
   Opus lenses reaching the same conclusion *is* consensus. Apply once, under one
@@ -134,8 +140,9 @@ fix(lens): <the fix's title>
 Raised by the <lowy|hickey> lens review (finding <id>). Not pushed or merged.
 ```
 
-Never push, never merge. The pass returns, per finding: id, origin, title,
-location, outcome, and the commit SHA for applied fixes.
+Never push, never merge. The pass writes its result to
+`<repoPath>/.lens-debate/outcome.md` — per finding: id, origin, title, location,
+outcome, and the commit SHA for applied fixes — and returns a short summary.
 
 ### 4. The two valves
 
@@ -175,15 +182,19 @@ table: origin (lowy/hickey), title, location, disposition, how it settled
 (`≡ agreed` / `applied` / `observation` / `experiment` / `debated` / `human`),
 and the commit SHA for fixes.
 
-Unless `--no-comment` and when a PR exists, post that table as a PR comment under
-the header
+**Render the comment body from the three files in `.lens-debate/` — always,
+whether or not you post it.** The two findings files and `outcome.md` hold
+everything the comment says, so it is rebuildable by anyone (a later stage, a
+re-run, a human) without relying on an agent's memory of the run. Write it to
+`<repoPath>/.lens-debate/comment.md`. Under `--no-comment` that file **is** the
+hand-off: the caller posts it after its own push (see `/be-review`).
+
+Unless `--no-comment` and when a PR exists, post it under the header
 `## [⚖️ Lowy ∥ Hickey lens review](https://kolu.dev/blog/hickey-lowy/)`, with the
 status, the per-lens finding counts, and any valve-2 items spelled out with both
 positions:
 
 ```bash
-mkdir -p "$repoPath/.lens-debate"
-printf '%s' "$comment" > "$repoPath/.lens-debate/comment.md"
 gh pr comment <pr> -F "$repoPath/.lens-debate/comment.md"
 ```
 
@@ -197,9 +208,11 @@ gh pr comment <pr> -F "$repoPath/.lens-debate/comment.md"
 - **No unbounded loop.** There is no run-to-consensus path: uncontested findings
   never debate, contradictions get evidence or at most `--max-rounds`, and
   everything else goes to the human.
-- **Scratch** lives under the gitignored per-worktree `<repoPath>/.lens-debate/`,
-  so parallel runs in different worktrees don't collide and the scratch never
-  shows up in the diff the lenses review.
+- **`.lens-debate/` is the run's record**, not just scratch: `lowy-findings.md`,
+  `hickey-findings.md`, `outcome.md`, `comment.md`. Each is written by the stage
+  that produced it, so no stage retypes another's work. It's gitignored and
+  per-worktree, so parallel runs don't collide and the files never show up in the
+  diff the lenses review.
 
 The lenses read `.claude/skills/{lowy,hickey}/SKILL.md` at runtime for their
 frameworks.

@@ -34,8 +34,8 @@ applies its own fixes directly:
    fixes (each its own commit). Pass the change **`rationale`** so the lenses
    don't flag deliberate decisions.
 3. **`/agent-debate`** — the explicitly selected Claude, Codex, or Grok peer
-   (`xhigh`) debates the current author agent to consensus. Its author rounds
-   edit and auto-commit `fix(…)` on the branch.
+   debates the current author agent to consensus. Its author rounds edit and
+   auto-commit `fix(…)` on the branch.
 4. **`/simplify`** — the self-applying reuse / simplification / efficiency pass
    over the changed code. Now that nothing runs concurrently, it runs as itself
    (it could not against the old read-only snapshot).
@@ -53,9 +53,9 @@ be-review pushes only once, after all selected steps finish. A comment that name
 a commit SHA must never be posted while that SHA is local-only — if a later step
 failed or the run were interrupted, the PR would advertise commits that were
 never pushed. So the debate skills run with their self-commenting **suppressed**
-(`--no-comment`); be-review captures each comment body (the lens skill returns one
-ready; the agent-debate body is a compact commit table from the debate's own
-commits — step 2), pushes once at the end, and only then posts the lens comment,
+(`--no-comment`); each leaves its body on disk (the lens skill writes
+`.lens-debate/comment.md`; the agent-debate body is a compact commit table you
+assemble in step 2), be-review pushes once at the end, and only then posts the lens comment,
 the agent-debate comment, and its own police summary. No PR comment can reference a local-only
 commit.
 
@@ -111,8 +111,11 @@ a gauntlet that was simply mid-review — pure churn).
 1. **lens** — follow `/lens-debate` (Skill tool). `repoPath` = the live worktree,
    `base` = `MB`, **`--no-comment`** (so it doesn't advertise its local-only
    commits before be-review pushes — defer the comment until after the push), and
-   thread the `rationale` through. It commits the agreed fixes and hands back its
-   comment body for be-review to post after the push.
+   thread the `rationale` through. It commits the agreed fixes and leaves its
+   rendered comment at `$repoPath/.lens-debate/comment.md` — post that file after
+   the push (`gh pr comment <pr> -F …`), don't re-improvise a summary. The lens
+   findings and outcome sit beside it in the same directory if you need to check
+   what a lens actually said.
 
    `/lens-debate` returns a `status` of `clean`, `applied`, `needs-human`, or
    `merge-base-error`:
@@ -129,14 +132,15 @@ a gauntlet that was simply mid-review — pure churn).
 2. **debate** — require the caller's explicit
    `--agent <claude|codex|grok>`. Capture
    `DEBATE_START=$(git -C "$repoPath" rev-parse HEAD)` first so the later
-   comment includes only this debate's commits. Set `peerEffort=xhigh`, except
-   set it to `high` for Grok, whose strongest supported level is `high`. Invoke
-   `/agent-debate` as:
+   comment includes only this debate's commits. Invoke `/agent-debate` as:
 
    ```text
    review --agent <selected> --repo "$repoPath" --base MB
-   --no-comment --effort <peerEffort> --context <context> --rationale <rationale>
+   --no-comment --context <context> --rationale <rationale>
    ```
+
+   Pass no reasoning-effort flag — the peer runs at its own CLI default, per
+   `/agent-debate`.
 
    `--no-comment` defers the comment until after the final push. `--repo` keeps
    every git/scratch/gh/spawn operation rooted in a cross-repo target.
@@ -162,7 +166,7 @@ a gauntlet that was simply mid-review — pure churn).
    peerName="<selected peer display name>"
    {
      printf '## %s ⇄ %s debate\n\n' "$peerName" "$authorName"
-     printf '✅ Consensus in %s round(s) · peer effort: %s\n\n' "$rounds" "$peerEffort"
+     printf '✅ Consensus in %s round(s)\n\n' "$rounds"
      if [ "$commits" -gt 0 ]; then
        printf '| Fix commit | SHA | Description |\n|---|---|---|\n'
        git -C "$repoPath" log --reverse --format='%h%x09%s' "$DEBATE_START"..HEAD \
