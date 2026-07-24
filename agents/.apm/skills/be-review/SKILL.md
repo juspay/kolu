@@ -1,6 +1,6 @@
 ---
 name: be-review
-description: Run /be's review gauntlet SERIALLY — architecture-first-principles FIRST (framework/structure diffs), then /lens-debate (lowy ⇄ hickey), then /agent-debate with an explicitly selected Claude/Codex/Grok peer, then /simplify, then code-police, each editing and committing on the live branch in turn. Use from /be §4, or when the user asks to "run the review gauntlet".
+description: Run /be's review gauntlet SERIALLY — architecture-first-principles FIRST (framework/structure diffs), then /lens-debate (lowy ∥ hickey), then /agent-debate with an explicitly selected Claude/Codex/Grok peer, then /simplify, then code-police, each editing and committing on the live branch in turn. Use from /be §4, or when the user asks to "run the review gauntlet".
 argument-hint: "[--agent <claude|codex|grok>] [--base <branch>] [--rationale <note>] [--context <note>] [--tracks checks,lens,debate,simplify,police]"
 ---
 
@@ -29,12 +29,13 @@ applies its own fixes directly:
    structural" comment ships past a green gauntlet. Say so either way. Its confirmed
    findings are dispositioned like any stage's — fix now or record where, never
    "acceptable for scope".
-2. **`/lens-debate`** — lowy + hickey debate boundaries/simplicity to consensus,
-   then **apply** the agreed fixes (each its own commit). Pass the change
-   **`rationale`** so the lenses don't flag deliberate decisions.
+2. **`/lens-debate`** — lowy and hickey review boundaries/simplicity as two
+   independent parallel subagents, then one reconcile-and-apply pass commits the
+   fixes (each its own commit). Pass the change **`rationale`** so the lenses
+   don't flag deliberate decisions.
 3. **`/agent-debate`** — the explicitly selected Claude, Codex, or Grok peer
-   (`xhigh`) debates the current author agent to consensus. Its author rounds
-   edit and auto-commit `fix(…)` on the branch.
+   debates the current author agent to consensus. Its author rounds edit and
+   auto-commit `fix(…)` on the branch.
 4. **`/simplify`** — the self-applying reuse / simplification / efficiency pass
    over the changed code. Now that nothing runs concurrently, it runs as itself
    (it could not against the old read-only snapshot).
@@ -52,9 +53,9 @@ be-review pushes only once, after all selected steps finish. A comment that name
 a commit SHA must never be posted while that SHA is local-only — if a later step
 failed or the run were interrupted, the PR would advertise commits that were
 never pushed. So the debate skills run with their self-commenting **suppressed**
-(`--no-comment`); be-review captures each comment body (the lens skill returns one
-ready; the agent-debate body is a compact commit table from the debate's own
-commits — step 2), pushes once at the end, and only then posts the lens comment,
+(`--no-comment`); each leaves its body on disk (the lens skill writes
+`.lens-debate/comment.md`; the agent-debate body is a compact commit table you
+assemble in step 2), be-review pushes once at the end, and only then posts the lens comment,
 the agent-debate comment, and its own police summary. No PR comment can reference a local-only
 commit.
 
@@ -77,19 +78,13 @@ commit.
   carry the work in a *companion repo* (e.g. the drishti PR a `@kolu/surface`
   change requires per `/be` §5) while the session is rooted in a kolu worktree.
   Set `repoPath` to that target repo's absolute path (default: the cwd worktree
-  root) and thread it into **every** step. Pass `args` as a real object —
-  `Workflow({ scriptPath, args: { repoPath, base: MB, … } })`. **Note the harness
-  JSON-ENCODES `args` before the workflow script sees it, so `args` arrives as a
-  *string* regardless of what you pass.** The debate scripts now parse a stringified
-  `args` defensively (`const a = typeof args === 'string' ? JSON.parse(args) : args`),
-  so `repoPath`/`base`/`rationale`/`context` thread through correctly and malformed
-  `args` throws *loudly* instead of degrading. This fixed a real cross-repo failure: an
-  earlier run's scripts did the bare `const a = args || {}`, so the stringified `args`
-  had no `.repoPath`, `repoPath` silently degraded to `.`, and a cross-repo lens-debate
-  re-reviewed the **cwd** repo and committed five fixes onto the wrong repo (same-repo
-  runs only "worked" by cwd coincidence). If a cross-repo step still returns `clean`
-  with `rounds: 0` against a non-empty *target* diff, suspect the `repoPath` didn't
-  take effect before trusting it.
+  root) and thread it into **every** step — every subagent prompt must carry it,
+  with absolute paths and `git -C "$repoPath"`, never a bare relative path. A
+  cross-repo run that silently degraded `repoPath` to `.` once had the lens stage
+  re-review the **cwd** repo and commit five fixes onto the wrong repo (same-repo
+  runs only "worked" by cwd coincidence). If a cross-repo step returns `clean`
+  against a non-empty *target* diff, suspect `repoPath` didn't take effect before
+  trusting it.
 - **Debate peer** (unless `--tracks` excludes `debate`): require
   `--agent <claude|codex|grok>` and run `/agent-debate`'s matching auth
   preflight. If it fails, name the matching login command or exact non-auth
@@ -104,61 +99,48 @@ already ran `git fetch origin` and resolved the base, so pass `MB` straight into
 each step and **skip the per-skill step-1 fetch / base resolution** — don't redo
 it once per step.
 
-**How the debate steps run — two different shapes.** `/lens-debate` runs as a
-backgrounded `Workflow` ("launched in background; Task ID: …") that can take
-20–30 min; when it settles it fires a task-notification that resumes this run —
-that *is* the wait, so after dispatching it go to rest, **don't schedule redundant
-`ScheduleWakeup` polls**, and don't babysit (a prior run wired 4-min wakeups *and*
-a 5-min `/loop` to nudge a gauntlet that was simply mid-debate — pure churn).
-`/agent-debate` is **different now**: it runs **inline in your own turn**, driving
-a live selected-peer split terminal that pings you each round — follow its event-driven
-loop to consensus directly, with no background `Workflow` to await. Either way, act
-only on the real signal (the lens notification, or peer ping), never a timer.
+**Both review steps run inline, in your own turn.** `/lens-debate` fans two lens
+subagents out in one message and merges their findings in a single
+reconcile-and-apply pass — no background `Workflow` to await. `/agent-debate`
+drives a live selected-peer split terminal that pings you each round — follow its
+event-driven loop to consensus directly. Act only on real signals (a subagent
+returning, a peer ping), never a timer: **don't schedule `ScheduleWakeup` polls**
+and don't babysit (a prior run wired 4-min wakeups *and* a 5-min `/loop` to nudge
+a gauntlet that was simply mid-review — pure churn).
 
 1. **lens** — follow `/lens-debate` (Skill tool). `repoPath` = the live worktree,
-   `base` = `MB`, **apply mode** (the default — do *not* pass `--no-apply`),
-   **`--no-comment`** (so it doesn't advertise its local-only commits before
-   be-review pushes — defer the comment until after the push), and thread the
-   `rationale` through. It applies the agreed fixes as commits and **returns** its
-   rendered comment body for be-review to post after the push. Wait for its
-   `Workflow` to finish before starting the debate step.
+   `base` = `MB`, **`--no-comment`** (so it doesn't advertise its local-only
+   commits before be-review pushes — defer the comment until after the push), and
+   thread the `rationale` through. It commits the agreed fixes and leaves its
+   rendered comment at `$repoPath/.lens-debate/comment.md` — post that file after
+   the push (`gh pr comment <pr> -F …`), don't re-improvise a summary. The lens
+   findings and outcome sit beside it in the same directory if you need to check
+   what a lens actually said.
 
-   `/lens-debate` returns a `status` of `clean`, `consensus`,
-   `apply-incomplete`, `unresolved`, or `merge-base-error`:
-   - `clean` / `consensus` — the lenses agreed per-finding and applied the fixes.
-   - `apply-incomplete` — the lenses agreed, but the Apply phase didn't land every
-     fix cleanly (see `applyGaps`: a fix was missing from the apply output or
-     changed-but-uncommitted). **Reconcile before moving on:** for each gap, apply
-     or commit the outstanding fix yourself (staging only its files), then fold the
-     reconciliation into the deferred lens comment. Never report "lens consensus"
-     for an `apply-incomplete` run.
-   - `unresolved` — the debate hit its round backstop with findings still
-     contested. `/be` §4 requires you to **adjudicate every unresolved lens
-     finding yourself before moving on**: surface them in the report, decide drop
-     or apply for each, and apply the survivors before continuing. Fold your
-     adjudication into the deferred lens comment you post after the push (the lens
-     skill ran `--no-comment`, so there is no self-posted comment to follow up
-     on). Never report "lens consensus" for an `unresolved` run.
+   `/lens-debate` returns a `status` of `clean`, `applied`, `needs-human`, or
+   `merge-base-error`:
+   - `clean` / `applied` — the lenses' findings settled and the fixes are
+     committed.
+   - `needs-human` — one or more findings sit in the skill's valve 2 (a
+     judgment-shaped call, or a contradiction that hit the debate cap). `/be` §4
+     requires you to **adjudicate each one yourself before moving on**: surface it
+     in the report with both lenses' positions, decide drop or apply, and apply
+     the survivors before continuing. Fold your adjudication into the deferred
+     lens comment. Never report a `needs-human` run as settled.
    - `merge-base-error` — the scope couldn't be trusted; report it and move on.
-
-   Whatever the status, if the result carries a non-empty `escalations` (debate
-   threads that ran past 3 rounds — the engine kept debating; this is a valve,
-   not an exit), surface them in the report and the deferred lens comment
-   already lists them: an escalated-and-unresolved thread is a candidate to hand
-   to warm debate terminals rather than re-running the engine (see the lens
-   SKILL's "escalation valve").
 
 2. **debate** — require the caller's explicit
    `--agent <claude|codex|grok>`. Capture
    `DEBATE_START=$(git -C "$repoPath" rev-parse HEAD)` first so the later
-   comment includes only this debate's commits. Set `peerEffort=xhigh`, except
-   set it to `high` for Grok, whose strongest supported level is `high`. Invoke
-   `/agent-debate` as:
+   comment includes only this debate's commits. Invoke `/agent-debate` as:
 
    ```text
    review --agent <selected> --repo "$repoPath" --base MB
-   --no-comment --effort <peerEffort> --context <context> --rationale <rationale>
+   --no-comment --context <context> --rationale <rationale>
    ```
+
+   Pass no reasoning-effort flag — the peer runs at its own CLI default, per
+   `/agent-debate`.
 
    `--no-comment` defers the comment until after the final push. `--repo` keeps
    every git/scratch/gh/spawn operation rooted in a cross-repo target.
@@ -184,7 +166,7 @@ only on the real signal (the lens notification, or peer ping), never a timer.
    peerName="<selected peer display name>"
    {
      printf '## %s ⇄ %s debate\n\n' "$peerName" "$authorName"
-     printf '✅ Consensus in %s round(s) · peer effort: %s\n\n' "$rounds" "$peerEffort"
+     printf '✅ Consensus in %s round(s)\n\n' "$rounds"
      if [ "$commits" -gt 0 ]; then
        printf '| Fix commit | SHA | Description |\n|---|---|---|\n'
        git -C "$repoPath" log --reverse --format='%h%x09%s' "$DEBATE_START"..HEAD \
@@ -272,10 +254,10 @@ lens body and the agent-debate body verbatim (`gh pr comment -F` — the debate 
 Summarize in chat — reporting **only the selected tracks**, and naming any track
 `--tracks` **skipped** so the absence is explicit, not silent:
 
-- **lens** — status (**consensus** + fixes applied, or **unresolved** + how many
-  findings still need human adjudication and how you adjudicated each, or
-  `merge-base-error`); its PR comment landed (posted after the push) — except on
-  `merge-base-error`, which has no comment body to post.
+- **lens** — status (**applied** + the fixes, or **needs-human** + which findings
+  needed adjudication and how you adjudicated each, or `merge-base-error`); its
+  PR comment landed (posted after the push) — except on `merge-base-error`, which
+  has no comment body to post.
 - **debate** — selected peer + consensus / reviewer-error; on consensus its PR comment landed (posted
   after the push, per "Push, then comment") — on reviewer-error there is no comment to post.
 - **simplify** — whether it changed anything and what it committed.

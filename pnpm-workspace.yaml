@@ -1,13 +1,9 @@
 packages:
   - packages/**
-  # The reusable APM skills package (agents/README.md). In the workspace so its
-  # engine tests (agents/tests/) run under `pnpm -r test:unit` like every other
-  # package's. Absent from default.nix's src fileset — like packages/tests, it
-  # has no typecheck script and nothing the nix build consumes. Deliberately
-  # DEPENDENCY-FREE: its vitest comes from the root devDependencies, so pnpm
-  # never creates agents/node_modules — `apm install` vendors agents/ as a path
-  # package and aborts on symlinks that escape the package root.
-  - agents
+  # NOTE: `agents/` (the reusable APM skills package — agents/README.md) is NOT a
+  # workspace member. It was one only so the lens-debate engine's unit tests ran
+  # under `pnpm -r test:unit`; the engine is gone (the lens stage is prose + plain
+  # subagents now), so the package is pure markdown with nothing to test or build.
 
 # @pierre/trees and @pierre/diffs declare react/react-dom as peer deps but only
 # need them for their /react entry points. Kolu consumes the vanilla classes

@@ -32,19 +32,20 @@ is not in kolu, say the skill cannot run and stop.
 ### Select and launch the peer
 
 Parse the required `--agent <claude|codex|grok>` into `PEER` before doing any
-work. Reject a missing or unknown value rather than defaulting. Parse
-`--effort <low|medium|high|xhigh>` into `EFFORT`, defaulting to `high`.
-Set `PEER_EFFORT` to `EFFORT`, except map Grok's unsupported `xhigh` to
-`high`. This preserves a caller's "deep review" intent at the strongest level
-Grok exposes; never pass `xhigh` to Grok.
+work. Reject a missing or unknown value rather than defaulting.
+
+**Never pass a reasoning-effort flag.** Each peer runs at its own CLI default —
+the level its vendor ships as right for the model. Pinning one here meant
+tracking three different flag spellings and every vendor's supported levels, and
+guessing at a tier from outside the tool that knows best.
 
 Use the selected peer's exact preflight and interactive launch:
 
 | `PEER` | Preflight | Split command |
 | --- | --- | --- |
-| `claude` | `claude auth status` | `claude --dangerously-skip-permissions --effort "$PEER_EFFORT"` |
-| `codex` | `codex login status` | `codex --yolo --cd "$REPO" --config "model_reasoning_effort=\"$PEER_EFFORT\""` |
-| `grok` | `grok models` | `grok --always-approve --cwd "$REPO" --reasoning-effort "$PEER_EFFORT"` |
+| `claude` | `claude auth status` | `claude --dangerously-skip-permissions` |
+| `codex` | `codex login status` | `codex --yolo --cd "$REPO"` |
+| `grok` | `grok models` | `grok --always-approve --cwd "$REPO"` |
 
 Run Claude from a split whose cwd is already `$REPO`; its CLI has no cwd flag.
 If preflight reports an authentication failure, name the matching login command
@@ -162,8 +163,7 @@ After the leading `review`, parse:
 
 ```text
 --agent <claude|codex|grok> [<pr-number>] [--repo <path>] [--base <branch>]
-[--effort <level>] [--no-commit] [--no-comment]
-[--rationale <note>] [--context <note>]
+[--no-commit] [--no-comment] [--rationale <note>] [--context <note>]
 ```
 
 - `--repo <path>` — absolute target repo, defaulting to the current worktree
@@ -171,8 +171,6 @@ After the leading `review`, parse:
 - `<pr-number>` — check out that PR in `$REPO` and default the base from it.
 - `--base <branch>` — remote-tracking ref, defaulting to the PR base or remote
   default. Review from its merge-base with `HEAD`.
-- `--effort <level>` — requested peer reasoning effort; default `high`.
-  Grok maps `xhigh` to its strongest supported level, `high`.
 - `--no-commit` — leave author fixes uncommitted. Otherwise commit each round.
 - `--no-comment` — suppress the compact PR comment.
 - `--rationale <note>` — deliberate design decisions that the peer must receive
@@ -182,7 +180,7 @@ After the leading `review`, parse:
 
 ## Review steps
 
-1. **Resolve context.** Confirm kolu, `PEER`, `EFFORT`, and `$REPO`. Fetch
+1. **Resolve context.** Confirm kolu, `PEER`, and `$REPO`. Fetch
    origin. If a PR number was supplied, check it out from inside `$REPO`.
    When a PR number was supplied, or when comments are enabled, discover the PR
    with `(cd "$REPO" && gh pr view --json number,baseRefName)`. Treat "no PR"
@@ -233,11 +231,11 @@ After the leading `review`, parse:
      selected peer in the error; do not fall back to another one.
 
 4. **Present and optionally post.** Tear down the peer split. Report peer,
-   effort, round count, and `git -C "$REPO" log --oneline <merge-base>..HEAD`.
+   round count, and `git -C "$REPO" log --oneline <merge-base>..HEAD`.
    When a PR exists and comments are enabled, post one compact comment:
 
    - Header: `## <Peer> ⇄ <Author> debate`, using the actual normalized harness
-     names, followed by consensus rounds, peer effort, and base.
+     names, followed by consensus rounds and base.
    - One table row per debate commit: `| Round | Commit | Description |`. Keep
      each short SHA bare so GitHub autolinks it.
    - One legend line per stable finding id, sorted numerically:
@@ -286,7 +284,7 @@ resolved-and-deferred ship gate. To stop manually, interrupt and tear down.
 Treat author and selected peer as equals:
 
 ```text
-answer --agent <claude|codex|grok> [--effort <level>] -- <prompt>
+answer --agent <claude|codex|grok> -- <prompt>
 ```
 
 Require a non-empty prompt after `--`. Set `$REPO` to the current worktree root;
@@ -352,8 +350,8 @@ Use `phase: "answer"` in ordinary rounds and `phase: "candidate"` only for
 candidate confirmation. Count peer agreement only when `agreesWithOther` is
 true and `objections` is empty.
 
-On consensus, tear down and present the confirmed candidate with peer, effort,
-and round count. Assemble `.agent-debate/answer-<slug>.md` deterministically:
+On consensus, tear down and present the confirmed candidate with peer and round
+count. Assemble `.agent-debate/answer-<slug>.md` deterministically:
 header, each round's `answer-author-N.md` and `answer-peer-N.md` in order, then
 `candidate.md`. Point the user to it. If the peer cannot produce a valid verdict
 after a re-ask, report infrastructure failure; otherwise keep debating until
