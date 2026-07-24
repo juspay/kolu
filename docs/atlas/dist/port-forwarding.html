@@ -214,7 +214,12 @@ model inside the library. And the <strong><code>ForwardManager</code> API is the
 contract</strong>: <code>create</code> (idempotent by target) · <code>cancel</code> · <code>list</code> · <code>dispose</code> ·
 <code>onLost</code> is exactly what kolu’s Inspector will wire against, so the mechanism
 could be replaced under it — as it just was — without either app noticing.
-Mechanism in the library, policy in the consumers.</p>
+Mechanism in the library, policy in the consumers.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>One shape question
+PRT2 should settle rather than inherit: <code>list()</code> is pull-only, so a consumer
+keeps its own mirror and re-reads after every create/cancel/loss (vazhi does,
+in four places). If the Inspector wants the same, the map should hand out a
+subscription instead — an additive change to the same contract, decided once
+there are two consumers to design it against rather than one.</span></span></span></p>
 <p>Two consumers, no runtime link between them — the drishti pattern proper
 (shared libraries, independent apps):</p>
 <ul>

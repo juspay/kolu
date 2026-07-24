@@ -131,7 +131,12 @@ model inside the library. And the **`ForwardManager` API is the PRT2
 contract**: `create` (idempotent by target) · `cancel` · `list` · `dispose` ·
 `onLost` is exactly what kolu's Inspector will wire against, so the mechanism
 could be replaced under it — as it just was — without either app noticing.
-Mechanism in the library, policy in the consumers.
+Mechanism in the library, policy in the consumers.<Footnote>One shape question
+PRT2 should settle rather than inherit: `list()` is pull-only, so a consumer
+keeps its own mirror and re-reads after every create/cancel/loss (vazhi does,
+in four places). If the Inspector wants the same, the map should hand out a
+subscription instead — an additive change to the same contract, decided once
+there are two consumers to design it against rather than one.</Footnote>
 
 Two consumers, no runtime link between them — the drishti pattern proper
 (shared libraries, independent apps):

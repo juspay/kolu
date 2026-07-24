@@ -76,6 +76,10 @@ export function App({ hostname }: { hostname: string }) {
     [],
   );
 
+  /** Re-read the map. The map is the truth and `rows` is this screen's snapshot
+   *  of it, so every place the map can have moved ends with this one call. */
+  const refresh = (): void => setRows(forwards.list());
+
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(Date.now());
@@ -112,11 +116,11 @@ export function App({ hostname }: { hostname: string }) {
         kind: "info",
         text: `${formatTarget(forward.target)} is answering on ${forwardUrl(hostname, forward.localPort)}`,
       });
-      setRows(forwards.list());
+      refresh();
       setSelected(forwards.list().findIndex((row) => row.key === forward.key));
     } catch (err) {
       setStatus({ kind: "error", text: messageOf(err) });
-      setRows(forwards.list());
+      refresh();
     }
   };
 
@@ -134,7 +138,7 @@ export function App({ hostname }: { hostname: string }) {
     } catch (err) {
       setStatus({ kind: "error", text: messageOf(err) });
     }
-    setRows(forwards.list());
+    refresh();
   };
 
   // Table keys. Inactive while the prompt is up, so typing a host name can
