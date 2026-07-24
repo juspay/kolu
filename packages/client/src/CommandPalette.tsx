@@ -25,6 +25,7 @@ import {
 } from "solid-js";
 import { match } from "ts-pattern";
 import { hostLabel } from "./host/hostChipTone";
+import { ACTIONS } from "./input/actions";
 import type { Keybind } from "./input/keyboard";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
@@ -335,7 +336,7 @@ const CommandPalette: Component<{
     if (p.length >= 2 && p[0]?.name === TERMINALS_GROUP_NAME)
       return "Filter terminals…";
     if (last?.name === HOSTS_GROUP_NAME) return "Filter hosts…";
-    if (p.length === 0) return "Search everything…";
+    if (p.length === 0) return `${ACTIONS.commandPalette.label}…`;
     return "Type a command...";
   }
 

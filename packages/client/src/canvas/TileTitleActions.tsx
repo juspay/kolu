@@ -11,6 +11,7 @@
 import { activeArm, sleepingArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
@@ -138,7 +139,7 @@ const TileTitleActions: Component<{
             </Show>
           </button>
         </Tip>
-        <Tip label="Find in terminal">
+        <Tip label={ACTIONS.findInTerminal.label}>
           <button
             type="button"
             data-testid="tile-find"
@@ -146,7 +147,7 @@ const TileTitleActions: Component<{
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => onTile(e, () => search.openFor(props.id))}
-            aria-label="Find in terminal"
+            aria-label={ACTIONS.findInTerminal.label}
           >
             <SearchIcon />
           </button>
@@ -159,7 +160,7 @@ const TileTitleActions: Component<{
           onClick={(e) =>
             onTile(e, () => void screenshotTerminal(props.id, meta()))
           }
-          title="Screenshot terminal"
+          title={ACTIONS.screenshotTerminal.label}
           data-testid="screenshot-button"
         >
           <ScreenshotIcon />
