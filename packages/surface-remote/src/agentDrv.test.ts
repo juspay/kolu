@@ -93,6 +93,7 @@ describe("resolveAgentDrv", () => {
         signal: resolutionOptions.signal,
       }),
     );
+    expect(resolutionOptions.onEvaluation).toHaveBeenCalledTimes(1);
   });
 
   it("reuses the resolved derivation for later dials", async () => {
@@ -109,6 +110,7 @@ describe("resolveAgentDrv", () => {
     await resolveAgentDrv(...args);
 
     expect(h.runCapture).toHaveBeenCalledTimes(1);
+    expect(resolutionOptions.onEvaluation).toHaveBeenCalledTimes(1);
   });
 
   it("leaves an arch-probe failure as a retryable transport error", async () => {

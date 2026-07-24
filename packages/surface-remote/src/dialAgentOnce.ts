@@ -115,9 +115,9 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       localEnv: opts.localEnv,
       resolveDrvPath: (ctx) => ctx.resolveAgentDrv(flakeRef, opts.binary),
     }),
-    // The ssh connector PROVISIONS — it nix-copies the agent closure to the remote
-    // before the transport is up — so this session opens at "probing" (the arch probe +
-    // warm check), advancing to "provisioning" only when a real cold provision runs.
+    // The ssh connector provisions before transport is up, so this session opens
+    // at "probing" for the architecture check. It advances to "provisioning"
+    // before an uncached source evaluation or cold target build/root transaction.
     initialConnection: "probing",
     log: opts.log,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag

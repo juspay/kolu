@@ -56,19 +56,17 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
 /** The ssh connector's OWN provisioning-phase vocabulary — the `Prov` a
  *  `makeSession` over {@link sshConnector} carries. Each phase names what is
  *  ACTUALLY happening at the real command boundaries `nixCopy.ts` runs:
- *   - `"probing"`  — the OPENING phase: the ssh arch probe (`resolveDrvPath`) plus
- *                     the ASK-ONLY warm check (a sender-local `nix-store -q --outputs`
- *                     then a bounded `nix-store --check-validity` — "does the host already
- *                     have the closure?", never a substituting `--realise`). No copy
- *                     exists yet; on a WARM host
- *                     this is the whole provisioning story and it never enters
- *                     `provisioning`. This is why the warm path stays CALM — a warm dial
- *                     goes `probing → connecting → connected` with no build UI.
- *   - `"provisioning"` — one `nix build` owns local evaluation, transfer to the
- *                        remote store, and remote realisation (the minutes-long
- *                        cold path on a first connect).
- *  A session opens at `"probing"` and advances once to `"provisioning"` via
- *  `ctx.provisioning`, at `nixCopy`'s single cold-command boundary. */
+ *   - `"probing"`  — the OPENING phase: the ssh architecture probe and, when the
+ *                     exact derivation is already cached locally, the ASK-ONLY target
+ *                     warm check. No potentially minutes-long Nix operation runs here.
+ *   - `"provisioning"` — an uncached exact-source evaluation and/or the cold target
+ *                        `nix build` + required GC-root commit. Once evaluation starts,
+ *                        the phase stays honest and monotonic even when the later target
+ *                        check finds an already-realised closure.
+ *  A session opens at `"probing"` and advances once to `"provisioning"` before
+ *  the first potentially long Nix operation. A resolver-cache hit plus target
+ *  warm hit goes directly `probing → connecting`; target warmth alone does not
+ *  suppress an uncached source evaluation. */
 export type SshProv = "probing" | "provisioning";
 
 /** The owning dial context a deferred derivation resolver may consume. */

@@ -121,8 +121,10 @@ hover-opened.
   and an **elapsed timer** that **keeps climbing every second** even when the log is quiet
   during one large fetch. So a slow-but-working cold connect reads as *in progress*, not a
   hang. There's no fake progress bar — the reassurance is the named phase, nix's real
-  output, and the clock. A **warm** reconnect (the closure is already on the host) skips
-  straight to connected, with no build UI at all.
+  output, and the clock. A reconnect where both the exact derivation is cached locally
+  and the rooted closure is warm on the host skips straight to connected, with no build
+  UI. After a Kolu restart, the host can still be warm while the local derivation cache
+  is cold; its required source evaluation briefly uses the same honest provisioning phase.
 
   And if a connect **genuinely stalls**, the canvas stops narrating past a **finite deadline**
   (a short one for your local machine; a generously longer one while a remote is still

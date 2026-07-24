@@ -71,9 +71,9 @@ export async function resolveSystem(
   );
   const res = await runCapture(command, args, {
     // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never a
-    // build — so it rides the shared QUICK-step deadline `probePolicy()` (the warm check
-    // and pin use it too): the "how long a quick nix/ssh round-trip may run" policy shape
-    // lives in ONE place, not re-spelled here.
+    // build — so it rides the shared QUICK-step deadline `probePolicy()` (as does the
+    // warm check). The "how long a quick nix/ssh round-trip may run" policy shape lives
+    // in ONE place, not re-spelled here.
     policy: probePolicy(),
     signal: opts.signal,
     onProgress: opts.onProgress,

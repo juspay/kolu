@@ -105,7 +105,7 @@ describe("ssh session phase sequence (probing)", () => {
     session.destroy();
   });
 
-  it("a warm host short-circuits from probing straight to connecting", async () => {
+  it("a resolver-cache hit plus target warm hit skips provisioning", async () => {
     const h = harness();
     const session = makeSession<unknown, SshProv>({
       connectOnce: h.connectOnce,
@@ -118,8 +118,8 @@ describe("ssh session phase sequence (probing)", () => {
 
     const pinned = session.pin();
     await flush();
-    // Warm path: the ask-only check hits, so the connector NEVER calls
-    // `provisioning("provisioning")` — it goes straight to `connecting`.
+    // Fully warm path: source resolution was cached and the target ask-only
+    // check hits, so the connector goes straight to `connecting`.
     h.ctx().connecting();
     h.connect();
     await pinned;
