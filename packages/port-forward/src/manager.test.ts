@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ForwardLoss } from "./manager.ts";
 import { makeForwardManager } from "./manager.ts";
-import type { ForwardMechanisms } from "./opened.ts";
+import type { ForwardMechanisms } from "./mechanism.ts";
 import { type ForwardTarget, targetKey } from "./target.ts";
 
 /** A mechanism that opens instantly and records what it was asked for, so the

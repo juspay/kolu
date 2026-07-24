@@ -7,7 +7,7 @@
  * and never reaches here.)
  */
 
-import type { ForwardMechanisms } from "./opened.ts";
+import type { ForwardMechanisms } from "./mechanism.ts";
 import { openRelay } from "./relay.ts";
 import { openSshForward, spawnSshChild } from "./sshForward.ts";
 

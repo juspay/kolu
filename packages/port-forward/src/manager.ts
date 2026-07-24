@@ -20,7 +20,7 @@
  *    never keep rendering as live.
  */
 
-import type { ForwardMechanisms, OpenedForward } from "./opened.ts";
+import type { ForwardMechanisms, OpenedForward } from "./mechanism.ts";
 import { assertTarget, type ForwardTarget, targetKey } from "./target.ts";
 
 /** A live forward, as callers see it. */

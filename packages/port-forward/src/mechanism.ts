@@ -1,6 +1,8 @@
 /**
- * The one shape every forward mechanism produces: a listener that is up on
- * some local port, and the way to take it down again.
+ * The forward mechanism CONTRACT: how the map asks for a forward, and the one
+ * shape every mechanism hands back — a listener that is up on some local port,
+ * and the way to take it down again. (`nativeMechanisms.ts` is the real
+ * implementation of it; a test's fake is another.)
  *
  * `onLost` is how a mechanism reports that a forward it opened has died on its
  * own — the ssh master went away, the relay's listener errored. A forward that

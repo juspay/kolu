@@ -30,9 +30,9 @@
  * drag the other's world in to use it.
  */
 
-import { makeForwardManager } from "./manager.ts";
-import { nativeMechanisms } from "./mechanisms.ts";
 import type { ForwardLoss, ForwardManager } from "./manager.ts";
+import { makeForwardManager } from "./manager.ts";
+import { nativeMechanisms } from "./nativeMechanisms.ts";
 
 export type { Forward, ForwardLoss, ForwardManager } from "./manager.ts";
 export type { ForwardTarget } from "./target.ts";

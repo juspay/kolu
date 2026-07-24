@@ -31,7 +31,7 @@
  */
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import type { OpenedForward } from "./opened.ts";
+import type { OpenedForward } from "./mechanism.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 
 /** The options every forward connection is opened with.

@@ -13,7 +13,7 @@
  */
 
 import { connect, createServer, type Socket } from "node:net";
-import type { OpenedForward } from "./opened.ts";
+import type { OpenedForward } from "./mechanism.ts";
 
 /** The address a `local` target listens on — loopback, by definition of the
  *  problem this solves. */
