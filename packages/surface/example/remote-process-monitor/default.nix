@@ -9,11 +9,11 @@
 #
 # Three derivations land here:
 #
-#   surfaceExampleBase     — workspace tree + pnpm install. Skips
+#   workspaceTree          — workspace tree + pnpm install. Skips
 #                            kolu's vite-bundle + node-gyp; neither is
 #                            used by surface examples' agents.
 #   processMonitorAgent    — `nix run ..#process-monitor-agent --
-#                            --stdio`. Backed by surfaceExampleBase.
+#                            --stdio`. Backed by workspaceTree.
 #   processMonitorClient   — vite-built browser bundle for the demo.
 #   processMonitorMonitor  — single-binary entrypoint: serves the
 #                            client bundle + spawns the agent via ssh.
@@ -30,7 +30,7 @@
 let
   # Shared "workspace tree + pnpm install, tsx-runnable" base — also used by
   # the mini-ci example and vazhi. See ../../../../nix/workspace-tree.nix.
-  surfaceExampleBase = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
+  workspaceTree = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
 
   processMonitorAgent = pkgs.runCommand "process-monitor-agent"
     {
@@ -39,7 +39,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/process-monitor-agent \
-      --add-flags "${surfaceExampleBase}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
+      --add-flags "${workspaceTree}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
   '';
   processMonitorClient = pkgs.stdenv.mkDerivation {
@@ -68,7 +68,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/process-monitor-monitor \
-      --add-flags "${surfaceExampleBase}/packages/surface/example/remote-process-monitor/src/server/main.ts" \
+      --add-flags "${workspaceTree}/packages/surface/example/remote-process-monitor/src/server/main.ts" \
       --set-default HOST localhost \
       --set-default PORT 7720 \
       --set KOLU_SURFACE_EXAMPLE_DIST "${processMonitorClient}" \
