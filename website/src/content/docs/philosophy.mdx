@@ -1,6 +1,6 @@
 ---
 title: Philosophy
-description: "The two principles that shape what kolu is and isn't: agent-agnostic (the terminal is the universal interface, no model wrapped, no CLI locked in) and auto-detected, zero setup (the UI is built by observing what you already do, not by a preferences pane)."
+description: "Why kolu is a terminal and not an editor, and the two principles that follow from it: agent-agnostic (the terminal is the universal interface, no model wrapped, no CLI locked in) and auto-detected, zero setup (the UI is built by observing what you already do, not by a preferences pane)."
 order: 5
 section: Foundations
 koluHero:
@@ -11,9 +11,30 @@ koluHero:
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
-Two principles shape what kolu is and isn't. Neither is a setting you switch on —
-they're the decisions the rest of the product follows from, and the reason kolu
-looks different from the agent command centers it sits beside.
+Start with a premise about the work itself, then the two principles that follow
+from it. Neither principle is a setting you switch on — they're the decisions the
+rest of the product follows from, and the reason kolu looks different from both
+the editors and the agent command centers it sits beside.
+
+## Why a terminal and not an editor
+
+The IDE is an instrument for typing. Autocomplete, the refactor menu, the inline
+error, the cursor itself — every part of it exists to make a human producing one
+character at a time faster and more accurate. For thirty years that was the right
+thing to optimize, because typing was where the work happened.
+
+It isn't where most of it happens now. When an agent writes the change, the human
+work moves up a level: describing what you want, watching several attempts run at
+once, reading the diffs that come back, deciding what survives. None of that is
+typing. And the agents don't use an editor either — they run in a shell, read
+files, and write files.
+
+So the editor-shaped answer to this era is a fork with a chat panel bolted to the
+side: the old instrument, plus a window onto the new one. Kolu takes the other
+route. The terminal is where the agents already live, so kolu makes *that* the
+workspace — many of them at once, on a canvas, across [as many machines as you
+have](/remote-hosts). Reading code and diffs still matters, so that survives as
+[one tab](/code-tab) rather than as the shape of the whole application.
 
 ## Agent-agnostic
 
