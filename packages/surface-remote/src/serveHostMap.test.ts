@@ -85,7 +85,7 @@ const classify = (
  *  (`disconnected`/`failed`) now REQUIRES a real `error` — the type no longer
  *  admits "down with no reason" — so this throws rather than silently defaulting
  *  one in, mirroring the production invariant at the test-helper boundary. Typed
- *  over `SshProv` so the ssh arm's provisioning phases (`copying`/`building`) are
+ *  over `SshProv` so the ssh arm's provisioning phases (`probing`/`provisioning`) are
  *  spellable here. `connected` is EXCLUDED — it now carries a `clockOffset`, so it
  *  is minted by {@link connected} below. */
 const st = (

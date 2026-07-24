@@ -93,7 +93,7 @@ export function forEachLine(
  *  degrades mid-flight (network drop, sshd wedge, box overload), an ssh
  *  with no keepalive parks on the half-open socket until the OS TCP
  *  stack gives up — effectively forever — and wedges the caller's spawn
- *  cycle in `copying`/`connecting` with no recovery. For a dead TRANSPORT
+ *  cycle in `provisioning`/`connecting` with no recovery. For a dead TRANSPORT
  *  (the whole connection gone) the keepalive turns that eternity into a
  *  bounded ~Interval×CountMax (≈30s) failure the reconnect loop can retry.
  *

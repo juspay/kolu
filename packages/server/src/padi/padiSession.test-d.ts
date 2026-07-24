@@ -58,7 +58,7 @@ remotePadi.onState((s) => {
 // return would silently fall back to `DaemonSession`'s accessor — and `DaemonSession`
 // extends `Session<Client>` (`Prov` defaults to `never`), so it returns `SessionState<never>`
 // WITHOUT the provisioning phases. The LOCAL arm (`Prov=never`) is unchanged, but a REMOTE
-// `PadiSession` would LOSE `copying`/`building` — and the remote positive assertion below is
+// `PadiSession` would LOSE `probing`/`provisioning` — and the remote positive assertion below is
 // the only thing that would catch it.
 {
   const local = localPadi.currentState();

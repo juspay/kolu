@@ -175,7 +175,7 @@ describe("HostSession reconnect after give-up", () => {
     // spawn promise because no child ever exited to clear it.
     expect(session.currentClient()).toBeNull();
 
-    // The button. `spawn()` sets "copying" synchronously before its first
+    // The button. `spawn()` sets "probing" synchronously before its first
     // await, so re-arming is observable immediately. Pre-fix, the guard
     // saw a non-null slot and returned without spawning — state stuck.
     session.reconnect();
@@ -241,7 +241,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // reconnect machinery rather than rejecting before any session is
     // created (which previously crashed the parent server at boot when one
     // initial host was unreachable). A rejecting resolver is a `"network"`
-    // fault — copying → disconnected → backoff → copying → …
+    // fault — probing → disconnected → backoff → probing → …
     session.pin().catch(() => {});
 
     await vi.advanceTimersByTimeAsync(5_000);
@@ -294,7 +294,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // `clientPromise` stays non-null during backoff (so `ensureSpawned` can't
     // race a second spawn), and `recheck()` takes its backoff branch: it
     // cancels the timer, drops the stale rejected handle, and respawns —
-    // `spawn()` sets "copying" before its first await, so the re-arm is
+    // `spawn()` sets "probing" before its first await, so the re-arm is
     // observable synchronously.
     session.recheck();
     expect(session.currentState().phase).toBe("probing");
