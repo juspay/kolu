@@ -12,9 +12,10 @@
 # parent server + Vite client from source via `pnpm run dev`.
 { pkgs, src, pnpmDeps }:
 let
-  # Shared "workspace tree + pnpm install, tsx-runnable" base (../base.nix),
-  # the same one remote-process-monitor and mini-ci build against.
-  surfaceExampleBase = import ../base.nix { inherit pkgs src pnpmDeps; };
+  # Shared "workspace tree + pnpm install, tsx-runnable" base
+  # (../../../../nix/workspace-tree.nix), the same one remote-process-monitor,
+  # mini-ci and vazhi build against.
+  surfaceExampleBase = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
 
   fleetTopAgent = pkgs.runCommand "fleet-top-agent"
     {

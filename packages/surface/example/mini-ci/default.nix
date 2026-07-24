@@ -19,7 +19,7 @@
 # the kolu build uses, so the pnpm fetch is cached once.
 { pkgs, src, pnpmDeps }:
 let
-  base = import ../base.nix { inherit pkgs src pnpmDeps; };
+  base = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
   entry = "${base}/packages/surface/example/mini-ci/src";
 
   # The runner spawns the pipeline's CI tasks (`pnpm --filter …`) and shell

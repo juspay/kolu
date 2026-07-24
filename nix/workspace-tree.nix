@@ -1,8 +1,10 @@
-# Shared base for @kolu/surface examples whose agents/runners run under
-# `tsx`: the workspace tree with pnpm deps installed, skipping kolu's
-# vite-bundle + node-gyp (neither is used by a surface example's stdio
-# agent). Both remote-process-monitor and mini-ci wrap `tsx <entrypoint>`
-# against this tree, so the install lives in one place.
+# The workspace tree with pnpm deps installed, ready to run under `tsx`.
+#
+# kolu's own build (default.nix) additionally bundles the client with vite and
+# rebuilds node-pty with node-gyp. Everything else that just needs to RUN a
+# TypeScript entrypoint out of the workspace — the @kolu/surface examples, the
+# vazhi TUI — wants only this: install, copy, done. Skipping the bundle and the
+# native rebuild is the difference between a minute and several.
 #
 # Inputs come from the root composer (`default.nix`):
 #   pkgs     — the per-system nixpkgs.
@@ -10,7 +12,7 @@
 #   pnpmDeps — the workspace pnpm fetch (~395 MB; one source of truth).
 { pkgs, src, pnpmDeps }:
 pkgs.stdenv.mkDerivation {
-  pname = "surface-example-base";
+  pname = "kolu-workspace-tree";
   version = "0.1.0";
   inherit src;
   nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm pkgs.pnpmConfigHook ];
