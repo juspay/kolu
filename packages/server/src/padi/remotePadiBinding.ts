@@ -55,6 +55,7 @@ import {
   type HostKey,
   LOCAL_HOST,
 } from "kolu-common/surfacesWithPadi";
+import { match } from "ts-pattern";
 import { log } from "../log.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
@@ -194,25 +195,25 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
       return await resolveBakedAgentDrv("padi", ctx);
     } catch (err) {
       if (!(err instanceof ResolveDrvError)) throw err;
-      switch (err.resolution.kind) {
-        case "source-unbaked":
+      return match(err.resolution)
+        .with({ kind: "source-unbaked" }, (resolution) => {
           throw new PadiDrvFault(
             `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
             "agent-source-unbaked",
-            err.resolution,
+            resolution,
           );
-        case "unavailable":
+        })
+        .with({ kind: "unavailable" }, (resolution) => {
           throw new PadiDrvFault(
             err.message,
             "agent-drv-unavailable",
-            err.resolution,
+            resolution,
           );
-        case "network-exhausted":
+        })
+        .with({ kind: "network-exhausted" }, () => {
           throw err;
-        default:
-          err.resolution satisfies never;
-          throw new Error("unreachable resolver failure");
-      }
+        })
+        .exhaustive();
     }
   };
 }
