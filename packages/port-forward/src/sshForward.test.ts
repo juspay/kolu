@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { forwardCommandArgs, forwardSpec } from "./sshForward.ts";
+import {
+  forwardCommandArgs,
+  forwardSpec,
+  reportsBindFailure,
+} from "./sshForward.ts";
 
 /** A stand-in for the real options prefix, so these stay about the argv. */
 const base = ["-o", "BatchMode=yes", "-o", "ControlPath=none"] as const;
@@ -57,5 +61,38 @@ describe("forwardCommandArgs", () => {
   it("puts the host after every option and before the command", () => {
     expect(args.indexOf("pu-dev")).toBeGreaterThan(args.indexOf("-L"));
     expect(args.indexOf("pu-dev")).toBe(args.length - 2);
+  });
+});
+
+describe("reportsBindFailure", () => {
+  it("sees ssh's own bind error", () => {
+    expect(
+      reportsBindFailure("bind [0.0.0.0]:4123: Address already in use"),
+    ).toBe(true);
+  });
+
+  it("sees a refusal on any line, not just the first", () => {
+    expect(
+      reportsBindFailure(
+        "debug1: connecting\nCould not request local forwarding.",
+      ),
+    ).toBe(true);
+  });
+
+  it("cannot be spoofed by the far end mid-line", () => {
+    // The remote command's stderr is merged into this same stream. Both
+    // branches are anchored to a line start, so a remote cannot steer our
+    // forward onto a different port by printing ssh's words inside its output.
+    expect(
+      reportsBindFailure("remote: Could not request local forwarding (ha)"),
+    ).toBe(false);
+    expect(reportsBindFailure("please rebind [0.0.0.0]:1 later")).toBe(false);
+  });
+
+  it("says nothing about a healthy forward", () => {
+    expect(reportsBindFailure("")).toBe(false);
+    expect(reportsBindFailure("Warning: Permanently added 'pu-dev'")).toBe(
+      false,
+    );
   });
 });

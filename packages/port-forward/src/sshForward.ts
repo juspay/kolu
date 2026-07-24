@@ -85,8 +85,23 @@ const HOLD_OPEN_COMMAND = `echo ${READY_TOKEN}; cat`;
  *  PARTIAL success: measured, ssh logs the v4 bind error, binds `::`, and runs
  *  the remote command as if all were well. A forward that answers on v6 and
  *  refuses on v4 is precisely the row that lies, so any bind error at all sends
- *  this attempt to the fallback port. */
-const BIND_FAILURE = /^bind \[|Could not request local forwarding/m;
+ *  this attempt to the fallback port.
+ *
+ *  BOTH branches are anchored to the start of a line — the group is inside the
+ *  `^`, not beside it. That is not tidiness: the far end's stderr is merged
+ *  into this same stream, so an unanchored branch would let a remote print
+ *  "Could not request local forwarding" mid-line and steer OUR forward onto a
+ *  different port. Anchored, it would have to control the start of a line, and
+ *  the worst it could still buy is a fallback port — never a forward reported
+ *  as up when it is not. */
+const BIND_FAILURE = /^(?:bind \[|Could not request local forwarding)/m;
+
+/** Did ssh report that it could not bind the local port? Read from the stderr
+ *  accumulated so far — see `BIND_FAILURE` for why the match is line-anchored
+ *  and what the far end can and cannot do to it. */
+export function reportsBindFailure(stderr: string): boolean {
+  return BIND_FAILURE.test(stderr);
+}
 
 /** How long to wait for the far end to announce itself before giving up.
  *  Generous because a cold host pays a real handshake; a bind failure or a
@@ -216,7 +231,7 @@ function openOne(opts: {
         // Died before it was ever up. A bind failure is the caller's cue to
         // take a different port; anything else is the forward's own failure.
         fail(
-          BIND_FAILURE.test(stderr)
+          reportsBindFailure(stderr)
             ? new PortUnavailableError(
                 localPort,
                 `ssh could not bind it${detail()}`,
@@ -238,7 +253,7 @@ function openOne(opts: {
       // The far end is running, so ssh set the forwardings up before it. A bind
       // error alongside that means a PARTIAL bind (one address family took the
       // port, the other did not) — half a listener is not a forward.
-      if (BIND_FAILURE.test(stderr)) {
+      if (reportsBindFailure(stderr)) {
         fail(
           new PortUnavailableError(
             localPort,
