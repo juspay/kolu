@@ -28,6 +28,7 @@
  */
 
 import { hostname } from "node:os";
+import { createForwardManager } from "@kolu/port-forward";
 import { render } from "ink";
 import { App } from "./App.tsx";
 
@@ -50,10 +51,13 @@ if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
 // (an uncaught throw from the render tree or a timer) gives the terminal back
 // too, which hand-written enter/leave writes around `waitUntilExit()` cannot do.
 // Ctrl+C stays ours: the app tears the forwards down before it lets go.
-const app = render(<App hostname={hostname()} />, {
-  exitOnCtrlC: false,
-  alternateScreen: true,
-});
+const app = render(
+  <App hostname={hostname()} createForwards={createForwardManager} />,
+  {
+    exitOnCtrlC: false,
+    alternateScreen: true,
+  },
+);
 
 try {
   await app.waitUntilExit();

@@ -13,13 +13,14 @@
  */
 
 import {
-  createForwardManager,
   type Forward,
+  type ForwardLoss,
+  type ForwardManager,
   formatTarget,
   parseTarget,
 } from "@kolu/port-forward";
 import { Text, useApp, useInput, useWindowSize } from "ink";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clampSelection, forwardUrl, readPromptInput } from "./format.ts";
 import { type Mode, Screen, type Status } from "./Screen.tsx";
 
@@ -30,7 +31,19 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function App({ hostname }: { hostname: string }) {
+export function App({
+  hostname,
+  createForwards,
+}: {
+  hostname: string;
+  /** How this screen gets its forward map. Required, and injected rather than
+   *  built here: the map is a process-lifetime resource that spawns ssh
+   *  children, and it is the seam that lets add / cancel / loss / quit be
+   *  tested at all. */
+  createForwards: (opts: {
+    onLost: (loss: ForwardLoss) => void;
+  }) => ForwardManager;
+}) {
   const { exit } = useApp();
   const [rows, setRows] = useState<readonly Forward[]>([]);
   const [selected, setSelected] = useState(0);
@@ -40,22 +53,24 @@ export function App({ hostname }: { hostname: string }) {
   const [quitting, setQuitting] = useState(false);
   const size = useWindowSize();
 
-  const forwards = useMemo(
-    () =>
-      createForwardManager({
-        // A forward can die without being cancelled — the host drops, the ssh
-        // master goes away. It leaves the table AND says why; a dead row that
-        // still looks live is the one thing this screen must never show.
-        onLost: ({ forward, reason }) => {
-          setStatus({
-            kind: "error",
-            text: `lost ${formatTarget(forward.target)} — ${reason}`,
-          });
-          setRows((live) => live.filter((row) => row.key !== forward.key));
-        },
-      }),
-    [],
-  );
+  /** The map, built exactly once for the life of this component. A ref, not a
+   *  `useMemo`: a memo is a cache React is free to drop and re-run, and a
+   *  second map would mean a second set of ssh children with the first set
+   *  leaked. */
+  const managerRef = useRef<ForwardManager | undefined>(undefined);
+  managerRef.current ??= createForwards({
+    // A forward can die without being cancelled — the host drops, the ssh
+    // connection goes away. It leaves the table AND says why; a dead row that
+    // still looks live is the one thing this screen must never show.
+    onLost: ({ forward, reason }) => {
+      setStatus({
+        kind: "error",
+        text: `lost ${formatTarget(forward.target)} — ${reason}`,
+      });
+      setRows((live) => live.filter((row) => row.key !== forward.key));
+    },
+  });
+  const forwards = managerRef.current;
 
   /** Re-read the map. The map is the truth and `rows` is this screen's snapshot
    *  of it, so every place the map can have moved ends with this one call. */
