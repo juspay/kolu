@@ -117,6 +117,11 @@ export function viewport<T extends { readonly key: string }>(opts: {
       return { rows: rows.slice(start, start + capacity), above, below };
     }
   }
-  // One line to work with, and more rows than that: say so and show nothing.
-  return { rows: [], above: anchor, below: rows.length - anchor };
+  // Too little room for even one row PLUS its indicators. The row wins: a
+  // screen that shows only "↑ 9 more" tells the operator nothing and hides the
+  // thing `x` would act on. So show the selection and drop the indicators —
+  // the counts are still returned, and the header already says how many
+  // forwards there are.
+  const only = rows.slice(anchor, anchor + 1);
+  return { rows: only, above: anchor, below: rows.length - anchor - 1 };
 }

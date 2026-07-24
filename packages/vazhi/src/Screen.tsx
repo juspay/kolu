@@ -64,11 +64,8 @@ export function Screen({
   // under it, the status line, the blank line above the legend, and the legend.
   // Reserved explicitly, because letting flex decide loses the legend first.
   const CHROME_ROWS = 5;
-  const shown = viewport({
-    rows: forwards,
-    selectedKey,
-    lines: Math.max(1, size.rows - CHROME_ROWS),
-  });
+  const tableLines = Math.max(1, size.rows - CHROME_ROWS);
+  const shown = viewport({ rows: forwards, selectedKey, lines: tableLines });
 
   return (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
@@ -87,7 +84,7 @@ export function Screen({
           </Text>
         ) : (
           <>
-            {shown.above > 0 && (
+            {shown.above > 0 && shown.rows.length + 1 < tableLines && (
               <Text dimColor>{`  ↑ ${shown.above} more`}</Text>
             )}
             {shown.rows.map((row) => (
@@ -100,7 +97,7 @@ export function Screen({
                 targetWidth={targetWidth}
               />
             ))}
-            {shown.below > 0 && (
+            {shown.below > 0 && shown.rows.length + 1 <= tableLines && (
               <Text dimColor>{`  ↓ ${shown.below} more`}</Text>
             )}
           </>

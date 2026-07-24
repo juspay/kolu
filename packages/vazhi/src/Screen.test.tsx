@@ -196,6 +196,19 @@ describe("a table bigger than the terminal", () => {
     expect(text).toContain("a add · x cancel");
   });
 
+  it("still shows the selected row in the smallest terminals", () => {
+    for (const rows of [6, 7]) {
+      const text = plain(
+        frame({
+          forwards: many,
+          selectedKey: many[9]?.key,
+          size: { columns: 90, rows },
+        }),
+      );
+      expect(text).toContain("h10:5009");
+    }
+  });
+
   it("shows a contiguous run and says how many it is hiding", () => {
     const text = plain(
       frame({

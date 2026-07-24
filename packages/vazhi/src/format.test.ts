@@ -123,6 +123,14 @@ describe("viewport", () => {
     expect(viewport({ rows, selectedKey: "k19", lines: 5 }).below).toBe(0);
   });
 
+  it("keeps the SELECTED row when there is no room for indicators too", () => {
+    // A screen that shows only "↑ 9 more" hides the very row `x` acts on.
+    for (const lines of [1, 2]) {
+      const w = viewport({ rows, selectedKey: "k9", lines });
+      expect(w.rows.map((r) => r.key)).toContain("k9");
+    }
+  });
+
   it("survives an unknown selection and a zero-height table", () => {
     // Unknown selection anchors at the top; with 5 lines that is 4 rows plus
     // the "more below" indicator.

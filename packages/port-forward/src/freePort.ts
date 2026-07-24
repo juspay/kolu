@@ -46,11 +46,15 @@ export function canBindLocally(port: number): Promise<boolean> {
   });
 }
 
-/** The bind errors that mean THIS PORT, as opposed to this machine. */
+/** The bind errors that mean THIS PORT, as opposed to this machine.
+ *
+ *  `EADDRNOTAVAIL` is deliberately NOT here: for a fixed `0.0.0.0` bind it says
+ *  the ADDRESS is unavailable, which another port number cannot repair — so it
+ *  travels as the failure it is instead of sending the caller to a fallback
+ *  that will fail identically. */
 const PORT_UNAVAILABLE_CODES = new Set([
   "EADDRINUSE",
   "EACCES", // a privileged port, from an unprivileged process
-  "EADDRNOTAVAIL",
 ]);
 
 /** A free TCP port on all interfaces, as the kernel hands it out. */

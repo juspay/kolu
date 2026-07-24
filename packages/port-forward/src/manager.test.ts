@@ -286,6 +286,47 @@ describe("the forward map", () => {
     // disposed" (the clean case) but the teardown that refused.
     await expect(creating).rejects.toThrow(/refused to close/);
     await expect(disposing).rejects.toThrow(AggregateError);
+    // And it is still REPRESENTED: the listener may be live, so it must be
+    // visible and retryable rather than merely reported.
+    expect(forwards.list().map((f) => f.key)).toEqual(["remote:pu-dev:5173"]);
+  });
+
+  it("never hands a create the forward that is closing under it", async () => {
+    // The window the `closing` state exists for: cancel has asked the
+    // mechanism to close and is awaiting it; a create for the same target in
+    // that window must not be resolved with the forward on its way out.
+    let release: (() => void) | undefined;
+    let opens = 0;
+    const slow: ForwardMechanisms = {
+      open: async () => {
+        const localPort = 4123 + opens++;
+        return {
+          localPort,
+          close: () =>
+            new Promise<void>((done) => {
+              release = done;
+            }),
+        };
+      },
+    };
+    const forwards = makeForwardManager({
+      mechanisms: slow,
+      onLost: () => {},
+    });
+    const first = await forwards.create(PU);
+
+    const cancelling = forwards.cancel(first.key);
+    await Promise.resolve();
+    const recreating = forwards.create(PU);
+    // It is not live while it is closing.
+    expect(forwards.list()).toEqual([]);
+
+    release?.();
+    await cancelling;
+    const second = await recreating;
+
+    expect(second.localPort).not.toBe(first.localPort);
+    expect(forwards.list()).toEqual([second]);
   });
 
   it("opens nothing more once disposed", async () => {

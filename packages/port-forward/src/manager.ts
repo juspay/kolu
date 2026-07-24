@@ -82,6 +82,16 @@ type Slot =
       readonly state: "open";
       readonly forward: Forward;
       readonly opened: OpenedForward;
+    }
+  /** Teardown is under way. The forward is NOT available to a create — handing
+   *  it out would resolve someone's `create` with a listener that is closing
+   *  under them — but it is still represented, because until `close` resolves
+   *  we do not know whether the door is shut. */
+  | {
+      readonly state: "closing";
+      readonly forward: Forward;
+      readonly opened: OpenedForward;
+      readonly closing: Promise<void>;
     };
 
 /** Build a forward map over the given mechanisms. Production callers want
@@ -119,6 +129,12 @@ export function makeForwardManager(opts: {
       // its own.
       if (slot?.state === "open") return slot.forward;
       if (slot?.state === "opening") return await slot.flight;
+      if (slot?.state === "closing") {
+        // Wait for the door to shut, then open a NEW one. Returning the closing
+        // forward would resolve this create with a listener about to vanish.
+        await slot.closing.catch(() => {});
+        return await this.create(target);
+      }
 
       const flight = (async () => {
         const opened = await opts.mechanisms.open(target, (reason) =>
@@ -128,7 +144,21 @@ export function makeForwardManager(opts: {
           // The map was torn down while this one was still opening. It exists
           // now, so it has to be closed now — otherwise `dispose` would have
           // returned while a listener it never saw was still coming up.
-          await opened.close();
+          const forward: Forward = {
+            key,
+            target,
+            localPort: opened.localPort,
+            createdAt: Date.now(),
+          };
+          try {
+            await opened.close();
+          } catch (err) {
+            // It came up and refused to go down: exactly the listener dispose
+            // exists to rule out, so it must be REPRESENTED — visible to
+            // `list` and retryable by `cancel` — not just reported.
+            slots.set(key, { state: "open", forward, opened });
+            throw err;
+          }
           throw new DisposedMidOpenError();
         }
         const forward: Forward = {
@@ -144,9 +174,11 @@ export function makeForwardManager(opts: {
       try {
         return await flight;
       } catch (err) {
-        // A flight that failed leaves nothing behind: the slot is still the
-        // one this call put there (a success would have replaced it), so drop
-        // it and let the next create try again.
+        // A failed flight normally leaves nothing behind — drop the slot THIS
+        // call put there (identity-checked, so a replacement is never erased)
+        // and let the next create try again. The exception is a flight that
+        // opened a listener and then failed to CLOSE it during dispose: that
+        // listener may still be live, so its slot stays (see `closeFailed`).
         const current = slots.get(key);
         if (current?.state === "opening" && current.flight === flight) {
           slots.delete(key);
@@ -173,16 +205,49 @@ export function makeForwardManager(opts: {
           `port-forward: there is no forward named "${key}" to cancel.`,
         );
       }
+      // Mark it CLOSING for the duration: a concurrent create must not be
+      // handed a forward whose listener is going away under it, and the slot
+      // must stay identity-checked so a late loss or a replacement cannot be
+      // erased by this teardown.
+      //
       // Delete only on SUCCESS. A rejecting `close` means the mechanism could
-      // not take the listener down, so the listener may still be reachable —
-      // forgetting it here would make `list` lie and leave nothing to retry.
-      // The error surfaces either way; what differs is whether the map still
-      // knows about a door that may still be open.
-      await open.opened.close();
-      slots.delete(key);
+      // not take the listener down, so it may still be reachable — forgetting
+      // it would make `list` lie and leave nothing to retry. The error
+      // surfaces either way; what differs is whether the map still knows about
+      // a door that may still be open.
+      const closing = open.opened.close();
+      const mine: Slot = {
+        state: "closing",
+        forward: open.forward,
+        opened: open.opened,
+        closing: closing.then(
+          () => undefined,
+          () => undefined,
+        ),
+      };
+      slots.set(key, mine);
+      try {
+        await closing;
+        if (slots.get(key) === mine) slots.delete(key);
+      } catch (err) {
+        // Still out there as far as we know: put it back where `list` and a
+        // retrying `cancel` can see it.
+        if (slots.get(key) === mine) {
+          slots.set(key, {
+            state: "open",
+            forward: open.forward,
+            opened: open.opened,
+          });
+        }
+        throw err;
+      }
     },
 
     list() {
+      // `closing` is deliberately absent: it is on its way out and acting on
+      // it (cancel, or a UI row) would be acting on something already going.
+      // A teardown that FAILS puts its slot back to `open`, so a listener that
+      // is still out there reappears here rather than being lost.
       const live: Forward[] = [];
       for (const slot of slots.values()) {
         if (slot.state === "open") live.push(slot.forward);

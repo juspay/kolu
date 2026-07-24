@@ -178,6 +178,19 @@ describe("one ssh forward attempt", () => {
     await expect(opening).rejects.toThrow(PortUnavailableError);
   });
 
+  it("comes up even when the far end floods its own announcement out of the tail", async () => {
+    // The mirror of the bind-failure latch: a chunk carrying the token and
+    // then more than the tail budget would otherwise evict the announcement,
+    // and a forward that is genuinely up would hang until the deadline.
+    const fake = new FakeSsh();
+    const opening = attempt(fake);
+    await fake.says(
+      `PORT-FORWARD-READY\n${"chatter from the far end\n".repeat(400)}`,
+    );
+
+    await expect(opening).resolves.toMatchObject({ localPort: 4123 });
+  });
+
   it("is NOT up when ssh bound only half the port", async () => {
     // `*:` asks for both address families; a taken v4 with a free v6 leaves ssh
     // running the remote command as if all were well. Half a listener is the

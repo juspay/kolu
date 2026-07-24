@@ -224,8 +224,15 @@ export function openSshAttempt(opts: {
    *  window with a few kilobytes of noise and have the ready token resolve a
    *  half-bound forward. A latched boolean cannot be evicted. */
   let sawBindFailure = false;
+  /** Whether the far end has EVER announced itself — latched for the same
+   *  reason as the bind failure: a single chunk carrying the token followed by
+   *  more than the tail budget would otherwise evict its own announcement, and
+   *  a forward that is genuinely up would sit there until the deadline. */
+  let sawReady = false;
   child.stdout.on("data", (chunk: Buffer) => {
-    stdout = (stdout + chunk.toString()).slice(-DIAGNOSTIC_TAIL_BYTES);
+    const seen = stdout + chunk.toString();
+    if (seen.includes(READY_TOKEN)) sawReady = true;
+    stdout = seen.slice(-DIAGNOSTIC_TAIL_BYTES);
   });
   child.stderr.on("data", (chunk: Buffer) => {
     // Scan the JOIN of the retained tail and the new chunk, so a line split
@@ -310,7 +317,7 @@ export function openSshAttempt(opts: {
     });
 
     child.stdout.on("data", () => {
-      if (phase !== "opening" || !stdout.includes(READY_TOKEN)) return;
+      if (phase !== "opening" || !sawReady) return;
       // The far end is running, so ssh set the forwardings up before it. A bind
       // error alongside that means a PARTIAL bind (one address family took the
       // port, the other did not) — half a listener is not a forward.

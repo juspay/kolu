@@ -1,16 +1,21 @@
 import { readdirSync } from "node:fs";
-import { createServer, type Server } from "node:http";
-import { connect } from "node:net";
+import { createServer, type Server as HttpServer } from "node:http";
+import {
+  connect,
+  createServer as createNetServer,
+  type Server,
+} from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import type { OpenedForward } from "./mechanism.ts";
 import { pickFreePort } from "./freePort.ts";
-import { openRelay } from "./relay.ts";
+import { openRelay, openRelayWith } from "./relay.ts";
 
 /** A dev server exactly like the ones this exists for: bound to loopback, so
  *  unreachable from any other machine. */
 function serveOnLoopback(
   body: string,
 ): Promise<{ port: number; stop: () => Promise<void> }> {
-  const server: Server = createServer((_req, res) => res.end(body));
+  const server: HttpServer = createServer((_req, res) => res.end(body));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
@@ -127,5 +132,72 @@ describe("pickFreePort", () => {
       server.listen(port, "0.0.0.0", resolve);
     });
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+});
+
+describe("a relay that fails after it was up", () => {
+  /** Open a relay while keeping a handle on its listener, so the test can fail
+   *  it the way the kernel would — there is no way to provoke that through a
+   *  real socket. */
+  async function relayWithHandle(
+    port: number,
+    onLost: (reason: string) => void,
+  ): Promise<{ relay: OpenedForward; server: Server }> {
+    let server: Server | undefined;
+    const relay = await openRelayWith({
+      port,
+      onLost,
+      listen: (onConnection) => {
+        server = createNetServer(onConnection);
+        return server;
+      },
+    });
+    if (server === undefined) throw new Error("no listener was created");
+    return { relay, server };
+  }
+
+  it("tears itself down, and says so exactly once", async () => {
+    const origin = await serveOnLoopback("gone soon");
+    cleanups.push(origin.stop);
+    const losses: string[] = [];
+    const { relay, server } = await relayWithHandle(origin.port, (reason) =>
+      losses.push(reason),
+    );
+
+    // Hold a live pair open, then fail the listener the way the kernel would.
+    await (await fetch(`http://127.0.0.1:${relay.localPort}/`)).text();
+    server.emit("error", new Error("listener exploded"));
+    server.emit("error", new Error("and again"));
+    await new Promise((done) => setTimeout(done, 50));
+
+    // Reporting without tearing down was the defect: the row disappears while
+    // the door is still open.
+    await expect(
+      fetch(`http://127.0.0.1:${relay.localPort}/`),
+    ).rejects.toThrow();
+    // And a second notification could delete a REPLACEMENT that reused the key.
+    expect(losses).toHaveLength(1);
+    expect(losses[0]).toContain("listener exploded");
+  });
+
+  it("says nothing when WE closed it", async () => {
+    const origin = await serveOnLoopback("bye");
+    cleanups.push(origin.stop);
+    const losses: string[] = [];
+    const relay = await openRelay(origin.port, (reason) => losses.push(reason));
+
+    await relay.close();
+    await new Promise((done) => setTimeout(done, 20));
+
+    expect(losses).toEqual([]);
+  });
+
+  it("is safe to close twice", async () => {
+    const origin = await serveOnLoopback("bye");
+    cleanups.push(origin.stop);
+    const relay = await openRelay(origin.port, () => {});
+
+    await relay.close();
+    await expect(relay.close()).resolves.toBeUndefined();
   });
 });
