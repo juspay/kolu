@@ -21,11 +21,15 @@ await forwards.cancel(f.key);
 await forwards.dispose(); // every forward, gone
 ```
 
-The local port is **the remote port whenever that number is free here** —
-`pu-dev:4123` answers on `0.0.0.0:4123`, a port you can predict and bookmark.
-Only when the number is taken does the kernel pick a free one instead; a
-forward is never refused merely because its number is busy, and there is no
-knob either way.
+For a **remote** target the local port is **the remote port whenever that
+number is free here** — `pu-dev:4123` answers on `0.0.0.0:4123`, a port you can
+predict and bookmark. Only when the number is taken does the kernel pick a free
+one instead; a forward is never refused merely because its number is busy, and
+there is no knob either way.
+
+A **local** target never gets that preference, and cannot: both ends are on
+this machine, so a listener on `0.0.0.0:<port>` relaying to `127.0.0.1:<port>`
+would be pointed at itself. The kernel always picks for a relay.
 
 Two mechanisms, chosen by target kind:
 

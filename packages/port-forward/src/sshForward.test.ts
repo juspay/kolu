@@ -34,7 +34,7 @@ describe("forwardCommandArgs", () => {
       "-L",
       "*:61000:127.0.0.1:5173",
       "pu-dev",
-      "cat",
+      "echo PORT-FORWARD-READY; cat",
     ]);
   });
 
@@ -44,7 +44,14 @@ describe("forwardCommandArgs", () => {
     // pipe we hold gets EOF the instant the kernel closes our fds, which is
     // what makes the forward's lifetime the process's lifetime.
     expect(args).not.toContain("-N");
-    expect(args.at(-1)).toBe("cat");
+    expect(args.at(-1)).toMatch(/cat$/);
+  });
+
+  it("announces readiness from the far end, not from the port", () => {
+    // ssh establishes forwardings BEFORE running the remote command, so the
+    // token is proof that OUR tunnel is up. A "can something answer on this
+    // port?" probe proved only that SOMETHING answered.
+    expect(args.at(-1)).toContain("echo PORT-FORWARD-READY");
   });
 
   it("puts the host after every option and before the command", () => {

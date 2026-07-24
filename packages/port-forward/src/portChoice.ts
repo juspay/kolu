@@ -11,39 +11,56 @@
  * of: refusing a forward because the matching port happens to be busy would be
  * the worse behaviour, and pinning the number when it is free costs nothing.
  *
- * A local (loopback-relay) target essentially always takes the fallback, and
- * that is correct rather than a bug: the server we relay TO already holds that
- * port number on this machine, so `0.0.0.0:<same>` cannot bind beside it.
+ * What the fallback is NOT is a retry-on-anything. Only a failure that says
+ * "this port is unavailable" earns a second attempt; a refused host, a bad key,
+ * a missing ssh — anything about the connection rather than the number —
+ * propagates immediately, with its own message, because retrying it on a
+ * different port would fail identically while telling the user the wrong story.
  */
 
 /** Which local port an attempt should use: an exact number, or "whatever is
  *  free" — each mechanism knows its own way to ask the kernel for one. */
 export type LocalPortChoice = number | "any";
 
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+/** Thrown by an attempt that failed *because of the port it was given*. This is
+ *  the only failure the preference retries; everything else is a real error
+ *  about the forward itself and travels straight to the caller. */
+export class PortUnavailableError extends Error {
+  constructor(
+    readonly port: number,
+    detail: string,
+  ) {
+    super(`port-forward: local port ${port} is unavailable — ${detail}`);
+    this.name = "PortUnavailableError";
+  }
 }
 
 /** Open a listener on `preferred` if that number is available, else on any free
- *  port. If BOTH attempts fail, the error names both — the second failure is
- *  the one that matters, and the first is the context that explains why we were
- *  on the fallback path at all. */
+ *  port.
+ *
+ *  Only `PortUnavailableError` from the first attempt leads to the second. If
+ *  the fallback then fails too, its error is what the caller sees — with the
+ *  port failure named as the context that explains why we were on the fallback
+ *  path at all. */
 export async function openPreferringPort<T>(opts: {
   preferred: number;
   open: (port: LocalPortChoice) => Promise<T>;
 }): Promise<T> {
-  let firstFailure: unknown;
+  let taken: PortUnavailableError;
   try {
     return await opts.open(opts.preferred);
   } catch (err) {
-    firstFailure = err;
+    // Anything that is not about the port is about the forward: surface it as
+    // it is, on the first attempt, rather than retrying and relabelling.
+    if (!(err instanceof PortUnavailableError)) throw err;
+    taken = err;
   }
   try {
     return await opts.open("any");
   } catch (err) {
-    throw new Error(
-      `${messageOf(err)} — and the matching local port ${opts.preferred} was unavailable too: ${messageOf(firstFailure)}`,
-      { cause: err },
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`${message} — after falling back from ${taken.message}`, {
+      cause: err,
+    });
   }
 }

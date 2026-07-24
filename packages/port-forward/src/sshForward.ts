@@ -31,10 +31,9 @@
  */
 
 import { spawn } from "node:child_process";
-import { connect } from "node:net";
 import { canBindLocally, pickFreePort } from "./freePort.ts";
 import type { OpenedForward } from "./opened.ts";
-import { openPreferringPort } from "./portChoice.ts";
+import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 import { assertHost, assertPort } from "./target.ts";
 
 /** The options every forward connection is opened with.
@@ -64,19 +63,35 @@ const SSH_OPTS: readonly string[] = [
   "ExitOnForwardFailure=yes",
 ];
 
-/** What the forward runs on the far end: a process that transfers nothing and
- *  exits the moment its stdin closes — i.e. the moment we go away. It is the
- *  hold-open that makes the lifetime kernel-tied (see the module doc); `-N`
- *  would leave an orphan serving the port after a SIGKILL. */
-const HOLD_OPEN_COMMAND = "cat";
+/** The far end announces itself with this, then holds the connection open.
+ *
+ *  `cat` is the hold-open that makes the lifetime kernel-tied (see the module
+ *  doc) — it exits the moment its stdin closes, i.e. the moment we go away;
+ *  `-N` would instead leave an orphan serving the port after a SIGKILL. The
+ *  `echo` in front of it is the READINESS signal: ssh sets up forwardings
+ *  BEFORE it starts the remote command, so a token on stdout means the tunnel
+ *  is up and the far end is genuinely executing. That is a fact about OUR ssh,
+ *  which a "can something answer on the port?" probe never was — anything else
+ *  on the machine could have answered that. */
+const READY_TOKEN = "PORT-FORWARD-READY";
+const HOLD_OPEN_COMMAND = `echo ${READY_TOKEN}; cat`;
 
-/** How long to wait for the listener to start accepting before giving up.
+/** ssh's own words when a local bind fails: `bind [0.0.0.0]:4123: Address
+ *  already in use`.
+ *
+ *  This must be watched even though `ExitOnForwardFailure=yes` is set, because
+ *  that option only fires when EVERY requested forwarding fails. `*:` asks for
+ *  both address families, so a taken IPv4 port with a free IPv6 one is a
+ *  PARTIAL success: measured, ssh logs the v4 bind error, binds `::`, and runs
+ *  the remote command as if all were well. A forward that answers on v6 and
+ *  refuses on v4 is precisely the row that lies, so any bind error at all sends
+ *  this attempt to the fallback port. */
+const BIND_FAILURE = /^bind \[|Could not request local forwarding/m;
+
+/** How long to wait for the far end to announce itself before giving up.
  *  Generous because a cold host pays a real handshake; a bind failure or a
- *  refused host ends the child long before this. */
+ *  refused host ends the attempt long before this. */
 const READY_TIMEOUT_MS = 30_000;
-
-/** How often to try the new port while waiting for ssh to bind it. */
-const READY_POLL_MS = 100;
 
 /** How long a cancelled forward gets to end politely before it is SIGKILLed. */
 const KILL_GRACE_MS = 2_000;
@@ -104,26 +119,6 @@ export function forwardCommandArgs(opts: {
   return [...opts.base, "-L", forwardSpec(opts), opts.host, HOLD_OPEN_COMMAND];
 }
 
-/** Is something accepting connections on this local port yet? A refusal is an
- *  ordinary answer — ssh has not bound it yet — not a failure. */
-function accepts(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = connect({ host: "127.0.0.1", port });
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once("error", () => {
-      socket.destroy();
-      resolve(false);
-    });
-  });
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /** The ssh side of the forward map. */
 export interface SshForwards {
   open(
@@ -133,9 +128,17 @@ export interface SshForwards {
   ): Promise<OpenedForward>;
 }
 
-/** Open one forward on its own ssh connection. Resolves when the local port is
- *  actually accepting connections; rejects — with ssh's own stderr — if the
- *  child dies first (a refused host, a taken local port, a bad key). */
+/** Open one forward on its own ssh connection.
+ *
+ *  Resolves when the FAR END announces itself and no bind error was logged;
+ *  rejects with `PortUnavailableError` when the local bind is the thing that
+ *  failed (so the caller can take another port), and with ssh's own stderr for
+ *  anything else — a refused host, a bad key, no ssh at all.
+ *
+ *  Every settle path goes through `settle()`, which is the single writer of
+ *  this attempt's outcome: whichever of the three racing sources arrives first
+ *  (the ready token, the child's exit, a spawn error, the deadline) decides,
+ *  and the rest become no-ops. */
 function openOne(opts: {
   host: string;
   remotePort: number;
@@ -148,10 +151,14 @@ function openOne(opts: {
   const child = spawn(
     "ssh",
     forwardCommandArgs({ base: SSH_OPTS, host, localPort, remotePort }),
-    { stdio: ["pipe", "ignore", "pipe"] },
+    { stdio: ["pipe", "pipe", "pipe"] },
   );
 
+  let stdout = "";
   let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
   child.stderr.on("data", (chunk: Buffer) => {
     stderr += chunk.toString();
   });
@@ -160,76 +167,99 @@ function openOne(opts: {
     stderr.trim() === "" ? "" : `: ${stderr.trim()}`;
 
   return new Promise<OpenedForward>((resolve, reject) => {
-    let settled = false;
+    /** The attempt's outcome, written exactly once. `cancelled` is separate: it
+     *  records that WE ended the child, so its exit is not reported as a loss. */
+    let done = false;
     let cancelled = false;
+    let timer: NodeJS.Timeout | undefined;
 
-    child.once("error", (err) => {
-      if (settled) return;
-      settled = true;
-      reject(
+    const settle = (outcome: () => void): void => {
+      if (done) return;
+      done = true;
+      if (timer !== undefined) clearTimeout(timer);
+      outcome();
+    };
+
+    const fail = (err: Error): void => {
+      settle(() => {
+        child.kill("SIGKILL");
+        reject(err);
+      });
+    };
+
+    const close = (): Promise<void> =>
+      new Promise<void>((closed) => {
+        cancelled = true;
+        if (child.exitCode !== null || child.signalCode !== null) {
+          closed();
+          return;
+        }
+        const escalate = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
+        escalate.unref();
+        child.once("exit", () => {
+          clearTimeout(escalate);
+          closed();
+        });
+        child.kill();
+      });
+
+    child.once("error", (err) =>
+      fail(
         new Error(
           `port-forward: opening a forward to ${host}:${remotePort} — could not run ssh: ${err.message}`,
         ),
-      );
-    });
+      ),
+    );
 
     child.once("exit", (code, signal) => {
-      if (!settled) {
-        settled = true;
-        reject(
-          new Error(
-            `port-forward: opening a forward to ${host}:${remotePort} — ssh exited ${signal ?? code}${detail()}`,
-          ),
+      if (!done) {
+        // Died before it was ever up. A bind failure is the caller's cue to
+        // take a different port; anything else is the forward's own failure.
+        fail(
+          BIND_FAILURE.test(stderr)
+            ? new PortUnavailableError(
+                localPort,
+                `ssh could not bind it${detail()}`,
+              )
+            : new Error(
+                `port-forward: opening a forward to ${host}:${remotePort} — ssh exited ${signal ?? code}${detail()}`,
+              ),
         );
         return;
       }
       // Past readiness, the child ending means the forward is GONE — the host
       // dropped, the network died, someone killed it. Unless we did it
       // ourselves, in which case `close()` is already telling the caller.
-      if (!cancelled) {
-        onLost(`the ssh connection to ${host} ended${detail()}`);
-      }
+      if (!cancelled) onLost(`the ssh connection to ${host} ended${detail()}`);
     });
 
-    void (async () => {
-      const deadline = Date.now() + READY_TIMEOUT_MS;
-      while (!settled && Date.now() < deadline) {
-        if (await accepts(localPort)) {
-          if (settled) return;
-          settled = true;
-          resolve({
+    child.stdout.on("data", () => {
+      if (done || !stdout.includes(READY_TOKEN)) return;
+      // The far end is running, so ssh set the forwardings up before it. A bind
+      // error alongside that means a PARTIAL bind (one address family took the
+      // port, the other did not) — half a listener is not a forward.
+      if (BIND_FAILURE.test(stderr)) {
+        fail(
+          new PortUnavailableError(
             localPort,
-            close: () =>
-              new Promise<void>((done) => {
-                cancelled = true;
-                if (child.exitCode !== null || child.signalCode !== null) {
-                  done();
-                  return;
-                }
-                const escalate = setTimeout(() => {
-                  child.kill("SIGKILL");
-                }, KILL_GRACE_MS);
-                escalate.unref();
-                child.once("exit", () => {
-                  clearTimeout(escalate);
-                  done();
-                });
-                child.kill();
-              }),
-          });
-          return;
-        }
-        await delay(READY_POLL_MS);
+            `ssh bound only part of it${detail()}`,
+          ),
+        );
+        return;
       }
-      if (settled) return;
-      settled = true;
-      child.kill("SIGKILL");
-      reject(
-        new Error(
-          `port-forward: the forward to ${host}:${remotePort} never started listening on port ${localPort} within ${READY_TIMEOUT_MS}ms${detail()}`,
+      settle(() => resolve({ localPort, close }));
+    });
+
+    timer = setTimeout(
+      () =>
+        fail(
+          new Error(
+            `port-forward: the forward to ${host}:${remotePort} never came up within ${READY_TIMEOUT_MS}ms${detail()}`,
+          ),
         ),
-      );
-    })();
+      READY_TIMEOUT_MS,
+    );
+    timer.unref();
   });
 }
 
@@ -250,8 +280,9 @@ export function createSshForwards(): SshForwards {
             // beside it (SO_REUSEADDR) and the number would then mean two
             // different servers depending on the address dialled — take a free
             // port instead. See `canBindLocally`.
-            throw new Error(
-              `port-forward: local port ${choice} already has a listener.`,
+            throw new PortUnavailableError(
+              choice,
+              "something local is already listening on it",
             );
           }
           return await openOne({

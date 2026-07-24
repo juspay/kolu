@@ -1,4 +1,6 @@
+import { readdirSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { pickFreePort } from "./freePort.ts";
 import { openRelay } from "./relay.ts";
@@ -27,6 +29,12 @@ function serveOnLoopback(
       });
     });
   });
+}
+
+/** How many descriptors this process holds — the cheapest way to see a relay
+ *  that is feeding itself. Linux-only, which is where the loop was measured. */
+function openFdCount(): number {
+  return readdirSync(`/proc/${process.pid}/fd`).length;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -78,27 +86,38 @@ describe("the local TCP relay", () => {
     expect(() => openRelay(0, () => {})).toThrow(/between 1 and 65535/);
   });
 
-  it("takes the target's own port number when that number is free here", async () => {
-    // Nothing is listening on this number, so the relay's preference holds and
-    // the local port is predictable rather than random.
+  it("never binds the port it relays to, even when that number is free", async () => {
+    // Both ends are on this machine: a listener on `0.0.0.0:<port>` relaying to
+    // `127.0.0.1:<port>` is pointed at ITSELF. Measured when this was open, one
+    // connection opened ~29,000 file descriptors in 1.5s before anything else
+    // noticed.
     const free = await pickFreePort();
     const relay = await openRelay(free, () => {});
     cleanups.push(relay.close);
 
-    expect(relay.localPort).toBe(free);
+    expect(relay.localPort).not.toBe(free);
   });
 
-  it("falls back rather than failing when that number is taken", async () => {
-    // The usual case for a LOCAL target: the server we relay to already owns
-    // the number on this machine, so `0.0.0.0:<same>` cannot bind beside it.
-    const origin = await serveOnLoopback("busy");
-    cleanups.push(origin.stop);
-    const relay = await openRelay(origin.port, () => {});
+  it("does not loop when its target never answers", async () => {
+    // The self-relay's signature was unbounded accept-then-dial. A connection
+    // to a relay whose target is dead must end, and must cost a bounded number
+    // of sockets.
+    const free = await pickFreePort();
+    const relay = await openRelay(free, () => {});
     cleanups.push(relay.close);
+    const before = openFdCount();
 
-    expect(relay.localPort).not.toBe(origin.port);
-    const response = await fetch(`http://127.0.0.1:${relay.localPort}/`);
-    expect(await response.text()).toBe("busy");
+    await new Promise<void>((resolve) => {
+      const probe = connect({ host: "127.0.0.1", port: relay.localPort });
+      probe.on("close", () => resolve());
+      probe.on("error", () => resolve());
+      setTimeout(() => {
+        probe.destroy();
+        resolve();
+      }, 500);
+    });
+
+    expect(openFdCount() - before).toBeLessThan(50);
   });
 });
 
