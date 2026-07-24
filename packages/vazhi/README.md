@@ -41,9 +41,10 @@ which would otherwise have been the SolidJS-shaped choice.
 
 ## What it is for
 
-kolu answers this same question inside its Inspector. vazhi exists for the times
-kolu isn't around — a bare box, an ssh session, a CI host — and to prove that
-the capability underneath is genuinely standalone: **vazhi's only import is
+kolu will answer this same question inside its Inspector (the Atlas note's
+PRT2 — not shipped yet). vazhi exists for the times kolu isn't around — a bare
+box, an ssh session, a CI host — and to prove that the capability underneath is
+genuinely standalone: **vazhi's only import is
 [`@kolu/port-forward`](../port-forward)**, nothing from kolu.
 
 The two are independent apps, not client and server. They never talk, and they

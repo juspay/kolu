@@ -143,7 +143,7 @@ port is made to answer <em>there</em>, and the client builds URLs from
 </tr>
 <tr>
 <td>remote host, <code>127.0.0.1:5173</code></td>
-<td><code>ssh -L *:61000:127.0.0.1:5173</code> on the already-open master</td>
+<td><code>ssh -L *:61000:127.0.0.1:5173</code> on a connection of its own</td>
 <td><code>http://pureintent:61000</code></td>
 </tr>
 <tr>
@@ -169,14 +169,16 @@ special case in v1.</span></span></span></p>
 library package, <code>packages/port-forward/</code> (<code>@kolu/port-forward</code>): the forward
 map (<code>(host, remotePort) → local listener</code>, N hosts × N ports), one dedicated
 <code>ssh -L</code> process per remote forward, the loopback TCP relay, port picking, and
-teardown. <strong>The local port is the remote port whenever that number is free
-here</strong> — <code>pu-dev:4123</code> answers on <code>0.0.0.0:4123</code>, a port you can predict and
-bookmark — and only when the number is taken does the kernel pick a free one
+teardown. For a remote target <strong>the local port is the remote port whenever that
+number is free here</strong> — <code>pu-dev:4123</code> answers on <code>0.0.0.0:4123</code>, a port you can
+predict and bookmark — and only when the number is taken does the kernel pick a free one
 instead; a forward is never refused merely because its number is busy, and
-there is no knob either way.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A <code>local</code> (loopback-relay) target
-essentially always takes the fallback, which is correct rather than a bug: the
-server being relayed to already holds that number on this machine, so
-<code>0.0.0.0:&lt;same&gt;</code> cannot bind beside <code>127.0.0.1:&lt;same&gt;</code>.</span></span></span></p>
+there is no knob either way.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Read the rule as remote-only: a
+<code>local</code> (loopback-relay) target never gets the preference and cannot, because
+both of its ends are on this machine — a listener on <code>0.0.0.0:&lt;port&gt;</code> relaying
+to <code>127.0.0.1:&lt;port&gt;</code> is pointed at ITSELF, and one connection to it opened
+~29,000 file descriptors in 1.5s before the build caught it. The kernel always
+picks for a relay.</span></span></span></p>
 <p><strong>A forward lives exactly as long as the process that opened it.</strong> That is the
 one property the mechanism is chosen for, and it is why each forward gets its
 <strong>own</strong> ssh connection (<code>ControlPath=none</code>, so it can neither ride nor create a
@@ -230,7 +232,7 @@ is for kolu’s own UI); per-forward auth would be a later, separate feature.</p
 <code>packages/client/src/right-panel/MetadataInspector.tsx</code> (pure rendering — the
 data arrives on the terminal’s metadata like everything else). The flows:</p>
 <ul>
-<li><strong>Open.</strong> Click a chip → <code>window.open</code> on <code>http://${location.hostname}:…</code>, matching the Code tab’s external-open idiom (<code>CodeTab.tsx:1114</code>). Case-3 ports open <strong>directly</strong>; cases 1–2 call the embedded library’s <code>create</code>, get the listener port, open it, and the chip gains a <code>⇄ :61000</code> badge. Forwarding is <strong>lazy — first click only</strong>, never eager for every detected port.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An agent session can hold six listening ports; auto-tunneling all of them VS-Code-style keeps idle listeners alive for ports nobody opens. Lazy costs one <code>ssh -O forward</code> round-trip (~ms on the multiplexed socket) on first click.</span></span></span></li>
+<li><strong>Open.</strong> Click a chip → <code>window.open</code> on <code>http://${location.hostname}:…</code>, matching the Code tab’s external-open idiom (<code>CodeTab.tsx:1114</code>). Case-3 ports open <strong>directly</strong>; cases 1–2 call the embedded library’s <code>create</code>, get the listener port, open it, and the chip gains a <code>⇄ :61000</code> badge. Forwarding is <strong>lazy — first click only</strong>, never eager for every detected port.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An agent session can hold six listening ports; auto-tunneling all of them VS-Code-style keeps idle listeners alive for ports nobody opens. Lazy costs one ssh handshake on first click — the price of a forward that dies with the process that opened it, and the reason to pay it once per opened port rather than once per detected one.</span></span></span></li>
 <li><strong>Manage.</strong> A <strong>Forwarded Ports</strong> group lists every active kolu forward — <code>host:remotePort → :localPort</code>, origin <code>auto</code> (chip click) or <code>manual</code>, cancel <code>⨯</code> per row. Kolu auto-cancels an <code>auto</code> forward when the scanner sees its remote port die; <code>manual</code> forwards persist until cancelled or their host disconnects. The same list appears <strong>in the host tab’s dropdown</strong> (beside state · terminals · padi·kaval): forwards are host-scoped, so the host popover is their natural home — each row a clickable <code>http://…</code> link with its cancel <code>⨯</code> — while the Inspector group shows the same rows filtered to the active terminal’s host.</li>
 <li><strong>Manual forward.</strong> The <code>＋ Forward a port…</code> row and a <span class="kbd-chord" data-astro-cid-7vv3zwgx><kbd class="kbd" data-astro-cid-7vv3zwgx>⌘</kbd><span class="kbd-plus" data-astro-cid-7vv3zwgx>+</span><kbd class="kbd" data-astro-cid-7vv3zwgx>K</kbd></span> command accept <code>host:port</code> — for a port the scanner missed or one outside any terminal’s subtree.</li>
 <li><strong>Discoverability.</strong> One tip in <code>settings/tips.ts</code>: “Click a port in the Inspector to open the server an agent just started.”</li>

@@ -58,8 +58,9 @@ mirror non-interactively (`BatchMode=yes`), a forward connection can reach.
 machine's interfaces — exactly the exposure of having started the dev server on
 `0.0.0.0` yourself. The network the machine sits on is the trust boundary.
 
-The package has **no dependencies** (node builtins only). Its two consumers —
-kolu's Inspector and the standalone [`vazhi`](../vazhi) TUI — are independent
-apps that never talk to each other.
+The package has **no dependencies** (node builtins only). Its consumer today
+is the standalone [`vazhi`](../vazhi) TUI; kolu's Inspector will embed the same
+library (the Atlas note's PRT2) as a second, independent app. They will never
+talk to each other.
 
 See the Atlas note `port-forwarding` for the design.

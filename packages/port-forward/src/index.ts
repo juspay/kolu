@@ -24,8 +24,9 @@
  * trust boundary is the network the machine is on.
  *
  * The package has no dependencies at all (node builtins only): it is the shared
- * capability under kolu's Inspector and the standalone `vazhi` TUI, and neither
- * app should have to drag the other's world in to use it.
+ * capability under the standalone `vazhi` TUI today and kolu's Inspector next
+ * (the Atlas note's PRT2), and neither app should have to drag the other's
+ * world in to use it.
  */
 
 import { makeForwardManager } from "./manager.ts";
