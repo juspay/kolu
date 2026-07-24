@@ -6,12 +6,12 @@ argument-hint: "[--agent <claude|codex|grok>] [--base <branch>] [--rationale <no
 
 # Review gauntlet (serial)
 
-Run four reviewers **one after another** on the live branch, each the **sole
-editor while it runs**. Collisions are an *edit* problem: two reviewers writing
-the same worktree at once see torn, half-edited state. Running serially makes
-that impossible without any snapshot machinery — when a step starts, the previous
-step has already committed, so every reviewer reads a clean, settled tree and
-applies its own fixes directly:
+Run the reviewers **one after another** on the live branch, each the **sole
+editor while it runs**. When a step starts the previous one has already
+committed, so every reviewer reads a clean, settled tree and applies its own
+fixes directly. Why serial, and the incidents behind the rules below:
+[`RATIONALE.md`](RATIONALE.md) — read it when editing this skill, not when
+running it.
 
 1. **architecture-first-principles** — FIRST, for a diff touching framework packages
    (`@kolu/surface*`), adding/reshaping module structure, **or whose correctness
@@ -19,16 +19,10 @@ applies its own fixes directly:
    asserted to land "before" another, timing across independent async cascades, a
    flag flipped by one callback that another path reads back as truth): run the
    named checks per their SKILL (Workflow fan-out, adversarial verify, scope = diff +
-   one hop down its imports). It runs before the lenses so architecture-level
-   findings (wrong library, wrong layer, dead API surface) are fixed BEFORE the
-   structural/code debates polish details that were about to change shape. Skip
-   ONLY for pure-docs or trivially-local diffs — and a diff is **not**
-   trivially-local when its correctness leans on a happens-before: P3
-   (state-and-time) is the only lens that interrogates an ordering claim, so a
-   leaf-module race-fix that skips it is exactly how an untrue "race-safe /
-   structural" comment ships past a green gauntlet. Say so either way. Its confirmed
-   findings are dispositioned like any stage's — fix now or record where, never
-   "acceptable for scope".
+   one hop down its imports). Skip ONLY for pure-docs or trivially-local diffs —
+   and a diff leaning on a happens-before is **not** trivially-local
+   (`RATIONALE.md`). Say so either way. Its confirmed findings are dispositioned
+   like any stage's — fix now or record where, never "acceptable for scope".
 2. **`/lens-debate`** — lowy and hickey review boundaries/simplicity as two
    independent parallel subagents, then one reconcile-and-apply pass commits the
    fixes (each its own commit). Pass the change **`rationale`** so the lenses
@@ -43,21 +37,14 @@ applies its own fixes directly:
    fixes. Run with `--no-elegance` so its elegance pass is skipped: that pass
    re-invokes `/simplify`, which step 4 already ran over this same tree.
 
-Each step runs to completion before the next begins. Wall-clock is
-`checks + lens + debate + simplify + police` — slower than the old parallel form, but with
-no snapshot, no change-request handoff, and no separate apply pass: every step is
-its own editor and commits its own work.
+Each step runs to completion before the next begins.
 
 **PR comments come after the push, never before.** Each step commits locally but
-be-review pushes only once, after all selected steps finish. A comment that names
-a commit SHA must never be posted while that SHA is local-only — if a later step
-failed or the run were interrupted, the PR would advertise commits that were
-never pushed. So the debate skills run with their self-commenting **suppressed**
-(`--no-comment`); each leaves its body on disk (the lens skill writes
-`.lens-debate/comment.md`; the agent-debate body is a compact commit table you
-assemble in step 2), be-review pushes once at the end, and only then posts the lens comment,
-the agent-debate comment, and its own police summary. No PR comment can reference a local-only
-commit.
+be-review pushes only once, after all selected steps finish, then posts. The
+debate skills run with their self-commenting **suppressed** (`--no-comment`) and
+each leaves its body on disk — the lens skill writes `.lens-debate/comment.md`;
+the agent-debate body is a compact commit table you assemble in step 2. No PR
+comment can reference a local-only commit.
 
 ## Preflight
 
@@ -79,11 +66,9 @@ commit.
   change requires per `/be` §5) while the session is rooted in a kolu worktree.
   Set `repoPath` to that target repo's absolute path (default: the cwd worktree
   root) and thread it into **every** step — every subagent prompt must carry it,
-  with absolute paths and `git -C "$repoPath"`, never a bare relative path. A
-  cross-repo run that silently degraded `repoPath` to `.` once had the lens stage
-  re-review the **cwd** repo and commit five fixes onto the wrong repo (same-repo
-  runs only "worked" by cwd coincidence). If a cross-repo step returns `clean`
-  against a non-empty *target* diff, suspect `repoPath` didn't take effect before
+  with absolute paths and `git -C "$repoPath"`, never a bare relative path
+  (`RATIONALE.md` has the incident). If a cross-repo step returns `clean` against
+  a non-empty *target* diff, suspect `repoPath` didn't take effect before
   trusting it.
 - **Debate peer** (unless `--tracks` excludes `debate`): require
   `--agent <claude|codex|grok>` and run `/agent-debate`'s matching auth
@@ -213,17 +198,12 @@ a gauntlet that was simply mid-review — pure churn).
 First settle whether there is anything to push: `git log --oneline $START..HEAD`
 (`$START` was captured in Preflight). Then:
 
-- **Run `just fmt` before any push, whenever new commits exist.** The four
-  reviewers edit and commit code but **none guarantees formatting**, and `just
-  check` is tsc + biome *lint* — it never runs the formatter. So a hand-edit by
-  lens/debate/police (a reflowed `.ts` closure, a `default.nix` fileset tweak that
-  wants `nixpkgs-fmt`) sails through green `check` yet leaves the tree unformatted,
-  and `ci::fmt` then reds in §5 and burns a whole CI cycle on a re-run (it has,
-  more than once). `just fmt` runs **both** biome-format and nixpkgs-fmt, so it is
-  the only gate that matches `ci::fmt`. Once the steps finish and new commits
-  exist, run `just fmt` and, if it changed anything, commit the reformat (`style:
-  just fmt`, staging only what it touched) so the formatted tree rides this push —
-  don't leave formatting for the §5 CI loop to surface.
+- **Run `just fmt` before any push, whenever new commits exist.** No reviewer
+  guarantees formatting and `just check` never runs the formatter, so an
+  unformatted tree sails through a green `check` and reds `ci::fmt` later
+  (`RATIONALE.md`). `just fmt` runs both biome-format and nixpkgs-fmt — the only
+  gate matching `ci::fmt`. If it changed anything, commit the reformat (`style:
+  just fmt`, staging only what it touched) so it rides this push.
 - **New commits exist** and **a PR exists for this branch**
   (`gh pr view --json number -q .number`) → **`git push`**. **Only after the push
   succeeds** do you post the deferred comments — the lens and agent-debate bodies from
