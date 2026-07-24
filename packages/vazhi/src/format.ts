@@ -68,6 +68,6 @@ const BEL = String.fromCharCode(7);
  *  the URL, so there is nothing to degrade to; whereas a detection library
  *  keyed on `$TERM` would get kolu's own terminal wrong and drop the link where
  *  it matters most. */
-export function hyperlink(url: string, text: string = url): string {
-  return `${OSC}8;;${url}${BEL}${text}${OSC}8;;${BEL}`;
+export function hyperlink(url: string): string {
+  return `${OSC}8;;${url}${BEL}${url}${OSC}8;;${BEL}`;
 }

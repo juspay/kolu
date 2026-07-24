@@ -83,8 +83,4 @@ describe("hyperlink", () => {
       link.replaceAll(new RegExp(`${ESC}\\]8;;[^${BEL}]*${BEL}`, "g"), ""),
     ).toBe("http://pureintent:4123");
   });
-
-  it("can label the link with different text", () => {
-    expect(hyperlink("http://box:1", "open")).toContain(`${BEL}open${ESC}`);
-  });
 });
