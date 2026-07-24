@@ -82,6 +82,19 @@ export function assertHost(host: string): void {
   }
 }
 
+/** Reject a target that cannot be forwarded — the check the MAP makes, before a
+ *  key is computed or a flight registered, so an invalid target never depends
+ *  on which mechanism happens to be plugged in to be caught. */
+export function assertTarget(target: ForwardTarget): void {
+  assertPort(
+    target.port,
+    target.kind === "local"
+      ? "the local target port"
+      : `the port on ${target.host}`,
+  );
+  if (target.kind === "remote") assertHost(target.host);
+}
+
 /** Parse the one text form both apps accept — `host:port` for a remote target,
  *  `localhost:port` / `127.0.0.1:port` / bare `:port` for a local one. Throws
  *  with the offending text on anything else: this is user input arriving from

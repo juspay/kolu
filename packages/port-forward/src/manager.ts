@@ -20,7 +20,7 @@
  */
 
 import type { ForwardMechanisms, OpenedForward } from "./opened.ts";
-import { type ForwardTarget, targetKey } from "./target.ts";
+import { assertTarget, type ForwardTarget, targetKey } from "./target.ts";
 
 /** A live forward, as callers see it. */
 export interface Forward {
@@ -86,6 +86,7 @@ export function makeForwardManager(opts: {
           "port-forward: this forward map has been disposed; it opens nothing further.",
         );
       }
+      assertTarget(target);
       const key = targetKey(target);
       const live = entries.get(key);
       if (live !== undefined) return live.forward;

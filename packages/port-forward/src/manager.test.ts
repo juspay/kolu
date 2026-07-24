@@ -119,6 +119,23 @@ describe("the forward map", () => {
     await expect(forwards.cancel("ghost:1")).rejects.toThrow(/no forward/);
   });
 
+  it("refuses a target it cannot forward, before it reaches a mechanism", async () => {
+    // The map is the door every consumer knocks on, so it — not whichever
+    // mechanism happens to be plugged in — is what rejects an impossible
+    // target, and nothing is registered for it.
+    const fake = fakeMechanisms();
+    const forwards = makeForwardManager({ ...fake, onLost: () => {} });
+
+    await expect(forwards.create({ kind: "local", port: 0 })).rejects.toThrow(
+      /between 1 and 65535/,
+    );
+    await expect(
+      forwards.create({ kind: "remote", host: "-oProxyCommand=x", port: 22 }),
+    ).rejects.toThrow(/starts with "-"/);
+    expect(fake.opens).toEqual([]);
+    expect(forwards.list()).toEqual([]);
+  });
+
   it("lets a create be retried after a failure, leaving nothing behind", async () => {
     const failing: ForwardMechanisms = {
       open: async () => {

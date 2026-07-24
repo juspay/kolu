@@ -82,10 +82,6 @@ describe("the local TCP relay", () => {
     expect(second.localPort).not.toBe(first.localPort);
   });
 
-  it("rejects a target port that is not a port", () => {
-    expect(() => openRelay(0, () => {})).toThrow(/between 1 and 65535/);
-  });
-
   it("never binds the port it relays to, even when that number is free", async () => {
     // Both ends are on this machine: a listener on `0.0.0.0:<port>` relaying to
     // `127.0.0.1:<port>` is pointed at ITSELF. Measured when this was open, one

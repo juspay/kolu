@@ -14,7 +14,6 @@
 
 import { connect, createServer, type Socket } from "node:net";
 import type { OpenedForward } from "./opened.ts";
-import { assertPort } from "./target.ts";
 
 /** The address a `local` target listens on — loopback, by definition of the
  *  problem this solves. */
@@ -32,14 +31,6 @@ const LOOPBACK = "127.0.0.1";
  *  again, forever. Measured before this was closed: one connection opened
  *  ~29,000 file descriptors in 1.5 seconds. */
 export function openRelay(
-  port: number,
-  onLost: (reason: string) => void,
-): Promise<OpenedForward> {
-  assertPort(port, "the local target port");
-  return listen(port, onLost);
-}
-
-function listen(
   port: number,
   onLost: (reason: string) => void,
 ): Promise<OpenedForward> {

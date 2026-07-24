@@ -34,7 +34,6 @@ import { spawn } from "node:child_process";
 import { canBindLocally, pickFreePort } from "./freePort.ts";
 import type { OpenedForward } from "./opened.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
-import { assertHost, assertPort } from "./target.ts";
 
 /** The options every forward connection is opened with.
  *
@@ -276,8 +275,6 @@ export async function openSshForward(
   remotePort: number,
   onLost: (reason: string) => void,
 ): Promise<OpenedForward> {
-  assertHost(host);
-  assertPort(remotePort, `the port on ${host}`);
   // The target's own port number first — `pu-dev:4123` answers on
   // `0.0.0.0:4123` when that number is free here. A taken port makes ssh exit
   // (that is what `ExitOnForwardFailure` is for), which is exactly the signal
