@@ -678,7 +678,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     // can't be surfaced without a kit change (L23 follow-up).
     convergence: () => null,
     // Same parity: the local arm has no drv-resolution/skew channel (no ssh, no arch
-    // probe, no baked drv map) and its OWN contract-skew refusal is FATAL at boot
+    // probe, no baked agent source) and its OWN contract-skew refusal is FATAL at boot
     // (`PadiAdoptionRefusedError`, never a live down-session to publish a cause for)
     // — nothing here to classify.
     entryFailedDetail: () => null,

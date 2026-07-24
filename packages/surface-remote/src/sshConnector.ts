@@ -65,6 +65,12 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
  *  `onBuilding` hooks). */
 export type SshProv = "probing" | "copying" | "building";
 
+/** The owning dial context a deferred derivation resolver may consume. */
+export interface ResolveDrvPathContext {
+  signal: AbortSignal;
+  localProgress: (line: string) => void;
+}
+
 export interface SshConnectorOptions {
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
@@ -82,7 +88,7 @@ export interface SshConnectorOptions {
    *
    *  Pass a constant as `() => Promise.resolve(drv)` when the caller already knows
    *  the path and has no probe to defer. */
-  resolveDrvPath: () => Promise<string>;
+  resolveDrvPath: (ctx: ResolveDrvPathContext) => Promise<string>;
   /** Extra args appended after `--stdio` on the agent command line — a generic
    *  spawn-arg carrier; what the args mean is the caller's concern. POSIX-quoted for
    *  a real remote; verbatim for localhost. See `buildAgentCommand`. */
@@ -122,7 +128,10 @@ export function sshConnector<C extends AnyContractRouter>(
     // bounded → terminal).
     let drvPath: string;
     try {
-      drvPath = await opts.resolveDrvPath();
+      drvPath = await opts.resolveDrvPath({
+        signal: ctx.signal,
+        localProgress: ctx.localProgress,
+      });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const cause =

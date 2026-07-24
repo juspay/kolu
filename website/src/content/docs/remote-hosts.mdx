@@ -45,9 +45,10 @@ from another device.
     kolu provisions [padi](/padi) there by copying a Nix closure over ssh.
   </Card>
   <Card title="A Nix-wrapped kolu">
-    Launch kolu through its Nix wrapper, which bakes in the per-architecture build
-    map. Supported hosts are the CPU/OS pairs your kolu was built with — Linux and
-    macOS, including cross-arch (a macOS kolu can bind a Linux box).
+    Launch kolu through its Nix wrapper, which bakes in its exact agent source.
+    On first contact, kolu asks the host for its CPU/OS pair and resolves only
+    that padi build — Linux and macOS, including cross-arch (a macOS kolu can
+    bind a Linux box).
   </Card>
 </CardGrid>
 
@@ -199,8 +200,8 @@ hatch). The causes it distinguishes:
 | **Another kolu owns this host** | a different kolu supervisor already holds this host's padi |
 | **This host runs an older kolu** | the remote padi speaks an older contract and refused to bind |
 | **Can't reach this host** | unreachable over ssh, or provisioning failed partway |
-| **This host's padi wasn't built with Nix** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
-| **No build for this host's architecture** | the baked build map has no derivation for the host's CPU/OS |
+| **This kolu run is missing its agent source** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
+| **Kolu couldn't prepare padi for this host** | the baked source could not resolve padi; the detail shows the Nix error, including an unsupported CPU/OS pair when that is the cause |
 | **This host's padi never settled** | a contract upgrade's drain never provably finished |
 
 A related — but distinct — card covers the host's **[kaval](/kaval)**: if the

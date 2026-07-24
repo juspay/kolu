@@ -1,19 +1,18 @@
 # Nix derivations for the @kolu/surface remote-process-monitor demo.
 #
-# Inputs come from the root composer (`default.nix`) so this file can
-# reuse the workspace's pnpm fetch (~395 MB; one source of truth) and
-# the same `src` fileset the kolu build uses.
+# Inputs come from the independent Surface-example flake, which reads the
+# canonical workspace source and pnpm closure from `nix/workspace.nix`.
 #
 #   pkgs       — the per-system nixpkgs.
-#   src        — the workspace source fileset (root default.nix's `src`).
-#   pnpmDeps   — the workspace pnpm fetch (root default.nix's `pnpmDeps`).
+#   src        — the canonical workspace source fileset.
+#   pnpmDeps   — the canonical workspace pnpm fetch.
 #
 # Three derivations land here:
 #
 #   surfaceExampleBase     — workspace tree + pnpm install. Skips
 #                            kolu's vite-bundle + node-gyp; neither is
 #                            used by surface examples' agents.
-#   processMonitorAgent    — `nix run .#process-monitor-agent --
+#   processMonitorAgent    — `nix run ..#process-monitor-agent --
 #                            --stdio`. Backed by surfaceExampleBase.
 #   processMonitorClient   — vite-built browser bundle for the demo.
 #   processMonitorMonitor  — single-binary entrypoint: serves the

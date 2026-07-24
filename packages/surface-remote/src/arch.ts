@@ -5,8 +5,8 @@
  * library deliberately takes one `.drv` per session and ships exactly
  * that, leaving arch selection to the caller. `resolveSystem(host)` is
  * the canonical probe to feed that selection — it returns the
- * nix-system string (`x86_64-linux`, `aarch64-darwin`, …) the caller
- * keys its per-system `.drv` map on.
+ * nix-system string (`x86_64-linux`, `aarch64-darwin`, …) that
+ * `resolveAgentDrv` uses to select one package from the baked source flake.
  *
  * Why ask Nix rather than parse `uname -ms`: the host's own Nix is the
  * authoritative answer to "what system will this machine build for",
@@ -22,10 +22,8 @@
  * reachable on that PATH — `nix-instantiate` ships in the same
  * package. The probe adds no dependency the build step didn't.
  *
- * Typical use, paired with a per-system `.drv` map the caller builds at
- * its own build time. Pass the probe as `resolveDrvPath` so it runs
- * inside the session's spawn cycle — an unreachable host then degrades to
- * `failed` and retries, instead of throwing before the session exists:
+ * Typical low-level use. `resolveAgentDrv` is the higher-level source-flake
+ * composition used by Kolu:
  *
  *   const session = makeSession({
  *     connectOnce: sshConnector({
@@ -34,9 +32,7 @@
  *       localEnv,  // the composed env a `localhost` dial spawns with (never ambient process.env)
  *       resolveDrvPath: async () => {
  *         const sys = await resolveSystem(host);
- *         const drv = myDrvBySystem[sys];
- *         if (!drv) throw new Error(`${host}: no .drv for ${sys}`);
- *         return drv;
+ *         return resolveDrvForSystem(sys);
  *       },
  *     }),
  *   });

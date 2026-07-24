@@ -62,8 +62,8 @@ import type { SurfaceClientLike } from "@kolu/surface/project";
 import { inMemoryCell } from "@kolu/surface/server";
 import { ORPCError } from "@orpc/client";
 import type { LogEntry } from "./connection";
+import { MAX_PROGRESS_LINES } from "./progressTail";
 
-const MAX_PROGRESS_LINES = 20;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 /** Default pre-connected LIVENESS backstop bound (#1908 R8b) — 20min. Exported so the

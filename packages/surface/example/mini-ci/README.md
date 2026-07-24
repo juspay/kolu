@@ -57,7 +57,7 @@ just run                         # local (host = localhost)
 just run user@host               # remote — needs passwordless ssh + Nix on the host
 just run localhost --json        # run to completion, print final state, exit non-zero on failure
 just run localhost --headless    # stream status transitions as plain lines
-nix run .#mini-ci                # standalone — bakes the current system's runner .drv
+nix run ..#mini-ci                 # standalone — bakes the current system's runner .drv
 ```
 
 `just run [host]` probes the host's nix-system, resolves the matching `mini-ci-runner` `.drv`, and passes it as `MINI_CI_RUNNER_DRV` (exactly like drishti's `KOLU_AGENT_DRV`); [`src/probe-arch.ts`](src/probe-arch.ts) is the thin arch-probe wrapper over `@kolu/surface-remote`'s `resolveSystem`. The TUI then drives the runner via `getHostSession({ host, binary: "mini-ci-runner", resolveDrvPath })`. Remote hosts only need passwordless ssh + Nix; the runner is built once for the host's arch and `nix copy`d over.

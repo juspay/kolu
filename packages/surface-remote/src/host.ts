@@ -60,7 +60,7 @@ export class ResolveDrvError extends Error {
  *  text ssh/nix actually emit; a miss only means we fall back to the safe
  *  default (`"remote"`, which is bounded), never a wrong terminal verdict. */
 export function looksLikeNetworkError(line: string): boolean {
-  return /connection (refused|timed out|closed|reset)|operation timed out|no route to host|network is unreachable|could not resolve hostname|kex_exchange_identification|ssh: connect to host|not responding|broken pipe|port 22:/i.test(
+  return /connection (refused|timed out|closed|reset)|operation timed out|timeout was reached|no route to host|network is unreachable|could not resolve host(?:name)?|couldn't connect to server|failed to connect|download .* interrupted|http error (?:408|429|5\d\d)|kex_exchange_identification|ssh: connect to host|not responding|broken pipe|port 22:/i.test(
     line,
   );
 }

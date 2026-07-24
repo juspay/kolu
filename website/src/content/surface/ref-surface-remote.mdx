@@ -24,18 +24,23 @@ shared pool; key your own map and `destroy()` them yourself.
 | --- | --- | --- |
 | `makeSession<C>(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient<C>>`. Owns no transport — you supply `connectOnce` |
 | `sshConnector<C>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, wire stdio to a typed client |
-| `dialAgentOnce<C>(opts)` | `.` | one-shot CLI dial: validate the baked `{ system → drv }` env map, pin, probe, return `{ client, dispose }` with the link already proven live |
+| `dialAgentOnce<C>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<binary>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live |
+| `requireAgentFlakeRef(raw)` / `SURFACE_AGENT_FLAKE_REF_ENV` | `.` | fail-loud wrapper boundary for the exact agent source flake |
+| `resolveAgentDrv(host, flakeRef, packageName, { signal, onProgress })` | `.` | probe the host system and lazily evaluate that one package's `.drvPath` inside the owning dial's cancellation/progress path; deterministic Nix errors are terminal, while transport and liveness failures remain retryable |
 | `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
 `sshConnector` opts are `{ host, binary, resolveDrvPath, localEnv }`: `host` is any
 ssh target (`"localhost"` short-circuits), `binary` the exe name inside the realised
-closure, `resolveDrvPath: () => Promise<string>` resolves the agent `.drv` for the
-*target* arch, and **`localEnv: Record<string, string>` is the REQUIRED env for a
+closure, `resolveDrvPath: ({ signal, localProgress }) => Promise<string>` resolves
+the agent `.drv` for the *target* arch inside the owning dial's cancellation and
+progress lifetime, and **`localEnv: Record<string, string>` is the REQUIRED env for a
 `localhost` dial's direct spawn** (see the caution below). `dialAgentOnce`'s
 `dispose()` tears down only its own session; it is what `kaval-tui --host`,
 `padi-tui --host`, and `kolu-cli --host` use — and it carries the same required
-`localEnv`.
+`localEnv`. Its `agentFlakeRef` is the exact, minimal source flake baked by the
+Nix wrapper; the package name is the same `binary` value, so the executable and
+derivation cannot drift into two hand-maintained mappings.
 
 <Aside type="caution" title="resolveDrvPath is deferred by contract">
   Pass `resolveDrvPath` as a thunk. Eager resolution runs the ssh probe before the

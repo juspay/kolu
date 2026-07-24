@@ -9,7 +9,7 @@
  *
  * The runner's `.drv` is named per the host's nix-system. `just run [host]`
  * resolves it (arch probe + `nix eval`) and passes `MINI_CI_RUNNER_DRV`,
- * exactly like drishti's `KOLU_AGENT_DRV`; `nix run .#mini-ci` bakes the
+ * exactly like drishti's `KOLU_AGENT_DRV`; the example flake's `mini-ci` package bakes the
  * current system's drv.
  */
 
@@ -52,7 +52,7 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
   if (drv === undefined || drv.length === 0) {
     throw new Error(
       "mini-ci: MINI_CI_RUNNER_DRV is required — the mini-ci-runner .drv for the host's nix-system.\n" +
-        "  Use `just run [host]` (resolves it via an arch probe), or `nix run .#mini-ci` (bakes the current system's drv).",
+        "  Use `just run [host]` (resolves it via an arch probe), or `nix run ..#mini-ci` (bakes the current system's drv).",
     );
   }
   const session = makeSession<RunnerClient, SshProv>({

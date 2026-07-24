@@ -4,6 +4,7 @@
 # and re-copies/re-evaluates on every invocation (~4200ms vs ~130ms hot).
 # Caveat: new .nix files must be `git add`ed before nix develop sees them.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
+nix_format_paths := '*.nix nix/**/*.nix website/*.nix ci/flake.nix packages/surface/example/flake.nix packages/solid-browser/example/flake.nix'
 # E2e shell includes Playwright browsers (not in default shell for perf).
 # Check PLAYWRIGHT_BROWSERS_PATH, not IN_NIX_SHELL — the default shell sets
 # IN_NIX_SHELL but doesn't provide browsers, so `just ci::e2e` (which runs
@@ -401,11 +402,14 @@ clean:
 
 # Format all files in-place
 fmt: install
-    {{ nix_shell }} sh -c 'biome format --write . && nixpkgs-fmt *.nix nix/**/*.nix website/*.nix'
+    {{ nix_shell }} sh -c 'biome format --write . && nixpkgs-fmt {{ nix_format_paths }}'
 
 # Check formatting without modifying files (used by CI)
-fmt-check: install
-    {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
+fmt-check: install _fmt-check
+
+[private]
+_fmt-check:
+    {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check {{ nix_format_paths }}'
 
 # Nix build (server + client) — prints store path, no ./result symlink
 build:

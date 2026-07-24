@@ -59,9 +59,9 @@ releases newest-first with Unreleased on top; the Pages deploy fires on the
 
 ## Deploy
 
-`.github/workflows/pages.yml` runs `nix build .#website` on every push to
+`.github/workflows/pages.yml` runs `nix build ./website` on every push to
 `master` that touches `website/**` and publishes the result. `just ci`
-builds the site too (`ci::nix` directly builds every root flake output).
+builds the site too (`ci::website-nix` builds every website-flake output).
 
 ## Update deps
 

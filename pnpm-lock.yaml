@@ -834,6 +834,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
+      '@kolu/surface-remote':
+        specifier: workspace:*
+        version: link:../surface-remote
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
@@ -1588,6 +1591,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      lru-cache:
+        specifier: ^11.2.7
+        version: 11.2.7
       zod:
         specifier: ^4.3.6
         version: 4.3.6

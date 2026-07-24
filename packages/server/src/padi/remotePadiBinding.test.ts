@@ -283,14 +283,8 @@ async function pinAdopt(session: PadiSession): Promise<{
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
-let priorDrvMap: string | undefined;
 beforeEach(() => {
   vi.useFakeTimers();
-  // `ensureRemotePadiBinding` parses the baked drv map EAGERLY (fail-fast). The value is
-  // never used here (the fake connector bypasses provisioning), but it must be present.
-  priorDrvMap = process.env.PADI_AGENT_DRVS_JSON;
-  process.env.PADI_AGENT_DRVS_JSON =
-    '{"x86_64-linux":"/nix/store/fake-padi.drv"}';
 });
 afterEach(() => {
   for (const s of sessions.splice(0)) s.destroy();
@@ -298,8 +292,6 @@ afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.clearAllMocks();
-  if (priorDrvMap === undefined) delete process.env.PADI_AGENT_DRVS_JSON;
-  else process.env.PADI_AGENT_DRVS_JSON = priorDrvMap;
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────

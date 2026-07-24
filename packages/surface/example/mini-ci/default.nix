@@ -7,7 +7,7 @@
 #                     default pipeline's `pnpm --filter …` CI tasks for the
 #                     remote-process-monitor example run against it on whatever
 #                     host the closure lands on. Needs nodejs + pnpm.
-#   mini-ci         — `nix run .#mini-ci [host]`. The TUI. Drives the runner
+#   mini-ci         — `nix run ..#mini-ci [host]`. The TUI. Drives the runner
 #                     the drishti way via @kolu/surface-remote's HostSession:
 #                     `nix copy` the mini-ci-runner closure to the host (skipped
 #                     for localhost), realise + run it over ssh. Needs nix +
@@ -15,8 +15,8 @@
 #                     MINI_CI_RUNNER_DRV (the justfile overrides it per host via
 #                     an arch probe — like drishti's KOLU_AGENT_DRV).
 #
-# Inputs come from the root composer (`default.nix`) — same `src` + `pnpmDeps`
-# the kolu build uses, so the pnpm fetch is cached once.
+# Inputs come from the independent Surface-example flake. It reuses the
+# canonical `src` + `pnpmDeps` from `nix/workspace.nix`.
 { pkgs, src, pnpmDeps }:
 let
   base = import ../base.nix { inherit pkgs src pnpmDeps; };
@@ -41,7 +41,7 @@ let
   '';
 
   # The TUI drives HostSession, which shells out to nix (copy / realise) and
-  # ssh; the baked drv lets `nix run .#mini-ci` work standalone on localhost.
+  # ssh; the baked drv lets the example flake's `mini-ci` run standalone.
   mini-ci = pkgs.runCommand "mini-ci"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];

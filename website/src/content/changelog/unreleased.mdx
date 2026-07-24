@@ -1,3 +1,7 @@
 ---
 version: Unreleased
 ---
+
+### [Architecture](/architecture)
+
+- <Change kind="changed" title="A first nix run now reaches kolu much sooner">The runnable flake no longer evaluates the website, examples, or CI coordinator before it can start kolu. Those build independently and still run in CI, while remote-host provisioning now carries one exact agent source and resolves only the padi or kaval build needed for that host. The app and its remote-host behavior are unchanged; a fresh `nix run` spends its time on kolu itself.</Change>

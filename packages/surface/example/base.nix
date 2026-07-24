@@ -4,7 +4,7 @@
 # agent). Both remote-process-monitor and mini-ci wrap `tsx <entrypoint>`
 # against this tree, so the install lives in one place.
 #
-# Inputs come from the root composer (`default.nix`):
+# Inputs come from the independent Surface-example flake:
 #   pkgs     — the per-system nixpkgs.
 #   src      — the workspace source fileset.
 #   pnpmDeps — the workspace pnpm fetch (~395 MB; one source of truth).

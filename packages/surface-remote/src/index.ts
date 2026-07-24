@@ -7,6 +7,12 @@
  */
 
 export { resolveSystem } from "./arch";
+export {
+  type AgentDrvResolutionOptions,
+  requireAgentFlakeRef,
+  resolveAgentDrv,
+  SURFACE_AGENT_FLAKE_REF_ENV,
+} from "./agentDrv";
 // SR9 — one connection authority. Link health is no longer a per-host `connection`
 // CELL (that second wire channel + its `pipeSessionStateToCell` pump + the
 // `mirroredSurface`/`seedConnectionCell` seam are gone); it rides the host-map entry's
@@ -25,7 +31,6 @@ export {
   type AgentDial,
   type DialAgentOnceOptions,
   dialAgentOnce,
-  parseDrvBySystem,
 } from "./dialAgentOnce";
 export {
   buildAgentCommand,
@@ -112,6 +117,7 @@ export {
 } from "./session";
 export {
   type AgentClient,
+  type ResolveDrvPathContext,
   type SshConnectorOptions,
   type SshProv,
   sshConnector,

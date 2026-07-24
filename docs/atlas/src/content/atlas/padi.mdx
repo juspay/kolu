@@ -4,7 +4,7 @@ description: The architecture that replaced the R9/R10 finale plan for remote te
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-07-12
+updated: 2026-07-23
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -217,7 +217,7 @@ W2 and W3 shipped at pace (a deliberate call); the consolidation pays the pace's
 
 Today the full e2e suite (~493 scenarios) runs in CI per-PR **locally only**; the `KOLU_PADI_HOST` path has zero CI coverage (the sandbox claim is honest but the exposure is real — the two live bugs of 2026-07-04 were both found by hand). This phase closes it: **every PR's CI runs the existing e2e suite AS-IS, twice — local (as today) and with kolu-server bound remotely** (`KOLU_PADI_HOST=<a second pu box leased from the pool>`). No tagged subsets, no reduced tier: the same scenarios, a real ssh hop.
 
-Mechanics (we do NOT control the pool boxes' config — everything rides ssh we already have): the CI recipe leases a **pair** of pool boxes — box A runs the lane as today, box B is the bind target; box B's per-run hygiene (state wipe before, destructive-ack, provisioning via the baked drv map — which also exercises the cross-arch arm when the darwin lane binds a linux box) is done over the ssh session, never via box config. The `just e2e-ssh` transport lane folds into the same node.
+Mechanics (we do NOT control the pool boxes' config — everything rides ssh we already have): the CI recipe leases a **pair** of pool boxes — box A runs the lane as today, box B is the bind target; box B's per-run hygiene (state wipe before, destructive-ack, provisioning from the baked exact agent source — which also exercises the cross-arch arm when the darwin lane binds a linux box) is done over the ssh session, never via box config. The `just e2e-ssh` transport lane folds into the same node.
 
 The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios that failed the one manual full-suite ssh run need their tight Playwright waits widened to remote-tolerant timeouts — behaviour was correct, the waits were not; (b) the agent-state scenarios get an honest mock — **decided 2026-07-04 (srid), replacing an earlier copy-files-over-ssh idea**: a small pretend-agent program runs INSIDE the kolu terminal like a real agent, driven through the terminal itself ("act busy", "act done"), writing its session files on its own machine at the real default paths. Wherever the terminal is, the files land on the right machine by construction — the tests contain no remote-vs-local branches at all, and the pretending gets MORE realistic (a foreground process writing its own files is exactly what production senses — including the file-watching layer where #1680 lived); (c) lane wall-time budgeted (remote suite ran ~2× local on the manual run) — it runs as a parallel odu node on the paired box, so the wall grows only if it becomes the slowest node.
 
@@ -300,7 +300,7 @@ W1 sealed the domain behind the contract as a library; W2 gave it a process. The
 
 #### W3.1 — the remote binding — *shipped* <PrLink pr={1675} />
 
-**Shipped 2026-07-04** — provision + front a remote padi over ssh: `KOLU_PADI_HOST` with `RemotePadiSession` as the ssh arm through the same re-serve seam; the arch-keyed drv map ships kaval inside padi's closure (one dial provisions both, cross-arch verified); `padi --stdio` fronts the durable daemon; convergence hardened for the transport (the instance-keyed drain fence, adopt-loudly on budget exhaustion); every degraded bind a standing dialog state naming the bound host; deterministic bounded daemon logs on all spawn paths; and the ssh e2e lanes (`just e2e-ssh` + `e2e-ssh-2box`, destructive-ack-guarded). Standing permanently: **the ssh-user caveat** — the remote padi runs as the SSH user; 0700 sockets make the SSH identity the daemon owner.
+**Shipped 2026-07-04** — provision + front a remote padi over ssh: `KOLU_PADI_HOST` with `RemotePadiSession` as the ssh arm through the same re-serve seam; the Nix wrapper now carries one exact minimal agent source, and the dial probes the host system then resolves only padi's derivation from it (padi's closure includes kaval, so one dial still provisions both; cross-arch verified); `padi --stdio` fronts the durable daemon; convergence hardened for the transport (the instance-keyed drain fence, adopt-loudly on budget exhaustion); every degraded bind a standing dialog state naming the bound host; deterministic bounded daemon logs on all spawn paths; and the ssh e2e lanes (`just e2e-ssh` + `e2e-ssh-2box`, destructive-ack-guarded). Standing permanently: **the ssh-user caveat** — the remote padi runs as the SSH user; 0700 sockets make the SSH identity the daemon owner.
 
 <a id="w32"></a>
 

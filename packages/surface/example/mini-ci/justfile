@@ -29,7 +29,7 @@ run host='localhost' *args: install
     cd {{ justfile_directory() }}
     sys=$({{ nix_shell }} pnpm exec tsx src/probe-arch.ts {{ host }})
     echo "» host: {{ host }} (system=$sys)" >&2
-    drv=$(nix eval --raw "{{ repo_root }}#packages.$sys.mini-ci-runner.drvPath")
+    drv=$(nix eval --raw "{{ repo_root }}/packages/surface/example#packages.$sys.mini-ci-runner.drvPath")
     echo "» runner drv: $drv" >&2
     MINI_CI_RUNNER_DRV="$drv" {{ nix_shell }} pnpm start -- {{ host }} {{ args }}
 

@@ -43,11 +43,11 @@ box" as **not** an answer — a specific host must be named.
 ## 1. Isolation invocation — nix build, never the dev server
 
 **The dev server cannot do remote hosts.** `just dev` / `just dev-auto` runs
-`tsx` straight from source, which never bakes `PADI_AGENT_DRVS_JSON` — binding
-a remote host fails loudly with `PADI_AGENT_DRVS_JSON is not baked — a remote
-padi binding (KOLU_PADI_HOST) needs kolu-server run from its Nix wrapper`. Only
-the nix-wrapped `bin/kolu` bakes the arch-keyed `{ system → padi .drv }` map a
-remote binding needs to ship the padi closure. So:
+`tsx` straight from source, which never bakes `SURFACE_AGENT_FLAKE_REF` —
+binding a remote host fails loudly because the remote path has no exact source
+from which to resolve padi. Only the nix-wrapped `bin/kolu` bakes that source
+ref; the remote path probes the host's system and evaluates its padi `.drv` on
+first use. So:
 
 ```sh
 nix build .#default

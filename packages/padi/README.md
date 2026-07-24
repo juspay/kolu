@@ -87,12 +87,13 @@ remote host — reusing the local arm's seam, not a parallel one:
   the ssh-bridged link, scopes to `.surface.padi`, and re-serves through the SAME
   `RemoteMirrorSession` seam the local `PadiBindingSession` plugs into. Unset →
   today's local binding, byte-identical.
-- **One drv provisions both daemons.** kolu-server's Nix wrapper bakes
-  **`PADI_AGENT_DRVS_JSON`**, an arch-keyed `{ system → padi .drv }` map (built in
-  `flake.nix`, the retired `pulamAgentDrvsJson` pattern). Because padi's wrapper
-  bakes `KOLU_KAVAL_BIN` (kaval rides INSIDE padi's closure), provisioning that ONE
-  drv ships both — `resolveSystem` probes the remote arch, `provisionAgent`
-  `nix copy`s + realises it, and `ssh <host> padi --stdio` runs it.
+- **One drv provisions both daemons.** kolu-server's Nix wrapper bakes the
+  exact source flake as **`SURFACE_AGENT_FLAKE_REF`**. On the first remote dial,
+  `@kolu/surface-remote` probes the host's Nix system and evaluates only that
+  source's matching padi `.drv`. Because padi's wrapper bakes `KOLU_KAVAL_BIN`
+  (kaval rides INSIDE padi's closure), provisioning that ONE drv ships both —
+  `provisionAgent` `nix copy`s + realises it, and
+  `ssh <host> padi --stdio` runs it.
 - **Convergence needs nothing new.** adopt-or-spawn + re-adopt fall out of
   `getHostSession` + `frontDaemonOverStdio` (kill the remote padi → the reconnect
   respawns it; restart kolu-server → it re-adopts the still-running daemon, PTYs

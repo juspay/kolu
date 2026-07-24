@@ -32,8 +32,14 @@ import {
   DaemonContractSkewError,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
+import {
+  type AgentDial,
+  dialAgentOnce,
+  SURFACE_AGENT_FLAKE_REF_ENV,
+} from "@kolu/surface-remote";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
+import { composeSpawnEnv } from "kolu-pty";
 import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
@@ -174,6 +180,31 @@ export function assertPadiSurfaceCompatible(
       requiredVersion: PADI_SURFACE_VERSION,
     });
   }
+}
+
+/**
+ * Provision and dial a padi on `host` using the exact source flake baked into
+ * the caller's Nix wrapper. This is padi's client-side remote transport policy:
+ * both padi-tui and kolu-cli share the same binary, fatal-prefix, clean local
+ * environment, and frozen-control-core compatibility gate.
+ *
+ * Lifecycle supervision remains outside this dial kit. The returned connection
+ * is one-shot and reading `hello` never drains or replaces the remote daemon.
+ */
+export function dialPadiViaHost(
+  host: string,
+): Promise<AgentDial<PadiDaemonContract>> {
+  return dialAgentOnce<PadiDaemonContract>({
+    host,
+    localEnv: composeSpawnEnv(process.env),
+    binary: "padi",
+    agentFlakeRef: process.env[SURFACE_AGENT_FLAKE_REF_ENV],
+    fatalPrefix: "padi --stdio:",
+    probe: async (client) => {
+      const hello = await client.surface.control.core.hello();
+      assertPadiSurfaceCompatible(hello.surfaceVersion);
+    },
+  });
 }
 
 // ── The dial + control-core handshake ─────────────────────────────────────────

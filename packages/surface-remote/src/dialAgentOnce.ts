@@ -4,14 +4,13 @@
  * link already proven live. This is the missing receptacle that sat one step
  * short of the socket every `--host` consumer needs: `HostSession` owns the
  * HARD volatility (ssh/reconnect/provision), but each CLI was re-wiring the same
- * composition on top of it — env-var parse, arch-probe + drv lookup, and the
+ * composition on top of it — source-ref validation, target derivation resolution, and the
  * pin → probe → markConnected → leak-safe-destroy lifecycle. That composition is
  * a single primitive; it lives here, once.
  *
- * A CLI supplies only its genuinely-volatile values: the binary name, the
- * already-read drv-map JSON (the env-var NAME stays in the caller, since the
- * Nix-wrapper boundary spells it per-agent), and a noun for the "no derivation
- * baked" error. Proving the link is the framework's job, not the CLI's: the dial
+ * A CLI supplies only its genuinely-volatile values: the binary name and the
+ * already-read source-flake ref baked by its Nix wrapper. Proving the link is the
+ * framework's job, not the CLI's: the dial
  * defaults to the reserved `system.live` round-trip (`probeSurfaceLive`) — the
  * same receptacle HostSession's periodic watchdog plugs into — so no CLI
  * nominates its own liveness verb. A CLI overrides `probe` only for a protocol
@@ -27,69 +26,9 @@
 import type { Logger } from "@kolu/log";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
-import { resolveSystem } from "./arch";
+import { requireAgentFlakeRef, resolveAgentDrv } from "./agentDrv";
 import { makeSession } from "./session";
 import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
-
-/** Parse + validate a `{ system → drvPath }` map from an already-read env value.
- *  The env-var NAME is the caller's (the Nix-wrapper boundary spells it
- *  per-agent), so it's passed in only to render honest, actionable errors —
- *  never re-typed as a literal here. */
-export function parseDrvBySystem(
-  envVar: string,
-  raw: string | undefined,
-): Record<string, string> {
-  if (raw === undefined || raw === "") {
-    throw new Error(
-      `${envVar} is not set — --host needs the per-system agent derivations baked into the build. Run it from its Nix wrapper.`,
-    );
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`${envVar} is not valid JSON: ${(err as Error).message}`);
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    // An array is an `object` whose values can all be strings, so it would slip
-    // past the shape check and only surface later as a host-system map miss
-    // (after the ssh probe). Reject it here, eagerly, with the same config error.
-    Array.isArray(parsed) ||
-    Object.values(parsed).some((v) => typeof v !== "string")
-  ) {
-    throw new Error(
-      `${envVar} must be a JSON object of { system: drvPath } strings.`,
-    );
-  }
-  return parsed as Record<string, string>;
-}
-
-/** Resolve the agent's `.drv` for `host` against an already-validated
- *  `{ system → drv }` map: probe the host's nix-system over ssh
- *  (`resolveSystem`), then look it up. This is the ONLY genuinely-per-host,
- *  genuinely-volatile step — and it's the only thing the deferred resolver thunk
- *  runs, so an unreachable host (or a lookup miss for the host's arch) folds into
- *  the session's reconnect machinery. The static-config axis (env-var present /
- *  valid JSON / right shape) is parsed eagerly by `dialAgentOnce`, so a
- *  missing/malformed map never reaches the session to be misclassified as a
- *  retryable `"network"` fault. */
-async function resolveAgentDrv(
-  host: string,
-  drvBySystem: Record<string, string>,
-  drvNoun: string,
-): Promise<string> {
-  const system = await resolveSystem(host);
-  const drv = drvBySystem[system];
-  if (drv === undefined) {
-    const known = Object.keys(drvBySystem).join(", ") || "none";
-    throw new Error(
-      `${host}: no ${drvNoun} derivation baked for system=${system} (have: ${known}).`,
-    );
-  }
-  return drv;
-}
 
 /** A live one-shot agent connection: the client plus a `dispose` that tears the
  *  ssh session down. */
@@ -103,22 +42,12 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
   host: string;
   /** Executable name inside the realised closure, run as `<binary> --stdio`. */
   binary: string;
-  /** The env-var NAME the drv map is read from (e.g. `KAVAL_AGENT_DRVS_JSON`).
-   *  Caller-owned because the Nix-wrapper boundary spells it per-agent — passed
-   *  here only so the parse/validate errors name it. */
-  envVar: string;
-  /** The already-read env value. The caller reads it itself (rather than this
-   *  helper doing `process.env[envVar]`) so the call site can hold the env-var
-   *  name in a single constant — `envVar: NAME, agentDrvsJson: process.env[NAME]`
-   *  — and TS sees one source for both, instead of a bare literal and a
-   *  `process.env.FOO` property that could silently drift. */
-  agentDrvsJson: string | undefined;
-  /** Noun for the "no <noun> derivation baked for system=…" error (e.g.
-   *  `kaval`, `padi`). */
-  drvNoun: string;
+  /** The source flake ref baked into the Nix wrapper. Its package output must
+   *  share `binary`'s name, so the exact package and executable cannot drift. */
+  agentFlakeRef: string | undefined;
   /** The EXACT stderr prefix the remote agent writes before its fatal message,
    *  right before exiting (e.g. the retired pulam's `pulam:`, or `kaval --stdio:`). Required and
-   *  caller-supplied because it is NOT always `${drvNoun}:` — kaval's `--stdio`
+   *  caller-supplied because it is NOT always `${binary}:` — kaval's `--stdio`
    *  front writes `kaval --stdio:`, not `kaval:`. The agent's fatal is the LAST
    *  thing it writes, so `dialAgentOnce` surfaces everything from the last line
    *  carrying this prefix through the end of the remote stderr as the dial's
@@ -161,20 +90,20 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
  *  runs `<binary> --stdio`, proves the link with `probe`, and returns the
  *  contract-typed `{ client, dispose }`.
  *
- *  The baked drv map is parsed + validated ONCE, eagerly — before any session
- *  exists. A missing/malformed map is a terminal config error (the user ran the
+ *  The baked source ref is validated ONCE, eagerly — before any session exists.
+ *  A missing ref is a terminal config error (the user ran the
  *  raw entrypoint instead of the Nix wrapper), so it throws synchronously here
  *  rather than inside the deferred resolver, where `HostSession` would
  *  misclassify it as a retryable `"network"` fault and a long-lived consumer
- *  would spin on it forever. Only the genuinely-per-host arch probe + lookup
- *  stays deferred (inside `resolveDrvPath`). */
+ *  would spin on it forever. The genuinely-per-host arch probe and one-package
+ *  Nix evaluation stay deferred inside `resolveDrvPath`. */
 export async function dialAgentOnce<C extends AnyContractRouter>(
   opts: DialAgentOnceOptions<C>,
 ): Promise<AgentDial<C>> {
-  const drvBySystem = parseDrvBySystem(opts.envVar, opts.agentDrvsJson);
+  const flakeRef = requireAgentFlakeRef(opts.agentFlakeRef);
   // A fresh `makeSession` per dial (no shared pool — the pool is deleted, S10). A
   // one-shot dial is independent by contract: its `dispose()` calls
-  // `session.destroy()`, and each dial gets its own connector (resolver/drv map)
+  // `session.destroy()`, and each dial gets its own connector (source resolver)
   // and its own teardown, so two concurrent dials never share a session where
   // either `dispose()` kills the other's link.
   const session = makeSession<AgentClient<C>, SshProv>({
@@ -183,8 +112,11 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       binary: opts.binary,
       extraArgs: opts.extraArgs,
       localEnv: opts.localEnv,
-      resolveDrvPath: () =>
-        resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
+      resolveDrvPath: (ctx) =>
+        resolveAgentDrv(opts.host, flakeRef, opts.binary, {
+          signal: ctx.signal,
+          onProgress: ctx.localProgress,
+        }),
     }),
     // The ssh connector PROVISIONS — it nix-copies the agent closure to the remote
     // before the transport is up — so this session opens at "probing" (the arch probe +
@@ -207,7 +139,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // lifecycle chatter ("agent exited", "reconnecting in 2000ms…"). Reading them BY
   // ORIGIN (`source === "remote"`) rather than re-parsing an in-band tag keeps the
   // only shared convention here the agent's own `<fatalPrefix>` fatal shape
-  // (caller-supplied — it is NOT always `${drvNoun}:`; kaval's `--stdio` front
+  // (caller-supplied — it is NOT always `${binary}:`; kaval's `--stdio` front
   // writes `kaval --stdio:`).
   //
   // The fatal is the LAST thing the agent writes, so it is the TAIL of the

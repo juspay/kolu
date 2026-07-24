@@ -39,9 +39,11 @@ import {
   type AdmitVerdict,
   type Connector,
   makeSession,
-  parseDrvBySystem,
+  requireAgentFlakeRef,
+  type ResolveDrvPathContext,
   ResolveDrvError,
-  resolveSystem,
+  resolveAgentDrv,
+  SURFACE_AGENT_FLAKE_REF_ENV,
   type Session,
   sshConnector,
   type SshProv,
@@ -83,10 +85,6 @@ const MAX_BUILD_DRAINS_PER_INSTANCE = 3;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
-
-/** The per-system `{ system → padi .drv }` map env var, baked onto kolu-server's Nix
- *  wrapper. `"{}"` / unset means the server was not built with the map — fail loud. */
-const PADI_AGENT_DRVS_ENV = "PADI_AGENT_DRVS_JSON";
 
 /** The host-selection knob: an ssh host (an `~/.ssh/config` alias or `user@host`).
  *  Unset → the LOCAL padi binding (byte-identical to today). */
@@ -161,11 +159,11 @@ export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
 }
 
 /** A {@link ResolveDrvError} SUBCLASS that additionally carries the D1 domain
- *  `cause` — `"drv-unbaked"` (the map itself isn't baked) vs
- *  `"drv-missing-for-system"` (the map is baked but has no entry for the probed
- *  arch). Still an `instanceof ResolveDrvError` (so `sshConnector`'s existing
+ *  `cause` — `"agent-source-unbaked"` (the source ref itself isn't baked) vs
+ *  `"agent-drv-unavailable"` (the baked source cannot resolve padi for the
+ *  probed arch). Still an `instanceof ResolveDrvError` (so `sshConnector`'s existing
  *  `err instanceof ResolveDrvError ? err.failureCause : "network"` classification
- *  is untouched — a genuine, zero-footprint `@kolu/surface-remote` change), but the
+ *  is untouched), but the
  *  domain cause rides a TYPED field a consumer reads directly — never re-derived by
  *  scanning `message` text downstream (the D1 discipline this whole PR is about). */
 class PadiDrvFault extends ResolveDrvError {
@@ -173,7 +171,7 @@ class PadiDrvFault extends ResolveDrvError {
     message: string,
     readonly domainCause: Extract<
       EntryFailedCause,
-      "drv-unbaked" | "drv-missing-for-system"
+      "agent-source-unbaked" | "agent-drv-unavailable"
     >,
   ) {
     super(message, "remote");
@@ -181,57 +179,40 @@ class PadiDrvFault extends ResolveDrvError {
   }
 }
 
-/** Parse + validate the baked `{ system → padi .drv }` map. Called LAZILY from
- *  `makeResolvePadiDrv` (at the first dial), NOT at seed time: a missing/malformed map is
- *  a BUILD defect (kolu-server not run from its Nix wrapper), so it throws a loud Error
- *  the caller re-raises as a TERMINAL `ResolveDrvError` — that entry settles
- *  `failed(reason)` while the server + the healthy local default keep serving (F6).
- *  Fail-fast, but at the ENTRY scope, never boot. */
-function parsePadiDrvMap(): Record<string, string> {
-  const raw = process.env[PADI_AGENT_DRVS_ENV]?.trim();
-  // The binder's own config-fault: an unbaked (empty or literal "{}") map carries the
-  // remote-specific hint (unset KOLU_PADI_HOST to bind local). The JSON-parse + { system →
-  // drv string } shape-check is the SAME across every agent, so reuse surface-remote's
-  // `parseDrvBySystem` (the one authority) rather than a drift-prone copy.
-  if (!raw || raw === "{}") {
-    throw new Error(
-      `${PADI_AGENT_DRVS_ENV} is not baked — a remote padi binding (${KOLU_PADI_HOST_ENV}) needs kolu-server run from its Nix wrapper, which bakes the arch-keyed padi drv map. Unset ${KOLU_PADI_HOST_ENV} to bind the local padi.`,
-    );
-  }
-  return parseDrvBySystem(PADI_AGENT_DRVS_ENV, raw);
-}
-
 /** Build the `resolveDrvPath` thunk `sshConnector` runs at the top of EVERY dial:
- *  parse the baked drv map, probe the remote arch (`resolveSystem`, an ssh round-trip),
- *  and pick the baked padi `.drv` for it. The parse is LAZY — inside this thunk, not at
- *  seed time — so an ABSENT/malformed map (a non-Nix-wrapper dev run) becomes THIS
+ *  validate the baked source ref, probe the remote arch (an ssh round-trip), and
+ *  evaluate that source's matching padi `.drv`. Validation is LAZY — inside this
+ *  thunk, not at seed time — so an ABSENT ref (a non-Nix-wrapper dev run) becomes THIS
  *  entry's TERMINAL fault (the session goes `failed`, the chip reads the reason), NOT a
- *  boot-brick that takes the whole server + the healthy local default down with it (F6:
- *  the seed invariant — a seeded remote with no drv map is that entry's `failed(reason)`,
- *  never a crash; boot never parses per-host config eagerly). A host whose arch has no
- *  baked drv is likewise a TERMINAL config fault (`ResolveDrvError` `"remote"`); an
- *  unreachable host makes `resolveSystem` reject plainly → `"network"` (retry). */
-function makeResolvePadiDrv(host: string): () => Promise<string> {
-  return async () => {
-    // Parse the baked map here (lazy). A missing/malformed map can't self-heal on a
+ *  boot-brick that takes the whole server + the healthy local default down with it
+ *  (F6). A source that cannot resolve padi for the probed system is likewise a
+ *  TERMINAL config fault; an unreachable host rejects plainly → `"network"` (retry). */
+function makeResolvePadiDrv(
+  host: string,
+): (ctx: ResolveDrvPathContext) => Promise<string> {
+  return async (ctx) => {
+    // Validate the baked ref here (lazy). A missing ref can't self-heal on a
     // retry, so re-raise it as a TERMINAL `ResolveDrvError("remote")` — the session
     // settles on `failed` and the entry publishes the reason, rather than retrying a
     // config/deploy fault forever.
-    let map: Record<string, string>;
+    let flakeRef: string;
     try {
-      map = parsePadiDrvMap();
+      flakeRef = requireAgentFlakeRef(process.env[SURFACE_AGENT_FLAKE_REF_ENV]);
     } catch (err) {
-      throw new PadiDrvFault((err as Error).message, "drv-unbaked");
-    }
-    const system = await resolveSystem(host);
-    const drv = map[system];
-    if (!drv) {
       throw new PadiDrvFault(
-        `no padi derivation baked for system=${system} (${PADI_AGENT_DRVS_ENV} has: ${Object.keys(map).join(", ") || "none"})`,
-        "drv-missing-for-system",
+        `${(err as Error).message} Unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
+        "agent-source-unbaked",
       );
     }
-    return drv;
+    try {
+      return await resolveAgentDrv(host, flakeRef, "padi", {
+        signal: ctx.signal,
+        onProgress: ctx.localProgress,
+      });
+    } catch (err) {
+      if (!(err instanceof ResolveDrvError)) throw err;
+      throw new PadiDrvFault(err.message, "agent-drv-unavailable");
+    }
   };
 }
 
@@ -297,11 +278,11 @@ export function ensureRemotePadiBinding(
     { host },
     `binding a REMOTE padi over ssh — one keyed host in the pool that ${KOLU_PADI_HOST_ENV} seeds`,
   );
-  // The baked drv map is parsed LAZILY inside `makeResolvePadiDrv` (at the first dial),
-  // NOT here at seed time: an absent map (a non-Nix-wrapper run) must fault THIS entry,
+  // The baked source ref is validated LAZILY inside `makeResolvePadiDrv` (at the first
+  // dial), NOT here at seed time: an absent ref (a non-Nix-wrapper run) must fault THIS entry,
   // not brick boot for the whole pool (F6). `ensureRemotePadiBinding` therefore never
-  // throws at seed — it always returns a session that warms, then fails loud if the map
-  // is missing.
+  // throws at seed — it always returns a session that warms, then fails loud if the
+  // source ref is missing.
   const extraArgs = composePadiExtraArgs(
     opts.spawnVersion,
     process.env[KOLU_REMOTE_PADI_STATE_DIR_ENV],
@@ -347,7 +328,7 @@ export function ensureRemotePadiBinding(
   // of every attempt so a later successful resolve clears a stale fault.
   let drvFaultCause: Extract<
     EntryFailedCause,
-    "drv-unbaked" | "drv-missing-for-system"
+    "agent-source-unbaked" | "agent-drv-unavailable"
   > | null = null;
 
   /** The D1+D2 domain detail for the map's `EntryStatus` — derived from the SAME
@@ -387,10 +368,10 @@ export function ensureRemotePadiBinding(
     // Reset-before-attempt, tag-on-fault: a fault classified on THIS dial stands
     // until the NEXT dial starts (whether that one succeeds, clearing it, or hits a
     // different fault, replacing it) — never a stale cause surviving a recovery.
-    resolveDrvPath: async () => {
+    resolveDrvPath: async (ctx) => {
       drvFaultCause = null;
       try {
-        return await resolveDrv();
+        return await resolveDrv(ctx);
       } catch (err) {
         if (err instanceof PadiDrvFault) drvFaultCause = err.domainCause;
         throw err;

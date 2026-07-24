@@ -55,5 +55,5 @@ just typecheck
 `just test` ([`src/docsite.test.ts`](src/docsite.test.ts)) drives the site like
 a reader — follow links, go back, go forward, fork history by opening a new page
 after a back — and asserts the right page shows at each step. It's also built and
-checked in CI (`nix build .#solid-browser-example-docsite`), so the second
+checked in CI (`nix build ..#solid-browser-example-docsite`), so the second
 consumer can't silently rot.

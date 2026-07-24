@@ -61,7 +61,7 @@ function log(line: string): void {
 async function main(): Promise<void> {
   if (DRV_PATH === undefined || DRV_PATH.length === 0) {
     log(
-      "KOLU_AGENT_DRV is required (no fallback). Set it to the agent's .drv path — e.g. `KOLU_AGENT_DRV=$(nix eval --raw .#packages.<system>.process-monitor-agent.drvPath)`.",
+      'KOLU_AGENT_DRV is required (no fallback). Set it to the agent\'s .drv path — e.g. `KOLU_AGENT_DRV=$(nix eval --raw "$(git rev-parse --show-toplevel)/packages/surface/example#packages.<system>.process-monitor-agent.drvPath")`.',
     );
     process.exit(1);
   }
