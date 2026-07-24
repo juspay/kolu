@@ -84,7 +84,15 @@ kaval and padi remain **the only daemons**. The reusable capability is a
 library package, `packages/port-forward/` (`@kolu/port-forward`): the forward
 map (`(host, remotePort) → local listener`, N hosts × N ports), `ssh -O
 forward` / `ssh -O cancel` against ControlMaster sockets, the loopback TCP
-relay, free-port picking, and teardown. Its ssh side needs no connection
+relay, port picking, and teardown. **The local port is the remote port
+whenever that number is free here** — `pu-dev:4123` answers on
+`0.0.0.0:4123`, a port you can predict and bookmark — and only when the
+number is taken does the kernel pick a free one instead; a forward is never
+refused merely because its number is busy, and there is no knob either
+way.<Footnote>A `local` (loopback-relay) target essentially always takes the
+fallback, which is correct rather than a bug: the server being relayed to
+already holds that number on this machine, so `0.0.0.0:<same>` cannot bind
+beside `127.0.0.1:<same>`.</Footnote> Its ssh side needs no connection
 management of its own: the `ControlPath` is computed deterministically from
 the destination (ssh's `%C` token under the per-user runtime dir) and
 `ControlMaster=auto` makes whoever connects first the master — so any process

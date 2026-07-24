@@ -21,6 +21,12 @@ await forwards.cancel(f.key);
 await forwards.dispose(); // every forward, gone
 ```
 
+The local port is **the remote port whenever that number is free here** —
+`pu-dev:4123` answers on `0.0.0.0:4123`, a port you can predict and bookmark.
+Only when the number is taken does the kernel pick a free one instead; a
+forward is never refused merely because its number is busy, and there is no
+knob either way.
+
 Two mechanisms, chosen by target kind:
 
 | target | mechanism |

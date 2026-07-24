@@ -77,6 +77,29 @@ describe("the local TCP relay", () => {
   it("rejects a target port that is not a port", () => {
     expect(() => openRelay(0, () => {})).toThrow(/between 1 and 65535/);
   });
+
+  it("takes the target's own port number when that number is free here", async () => {
+    // Nothing is listening on this number, so the relay's preference holds and
+    // the local port is predictable rather than random.
+    const free = await pickFreePort();
+    const relay = await openRelay(free, () => {});
+    cleanups.push(relay.close);
+
+    expect(relay.localPort).toBe(free);
+  });
+
+  it("falls back rather than failing when that number is taken", async () => {
+    // The usual case for a LOCAL target: the server we relay to already owns
+    // the number on this machine, so `0.0.0.0:<same>` cannot bind beside it.
+    const origin = await serveOnLoopback("busy");
+    cleanups.push(origin.stop);
+    const relay = await openRelay(origin.port, () => {});
+    cleanups.push(relay.close);
+
+    expect(relay.localPort).not.toBe(origin.port);
+    const response = await fetch(`http://127.0.0.1:${relay.localPort}/`);
+    expect(await response.text()).toBe("busy");
+  });
 });
 
 describe("pickFreePort", () => {

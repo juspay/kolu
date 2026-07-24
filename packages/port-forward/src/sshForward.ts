@@ -28,8 +28,9 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { sshControlArgs } from "./controlOpts.ts";
-import { pickFreePort } from "./freePort.ts";
+import { canBindLocally, pickFreePort } from "./freePort.ts";
 import type { OpenedForward } from "./opened.ts";
+import { openPreferringPort } from "./portChoice.ts";
 import { assertHost, assertPort } from "./target.ts";
 
 /** The dead-peer policy for every ssh we spawn — the same pairs kolu's own ssh
@@ -267,17 +268,35 @@ export function createSshForwards(): SshForwards {
       const anchor = await acquireAnchor(host);
       let localPort: number;
       try {
-        localPort = await pickFreePort();
-        await runSsh(
-          forwardCommandArgs({
-            base,
-            host,
-            verb: "forward",
-            localPort,
-            remotePort,
-          }),
-          `opening a forward to ${host}:${remotePort}`,
-        );
+        // The target's own port number first — `pu-dev:4123` answers on
+        // `0.0.0.0:4123` when that number is free here. ssh reports a taken
+        // port as a failed `-O forward` ("bind: Address already in use"), which
+        // is exactly the signal the preference falls back on.
+        localPort = await openPreferringPort({
+          preferred: remotePort,
+          open: async (choice) => {
+            if (choice !== "any" && !(await canBindLocally(choice))) {
+              // ssh would report success and quietly not listen (see
+              // `canBindLocally`), leaving a row that claims a port nothing
+              // answers on. Fail here so the fallback runs.
+              throw new Error(
+                `port-forward: local port ${choice} is already in use.`,
+              );
+            }
+            const candidate = choice === "any" ? await pickFreePort() : choice;
+            await runSsh(
+              forwardCommandArgs({
+                base,
+                host,
+                verb: "forward",
+                localPort: candidate,
+                remotePort,
+              }),
+              `opening a forward to ${host}:${remotePort}`,
+            );
+            return candidate;
+          },
+        });
       } catch (err) {
         releaseAnchor(host, anchor);
         throw err;

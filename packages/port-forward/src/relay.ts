@@ -3,8 +3,8 @@
  *
  * A dev server bound to `127.0.0.1:5173` on this machine is invisible from
  * anywhere else — loopback never leaves the box. So we open a door on the
- * network side (`0.0.0.0:<free port>`) and copy bytes between it and the
- * loopback listener. No ssh, no tunnel: same machine, two sockets.
+ * network side (`0.0.0.0:<port>`) and copy bytes between it and the loopback
+ * listener. No ssh, no tunnel: same machine, two sockets.
  *
  * Every accepted connection is tracked so `close()` can DESTROY it. Closing a
  * `net.Server` only stops new connections — a browser holding a keep-alive
@@ -14,20 +14,38 @@
 
 import { connect, createServer, type Socket } from "node:net";
 import type { OpenedForward } from "./opened.ts";
+import { type LocalPortChoice, openPreferringPort } from "./portChoice.ts";
 import { assertPort } from "./target.ts";
 
 /** The address a `local` target listens on — loopback, by definition of the
  *  problem this solves. */
 const LOOPBACK = "127.0.0.1";
 
-/** Relay `0.0.0.0:<picked>` → `127.0.0.1:<port>`. Resolves once the door is
- *  open; rejects (never half-opens) if the bind fails. `onLost` fires if the
- *  listener dies on its own afterwards. */
+/** Relay `0.0.0.0:<local>` → `127.0.0.1:<port>`, preferring `port` itself as
+ *  the local number (see `portChoice.ts`). Resolves once the door is open;
+ *  rejects (never half-opens) if neither bind works. `onLost` fires if the
+ *  listener dies on its own afterwards.
+ *
+ *  In practice a relay almost always lands on the fallback port: the server it
+ *  relays TO already owns that number on this machine, so `0.0.0.0:<same>`
+ *  cannot bind beside `127.0.0.1:<same>`. The preference still holds for the
+ *  case where the target isn't listening yet. */
 export function openRelay(
   port: number,
   onLost: (reason: string) => void,
 ): Promise<OpenedForward> {
   assertPort(port, "the local target port");
+  return openPreferringPort({
+    preferred: port,
+    open: (choice) => listen(choice, port, onLost),
+  });
+}
+
+function listen(
+  choice: LocalPortChoice,
+  port: number,
+  onLost: (reason: string) => void,
+): Promise<OpenedForward> {
   const live = new Set<Socket>();
 
   const server = createServer((inbound) => {
@@ -53,35 +71,40 @@ export function openRelay(
   return new Promise((resolve, reject) => {
     const onListenError = (err: Error): void => reject(err);
     server.once("error", onListenError);
-    server.listen({ host: "0.0.0.0", port: 0 }, () => {
-      server.removeListener("error", onListenError);
-      // Past the bind, a listener error is a LOSS, not a startup failure —
-      // report it and take the forward down rather than leaving a dead row.
-      server.on("error", (err) => {
-        onLost(`the local relay listener failed: ${err.message}`);
-      });
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        server.close();
-        reject(
-          new Error(
-            `port-forward: the relay listener has no TCP address (got ${JSON.stringify(address)}).`,
-          ),
-        );
-        return;
-      }
-      resolve({
-        localPort: address.port,
-        close: () =>
-          new Promise<void>((done, fail) => {
-            for (const socket of live) socket.destroy();
-            live.clear();
-            server.close((err) => {
-              if (err !== undefined) fail(err);
-              else done();
-            });
-          }),
-      });
-    });
+    // Port 0 is how the kernel is asked to choose — the "any" arm of the
+    // preference, with no pick-then-bind window at all.
+    server.listen(
+      { host: "0.0.0.0", port: choice === "any" ? 0 : choice },
+      () => {
+        server.removeListener("error", onListenError);
+        // Past the bind, a listener error is a LOSS, not a startup failure —
+        // report it and take the forward down rather than leaving a dead row.
+        server.on("error", (err) => {
+          onLost(`the local relay listener failed: ${err.message}`);
+        });
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+          server.close();
+          reject(
+            new Error(
+              `port-forward: the relay listener has no TCP address (got ${JSON.stringify(address)}).`,
+            ),
+          );
+          return;
+        }
+        resolve({
+          localPort: address.port,
+          close: () =>
+            new Promise<void>((done, fail) => {
+              for (const socket of live) socket.destroy();
+              live.clear();
+              server.close((err) => {
+                if (err !== undefined) fail(err);
+                else done();
+              });
+            }),
+        });
+      },
+    );
   });
 }

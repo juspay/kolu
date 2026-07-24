@@ -168,7 +168,15 @@ special case in v1.</span></span></span></p>
 <p>kaval and padi remain <strong>the only daemons</strong>. The reusable capability is a
 library package, <code>packages/port-forward/</code> (<code>@kolu/port-forward</code>): the forward
 map (<code>(host, remotePort) → local listener</code>, N hosts × N ports), <code>ssh -O forward</code> / <code>ssh -O cancel</code> against ControlMaster sockets, the loopback TCP
-relay, free-port picking, and teardown. Its ssh side needs no connection
+relay, port picking, and teardown. <strong>The local port is the remote port
+whenever that number is free here</strong> — <code>pu-dev:4123</code> answers on
+<code>0.0.0.0:4123</code>, a port you can predict and bookmark — and only when the
+number is taken does the kernel pick a free one instead; a forward is never
+refused merely because its number is busy, and there is no knob either
+way.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A <code>local</code> (loopback-relay) target essentially always takes the
+fallback, which is correct rather than a bug: the server being relayed to
+already holds that number on this machine, so <code>0.0.0.0:&lt;same&gt;</code> cannot bind
+beside <code>127.0.0.1:&lt;same&gt;</code>.</span></span></span> Its ssh side needs no connection
 management of its own: the <code>ControlPath</code> is computed deterministically from
 the destination (ssh’s <code>%C</code> token under the per-user runtime dir) and
 <code>ControlMaster=auto</code> makes whoever connects first the master — so any process
