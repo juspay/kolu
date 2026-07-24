@@ -31,7 +31,6 @@
  */
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { canBindLocally, pickFreePort } from "./freePort.ts";
 import type { OpenedForward } from "./opened.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 
@@ -294,24 +293,7 @@ export async function openSshForward(
   // the preference falls back on.
   return await openPreferringPort({
     preferred: remotePort,
-    open: async (choice) => {
-      if (choice !== "any" && !(await canBindLocally(choice))) {
-        // Something local already answers on this number. ssh would listen
-        // beside it (SO_REUSEADDR) and the number would then mean two
-        // different servers depending on the address dialled — take a free
-        // port instead. See `canBindLocally`.
-        throw new PortUnavailableError(
-          choice,
-          "something local is already listening on it",
-        );
-      }
-      return await openSshAttempt({
-        host,
-        remotePort,
-        localPort: choice === "any" ? await pickFreePort() : choice,
-        onLost,
-        spawnSsh,
-      });
-    },
+    open: (localPort) =>
+      openSshAttempt({ host, remotePort, localPort, onLost, spawnSsh }),
   });
 }

@@ -18,9 +18,7 @@
  * different port would fail identically while telling the user the wrong story.
  */
 
-/** Which local port an attempt should use: an exact number, or "whatever is
- *  free" — each mechanism knows its own way to ask the kernel for one. */
-export type LocalPortChoice = number | "any";
+import { canBindLocally, pickFreePort } from "./freePort.ts";
 
 /** Thrown by an attempt that failed *because of the port it was given*. This is
  *  the only failure the preference retries; everything else is a real error
@@ -36,7 +34,8 @@ export class PortUnavailableError extends Error {
 }
 
 /** Open a listener on `preferred` if that number is available, else on any free
- *  port.
+ *  port. The whole decision lives here: the caller is handed a CONCRETE port
+ *  number and never has to translate a sentinel or ask the kernel anything.
  *
  *  Only `PortUnavailableError` from the first attempt leads to the second. If
  *  the fallback then fails too, its error is what the caller sees — with the
@@ -44,19 +43,30 @@ export class PortUnavailableError extends Error {
  *  path at all. */
 export async function openPreferringPort<T>(opts: {
   preferred: number;
-  open: (port: LocalPortChoice) => Promise<T>;
+  open: (port: number) => Promise<T>;
 }): Promise<T> {
   let taken: PortUnavailableError;
-  try {
-    return await opts.open(opts.preferred);
-  } catch (err) {
-    // Anything that is not about the port is about the forward: surface it as
-    // it is, on the first attempt, rather than retrying and relabelling.
-    if (!(err instanceof PortUnavailableError)) throw err;
-    taken = err;
+  if (await canBindLocally(opts.preferred)) {
+    try {
+      return await opts.open(opts.preferred);
+    } catch (err) {
+      // Anything that is not about the port is about the forward: surface it as
+      // it is, on the first attempt, rather than retrying and relabelling.
+      if (!(err instanceof PortUnavailableError)) throw err;
+      taken = err;
+    }
+  } else {
+    // Something local already answers on this number. ssh would listen beside
+    // it (SO_REUSEADDR) and the number would then mean two different servers
+    // depending on the address dialled — take a free port instead. See
+    // `canBindLocally`.
+    taken = new PortUnavailableError(
+      opts.preferred,
+      "something local is already listening on it",
+    );
   }
   try {
-    return await opts.open("any");
+    return await opts.open(await pickFreePort());
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`${message} — after falling back from ${taken.message}`, {
