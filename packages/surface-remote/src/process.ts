@@ -36,7 +36,7 @@
  *  rather than open-coding a fresh `spawn` dance. */
 
 import { spawn } from "node:child_process";
-import { forEachLine } from "./host";
+import { createInterface } from "node:readline";
 
 /** The lifetime policy every fire-and-collect spawn MUST carry (#1908 D1b) — a
  *  CLOSED union that carves a real joint (the gate PROVED it; do not collapse it):
@@ -289,10 +289,16 @@ function runWithLifetime(
       bumpLiveness();
     });
     proc.stderr?.setEncoding("utf-8");
-    proc.stderr?.on("data", (chunk: string) => {
-      forEachLine(chunk, o.onProgress);
-      bumpLiveness();
-    });
+    if (proc.stderr !== null) {
+      // Child streams split at arbitrary byte boundaries. readline owns the
+      // trailing partial line so diagnostics and their classification never
+      // depend on how libuv happened to chunk a phrase.
+      createInterface({
+        input: proc.stderr,
+        crlfDelay: Number.POSITIVE_INFINITY,
+      }).on("line", o.onProgress);
+      proc.stderr.on("data", bumpLiveness);
+    }
 
     // The child (the group LEADER) exited. Settle from its `close`, but clear the SIGKILL
     // escalation ONLY if the whole GROUP is gone — a grandchild that ignored SIGTERM and

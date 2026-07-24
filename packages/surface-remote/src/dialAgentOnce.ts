@@ -26,7 +26,7 @@
 import type { Logger } from "@kolu/log";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
-import { requireAgentFlakeRef, resolveAgentDrv } from "./agentDrv";
+import { resolveAgentDrv, SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
 import { makeSession } from "./session";
 import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 
@@ -100,7 +100,12 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
 export async function dialAgentOnce<C extends AnyContractRouter>(
   opts: DialAgentOnceOptions<C>,
 ): Promise<AgentDial<C>> {
-  const flakeRef = requireAgentFlakeRef(opts.agentFlakeRef);
+  const flakeRef = opts.agentFlakeRef?.trim();
+  if (!flakeRef) {
+    throw new Error(
+      `${SURFACE_AGENT_FLAKE_REF_ENV} is not set — remote agents need the source flake baked into the build. Run the agent client from its Nix wrapper.`,
+    );
+  }
   // A fresh `makeSession` per dial (no shared pool — the pool is deleted, S10). A
   // one-shot dial is independent by contract: its `dispose()` calls
   // `session.destroy()`, and each dial gets its own connector (source resolver)

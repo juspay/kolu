@@ -63,6 +63,24 @@ describe("D1b — deadline policy (#1908)", () => {
 });
 
 describe("D1b — progress-liveness policy (#1908)", () => {
+  it("reassembles stderr lines split across child chunks", async () => {
+    const lines: string[] = [];
+    const res = await runCapture(
+      "sh",
+      [
+        "-c",
+        "printf 'Could not ' >&2; sleep 0.05; printf 'resolve host\\n' >&2",
+      ],
+      {
+        policy: { kind: "deadline", ms: 5000 },
+        onProgress: (line) => lines.push(line),
+      },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(lines).toEqual(["Could not resolve host"]);
+  });
+
   it("kills a SILENT child once the silence bound passes", {
     timeout: 10_000,
   }, async () => {

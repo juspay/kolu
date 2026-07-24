@@ -11,11 +11,7 @@ vi.mock("./process", async (importOriginal) => {
   return { ...actual, runCapture: h.runCapture };
 });
 
-import {
-  requireAgentFlakeRef,
-  resolveAgentDrv,
-  SURFACE_AGENT_FLAKE_REF_ENV,
-} from "./agentDrv";
+import { resolveAgentDrv } from "./agentDrv";
 import { ResolveDrvError } from "./host";
 
 const success = (stdout: string) => ({
@@ -31,23 +27,6 @@ const resolutionOptions = {
 };
 
 afterEach(() => vi.clearAllMocks());
-
-describe("requireAgentFlakeRef", () => {
-  it("rejects an absent or blank wrapper value", () => {
-    expect(() => requireAgentFlakeRef(undefined)).toThrow(
-      SURFACE_AGENT_FLAKE_REF_ENV,
-    );
-    expect(() => requireAgentFlakeRef("  ")).toThrow(
-      SURFACE_AGENT_FLAKE_REF_ENV,
-    );
-  });
-
-  it("returns the baked ref without surrounding whitespace", () => {
-    expect(requireAgentFlakeRef("  /nix/store/source  ")).toBe(
-      "/nix/store/source",
-    );
-  });
-});
 
 describe("resolveAgentDrv", () => {
   it("derives the installable from the host-reported system and package name", async () => {
@@ -83,7 +62,9 @@ describe("resolveAgentDrv", () => {
 
   it("reuses the resolved derivation for later dials", async () => {
     h.resolveSystem.mockResolvedValue("x86_64-linux");
-    h.runCapture.mockResolvedValue(success("/nix/store/kaval.drv"));
+    h.runCapture
+      .mockResolvedValueOnce(success("/nix/store/kaval.drv"))
+      .mockResolvedValueOnce(success(""));
 
     const args = [
       "builder",
@@ -94,7 +75,43 @@ describe("resolveAgentDrv", () => {
     await resolveAgentDrv(...args);
     await resolveAgentDrv(...args);
 
-    expect(h.runCapture).toHaveBeenCalledTimes(1);
+    expect(h.runCapture).toHaveBeenCalledTimes(2);
+    expect(h.runCapture).toHaveBeenLastCalledWith(
+      "nix-store",
+      ["--check-validity", "/nix/store/kaval.drv"],
+      expect.objectContaining({
+        policy: { kind: "deadline", ms: expect.any(Number) },
+        signal: resolutionOptions.signal,
+      }),
+    );
+  });
+
+  it("evicts a cached derivation removed by garbage collection", async () => {
+    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.runCapture
+      .mockResolvedValueOnce(success("/nix/store/old-kaval.drv"))
+      .mockResolvedValueOnce({
+        ok: false,
+        kind: "exit",
+        code: 1,
+        stdout: "",
+      })
+      .mockResolvedValueOnce(success("/nix/store/new-kaval.drv"));
+
+    const args = [
+      "builder",
+      "/nix/store/source-gc",
+      "kaval",
+      resolutionOptions,
+    ] as const;
+    await expect(resolveAgentDrv(...args)).resolves.toBe(
+      "/nix/store/old-kaval.drv",
+    );
+    await expect(resolveAgentDrv(...args)).resolves.toBe(
+      "/nix/store/new-kaval.drv",
+    );
+
+    expect(h.runCapture).toHaveBeenCalledTimes(3);
   });
 
   it("leaves an arch-probe failure as a retryable transport error", async () => {

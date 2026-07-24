@@ -34,6 +34,7 @@
 import { fstatSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isContractVersionCompatible } from "@kolu/surface/define";
+import { dialAgentOnce } from "@kolu/surface-remote";
 import {
   ACCEPTED_KEY_NAMES,
   encodeKey,
@@ -47,7 +48,7 @@ import {
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
-import { connectPtyHostViaHost } from "./hostConnect.ts";
+import { kavalHostDialOptions } from "./hostConnect.ts";
 import {
   buildCreateInput,
   buildRemoteCreateInput,
@@ -958,7 +959,7 @@ function connectLocal(socketPath: string): Promise<Connection> {
  *  actionable rather than an opaque hang — the CLI is one-shot, so it surfaces
  *  the first failure instead of spinning on HostSession's reconnect loop. */
 function connectHost(host: string): Promise<Connection> {
-  return connectPtyHostViaHost(host).catch((err) =>
+  return dialAgentOnce(kavalHostDialOptions(host, process.env)).catch((err) =>
     fail(`could not reach kaval on ${host} — ${(err as Error).message}`),
   );
 }

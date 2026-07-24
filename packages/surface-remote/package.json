@@ -24,6 +24,7 @@
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "quick-lru": "^7.3.0",
+    "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

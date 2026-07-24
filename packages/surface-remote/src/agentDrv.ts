@@ -11,25 +11,15 @@
 
 import { resolveSystem } from "./arch";
 import { looksLikeNetworkError, ResolveDrvError } from "./host";
-import { PROVISION_STEP_SILENCE_BASE_MS } from "./nixCopy";
+import { probePolicy, PROVISION_STEP_SILENCE_BASE_MS } from "./nixCopy";
 import { describeExit, type ExitResult, runCapture } from "./process";
 import { appendProgressLine } from "./progressTail";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import QuickLRU from "quick-lru";
+import { match, P } from "ts-pattern";
 
 /** The framework-owned wrapper boundary for an agent source flake. */
 export const SURFACE_AGENT_FLAKE_REF_ENV = agentEnv.flakeRef;
-
-/** Validate the already-read wrapper value before a dial starts. */
-export function requireAgentFlakeRef(raw: string | undefined): string {
-  const ref = raw?.trim();
-  if (!ref) {
-    throw new Error(
-      `${SURFACE_AGENT_FLAKE_REF_ENV} is not set — remote agents need the source flake baked into the build. Run the agent client from its Nix wrapper.`,
-    );
-  }
-  return ref;
-}
 
 /** A running Kolu normally sees two entries (padi + kaval). Bound the shared
  * successful-value cache so repeated exact-source upgrades cannot retain every
@@ -55,22 +45,45 @@ function evaluationError(
   result: ExitResult,
   sawNetworkError: boolean,
 ): Error {
-  switch (result.kind) {
-    case "exit":
-      return sawNetworkError
+  return match(result)
+    .with({ kind: "exit" }, () =>
+      sawNetworkError
         ? new Error(message)
-        : new ResolveDrvError(message, "remote");
-    case "spawn-error":
-    case "signal":
+        : new ResolveDrvError(message, "remote"),
+    )
+    .with({ kind: P.union("spawn-error", "signal") }, () => {
       // These are local resource/setup faults, not transport facts. Retrying a
       // missing executable or externally OOM-killed evaluator inside the host
       // reconnect loop would respawn the same failure indefinitely; keep it
       // terminal until an explicit recheck or a new process starts a campaign.
       return new ResolveDrvError(message, "remote");
-    case "lifetime-expired":
-    case "aborted":
-      return new Error(message);
-  }
+    })
+    .with(
+      { kind: P.union("lifetime-expired", "aborted") },
+      () => new Error(message),
+    )
+    .exhaustive();
+}
+
+/** A successful cache entry is only a hint: `.drv` paths are not GC roots.
+ * Check the local store before reuse so garbage collection evicts the hint and
+ * the exact flake is evaluated again instead of returning a permanently dead
+ * path. */
+async function cachedDrvIsValid(
+  drv: string,
+  opts: AgentDrvResolutionOptions,
+): Promise<boolean> {
+  const result = await runCapture("nix-store", ["--check-validity", drv], {
+    policy: probePolicy(),
+    signal: opts.signal,
+  });
+  if (result.ok) return true;
+  if (result.kind === "exit") return false;
+  throw evaluationError(
+    `could not validate cached agent derivation ${drv}: nix-store ${describeExit(result)}`,
+    result,
+    false,
+  );
 }
 
 /**
@@ -88,7 +101,10 @@ export async function resolveAgentDrv(
   const system = await resolveSystem(host);
   const installable = `${flakeRef}#packages.${system}.${packageName}.drvPath`;
   const cached = drvCache.get(installable);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    if (await cachedDrvIsValid(cached, opts)) return cached;
+    drvCache.delete(installable);
+  }
 
   const diagnostics: string[] = [];
   let sawNetworkError = false;

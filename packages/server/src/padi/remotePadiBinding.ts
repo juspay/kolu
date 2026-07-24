@@ -39,7 +39,6 @@ import {
   type AdmitVerdict,
   type Connector,
   makeSession,
-  requireAgentFlakeRef,
   type ResolveDrvPathContext,
   ResolveDrvError,
   resolveAgentDrv,
@@ -192,15 +191,13 @@ function makeResolvePadiDrv(
 ): (ctx: ResolveDrvPathContext) => Promise<string> {
   return async (ctx) => {
     // Validate the baked ref here (lazy). A missing ref can't self-heal on a
-    // retry, so re-raise it as a TERMINAL `ResolveDrvError("remote")` — the session
+    // retry, so represent it as a TERMINAL `ResolveDrvError("remote")` — the session
     // settles on `failed` and the entry publishes the reason, rather than retrying a
     // config/deploy fault forever.
-    let flakeRef: string;
-    try {
-      flakeRef = requireAgentFlakeRef(process.env[SURFACE_AGENT_FLAKE_REF_ENV]);
-    } catch (err) {
+    const flakeRef = process.env[SURFACE_AGENT_FLAKE_REF_ENV]?.trim();
+    if (!flakeRef) {
       throw new PadiDrvFault(
-        `${(err as Error).message} Unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
+        `${SURFACE_AGENT_FLAKE_REF_ENV} is not set — remote agents need the source flake baked into the build. Run Kolu from its Nix wrapper, or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
         "agent-source-unbaked",
       );
     }

@@ -5,20 +5,22 @@
  * consumer values that may change with kaval.
  */
 import {
-  dialAgentOnce,
+  type DialAgentOnceOptions,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "@kolu/surface-remote";
 import { composeSpawnEnv } from "kolu-pty";
 import type { ptyHostSurface } from "kaval";
-import type { Connection } from "./connect.ts";
 
-/** Dial and provision a remote kaval using the source baked into this CLI. */
-export function connectPtyHostViaHost(host: string): Promise<Connection> {
-  return dialAgentOnce<typeof ptyHostSurface.contract>({
+/** Compose kaval's consumer-owned values for the shared one-shot dial. */
+export function kavalHostDialOptions(
+  host: string,
+  env: NodeJS.ProcessEnv,
+): DialAgentOnceOptions<typeof ptyHostSurface.contract> {
+  return {
     host,
-    localEnv: composeSpawnEnv(process.env),
+    localEnv: composeSpawnEnv(env),
     binary: "kaval",
-    agentFlakeRef: process.env[SURFACE_AGENT_FLAKE_REF_ENV],
+    agentFlakeRef: env[SURFACE_AGENT_FLAKE_REF_ENV],
     fatalPrefix: "kaval --stdio:",
-  });
+  };
 }

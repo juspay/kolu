@@ -9,7 +9,6 @@
 export { resolveSystem } from "./arch";
 export {
   type AgentDrvResolutionOptions,
-  requireAgentFlakeRef,
   resolveAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "./agentDrv";

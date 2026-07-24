@@ -6,43 +6,32 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   composeSpawnEnv: vi.fn(),
-  dialAgentOnce: vi.fn(),
 }));
 
-vi.mock("@kolu/surface-remote", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@kolu/surface-remote")>();
-  return { ...actual, dialAgentOnce: h.dialAgentOnce };
-});
 vi.mock("kolu-pty", () => ({ composeSpawnEnv: h.composeSpawnEnv }));
 
-import {
-  dialAgentOnce,
-  SURFACE_AGENT_FLAKE_REF_ENV,
-} from "@kolu/surface-remote";
+import { SURFACE_AGENT_FLAKE_REF_ENV } from "@kolu/surface-remote";
 import { composeSpawnEnv } from "kolu-pty";
-import type { Connection } from "./connect.ts";
-import { connectPtyHostViaHost } from "./hostConnect.ts";
+import { kavalHostDialOptions } from "./hostConnect.ts";
 
 afterEach(() => vi.clearAllMocks());
 
-describe("connectPtyHostViaHost", () => {
-  it("passes kaval's complete policy to Surface Remote", async () => {
+describe("kavalHostDialOptions", () => {
+  it("composes kaval's complete Surface Remote policy", () => {
     const localEnv = { PATH: "/nix/store/path" };
-    const connection = {
-      client: {},
-      dispose: vi.fn(),
-    } as unknown as Connection;
     h.composeSpawnEnv.mockReturnValue(localEnv);
-    h.dialAgentOnce.mockResolvedValue(connection);
+    const env = {
+      [SURFACE_AGENT_FLAKE_REF_ENV]: "/nix/store/agent-source",
+    };
 
-    await expect(connectPtyHostViaHost("nix@prod")).resolves.toBe(connection);
+    const options = kavalHostDialOptions("nix@prod", env);
 
-    expect(composeSpawnEnv).toHaveBeenCalledWith(process.env);
-    expect(dialAgentOnce).toHaveBeenCalledWith({
+    expect(composeSpawnEnv).toHaveBeenCalledWith(env);
+    expect(options).toEqual({
       host: "nix@prod",
       localEnv,
       binary: "kaval",
-      agentFlakeRef: process.env[SURFACE_AGENT_FLAKE_REF_ENV],
+      agentFlakeRef: "/nix/store/agent-source",
       fatalPrefix: "kaval --stdio:",
     });
   });
