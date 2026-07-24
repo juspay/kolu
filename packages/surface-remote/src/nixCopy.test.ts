@@ -364,7 +364,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("a successful provision resets its budget's doubling", async () => {
+  it("resets its budget only after the rooted transaction succeeds", async () => {
     const b = makeProvisionBudgets();
     const spy = vi.spyOn(b.provisioning, "reset");
     mockNix();
@@ -374,7 +374,18 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
       onProgress: () => {},
       ...provArgs(b),
     });
-    expect(spy).toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const pinIndex = vi
+      .mocked(runCapture)
+      .mock.calls.findIndex((call) => call[1].includes("--add-root"));
+    expect(pinIndex).toBeGreaterThanOrEqual(0);
+    const resetOrder = spy.mock.invocationCallOrder[0];
+    const pinOrder = vi.mocked(runCapture).mock.invocationCallOrder[pinIndex];
+    expect(resetOrder).toBeDefined();
+    expect(pinOrder).toBeDefined();
+    if (resetOrder !== undefined && pinOrder !== undefined) {
+      expect(resetOrder).toBeGreaterThan(pinOrder);
+    }
   });
 
   it("a warm rooted hit resets a previously charged provisioning budget", async () => {
@@ -415,6 +426,35 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.cause).toBe("network");
     expect(res.ok === false && res.reason).toMatch(/aborted/i);
+  });
+
+  it("a silent GC-root commit charges the provisioning budget", async () => {
+    const b = makeProvisionBudgets();
+    const spy = vi.spyOn(b.provisioning, "recordExpiry");
+    mockNix({ pin: EXPIRED_PROVISION });
+    const res = await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV),
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.terminal).toBeFalsy();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a budget-exhausted silent GC-root commit becomes terminal", async () => {
+    const b = budgetsWithProvisioning(makeStepBudget(120_000, 1));
+    mockNix({ pin: EXPIRED_PROVISION });
+    const res = await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV),
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.terminal).toBe(true);
+    expect(res.ok === false && res.reason).toMatch(/giving up/i);
   });
 
   it("provisioning aborted before it starts does no work and returns network (F6)", async () => {

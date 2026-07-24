@@ -66,9 +66,9 @@ import {
   runCapture,
 } from "./process";
 
-/** Hard deadline for the QUICK ssh/local steps — the arch probe, the warm
- *  `check-validity`, the GC-root pin. A genuine round-trip; generous so a slow
- *  link doesn't false-fail, far short of the 10-minute wedge this bounds. */
+/** Hard deadline for the QUICK ssh/local steps — the arch probe and warm
+ *  `check-validity`. A genuine round-trip; generous so a slow link doesn't
+ *  false-fail, far short of the 10-minute wedge this bounds. */
 export const PROVISION_PROBE_DEADLINE_MS = 30_000;
 
 /** Base progress-silence bound for the minutes-long provisioning step (#1908
@@ -354,6 +354,7 @@ async function pinGcRoot(
   target: string,
   rootPath: string,
   onProgress: (line: string) => void,
+  budget: StepBudget,
   signal: AbortSignal | undefined,
 ): Promise<ProvisionResult | null> {
   onProgress(`${host}: pinning GC root at '${rootPath}'…`);
@@ -372,13 +373,20 @@ async function pinGcRoot(
       sawNetworkError ||= looksLikeNetworkError(line);
       onProgress(line);
     },
-    policy: probePolicy(),
+    policy: budget.policy(),
     signal,
   });
   if (pinRes.ok) return null;
+  if (pinRes.kind === "lifetime-expired") {
+    return expiredResult(
+      host,
+      "nix-store --realise --add-root",
+      budget,
+      pinRes,
+    );
+  }
   const network =
     pinRes.kind === "aborted" ||
-    pinRes.kind === "lifetime-expired" ||
     sawNetworkError ||
     (pinRes.kind === "exit" && pinRes.code === 255);
   return {
@@ -488,6 +496,7 @@ export async function provisionAgent(
           agentPath,
           rootPath,
           opts.onProgress,
+          budgets.provisioning,
           signal,
         );
         if (bail) return bail;
@@ -552,7 +561,6 @@ export async function provisionAgent(
       cause: causeFor(realiseRes),
     };
   }
-  budgets.provisioning.reset();
   // Same single-output contract as the warm path (see `multiOutputError`): a multi-output
   // realise is ambiguous — fail loud rather than pick the wrong output.
   const outPaths = parseOutputs(realiseRes.stdout);
@@ -585,10 +593,12 @@ export async function provisionAgent(
       agentPath,
       rootPath,
       opts.onProgress,
+      budgets.provisioning,
       signal,
     );
     if (bail) return bail;
   }
 
+  budgets.provisioning.reset();
   return { ok: true, agentPath };
 }

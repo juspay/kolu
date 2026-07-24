@@ -160,7 +160,7 @@ export type EntryFailedCause = PadiEntryFailure["cause"];
 export type PadiEntryStatus = EntryStatus<PadiEntryFailure, ConnectionInfo>;
 
 /** The per-host entry surface — `padiSurface`, served verbatim. SR9: the honest link
- *  health (the copying/building provisioning phase + the live `log` tail the coarse
+ *  health (the probing/provisioning phase + the live `log` tail the coarse
  *  `EntryStatus` chip folds away) is NO LONGER a separate get-only `connection` cell on
  *  this surface — it rides the map ENTRY's fine `connection` payload
  *  ({@link padiHostMap}'s `connection: ConnectionInfoSchema`), the ONE authority both the

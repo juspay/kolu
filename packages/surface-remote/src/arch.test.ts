@@ -1,7 +1,7 @@
 /**
- * Coverage for the in-memory per-host arch cache in `resolveSystem`: a
- * host's settled nix-system is probed once per process. In-flight work remains
- * per-dial so cancellation never leaks across a recheck; failures are not cached.
+ * Coverage for `resolveSystem`'s dial-owned host probe. Every dial asks the
+ * target because a hostname can change identity while Kolu remains open, and
+ * cancellation must never leak across a recheck.
  * Mocks `./process` so no ssh is ever spawned; each test uses a distinct
  * host so the module-level cache never bleeds across tests.
  */
@@ -47,16 +47,13 @@ const opts = () => ({
   onProgress: vi.fn(),
 });
 
-describe("resolveSystem arch cache", () => {
-  it("probes a host once and memoizes for the process", async () => {
+describe("resolveSystem host probe", () => {
+  it("re-probes a host on every dial", async () => {
     vi.mocked(runCapture).mockResolvedValue(okSystem("x86_64-linux"));
     const a = await resolveSystem("h-memo", opts());
     const b = await resolveSystem("h-memo", opts());
     expect(a).toBe("x86_64-linux");
     expect(b).toBe("x86_64-linux");
-    expect(runCapture).toHaveBeenCalledTimes(1); // one ssh for both dials
-    // A distinct host is a distinct cache key → a fresh probe.
-    await resolveSystem("h-memo-2", opts());
     expect(runCapture).toHaveBeenCalledTimes(2);
   });
 
@@ -71,7 +68,7 @@ describe("resolveSystem arch cache", () => {
     expect(runCapture).toHaveBeenCalledTimes(2);
   });
 
-  it("does not cache a failed probe — the next dial re-probes", async () => {
+  it("re-probes after a failed dial", async () => {
     vi.mocked(runCapture)
       .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // unreachable
       .mockResolvedValueOnce(okSystem("x86_64-linux")); // host answers now

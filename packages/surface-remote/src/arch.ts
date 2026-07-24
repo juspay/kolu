@@ -49,43 +49,16 @@ import { describeExit, runCapture } from "./process";
  *  multi-token noise). */
 const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 
-/** In-memory, per-process arch cache keyed by host. A host's nix-system is
- *  stable for the lifetime of this process, so the ssh round-trip the probe
- *  costs needn't be re-paid on every dial. Only SETTLED facts are cached:
- *  unresolved probes belong to one dial's cancellation lifetime and must not
- *  be shared with a replacement dial after recheck/destroy.
- *
- *  Deliberately in-memory only: an on-disk arch cache is REJECTED — a third
- *  source of truth that goes stale on a reimage / hostname reuse, the same
- *  reason the provisioned-state cache was rejected. A cold process re-probes
- *  once; that is always correct. */
-const archCache = new Map<string, string>();
-
 export interface ResolveSystemOptions {
   signal: AbortSignal;
   onProgress: (line: string) => void;
 }
 
-/** Ask `host`'s Nix for its `builtins.currentSystem` and return it,
- *  memoized per host for this process (see `archCache`). Runs locally for
- *  `isLocalHost`, over `ssh` otherwise. Rejects if the probe can't run, or
- *  returns something that isn't a nix-system — a rejection is NOT cached
- *  (see `delete`-on-reject below): a host unreachable at probe time is a
- *  transport fault, not a fact about the host, so the next dial re-probes. */
+/** Ask `host`'s Nix for its `builtins.currentSystem`. Runs locally for
+ * `isLocalHost`, over `ssh` otherwise. The fact belongs to this dial: an SSH
+ * alias can be retargeted or a machine reimaged while Kolu remains open, so
+ * caching it beyond the dial would select packages for a stale host identity. */
 export async function resolveSystem(
-  host: string,
-  opts: ResolveSystemOptions,
-): Promise<string> {
-  const cached = archCache.get(host);
-  if (cached !== undefined) return cached;
-  const system = await probeSystem(host, opts);
-  archCache.set(host, system);
-  return system;
-}
-
-/** The actual ssh arch probe, un-memoized — `resolveSystem` wraps it with
- *  the per-host cache. */
-async function probeSystem(
   host: string,
   opts: ResolveSystemOptions,
 ): Promise<string> {

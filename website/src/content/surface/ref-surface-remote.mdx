@@ -238,11 +238,14 @@ is the `source` field.
 - **A mirror never fabricates a value.** A re-served (mirrored) cell serves NO frame until the authority's first real fold. Its store still seeds the declared default (so `store.get()` is a typed `T`), but the framework's `hasSnapshot` gate withholds that seed until the fold writes the authority's first frame — on a mirror the only writer is the fold, never a wire client. So the reader's `T | undefined` ("no frame yet") holds end to end: the mirror relays truth or stays silent, and the declared default belongs to the ONE writer, never a mirror relaying a guess.
 
 <Aside type="note" title="Nix is the contract, not the implementation">
-  Provisioning ships a `.drv` (a [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html) — build instructions, platform-neutral), so the
-  remote realises target-arch-correct binaries — parent darwin can front target
-  linux. A warm host short-circuits via an ASK-ONLY check (a sender-local
+  Source-backed provisioning selects the target system's package from one exact
+  flake, then one remote-store `nix build` owns evaluation, transfer, and
+  realisation — parent darwin can front target linux. A warm host short-circuits
+  via an ASK-ONLY check (a sender-local
   `nix-store -q --outputs` then a bounded `nix-store --check-validity` on the host —
-  never a substituting `--realise`), then a best-effort GC-root pin.
+  never a substituting `--realise`). Both paths succeed only after
+  `nix-store --realise --add-root` commits the output behind its stable target-store
+  GC root.
   There is no tarball, Docker, or prebuilt fallback. The parent's user must be in
   the remote's `trusted-users`.
 </Aside>
