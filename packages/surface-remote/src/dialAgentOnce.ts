@@ -28,7 +28,7 @@
 import type { Logger } from "@kolu/log";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
-import { readBakedAgentSource, resolveAgentDrv } from "./agentDrv";
+import { readBakedAgentSource } from "./agentDrv";
 import { makeSession } from "./session";
 import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 

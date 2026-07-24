@@ -39,7 +39,6 @@ import {
   type AdmitVerdict,
   type Connector,
   makeSession,
-  type ResolveDrvPathContext,
   ResolveDrvError,
   resolveBakedAgentDrv,
   type Session,
