@@ -213,7 +213,7 @@ Four months on, `nix run github:juspay/kolu` still took 3s cold — not because 
   <text x="14" y="252" fill="var(--color-ink-muted)" font-size="10.5" font-family="monospace">Adding an example can no longer make the runnable flake wider. 5-run mean, eval cache disabled.</text>
 </svg>
 
-Splitting them into their own zero-input subflakes cut cold `nix run` from 3.05s to 1.45s. <PR id={1974} state="open" />
+Splitting them into their own zero-input subflakes cut cold `nix run` from 3.05s to 1.45s. <PR id={1974} />
 
 Nothing here was slow and no expression got optimized. The cost was structural — a stranger was paying to discover products they hadn't asked for, because everything hung off one output graph. That needs a boundary moved, not an expression tuned.
 
