@@ -1,8 +1,14 @@
-import { describe, expect, it } from "vitest";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
+import { PortUnavailableError } from "./portChoice.ts";
 import {
   forwardCommandArgs,
   forwardSpec,
+  openSshAttempt,
   reportsBindFailure,
+  type SpawnSsh,
 } from "./sshForward.ts";
 
 /** A stand-in for the real options prefix, so these stay about the argv. */
@@ -94,5 +100,124 @@ describe("reportsBindFailure", () => {
     expect(reportsBindFailure("Warning: Permanently added 'pu-dev'")).toBe(
       false,
     );
+  });
+});
+
+/** A stand-in for the ssh child, so the decisions BRAIDED around one — the
+ *  readiness token, the bind-failure line, exit-before-ready vs after — can be
+ *  driven from a test instead of from a live sshd. */
+class FakeSsh extends EventEmitter {
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+  readonly signals: Array<NodeJS.Signals | undefined> = [];
+
+  kill(signal?: NodeJS.Signals): boolean {
+    this.signals.push(signal);
+    return true;
+  }
+
+  /** ssh ending, however it ended. */
+  exit(code: number | null, signal: NodeJS.Signals | null = null): void {
+    this.exitCode = code;
+    this.signalCode = signal;
+    this.emit("exit", code, signal);
+  }
+
+  says(text: string): Promise<void> {
+    this.stdout.write(text);
+    return flush();
+  }
+
+  complains(text: string): Promise<void> {
+    this.stderr.write(text);
+    return flush();
+  }
+}
+
+/** Let the stream's `data` handlers run. */
+function flush(): Promise<void> {
+  return new Promise((done) => setImmediate(done));
+}
+
+function attempt(fake: FakeSsh, onLost: (reason: string) => void = () => {}) {
+  const spawnSsh: SpawnSsh = () =>
+    fake as unknown as ChildProcessWithoutNullStreams;
+  return openSshAttempt({
+    host: "pu-dev",
+    remotePort: 5173,
+    localPort: 4123,
+    onLost,
+    spawnSsh,
+  });
+}
+
+describe("one ssh forward attempt", () => {
+  it("is up when the FAR END announces itself", async () => {
+    const fake = new FakeSsh();
+    const opening = attempt(fake);
+    await fake.says("PORT-FORWARD-READY\n");
+
+    await expect(opening).resolves.toMatchObject({ localPort: 4123 });
+  });
+
+  it("is NOT up when ssh bound only half the port", async () => {
+    // `*:` asks for both address families; a taken v4 with a free v6 leaves ssh
+    // running the remote command as if all were well. Half a listener is the
+    // row that lies, so the attempt takes another port instead.
+    const fake = new FakeSsh();
+    const settled = expect(attempt(fake)).rejects.toThrow(PortUnavailableError);
+    await fake.complains("bind [0.0.0.0]:4123: Address already in use\n");
+    await fake.says("PORT-FORWARD-READY\n");
+
+    await settled;
+  });
+
+  it("reports a port that could not be bound as the caller's cue to take another", async () => {
+    const fake = new FakeSsh();
+    const opening = attempt(fake);
+    await fake.complains("bind [0.0.0.0]:4123: Address already in use\n");
+    fake.exit(255);
+
+    await expect(opening).rejects.toThrow(PortUnavailableError);
+  });
+
+  it("carries ssh's own words when it dies before it was ever up", async () => {
+    const fake = new FakeSsh();
+    const opening = attempt(fake);
+    await fake.complains("Host key verification failed.\n");
+    fake.exit(255);
+
+    await expect(opening).rejects.toThrow(/Host key verification failed/);
+  });
+
+  it("calls onLost exactly once when the connection dies after it was up", async () => {
+    const onLost = vi.fn<(reason: string) => void>();
+    const fake = new FakeSsh();
+    const opening = attempt(fake, onLost);
+    await fake.says("PORT-FORWARD-READY\n");
+    await opening;
+
+    fake.exit(null, "SIGHUP");
+
+    expect(onLost).toHaveBeenCalledTimes(1);
+    expect(onLost.mock.calls[0]?.[0]).toMatch(/connection to pu-dev ended/);
+  });
+
+  it("does NOT call onLost for a forward we closed ourselves", async () => {
+    // `close()` is already telling the caller the forward is gone; reporting it
+    // again as a LOSS would put an error on screen for a cancel that worked.
+    const onLost = vi.fn<(reason: string) => void>();
+    const fake = new FakeSsh();
+    const opening = attempt(fake, onLost);
+    await fake.says("PORT-FORWARD-READY\n");
+    const forward = await opening;
+
+    const closing = forward.close();
+    fake.exit(null, "SIGTERM");
+    await closing;
+
+    expect(onLost).not.toHaveBeenCalled();
   });
 });

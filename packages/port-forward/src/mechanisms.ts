@@ -9,14 +9,14 @@
 
 import type { ForwardMechanisms } from "./opened.ts";
 import { openRelay } from "./relay.ts";
-import { openSshForward } from "./sshForward.ts";
+import { openSshForward, spawnSshChild } from "./sshForward.ts";
 
 export function nativeMechanisms(): ForwardMechanisms {
   return {
     open(target, onLost) {
       return target.kind === "local"
         ? openRelay(target.port, onLost)
-        : openSshForward(target.host, target.port, onLost);
+        : openSshForward(target.host, target.port, onLost, spawnSshChild);
     },
   };
 }

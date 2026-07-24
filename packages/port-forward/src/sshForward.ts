@@ -30,7 +30,7 @@
  * involved.
  */
 
-import { spawn } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { canBindLocally, pickFreePort } from "./freePort.ts";
 import type { OpenedForward } from "./opened.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
@@ -133,7 +133,22 @@ export function forwardCommandArgs(opts: {
   return [...opts.base, "-L", forwardSpec(opts), opts.host, HOLD_OPEN_COMMAND];
 }
 
-/** Open one forward on its own ssh connection.
+/** How this module gets an ssh child. Taken as an argument rather than called
+ *  directly, because everything below it is a decision ABOUT a child — the
+ *  readiness token, the bind-failure line, exit-before-ready versus
+ *  exit-after-ready — and none of that can be exercised while running ssh and
+ *  reading ssh are the same act. */
+export type SpawnSsh = (
+  args: readonly string[],
+) => ChildProcessWithoutNullStreams;
+
+/** The real one: an ssh child with all three streams piped. stdin is a pipe we
+ *  never write to — the remote `cat` blocks on it forever and gets EOF the
+ *  instant this process goes away, however it goes away. */
+export const spawnSshChild: SpawnSsh = (args) =>
+  spawn("ssh", [...args], { stdio: ["pipe", "pipe", "pipe"] });
+
+/** ONE attempt at a forward, on a local port that has already been chosen.
  *
  *  Resolves when the FAR END announces itself and no bind error was logged;
  *  rejects with `PortUnavailableError` when the local bind is the thing that
@@ -144,19 +159,16 @@ export function forwardCommandArgs(opts: {
  *  this attempt's outcome: whichever of the three racing sources arrives first
  *  (the ready token, the child's exit, a spawn error, the deadline) decides,
  *  and the rest become no-ops. */
-function openOne(opts: {
+export function openSshAttempt(opts: {
   host: string;
   remotePort: number;
   localPort: number;
   onLost: (reason: string) => void;
+  spawnSsh: SpawnSsh;
 }): Promise<OpenedForward> {
   const { host, remotePort, localPort, onLost } = opts;
-  // stdin is a pipe we never write to: the remote `cat` blocks on it forever
-  // and gets EOF the instant this process goes away, however it goes away.
-  const child = spawn(
-    "ssh",
+  const child = opts.spawnSsh(
     forwardCommandArgs({ base: SSH_OPTS, host, localPort, remotePort }),
-    { stdio: ["pipe", "pipe", "pipe"] },
   );
 
   let stdout = "";
@@ -274,6 +286,7 @@ export async function openSshForward(
   host: string,
   remotePort: number,
   onLost: (reason: string) => void,
+  spawnSsh: SpawnSsh,
 ): Promise<OpenedForward> {
   // The target's own port number first — `pu-dev:4123` answers on
   // `0.0.0.0:4123` when that number is free here. A taken port makes ssh exit
@@ -292,11 +305,12 @@ export async function openSshForward(
           "something local is already listening on it",
         );
       }
-      return await openOne({
+      return await openSshAttempt({
         host,
         remotePort,
         localPort: choice === "any" ? await pickFreePort() : choice,
         onLost,
+        spawnSsh,
       });
     },
   });
