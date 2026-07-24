@@ -58,7 +58,13 @@ mirror non-interactively (`BatchMode=yes`), a forward connection can reach.
 machine's interfaces — exactly the exposure of having started the dev server on
 `0.0.0.0` yourself. The network the machine sits on is the trust boundary.
 
-The package has **no dependencies** (node builtins only). Its consumer today
+The package has **no runtime npm dependencies** (node builtins only) and **one
+binary dependency**: a `remote` target spawns `ssh`, so every consumer's
+packaging must put OpenSSH on `PATH` — kolu's [`packages/vazhi/default.nix`](../vazhi/default.nix)
+does it with `--prefix PATH : ${pkgs.openssh}`. A `local` target needs nothing
+but node. Outside the toolchain the only dev dependency is
+`@kolu/daemon-test-gate`, the repo's real-process test leash, used by
+`lifetime.test.ts`. Its consumer today
 is the standalone [`vazhi`](../vazhi) TUI; kolu's Inspector will embed the same
 library (the Atlas note's PRT2) as a second, independent app. They will never
 talk to each other.

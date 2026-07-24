@@ -11,8 +11,10 @@
 # the one definition in ./default.nix, so they can never build two vazhis.
 #
 # Everything vazhi itself needs is in `@kolu/port-forward`, which has no
-# dependencies at all, so a later move to its own repo replaces the two
-# relative imports above and nothing else changes shape.
+# runtime npm dependencies — its closure needs only nodejs and openssh, which
+# ./default.nix supplies — so a later move to its own repo replaces the two
+# relative imports above and nothing else changes shape, save
+# `lifetime.test.ts`'s `@kolu/daemon-test-gate` devDependency.
 {
   outputs = { ... }:
     let
