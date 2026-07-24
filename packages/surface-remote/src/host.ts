@@ -15,7 +15,12 @@ export function isLocalHost(host: string): boolean {
  *  valid cause/terminal combinations. */
 export type ResolveDrvFailure =
   | {
-      kind: "source-unbaked" | "unavailable";
+      kind: "source-unbaked";
+      failureCause: "remote";
+      terminal: false;
+    }
+  | {
+      kind: "unavailable";
       failureCause: "remote";
       terminal: false;
     }
@@ -51,14 +56,6 @@ export class ResolveDrvError extends Error {
   ) {
     super(message);
     this.name = "ResolveDrvError";
-  }
-
-  get failureCause(): ResolveDrvFailure["failureCause"] {
-    return this.resolution.failureCause;
-  }
-
-  get terminal(): ResolveDrvFailure["terminal"] {
-    return this.resolution.terminal;
   }
 }
 

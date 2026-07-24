@@ -169,4 +169,26 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
       ResolveDrvError,
     );
   });
+
+  it("(e) preserves a connector-owned exhausted network verdict", async () => {
+    const exhausted = new ResolveDrvError(
+      "silent evaluation budget exhausted",
+      {
+        kind: "network-exhausted",
+        failureCause: "network",
+        terminal: true,
+      },
+    );
+    h.resolveBakedAgentDrv.mockRejectedValue(exhausted);
+    const resolve = seedAndCaptureResolver();
+
+    await expect(resolve(resolverContext)).rejects.toBe(exhausted);
+    await expect(resolve(resolverContext)).rejects.toMatchObject({
+      resolution: {
+        kind: "network-exhausted",
+        failureCause: "network",
+        terminal: true,
+      },
+    });
+  });
 });

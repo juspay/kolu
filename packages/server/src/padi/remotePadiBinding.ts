@@ -37,7 +37,6 @@ import { daemonBuild, decide } from "@kolu/surface-daemon-supervisor";
 import {
   type Admit,
   type AdmitVerdict,
-  AgentSourceUnbakedError,
   type Connector,
   makeSession,
   type ResolveDrvPathContext,
@@ -158,14 +157,11 @@ export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
   }
 }
 
-/** A {@link ResolveDrvError} SUBCLASS that additionally carries the D1 domain
+/** A {@link ResolveDrvError} subclass that additionally carries the D1 domain
  *  `cause` — `"agent-source-unbaked"` (the source ref itself isn't baked) vs
  *  `"agent-drv-unavailable"` (the baked source cannot resolve padi for the
- *  probed arch). Still an `instanceof ResolveDrvError` (so `sshConnector`'s existing
- *  `err instanceof ResolveDrvError ? err.failureCause : "network"` classification
- *  is untouched), but the
- *  domain cause rides a TYPED field a consumer reads directly — never re-derived by
- *  scanning `message` text downstream (the D1 discipline this whole PR is about). */
+ *  probed arch). The framework resolution rides through unchanged; Padi enriches
+ *  it with a typed domain cause rather than reclassifying retry policy. */
 class PadiDrvFault extends ResolveDrvError {
   constructor(
     message: string,
@@ -173,12 +169,9 @@ class PadiDrvFault extends ResolveDrvError {
       EntryFailedCause,
       "agent-source-unbaked" | "agent-drv-unavailable"
     >,
+    resolution: Extract<ResolveDrvError["resolution"], { terminal: false }>,
   ) {
-    super(message, {
-      kind: "unavailable",
-      failureCause: "remote",
-      terminal: false,
-    });
+    super(message, resolution);
     this.name = "PadiDrvFault";
   }
 }
@@ -200,14 +193,26 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
     try {
       return await resolveBakedAgentDrv("padi", ctx);
     } catch (err) {
-      if (err instanceof AgentSourceUnbakedError) {
-        throw new PadiDrvFault(
-          `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
-          "agent-source-unbaked",
-        );
-      }
       if (!(err instanceof ResolveDrvError)) throw err;
-      throw new PadiDrvFault(err.message, "agent-drv-unavailable");
+      switch (err.resolution.kind) {
+        case "source-unbaked":
+          throw new PadiDrvFault(
+            `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
+            "agent-source-unbaked",
+            err.resolution,
+          );
+        case "unavailable":
+          throw new PadiDrvFault(
+            err.message,
+            "agent-drv-unavailable",
+            err.resolution,
+          );
+        case "network-exhausted":
+          throw err;
+        default:
+          err.resolution satisfies never;
+          throw new Error("unreachable resolver failure");
+      }
     }
   };
 }

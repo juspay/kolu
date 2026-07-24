@@ -141,8 +141,11 @@ export function sshConnector<C extends AnyContractRouter>(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const cause =
-        err instanceof ResolveDrvError ? err.failureCause : "network";
-      const terminal = err instanceof ResolveDrvError ? err.terminal : false;
+        err instanceof ResolveDrvError
+          ? err.resolution.failureCause
+          : "network";
+      const terminal =
+        err instanceof ResolveDrvError ? err.resolution.terminal : false;
       throw new ConnectError(reason, cause, terminal);
     }
 
