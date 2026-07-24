@@ -10,11 +10,14 @@
 # two apps `@kolu/port-forward` exists for, not a demo — and both paths import
 # the one definition in ./default.nix, so they can never build two vazhis.
 #
-# Everything vazhi itself needs is in `@kolu/port-forward`, which has no
-# runtime npm dependencies — its closure needs only nodejs and openssh, which
-# ./default.nix supplies — so a later move to its own repo replaces the two
-# relative imports above and nothing else changes shape, save
-# `lifetime.test.ts`'s `@kolu/daemon-test-gate` devDependency.
+# Everything vazhi's SOURCE needs is `@kolu/port-forward`, which has no runtime
+# npm dependencies — its closure needs only nodejs and openssh, which
+# ./default.nix supplies — so that part moves unchanged (save
+# `lifetime.test.ts`'s `@kolu/daemon-test-gate` devDependency). Its BUILD does
+# not: `./default.nix` runs `main.tsx` out of `nix/workspace-tree.nix`, i.e.
+# kolu's whole workspace fileset with the shared pnpm fetch. Externalising means
+# giving vazhi its own `pnpm-lock.yaml` and its own tree derivation; this flake
+# exists to keep that gap small and visible, not to claim it is already zero.
 {
   outputs = { ... }:
     let
