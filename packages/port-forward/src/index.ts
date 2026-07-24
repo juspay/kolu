@@ -13,10 +13,11 @@
  *     // → http://<this machine>:${f.localPort} now serves pu-dev's 127.0.0.1:5173
  *     await forwards.cancel(f.key);
  *
- * Remote targets ride an `ssh -L` tunnel on a ControlMaster that is SHARED with
- * anything else on this machine using kolu's control path — so a forward next
- * to a running kolu adds no second ssh connection. Local targets need no ssh at
- * all: they get a plain TCP relay.
+ * Remote targets ride an `ssh -L` tunnel on a connection of their OWN, so a
+ * forward lives exactly as long as the process that opened it — quit, crash or
+ * `kill -9`, the port stops answering at once (see `sshForward.ts` for why a
+ * shared ControlMaster cannot give that). Local targets need no ssh at all:
+ * they get a plain TCP relay.
  *
  * A forward listener is unauthenticated raw TCP on this machine's interfaces —
  * exactly the exposure of having run the dev server on `0.0.0.0` yourself. The

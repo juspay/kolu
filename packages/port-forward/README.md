@@ -31,18 +31,24 @@ Two mechanisms, chosen by target kind:
 
 | target | mechanism |
 | --- | --- |
-| `{ kind: "remote", host, port }` | `ssh -O forward -L '*:<local>:127.0.0.1:<port>'` on a **shared** ControlMaster |
+| `{ kind: "remote", host, port }` | one dedicated `ssh -L '*:<local>:127.0.0.1:<port>' <host> cat` process |
 | `{ kind: "local", port }` | a plain TCP relay, `0.0.0.0:<local>` → `127.0.0.1:<port>` |
 
-The ssh side manages no connections of its own. `ControlMaster=auto` plus a
-`ControlPath` computed deterministically from the same convention kolu uses
-(`packages/surface-remote/src/controlMaster.ts`) means the first process to
-reach a host becomes the master and everyone else rides it — so a forward next
-to a running kolu opens **no second ssh connection**. Each host with a forward
-also gets an *anchor* (one ssh child running `cat` on a pipe we never write to)
-because a forward listener alone does not keep a `ControlPersist` master out of
-its idle timer; the anchor is our child, so the forwards cannot outlive us by
-more than that timer, and `cancel`/`dispose` drop them at once.
+**A forward lives exactly as long as the process that opened it.** That is what
+the mechanism is chosen for. Each remote forward gets its own ssh connection
+(`ControlPath=none` — it never rides or creates a shared master) held open by a
+remote `cat` reading a pipe this library never writes to, so the kernel closing
+that pipe ends the session and the listener with it: on `cancel`, on `dispose`,
+on a crash, on `kill -9`, with no timer in the loop.
+
+Sharing kolu's `ControlMaster` was the original design and it was wrong.
+OpenSSH gives a master's forwards a lifetime of their own: `-O forward`
+listeners outlive their requester until the `ControlPersist` idle timer reaps
+them, killing a mux client does not take its forward down, and there is no
+`-O list` — so a restarted process can neither see nor adopt what it left
+behind. The cost of the fix is one ssh handshake per forward instead of a
+channel on a warm master. Authentication costs nothing extra: any host kolu can
+mirror non-interactively (`BatchMode=yes`), a forward connection can reach.
 
 **Security posture:** a forward listener is unauthenticated raw TCP on this
 machine's interfaces — exactly the exposure of having started the dev server on

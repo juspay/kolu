@@ -14,11 +14,11 @@
  *
  * vazhi is deliberately independent of kolu: its only kolu import is
  * `@kolu/port-forward`, the shared library kolu's Inspector uses too. The two
- * never talk. They do share ssh connections — both compute the same
- * `ControlMaster` path, so a forward here rides the master kolu already opened
- * (and vice versa) with no coordination code at all. Run vazhi inside a kolu
- * terminal and kolu's PTY persistence keeps it alive across browser reloads for
- * free; run it on a box with no kolu at all and it works the same.
+ * never talk, and share nothing — every forward owns its own ssh connection, so
+ * quitting (or crashing, or being SIGKILLed) takes vazhi's forwards down with
+ * it and leaves nobody else's touched. Run vazhi inside a kolu terminal and
+ * kolu's PTY persistence keeps it alive across browser reloads for free; run it
+ * on a box with no kolu at all and it works the same.
  *
  * This module owns only the terminal itself — the alternate screen buffer in
  * and out, and the exit code. Everything visible is `App.tsx`.

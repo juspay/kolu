@@ -16,15 +16,19 @@
 
 import { createServer } from "node:net";
 
-/** Can we bind this exact port on all interfaces right now?
+/** Is this port number free of local listeners — can we bind it ourselves?
  *
- *  Asked before handing a specific number to ssh, because `ssh -O forward`
- *  reports SUCCESS even when the master's local bind fails (measured: exit 0,
- *  no listener, with and without `ExitOnForwardFailure`). Without this probe a
- *  taken port would be reported as forwarded while nothing listened on it —
- *  a row that lies. The bind we test with is released immediately, so this is
- *  a hint rather than a reservation; a lost race still surfaces as a failed
- *  forward rather than a false one. */
+ *  Asked before PREFERRING the target's own number, because "free" here has to
+ *  mean "nothing local answers on it", not merely "ssh can bind it". ssh sets
+ *  `SO_REUSEADDR`, so it will happily listen on `0.0.0.0:5173` BESIDE an
+ *  unrelated `127.0.0.1:5173` — and then the same port number means two
+ *  different servers depending on which address you connect to, which is worse
+ *  than an unpredictable port. A plain bind (no `SO_REUSEADDR` overlap) is
+ *  exactly the "nobody else is here" question.
+ *
+ *  The bind is released immediately, so this is a hint, not a reservation; a
+ *  lost race surfaces as ssh failing to bind, which is a loud error rather than
+ *  a wrong answer. */
 export function canBindLocally(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = createServer();

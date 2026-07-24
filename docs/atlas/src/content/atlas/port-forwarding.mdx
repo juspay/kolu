@@ -82,43 +82,60 @@ special case in v1.</Footnote>
 
 kaval and padi remain **the only daemons**. The reusable capability is a
 library package, `packages/port-forward/` (`@kolu/port-forward`): the forward
-map (`(host, remotePort) → local listener`, N hosts × N ports), `ssh -O
-forward` / `ssh -O cancel` against ControlMaster sockets, the loopback TCP
-relay, port picking, and teardown. **The local port is the remote port
-whenever that number is free here** — `pu-dev:4123` answers on
-`0.0.0.0:4123`, a port you can predict and bookmark — and only when the
-number is taken does the kernel pick a free one instead; a forward is never
-refused merely because its number is busy, and there is no knob either
-way.<Footnote>A `local` (loopback-relay) target essentially always takes the
-fallback, which is correct rather than a bug: the server being relayed to
-already holds that number on this machine, so `0.0.0.0:<same>` cannot bind
-beside `127.0.0.1:<same>`.</Footnote> Its ssh side needs no connection
-management of its own: the `ControlPath` is computed deterministically from
-the destination (ssh's `%C` token under the per-user runtime dir) and
-`ControlMaster=auto` makes whoever connects first the master — so any process
-that spells the same `ControlPath` shares masters with kolu automatically. The
-ControlPath convention *is* the integration, with zero coordination
-code.<Footnote>As built, the library **restates** that ~30-line convention
-rather than importing `surface-remote`'s `controlOptPairs`, which keeps
-`@kolu/port-forward` dependency-free (node builtins only, so vazhi drags no
-kolu world in) and avoids widening a drishti-gated export for a helper. A unit
-test pins the two spellings against each other — same app namespace, same `%C`
-file, same `ControlPersist` — so they cannot drift into two
-masters.</Footnote> One measured wrinkle the build had to answer: a forward
-listener does **not** keep a `ControlPersist` master busy, so a master holding
-nothing but forwards reaps itself on the idle timer and takes them down with
-it. The library therefore holds one *anchor* session per forwarded host — an
-`ssh … <host> cat` child on a pipe it never writes to — which moves no
-traffic, opens the master when there isn't one, and dies with the
-process.<Footnote>Forwards die with their master connection, so a dropped host
-can never leak tunnels; the library's cancel path handles the deliberate case,
-and the anchor makes "the process went away" the same case.</Footnote>
+map (`(host, remotePort) → local listener`, N hosts × N ports), one dedicated
+`ssh -L` process per remote forward, the loopback TCP relay, port picking, and
+teardown. **The local port is the remote port whenever that number is free
+here** — `pu-dev:4123` answers on `0.0.0.0:4123`, a port you can predict and
+bookmark — and only when the number is taken does the kernel pick a free one
+instead; a forward is never refused merely because its number is busy, and
+there is no knob either way.<Footnote>A `local` (loopback-relay) target
+essentially always takes the fallback, which is correct rather than a bug: the
+server being relayed to already holds that number on this machine, so
+`0.0.0.0:<same>` cannot bind beside `127.0.0.1:<same>`.</Footnote>
+
+**A forward lives exactly as long as the process that opened it.** That is the
+one property the mechanism is chosen for, and it is why each forward gets its
+**own** ssh connection (`ControlPath=none`, so it can neither ride nor create a
+shared master) rather than a listener on a master shared with kolu. Sharing was
+the original design and it was wrong: OpenSSH gives a master's forwards a
+lifetime of their own — a listener added with `-O forward` outlives its
+requester until the master's `ControlPersist` idle timer reaps it, killing a mux
+client does *not* take its forward down, and there is no `-O list`, so a
+restarted process can neither see nor adopt what it left behind. An empty list
+beside live ports is the worst possible pair, and it is what the shared design
+actually produced.<Footnote>Both facts measured on a live sshd before the
+rewrite: forwards survived their creator by the full ControlPersist window, and
+a SIGKILLed mux client left its listener serving. Sharing a master and
+kernel-tied lifetime are mutually exclusive in OpenSSH; lifetime wins.</Footnote>
+The connection is held open by a remote command (`cat`) reading a pipe the
+library never writes to, so the kernel closing that pipe — on quit, on crash, on
+`kill -9` — ends the session and with it the listener, with no timer in the
+loop.<Footnote>`-N` (no remote command) does NOT have this property: measured,
+an `ssh -N -L` child SURVIVES its parent's SIGKILL and keeps serving the port.
+The hold-open command is what makes the lifetime kernel-tied, and a library test
+pins it — open a forward in a child process, SIGKILL it, require the port to
+refuse.</Footnote> The costs, stated: one ssh handshake per forward instead of a
+channel on a warm master, and a SIGKILL leaves the ssh children visible for as
+long as it takes their connections to notice — they die with those connections,
+they do not linger on a timer.
+
+The per-forward connection also needs its own authentication, and that costs
+nothing new: kolu's mirror already requires **non-interactive** ssh
+(`BatchMode=yes` and the rest of `SSH_OPT_PAIRS`), so any host kolu can mirror
+is a host a dedicated forward connection can reach with the same keys and the
+same `~/.ssh/config`. `host` here is just an ssh destination — `user@box`, an
+alias, whatever kolu's remote hosts already say — with no kolu-specific host
+model inside the library. And the **`ForwardManager` API is the PRT2
+contract**: `create` (idempotent by target) · `cancel` · `list` · `dispose` ·
+`onLost` is exactly what kolu's Inspector will wire against, so the mechanism
+could be replaced under it — as it just was — without either app noticing.
+Mechanism in the library, policy in the consumers.
 
 Two consumers, no runtime link between them — the drishti pattern proper
 (shared libraries, independent apps):
 
 - **kolu** embeds the library in the server process it already runs. Forward state is a cell on kolu's **existing** surface — no new socket, no IPC, no supervision. Kolu's forwards live and die with kolu's server, which is correct: reachability was tied to that process anyway.
-- **vazhi** is a standalone TUI (opencode-style — no CLI verbs, no serve mode) over the same library: a live table of its own forwards, add/cancel keybinds. Run it anywhere — including inside a kolu terminal, where kaval's persistence keeps it alive across browser reloads for free. Kolu never consults it; it exists to prove the library stands alone and to manage forwards when kolu isn't around. It gets its own `flake.nix` for later externalization into its own repo.<Footnote>Consequence of independence, stated: kolu and a running vazhi each own their *own* forwards and don't see each other's lists — they share ssh masters (via the ControlPath convention) but not state. Accepted for v1; a merged view would require the shared-daemon design this plan deliberately rejects.</Footnote>
+- **vazhi** is a standalone TUI (opencode-style — no CLI verbs, no serve mode) over the same library: a live table of its own forwards, add/cancel keybinds. Run it anywhere — including inside a kolu terminal, where kaval's persistence keeps it alive across browser reloads for free. Kolu never consults it; it exists to prove the library stands alone and to manage forwards when kolu isn't around. It gets its own `flake.nix` for later externalization into its own repo.<Footnote>Consequence of independence, stated: kolu and a running vazhi each own their *own* forwards and don't see each other's lists — they share nothing at all — not state, and (since each forward owns its own ssh connection) not connections either. Accepted for v1; a merged view would require the shared-daemon design this plan deliberately rejects.</Footnote>
 
 <Callout>
 **Security posture, stated:** a forward listener is unauthenticated raw TCP
@@ -182,7 +199,7 @@ daemon the other must talk to.
 | --- | --- | --- | --- |
 | PRT0 | `@kolu/port-forward` library + vazhi TUI (own flake.nix) | — | standalone forward on a real remote box, no kolu running |
 | PRT1 | kaval scanner · Ports section · direct open | — | e2e: spawned listener's chip appears + opens |
-| PRT2 | kolu embeds the library: lazy forward · Forwarded Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200 via shared master |
+| PRT2 | kolu embeds the library: lazy forward · Forwarded Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
 | PRT3 | embedded in-kolu preview pane | PRT2 | deferred — not planned yet |
 
 PRT0 and PRT1 are independent and can proceed in parallel; only PRT2 needs
@@ -197,10 +214,9 @@ adds a forward to a real remote box (pu harness) and shows the row live;
 remote server's body (proving the non-loopback bind); cancelling the row
 severs it; quitting vazhi tears its forwards down. Two structural criteria on
 top: vazhi imports **only `@kolu/port-forward`** (no kolu internals) — the
-proof that makes PRT2's embed mechanical — and, with kolu's mirror connected
-to the same host, vazhi's forward creates **no second ssh master** (assert
-one master via `ssh -O check` + process count) — the criterion the
-ControlPath-convention design exists to satisfy.
+proof that makes PRT2's embed mechanical — and `kill -9` on vazhi leaves
+**no port answering**, checked immediately rather than after any timer, which
+is the property the per-forward connection exists to give.
 
 ### PRT1 — detection + Ports section (one PR)
 
@@ -222,12 +238,16 @@ kolu's existing surface; chip click → lazy create; tunnel badges; Forwarded
 Ports group; manual forward + ⌘K command; auto-cancel policy. **Done when**,
 verified with the `remote-host-testing` harness against a real remote box
 *and* a viewer on a different machine than the kolu server: clicking a remote
-terminal's chip creates the forward **through the embedded library over the
-shared ControlMaster socket** (a second ssh connection does not satisfy this;
-a running vazhi is neither required nor consulted), the opened
+terminal's chip creates the forward **through the embedded library** (a
+running vazhi is neither required nor consulted), the opened
 `http://<kolu-host>:<localPort>` returns the remote server's body, cancelling
 the row severs it, and stopping the remote server auto-cancels the `auto`
-forward within two scan ticks. Evidence video of the click-to-page flow.
+forward within two scan ticks. Plus the kolu-level twin of PRT0's SIGKILL
+criterion, which matters MORE here than in vazhi because the server restarts on
+every deploy: **kill the kolu server and every forward it created must refuse
+connections at once** — the old shared-master design would have orphaned them
+on each release while the restarted Inspector showed an empty list. Evidence
+video of the click-to-page flow.
 
 ### PRT3 — embedded preview (deferred)
 

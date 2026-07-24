@@ -15,7 +15,9 @@
     "test:unit": "vitest run"
   },
   "devDependencies": {
+    "@kolu/daemon-test-gate": "workspace:*",
     "@types/node": "^22.0.0",
+    "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }

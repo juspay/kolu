@@ -67,6 +67,10 @@ export function makeForwardManager(opts: {
 }): ForwardManager {
   const entries = new Map<string, Entry>();
   const pending = new Map<string, Promise<Forward>>();
+  /** Set by `dispose`. A forward that was still opening when the map was
+   *  disposed must not quietly become a live listener nobody is tracking —
+   *  the whole point of dispose is that nothing survives it. */
+  let disposed = false;
 
   function lose(key: string, reason: string): void {
     const entry = entries.get(key);
@@ -77,6 +81,11 @@ export function makeForwardManager(opts: {
 
   return {
     async create(target) {
+      if (disposed) {
+        throw new Error(
+          "port-forward: this forward map has been disposed; it opens nothing further.",
+        );
+      }
       const key = targetKey(target);
       const live = entries.get(key);
       if (live !== undefined) return live.forward;
@@ -90,6 +99,15 @@ export function makeForwardManager(opts: {
         const opened = await opts.mechanisms.open(target, (reason) =>
           lose(key, reason),
         );
+        if (disposed) {
+          // The map was torn down while this one was still opening. It exists
+          // now, so it has to be closed now — otherwise `dispose` would have
+          // returned while a listener it never saw was still coming up.
+          await opened.close();
+          throw new Error(
+            "port-forward: the forward map was disposed while this forward was opening; it has been closed.",
+          );
+        }
         const forward: Forward = {
           key,
           target,
@@ -128,6 +146,11 @@ export function makeForwardManager(opts: {
     },
 
     async dispose() {
+      disposed = true;
+      // Wait for anything still opening to settle first: those flights close
+      // themselves once they see `disposed`, and until they have, "every
+      // forward is down" is not yet true.
+      await Promise.allSettled([...pending.values()]);
       const open = [...entries.values()];
       entries.clear();
       const failures: unknown[] = [];

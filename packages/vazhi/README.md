@@ -46,10 +46,10 @@ kolu isn't around — a bare box, an ssh session, a CI host — and to prove tha
 the capability underneath is genuinely standalone: **vazhi's only import is
 [`@kolu/port-forward`](../port-forward)**, nothing from kolu.
 
-The two are independent apps, not client and server. They never talk. They do
-share ssh connections: both compute the same `ControlMaster` path, so a forward
-opened here rides the master kolu already has to that host (and vice versa) with
-zero coordination code. Each owns and lists only its own forwards.
+The two are independent apps, not client and server. They never talk, and they
+share nothing — not state, and not ssh connections: every forward owns its own,
+which is what makes a forward die exactly when the process that opened it does.
+Each app owns and lists only its own forwards.
 
 Run vazhi *inside* a kolu terminal and kaval's PTY persistence keeps it alive
 across browser reloads for free.
@@ -61,8 +61,10 @@ across browser reloads for free.
   yourself. The network the machine is on is the trust boundary.
 - ssh runs with `BatchMode=yes`: a host that would prompt for a password fails
   fast instead of hanging behind the TUI. `ssh <host>` must work unattended.
-- Quitting (or `SIGINT`/`SIGTERM`) tears every forward down. A `SIGKILL` cannot,
-  so those listeners linger until the shared ssh master reaps itself.
+- Quitting (or `SIGINT`/`SIGTERM`) tears every forward down — and so does a
+  `SIGKILL`, or a crash, or losing power to the machine you ran it from: each
+  forward's ssh connection dies with vazhi, and the port stops answering at
+  once. Nothing waits on a timer, and nothing is left mapped.
 
 vazhi has its own `flake.nix` so it can move to its own repo later; today it
 lives in the kolu monorepo and is also exposed from the root flake

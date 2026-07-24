@@ -175,6 +175,50 @@ describe("the forward map", () => {
     expect(forwards.list()).toEqual([]);
   });
 
+  it("closes a forward that was still opening when dispose ran", async () => {
+    // Quitting while an add is in flight: the listener comes up AFTER dispose
+    // was called, so nothing in the map ever sees it. It must still go down —
+    // otherwise "quit tears everything down" is false exactly when the user is
+    // least able to notice.
+    let arrive: (() => void) | undefined;
+    const closed: number[] = [];
+    const slow: ForwardMechanisms = {
+      open: async () => {
+        await new Promise<void>((resolve) => {
+          arrive = resolve;
+        });
+        return {
+          localPort: 4123,
+          close: async () => {
+            closed.push(4123);
+          },
+        };
+      },
+    };
+    const forwards = makeForwardManager({
+      mechanisms: slow,
+      onLost: () => {},
+    });
+
+    const creating = forwards.create(PU);
+    const disposing = forwards.dispose();
+    arrive?.();
+
+    await expect(creating).rejects.toThrow(/disposed/);
+    await disposing;
+    expect(closed).toEqual([4123]);
+    expect(forwards.list()).toEqual([]);
+  });
+
+  it("opens nothing more once disposed", async () => {
+    const fake = fakeMechanisms();
+    const forwards = makeForwardManager({ ...fake, onLost: () => {} });
+    await forwards.dispose();
+
+    await expect(forwards.create(PU)).rejects.toThrow(/disposed/);
+    expect(fake.opens).toEqual([]);
+  });
+
   it("still attempts every teardown when one fails, then reports the failures", async () => {
     const closed: number[] = [];
     let port = 100;
