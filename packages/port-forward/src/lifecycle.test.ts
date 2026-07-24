@@ -151,6 +151,77 @@ describe("never lose a listener", () => {
   });
 });
 
+/** The opening window, COMPOSED rather than sampled.
+ *
+ *  Round seven found the hole this replaces: the suite tested "a fault during
+ *  the open" and "a dispose racing an open" as separate cases and never crossed
+ *  them, so both inverted outcomes of the combination passed unnoticed — dispose
+ *  rejecting over an empty map, and dispose succeeding over a retained one.
+ *  Every combination is generated here, and each is checked against the same
+ *  two invariants rather than a hand-written expectation. */
+describe("the opening window, every combination", () => {
+  const REPORTS = ["lost", "fault"] as const;
+  const CLOSES = [
+    { label: "close succeeds", refuseCloses: 0 },
+    { label: "close refuses", refuseCloses: 1 },
+  ] as const;
+  const DISPOSALS = [false, true] as const;
+
+  for (const report of REPORTS) {
+    for (const close of CLOSES) {
+      for (const disposing of DISPOSALS) {
+        it(`${report} during the open · ${close.label} · ${disposing ? "dispose races it" : "no dispose"}`, async () => {
+          const rig = mapOf({
+            deferOpen: true,
+            refuseCloses: close.refuseCloses,
+            onOpen: (r) => {
+              if (report === "lost") r.lost("gone while coming up");
+              else r.fault("broke while coming up");
+            },
+          });
+          const { forwards } = rig;
+
+          const creating = forwards.create(PU).then(
+            (f) => ({ ok: true as const, f }),
+            (e: Error) => ({ ok: false as const, e }),
+          );
+          const disposal = disposing
+            ? forwards.dispose().then(
+                () => ({ failed: false }),
+                () => ({ failed: true }),
+              )
+            : undefined;
+          rig.openArrives();
+          const created = await creating;
+          const disposed = await disposal;
+
+          const listed = forwards.list();
+          const stranded = close.refuseCloses > 0 && report === "fault";
+
+          // INVARIANT — never lose a listener: if the mechanism could not close
+          // it and never said it was gone, it stays in the map.
+          expect(listed.length).toBe(stranded ? 1 : 0);
+
+          // INVARIANT — never publish a corpse: a `lost` forward is never
+          // handed back, whatever else happened.
+          if (report === "lost") expect(created.ok).toBe(false);
+
+          // A create that resolved must be a forward that is actually listed.
+          if (created.ok) {
+            expect(listed.map((f) => f.key)).toContain(created.f.key);
+          }
+
+          // And dispose must agree with the map: it fails if and only if
+          // something is still there.
+          if (disposed !== undefined) {
+            expect(disposed.failed).toBe(stranded);
+          }
+        });
+      }
+    }
+  }
+});
+
 describe("never publish a corpse", () => {
   it("a loss during the open is never handed back", async () => {
     const { forwards } = mapOf({

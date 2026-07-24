@@ -475,8 +475,10 @@ describe("the forward map", () => {
     const disposing = forwards.dispose();
     arrive?.();
 
-    await expect(creating).rejects.toThrow(/lost as it came up/);
-    await disposing.catch(() => {});
+    // Under a dispose the create ends with the clean mid-open signal — there
+    // is nothing left un-torn-down to report — and the map is empty either way.
+    await expect(creating).rejects.toThrow(/disposed while this forward/);
+    await disposing;
     expect(forwards.list()).toEqual([]);
   });
 

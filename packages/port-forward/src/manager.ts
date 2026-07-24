@@ -297,11 +297,15 @@ export function makeForwardManager(opts: {
         if (early.kind === "gone") {
           // The mechanism called it dead before it ever reached us. Publishing
           // it would put a corpse in the map; close it (best effort — it is
-          // already gone) and fail loudly.
+          // already gone) and fail loudly. Under a dispose there is nothing
+          // left to report as un-torn-down, so it ends with the clean
+          // mid-open signal: a dispose must not reject over an empty map.
           await opened.close().catch(() => {});
-          throw new Error(
-            `port-forward: the forward to ${key} was lost as it came up — ${early.reason}`,
-          );
+          throw disposed
+            ? new DisposedMidOpenError()
+            : new Error(
+                `port-forward: the forward to ${key} was lost as it came up — ${early.reason}`,
+              );
         }
         // Degraded: it broke, and the mechanism could not clean it up, so it
         // may still be reachable. Try once more here — if THAT close works it
@@ -319,10 +323,18 @@ export function makeForwardManager(opts: {
           reallyGone = false;
         }
         if (reallyGone) {
-          throw new Error(
-            `port-forward: the forward to ${key} broke as it came up — ${early.reason}`,
-          );
+          // Nothing to hand back. WHY says who is listening: a dispose is
+          // owed its own clean signal (it asked for everything to go, and
+          // everything went), while an ordinary create is owed the reason.
+          throw disposed
+            ? new DisposedMidOpenError()
+            : new Error(
+                `port-forward: the forward to ${key} broke as it came up — ${early.reason}`,
+              );
         }
+        // Still out there. It must be OWNED either way, but a dispose must
+        // also LEARN that its teardown did not happen — a fulfilled flight
+        // would let it report success over a listener it never closed.
         const forward: Forward = {
           key,
           target,
@@ -330,6 +342,11 @@ export function makeForwardManager(opts: {
           createdAt: Date.now(),
         };
         slots.set(key, { state: "open", forward, opened, token });
+        if (disposed) {
+          throw new Error(
+            `port-forward: the forward to ${key} broke as it came up and could not be closed — ${early.reason}`,
+          );
+        }
         opts.onLost({ forward, reason: early.reason, kind: "degraded" });
         return forward;
       }
