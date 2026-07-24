@@ -7,7 +7,7 @@
 #
 # Used by flake.nix (thin wrapper), shell.nix, and nix-build directly.
 { pkgs ? import ./nix/nixpkgs.nix { }
-, commitHash ? "dev"
+, commitHash ? ""
   # TEST-ONLY hook: when set (e.g. "9.0"), rewrite the daemon's
   # `PTY_HOST_CONTRACT_VERSION` so this build's server *and* the kaval it spawns
   # speak an incompatible wire. Used by the adoption-skew VM test to build a

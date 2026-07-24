@@ -4,7 +4,7 @@
   outputs = { self, ... }:
     let
       platform = import ../nix/each-system.nix;
-      commitHash = self.shortRev or self.dirtyShortRev or "dev";
+      commitHash = import ../nix/commit-hash.nix self;
     in
     {
       packages = platform.withPkgs (pkgs:
