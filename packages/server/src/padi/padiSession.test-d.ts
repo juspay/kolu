@@ -1,5 +1,5 @@
 /**
- * TYPE-LEVEL pin (juspay/kolu#1716's copying-unrepresentable split, carried down
+ * TYPE-LEVEL pin (juspay/kolu#1716's provisioning-unrepresentable split, carried down
  * to its LAST consumer): a LOCAL padi session's `onState` — AND its synchronous
  * twin `currentState()` — can never report `"provisioning"` — the local endpoint
  * connector provisions nothing (the daemon is already here), so the provisioning
@@ -35,7 +35,7 @@ localPadi.onState((s) => {
   // @ts-expect-error — a LOCAL padi session's connection can never be
   // `"provisioning"` (the local endpoint connector provisions nothing); the up-arm
   // union here is exactly `"connecting" | "connected"`. If this line ever
-  // compiles, the copying-unrepresentable split has regressed for padi's last
+  // compiles, the provisioning-unrepresentable split has regressed for padi's last
   // consumer.
   if (s.phase === "provisioning") {
     // unreachable — pinned above, not exercised at runtime.
@@ -53,7 +53,7 @@ remotePadi.onState((s) => {
 });
 
 // The SYNCHRONOUS twin `currentState()` rides the SAME `Prov` narrowing — the `PadiSession`
-// alias `Omit+Pick`s BOTH `onState | currentState`, so the copying-unrepresentable split
+// alias `Omit+Pick`s BOTH `onState | currentState`, so the provisioning-unrepresentable split
 // must hold through the point-read too. If `currentState` were dropped from that pair, its
 // return would silently fall back to `DaemonSession`'s accessor — and `DaemonSession`
 // extends `Session<Client>` (`Prov` defaults to `never`), so it returns `SessionState<never>`

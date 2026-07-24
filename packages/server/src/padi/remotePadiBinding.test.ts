@@ -362,18 +362,18 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
 
   it("a TERMINAL link failure (host unreachable / provisioning failed) surfaces as a standing link-failed state, canvas dead", async () => {
     const { session, enqueue } = makeArm({ binderBuildId: "" });
-    // The connector rejects every dial (a `nix copy` that failed) → after the bounded
+    // The connector rejects every dial (remote-store `nix build` provisioning failed) → after the bounded
     // give-up budget the session goes terminal `failed`.
     for (let i = 0; i < 5; i++)
       enqueue({
         kind: "reject",
         cause: "remote",
-        reason: "testhost: 'nix copy --derivation' exited with code 1",
+        reason: "testhost: remote-store 'nix build' exited with code 1",
       });
 
     const p = session.pin();
     p.catch(() => {});
-    await expect(p).rejects.toThrow(/nix copy|exited with code/i);
+    await expect(p).rejects.toThrow(/nix build|exited with code/i);
     // Walk the exponential backoff (2s+4s+8s+16s) to the give-up.
     await flush(60_000);
 
@@ -383,7 +383,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     // …but the REASON is a standing, surfaced convergence state.
     const conv = session.convergence();
     expect(conv?.state).toBe("link-failed");
-    expect(conv?.detail).toMatch(/nix copy|exited with code/i);
+    expect(conv?.detail).toMatch(/nix build|exited with code/i);
   });
 
   it("P1: a fresh spawn under a STANDING link-failed does not float an unhandled handshake rejection (no fatal process.exit)", async () => {
