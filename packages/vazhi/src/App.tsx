@@ -22,7 +22,7 @@ import {
   formatTarget,
   parseTarget,
 } from "@kolu/port-forward";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import TextInput from "ink-text-input";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -49,27 +49,6 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** The terminal's live size. Ink re-renders on state change, so a resize is
- *  just another state change — which is the whole of "survives resize". */
-function useTerminalSize(): { columns: number; rows: number } {
-  const { stdout } = useStdout();
-  // A pty that reports no size (a harness, a detached terminal) still needs a
-  // frame to draw; 80×24 is the terminal default.
-  const read = (): { columns: number; rows: number } => ({
-    columns: stdout.columns > 0 ? stdout.columns : 80,
-    rows: stdout.rows > 0 ? stdout.rows : 24,
-  });
-  const [size, setSize] = useState(read);
-  useEffect(() => {
-    const onResize = (): void => setSize(read());
-    stdout.on("resize", onResize);
-    return () => {
-      stdout.off("resize", onResize);
-    };
-  });
-  return size;
-}
-
 export function App({ hostname }: { hostname: string }) {
   const { exit } = useApp();
   const [rows, setRows] = useState<readonly Forward[]>([]);
@@ -78,7 +57,7 @@ export function App({ hostname }: { hostname: string }) {
   const [status, setStatus] = useState<Status | undefined>(undefined);
   const [now, setNow] = useState(() => Date.now());
   const [quitting, setQuitting] = useState(false);
-  const size = useTerminalSize();
+  const size = useWindowSize();
 
   const forwards = useMemo(
     () =>
@@ -87,7 +66,10 @@ export function App({ hostname }: { hostname: string }) {
         // master goes away. It leaves the table AND says why; a dead row that
         // still looks live is the one thing this screen must never show.
         onLost: ({ forward, reason }) => {
-          setStatus({ kind: "error", text: `lost ${forward.key} — ${reason}` });
+          setStatus({
+            kind: "error",
+            text: `lost ${formatTarget(forward.target)} — ${reason}`,
+          });
           setRows((live) => live.filter((row) => row.key !== forward.key));
         },
       }),
@@ -128,7 +110,7 @@ export function App({ hostname }: { hostname: string }) {
       const forward = await forwards.create(target);
       setStatus({
         kind: "info",
-        text: `${forward.key} is answering on ${forwardUrl(hostname, forward.localPort)}`,
+        text: `${formatTarget(forward.target)} is answering on ${forwardUrl(hostname, forward.localPort)}`,
       });
       setRows(forwards.list());
       setSelected(forwards.list().findIndex((row) => row.key === forward.key));
@@ -164,8 +146,15 @@ export function App({ hostname }: { hostname: string }) {
         setStatus(undefined);
         setMode({ kind: "add", input: "" });
       } else if (input === "x") void cancelSelected();
-      else if (input === "j" || key.downArrow) setSelected((at) => at + 1);
-      else if (input === "k" || key.upArrow) setSelected((at) => at - 1);
+      // Clamped at the WRITE, so `selected` is the selection rather than an
+      // unbounded counter that only looks right after rendering: over-scrolling
+      // past an end used to bank presses, and the next key in the other
+      // direction did nothing.
+      else if (input === "j" || key.downArrow) {
+        setSelected((at) => clampSelection(at + 1, rows.length));
+      } else if (input === "k" || key.upArrow) {
+        setSelected((at) => clampSelection(at - 1, rows.length));
+      }
     },
     { isActive: mode.kind === "table" && !quitting },
   );

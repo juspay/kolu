@@ -20,18 +20,13 @@
  * kolu's PTY persistence keeps it alive across browser reloads for free; run it
  * on a box with no kolu at all and it works the same.
  *
- * This module owns only the terminal itself — the alternate screen buffer in
- * and out, and the exit code. Everything visible is `App.tsx`.
+ * This module owns only the process edges — the TTY precondition, ink's
+ * alternate-screen mode, and the exit code. Everything visible is `App.tsx`.
  */
 
 import { hostname } from "node:os";
 import { render } from "ink";
 import { App } from "./App.tsx";
-
-/** Alternate screen in / out: vazhi takes the whole window and gives the
- *  scrollback back untouched when it leaves. */
-const ENTER_ALT_SCREEN = `${String.fromCharCode(27)}[?1049h`;
-const LEAVE_ALT_SCREEN = `${String.fromCharCode(27)}[?1049l`;
 
 function fail(message: string): never {
   process.stderr.write(`vazhi: ${message}\n`);
@@ -46,23 +41,20 @@ if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
   );
 }
 
-process.stdout.write(ENTER_ALT_SCREEN);
-// Ctrl+C is handled in the app, where it can tear the forwards down first. A
-// crash on the way up must still give the terminal back — otherwise the user is
-// left staring at an empty alternate screen with their scrollback hidden.
-let app: ReturnType<typeof render>;
-try {
-  app = render(<App hostname={hostname()} />, { exitOnCtrlC: false });
-} catch (err) {
-  process.stdout.write(LEAVE_ALT_SCREEN);
-  fail(err instanceof Error ? err.message : String(err));
-}
+// `alternateScreen` is ink's, not ours: it writes the same escapes, but it also
+// restores the primary buffer and the cursor from its own unmount — which ink
+// registers with signal-exit BEFORE entering the buffer. So a crash after mount
+// (an uncaught throw from the render tree or a timer) gives the terminal back
+// too, which hand-written enter/leave writes around `waitUntilExit()` cannot do.
+// Ctrl+C stays ours: the app tears the forwards down before it lets go.
+const app = render(<App hostname={hostname()} />, {
+  exitOnCtrlC: false,
+  alternateScreen: true,
+});
 
 try {
   await app.waitUntilExit();
-  process.stdout.write(LEAVE_ALT_SCREEN);
   process.exit(0);
 } catch (err) {
-  process.stdout.write(LEAVE_ALT_SCREEN);
   fail(err instanceof Error ? err.message : String(err));
 }
