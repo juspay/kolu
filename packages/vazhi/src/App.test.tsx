@@ -145,6 +145,30 @@ describe("vazhi's screen", () => {
     expect(plain(lastFrame() ?? "")).toContain("nothing forwarded yet");
   });
 
+  it("cancels the forward the highlight is on, not the one at its index", async () => {
+    const fake = fakeManager();
+    const { stdin } = start(fake);
+
+    stdin.write("a");
+    await settle();
+    stdin.write("pu-dev:5173\r");
+    await settle();
+    stdin.write("a");
+    await settle();
+    stdin.write("zest:8080\r");
+    await settle();
+
+    // The selection is on zest (the one just added); move up to pu-dev, then
+    // cancel. A stored index would have to be re-derived against whichever
+    // list the cancel happened to read.
+    stdin.write("k");
+    await settle();
+    stdin.write("x");
+    await settle();
+
+    expect(fake.cancelled()).toEqual(["pu-dev:5173"]);
+  });
+
   it("tears every forward down before it lets the process end", async () => {
     const fake = fakeManager();
     const { stdin } = start(fake);

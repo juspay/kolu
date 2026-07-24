@@ -26,12 +26,6 @@ export function formatUptime(ms: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
-/** Keep the highlight on a real row as the list grows and shrinks under it. */
-export function clampSelection(selected: number, count: number): number {
-  if (count === 0) return 0;
-  return Math.min(Math.max(selected, 0), count - 1);
-}
-
 /** The URL a forward answers on. The host is THIS machine's name — never
  *  "localhost", which in a link means the machine of whoever is reading it. */
 export function forwardUrl(hostname: string, localPort: number): string {

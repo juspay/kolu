@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  clampSelection,
   formatUptime,
   forwardUrl,
   hyperlink,
@@ -25,14 +24,6 @@ describe("formatUptime", () => {
 
   it("never renders a negative age (a clock step is not an error to crash on)", () => {
     expect(formatUptime(-5_000)).toBe("0s");
-  });
-});
-
-describe("clampSelection", () => {
-  it("keeps the highlight on a real row as the list shrinks", () => {
-    expect(clampSelection(5, 2)).toBe(1);
-    expect(clampSelection(-3, 2)).toBe(0);
-    expect(clampSelection(0, 0)).toBe(0);
   });
 });
 

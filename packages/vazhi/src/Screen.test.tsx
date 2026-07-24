@@ -30,7 +30,7 @@ function frame(props: Partial<Parameters<typeof Screen>[0]> = {}): string {
       now={NOW}
       onInputChange={() => {}}
       onInputSubmit={() => {}}
-      selected={0}
+      selectedKey={undefined}
       size={{ columns: 80, rows: 24 }}
       status={undefined}
       {...props}
@@ -89,11 +89,33 @@ describe("the forward table", () => {
           forward("pu-dev", 5173, 4123, 1000),
           forward("zest", 8080, 8080, 1000),
         ],
-        selected: 1,
+        selectedKey: "zest:8080",
       }),
     ).split("\n");
     expect(lines.filter((line) => line.includes("›"))).toHaveLength(1);
     expect(lines.find((line) => line.includes("›"))).toContain("zest:8080");
+  });
+
+  it("marks the row by identity, so a shrinking list cannot move the highlight", () => {
+    // The selected forward keeps the `›` wherever it now sits; a position would
+    // have handed it to whichever row happened to take that index.
+    const lines = plain(
+      frame({
+        forwards: [forward("zest", 8080, 8080, 1000)],
+        selectedKey: "zest:8080",
+      }),
+    ).split("\n");
+    expect(lines.find((line) => line.includes("›"))).toContain("zest:8080");
+  });
+
+  it("marks nothing when the selected forward is gone", () => {
+    const text = plain(
+      frame({
+        forwards: [forward("pu-dev", 5173, 4123, 1000)],
+        selectedKey: "zest:8080",
+      }),
+    );
+    expect(text).not.toContain("›");
   });
 
   it("counts the forwards in the header", () => {

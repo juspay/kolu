@@ -19,12 +19,7 @@
 import { type Forward, formatTarget } from "@kolu/port-forward";
 import { Box, Text } from "ink";
 import TextInput from "ink-text-input";
-import {
-  clampSelection,
-  formatUptime,
-  forwardUrl,
-  hyperlink,
-} from "./format.ts";
+import { formatUptime, forwardUrl, hyperlink } from "./format.ts";
 
 /** The bottom line: the keybind legend, or the `host:port` prompt. */
 export type Mode = { kind: "table" } | { kind: "add"; input: string };
@@ -42,7 +37,7 @@ export function Screen({
   now,
   onInputChange,
   onInputSubmit,
-  selected,
+  selectedKey,
   size,
   status,
 }: {
@@ -52,11 +47,12 @@ export function Screen({
   now: number;
   onInputChange: (input: string) => void;
   onInputSubmit: (input: string) => void;
-  selected: number;
+  /** WHICH forward is selected, by key — never a position, so the highlight
+   *  cannot land on a different row when the list moves. */
+  selectedKey: string | undefined;
   size: { columns: number; rows: number };
   status: Status | undefined;
 }) {
-  const highlighted = clampSelection(selected, forwards.length);
   // One column width for every target, so the arrows line up whatever the host
   // names are.
   const targetWidth = forwards.reduce(
@@ -80,13 +76,13 @@ export function Screen({
             pu-dev:5173)
           </Text>
         ) : (
-          forwards.map((row, index) => (
+          forwards.map((row) => (
             <Row
               key={row.key}
               forward={row}
               hostname={hostname}
               now={now}
-              selected={index === highlighted}
+              selected={row.key === selectedKey}
               targetWidth={targetWidth}
             />
           ))

@@ -21,7 +21,7 @@ import {
 } from "@kolu/port-forward";
 import { Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clampSelection, forwardUrl, readPromptInput } from "./format.ts";
+import { forwardUrl, readPromptInput } from "./format.ts";
 import { type Mode, Screen, type Status } from "./Screen.tsx";
 
 /** How often the uptime column moves and the list is re-read. */
@@ -46,7 +46,10 @@ export function App({
 }) {
   const { exit } = useApp();
   const [rows, setRows] = useState<readonly Forward[]>([]);
-  const [selected, setSelected] = useState(0);
+  /** WHICH forward is selected, by key. An identity, not a position: the list
+   *  moves under the highlight (a forward dies, another is cancelled), and a
+   *  stored index would quietly come to mean a different row. */
+  const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined);
   const [mode, setMode] = useState<Mode>({ kind: "table" });
   const [status, setStatus] = useState<Status | undefined>(undefined);
   const [now, setNow] = useState(() => Date.now());
@@ -127,11 +130,8 @@ export function App({
         kind: "info",
         text: `${formatTarget(forward.target)} is answering on ${forwardUrl(hostname, forward.localPort)}`,
       });
-      // One snapshot: the list the selection indexes into is the list that
-      // renders.
-      const live = forwards.list();
-      setRows(live);
-      setSelected(live.findIndex((row) => row.key === forward.key));
+      sync();
+      setSelectedKey(forward.key);
     } catch (err) {
       setStatus({ kind: "error", text: messageOf(err) });
       sync();
@@ -139,8 +139,9 @@ export function App({
   };
 
   const cancelSelected = async (): Promise<void> => {
-    const live = forwards.list();
-    const forward = live[clampSelection(selected, live.length)];
+    // The row under the `›`, taken from the list the user is looking at — not
+    // from a fresh read that may already have moved.
+    const forward = rows.find((row) => row.key === selectedKey);
     if (forward === undefined) {
       setStatus({ kind: "info", text: "no forwards to cancel." });
       return;
@@ -155,6 +156,14 @@ export function App({
     sync();
   };
 
+  /** The key of the row `by` steps from the selected one, stopping at the ends.
+   *  With nothing selected, `at` is -1, so either direction lands on the first
+   *  row — which is what a first keypress should do. */
+  const step = (by: number): string | undefined => {
+    const at = rows.findIndex((row) => row.key === selectedKey);
+    return rows[Math.min(Math.max(at + by, 0), rows.length - 1)]?.key;
+  };
+
   // Table keys. Inactive while the prompt is up, so typing a host name can
   // never also mean "quit".
   useInput(
@@ -164,15 +173,12 @@ export function App({
         setStatus(undefined);
         setMode({ kind: "add", input: "" });
       } else if (input === "x") void cancelSelected();
-      // Clamped at the WRITE, so `selected` is the selection rather than an
-      // unbounded counter that only looks right after rendering: over-scrolling
-      // past an end used to bank presses, and the next key in the other
-      // direction did nothing.
-      else if (input === "j" || key.downArrow) {
-        setSelected((at) => clampSelection(at + 1, rows.length));
-      } else if (input === "k" || key.upArrow) {
-        setSelected((at) => clampSelection(at - 1, rows.length));
-      }
+      // Movement is the one place a position exists at all: find where the
+      // selected forward is now, step, and store the KEY of what we landed on.
+      // Stopping at the ends rather than wrapping means over-scrolling cannot
+      // bank presses the other direction has to spend.
+      else if (input === "j" || key.downArrow) setSelectedKey(step(1));
+      else if (input === "k" || key.upArrow) setSelectedKey(step(-1));
     },
     { isActive: mode.kind === "table" && !quitting },
   );
@@ -213,7 +219,7 @@ export function App({
       hostname={hostname}
       mode={mode}
       now={now}
-      selected={selected}
+      selectedKey={selectedKey}
       size={size}
       status={status}
       onInputChange={(input) => {
