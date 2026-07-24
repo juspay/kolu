@@ -1,0 +1,174 @@
+---
+title: Ports & Processes in the Inspector
+description: Live listening ports and the process tree for every terminal — one-click open, ssh-tunneled remote ports, forward management, and kill.
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-24
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import Kbd from "../../components/Kbd.astro";
+import Svg from "../../components/Svg.astro";
+import arch from "../../diagrams/ports-and-processes-arch.svg?raw";
+
+export const Mockup = () => (
+  <div style="font-family:ui-sans-serif,system-ui;max-width:24rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)">
+    <div style="padding:.9rem 1rem .3rem;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PORTS <span style="float:right;color:#5b6470">3</span></div>
+    <div style="padding:.1rem 1rem .6rem;font:.78rem/1.9 ui-monospace,monospace;color:#d6dae2">
+      <div>🌐 <b>5173</b> <span style="color:#8b93a3">node</span> <span style="float:right"><span style="color:#4da3ff">⤴ open</span> <span style="background:#1d2c3f;color:#7fb7f0;border-radius:5px;padding:.05rem .4rem">⇄ :61000</span> <span style="color:#e06c60">⨯</span></span></div>
+      <div>🌐 <b>9229</b> <span style="color:#8b93a3">node</span> <span style="float:right;color:#4da3ff">⤴ open</span></div>
+      <div>🌐 <b>61922</b> <span style="color:#8b93a3">workerd</span> <span style="float:right;color:#4da3ff">⤴ open</span></div>
+      <div style="color:#5b6470">＋ Forward a port…</div>
+    </div>
+    <div style="padding:.4rem 1rem .3rem;border-top:1px solid #232834;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PROCESSES <span style="float:right;color:#5b6470">3</span></div>
+    <div style="padding:.1rem 1rem .6rem;font:.78rem/1.9 ui-monospace,monospace;color:#d6dae2">
+      <div><span style="color:#3fbf6f">●</span> bun <span style="color:#5b6470">30587</span></div>
+      <div><span style="color:#3fbf6f">●</span> node <span style="color:#5b6470">30588</span> <span style="float:right;color:#e06c60">⨯ kill</span></div>
+      <div><span style="color:#3fbf6f">●</span> workerd <span style="color:#5b6470">30596</span></div>
+    </div>
+    <div style="padding:.4rem 1rem .8rem;border-top:1px solid #232834;font:.68rem/1.6 ui-monospace,monospace;color:#5b6470">FORWARDED PORTS — host <b style="color:#8b93a3">pu-dev</b><br/><span style="color:#a9b0be">⇄ 5173 → :61000 · auto · ⨯&nbsp;&nbsp;&nbsp;⇄ 8080 → :61003 · manual · ⨯</span></div>
+  </div>
+);
+
+Agents constantly start dev servers, and the URL scrolls away into the
+scrollback. Kolu already knows everything *around* the server — cwd, git, agent
+state, the foreground command — but not the one fact you act on: **where is the
+thing the agent just ran?** This feature adds two live Inspector sections per
+terminal, inspired by [kero.sh](https://kero.sh/)<Footnote>Kero shows child
+processes with CPU% / memory plus listening ports. We deliberately drop CPU% and
+memory: they duplicate `btop`, and CPU% is the most expensive part to build
+(stateful two-sample jiffies delta, per platform) for the least payoff. Kolu's
+version keeps the actionable halves — ports you can open and processes you can
+kill.</Footnote>: **Ports** (listening TCP ports owned by this terminal's
+process subtree, each one openable in a click — tunneled over ssh when the
+terminal lives on a remote host) and **Processes** (the shell's live child
+tree, name + pid).
+
+<Svg
+  svg={arch}
+  wide
+  caption="Two lanes between the terminal's host and your machine. The data lane (blue → green) is the existing surface mirror carrying two new TerminalSnapshot fields filled by a 5-second scan in kaval. The traffic lane (orange) exists only for remote hosts: clicking a chip adds an ssh local forward on the already-open ControlMaster socket, and the browser opens the forwarded local port. For a local terminal the traffic lane disappears — the chip opens localhost:5173 directly."
+/>
+
+## The panel and its flows
+
+<Mockup />
+
+All rows update live off the terminal's metadata; actions appear on hover,
+matching the existing Inspector sections in
+`packages/client/src/right-panel/MetadataInspector.tsx`.
+
+- **Open, local terminal.** Click a port chip → `window.open("http://localhost:5173", "_blank", "noopener,noreferrer")` — the same external-open idiom the Code tab uses (`CodeTab.tsx:1114`). New browser tab; an embedded in-kolu preview is deliberately deferred to PT3.
+- **Open, remote terminal.** Click → the client calls `forwards.create { host, remotePort }` → the server adds a local forward on the live ControlMaster connection and returns the local port → `window.open("http://localhost:61000")`. The chip stays labeled with the *remote* port and gains a `⇄ :61000` tunnel badge. Forwarding is **lazy — on first click only**, never eager for every detected port.<Footnote>An agent session can hold six listening ports (workerd spawns several); auto-tunneling all of them VS-Code-style keeps idle tunnels alive for ports nobody opens. The cost of lazy is one `ssh -O forward` round-trip (~milliseconds on the multiplexed socket) on first click.</Footnote>
+- **Manage forwards.** A **Forwarded Ports** group (host-scoped, shown when any forward is active) lists every tunnel for the active host — remote port, local port, origin `auto` (chip click) or `manual` — each with a cancel `⨯`. Auto forwards self-cancel when the scanner sees the remote port disappear; manual forwards persist until cancelled or the host disconnects. All forwards die with the ControlMaster connection, so a dropped host can never leak tunnels.
+- **Manual forward.** The `＋ Forward a port…` row (and a <Kbd keys="⌘+K" /> command *Forward a port…*) accepts a remote port number and creates a `manual` forward — for a port the scanner missed or one outside this terminal's subtree.
+- **Kill.** Hover a process row → `⨯ kill` sends SIGTERM via a `terminals.killProcess { terminalId, pid }` surface procedure; a port row's `⨯` kills the owning pid ("free this port"). The server re-verifies, at signal time, that the pid still sits in that terminal's subtree *and* still bears the same process name — a recycled pid is refused, never signaled.
+- **Discoverability.** One tip in `settings/tips.ts`: "Click a port in the Inspector to open the server an agent just started."
+
+## Detection: one scan on the owning host
+
+Process facts belong to the PTY owner, so the scanner is a new module in kaval —
+`packages/kaval/src/processScan.ts` — beside the existing foreground sampler
+(`ptyHost.ts:620`). One host-wide pass every 5 seconds<Footnote>The cadence and
+the unref'd non-overlapping poll shape copy
+`packages/padi/src/memorySampler.ts` and its `derived.cell(source({ read,
+install: everyMsOr(…) }))` wiring in `servePadi.ts:247`.</Footnote> covers all
+PTYs at once — build the full pid→ppid table, partition it into per-shell
+subtrees, join listening sockets against each subtree:
+
+- **linux** — walk `/proc/*/stat` for the pid/ppid/comm table; read `/proc/net/tcp` + `/proc/net/tcp6` for LISTEN rows and join their socket inodes against `/proc/<pid>/fd` readlinks. This is the same technique `surface-daemon-supervisor/src/socketHolder.ts:100` already uses for unix sockets — mimic its structure.
+- **darwin** — `ps -axo pid,ppid,comm` for the table; `lsof -iTCP -sTCP:LISTEN -P -n -F pcn` for ports, run under a hard `timeout` and SIGKILLed if wedged, exactly as `socketHolder.ts:157` does. Both platforms gate CI, so the darwin path is day-one work, not a fallback.
+
+Results publish per-PTY on the `ptyHostSurface` contract (like foreground
+samples), **deduped by structural equality** before publishing so an unchanged
+scan emits nothing — the churn guard that keeps a 5-second ticker from
+thrashing SolidJS. From there every layer exists: the padi sensor set folds the
+sample into `TerminalSnapshot` (two new schema entries in
+`packages/terminal-vocab/src/schema.ts` beside `ForegroundSchema:145` —
+`ProcessInfo { pid, name }` and `PortInfo { port, pid, name }`), the surface
+serves it (snapshot-then-deltas invariant applies, per
+`.claude/rules/streaming.md`), and the client's reconcile-backed store in
+`useTerminalMetadata.ts:180` delivers leaf-grained ticks to the two new
+`<Section>` blocks.
+
+<Callout>
+**Architecture verdict, conditioned on this build:** the scanner is a *leaf*
+module inside kaval, not a `@kolu/*` package — precisely because it is a
+bounded, one-shot scan (read, join, return) with kaval as its only consumer.
+It is the choice of "one dumb pass per tick, no streaming, no watchers" that
+makes the verdict "leaf"; if it ever grows an independent consumer or its own
+reconnect/streaming volatility, re-run the three electricity tests and
+graduate it.
+</Callout>
+
+## Tunnels: reaching a remote port
+
+Detection on remote hosts is free — the scan runs inside the remote's own padi
+and the new snapshot fields ride the existing ssh surface mirror. Reaching the
+port is the one new mechanism: a dev server on the remote is bound to
+`127.0.0.1` *there*, so the click needs an ssh local forward. Kolu already
+holds a persistent multiplexed connection per host
+(`packages/surface-remote/src/controlMaster.ts` — `ControlMaster=auto` on a
+kolu-private `ControlPath`), and OpenSSH mutates forwards on that live socket
+without a new handshake:
+
+```sh
+ssh -O forward -L 61000:127.0.0.1:5173 <host>   # add — ~ms, no auth prompt
+ssh -O cancel  -L 61000:127.0.0.1:5173 <host>   # remove
+```
+
+The **forward manager** — `packages/surface-remote/src/portForward.ts` — lives
+in `surface-remote` because that package already owns the ControlMaster
+volatility; the module holds the `(host, remotePort) → localPort` map, picks a
+random free local port per forward, and exposes three things on the per-host
+surface: `forwards.create`, `forwards.cancel`, and a `forwards` cell (the list
+the **Forwarded Ports** UI renders). Local terminals bypass the manager
+entirely.<Footnote>This is the mechanism VS Code Remote-SSH uses for its port
+forwarding, so the ergonomics are well-trodden — including HMR websockets,
+which tunnel fine because the forward terminates at the remote sshd and
+connects out to remote-`127.0.0.1`.</Footnote>
+
+## Build plan — the PT track
+
+| id | ships | needs | proof |
+| --- | --- | --- | --- |
+| PT1 | scanner · Ports + Processes sections · local open · kill | — | e2e: spawned listener's chip appears + opens |
+| PT2 | forward manager · remote open · Forwarded Ports UI · manual forward | PT1 | real remote box: chip → tunneled HTTP 200 |
+| PT3 | embedded in-kolu preview pane | PT2 | deferred — not planned yet |
+
+### PT1 — detection, sections, kill (one PR)
+
+Scanner module + schema fields + sensor fold + the two Inspector sections +
+`terminals.killProcess` + the tip. **Done when** an e2e scenario runs
+`node -e 'require("http").createServer((_,r)=>r.end("ok")).listen(8123)'`
+inside a real kolu terminal and asserts the `8123` chip appears in the
+Inspector within two scan ticks, clicking it opens `localhost:8123`, and the
+kill action terminates the listener (chip gone next tick). The criterion pins
+the real path — kaval scan → `ptyHostSurface` → padi snapshot → surface →
+reconcile store — a client-side mock cannot satisfy it. Parser unit tests run
+against fixture `/proc` trees *and* fixture `lsof -F pcn` output, and the
+darwin CI gate (`aarch64-darwin`) must be green, not skipped.
+
+### PT2 — remote forwards + management (one PR)
+
+Forward manager, `forwards.*` surface members, tunnel badges, Forwarded Ports
+group, manual forward input, ⌘K command. **Done when**, verified with the
+`remote-host-testing` harness against a real remote box: clicking a remote
+terminal's chip creates the forward **via `ssh -O forward` on the existing
+ControlMaster socket** (the `controlOptPairs` path — a second ssh connection
+does not satisfy this), `curl localhost:<localPort>` returns the remote
+server's body, cancelling the row makes that curl fail, and killing the host
+connection leaves no listener behind. Evidence video of the click-to-page flow
+per the evidence skill.
+
+### PT3 — embedded preview (deferred)
+
+Open the forwarded page inside kolu — a browser pane in the Code tab, in the
+spirit of the Codex desktop app — instead of a new tab. Explicitly out of
+scope until PT2 ships<Footnote>It is a genuinely bigger build: a cross-origin
+iframe surface for arbitrary dev servers, and any server sending
+`X-Frame-Options: DENY` / `frame-ancestors` refuses to be framed, so the
+new-tab path must remain the fallback regardless.</Footnote>; no design here
+yet — when it matures this section is rewritten, not layered.
