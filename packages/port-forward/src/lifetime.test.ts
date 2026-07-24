@@ -42,8 +42,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SSH_HOST = "localhost";
 
 /** Can we reach an sshd non-interactively? Probed only when the daemon gate is
- *  on, so a bare `vitest` run spawns nothing at all. */
+ *  on, so a bare `vitest` run spawns nothing at all — and the leash below says
+ *  so at the fork itself, which is what the meta-lint checks. */
 async function sshReachable(): Promise<boolean> {
+  assertDaemonSpawnAllowed("the port-forward ssh reachability probe");
   return await new Promise((resolve) => {
     execFile(
       "ssh",
