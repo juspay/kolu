@@ -104,6 +104,13 @@ type Slot =
       /** The identity of THIS opening, installed before the mechanism can call
        *  back, so a loss it reports before `open()` resolves is attributable. */
       readonly token: object;
+      /** Set when a `cancel` is already committed to tearing this opening down
+       *  as soon as it lands. Resolves when that whole cancel has finished.
+       *
+       *  Without it a `create` arriving mid-flight would JOIN the flight and be
+       *  handed the very forward the cancel then closes — a caller holding a
+       *  forward that is neither listed nor live. */
+      readonly cancelling?: Promise<void>;
     }
   | {
       readonly state: "open";
@@ -281,7 +288,18 @@ export function makeForwardManager(opts: {
     // listener, so the second joins the first's flight rather than opening
     // its own.
     if (slot?.state === "open") return slot.forward;
-    if (slot?.state === "opening") return await slot.flight;
+    if (slot?.state === "opening") {
+      if (slot.cancelling !== undefined) {
+        // This opening is already promised to a cancel. Joining its flight
+        // would hand back the very forward that cancel is about to close — a
+        // caller holding something neither listed nor live. Wait for the whole
+        // teardown, then decide again: the key is either free (open a fresh
+        // one) or still holds a forward whose close failed (return that).
+        await slot.cancelling;
+        return await create(target);
+      }
+      return await slot.flight;
+    }
     if (slot?.state === "closing") {
       // Wait for the door to shut, then open a NEW one. Returning the closing
       // forward would resolve this create with a listener about to vanish.
@@ -434,11 +452,26 @@ export function makeForwardManager(opts: {
       // Still opening is NOT "not there": the caller asked for a key the map
       // is demonstrably creating, so wait for it to arrive and then take it
       // down. A flight that fails on its own rejects here too — there is then
-      // nothing left to close.
-      if (slot.state === "opening") await slot.flight;
+      // nothing left to close. The INTENT is recorded on the slot first, so a
+      // create arriving in the meantime waits for this teardown instead of
+      // joining a flight whose result is already committed to being closed.
+      if (slot.state === "opening") {
+        let finished: () => void = () => {};
+        const cancelling = new Promise<void>((resolve) => {
+          finished = resolve;
+        });
+        slots.set(key, { ...slot, cancelling });
+        try {
+          await slot.flight;
+          const failure = await closeSlot(key);
+          if (failure !== undefined) throw failure;
+        } finally {
+          finished();
+        }
+        return;
+      }
       const failure = await closeSlot(key);
       if (failure !== undefined) throw failure;
-      if (slots.has(key)) return;
     },
 
     list() {

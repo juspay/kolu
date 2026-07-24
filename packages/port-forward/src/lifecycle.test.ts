@@ -45,13 +45,17 @@ function scripted(script: {
   openFails?: boolean;
 }) {
   let releaseOpen: (() => void) | undefined;
+  /** Once the test has let opens through, LATER opens do not wait either — a
+   *  second create must be able to open a fresh listener without the test
+   *  having to predict how many opens the map will make. */
+  let opensFlowing = false;
   let releaseClose: ((fail?: Error) => void) | undefined;
   let refusals = script.refuseCloses ?? 0;
   let closes = 0;
   const mechanisms: ForwardMechanisms = {
     open: async (_target, report) => {
       script.onOpen?.(report);
-      if (script.deferOpen === true) {
+      if (script.deferOpen === true && !opensFlowing) {
         await new Promise<void>((resolve) => {
           releaseOpen = resolve;
         });
@@ -79,7 +83,10 @@ function scripted(script: {
   };
   return {
     mechanisms,
-    openArrives: () => releaseOpen?.(),
+    openArrives: () => {
+      opensFlowing = true;
+      releaseOpen?.();
+    },
     closeSettles: (fail?: Error) => releaseClose?.(fail),
     closeCount: () => closes,
   };
@@ -236,6 +243,76 @@ describe("the opening window, every combination", () => {
           });
         }
       }
+    }
+  }
+});
+
+/** `cancel` crossed with the opening window.
+ *
+ *  Round nine found what the generator could not see: a cancel that begins
+ *  while a forward is still opening, with a create arriving between the two.
+ *  The create used to JOIN the doomed flight and be handed the very forward the
+ *  cancel then closed — a caller holding something neither listed nor live. */
+describe("cancel during the opening window", () => {
+  const CLOSES = [
+    { label: "close succeeds", refuseCloses: 0 },
+    { label: "close refuses", refuseCloses: 1 },
+  ] as const;
+  const RECREATE = [false, true] as const;
+
+  for (const close of CLOSES) {
+    for (const recreating of RECREATE) {
+      it(`cancel while opening · ${close.label} · ${recreating ? "a create arrives between them" : "no second create"}`, async () => {
+        const rig = mapOf({
+          deferOpen: true,
+          refuseCloses: close.refuseCloses,
+        });
+        const { forwards } = rig;
+
+        const first = forwards.create(PU).then(
+          (f) => ({ ok: true as const, f }),
+          (e: Error) => ({ ok: false as const, e }),
+        );
+        const cancelling = forwards.cancel("remote:pu-dev:5173").then(
+          () => ({ failed: false }),
+          () => ({ failed: true }),
+        );
+        const second = recreating
+          ? forwards.create(PU).then(
+              (f) => ({ ok: true as const, f }),
+              (e: Error) => ({ ok: false as const, e }),
+            )
+          : undefined;
+        rig.openArrives();
+
+        const one = await first;
+        const cancelled = await cancelling;
+        const two = await second;
+        const listed = forwards.list();
+
+        expect(one.ok).toBe(true);
+        // A refused close leaves it there; a successful one does not.
+        expect(cancelled.failed).toBe(close.refuseCloses > 0);
+        // What the map should hold afterwards: the forward a refused close
+        // left behind, or the FRESH one a second create opened once the
+        // teardown finished — and nothing at all when neither happened.
+        expect(listed.length).toBe(
+          close.refuseCloses > 0 || recreating ? 1 : 0,
+        );
+
+        if (two !== undefined) {
+          // INVARIANT — a create never resolves with something that is not in
+          // the map: it either opened a FRESH forward, or it got the one the
+          // failed cancel left behind.
+          expect(two.ok).toBe(true);
+          if (two.ok) {
+            expect(listed.map((f) => f.key)).toContain(two.f.key);
+            if (close.refuseCloses === 0 && one.ok) {
+              expect(two.f.localPort).not.toBe(one.f.localPort);
+            }
+          }
+        }
+      });
     }
   }
 });
