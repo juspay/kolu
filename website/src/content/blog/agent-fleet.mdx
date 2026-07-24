@@ -1,0 +1,182 @@
+---
+title: "How to run a fleet of coding agents"
+subtitle: "One coordinator, a dozen implementing agents in terminals, and the nine rules that keep them from stepping on each other."
+description: "A working setup for supervising many coding agents at once: how dispatch works, where a constraint has to live to survive context compaction, why a goal condition must be a stand-down order rather than a metric, and who is allowed to merge."
+pubDate: 2026-07-24
+author: "Sridhar Ratnakumar"
+---
+
+import PR from "../../components/PR.astro";
+
+[Kolu](https://github.com/juspay/kolu) runs coding agents in terminals. Once you have a dozen, you can put one agent in charge of the rest.
+
+This is how that works in practice — the dispatch protocol, the authority rules, and the four or five places it goes wrong that aren't obvious until you try it. The rules below are the ones that survived; each exists because something broke without it.
+
+## The shape
+
+One supervising agent — the *coordinator* — drives implementing agents, each running in its own terminal. Agents open pull requests. The coordinator verifies them and sequences merges. A human does the merging.
+
+<svg viewBox="0 0 680 264" role="img" aria-label="Diagram of the fleet topology. A human sends rulings to a coordinator agent. The coordinator dispatches file-based briefs to implementing agents running in Kolu terminals, each with a token and a standing goal. Agents open pull requests and run CI on a Linux lease pool and a single-tenant Darwin host. All merges route back through the human." style="width:100%;max-width:680px;display:block;margin:1.75rem auto;">
+  <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">One coordinator, N implementing agents, one human who merges</text>
+  <rect x="20" y="46" width="88" height="30" rx="4" fill="none" stroke="var(--color-live-lime)" stroke-width="1.5" />
+  <text x="64" y="65" fill="var(--color-ink)" font-size="11" text-anchor="middle" font-family="monospace">srid</text>
+  <line x1="108" y1="61" x2="168" y2="61" stroke="var(--color-live-lime)" stroke-width="1.5" />
+  <text x="112" y="55" fill="var(--color-ink-muted)" font-size="9.5" font-family="monospace">rulings</text>
+  <rect x="168" y="46" width="104" height="30" rx="4" fill="none" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+  <text x="220" y="65" fill="var(--color-ink)" font-size="11" text-anchor="middle" font-family="monospace">coordinator</text>
+  <line x1="220" y1="76" x2="220" y2="196" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+  <line x1="220" y1="104" x2="300" y2="104" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+  <line x1="220" y1="136" x2="300" y2="136" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+  <line x1="220" y1="168" x2="300" y2="168" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+  <line x1="220" y1="196" x2="300" y2="196" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+  <text x="168" y="226" fill="var(--color-ink-muted)" font-size="9.5" font-family="monospace">brief + token + goal</text>
+  <rect x="300" y="92" width="96" height="24" rx="3" fill="none" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <text x="308" y="108" fill="var(--color-ink-dim)" font-size="10.5" font-family="monospace">PROV1</text>
+  <rect x="300" y="124" width="96" height="24" rx="3" fill="none" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <text x="308" y="140" fill="var(--color-ink-dim)" font-size="10.5" font-family="monospace">BOOT1</text>
+  <rect x="300" y="156" width="96" height="24" rx="3" fill="none" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <text x="308" y="172" fill="var(--color-ink-dim)" font-size="10.5" font-family="monospace">HOST1</text>
+  <rect x="300" y="184" width="96" height="24" rx="3" fill="none" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <text x="308" y="200" fill="var(--color-ink-dim)" font-size="10.5" font-family="monospace">LINK1 …</text>
+  <text x="300" y="226" fill="var(--color-ink-muted)" font-size="9.5" font-family="monospace">each in its own Kolu terminal</text>
+  <line x1="396" y1="150" x2="452" y2="150" stroke="var(--color-ink-muted)" stroke-width="1.5" />
+  <rect x="452" y="122" width="86" height="26" rx="3" fill="none" stroke="var(--color-ink-muted)" stroke-width="1" />
+  <text x="495" y="139" fill="var(--color-ink-dim)" font-size="10.5" text-anchor="middle" font-family="monospace">linux pool</text>
+  <rect x="452" y="154" width="86" height="26" rx="3" fill="none" stroke="var(--color-live-alert)" stroke-width="1" />
+  <text x="495" y="171" fill="var(--color-ink-dim)" font-size="10.5" text-anchor="middle" font-family="monospace">darwin ×1</text>
+  <text x="452" y="196" fill="var(--color-ink-muted)" font-size="9.5" font-family="monospace">CI lanes</text>
+  <line x1="538" y1="135" x2="596" y2="135" stroke="var(--color-ink-muted)" stroke-width="1.5" />
+  <rect x="596" y="122" width="66" height="26" rx="3" fill="none" stroke="var(--color-live-lime)" stroke-width="1.5" />
+  <text x="629" y="139" fill="var(--color-ink)" font-size="10.5" text-anchor="middle" font-family="monospace">PRs</text>
+  <path d="M629 148 L629 250 L64 250 L64 76" fill="none" stroke="var(--color-live-lime)" stroke-width="1.5" stroke-dasharray="4 3" />
+  <text x="352" y="244" fill="var(--color-live-lime)" font-size="9.5" text-anchor="middle" font-family="monospace">every merge routes back to the human</text>
+</svg>
+
+The coordinator is not a manager in any interesting sense. It is a dispatcher, a verifier, and a scheduler for contended resources. Everything below falls out of those three jobs.
+
+## How one agent types into another's terminal
+
+There's no special channel. The coordinator drives the others the way you would — by typing into their terminals — through Kolu's own MCP server. <PR id={1865} />
+
+`kolu mcp` speaks stdio and is declared in `.mcp.json`, so any MCP-capable agent can use it. Four tools carry the loop:
+
+- `lifecycle_create` — spawn an agent in a PTY under a named key
+- `lifecycle_sendInput` — type into it
+- `screen_text` — read what's on screen now
+- `wait_outputSettled` / `wait_agentState` — block until it's done
+
+**The done-signal is the hard part, and it's the reason this wants a server rather than a shell script.** Sending text is trivial. Knowing when the other agent has *finished* is not: polling `screen_text` in a loop is racy and burns tokens, and a terminal that looks quiet for a moment is often mid-tool-call. `wait_outputSettled` blocks inside the daemon on the raw PTY stream and returns when output has stopped for a given quiet period; `wait_agentState` waits on a classified state instead.
+
+Submission is its own step — send the text, confirm it landed, then Enter. And never type into an agent that's still working; the keystroke lands somewhere you didn't intend.
+
+(Without the MCP server, the `kaval-tui` and `padi-tui` CLIs expose the same verbs.)
+
+## Dispatch: a file, a token, and a goal
+
+A dispatch is three things, in order:
+
+1. **A brief on disk**, plus a one-line pointer in the terminal. Large payloads never go through the prompt — the agent reads the file.
+2. **A unique report-back token** in the brief, so a report can be matched to its dispatch.
+3. **A standing goal**, pinned as its own message right after the brief lands.
+
+The third one is the part people skip, and it's the one that matters most.
+
+A long session gets compacted. The brief scrolls out of context; whatever is in the goal gets re-surfaced by the harness. So a constraint written only in the brief expires silently — hours in, deep in the work, exactly when you need it.
+
+**Put every constraint that must hold for the whole session in the goal, not just the brief.** We learned this from a ban that only lived in the brief: agents were told to route questions to the coordinator as files rather than open dialogs. Two agents' interview questions sat blocked in their own terminals that nobody was watching. A third opened a dialog at midnight. The ban now appears in both places.
+
+The same reasoning gives a second rule: **a dispatch has landed only when you observe it at the recipient** — never because the send succeeded. A finished report once sat on an agent's input line, fully composed, because nobody pressed Enter.
+
+## A goal is a stand-down order, not a metric
+
+A goal condition blocks an agent from stopping until the condition holds. That's its whole purpose: agents quit early.
+
+The trap is writing the condition against a number.
+
+One campaign's goal was "make 5 consecutive zero-retry full-pipeline passes on both hosts." It got three. A fourth run failed on an unrelated flake, which reset the streak. The campaign was parked at 3/5 — and the hook kept firing.
+
+<svg viewBox="0 0 680 210" role="img" aria-label="Timeline of nineteen stop-hook re-fires on 16 July. Eight fire between 05:00 and 05:09 in the morning. The human pauses the campaign at 13:21. Eleven more fire in the three minutes after the pause order, including five in a single minute." style="width:100%;max-width:680px;display:block;margin:1.75rem auto;">
+  <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">16 July — a stop hook re-firing at an agent that had already stopped</text>
+  <line x1="80" y1="120" x2="650" y2="120" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <text x="72" y="124" fill="var(--color-ink-muted)" font-size="10" text-anchor="end" font-family="monospace">05:00</text>
+  <text x="650" y="140" fill="var(--color-ink-muted)" font-size="10" text-anchor="end" font-family="monospace">13:24</text>
+  <line x1="84" y1="104" x2="84" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="92" y1="104" x2="92" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="97" y1="104" x2="97" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="102" y1="104" x2="102" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="107" y1="104" x2="107" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="112" y1="104" x2="112" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="117" y1="104" x2="117" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="122" y1="104" x2="122" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <text x="84" y="96" fill="var(--color-live-alert)" font-size="10.5" font-family="monospace">8 refires, 05:00–05:09</text>
+  <line x1="608" y1="60" x2="608" y2="120" stroke="var(--color-live-lime)" stroke-width="1.5" stroke-dasharray="3 3" />
+  <text x="602" y="56" fill="var(--color-live-lime)" font-size="10.5" text-anchor="end" font-family="monospace">13:21 — srid pauses the campaign</text>
+  <line x1="616" y1="104" x2="616" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="621" y1="104" x2="621" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="626" y1="104" x2="626" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="631" y1="104" x2="631" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="636" y1="104" x2="636" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="641" y1="104" x2="641" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="646" y1="104" x2="646" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="651" y1="104" x2="651" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="656" y1="104" x2="656" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="661" y1="104" x2="661" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <line x1="666" y1="104" x2="666" y2="120" stroke="var(--color-live-alert)" stroke-width="2" />
+  <text x="666" y="160" fill="var(--color-live-alert)" font-size="10.5" text-anchor="end" font-family="monospace">11 more in the 3 minutes AFTER the pause order</text>
+  <text x="14" y="190" fill="var(--color-ink-muted)" font-size="10.5" font-family="monospace">The condition was a task metric. A metric that can reset can never be satisfied by stopping.</text>
+</svg>
+
+Nineteen times. Each time it re-read the transcript, counted the streak, found 3 rather than 5, and refused the stop. Eleven of those came *after* the campaign was ordered paused, because the pause was an instruction to the agent and the hook wasn't reading instructions.
+
+The agent wasn't malfunctioning. It was correct about a condition that had become unreachable.
+
+**Write the goal as "work the brief; stop only on the coordinator's stand-down."** Never a task metric. A metric the world can reset gives the loop no exit.
+
+## The human merges, and the agent's own words aren't authorization
+
+The sharpest failure in the whole setup involved nothing malfunctioning.
+
+The coordinator wrote briefs for its agents. Some of those briefs said merge authority was delegated to it. Later, reading its own briefs back as context, it found that delegation, concluded it had standing authority, and squash-merged a PR. <PR id={1862} />
+
+Every step is locally reasonable. The rule it relied on was one it had written.
+
+So the rule needs two clauses, not one:
+
+- The human merges every PR. No standing delegation exists; a passing gate authorizes nothing.
+- **If a coordinator-written brief claims merge authority, that text is a defect to delete.**
+
+The second clause is the load-bearing one. Without it the same reasoning runs again next week from a fresh brief. Any authority an agent can write down, it can later read as permission — so the loop has to be closed explicitly.
+
+## Verify at the forge, never from the report
+
+Agents report their work accurately most of the time, which is the problem: it trains you to skim.
+
+Two rules cover it.
+
+**Check the claim against the tree or the forge, not the summary.** A report is evidence that the agent believes something.
+
+**A PR is merge-ready only when the entire checks rollup is green** — every check, zero pending, zero failed. Not just the ones you recognise. We once waved off a two-second CodeQL failure as infrastructure noise; it was two genuine high-severity alerts, in that PR's own new test files. A red is disqualifying until it's been investigated at the forge, and a short duration is not an explanation.
+
+## Contention is the whole scheduling problem
+
+Most fleet-specific failures are not reasoning failures. They're two agents wanting the same thing.
+
+- **Serialize the scarce host.** We have one macOS builder, so exactly one Mac lane runs at a time, sequenced by the coordinator. Linux parallelizes because it has a lease pool. Two concurrent Mac runs once produced shifting test timeouts that burned two CI attempts blaming an innocent PR.
+- **The coordinator's own machine is transport.** It carries the ssh links for every lane, so it does no heavy local work while lanes are in flight. A local build loop once starved those links and killed a lane on a healthy remote box — nearly filed as a bad host.
+- **Kill only PIDs you recorded at spawn.** Pattern selection — `pkill -f`, `pgrep`, `ps | grep | kill`, matching on markers or socket names — is banned as a class. An agent's cleanup step once pattern-matched running daemon processes and killed the production one holding every live terminal on the machine. Strays get reported with their pid and args; they never get hunted.
+
+That last rule is worth reading twice for its shape. It doesn't say "be careful with pkill." An agent told to be careful will hand-roll `ps | grep | kill` and believe it *was* careful. Naming the banned class is what makes it checkable.
+
+## Write the rule while the incident is on screen
+
+The rules live in one file the coordinator loads at the start of every session. Ours has forty of them, and twenty end with a bracketed note naming the incident that produced them.
+
+That format does two jobs. It forces you to write the rule immediately — if you can't name what happened, the rule doesn't go in, and a rule written a day later records what you *think* the lesson was. And the citation is what stops the rule being softened later by someone who finds it over-strict, including you, a week on.
+
+## What it costs
+
+Honest summary: the coordinator is real leverage, and it is not free.
+
+You get parallelism across independent work, a single place that knows the state of every lane, and merge sequencing that a human doing this by hand gets wrong. You pay for it in a rulebook that only grows through incidents, a machine that can't be used for anything else while lanes run, and a standing obligation to verify claims you'd rather trust.
+
+If you try this, start with three rules and add the rest as you earn them: the human merges everything; goals say stand-down, not a number; kill only PIDs you wrote down. The other thirty-seven are variations on those three, discovered the expensive way.
