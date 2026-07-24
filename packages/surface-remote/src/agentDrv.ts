@@ -15,7 +15,7 @@ import { PROVISION_STEP_SILENCE_BASE_MS } from "./nixCopy";
 import { describeExit, type ExitResult, runCapture } from "./process";
 import { appendProgressLine } from "./progressTail";
 import agentEnv from "../agent-env.json" with { type: "json" };
-import { LRUCache } from "lru-cache";
+import QuickLRU from "quick-lru";
 
 /** The framework-owned wrapper boundary for an agent source flake. */
 export const SURFACE_AGENT_FLAKE_REF_ENV = agentEnv.flakeRef;
@@ -36,8 +36,8 @@ export function requireAgentFlakeRef(raw: string | undefined): string {
  * old store ref for the lifetime of a long-running server. In-flight work is not
  * shared because its cancellation and progress belong to one dial. */
 const MAX_CACHED_AGENT_DERIVATIONS = 32;
-const drvCache = new LRUCache<string, string>({
-  max: MAX_CACHED_AGENT_DERIVATIONS,
+const drvCache = new QuickLRU<string, string>({
+  maxSize: MAX_CACHED_AGENT_DERIVATIONS,
 });
 
 /** Per-dial lifetime hooks required by the local Nix evaluation. */

@@ -23,7 +23,7 @@
     "@kolu/surface-map": "workspace:*",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
-    "lru-cache": "^11.2.7",
+    "quick-lru": "^7.3.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

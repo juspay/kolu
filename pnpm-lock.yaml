@@ -1591,9 +1591,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
-      lru-cache:
-        specifier: ^11.2.7
-        version: 11.2.7
+      quick-lru:
+        specifier: ^7.3.0
+        version: 7.3.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -4598,6 +4598,10 @@ packages:
   quick-format-unescaped@4.0.4:
     resolution: {integrity: sha512-tYC1Q1hgyRuHgloV/YXs2w15unPVh8qfu/qCTfhTYamaw7fyhumKa2yGpdSo87vY32rIclj+4fWYQXUMs9EHvg==}
 
+  quick-lru@7.3.0:
+    resolution: {integrity: sha512-k9lSsjl36EJdK7I06v7APZCbyGT2vMTsYSRX1Q2nbYmnkBqgUhRkAuzH08Ciotteu/PLJmIF2+tti7o3C/ts2g==}
+    engines: {node: '>=18'}
+
   radash@12.1.1:
     resolution: {integrity: sha512-h36JMxKRqrAxVD8201FrCpyeNuUY9Y5zZwujr20fFO77tpUtGa6EZzfKw/3WaiBX95fq7+MpsuMLNdSnORAwSA==}
     engines: {node: '>=14.18.0'}
@@ -7539,6 +7543,8 @@ snapshots:
       side-channel: 1.1.0
 
   quick-format-unescaped@4.0.4: {}
+
+  quick-lru@7.3.0: {}
 
   radash@12.1.1: {}
 
