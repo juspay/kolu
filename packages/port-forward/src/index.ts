@@ -14,10 +14,9 @@
  *     await forwards.cancel(f.key);
  *
  * Remote targets ride an `ssh -L` tunnel on a connection of their OWN, so a
- * forward lives exactly as long as the process that opened it — quit, crash or
- * `kill -9`, the port stops answering at once (see `sshForward.ts` for why a
- * shared ControlMaster cannot give that). Local targets need no ssh at all:
- * they get a plain TCP relay.
+ * forward lives exactly as long as the process that opened it — see
+ * `sshForward.ts` for why. Local targets need no ssh at all: they get a plain
+ * TCP relay.
  *
  * A forward listener is unauthenticated raw TCP on this machine's interfaces —
  * exactly the exposure of having run the dev server on `0.0.0.0` yourself. The
