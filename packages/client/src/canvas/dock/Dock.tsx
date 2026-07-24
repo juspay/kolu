@@ -76,6 +76,7 @@ import {
   Show,
 } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
+import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
@@ -444,8 +445,8 @@ const DockHeader: Component<{
         data-testid="dock-new"
         onClick={props.onCreate}
         class="group/new flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        aria-label="New terminal"
-        title="New terminal"
+        aria-label={ACTIONS.createTerminal.label}
+        title={ACTIONS.createTerminal.label}
       >
         <PlusIcon class="w-3.5 h-3.5 transition-transform duration-200 group-hover/new:rotate-90" />
       </button>
