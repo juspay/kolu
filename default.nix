@@ -103,6 +103,8 @@ let
       ./packages/kolu-mcp
       ./packages/padi
       ./packages/padi-tui
+      ./packages/port-forward
+      ./packages/vazhi
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -656,6 +658,16 @@ let
     agentDrvsJson = padiAgentDrvsJson;
   };
 
+  # vazhi — the standalone port-forward TUI over `@kolu/port-forward` (Atlas:
+  # port-forwarding). Its derivation lives next to its source (it has its OWN
+  # flake.nix for a later move to its own repo, and that flake wants one
+  # definition, not a copy of this one); the root composer just threads the
+  # shared `src` + `pnpmDeps` in and re-exports it so `nix run .#vazhi` works
+  # from the repo root. Unlike kaval-tui / padi-tui it does NOT wrap the full
+  # `kolu` build: vazhi imports one dependency-free library, so the vite bundle
+  # and the node-pty rebuild would be pure cost.
+  vazhiPackages = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
+
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
   # so the fixed-output fetch is cached once.
@@ -708,4 +720,4 @@ let
 in
 {
   inherit default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
-} // remoteProcessMonitor // miniCi // fleetTop // docsiteExample // oduPackages
+} // vazhiPackages // remoteProcessMonitor // miniCi // fleetTop // docsiteExample // oduPackages

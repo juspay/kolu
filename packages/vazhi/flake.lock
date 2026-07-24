@@ -1,0 +1,22 @@
+{
+  "nodes": {
+    "kolu": {
+      "locked": {
+        "path": "../..",
+        "type": "path"
+      },
+      "original": {
+        "path": "../..",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "root": {
+      "inputs": {
+        "kolu": "kolu"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
