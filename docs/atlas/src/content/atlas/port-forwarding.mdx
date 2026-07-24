@@ -185,8 +185,19 @@ which is one more reason the scanner lives there.</Footnote> builds the
 pid→ppid table once, partitions it into per-shell subtrees, and joins
 listening TCP sockets against each subtree:
 
-- **linux** — pid table from `/proc/*/stat`; LISTEN rows (with their **bind address**) from `/proc/net/tcp` + `tcp6`, joined to pids via `/proc/<pid>/fd` socket-inode readlinks — the same technique `surface-daemon-supervisor/src/socketHolder.ts:100` uses for unix sockets.
-- **darwin** — `ps -axo pid,ppid,comm` for the table; `lsof -iTCP -sTCP:LISTEN -P -n -F pcn` for ports, under a hard `timeout` and SIGKILLed if wedged, as `socketHolder.ts:157` does. Both platforms gate CI; the darwin path is day-one work.
+- **linux** — pid table from `/proc/*/stat`; LISTEN rows (with their **bind address**) from `/proc/net/tcp` + `tcp6`, joined to pids via `/proc/<pid>/fd` socket-inode readlinks (the `socketHolder.ts:100` technique), walking **only the union of terminal subtrees**. Expect and tolerate per-pid `EACCES`/`ENOENT` outside the subtrees — but `EACCES` on a *requested* subtree surfaces as a scan error, never an empty port list. Do not spawn `ss` (measured ~7× slower, and it hides other-users' pid attribution anyway).
+- **darwin** — `ps -axo pid,ppid,comm` for the table; **`netstat -anv -p tcp`** for ports — *not* `lsof`, and not as a fallback either: measured on real hardware, netstat is ~11× faster (1.4 ms vs 15.6 ms median) *and* more complete (it reports pid+comm for other users' listeners where non-root lsof shows only your own). Filter to `LISTEN`, accept `tcp4|tcp6|tcp46` (dual-stack), parse the port from the final dot of the address column, and run it under a **Node-side kill timer** — macOS ships no GNU `timeout`. Both platforms gate CI; the darwin path is day-one work.
+
+Spike-measured on real hosts (2026-07-24, 10 runs each, non-root): a complete
+linux scan is **3.0 ms** wall (~0.06% of a core at the 5 s cadence, 30-process
+box); the macOS pair is **~17 ms** (420-process box). The 5-second cadence has
+two orders of magnitude of headroom.<Footnote>Parser subtleties the spike
+surfaced, all fixture-worthy: `/proc/net/tcp` addresses are byte-reversed hex
+and IPv6 words are little-endian; v4-mapped IPv6 must be normalized and
+dual-stack rows deduplicated on the final structural `PortInfo`; a
+fork-inherited socket maps one inode to several pids, so attribution folds at
+subtree level before dedup; netstat encodes the owner as `comm:pid` and
+wildcard as `*.PORT`.</Footnote>
 
 Each terminal's sample — `PortInfo { port, name, wildcard }` in
 `packages/terminal-vocab/src/schema.ts`, beside `ForegroundSchema:145` — is
@@ -251,7 +262,8 @@ in a real kolu terminal and asserts the `8123` chip appears within two scan
 ticks and clicking it opens the page at `location.hostname:8123` — pinning the
 real path (padi scan → snapshot → surface → reconcile
 store), which no client-side mock can satisfy. Parser unit tests run on
-fixture `/proc` trees *and* fixture `lsof -F pcn` output; the darwin gate
+fixture `/proc` trees *and* fixture `netstat -anv -p tcp` output (including
+`tcp46` dual-stack rows); the darwin gate
 (`aarch64-darwin`) must be green, not skipped. Loopback-bound chips render
 with a "needs a forward" affordance that activates in PRT2.
 
