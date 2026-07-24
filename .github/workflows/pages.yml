@@ -1,7 +1,7 @@
 # Build and deploy the Kolu website to GitHub Pages.
 #
-# The site lives in website/ and is exposed as packages.${system}.website
-# by the root flake — `nix build .#website` produces the static artefact.
+# The site lives in its own flake under website/ — `nix build ./website`
+# produces the static artefact without evaluating Kolu's runnable flake.
 name: pages
 
 on:
@@ -45,7 +45,7 @@ jobs:
             accept-flake-config = true
 
       - name: Build website (nix)
-        run: nix build .#website --print-out-paths
+        run: nix build ./website --print-out-paths
 
       - name: Stage artefact
         run: |

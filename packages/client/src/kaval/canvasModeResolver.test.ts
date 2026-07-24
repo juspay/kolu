@@ -108,15 +108,15 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     });
   });
 
-  it("a REMOTE binding coming up (connectPhase copying/building) resolves to `warming` off its OWN connection cell — never a mute 'Connecting…' (W6 items 3+5)", () => {
-    // `copying`/`building` (nix-copy + build) legitimately outlasts the LOCAL connect ceiling
+  it("a REMOTE binding provisioning resolves to `warming` off its OWN connection cell — never a mute 'Connecting…' (W6 items 3+5)", () => {
+    // Provisioning legitimately outlasts the LOCAL connect ceiling
     // and accrues against the generous remote-provisioning cell instead — so BEFORE its
     // deadline it narrates warming, not an escape.
     expect(
       mode({
         ...liveness,
         entry: "warming",
-        connectPhase: "copying",
+        connectPhase: "provisioning",
         daemonPending: true,
         isLocalHost: false,
       }),
@@ -345,18 +345,18 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
         {
           ...liveness,
           entry: "warming",
-          connectPhase: "building",
+          connectPhase: "provisioning",
           isLocalHost: false,
         },
         true,
       ),
     ).toEqual({
       kind: "boot-stalled",
-      recovery: { via: "connector", phase: "building" },
+      recovery: { via: "connector", phase: "provisioning" },
     });
   });
 
-  it("D2 — ANY warming-remote phase (probing/connecting), not just copying/building, escapes to the CONNECTOR card (the #1898 daemon-copy lie is gone)", () => {
+  it("D2 — ANY warming-remote phase escapes to the CONNECTOR card", () => {
     // Pre-D2 a warming-remote handshake phase mislabeled `daemon` and rendered the TERMINAL
     // "agent isn't responding — Reload" card over a connector still retrying. Now every warming
     // REMOTE phase is the connector-owned campaign → the non-terminal Reconnect card.
@@ -489,39 +489,26 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
     ).toEqual({ accrual: "accrue", leg: "daemon", ceiling: "local" });
   });
 
-  it("a remote provisioning binding (copying/building) accrues against `remote-provisioning` with leg `provisioning`", () => {
+  it("a remote provisioning binding accrues against the remote-provisioning ceiling", () => {
     expect(
       tag({
         ...liveness,
         entry: "warming",
-        connectPhase: "copying",
+        connectPhase: "provisioning",
         isLocalHost: false,
       }),
     ).toEqual({
       accrual: "accrue",
       leg: "provisioning",
       ceiling: "remote-provisioning",
-      phase: "copying",
-    });
-    expect(
-      tag({
-        ...liveness,
-        entry: "warming",
-        connectPhase: "building",
-        isLocalHost: false,
-      }),
-    ).toEqual({
-      accrual: "accrue",
-      leg: "provisioning",
-      ceiling: "remote-provisioning",
-      phase: "building",
+      phase: "provisioning",
     });
   });
 
   it("a remote handshake (probing/connecting/undefined) and a remote connected/not-a-member accrue against `remote-handshake`", () => {
     for (const connectPhase of ["probing", "connecting", undefined] as const) {
       // D2: a warming REMOTE entry is the connector-owned `provisioning` leg for EVERY phase
-      // (its ceiling still keys on the phase → remote-handshake for a non-copying/building one).
+      // (its ceiling still keys on the phase → remote-handshake outside provisioning).
       expect(
         tag({
           ...liveness,

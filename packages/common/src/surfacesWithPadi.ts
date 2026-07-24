@@ -108,8 +108,8 @@ export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
  *     — never drains (monotonicity).
  *   - `cross-supervisor`      — a DIFFERENT LIVE supervisor owns the state root —
  *     never drains (`remotePadiBinding`'s `crossSupervisor` verdict).
- *   - `drv-unbaked`           — `PADI_AGENT_DRVS_JSON` isn't baked (a non-Nix-wrapper run).
- *   - `drv-missing-for-system`— the baked map has no `.drv` for the probed arch.
+ *   - `agent-source-unbaked`  — the source ref isn't baked (a non-Nix-wrapper run).
+ *   - `agent-drv-unavailable` — that source cannot resolve padi for the probed arch.
  *   - `unconverged`           — a newer-contract drain never provably took.
  *   - `link-failed`           — a REMOTE transport gave up (host unreachable /
  *     provisioning failed / a remote terminal give-up). Set by the remote arm's
@@ -133,8 +133,8 @@ export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
     ...SkewVersionPairSchema.shape,
   }),
   z.object({ cause: z.literal("cross-supervisor"), reason: z.string() }),
-  z.object({ cause: z.literal("drv-unbaked"), reason: z.string() }),
-  z.object({ cause: z.literal("drv-missing-for-system"), reason: z.string() }),
+  z.object({ cause: z.literal("agent-source-unbaked"), reason: z.string() }),
+  z.object({ cause: z.literal("agent-drv-unavailable"), reason: z.string() }),
   z.object({ cause: z.literal("unconverged"), reason: z.string() }),
   z.object({ cause: z.literal("link-failed"), reason: z.string() }),
   z.object({ cause: z.literal("local-start-failed"), reason: z.string() }),
@@ -160,7 +160,7 @@ export type EntryFailedCause = PadiEntryFailure["cause"];
 export type PadiEntryStatus = EntryStatus<PadiEntryFailure, ConnectionInfo>;
 
 /** The per-host entry surface — `padiSurface`, served verbatim. SR9: the honest link
- *  health (the copying/building provisioning phase + the live `log` tail the coarse
+ *  health (the probing/provisioning phase + the live `log` tail the coarse
  *  `EntryStatus` chip folds away) is NO LONGER a separate get-only `connection` cell on
  *  this surface — it rides the map ENTRY's fine `connection` payload
  *  ({@link padiHostMap}'s `connection: ConnectionInfoSchema`), the ONE authority both the

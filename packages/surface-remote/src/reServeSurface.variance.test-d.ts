@@ -22,6 +22,7 @@
 import { defineSurface } from "@kolu/surface/define";
 import { z } from "zod";
 import { pumpRemoteSurface } from "./hostFanout";
+import { directAgentDerivation } from "./nixCopy";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { makeSession, type Session } from "./session";
 import { type AgentClient, sshConnector } from "./sshConnector";
@@ -65,7 +66,8 @@ const built = makeSession({
     host: "h",
     binary: "b",
     localEnv: {},
-    resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+    resolveDrvPath: () =>
+      Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
   }),
 });
 const looseBuilt: Session<SurfaceClientLike, string> = built;

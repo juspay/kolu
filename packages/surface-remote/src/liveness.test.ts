@@ -9,7 +9,7 @@
  *   3. `liveness: false` opts out.
  *
  * Mocks `node:child_process` + `nixCopy` (same approach as `recheck.test.ts`) so
- * no real ssh / `nix copy` runs.
+ * no real ssh / remote-store Nix command runs.
  */
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -20,7 +20,7 @@ import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
   type Connector,
@@ -90,7 +90,8 @@ function buildSession(extra: Record<string, unknown> = {}) {
       host: "testhost",
       binary: "agent",
       localEnv: {},
-      resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+      resolveDrvPath: () =>
+        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
     }),
     reconnectDelayMs: 50,
     // One `liveness` knob: tune the cadence as an object (the same 15s/10s the

@@ -646,9 +646,9 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   };
 
   // The LOCAL endpoint arm — `Prov = never` (no provisioning phases): the local
-  // daemon is already here, nothing to nix-copy or probe, so `initialConnection` can
+  // daemon is already here, nothing to provision or probe, so `initialConnection` can
   // ONLY be "connecting" and this session's state can NEVER contain a provisioning
-  // phase ("probing"/"copying"/"building"). `makeSession<_, never>` makes
+  // phase ("probing"/"provisioning"). `makeSession<_, never>` makes
   // `initialConnection: "probing"` a COMPILE error here — the illegal state is
   // unrepresentable, not merely unused (juspay/kolu#1716). The `Session<_, never>` is
   // still assignable to the pool's heterogeneous `Session` slot (a local session
@@ -678,7 +678,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     // can't be surfaced without a kit change (L23 follow-up).
     convergence: () => null,
     // Same parity: the local arm has no drv-resolution/skew channel (no ssh, no arch
-    // probe, no baked drv map) and its OWN contract-skew refusal is FATAL at boot
+    // probe, no baked agent source) and its OWN contract-skew refusal is FATAL at boot
     // (`PadiAdoptionRefusedError`, never a live down-session to publish a cause for)
     // — nothing here to classify.
     entryFailedDetail: () => null,

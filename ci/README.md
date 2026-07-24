@@ -22,20 +22,20 @@ just ci::e2e
 Run the canonical multi-platform pipeline:
 
 ```sh
-nix run .#odu -- run
+nix run ./ci#odu -- run
 ```
 
 Only odu posts GitHub commit statuses. Add its live NDJSON feed when another
 tool is supervising the run:
 
 ```sh
-nix run .#odu -- run --progress json
+nix run ./ci#odu -- run --progress json
 ```
 
 Attach a terminal dashboard to a run already in progress:
 
 ```sh
-nix run .#odu -- attach
+nix run ./ci#odu -- attach
 # or
 just ci::attach
 ```
@@ -67,17 +67,18 @@ The current DAG covers four kinds of work:
 
 | Area | Required nodes |
 | --- | --- |
-| Nix and packaging | `nix`, `home-manager`, `smoke`, `pnpm-hash-fresh` |
+| Nix and packaging | `nix`, `website-nix`, `website-pnpm-hash-fresh`, `surface-examples-nix`, `solid-browser-example-nix`, `odu-nix`, `home-manager`, `smoke`, `pnpm-hash-fresh` |
 | Code quality | `fmt`, `biome`, `unit`, `daemon` |
 | Browser behavior | `e2e` |
 | Living docs and examples | `surface-example-build`, `surface-app-example-build`, `atlas-sync` |
 
-`nix` builds every root-flake output for the lane's system and runs the
-whole-flake evaluation gate. `home-manager` then builds the separate example
-flake: Darwin checks its activation and launchd configuration, while Linux
-builds the NixOS configuration and runs its VM tests. Workspace typechecking is
-a flake check, so `nix build .#default` alone is not a type proof: Vite and
-`tsx` transpile without checking types.
+`nix` builds every runnable-Kolu flake output for the lane's system and runs
+that flake's evaluation gate. The independent website, Surface examples, Solid
+Browser example, and Odu flakes are separate nodes. `home-manager` builds its
+own example flake: Darwin checks activation and launchd configuration, while
+Linux builds the NixOS configuration and runs its VM tests. Workspace
+typechecking is a flake check, so `nix build .#default` alone is not a type
+proof: Vite and `tsx` transpile without checking types.
 
 The `daemon` node is separate from `unit` because it forks real padi and kaval
 processes. Keeping it explicit prevents the default-off daemon suites from
@@ -85,15 +86,18 @@ silently disappearing from CI.
 
 ## Critical path
 
-The large `nix` build is the shared prerequisite for every node that invokes
-`nix build`: `home-manager`, `e2e`, `smoke`, and `pnpm-hash-fresh`.
-Their commands remain self-contained, but start from a warmed store instead of
-running several Nix builds at once:
+The large `nix` build is the shared prerequisite for every later node that
+invokes `nix build`. Their commands remain self-contained, but start from a
+warmed store instead of running several Nix builds at once:
 
 ```text
-                   ┌─ home-manager (Darwin checks / Linux VM tests)
+                   ┌─ website-nix ─ website-pnpm-hash-fresh
+                   ├─ surface-examples-nix
+                   ├─ solid-browser-example-nix
+                   ├─ odu-nix
+setup ─── nix ─────├─ home-manager (Darwin checks / Linux VM tests)
                    ├─ e2e
-setup ─── nix ─────├─ smoke
+                   ├─ smoke
                    └─ pnpm-hash-fresh
 ```
 

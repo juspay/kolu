@@ -22,7 +22,7 @@ export type PtyTuiClient = UnixSocketConnection<
 
 /** A live pty-host connection: the client plus a `dispose` that tears the
  *  transport down. Both the local socket path (`connectPtyHost`) and the ssh
- *  `--host` path (`connectPtyHostViaHost`) return this shape, so every `cmd*()`
+ *  `--host` path (`main.ts`'s `connectHost`) return this shape, so every `cmd*()`
  *  is transport-blind — written against it once over either transport. This is
  *  the kaval-tui CLI's shape: a one-shot dialer needs only the client and a
  *  teardown. A long-lived consumer (kolu-server, P3) that wants the session's

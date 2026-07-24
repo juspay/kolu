@@ -299,8 +299,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // `buildEntry` is SYNC (`makeSession` defers the dial into its own reconnect loop), so an
   // unreachable seed host surfaces as a `failed` entry, never a boot throw. BOTH the
   // default (local) arm and remote arms are fail-open (a local spawn+connect, or ssh
-  // provisioning, both take real time — the connection cell reports copying/connecting
-  // meanwhile, exactly the same shape for either). The `?host=` handler is unused (the
+  // provisioning, both take real time — each session publishes its honest fine phase
+  // meanwhile: local starts at connecting; remote starts at probing). The `?host=` handler is unused (the
   // map forwards by key-in-input, not a per-host socket), so `H = undefined`.
   const pool = buildRemotePool<PadiSession, undefined>({
     initialHosts: initialHostKeys,

@@ -1,28 +1,25 @@
 /**
  * Unit tests for `dialAgentOnce` — the one-shot CLI dial composition. No ssh, no
  * nix: `makeSession` (the reconnect loop) + `sshConnector` (the ssh/provision
- * transport) and `resolveSystem` (the arch probe) are mocked, so the test proves the
+ * transport) and `resolveAgentDrv` are mocked, so the test proves the
  * composition the primitive owns:
  *
- *   - eager drv-map parse + shape guard (missing / non-string-valued / array),
- *     thrown synchronously BEFORE a session is constructed,
- *   - the deferred resolver: arch probe → map lookup → "no <noun> derivation
- *     baked" error (now handed to `sshConnector` as `resolveDrvPath`),
+ *   - eager source-ref validation before a session is constructed,
+ *   - the deferred source-flake derivation resolver handed to `sshConnector`,
  *   - the pin → probe → markConnected → leak-safe-destroy lifecycle,
  *   - per-dial session isolation: each dial builds its OWN `makeSession`
  *     (no shared pool — S10 deleted it), so repeated and concurrent same-host/binary
  *     dials never share state or cross-dispose (the F1 regression).
  *
- * The CLI wrappers (kaval-tui / pulam-tui) supply only their binary, env-var
- * name + value, drvNoun, fatalPrefix, and probe; those thin seams are tested in
- * their own packages.
+ * The CLI wrappers (kaval-tui / padi-tui) supply only their binary,
+ * fatalPrefix, and probe; those thin seams are tested in their own packages.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   markConnected: vi.fn(),
   destroy: vi.fn(),
-  resolveSystem: vi.fn(),
+  resolveAgentDrv: vi.fn(),
   // `dialAgentOnce` composes `makeSession({ connectOnce: sshConnector(opts) })` per
   // dial (S10 deleted the pool). `sshConnector` captures its transport opts (host /
   // binary / extraArgs / resolveDrvPath); `makeSession` mints a fresh fake session.
@@ -46,11 +43,15 @@ const h = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("./arch", () => ({ resolveSystem: h.resolveSystem }));
+vi.mock("./agentDrv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agentDrv")>();
+  return { ...actual, resolveAgentDrv: h.resolveAgentDrv };
+});
 vi.mock("./session", () => ({ makeSession: h.makeSession }));
 vi.mock("./sshConnector", () => ({ sshConnector: h.sshConnector }));
 
 import { dialAgentOnce } from "./dialAgentOnce";
+import { SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
 
 /** Wire the mocks: `sshConnector(opts)` records its transport opts and returns a
  *  dummy connector; `makeSession(opts)` mints a fresh fake session whose `pin()`
@@ -93,12 +94,20 @@ function fakeSession(client: unknown) {
 /** The transport opts `dialAgentOnce` hands to `sshConnector` for the first dial. */
 const sshOpts = () => h.sshConnector.mock.calls[0]?.[0];
 
-const VALID_MAP = JSON.stringify({
-  "x86_64-linux": "/nix/store/aaa-agent.drv",
+const FLAKE_REF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source";
+const resolverContext = {
+  signal: new AbortController().signal,
+  localProgress: vi.fn(),
+  resolveAgentDrv: h.resolveAgentDrv,
+};
+
+beforeEach(() => {
+  vi.stubEnv(SURFACE_AGENT_FLAKE_REF_ENV, FLAKE_REF);
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   h.sessions.length = 0;
   h.state = {
     phase: "connecting",
@@ -106,84 +115,57 @@ afterEach(() => {
   };
 });
 
-describe("dialAgentOnce: eager drv-map validation", () => {
+describe("dialAgentOnce: eager source-ref validation", () => {
   // The static-config check runs eagerly — BEFORE the session is constructed —
-  // so a missing/malformed map fails synchronously and never enters the
+  // so a missing ref fails synchronously and never enters the
   // session's retryable "network" classification.
   const base = {
     host: "nix@prod",
     binary: "agent",
-    envVar: "AGENT_DRVS_JSON",
-    drvNoun: "agent",
     fatalPrefix: "agent:",
     localEnv: {},
     probe: async () => undefined,
   };
 
-  it("fails when the drv map is missing entirely (ran outside the Nix wrapper)", async () => {
-    await expect(
-      dialAgentOnce({ ...base, agentDrvsJson: undefined }),
-    ).rejects.toThrow(/AGENT_DRVS_JSON is not set/);
+  it("fails when the source ref is missing (ran outside the Nix wrapper)", async () => {
+    delete process.env[SURFACE_AGENT_FLAKE_REF_ENV];
+    await expect(dialAgentOnce(base)).rejects.toThrow(
+      /SURFACE_AGENT_FLAKE_REF is not set/,
+    );
     expect(h.makeSession).not.toHaveBeenCalled();
   });
 
-  it("names the caller's env var in the error, not a hardcoded literal", async () => {
-    await expect(
-      dialAgentOnce({
-        ...base,
-        envVar: "WIDGET_DRVS",
-        agentDrvsJson: undefined,
-      }),
-    ).rejects.toThrow(/WIDGET_DRVS is not set/);
-  });
-
-  it("rejects invalid JSON", async () => {
-    await expect(
-      dialAgentOnce({ ...base, agentDrvsJson: "{not json" }),
-    ).rejects.toThrow(/AGENT_DRVS_JSON is not valid JSON/);
-    expect(h.makeSession).not.toHaveBeenCalled();
-  });
-
-  it("rejects a malformed (non-string-valued) map", async () => {
-    await expect(
-      dialAgentOnce({
-        ...base,
-        agentDrvsJson: JSON.stringify({ "x86_64-linux": 7 }),
-      }),
-    ).rejects.toThrow(/must be a JSON object of \{ system: drvPath \} strings/);
-    expect(h.makeSession).not.toHaveBeenCalled();
-  });
-
-  it("rejects a JSON array (an object whose string values would slip the shape check)", async () => {
-    await expect(
-      dialAgentOnce({
-        ...base,
-        agentDrvsJson: JSON.stringify(["/nix/store/x.drv"]),
-      }),
-    ).rejects.toThrow(/must be a JSON object of \{ system: drvPath \} strings/);
+  it("rejects an empty source ref", async () => {
+    process.env[SURFACE_AGENT_FLAKE_REF_ENV] = "  ";
+    await expect(dialAgentOnce(base)).rejects.toThrow(
+      /SURFACE_AGENT_FLAKE_REF is not set/,
+    );
     expect(h.makeSession).not.toHaveBeenCalled();
   });
 });
 
-describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
-  it("ships the host-arch derivation: probe system, then map-lookup", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+describe("dialAgentOnce: deferred drv resolution", () => {
+  it("resolves the binary's package from the baked source flake", async () => {
+    h.resolveAgentDrv.mockResolvedValue({
+      kind: "flake-installable",
+      drvPath: "/nix/store/aaa-agent.drv",
+      installable: "/nix/store/source#packages.x86_64-linux.agent",
+    });
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
       binary: "agent",
-      envVar: "AGENT_DRVS_JSON",
-      agentDrvsJson: JSON.stringify({
-        "x86_64-linux": "/nix/store/aaa-agent.drv",
-        "aarch64-darwin": "/nix/store/bbb-agent.drv",
-      }),
-      drvNoun: "agent",
       fatalPrefix: "agent:",
       localEnv: {},
       probe: async () => undefined,
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
-    await expect(resolveDrvPath()).resolves.toBe("/nix/store/aaa-agent.drv");
+    await expect(resolveDrvPath(resolverContext)).resolves.toEqual({
+      kind: "flake-installable",
+      drvPath: "/nix/store/aaa-agent.drv",
+      installable: "/nix/store/source#packages.x86_64-linux.agent",
+    });
+    expect(h.resolveAgentDrv).toHaveBeenCalledWith(FLAKE_REF, "agent");
   });
 
   it("threads extraArgs to the connector (the --kaval passthrough)", async () => {
@@ -191,9 +173,6 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "pulam",
-      envVar: "AGENT_DRVS_JSON",
-      agentDrvsJson: VALID_MAP,
-      drvNoun: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
       probe: async () => undefined,
@@ -209,9 +188,6 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "pulam",
-      envVar: "AGENT_DRVS_JSON",
-      agentDrvsJson: VALID_MAP,
-      drvNoun: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
       probe: async () => undefined,
@@ -219,25 +195,21 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
     expect(sshOpts()?.extraArgs).toBeUndefined();
   });
 
-  it("fails clearly when no derivation is baked for the host's system", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+  it("forwards a derivation-resolution failure", async () => {
+    h.resolveAgentDrv.mockRejectedValue(
+      new Error("could not resolve widget for system=x86_64-linux"),
+    );
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
       binary: "widget",
-      envVar: "WIDGET_DRVS",
-      agentDrvsJson: JSON.stringify({
-        "aarch64-darwin": "/nix/store/bbb-widget.drv",
-      }),
-      drvNoun: "widget",
       fatalPrefix: "widget:",
       localEnv: {},
       probe: async () => undefined,
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
-    // The drvNoun is interpolated into the error — not the env var name.
-    await expect(resolveDrvPath()).rejects.toThrow(
-      /no widget derivation baked for system=x86_64-linux/,
+    await expect(resolveDrvPath(resolverContext)).rejects.toThrow(
+      /could not resolve widget for system=x86_64-linux/,
     );
   });
 });
@@ -256,9 +228,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     const dial = await dialAgentOnce({
       host: "nix@prod",
       binary: "agent",
-      envVar: "AGENT_DRVS_JSON",
-      agentDrvsJson: VALID_MAP,
-      drvNoun: "agent",
       fatalPrefix: "agent:",
       localEnv,
       probe,
@@ -283,9 +252,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       dialAgentOnce({
         host: "nix@prod",
         binary: "agent",
-        envVar: "AGENT_DRVS_JSON",
-        agentDrvsJson: VALID_MAP,
-        drvNoun: "agent",
         fatalPrefix: "agent:",
         localEnv: {},
         probe: async () => {
@@ -341,9 +307,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "pulam",
-      envVar: "AGENT_DRVS_JSON",
-      agentDrvsJson: VALID_MAP,
-      drvNoun: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
       probe: async () => {
@@ -370,10 +333,9 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
 
   it("matches a multi-word fatalPrefix (kaval's `kaval --stdio:`, not `kaval:`)", async () => {
     // The remote runs `kaval --stdio`, whose fatal prefix is `kaval --stdio:` —
-    // NOT `kaval:`. A `${drvNoun}:`-shaped guess would NOT match this line and
+    // NOT `kaval:`. A binary-derived guess would NOT match this line and
     // would silently surface the opaque transport error instead, which is exactly
-    // why `fatalPrefix` is caller-supplied. (drvNoun stays `kaval` for the
-    // separate "no derivation baked" error.)
+    // why `fatalPrefix` is caller-supplied.
     fakeSession({});
     h.state = {
       phase: "disconnected",
@@ -388,9 +350,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await dialAgentOnce({
       host: "nix@prod",
       binary: "kaval",
-      envVar: "KAVAL_AGENT_DRVS_JSON",
-      agentDrvsJson: VALID_MAP,
-      drvNoun: "kaval",
       fatalPrefix: "kaval --stdio:",
       localEnv: {},
       probe: async () => {
@@ -414,9 +373,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       dialAgentOnce({
         host: "nix@prod",
         binary: "agent",
-        envVar: "AGENT_DRVS_JSON",
-        agentDrvsJson: VALID_MAP,
-        drvNoun: "agent",
         fatalPrefix: "agent:",
         localEnv: {},
         probe: async () => {
@@ -435,9 +391,6 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
   const dialArgs = {
     host: "nix@prod",
     binary: "agent",
-    envVar: "AGENT_DRVS_JSON",
-    agentDrvsJson: VALID_MAP,
-    drvNoun: "agent",
     fatalPrefix: "agent:",
     localEnv: {},
     probe: async () => "ok",

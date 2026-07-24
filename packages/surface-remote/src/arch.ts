@@ -1,12 +1,10 @@
 /**
  * Detect a host's nix-system identifier by asking the host's own Nix.
  *
- * The companion piece to `provisionAgent`'s docstring contract: the
- * library deliberately takes one `.drv` per session and ships exactly
- * that, leaving arch selection to the caller. `resolveSystem(host)` is
- * the canonical probe to feed that selection — it returns the
- * nix-system string (`x86_64-linux`, `aarch64-darwin`, …) the caller
- * keys its per-system `.drv` map on.
+ * The companion piece to source-based agent resolution. `resolveSystem(host,
+ * opts)` is the canonical target-system probe — it returns the
+ * nix-system string (`x86_64-linux`, `aarch64-darwin`, …) that
+ * `resolveAgentDrv` uses to select one package from the baked source flake.
  *
  * Why ask Nix rather than parse `uname -ms`: the host's own Nix is the
  * authoritative answer to "what system will this machine build for",
@@ -22,21 +20,17 @@
  * reachable on that PATH — `nix-instantiate` ships in the same
  * package. The probe adds no dependency the build step didn't.
  *
- * Typical use, paired with a per-system `.drv` map the caller builds at
- * its own build time. Pass the probe as `resolveDrvPath` so it runs
- * inside the session's spawn cycle — an unreachable host then degrades to
- * `failed` and retries, instead of throwing before the session exists:
+ * Typical low-level use. `resolveAgentDrv` is the higher-level source-flake
+ * composition used by Kolu:
  *
  *   const session = makeSession({
  *     connectOnce: sshConnector({
  *       host,
  *       binary,
  *       localEnv,  // the composed env a `localhost` dial spawns with (never ambient process.env)
- *       resolveDrvPath: async () => {
- *         const sys = await resolveSystem(host);
- *         const drv = myDrvBySystem[sys];
- *         if (!drv) throw new Error(`${host}: no .drv for ${sys}`);
- *         return drv;
+ *       resolveDrvPath: async (ctx) => {
+ *         const sys = await resolveSystem(host, ctx);
+ *         return resolveDrvForSystem(sys);
  *       },
  *     }),
  *   });
@@ -49,48 +43,25 @@ import { describeExit, runCapture } from "./process";
 /** Sanity-guard shape for a nix-system identifier: `<cpu>-<os>`, e.g.
  *  `x86_64-linux`, `aarch64-darwin`. Deliberately NOT a closed
  *  allow-list — a host reporting a system this library has never seen
- *  (`riscv64-linux`, …) resolves fine, as long as the caller baked a
- *  matching `.drv`. The guard only rejects output that clearly isn't a
- *  system string (empty, a warning line, multi-token noise). */
+ *  (`riscv64-linux`, …) passes the probe; resolution succeeds only when the
+ *  baked agent flake exposes `packages.<system>.<package>`. The guard only
+ *  rejects output that clearly isn't a system string (empty, a warning line,
+ *  multi-token noise). */
 const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 
-/** In-memory, per-process arch cache keyed by host. A host's nix-system is
- *  stable for the lifetime of this process, so the ssh round-trip the probe
- *  costs needn't be re-paid on every dial — the second redundant round-trip
- *  P2.7 left alone, which P2.8 removes (the first is the provision check,
- *  now multiplexed). It caches the *promise*, not the value, so two dials
- *  that race the first probe of a host coalesce onto one ssh.
- *
- *  Deliberately in-memory only: an on-disk arch cache is REJECTED — a third
- *  source of truth that goes stale on a reimage / hostname reuse, the same
- *  reason the provisioned-state cache was rejected. A cold process re-probes
- *  once; that is always correct. */
-const archCache = new Map<string, Promise<string>>();
-
-/** Ask `host`'s Nix for its `builtins.currentSystem` and return it,
- *  memoized per host for this process (see `archCache`). Runs locally for
- *  `isLocalHost`, over `ssh` otherwise. Rejects if the probe can't run, or
- *  returns something that isn't a nix-system — a rejection is NOT cached
- *  (see `delete`-on-reject below): a host unreachable at probe time is a
- *  transport fault, not a fact about the host, so the next dial re-probes
- *  rather than serving a poisoned cache forever. Signature unchanged from
- *  the un-cached version — callers see only a faster repeat probe. */
-export async function resolveSystem(host: string): Promise<string> {
-  const cached = archCache.get(host);
-  if (cached !== undefined) return cached;
-  const probe = probeSystem(host);
-  archCache.set(host, probe);
-  // A failed probe is a transient-unreachable signal, not the host's arch:
-  // drop it so the next dial re-probes instead of re-throwing forever.
-  probe.catch(() => {
-    if (archCache.get(host) === probe) archCache.delete(host);
-  });
-  return probe;
+export interface ResolveSystemOptions {
+  signal: AbortSignal;
+  onProgress: (line: string) => void;
 }
 
-/** The actual ssh arch probe, un-memoized — `resolveSystem` wraps it with
- *  the per-host cache. */
-async function probeSystem(host: string): Promise<string> {
+/** Ask `host`'s Nix for its `builtins.currentSystem`. Runs locally for
+ * `isLocalHost`, over `ssh` otherwise. The fact belongs to this dial: an SSH
+ * alias can be retargeted or a machine reimaged while Kolu remains open, so
+ * caching it beyond the dial would select packages for a stale host identity. */
+export async function resolveSystem(
+  host: string,
+  opts: ResolveSystemOptions,
+): Promise<string> {
   const { command, args } = buildSshProbeCommand(
     host,
     "nix-instantiate",
@@ -100,10 +71,12 @@ async function probeSystem(host: string): Promise<string> {
   );
   const res = await runCapture(command, args, {
     // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never a
-    // build — so it rides the shared QUICK-step deadline `probePolicy()` (the warm check
-    // and pin use it too): the "how long a quick nix/ssh round-trip may run" policy shape
-    // lives in ONE place, not re-spelled here.
+    // build — so it rides the shared QUICK-step deadline `probePolicy()` (as does the
+    // warm check). The "how long a quick nix/ssh round-trip may run" policy shape lives
+    // in ONE place, not re-spelled here.
     policy: probePolicy(),
+    signal: opts.signal,
+    onProgress: opts.onProgress,
   });
   if (!res.ok) {
     throw new Error(

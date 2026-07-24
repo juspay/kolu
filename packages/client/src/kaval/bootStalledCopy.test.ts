@@ -52,9 +52,9 @@ describe("CONNECTOR_STALLED_COPY (connector card, #1908 D2)", () => {
 
 describe("bootStalledPhaseDetail", () => {
   it("narrates every connect phase with a distinct, non-empty 'still …' detail line", () => {
-    const details = (
-      ["probing", "copying", "building", "connecting"] as const
-    ).map((p) => bootStalledPhaseDetail(p));
+    const details = (["probing", "provisioning", "connecting"] as const).map(
+      (p) => bootStalledPhaseDetail(p),
+    );
     for (const d of details) {
       expect(d).toBeTruthy();
       expect(d).toMatch(/^Still /);
