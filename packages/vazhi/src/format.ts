@@ -7,7 +7,15 @@
  */
 
 /** How long a forward has been up, in the coarsest unit that still says
- *  something: seconds under a minute, then minutes, then hours, then days. */
+ *  something: seconds under a minute, then minutes, then hours, then days.
+ *
+ *  Deliberately a second implementation of the ladder in
+ *  `packages/client/src/time/duration.ts` (`compactDelta`), not an import of
+ *  it: vazhi's PRT0 criterion is that its ONLY kolu import is
+ *  `@kolu/port-forward`, and reaching into the browser client would point an
+ *  app→app arrow. Nine lines is the honest price of that independence — keep
+ *  the thresholds (sec<60 / min<60 / hr<24) and the negative clamp identical to
+ *  that file if either ever changes. */
 export function formatUptime(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   if (seconds < 60) return `${seconds}s`;

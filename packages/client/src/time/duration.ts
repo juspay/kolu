@@ -8,7 +8,11 @@
  *  next-finer `sub` unit, so a caller can render either a single unit (`2h`) or
  *  two (`2h 20m`) without re-walking the ladder. The sec<60 / min<60 / hr<24 /
  *  else thresholds and the negative-clamp (clock skew between an agent host and
- *  the client must never render a negative age) live here and nowhere else. */
+ *  the client must never render a negative age) live here and nowhere else.
+ *
+ *  One deliberate exception: a twin of this ladder lives in
+ *  `packages/vazhi/src/format.ts` — vazhi may not import the client bundle.
+ *  Keep the thresholds in step. */
 export type DeltaUnit = "s" | "m" | "h" | "d";
 
 export function compactDelta(ms: number): {
