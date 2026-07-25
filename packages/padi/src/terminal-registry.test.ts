@@ -37,7 +37,7 @@ const snapshot = (): TerminalSnapshot => ({
   pr: { kind: "absent" },
   agent: null,
   foreground: null,
-  ports: [],
+  ports: { status: "unknown" },
 });
 
 function seedActive(): void {

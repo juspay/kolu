@@ -63,7 +63,7 @@ function snapshot(): TerminalSnapshot {
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
-    ports: [],
+    ports: { status: "unknown" },
   };
 }
 
@@ -190,7 +190,7 @@ describe("metadata publish routing", () => {
       pr: { kind: "pending" },
       agent: null,
       foreground: null,
-      ports: [],
+      ports: { status: "unknown" },
       // @ts-expect-error — `lastActivityAt` is REMEMBERED memory, not snapshot.
       lastActivityAt: 0,
     });

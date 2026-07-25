@@ -14,6 +14,7 @@ import type {
   PortInfo,
   TerminalEvent,
   TerminalId,
+  TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import type { ForegroundSample } from "kaval";
 import pino from "pino";
@@ -43,7 +44,7 @@ function harness() {
     title: inMemoryChannel<string>(),
     commandRun: inMemoryChannel<CommandRunSample>(),
     foreground: inMemoryChannel<ForegroundSample>(),
-    ports: inMemoryChannel<readonly PortInfo[]>(),
+    ports: inMemoryChannel<TerminalPorts>(),
   };
   const emitted: TerminalEvent[] = [];
   const stop = startPortSensor(
@@ -54,7 +55,12 @@ function harness() {
   );
   return {
     scan: async (ports: PortInfo[]) => {
-      signals.ports.publish(ports);
+      signals.ports.publish({ status: "known", list: ports });
+      await flush();
+    },
+    /** A pass that could not see — distinct from one that saw nothing. */
+    blind: async () => {
+      signals.ports.publish({ status: "unknown" });
       await flush();
     },
     emitted,
@@ -66,7 +72,9 @@ describe("the port sensor", () => {
   it("emits the first non-empty sample", async () => {
     const h = harness();
     await h.scan([p(8080)]);
-    expect(h.emitted).toEqual([{ kind: "ports", ports: [p(8080)] }]);
+    expect(h.emitted).toEqual([
+      { kind: "ports", ports: { status: "known", list: [p(8080)] } },
+    ]);
     h.stop();
   });
 
@@ -79,13 +87,37 @@ describe("the port sensor", () => {
     h.stop();
   });
 
-  it("says nothing at all while a terminal serves nothing", async () => {
-    // The common case — most terminals never bind a port — so the empty seed must
-    // match `seedSnapshot`, or every idle terminal would emit on its first scan.
+  it("announces a successful EMPTY scan once, then goes quiet", async () => {
+    // This behaviour CHANGED with the honest two-way, and the change is the point:
+    // the baseline is now `unknown`, so the first successful empty scan is real
+    // news — we looked, and there is nothing — rather than a no-op against a
+    // fabricated `[]`. It is said once and then deduped like any other sample.
     const h = harness();
     await h.scan([]);
     await h.scan([]);
+    expect(h.emitted).toEqual([
+      { kind: "ports", ports: { status: "known", list: [] } },
+    ]);
+    h.stop();
+  });
+
+  it("emits NOTHING while the scan stays BLIND, and never claims empty", async () => {
+    // The invariant the two-way exists for: a terminal whose first pass could not
+    // see must not reach the snapshot as one that serves nothing.
+    const h = harness();
+    await h.blind();
+    await h.blind();
     expect(h.emitted).toEqual([]);
+    h.stop();
+  });
+
+  it("emits when blindness lifts, even onto an empty set", async () => {
+    const h = harness();
+    await h.blind();
+    await h.scan([]);
+    expect(h.emitted).toEqual([
+      { kind: "ports", ports: { status: "known", list: [] } },
+    ]);
     h.stop();
   });
 
@@ -95,9 +127,11 @@ describe("the port sensor", () => {
     await h.scan([p(8080), p(9229)]);
     await h.scan([p(8080)]);
     await h.scan([]);
-    expect(h.emitted.map((o) => (o.kind === "ports" ? o.ports : null))).toEqual(
-      [[p(8080)], [p(8080), p(9229)], [p(8080)], []],
-    );
+    expect(
+      h.emitted.map((o) =>
+        o.kind === "ports" && o.ports.status === "known" ? o.ports.list : null,
+      ),
+    ).toEqual([[p(8080)], [p(8080), p(9229)], [p(8080)], []]);
     h.stop();
   });
 

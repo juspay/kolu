@@ -42,7 +42,7 @@ function activeTerminal(agent: AgentInfo | null): PadiTerminal {
     pr: { kind: "pending" },
     agent,
     foreground: null,
-    ports: [],
+    ports: { status: "unknown" },
   };
   return composeTerminalMetadata(
     { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
@@ -70,7 +70,7 @@ function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
     pr: { kind: "pending" },
     agent,
     foreground: null,
-    ports: [],
+    ports: { status: "unknown" },
   };
   return composeTerminalMetadata(
     {

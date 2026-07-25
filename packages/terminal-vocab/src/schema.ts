@@ -182,6 +182,45 @@ export const PortInfoSchema = z.object({
 });
 export type PortInfo = z.infer<typeof PortInfoSchema>;
 
+/** What a terminal is serving, as an HONEST two-way — not a bare `PortInfo[]` that
+ *  conflates "nothing is listening" with "we could not look".
+ *
+ *   - `{ status: "known", list }` — a scan succeeded. `list` may be EMPTY, and that
+ *     is a real answer: this terminal serves nothing.
+ *   - `{ status: "unknown" }` — no scan has ever succeeded for this terminal. A
+ *     freshly spawned one before its first pass, and a terminal whose first pass was
+ *     BLIND.
+ *
+ *  The second arm exists because the whole sensor is built on "a blind scan must
+ *  never look like an empty one", and a bare array broke that rule in exactly one
+ *  place: holding the last good sample covers a later blind pass, but there is
+ *  nothing to hold before the first success, so `[]` was published as though
+ *  observed. That window is reachable on a healthy host — a first-pass `lsof`
+ *  timeout on darwin, a transient `/proc/net/tcp` read failure on linux, or any
+ *  unexpected `/proc` errno (which the scan deliberately treats as blindness) — and
+ *  none of it requires the terminal's own shell to be unreadable.
+ *
+ *  A discriminated union rather than a nullable list or a second boolean, for the
+ *  same reason {@link ProcessRssSchema} is one: the states are mutually exclusive by
+ *  construction, so "unknown AND a stale list" is unrepresentable rather than merely
+ *  discouraged. Same in-repo pattern, same rationale.
+ *
+ *  A consumer that only wants ports reads {@link knownPorts}, which answers `[]` for
+ *  unknown — but it must do so KNOWINGLY, at a call site, rather than because the
+ *  wire quietly said `[]`. */
+export const TerminalPortsSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("known"), list: z.array(PortInfoSchema) }),
+  z.object({ status: z.literal("unknown") }),
+]);
+export type TerminalPorts = z.infer<typeof TerminalPortsSchema>;
+
+/** The ports a reader can actually name — `[]` when the terminal has never been
+ *  successfully scanned. The ONE place "unknown reads as no ports" is spelled, so a
+ *  render site is a deliberate caller of it rather than a victim of the wire. */
+export function knownPorts(ports: TerminalPorts): readonly PortInfo[] {
+  return ports.status === "known" ? ports.list : [];
+}
+
 /** Collapse listening sockets into the one row per PORT that a reader wants —
  *  sorted by port, deduplicated, with `wildcard` folded by OR.
  *
@@ -278,14 +317,15 @@ const PORT_INFO_KEYS = Object.keys(PortInfoSchema.shape) as (keyof PortInfo)[];
  *  anyway. Hand-written rather than `isDeepStrictEqual` so this stays browser-safe
  *  (the vocab is bundled into the client) — but over `PORT_INFO_KEYS`, not a
  *  hand-listed triple, so the field set is the schema's and not a convention. */
-export function portsEqual(
-  a: readonly PortInfo[],
-  b: readonly PortInfo[],
-): boolean {
+export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
+  // A status flip is always a change: "we finally saw" and "we still cannot see"
+  // are exactly the transitions a dedup gate must not swallow.
+  if (a.status !== b.status) return false;
+  if (a.status !== "known" || b.status !== "known") return true;
   return (
-    a.length === b.length &&
-    a.every((p, i) => {
-      const q = b[i]!;
+    a.list.length === b.list.length &&
+    a.list.every((p, i) => {
+      const q = b.list[i]!;
       return PORT_INFO_KEYS.every((k) => p[k] === q[k]);
     })
   );
@@ -316,12 +356,8 @@ export const TerminalSnapshotSchema = z.object({
   agent: AgentInfoSchema.nullable(),
   /** The live foreground process (vim, …) — detected via OSC 2 title events. */
   foreground: ForegroundSchema.nullable(),
-  /** Every TCP port a process in this terminal's subtree is LISTENING on, sorted
-   *  by port. Re-sampled whole each scan (a port that died leaves the array), so
-   *  it is the same last-write-wins shape as the other five — never an
-   *  accumulating set. Empty for a terminal serving nothing, which is most of
-   *  them. */
-  ports: z.array(PortInfoSchema),
+  /** What this terminal is serving — see {@link TerminalPortsSchema}. */
+  ports: TerminalPortsSchema,
 });
 export type TerminalSnapshot = z.infer<typeof TerminalSnapshotSchema>;
 
@@ -391,7 +427,7 @@ export type TerminalEvent =
   | { kind: "pr"; pr: PrResult }
   | { kind: "foreground"; foreground: Foreground | null }
   | { kind: "agent"; agent: Known<AgentInfo | null> }
-  | { kind: "ports"; ports: readonly PortInfo[] }
+  | { kind: "ports"; ports: TerminalPorts }
   | { kind: "commandRun"; command: string; replayed: boolean };
 
 /** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at
@@ -404,7 +440,7 @@ export function seedSnapshot(cwd: string): TerminalSnapshot {
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
-    ports: [],
+    ports: { status: "unknown" },
   };
 }
 

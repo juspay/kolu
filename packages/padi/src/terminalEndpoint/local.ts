@@ -25,9 +25,9 @@
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
   AgentIdentity,
-  PortInfo,
   TerminalEvent,
   TerminalId,
+  TerminalPorts,
   TerminalSnapshot,
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
@@ -457,7 +457,7 @@ interface TerminalLifecycle {
   stopAwareness: () => void;
   /** OS pid of the PTY's root process — the port scan's walk origin. */
   rootPid: number;
-  ports: Channel<readonly PortInfo[]>;
+  ports: Channel<TerminalPorts>;
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
@@ -565,7 +565,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         [...this.lifecycles].map(([id, lc]) => ({ id, rootPid: lc.rootPid })),
       // Straight into the terminal's own `ports` channel — its port sensor owns
       // the structural dedup, so an unchanged scan stops here.
-      publish: (id, ports) => this.lifecycles.get(id)?.ports.publish(ports),
+      // The sampler only ever publishes a set it SUCCESSFULLY read, so this seam
+      // is where that becomes the honest `known` arm. A terminal it has never
+      // read stays at `seedSnapshot`'s `unknown` — which is a different fact from
+      // `known: []` and must not be spelled the same way.
+      publish: (id, list) =>
+        this.lifecycles
+          .get(id)
+          ?.ports.publish({ status: "known", list: [...list] }),
       log,
     });
     this.portSampler = sampler;
@@ -939,7 +946,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       commandRun: inMemoryChannel<CommandRunSample>(),
       foreground: inMemoryChannel<ForegroundSample>(),
       // Fed by the host-wide port sampler (below), not by a pty-host tap.
-      ports: inMemoryChannel<readonly PortInfo[]>(),
+      ports: inMemoryChannel<TerminalPorts>(),
     };
     // Arm the host-wide port sampler (once per process) up front, so the nudge is
     // in hand for the command-mark bridge below. Its first pass can only run after

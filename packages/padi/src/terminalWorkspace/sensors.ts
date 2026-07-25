@@ -63,9 +63,9 @@ import type { Logger } from "pino";
 import type {
   AgentInfo,
   TerminalEvent,
-  PortInfo,
   PrUnavailableSource,
   TerminalId,
+  TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import { portsEqual } from "@kolu/terminal-vocab/schema";
 
@@ -127,7 +127,7 @@ export interface SensorSignals {
    *  is how that host-wide fact re-enters the per-terminal producer, so the port
    *  sample folds through the SAME emit → fold → snapshot path as every other
    *  field instead of a second write seam into the registry. */
-  ports: Channel<readonly PortInfo[]>;
+  ports: Channel<TerminalPorts>;
 }
 
 /** Read the terminal's current rendered screen as VT-resolved plain text — the
@@ -237,13 +237,15 @@ export function startPortSensor(
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "ports", terminal: terminalId });
-  let published: readonly PortInfo[] = [];
+  let published: TerminalPorts = { status: "unknown" };
   plog.debug("started");
   const cleanup = signals.ports.consume({
     onEvent: (ports) => {
       if (portsEqual(published, ports)) return;
       plog.debug(
-        { ports: ports.map((p) => p.port) },
+        ports.status === "known"
+          ? { ports: ports.list.map((p) => p.port) }
+          : { ports: "unknown" },
         "listening ports changed",
       );
       published = ports;

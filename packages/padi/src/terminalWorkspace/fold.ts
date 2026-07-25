@@ -65,7 +65,10 @@ export function foldSnapshot(
       // reaches here is a real change.
       .with({ kind: "ports" }, ({ ports }) => ({
         ...snapshot,
-        ports: [...ports],
+        ports:
+          ports.status === "known"
+            ? { status: "known" as const, list: [...ports.list] }
+            : ports,
       }))
       // `unknown` returns the SAME reference (no clobber) — callers rely on the
       // identity to detect "nothing changed"; `{ value }` applies authoritatively.

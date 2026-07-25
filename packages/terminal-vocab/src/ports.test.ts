@@ -10,7 +10,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { foldPorts, type PortInfo, portReach, portsEqual } from "./schema.ts";
+import {
+  foldPorts,
+  type PortInfo,
+  portReach,
+  portsEqual,
+  type TerminalPorts,
+} from "./schema.ts";
 
 const p = (port: number, wildcard = true, name = "node"): PortInfo => ({
   port,
@@ -80,32 +86,45 @@ describe("foldPorts", () => {
     // A first-wins name would therefore flip between passes, and `portsEqual`
     // reads the name, so every flip would republish "a change" forever.
     const rows = [p(8080, false, "python"), p(8080, false, "node")];
-    expect(portsEqual(foldPorts(rows), foldPorts([...rows].reverse()))).toBe(
-      true,
-    );
+    expect(
+      portsEqual(
+        { status: "known", list: foldPorts(rows) },
+        { status: "known", list: foldPorts([...rows].reverse()) },
+      ),
+    ).toBe(true);
     expect(foldPorts(rows)).toEqual([p(8080, false, "node")]);
   });
 });
 
+/** The known arm, for the equality cases below. */
+const known = (list: PortInfo[]): TerminalPorts => ({ status: "known", list });
+const unknown: TerminalPorts = { status: "unknown" };
+
 describe("portsEqual", () => {
   it("accepts an unchanged sample, so an idle scan emits nothing", () => {
-    expect(portsEqual([p(8080), p(9229)], [p(8080), p(9229)])).toBe(true);
-    expect(portsEqual([], [])).toBe(true);
+    expect(
+      portsEqual(known([p(8080), p(9229)]), known([p(8080), p(9229)])),
+    ).toBe(true);
+    expect(portsEqual(known([]), known([]))).toBe(true);
   });
 
   it("notices a port appearing or dying", () => {
-    expect(portsEqual([p(8080)], [p(8080), p(9229)])).toBe(false);
-    expect(portsEqual([p(8080)], [])).toBe(false);
+    expect(portsEqual(known([p(8080)]), known([p(8080), p(9229)]))).toBe(false);
+    expect(portsEqual(known([p(8080)]), known([]))).toBe(false);
   });
 
   it("notices a BIND change on the same port", () => {
     // A dev server restarted with `--host` keeps its number but stops needing a
     // forward. A port-number-only comparison would leave the chip inert forever.
-    expect(portsEqual([p(5173, false)], [p(5173, true)])).toBe(false);
+    expect(portsEqual(known([p(5173, false)]), known([p(5173, true)]))).toBe(
+      false,
+    );
   });
 
   it("notices a NAME change on the same port", () => {
-    expect(portsEqual([p(3000)], [p(3000, true, "workerd")])).toBe(false);
+    expect(
+      portsEqual(known([p(3000)]), known([p(3000, true, "workerd")])),
+    ).toBe(false);
   });
 });
 
@@ -142,5 +161,27 @@ describe("portReach", () => {
       kind: "needs-forward",
       via: "remote-host",
     });
+  });
+});
+
+describe("portsEqual over the honest two-way", () => {
+  it("never swallows a status flip", () => {
+    // The two transitions a dedup gate must always let through: "we finally saw"
+    // and "we still cannot see". Swallowing either is how a blind terminal keeps
+    // rendering as one that serves nothing.
+    expect(portsEqual(unknown, known([]))).toBe(false);
+    expect(portsEqual(known([]), unknown)).toBe(false);
+    expect(portsEqual(unknown, known([p(8080)]))).toBe(false);
+  });
+
+  it("treats two unknowns as the same fact", () => {
+    // A repeatedly-blind terminal must not churn the wire once per pass.
+    expect(portsEqual(unknown, unknown)).toBe(true);
+  });
+
+  it("distinguishes 'we looked and found nothing' from 'we never looked'", () => {
+    // The whole reason the arm exists: `[]` is an answer, `unknown` is not.
+    expect(portsEqual(known([]), known([]))).toBe(true);
+    expect(portsEqual(known([]), unknown)).toBe(false);
   });
 });

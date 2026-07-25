@@ -23,7 +23,7 @@ import type { AgentAdapter, AgentInfoShape } from "anyagent";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type { ForegroundSample } from "kaval";
 import type {
-  PortInfo,
+  TerminalPorts,
   TerminalEvent,
   TerminalId,
 } from "@kolu/terminal-vocab/schema";
@@ -95,7 +95,7 @@ function startHarness(): Harness {
     title: inMemoryChannel<string>(),
     commandRun: inMemoryChannel<CommandRunSample>(),
     foreground: inMemoryChannel<ForegroundSample>(),
-    ports: inMemoryChannel<readonly PortInfo[]>(),
+    ports: inMemoryChannel<TerminalPorts>(),
   };
   const stop = startAgentSensor(
     fakeAdapter,

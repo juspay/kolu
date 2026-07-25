@@ -167,7 +167,7 @@ function snapshotActive(): TerminalSnapshot {
     },
     agent: null,
     foreground: null,
-    ports: [],
+    ports: { status: "unknown" },
   };
 }
 

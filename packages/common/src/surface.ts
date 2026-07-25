@@ -116,6 +116,7 @@ export {
   AgentMemorySchema,
   ForegroundSchema,
   foldPorts,
+  knownPorts,
   type PortReach,
   portReach,
   PrResultSchema,

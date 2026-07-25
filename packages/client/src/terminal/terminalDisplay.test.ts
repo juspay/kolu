@@ -12,7 +12,7 @@ function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
-    ports: [],
+    ports: { status: "unknown" },
     lastActivityAt: 0,
     ...overrides,
   };

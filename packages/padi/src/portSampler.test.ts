@@ -10,6 +10,7 @@
  */
 
 import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
+import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPortSampler,
@@ -108,6 +109,16 @@ function harness(
       await settle();
     },
   };
+}
+
+/** A pino stand-in that records only what this suite asserts on. */
+function platformLog(errors: string[]): Logger {
+  return {
+    ...quietLog,
+    error: (_obj: unknown, msg?: string) => {
+      if (msg !== undefined) errors.push(msg);
+    },
+  } as unknown as Logger;
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -369,33 +380,51 @@ describe("the platform refusal is permanent, and asked before the cadence", () =
     );
   });
 
-  it("does not arm at all on an unsupported platform", async () => {
-    // The gap this closes: checking the platform INSIDE the read could not deliver
-    // "say it once, then stop". A first read on a host with no terminals yet answers
-    // an empty map without reaching the platform switch, so the refusal landed on a
-    // later tick — where the poll source logs and holds, turning "stop" into an
-    // error every 5 s forever.
+  it("installs NO cadence at all on an unsupported platform", async () => {
+    // Two gaps this closes. The contract one: checking the platform INSIDE the read
+    // could not deliver "say it once, then stop", because a first read on a host
+    // with no terminals yet answers an empty map without reaching the platform
+    // switch — so the refusal landed on a later tick, where the poll source logs
+    // and holds, and "stop" quietly became an error every 5 s forever.
+    //
+    // And the TEST one: asserting only "one log line, no scans" could not tell an
+    // armed sampler from a refused one, since a poll source over permanently-empty
+    // targets also scans nothing and logs nothing. So this counts TIMERS — a
+    // refused sampler installs no interval, an armed one installs exactly one — and
+    // keeps a counting scan that must never be reached.
     const real = process.platform;
     Object.defineProperty(process, "platform", { value: "sunos" });
     try {
       const errors: string[] = [];
+      let scans = 0;
+      const timersBefore = vi.getTimerCount();
       const sampler = createPortSampler({
-        targets: () => [],
+        // A target IS present, so an armed sampler would really scan.
+        targets: () => [...ONE],
         publish: () => {
           throw new Error("must not publish on an unsupported platform");
         },
-        // biome-ignore lint/suspicious/noExplicitAny: a pino stand-in, not a pino
-        log: {
-          ...quietLog,
-          error: (_o: unknown, m: string) => errors.push(m),
-        } as any,
+        log: platformLog(errors),
       });
       await settle();
+
+      expect(vi.getTimerCount()).toBe(timersBefore); // nothing armed
       await vi.advanceTimersByTimeAsync(PORT_SCAN_INTERVAL_MS * 5);
-      expect(errors).toHaveLength(1); // said once
+      expect(scans).toBe(0);
+      expect(errors).toHaveLength(1); // said ONCE, not once per tick
       sampler.dispose();
     } finally {
       Object.defineProperty(process, "platform", { value: real });
     }
+  });
+
+  it("DOES install a cadence on a supported platform (the control)", async () => {
+    // Without this, the timer assertion above could pass because the counter never
+    // moves for any sampler.
+    const timersBefore = vi.getTimerCount();
+    const h = harness();
+    await h.seeded();
+    expect(vi.getTimerCount()).toBeGreaterThan(timersBefore);
+    h.sampler.dispose();
   });
 });

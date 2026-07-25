@@ -75,7 +75,7 @@ function activeSnapshot(cwd: string): TerminalSnapshot {
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
-    ports: [],
+    ports: { status: "unknown" },
   };
 }
 function seedActive(id: string, cwd: string): void {

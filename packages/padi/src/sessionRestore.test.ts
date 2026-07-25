@@ -365,7 +365,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
         pr: { kind: "absent" },
         agent: null,
         foreground: null,
-        ports: [],
+        ports: { status: "unknown" },
       },
       handle: {} as ActiveTerminalProcess["handle"],
     };
@@ -473,7 +473,7 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
       pr: { kind: "absent" },
       agent: null,
       foreground: null,
-      ports: [],
+      ports: { status: "unknown" },
     },
     handle: {} as ActiveTerminalProcess["handle"],
   });
@@ -650,7 +650,7 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
       pr: { kind: "absent" },
       agent: null,
       foreground: null,
-      ports: [],
+      ports: { status: "unknown" },
     },
     handle: {} as ActiveTerminalProcess["handle"],
   });

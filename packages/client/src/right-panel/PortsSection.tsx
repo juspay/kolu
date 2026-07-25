@@ -29,6 +29,7 @@
 import { activeArm } from "@kolu/padi/surface";
 import {
   foldPorts,
+  knownPorts,
   type PortReach,
   portReach,
   type TerminalId,
@@ -76,11 +77,17 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   // `foldPorts` is the vocabulary's own collapse (the same one the scanner applies
   // per terminal), so the wildcard-OR rule is stated once for both ends of the
   // wire rather than re-implemented here.
+  // `knownPorts` is the ONE place "we never looked" reads as no ports, and calling
+  // it here is deliberate: a pane whose first scan has not landed (or was blind)
+  // contributes nothing to the tile rather than asserting it serves nothing. The
+  // section then renders nothing at all for a tile with no KNOWN ports, so an
+  // unknown pane never produces a claim on screen either way.
   const ports = createMemo(() =>
     foldPorts(
-      store
-        .getTilePaneIds(props.terminalId)
-        .flatMap((id) => activeArm(store.getMetadata(id))?.ports ?? []),
+      store.getTilePaneIds(props.terminalId).flatMap((id) => {
+        const arm = activeArm(store.getMetadata(id));
+        return arm ? knownPorts(arm.ports) : [];
+      }),
     ),
   );
   return (
