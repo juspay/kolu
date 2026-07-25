@@ -24,3 +24,20 @@ in
   # pick it up via `koluEnv`.
   KOLU_GH_BIN             = "${pkgs.gh}/bin/gh";
 }
+# padi's darwin port-scan helper, on the SAME footing as `KOLU_GH_BIN` above: a
+# required value baked by Nix, present in the packaged wrapper AND the dev shell,
+# with no PATH fallback in the reader.
+#
+# It lives here rather than only in `default.nix` because of a regression CI caught
+# and a linux box never could: `portScan.live.test.ts` runs under bare `vitest`, not
+# through padi's wrapper, so on darwin every live scan threw
+# "KOLU_PORT_SCAN_HELPER is not set" — 9 tests, all from that one line. The previous
+# `ps`+`lsof` implementation needed no env, so the dependency arrived silently with
+# the helper. `koluEnv` is exactly the seam that keeps wrapper and dev shell in step.
+#
+# Darwin-only, because the helper is: linux reads `/proc` directly and the derivation
+# evaluates to `null` there, so an unconditional attribute would be a broken path.
+// pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+  KOLU_PORT_SCAN_HELPER =
+    "${pkgs.callPackage ../packages/padi/nix/port-scan-helper.nix { }}/bin/kolu-port-scan-darwin";
+}

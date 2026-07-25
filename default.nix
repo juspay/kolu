@@ -99,10 +99,13 @@ let
   # two was a real bug where one `sudo` prompt emptied the Ports section host-wide.
   # So the bake is conditional rather than shipping an empty binary that would pretend
   # to be a scanner.
-  portScanHelper = pkgs.callPackage ./packages/padi/nix/port-scan-helper.nix { };
+  # Read from koluEnv rather than re-deriving the path, so the wrapper and the dev
+  # shell cannot drift — the drift that made every darwin live test throw, since those
+  # tests run under bare vitest and never see this wrapper.
   portScanHelperBakeArg =
-    if portScanHelper == null then ""
-    else ''--set KOLU_PORT_SCAN_HELPER "${portScanHelper}/bin/kolu-port-scan-darwin"'';
+    if koluEnv ? KOLU_PORT_SCAN_HELPER
+    then ''--set KOLU_PORT_SCAN_HELPER "${koluEnv.KOLU_PORT_SCAN_HELPER}"''
+    else "";
 
   # The `.ts` filter for a hashed daemon fileset: real source only (drops `.test.ts`
   # AND `.testlib.ts` shared test-only helpers). The id is a content hash of the
