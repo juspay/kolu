@@ -27,11 +27,11 @@ Two terminals. In the first, harness an agent:
 nix run github:juspay/kolu#acp-proxy -- --id demo -- claude-agent-acp
 ```
 
-It prints the socket it is listening on and then idles. In the second, talk to
-it:
+It prints the socket it is listening on and then idles. In the second, pass that
+path to the client — from any directory:
 
 ```sh
-nix run github:juspay/kolu#acp-chat -- "$XDG_RUNTIME_DIR/kolu/acp-demo.sock"
+nix run github:juspay/kolu#acp-chat -- /run/user/1000/kolu/acp-demo.sock
 > why is the e2e suite flaky?
 agent ▸ It's a port collision: two workers bind 5173.
 ```

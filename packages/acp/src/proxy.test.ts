@@ -17,24 +17,17 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Readable, Writable } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import {
-  ClientSideConnection,
-  ndJsonStream,
-  PROTOCOL_VERSION,
-  type PromptResponse,
-  type SessionNotification,
-} from "@zed-industries/agent-client-protocol";
+import type { PromptResponse } from "@zed-industries/agent-client-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { CANCEL_GRACE_MS } from "./adapter.ts";
+import { connectToProxy } from "./connect.ts";
 
 /** tsx's ESM loader, resolved from THIS package — pnpm does not hoist it. */
 const TSX_LOADER = pathToFileURL(
@@ -73,13 +66,18 @@ afterEach(() => {
  *  is supposed to fail instead. Resolves with the exit code and its output. */
 async function runProxyToExit(
   adapterArgs: string[],
+  options: { command?: string } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   assertDaemonSpawnAllowed("the acp-proxy bin and its adapter");
   const runtimeDir = mkdtempSync(join(tmpdir(), "acp-"));
-  const child = spawn(process.execPath, proxyArgv(adapterArgs), {
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir },
-  });
+  const child = spawn(
+    process.execPath,
+    proxyArgv(adapterArgs, options.command),
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir },
+    },
+  );
   let stdout = "";
   let stderr = "";
   child.stdout?.on("data", (c) => {
@@ -95,7 +93,11 @@ async function runProxyToExit(
   return { code, stdout, stderr };
 }
 
-function proxyArgv(adapterArgs: string[]): string[] {
+function proxyArgv(adapterArgs: string[], command?: string): string[] {
+  const adapter =
+    command === undefined
+      ? [process.execPath, "--import", TSX_LOADER, FAKE_ADAPTER]
+      : [command];
   return [
     "--import",
     TSX_LOADER,
@@ -103,10 +105,7 @@ function proxyArgv(adapterArgs: string[]): string[] {
     "--id",
     "test",
     "--",
-    process.execPath,
-    "--import",
-    TSX_LOADER,
-    FAKE_ADAPTER,
+    ...adapter,
     ...adapterArgs,
   ];
 }
@@ -159,55 +158,39 @@ async function startProxy(adapterArgs: string[]): Promise<RunningProxy> {
 interface TestClient {
   prompt(text: string): Promise<PromptResponse>;
   cancel(): void;
+  /** Agent message text seen so far. */
   reply(): string;
+  /** Prompt text seen so far — what an *observer* client learns was asked. */
+  asked(): string;
   close(): void;
 }
 
+/** A test client over the package own plug, so the suite exercises the same
+ *  connection rules a real consumer gets rather than a parallel hand-roll. */
 async function connectClient(socketPath: string): Promise<TestClient> {
-  const socket = await new Promise<ReturnType<typeof connect>>(
-    (resolve, reject) => {
-      const s = connect(socketPath)
-        .once("connect", () => resolve(s))
-        .once("error", reject);
-    },
-  );
-
+  const client = await connectToProxy(socketPath);
   let reply = "";
-  const connection = new ClientSideConnection(
-    () => ({
-      sessionUpdate: async (params: SessionNotification) => {
-        const update = params.update;
-        if (
-          update.sessionUpdate === "agent_message_chunk" &&
-          update.content.type === "text"
-        ) {
-          reply += update.content.text;
-        }
-      },
-      requestPermission: async () => {
-        throw new Error("the proxy must answer permissions itself in HX0");
-      },
-    }),
-    ndJsonStream(Writable.toWeb(socket), Readable.toWeb(socket)),
-  );
-
-  await connection.initialize({ protocolVersion: PROTOCOL_VERSION });
-  const session = await connection.newSession({
-    cwd: process.cwd(),
-    mcpServers: [],
+  let asked = "";
+  client.onUpdate((update) => {
+    if (
+      update.sessionUpdate === "agent_message_chunk" &&
+      update.content.type === "text"
+    ) {
+      reply += update.content.text;
+    }
+    if (
+      update.sessionUpdate === "user_message_chunk" &&
+      update.content.type === "text"
+    ) {
+      asked += update.content.text;
+    }
   });
-
   return {
-    prompt: (text) =>
-      connection.prompt({
-        sessionId: session.sessionId,
-        prompt: [{ type: "text", text }],
-      }),
-    cancel: () => {
-      void connection.cancel({ sessionId: session.sessionId });
-    },
+    prompt: (text) => client.prompt(text),
+    cancel: () => client.cancel(),
     reply: () => reply,
-    close: () => socket.destroy(),
+    asked: () => asked,
+    close: () => client.close(),
   };
 }
 
@@ -430,5 +413,41 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
     // separately sees the same turn, which is what lets a debugging `acp-chat`
     // sit beside pesu on the same session.
     expect(observer.reply()).toContain("echo: hello");
+    // And the question, not just the answer. Broadcasting only the agent's
+    // half left a bystander rendering replies to prompts it never saw.
+    expect(observer.asked()).toContain("hello");
+  });
+
+  it("keeps replacing an adapter that dies during a respawn's handshake", async () => {
+    // The wedge both lens reviews found independently. A replacement dying
+    // mid-handshake used to have its rescheduling swallowed by the very guard
+    // that marked a respawn in flight — leaving the proxy listening with no
+    // adapter, no retry and no fatal, answering every prompt "not ready".
+    const { code, stdout, stderr } = await runProxyToExit(["--die-on-respawn"]);
+
+    // It gets to serve once, then every replacement dies in its handshake.
+    expect(stdout).toContain("⎯ adapter ready · ");
+    // The give-up cap must be reachable on this path, not just the easy one.
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/failed \d+ times in a row/);
+    const attempts = [
+      ...stdout.matchAll(/respawning adapter · attempt (\d+)/g),
+    ];
+    expect(attempts.map((m) => Number(m[1]))).toEqual(
+      attempts.map((_m, i) => i + 1),
+    );
+  });
+
+  it("gives up when the adapter command does not exist", async () => {
+    // Node emits `error` and NEVER `exit` for a spawn that cannot start, so an
+    // accounting hung off `exit` alone never advances the failure streak — the
+    // proxy stays up forever with no adapter behind it.
+    const { code, stdout, stderr } = await runProxyToExit([], {
+      command: join(here, "no-such-adapter-binary"),
+    });
+
+    expect(stdout).toMatch(/adapter failed to start/);
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/failed \d+ times in a row|ENOENT/);
   });
 });

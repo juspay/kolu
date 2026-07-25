@@ -13,7 +13,7 @@
  * stdout is the transcript and nothing else. Diagnostics go to stderr.
  */
 
-import { chmodSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import { type Server, type Socket, connect, createServer } from "node:net";
 import { dirname } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -29,12 +29,16 @@ import {
   type PromptRequest,
   type PromptResponse,
   RequestError,
+  type SessionNotification,
 } from "@zed-industries/agent-client-protocol";
 import { AdapterSession } from "./adapter.ts";
 import { parseArgv } from "./argv.ts";
 import { describeError } from "./errors.ts";
+import { SESSION_CWD_META } from "./connect.ts";
 import { socketPathFor } from "./socketPath.ts";
 import { type ProxyEvent, TranscriptRenderer } from "./render.ts";
+
+type SessionUpdate = SessionNotification["update"];
 
 /**
  * Claim the socket path. A proxy that crashed leaves its socket file behind
@@ -43,7 +47,25 @@ import { type ProxyEvent, TranscriptRenderer } from "./render.ts";
  * connection belongs to a live proxy we must not evict.
  */
 async function claimSocketPath(socketPath: string): Promise<void> {
-  mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
+  const dir = dirname(socketPath);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // `mkdirSync`'s mode is a no-op on a directory that already exists, and the
+  // off-systemd path (`/tmp/kolu-$UID`) is one any local user can pre-create.
+  // So verify rather than assume: the directory the socket lives in IS the
+  // access control for everything the session can do. `lstat`, not `stat`, so a
+  // symlink is judged as itself instead of followed to a target whose `/tmp`
+  // component someone else still owns. (The same boundary
+  // `@kolu/surface/unix-socket` enforces; this package re-derives it rather
+  // than importing the framework — see `socketPath.ts`.)
+  const uid = process.getuid?.();
+  if (uid !== undefined) {
+    const stat = lstatSync(dir);
+    if (!stat.isDirectory() || stat.uid !== uid || (stat.mode & 0o077) !== 0) {
+      throw new Error(
+        `${dir} is not a private directory owned by this user; refusing to serve a session from it`,
+      );
+    }
+  }
   const failure = await new Promise<NodeJS.ErrnoException | null>((resolve) => {
     const probe = connect(socketPath)
       .on("connect", () => {
@@ -62,6 +84,14 @@ async function claimSocketPath(socketPath: string): Promise<void> {
   if (failure.code !== "ECONNREFUSED" && failure.code !== "ENOENT") {
     throw new Error(
       `cannot determine whether ${socketPath} is in use: ${String(failure)}`,
+    );
+  }
+  // Unlink only a dead socket. Anything else at that path is something we did
+  // not put there and do not understand, and deleting it would make this proxy
+  // a file-removal tool pointed at a path someone else chose.
+  if (failure.code === "ECONNREFUSED" && !lstatSync(socketPath).isSocket()) {
+    throw new Error(
+      `${socketPath} exists and is not a socket; refusing to remove it`,
     );
   }
   rmSync(socketPath, { force: true });
@@ -89,14 +119,23 @@ async function main(): Promise<void> {
     process.exit(1);
   };
 
+  /** Fan a frame out to every attached client. A write that fails is reported,
+   *  never dropped: a client whose socket broke mid-turn is a fact worth
+   *  seeing, and the fan-out must not let one bad peer stop the others. */
+  const broadcast = (update: SessionUpdate): void => {
+    for (const client of clients) {
+      client.sessionUpdate({ sessionId, update }).catch((error) => {
+        process.stderr.write(
+          `acp-proxy: could not reach a client: ${describeError(error)}\n`,
+        );
+      });
+    }
+  };
+
   const adapter = new AdapterSession({
     spec: { command, args, cwd },
     emit,
-    onUpdate: (update) => {
-      for (const client of clients) {
-        void client.sessionUpdate({ sessionId, update });
-      }
-    },
+    onUpdate: broadcast,
     onFatal: die,
   });
   adapterRef = adapter;
@@ -126,6 +165,11 @@ async function main(): Promise<void> {
       // The adapter inherits the host's own login; there is no second
       // authentication step at this hop, and offering one would be a lie.
       authMethods: [],
+      // Where this proxy's one session is rooted. `session/new` refuses any
+      // other directory — rightly, since serving the wrong one silently is
+      // worse — but a client cannot obey a rule it has no way to read, so the
+      // fact is published rather than left to be guessed.
+      _meta: { [SESSION_CWD_META]: cwd },
     };
   };
 
@@ -164,6 +208,13 @@ async function main(): Promise<void> {
           )
           .join(" ");
         emit({ kind: "prompt", text });
+        // Every attached client sees the question, not just the answer. A
+        // second `acp-chat` watching alongside the one driving would otherwise
+        // render replies to prompts it never saw — and watching is a use the
+        // multi-client fan-out exists for.
+        for (const block of params.prompt) {
+          broadcast({ sessionUpdate: "user_message_chunk", content: block });
+        }
         try {
           const response = await adapter.prompt(params.prompt);
           emit({ kind: "turnEnded", stopReason: response.stopReason });

@@ -23,6 +23,7 @@ export type ProxyEvent =
   | { kind: "adapterSpawned"; command: string; args: string[]; pid: number }
   | { kind: "adapterReady"; agentName: string; protocolVersion: number }
   | { kind: "adapterExited"; code: number | null; signal: string | null }
+  | { kind: "adapterFailedToStart"; message: string }
   | { kind: "adapterRespawning"; attempt: number; delayMs: number }
   | { kind: "sessionReady"; sessionId: string }
   | { kind: "clientConnected"; clients: number }
@@ -105,6 +106,8 @@ export function formatEvent(event: ProxyEvent): string | null {
       return `${HARNESS} adapter ready · ${event.agentName} · protocol v${event.protocolVersion}`;
     case "adapterExited":
       return `${HARNESS} adapter exited · ${event.signal ? `signal ${event.signal}` : `code ${event.code}`}`;
+    case "adapterFailedToStart":
+      return `${HARNESS} adapter failed to start · ${oneLine(event.message)}`;
     case "adapterRespawning":
       return `${HARNESS} respawning adapter · attempt ${event.attempt} in ${event.delayMs}ms`;
     case "sessionReady":

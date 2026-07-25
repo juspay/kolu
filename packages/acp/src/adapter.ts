@@ -90,6 +90,9 @@ interface Generation {
   readonly died: (error: unknown) => void;
   sessionId: string | null;
   readyAt: number | null;
+  /** Set once its end has been accounted for, so `error` + `exit` (which can
+   *  both fire) settle the generation exactly once. */
+  ended: boolean;
 }
 
 export interface AdapterSessionOptions {
@@ -115,7 +118,6 @@ export class AdapterSession {
   #cancelState: "none" | "requested" | "killing" = "none";
   #graceTimer: NodeJS.Timeout | null = null;
   #respawnTimer: NodeJS.Timeout | null = null;
-  #respawning = false;
   #consecutiveFailures = 0;
   /** The first handshake belongs to `start()`'s caller, not to the respawn
    *  policy: a proxy whose adapter never came up should fail, not retry. */
@@ -305,11 +307,15 @@ export class AdapterSession {
       died,
       sessionId: null,
       readyAt: null,
+      ended: false,
     };
     this.#current = generation;
 
-    // A spawn that never starts (a command not on PATH) surfaces here.
-    child.once("error", (error) => generation.died(error));
+    // A spawn that never starts — a command not on PATH — emits `error` and
+    // **never** `exit`. Both paths must reach the same accounting, or a
+    // vanished adapter binary leaves the proxy alive, socket open, answering
+    // every prompt "the adapter is not ready" with no retry and no give-up.
+    child.once("error", (error) => this.#onExit(generation, null, null, error));
     child.once("exit", (code, signal) =>
       this.#onExit(generation, code, signal),
     );
@@ -406,17 +412,27 @@ export class AdapterSession {
     return { outcome: { outcome: "selected", optionId: option.optionId } };
   }
 
+  /**
+   * A generation has ended — by exiting, or by never starting at all. This is
+   * the **sole** place a generation is accounted for and the next attempt
+   * scheduled, so that both ways of dying are paced and capped identically.
+   */
   #onExit(
     generation: Generation,
     code: number | null,
     signal: NodeJS.Signals | null,
+    spawnError?: unknown,
   ): void {
+    if (generation.ended) return;
+    generation.ended = true;
+
     // Ends every await bound to this generation — including a handshake, which
     // the library would otherwise leave pending until the wall clock gave up.
     generation.died(
-      RequestError.internalError({
-        reason: `the adapter exited (${signal ? `signal ${signal}` : `code ${code}`})`,
-      }),
+      spawnError ??
+        RequestError.internalError({
+          reason: `the adapter exited (${signal ? `signal ${signal}` : `code ${code}`})`,
+        }),
     );
     // Stop the orphaned receive loop rather than let it drain to EOF.
     generation.child.stdout?.destroy();
@@ -425,7 +441,11 @@ export class AdapterSession {
     // its exit must not disturb the session that replaced it.
     if (this.#stopped || this.#current?.id !== generation.id) return;
 
-    this.#emit({ kind: "adapterExited", code, signal });
+    this.#emit(
+      spawnError === undefined
+        ? { kind: "adapterExited", code, signal }
+        : { kind: "adapterFailedToStart", message: describeError(spawnError) },
+    );
     const killedForCancel = this.#cancelState === "killing";
     this.#clearGrace();
     this.#cancelState = "none";
@@ -454,7 +474,12 @@ export class AdapterSession {
    * to fork a replacement as fast as the kernel allows.
    */
   #scheduleRespawn(previous: Generation): void {
-    if (this.#respawnTimer || this.#respawning) return;
+    // Guarded on the timer alone. An earlier version also refused while a
+    // respawn's own handshake was in flight — which is exactly when the
+    // replacement can die, so the death that most needed rescheduling was the
+    // one it silently dropped, leaving the proxy listening with no adapter and
+    // no fatal report. Both lens reviews found that wedge independently.
+    if (this.#respawnTimer) return;
 
     const survived =
       previous.readyAt !== null &&
@@ -482,19 +507,18 @@ export class AdapterSession {
     });
     this.#respawnTimer = setTimeout(() => {
       this.#respawnTimer = null;
-      if (this.#stopped) return;
-      this.#respawning = true;
-      this.#spawnAndHandshake()
-        .catch((error) => {
-          if (this.#stopped) return;
-          // A handshake that failed leaves no live generation, so the exit that
-          // accompanied it cannot schedule the next try. Do it here.
-          this.#scheduleRespawn(previous);
-          this.#emit({ kind: "turnFailed", message: describeError(error) });
-        })
-        .finally(() => {
-          this.#respawning = false;
+      // Someone already succeeded — a live generation needs no replacement.
+      if (this.#stopped || this.#current) return;
+      this.#spawnAndHandshake().catch((error) => {
+        if (this.#stopped) return;
+        // Reporting only. The generation's own end — its `exit`, or the `error`
+        // of a spawn that never started — already scheduled the next attempt
+        // through `#onExit`, which is the one place that decides.
+        this.#emit({
+          kind: "adapterFailedToStart",
+          message: describeError(error),
         });
+      });
     }, delayMs);
   }
 

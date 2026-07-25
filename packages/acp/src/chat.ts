@@ -10,22 +10,18 @@
  *
  * Reads piped stdin just as happily as a tty, which is what makes it scriptable
  * (`echo "reply with exactly: pong" | acp-chat <sock>`).
+ *
+ * The connection rules live in `connect.ts`; the frame vocabulary lives in
+ * `render.ts`. This file is the REPL and nothing else — a second switch over
+ * the frame union here is how one bin silently stops showing a frame kind the
+ * other still does.
  */
 
 import { once } from "node:events";
-import { connect } from "node:net";
 import { createInterface } from "node:readline";
+import { connectToProxy } from "./connect.ts";
 import { describeError } from "./errors.ts";
-import { Readable, Writable } from "node:stream";
-import {
-  type Client,
-  ClientSideConnection,
-  ndJsonStream,
-  PROTOCOL_VERSION,
-  type RequestPermissionRequest,
-  RequestError,
-  type SessionNotification,
-} from "@zed-industries/agent-client-protocol";
+import { formatUpdate } from "./render.ts";
 
 const USAGE = "usage: acp-chat <socket-path>";
 
@@ -33,15 +29,9 @@ async function main(): Promise<void> {
   const socketPath = process.argv[2];
   if (!socketPath) throw new Error(USAGE);
 
-  const socket = await new Promise<ReturnType<typeof connect>>(
-    (resolve, reject) => {
-      const s = connect(socketPath)
-        .once("connect", () => resolve(s))
-        .once("error", reject);
-    },
-  );
+  const client = await connectToProxy(socketPath);
 
-  /** Whether the agent is mid-sentence, so a tool line never lands inside one. */
+  /** Whether the agent is mid-sentence, so nothing lands inside one. */
   let streaming = false;
   const endStream = () => {
     if (!streaming) return;
@@ -49,72 +39,23 @@ async function main(): Promise<void> {
     streaming = false;
   };
 
-  const client: Client = {
-    sessionUpdate: async (params: SessionNotification) => {
-      const update = params.update;
-      switch (update.sessionUpdate) {
-        case "agent_message_chunk": {
-          if (update.content.type !== "text") return;
-          if (!streaming) {
-            process.stdout.write("agent ▸ ");
-            streaming = true;
-          }
-          process.stdout.write(update.content.text);
-          return;
-        }
-        case "tool_call": {
-          endStream();
-          process.stdout.write(
-            `  · ${update.kind ?? "other"}: ${update.title}\n`,
-          );
-          return;
-        }
-        case "tool_call_update": {
-          if (update.status !== "completed" && update.status !== "failed")
-            return;
-          endStream();
-          process.stdout.write(`  · ${update.status}\n`);
-          return;
-        }
-        default:
-          return;
+  client.onUpdate((update) => {
+    // The one frame kind the REPL renders itself: message text streams a token
+    // at a time and should read as a sentence, not a line per token.
+    if (update.sessionUpdate === "agent_message_chunk") {
+      if (update.content.type !== "text") return;
+      if (!streaming) {
+        process.stdout.write("agent ▸ ");
+        streaming = true;
       }
-    },
-    // The proxy answers permission requests itself until they are forwarded to
-    // the thread, so reaching this is a contract break, not a prompt to guess.
-    requestPermission: async (params: RequestPermissionRequest) => {
-      throw RequestError.internalError({
-        reason: `the proxy forwarded a permission request this client cannot answer: ${
-          params.toolCall.title ?? params.toolCall.toolCallId
-        }`,
-      });
-    },
-  };
-
-  const connection = new ClientSideConnection(
-    () => client,
-    ndJsonStream(Writable.toWeb(socket), Readable.toWeb(socket)),
-  );
-
-  /**
-   * Rejects when the proxy goes away. The ACP library leaves in-flight requests
-   * pending forever when its stream ends, so without this a dead proxy is
-   * indistinguishable from a thinking agent — the REPL would sit there, silent,
-   * with no error and no prompt, for as long as you let it.
-   */
-  const gone = new Promise<never>((_resolve, reject) => {
-    socket.once("close", () =>
-      reject(new Error("the proxy closed the connection")),
-    );
+      process.stdout.write(update.content.text);
+      return;
+    }
+    const line = formatUpdate(update);
+    if (line === null) return;
+    endStream();
+    process.stdout.write(`  ${line}\n`);
   });
-  gone.catch(() => {});
-  const untilGone = async <T>(work: Promise<T>): Promise<T> =>
-    await Promise.race([work, gone]);
-
-  await untilGone(connection.initialize({ protocolVersion: PROTOCOL_VERSION }));
-  const session = await untilGone(
-    connection.newSession({ cwd: process.cwd(), mcpServers: [] }),
-  );
 
   const repl = createInterface({
     input: process.stdin,
@@ -126,18 +67,13 @@ async function main(): Promise<void> {
   };
 
   let turnRunning = false;
-  /** Lines are answered one at a time: one session, one turn. */
+  /** Lines are answered one at a time; `connectToProxy` owns the queueing. */
   let queue: Promise<void> = Promise.resolve();
 
   const runTurn = async (text: string): Promise<void> => {
     turnRunning = true;
     try {
-      const response = await untilGone(
-        connection.prompt({
-          sessionId: session.sessionId,
-          prompt: [{ type: "text", text }],
-        }),
-      );
+      const response = await client.prompt(text);
       endStream();
       if (response.stopReason !== "end_turn") {
         process.stdout.write(`  · turn ended: ${response.stopReason}\n`);
@@ -167,15 +103,12 @@ async function main(): Promise<void> {
       repl.close();
       return;
     }
-    void connection.cancel({ sessionId: session.sessionId });
+    client.cancel();
   });
 
   // A proxy that goes away ends the session; carrying on prompting into a dead
-  // socket would just queue turns nobody will answer. Distinguished from our own
-  // teardown below, which closes the same socket for the opposite reason.
-  let leaving = false;
-  socket.once("close", () => {
-    if (leaving) return;
+  // socket would just queue turns nobody will answer.
+  void client.closed.then(() => {
     process.stderr.write("acp-chat: the proxy closed the connection\n");
     process.exitCode = 1;
     repl.close();
@@ -183,8 +116,7 @@ async function main(): Promise<void> {
 
   await once(repl, "close");
   await queue;
-  leaving = true;
-  socket.destroy();
+  client.close();
 }
 
 await main().catch((error) => {

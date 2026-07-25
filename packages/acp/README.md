@@ -19,13 +19,29 @@ is no invented protocol anywhere on the wire.
 
 ```sh
 # In a tile (or any shell): harness an agent and serve it.
-acp-proxy --id e7f2 -- claude-agent-acp
+acp-proxy --id e7f2 -- claude-agent-acp   # prints the socket it listens on
 
-# From anywhere else: talk to it.
-acp-chat "$XDG_RUNTIME_DIR/kolu/acp-e7f2.sock"
+# From anywhere else — any directory: talk to it.
+acp-chat /run/user/1000/kolu/acp-e7f2.sock
 > why is the e2e suite flaky?
 agent ▸ It's a port collision: two workers bind 5173.
 ```
+
+A program drives it the same way, through the package's own client:
+
+```ts
+import { connectToProxy, socketPathFor } from "@kolu/acp";
+
+const agent = await connectToProxy(socketPathFor("e7f2"));
+agent.onUpdate((update) => console.log(update.sessionUpdate));
+const { stopReason } = await agent.prompt("why is the e2e suite flaky?");
+```
+
+`connectToProxy` is where the rules that are *not* obvious from ACP alone
+live — the session's directory is the proxy's and is read from the handshake,
+the socket's death is raced explicitly (the library would wait forever), turns
+are queued because a second concurrent one is refused, and a forwarded
+permission request is a contract break rather than something to answer.
 
 The tile shows the session but is never the thing you type into — all input
 arrives as ACP calls on the socket:
@@ -62,8 +78,8 @@ Everything a harness must, and nothing else.
 
 | Duty | Behaviour |
 | --- | --- |
-| Session | One per proxy, rooted at the proxy's own working directory. Its id outlives the adapter processes behind it, so a respawn never invalidates an id a client is holding. A client asking for a different `cwd`, or for MCP servers, is refused rather than handed a session that quietly ignores what it asked for. |
-| Respawn | An adapter that dies mid-turn fails that turn loudly and is replaced; the next prompt works. Replacement is paced (exponential backoff) and capped: an adapter that never stays up makes the proxy give up and say so, rather than fork replacements in a hot loop. The very first handshake is not retried at all — a proxy whose adapter never came up should fail, not spin. |
+| Session | One per proxy, rooted at the proxy's own working directory — **published** in the `initialize` response (`kolu.acp/cwd`), because a client cannot obey a rule it has no way to read. A client asking for a different `cwd`, or for MCP servers, is refused rather than handed a session that quietly ignores what it asked for. The session id outlives the adapter processes behind it, so a respawn never invalidates an id a client is holding. |
+| Respawn | An adapter that dies mid-turn fails that turn loudly and is replaced; the next prompt works. Replacement is paced (exponential backoff) and capped: an adapter that never stays up makes the proxy give up and say so, rather than fork replacements in a hot loop. Every way of dying goes through the same accounting — including a spawn that never starts, which Node reports as `error` and never as `exit`, and a replacement that dies inside its own handshake. The very first handshake is not retried at all: a proxy whose adapter never came up should fail, not spin. |
 | Cancel | `session/cancel` is forwarded. If the turn has not ended within `CANCEL_GRACE_MS` (3s), the adapter is killed and replaced and the turn reports `cancelled` — because some agents keep streaming after a cancel, and a cancel that cannot be honoured must still end the turn. |
 | Permissions | Auto-answered with the `allow_once` option, found **by `kind`** — never by id or position, which is how a harness accidentally picks `allow_always`. A request offering no `allow_once` fails loudly instead of being widened. |
 | Process tree | The adapter is spawned as a group leader and killed as a group, so the tools and MCP servers it spawned are reaped rather than orphaned across respawns. |

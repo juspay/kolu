@@ -20,6 +20,8 @@
  * Deterministic, offline, no credentials.
  */
 
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import {
   type Agent,
@@ -41,7 +43,33 @@ const DIE_ON_BOOT = process.argv.includes("--die-on-boot");
 /** Complete the handshake, then exit — the adapter that never stays up, which
  *  is what the respawn backoff and give-up cap exist for. */
 const DIE_WHEN_READY = process.argv.includes("--die-when-ready");
+/** Serve the first generation normally, then die *during the handshake* of
+ *  every generation after it. The replacement dying mid-handshake is the case
+ *  a respawn guard can silently swallow, leaving no adapter and no report. */
+const DIE_ON_RESPAWN = process.argv.includes("--die-on-respawn");
 const SESSION_ID = "fake-session-1";
+
+/**
+ * How many times this fixture has already run under the same proxy, counted
+ * through a file because each generation is a fresh process. Lets a directive
+ * behave differently on a *replacement* than on the original.
+ */
+function generationsBefore(): number {
+  const runtimeDir = process.env.XDG_RUNTIME_DIR;
+  if (runtimeDir === undefined) return 0;
+  const marker = join(runtimeDir, "fake-adapter-generations");
+  let seen = 0;
+  try {
+    seen = Number(readFileSync(marker, "utf8")) || 0;
+  } catch {
+    seen = 0;
+  }
+  writeFileSync(marker, String(seen + 1));
+  return seen;
+}
+
+/** Which run of this fixture we are, counted once per process. */
+const GENERATION = DIE_ON_RESPAWN ? generationsBefore() : 0;
 
 const PLAIN_OPTIONS: PermissionOption[] = [
   { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
@@ -66,6 +94,11 @@ class FakeAgent implements Agent {
   }
 
   async initialize(): Promise<InitializeResponse> {
+    if (DIE_ON_RESPAWN && GENERATION > 0) {
+      // Never answers `initialize`; dies holding the request open — exactly the
+      // shape the ACP library leaves pending forever.
+      process.exit(11);
+    }
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentCapabilities: { promptCapabilities: { image: false } },
@@ -74,6 +107,11 @@ class FakeAgent implements Agent {
   }
 
   async newSession(): Promise<NewSessionResponse> {
+    if (DIE_ON_RESPAWN) {
+      // Serve once, then go — so there IS a respawn, whose replacement then
+      // dies in its handshake. That second death is the one under test.
+      setTimeout(() => process.exit(9), 20);
+    }
     if (DIE_WHEN_READY) {
       // Answer first, then go — so the proxy sees a *ready* adapter die, which
       // is the case the respawn policy has to pace rather than the handshake
