@@ -307,16 +307,6 @@ export function portReach(opts: {
  *  to report why the chip never updated. */
 const PORT_INFO_KEYS = Object.keys(PortInfoSchema.shape) as (keyof PortInfo)[];
 
-/** Are two port samples the same fact? The dedup gate a scanner applies BEFORE a
- *  sample reaches the snapshot: an unchanged scan must emit nothing, or a
- *  seconds-cadence ticker would publish a fresh array — and a fresh reference
- *  through the whole reactive chain — on every pass forever.
- *
- *  Order-sensitive by design: the scanner emits ports sorted, so equal content in
- *  a different order cannot occur and treating it as a change would be honest
- *  anyway. Hand-written rather than `isDeepStrictEqual` so this stays browser-safe
- *  (the vocab is bundled into the client) — but over `PORT_INFO_KEYS`, not a
- *  hand-listed triple, so the field set is the schema's and not a convention. */
 /** Are two port LISTS the same fact? Split out from {@link portsEqual} because a
  *  consumer that has already collapsed the union — the client's tile fold — needs the
  *  list comparison alone, as a SolidJS memo `equals` gate. Compared over
@@ -335,6 +325,16 @@ export function samePortList(
   );
 }
 
+/** Are two port samples the same fact? The dedup gate a scanner applies BEFORE a
+ *  sample reaches the snapshot: an unchanged scan must emit nothing, or a
+ *  seconds-cadence ticker would publish a fresh array — and a fresh reference
+ *  through the whole reactive chain — on every pass forever.
+ *
+ *  Order-sensitive by design: the scanner emits ports sorted, so equal content in
+ *  a different order cannot occur and treating it as a change would be honest
+ *  anyway. Hand-written rather than `isDeepStrictEqual` so this stays browser-safe
+ *  (the vocab is bundled into the client) — but over `PORT_INFO_KEYS`, not a
+ *  hand-listed triple, so the field set is the schema's and not a convention. */
 export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
   // A status flip is always a change: "we finally saw" and "we still cannot see"
   // are exactly the transitions a dedup gate must not swallow.
