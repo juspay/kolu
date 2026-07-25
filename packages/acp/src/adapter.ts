@@ -93,6 +93,20 @@ interface Generation {
   /** Set once its end has been accounted for, so `error` + `exit` (which can
    *  both fire) settle the generation exactly once. */
   ended: boolean;
+  /**
+   * Whether `start()` still owns this generation's verdict — set when it is
+   * spawned by `start()`, cleared the moment `start()` accepts it as ready.
+   *
+   * It cannot be a live read of `#starting`: a child that is alive but MUTE
+   * fails by handshake timeout, and `start()`'s `finally` clears `#starting`
+   * before the OS delivers the resulting exit, so a background respawn would
+   * begin for a call the caller was already told had failed.
+   *
+   * It cannot be a plain "was this the first generation?" either — the first
+   * adapter usually *succeeds* and dies an hour later, and that death must be
+   * replaced like any other.
+   */
+  awaitedByStart: boolean;
 }
 
 export interface AdapterSessionOptions {
@@ -137,6 +151,11 @@ export class AdapterSession {
     this.#starting = true;
     try {
       await this.#spawnAndHandshake();
+      // Accepted: from here this generation is the respawn policy's to replace
+      // like any other. Cleared only on SUCCESS — a generation that failed
+      // `start()` keeps the flag, so its late-arriving exit cannot quietly
+      // respawn behind a caller that has already been told it failed.
+      if (this.#current) this.#current.awaitedByStart = false;
     } finally {
       this.#starting = false;
     }
@@ -313,6 +332,7 @@ export class AdapterSession {
       sessionId: null,
       readyAt: null,
       ended: false,
+      awaitedByStart: this.#starting,
     };
     this.#current = generation;
 
@@ -514,7 +534,7 @@ export class AdapterSession {
 
     // The first handshake is the caller's to fail; respawning underneath it
     // would race `start()` and hide the failure it is waiting to hear about.
-    if (this.#starting) return;
+    if (generation.awaitedByStart) return;
 
     this.#scheduleRespawn(generation);
   }

@@ -66,6 +66,9 @@ export async function connectToProxy(socketPath: string): Promise<ProxyClient> {
   const gone = new Promise<never>((_resolve, reject) => {
     died = reject;
   });
+  // Marked handled up front: nothing is racing it until the first request, and
+  // an unraced rejection would otherwise crash the process (mirrors `dead` in
+  // adapter.ts, the same "died" promise shape on the proxy side of the wire).
   gone.catch(() => {});
   socket.once("close", () => {
     // The rejection is unconditional: the transport is gone either way, and the

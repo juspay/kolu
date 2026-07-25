@@ -69,6 +69,9 @@ function generationsBefore(): number {
   try {
     seen = Number(readFileSync(marker, "utf8")) || 0;
   } catch {
+    // No marker yet (the first generation), or one that cannot be read — either
+    // way this run is generation zero. The counter is test scaffolding, and a
+    // bad read of it must not be louder than the behaviour under test.
     seen = 0;
   }
   writeFileSync(marker, String(seen + 1));
