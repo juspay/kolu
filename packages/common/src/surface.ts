@@ -93,6 +93,7 @@ export type {
   Foreground,
   GrokInfo,
   OpenCodeInfo,
+  PortInfo,
   ProcessRss,
   PrResult,
   PrUnavailableSource,

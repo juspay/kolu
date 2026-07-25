@@ -22,7 +22,11 @@ import { describe, expect, it } from "vitest";
 import type { AgentAdapter, AgentInfoShape } from "anyagent";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type { ForegroundSample } from "kaval";
-import type { TerminalEvent, TerminalId } from "@kolu/terminal-vocab/schema";
+import type {
+  PortInfo,
+  TerminalEvent,
+  TerminalId,
+} from "@kolu/terminal-vocab/schema";
 import {
   type CommandRunSample,
   type SensorSignals,
@@ -91,6 +95,7 @@ function startHarness(): Harness {
     title: inMemoryChannel<string>(),
     commandRun: inMemoryChannel<CommandRunSample>(),
     foreground: inMemoryChannel<ForegroundSample>(),
+    ports: inMemoryChannel<readonly PortInfo[]>(),
   };
   const stop = startAgentSensor(
     fakeAdapter,

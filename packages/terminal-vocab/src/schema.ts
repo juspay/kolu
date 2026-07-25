@@ -5,8 +5,9 @@
  *
  * The de-entanglement (awareness-derive-store.mdx) splits SAMPLING from
  * REMEMBERING:
- *   - `TerminalSnapshot` is exactly the five fields a memoryless host can RE-SAMPLE:
- *     cwd · git context · forge PR · live agent · foreground process. Composed
+ *   - `TerminalSnapshot` is exactly the six fields a memoryless host can RE-SAMPLE:
+ *     cwd · git context · forge PR · live agent · foreground process · listening
+ *     TCP ports. Composed
  *     from the vendor-neutral leaf schemas (anyforge · kolu-git · kolu-github ·
  *     the per-agent packages) and naming NOTHING app-specific — no `location`
  *     discriminator, no client/UI fields. It is what kolu serves UNCHANGED on its
@@ -149,10 +150,64 @@ export const ForegroundSchema = z.object({
   title: z.string().nullable(),
 });
 
+// ── Listening TCP ports ───────────────────────────────────────────────
+
+/** One listening TCP port inside a terminal's process subtree — "what is this
+ *  terminal serving?".
+ *
+ *  Three fields, and deliberately not a fourth: the BIND ADDRESS is reduced to
+ *  the one bit a consumer acts on (`wildcard`). What a chip has to decide is
+ *  "does this already answer on the name in the address bar, or does it need a
+ *  forward?", and only the any-address bind answers yes — carrying the raw
+ *  address would invite every render site to re-derive that judgment (and to
+ *  disagree about `::ffff:0.0.0.0`).
+ *
+ *  No pid either: a fork-inherited listening socket belongs to several pids at
+ *  once, so a pid here would name an arbitrary one of them. Attribution is to
+ *  the TERMINAL (the whole subtree), which is the question the Inspector asks. */
+export const PortInfoSchema = z.object({
+  /** The TCP port the socket is listening on. */
+  port: z.number().int().min(1).max(65535),
+  /** Process name holding the listener (`node`, `workerd`, …) — the scanner's
+   *  `comm`, for a glanceable "who is this?" beside the number. */
+  name: z.string(),
+  /** True when the socket is bound to the ANY address (`0.0.0.0` / `::`, and the
+   *  v4-mapped `::ffff:0.0.0.0`), so it already answers on every interface of the
+   *  host that owns it — including the name in the viewer's address bar when that
+   *  host is the kolu server. False for a loopback-only (or single-interface)
+   *  bind, which is invisible from another machine and needs a forward. */
+  wildcard: z.boolean(),
+});
+export type PortInfo = z.infer<typeof PortInfoSchema>;
+
+/** Are two port samples the same fact? The dedup gate a scanner applies BEFORE a
+ *  sample reaches the snapshot: an unchanged scan must emit nothing, or a
+ *  seconds-cadence ticker would publish a fresh array — and a fresh reference
+ *  through the whole reactive chain — on every pass forever.
+ *
+ *  Order-sensitive by design: the scanner emits ports sorted, so equal content in
+ *  a different order cannot occur and treating it as a change would be honest
+ *  anyway. Hand-written rather than `isDeepStrictEqual` so this stays browser-safe
+ *  (the vocab is bundled into the client). */
+export function portsEqual(
+  a: readonly PortInfo[],
+  b: readonly PortInfo[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((p, i) => {
+      const q = b[i]!;
+      return (
+        p.port === q.port && p.name === q.name && p.wildcard === q.wildcard
+      );
+    })
+  );
+}
+
 // ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────
 //
 // The de-entanglement (awareness-derive-store.mdx): a host PRODUCER emits one
-// `TerminalSnapshot` — exactly the five fields it can RE-SAMPLE — and nothing it
+// `TerminalSnapshot` — exactly the six fields it can RE-SAMPLE — and nothing it
 // cannot. The two facts a host genuinely cannot re-sample (a clock reading and
 // the launch invocation) are `AgentMemory`, written by kolu's fold ALONE. The
 // old persisted/live write-fence is gone: the producer is memoryless and cannot
@@ -174,6 +229,12 @@ export const TerminalSnapshotSchema = z.object({
   agent: AgentInfoSchema.nullable(),
   /** The live foreground process (vim, …) — detected via OSC 2 title events. */
   foreground: ForegroundSchema.nullable(),
+  /** Every TCP port a process in this terminal's subtree is LISTENING on, sorted
+   *  by port. Re-sampled whole each scan (a port that died leaves the array), so
+   *  it is the same last-write-wins shape as the other five — never an
+   *  accumulating set. Empty for a terminal serving nothing, which is most of
+   *  them. */
+  ports: z.array(PortInfoSchema),
 });
 export type TerminalSnapshot = z.infer<typeof TerminalSnapshotSchema>;
 
@@ -243,11 +304,12 @@ export type TerminalEvent =
   | { kind: "pr"; pr: PrResult }
   | { kind: "foreground"; foreground: Foreground | null }
   | { kind: "agent"; agent: Known<AgentInfo | null> }
+  | { kind: "ports"; ports: readonly PortInfo[] }
   | { kind: "commandRun"; command: string; replayed: boolean };
 
 /** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at
- *  its "not yet resolved" seed (git absent, PR pending, no agent, no foreground).
- *  The fold fills it in from now. The ONE home for the snapshot-default set. */
+ *  its "not yet resolved" seed (git absent, PR pending, no agent, no foreground, no
+ *  ports). The fold fills it in from now. The ONE home for the snapshot-default set. */
 export function seedSnapshot(cwd: string): TerminalSnapshot {
   return {
     cwd,
@@ -255,6 +317,7 @@ export function seedSnapshot(cwd: string): TerminalSnapshot {
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
+    ports: [],
   };
 }
 

@@ -17,11 +17,12 @@
  *    title:<id>        ─►  process observer                           emit foreground
  *    title/cwd/cmd     ─►  agent detector ×3                          emit agent (Known<>)
  *    commandRun:<id>   ─►  agent-command tracker                      emit commandRun
+ *    ports:<id>        ─►  port sensor (dedup)                        emit ports
  *
  *  Note on the git→PR pipe: the PR sensor chains off the `GitInfo` the git sensor
  *  emits. That channel is an internal sensor-to-sensor wire, NOT a host input —
  *  `startSensors` constructs it itself and hands it to just those two
- *  sensors, so hosts plug in only the four taps they actually drive.
+ *  sensors, so hosts plug in only the channels they actually drive (the four pty-host taps plus the host-wide `ports` feed).
  *
  *  ## Host contract
  *
@@ -62,9 +63,11 @@ import type { Logger } from "pino";
 import type {
   AgentInfo,
   TerminalEvent,
+  PortInfo,
   PrUnavailableSource,
   TerminalId,
 } from "@kolu/terminal-vocab/schema";
+import { portsEqual } from "@kolu/terminal-vocab/schema";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
  *  mirror that replaces the old `record.meta.agent` read-back) and the recognized
@@ -115,6 +118,16 @@ export interface SensorSignals {
    *  `ptyHandle.process` / `.foregroundPid` reads, so the sensor set works across a
    *  socket. The host pushes a current snapshot first, then changes. */
   foreground: Channel<ForegroundSample>;
+  /** This terminal's listening TCP ports, re-sampled WHOLE each pass by the
+   *  host's port sampler (`portSampler.ts`).
+   *
+   *  The odd tap out, and deliberately so: the other four are per-terminal streams
+   *  the pty-host serves, while ports come from ONE host-wide scan the host
+   *  partitions across every terminal (a single `/proc` pass, not N). The channel
+   *  is how that host-wide fact re-enters the per-terminal producer, so the port
+   *  sample folds through the SAME emit → fold → snapshot path as every other
+   *  field instead of a second write seam into the registry. */
+  ports: Channel<readonly PortInfo[]>;
 }
 
 /** Read the terminal's current rendered screen as VT-resolved plain text — the
@@ -192,6 +205,54 @@ function startForegroundSensor(
   return () => {
     cleanupForeground();
     cleanupTitle();
+    plog.debug("stopped");
+  };
+}
+
+// ── Listening-port sensor ─────────────────────────────────────────────
+
+/** Emit this terminal's listening ports, dropping a sample structurally equal to
+ *  the last one emitted.
+ *
+ *  The dedup is the whole reason this is a sensor rather than a direct write from
+ *  the host's sampler: a seconds-cadence scan re-derives the SAME set on almost
+ *  every pass, and an undeduplicated emit would publish a fresh array — and push a
+ *  fresh reference through the surface and into SolidJS — forever, for every
+ *  terminal, whether or not anything changed. It lives per-terminal (rather than as
+ *  one mirror in the sampler) so the baseline dies WITH the terminal: there is no
+ *  map of last-known samples to prune when a terminal closes, and a re-keyed
+ *  terminal cannot inherit a stale one.
+ *
+ *  The seed is the empty set, matching `seedSnapshot` — so the first scan of a
+ *  terminal that serves nothing emits nothing at all.
+ *
+ *  Exported for its own producer-level test (as `startAgentSensor` is): the churn
+ *  guard is the whole point of the sensor, and driving it through the full
+ *  `startSensors` would drag in git watchers and four agent adapters to observe one
+ *  channel. */
+export function startPortSensor(
+  terminalId: TerminalId,
+  signals: SensorSignals,
+  emit: (o: TerminalEvent) => void,
+  log: Logger,
+): () => void {
+  const plog = log.child({ provider: "ports", terminal: terminalId });
+  let published: readonly PortInfo[] = [];
+  plog.debug("started");
+  const cleanup = signals.ports.consume({
+    onEvent: (ports) => {
+      if (portsEqual(published, ports)) return;
+      plog.debug(
+        { ports: ports.map((p) => p.port) },
+        "listening ports changed",
+      );
+      published = ports;
+      emit({ kind: "ports", ports });
+    },
+    onError: (err) => plog.error({ err }, "ports subscription failed"),
+  });
+  return () => {
+    cleanup();
     plog.debug("stopped");
   };
 }
@@ -874,7 +935,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
 }
 
 /** The host inputs the memoryless producer needs — the spawn-time identity (pid +
- *  cwd), the four taps, the optional screen reader (#905), and a logger (the lone
+ *  cwd), the five signal channels, the optional screen reader (#905), and a logger (the lone
  *  coupling injected, not imported, so this package names no host). NO seed, no
  *  store: the producer cannot remember, so a host hands it only what it observes. */
 export interface SensorInputs {
@@ -946,7 +1007,7 @@ export function startSensors(
   );
   // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
   // git sensor emits `GitInfo` to it and the PR sensor consumes it to re-resolve
-  // the PR. The engine owns it so hosts plug in only the four taps they drive.
+  // the PR. The engine owns it so hosts plug in only the channels they drive.
   const gitChannel = inMemoryChannel<GitInfo | null>();
   const stopGit = startGitSensor(
     cwd,
@@ -977,6 +1038,7 @@ export function startSensors(
   const stopOpenCode = startAgent(opencodeAdapter);
   const stopGrok = startAgent(grokAdapter);
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
+  const stopPorts = startPortSensor(terminalId, signals, emit, log);
   return () => {
     stopCwd();
     stopAgentCommand();
@@ -987,5 +1049,6 @@ export function startSensors(
     stopOpenCode();
     stopGrok();
     stopProcess();
+    stopPorts();
   };
 }
