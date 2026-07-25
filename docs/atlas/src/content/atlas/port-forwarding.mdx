@@ -322,6 +322,26 @@ tick share one non-overlapping runner).
 
 ### PRT2 — kolu embeds the library (one PR)
 
+**A shape question PRT1's review raised and deliberately left to PRT2:** whether
+`PortInfo` should carry `wildcard: boolean` or a three-way
+`scope: "any" | "loopback" | "interface"`. The structural lens's case is sound —
+`wildcard` is one observation (*what address did it bind?*) doing duty as a
+judgment (*is it reachable from here?*), and the judgment is not even a function
+of that field alone: the client must join it with the terminal's HOST to decide
+whether a chip opens. PRT1 kept the boolean because its two live symptoms —
+two platform classifiers that disagreed, and the reachability verb returned as
+prose — are fixed independently, and because **PRT2 is where the second consumer
+appears.** Choosing relay-vs-`ssh -L` needs the host, which `wildcard` never
+carried either, so PRT2 reshapes this surface regardless — and it can then design
+the tag against two real consumers instead of one. Same discipline as the
+`list()`/`subscribe()` and tagged-error questions above.<Footnote>PRT1 also left a
+second, smaller judgment on the table: kaval's one host-global `activity` edge now
+has three independent `resubscribeStream` consumers (the finish fold, the live
+dots, the port-scan nudge). They are not three copies of one shape — the live-dots
+one is per-SUBSCRIBER by design, the other two are daemon-lifetime — so the shared
+fan-out waits for a consumer that actually matches, rather than forcing the
+per-subscriber case into a receptacle it does not want.</Footnote>
+
 The kolu server embeds `@kolu/port-forward`; forward state becomes a cell on
 kolu's existing surface; chip click → lazy create; tunnel badges; Forwarded
 Ports group; manual forward + ⌘K command; auto-cancel policy. Two UX details
