@@ -171,8 +171,11 @@ async function main(): Promise<void> {
   });
 
   // A proxy that goes away ends the session; carrying on prompting into a dead
-  // socket would just queue turns nobody will answer.
+  // socket would just queue turns nobody will answer. Distinguished from our own
+  // teardown below, which closes the same socket for the opposite reason.
+  let leaving = false;
   socket.once("close", () => {
+    if (leaving) return;
     process.stderr.write("acp-chat: the proxy closed the connection\n");
     process.exitCode = 1;
     repl.close();
@@ -180,6 +183,7 @@ async function main(): Promise<void> {
 
   await once(repl, "close");
   await queue;
+  leaving = true;
   socket.destroy();
 }
 
