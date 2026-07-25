@@ -284,6 +284,68 @@ not that.
 3. `sysinfo` 0.39 requires Rust **1.95** while the pinned nixpkgs ships **1.93**, so
    it pins to 0.37.
 
+### Round 2: the crate bug is FIXED in a fork, and the gate now fails on LATENCY only
+
+The address bug was fixed and the gate re-run with the sound discriminator. Parity now
+passes everywhere; the blocker moved.
+
+**The fix.** `listeners` is forked to
+[juspay/listeners](https://github.com/juspay/listeners), branch
+`fix/darwin-v4-mapped-addresses`, rev `227440e922f8140f22b5a6966f28b387e3ce6e8a`
+(pinned by rev, not branch, so a force-push cannot change what we build). It replaces the
+`soi_family` branch with an `insi_vflag` one. The flag ORDER is evidence-driven, and
+two measurements ruled out the simpler patches: a dual-stack `::` sets **both** flags, so
+preferring v4 would report the wildcard as `0.0.0.0` and lose its IPv6 reach; and `::1`'s
+v4 slot holds `00000001`, which preferring v4 would surface as `0.0.0.1`. Hence
+`INI_IPV6` first, `INI_IPV4` second, family last. A mapped bind now reports
+`::ffff:127.0.0.1`, matching what the crate's own Linux path already returns.
+
+Two regression tests ride with it, negative-checked rather than assumed: the v4-mapped one
+FAILS on the unfixed code and passes after; the dual-stack one passes either way by design,
+because its job is to pin the flag order, which the first test cannot. Full crate suite on
+macOS: 15/16, and the one failure (`test_consistency`) fails **identically with and without
+the fix** — pre-existing, and diagnosed while we were there: `lsof` showed several ports on
+that host held by more than one process, so `get_process_by_port(port) == a_specific_listener`
+is not well-defined. Reported upstream as
+[GyulyVGC/listeners#56](https://github.com/GyulyVGC/listeners/issues/56) (bug report only —
+the decision to offer a PR is deliberately deferred).
+
+**Parity: PASS, on both platforms.** Five fixtures × two binders (node, python3) × both
+platforms, oracles `lsof` + the C helper on darwin and `ss` on linux. Compared by the
+CORRECTED discriminator — canonical equivalence, not byte equality: v4-mapped → v4, and any
+all-zeros address → ANY (the same equivalence `isAnyAddress` itself applies, and a
+dual-stack wildcard is legitimately reportable in either width). 10/10 rows equal on each
+platform. The case that failed round 1 now reads
+`…ffff7f000001` → `v4:7f000001`, equal to the C helper's `7f000001`.
+
+**Latency: FAIL, on both platforms.** Gate is a 10-run median ≤20 ms:
+
+| | median | gate | verdict |
+|---|---|---|---|
+| Rust wrapper, darwin (zest) | **23.2 ms** | ≤20 ms | ✗ over by ~3 ms |
+| Rust wrapper, linux (550 procs) | **~100 ms** | ≤20 ms | ✗ over by 5× |
+| C helper, darwin, same box + method | 10.6 ms | — | the incumbent |
+| padi's own `/proc` reader, linux | 14-18 ms | — | the incumbent |
+
+The +100-listener leg was not measured: the baseline already fails, so it could not change
+the verdict.
+
+**The cost is structural, not tuning.** The wrapper enumerates processes twice — once via
+`sysinfo`, again inside `listeners` — where the C helper makes one libproc pass. That is
+exactly the risk the original research flagged. Worse on linux, and more fundamentally:
+`listeners` maps socket inodes by walking **every** process's fds, whereas padi's reader
+walks only the union of the terminal subtrees it was asked about. No amount of wrapper
+tuning changes that; it is the crate's shape.
+
+**So the C helper still ships, and the decision that remains is a threshold one, not a
+correctness one.** Darwin misses by ~3 ms for a readout whose cadence is duty-cycle bounded
+anyway (`nudgeFloorMs` would simply stretch its own floor). Linux is the real obstacle to
+the shared-boundary idea, and it is the platform that needs no helper at all. A plausible
+end state is therefore narrower than "one binary for both": the shared boundary buys most of
+its value on darwin, and linux keeping its subtree-scoped `/proc` reader may be the right
+answer rather than a compromise. That is a call to make deliberately with these numbers in
+hand, not something to settle inside this PR.
+
 ### What the follow-up must clear, and the two things the fact-check corrected
 
 The finding above survived an adversarial re-run whose explicit goal was to destroy it
