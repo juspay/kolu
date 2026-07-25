@@ -546,10 +546,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  sampler would re-read the whole `/proc` once per tile. */
   private portSampler: PortSampler | undefined;
 
-  /** Lifetime of the port sampler's kaval nudge subscription. Tied to THIS
-   *  endpoint (a field, not a module global) so a test that builds a second
-   *  endpoint gets its own; never aborted in production — the sampler is
-   *  process-wide, like the finish-quiet feed that reads the same stream. */
+  /** Lifetime of the port sampler's kaval nudge subscription — a field, so it
+   *  scopes to THIS endpoint rather than the process. Never aborted today: the
+   *  sampler lives as long as the endpoint does, like the finish-quiet feed that
+   *  reads the same stream. */
   private readonly portNudgeAbort = new AbortController();
 
   /** Arm the port sampler + its output nudge, once. Lazy rather than built with

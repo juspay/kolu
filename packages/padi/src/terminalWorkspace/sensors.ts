@@ -18,6 +18,7 @@
  *    title/cwd/cmd     ─►  agent detector ×3                          emit agent (Known<>)
  *    commandRun:<id>   ─►  agent-command tracker                      emit commandRun
  *    ports:<id>        ─►  port sensor (dedup)                        emit ports
+ *                          (fed host-wide by padi's port sampler, not by a pty tap)
  *
  *  Note on the git→PR pipe: the PR sensor chains off the `GitInfo` the git sensor
  *  emits. That channel is an internal sensor-to-sensor wire, NOT a host input —
@@ -942,7 +943,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
 }
 
 /** The host inputs the memoryless producer needs — the spawn-time identity (pid +
- *  cwd), the five signal channels, the optional screen reader (#905), and a logger (the lone
+ *  cwd), the signal channels, the optional screen reader (#905), and a logger (the lone
  *  coupling injected, not imported, so this package names no host). NO seed, no
  *  store: the producer cannot remember, so a host hands it only what it observes. */
 export interface SensorInputs {

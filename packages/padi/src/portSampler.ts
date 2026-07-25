@@ -71,7 +71,7 @@ import {
 export const PORT_SCAN_INTERVAL_MS = 5_000;
 
 /** Floor between two NUDGED passes, however many nudges arrive. */
-export const PORT_SCAN_MIN_GAP_MS = 1_000;
+const PORT_SCAN_MIN_GAP_MS = 1_000;
 
 /** One terminal to attribute ports to — its id and the ROOT pid of its PTY (the
  *  shell for a shell-rooted terminal, the command for a command-rooted one). The
@@ -245,22 +245,13 @@ export function createPortSampler(opts: {
         if (err instanceof PortScanError && err.kind === "unsupported-platform")
           throw err;
         // Everything else is THIS pass failing to see (an EACCES on a requested
-        // subtree, an lsof that timed out) and must not publish an empty set.
-        //
-        // Name the terminals we hold NO last-good sample for. Holding the last
-        // sample cannot cover them — there is nothing yet to hold — so they stay
-        // `unknown` on the wire, which is now a REAL state rather than a `[]` that
-        // reads like "serves nothing". Naming them is an operator's view of a
-        // window the wire already represents honestly.
-        const neverSampled = opts
-          .targets()
-          .filter((t) => last.get(t.id)?.rootPid !== t.rootPid)
-          .map((t) => t.id);
+        // subtree, an lsof that timed out) and must not publish an empty set. A
+        // terminal we hold no sample for stays `unknown` on the wire — a real state
+        // a consumer reads, not a `[]` that would read as "serves nothing" — so the
+        // window needs no second, weaker naming in a log line.
         opts.log.error(
-          { err, neverSampled },
-          neverSampled.length > 0
-            ? "port scan failed — ports left at their last sample; these terminals have none yet and stay unknown"
-            : "port scan failed — ports left at their last sample",
+          { err },
+          "port scan failed — ports left at their last sample",
         );
         return last;
       }

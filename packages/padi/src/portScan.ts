@@ -241,10 +241,7 @@ interface HostReading {
    *  inspected at all (an exit race, a foreign-uid descendant) — see
    *  {@link procReadFailure} for which failures are which and why only a requested
    *  ROOT's is fatal. An inspectable pid holding nothing is an empty list. */
-  listenersOf(
-    pid: number,
-    isRequestedRoot: boolean,
-  ): Promise<readonly Listener[] | undefined>;
+  listenersOf(pid: number): Promise<readonly Listener[] | undefined>;
   /** The PROGRAM name to show for a pid — asked only for a pid the join has
    *  already found to hold a listener, so a platform may pay for it there. */
   nameOf(pid: number): Promise<string>;
@@ -260,12 +257,11 @@ async function joinSubtreePorts(
   reading: HostReading,
   rootPids: readonly number[],
 ): Promise<Map<number, PortInfo[]>> {
-  const roots = new Set(rootPids);
   const out = new Map<number, PortInfo[]>();
   for (const [rootPid, pids] of partitionSubtrees(reading.table, rootPids)) {
     const rows: PortInfo[] = [];
     for (const pid of pids) {
-      const held = await reading.listenersOf(pid, roots.has(pid));
+      const held = await reading.listenersOf(pid);
       if (held === undefined || held.length === 0) continue;
       const name = await reading.nameOf(pid);
       // Built field by field, not spread: a reader's own key (the socket inode,
@@ -431,7 +427,7 @@ function parseV6Address(addr: string, text: string): number[] {
 
 /** A `/proc/net/tcp{,6}` LISTEN row, keyed by the socket inode the fd walk joins
  *  against. */
-export interface ProcListener extends Listener {
+interface ProcListener extends Listener {
   inode: string;
 }
 
@@ -748,8 +744,8 @@ async function readLinux(roots: ReadonlySet<number>): Promise<HostReading> {
   const comm = new Map(table.map((row) => [row.pid, row.name]));
   return {
     table,
-    listenersOf: async (pid, isRequestedRoot) => {
-      const inodes = await socketInodesOf(pid, isRequestedRoot);
+    listenersOf: async (pid) => {
+      const inodes = await socketInodesOf(pid, roots.has(pid));
       if (inodes === undefined) return undefined;
       return [...inodes]
         .map((inode) => listeners.get(inode))
@@ -800,7 +796,7 @@ export function parsePsTable(body: string): ProcessRow[] {
 }
 
 /** A darwin listener, keyed by the pid `lsof` reports for it. */
-export interface LsofListener extends Listener {
+interface LsofListener extends Listener {
   pid: number;
 }
 
@@ -935,6 +931,20 @@ async function readDarwin(): Promise<HostReading> {
 
 // ── The one entry point ────────────────────────────────────────────────
 
+/** Can this host be scanned AT ALL? A deployment fact, knowable before any pid is
+ *  requested — which is exactly why it is separate from a scan.
+ *
+ *  `scanTerminalPorts` refuses an unsupported platform, but a per-pass refusal
+ *  cannot be a caller's permanent-stop signal: a sampler whose first read happens
+ *  to have no terminals yet answers `new Map()` without ever reaching the platform
+ *  switch, so the refusal arrives on some later tick — where a poll loop logs and
+ *  holds rather than stopping, and the "said once, then stop" contract silently
+ *  becomes an error every 5 s forever. Asking THIS first makes the check
+ *  independent of whether any terminal exists. */
+export function portScanSupported(): boolean {
+  return process.platform === "linux" || process.platform === "darwin";
+}
+
 /** Scan the host once and return the listening ports of each requested ROOT PID's
  *  process subtree, sorted and deduplicated. Every requested pid is present in the
  *  result (with an empty array when its subtree serves nothing), so a caller can
@@ -951,20 +961,6 @@ async function readDarwin(): Promise<HostReading> {
  *  retry. Fail fast on the latter, exactly as `socketHolders` does: kolu's daemons
  *  run on linux and darwin, and a third platform needs a real reader, not a silent
  *  empty map. */
-/** Can this host be scanned AT ALL? A deployment fact, knowable before any pid is
- *  requested — which is exactly why it is separate from a scan.
- *
- *  `scanTerminalPorts` refuses an unsupported platform, but a per-pass refusal
- *  cannot be a caller's permanent-stop signal: a sampler whose first read happens
- *  to have no terminals yet answers `new Map()` without ever reaching the platform
- *  switch, so the refusal arrives on some later tick — where a poll loop logs and
- *  holds rather than stopping, and the "said once, then stop" contract silently
- *  becomes an error every 5 s forever. Asking THIS first makes the check
- *  independent of whether any terminal exists. */
-export function portScanSupported(): boolean {
-  return process.platform === "linux" || process.platform === "darwin";
-}
-
 export async function scanTerminalPorts(
   rootPids: readonly number[],
 ): Promise<Map<number, PortInfo[]>> {
