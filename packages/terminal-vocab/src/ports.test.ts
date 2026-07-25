@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { foldPorts, type PortInfo, portsEqual } from "./schema.ts";
+import { foldPorts, type PortInfo, portReach, portsEqual } from "./schema.ts";
 
 const p = (port: number, wildcard = true, name = "node"): PortInfo => ({
   port,
@@ -106,5 +106,41 @@ describe("portsEqual", () => {
 
   it("notices a NAME change on the same port", () => {
     expect(portsEqual([p(3000)], [p(3000, true, "workerd")])).toBe(false);
+  });
+});
+
+describe("portReach", () => {
+  it("is direct only when the port is wildcard-bound AND on the kolu host", () => {
+    expect(portReach({ wildcard: true, onKoluHost: true })).toEqual({
+      kind: "direct",
+    });
+  });
+
+  it("names LOOPBACK for a loopback-bound port on the kolu host", () => {
+    expect(portReach({ wildcard: false, onKoluHost: true })).toEqual({
+      kind: "needs-forward",
+      via: "loopback",
+    });
+  });
+
+  it("names REMOTE HOST even for a wildcard port — the arm e2e cannot reach", () => {
+    // The load-bearing case: a port bound to 0.0.0.0 on a remote ssh host is
+    // reachable on THAT machine, and `location.hostname` is not that machine. If
+    // the wildcard arm won here, kolu would offer an open that lands on the kolu
+    // server's own (probably empty) port instead.
+    expect(portReach({ wildcard: true, onKoluHost: false })).toEqual({
+      kind: "needs-forward",
+      via: "remote-host",
+    });
+  });
+
+  it("prefers the remote-host arm over the loopback one", () => {
+    // Both are true for a loopback port on a remote host; the host is the more
+    // informative fact, and PRT2 needs a different forward for each case — which
+    // is why the answer is a TAG a caller can switch on rather than a sentence.
+    expect(portReach({ wildcard: false, onKoluHost: false })).toEqual({
+      kind: "needs-forward",
+      via: "remote-host",
+    });
   });
 });

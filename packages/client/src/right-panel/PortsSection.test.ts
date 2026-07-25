@@ -1,16 +1,17 @@
 /**
- * The two pure decisions behind a port chip. Both exports carried a "for the unit
- * test" justification with no test behind it — the gauntlet caught that; this is
- * the test.
+ * The Ports section's own two concerns: the URL it builds, and the words it puts
+ * on a chip that needs a forward.
  *
- * It earns its place beyond honesty: the **remote-host** arm of
- * `needsForwardReason` is unreachable from the e2e suite, whose terminals are all
- * on the kolu host, and it is the arm that decides whether kolu offers to open a
- * URL pointing at the wrong machine.
+ * The DECISION behind that chip is not here — `portReach` lives in the vocabulary
+ * (both ends of the wire need it, PRT2's forward manager included) and is tested
+ * beside `foldPorts` in `terminal-vocab/src/ports.test.ts`. What remains here is
+ * presentation, which is the point of the split: rewording the copy no longer
+ * touches the decision, and the decision is no longer observed by regex-matching
+ * English.
  */
 
 import { describe, expect, it } from "vitest";
-import { needsForwardReason, portUrl } from "./PortsSection";
+import { FORWARD_REASON, portUrl } from "./PortsSection";
 
 describe("portUrl", () => {
   it("builds the URL from the host it was given, never a literal localhost", () => {
@@ -27,31 +28,11 @@ describe("portUrl", () => {
   });
 });
 
-describe("needsForwardReason", () => {
-  it("openable only when the port is wildcard-bound AND on the kolu host", () => {
-    expect(needsForwardReason({ wildcard: true, onKoluHost: true })).toBeNull();
-  });
-
-  it("says loopback for a loopback-bound port on the kolu host", () => {
-    expect(needsForwardReason({ wildcard: false, onKoluHost: true })).toMatch(
-      /loopback/,
-    );
-  });
-
-  it("says REMOTE HOST even for a wildcard port — the arm e2e cannot reach", () => {
-    // The load-bearing case: a port bound to 0.0.0.0 on a remote ssh host is
-    // reachable on THAT machine, and `location.hostname` is not that machine. If
-    // the wildcard arm won here, kolu would offer an open that lands on the kolu
-    // server's own (probably empty) port instead.
-    const reason = needsForwardReason({ wildcard: true, onKoluHost: false });
-    expect(reason).toMatch(/remote host/);
-  });
-
-  it("prefers the remote-host reason over the loopback one", () => {
-    // Both are true for a loopback port on a remote host; the host is the more
-    // informative fact, and PRT2 needs a different forward for each case.
-    expect(needsForwardReason({ wildcard: false, onKoluHost: false })).toMatch(
-      /remote host/,
-    );
+describe("FORWARD_REASON", () => {
+  it("has words for every forward mechanism, and says which is which", () => {
+    // A `Record` over the union makes a missing arm a compile error; this pins that
+    // each arm names its OWN situation rather than sharing one vague sentence.
+    expect(FORWARD_REASON["remote-host"]).toMatch(/remote host/);
+    expect(FORWARD_REASON.loopback).toMatch(/loopback/);
   });
 });

@@ -116,6 +116,8 @@ export {
   AgentMemorySchema,
   ForegroundSchema,
   foldPorts,
+  type PortReach,
+  portReach,
   PrResultSchema,
   PrUnavailableSourceSchema,
   prUnavailableReason,

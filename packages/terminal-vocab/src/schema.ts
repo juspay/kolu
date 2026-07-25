@@ -222,6 +222,43 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
   return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
 
+/** Whether a port answers from the VIEWER as-is, and — when it does not — WHICH
+ *  mechanism would make it answer. The indivisible decision behind a port chip,
+ *  as a tag rather than a sentence.
+ *
+ *  Three outcomes, because PRT2 must act on each differently: open the URL
+ *  directly · relay the port on the kolu host (a loopback bind, invisible from any
+ *  other machine) · `ssh -L` through the remote host that owns it. A `string | null`
+ *  reason collapsed all of that into prose, so "openable" was spelled as the
+ *  ABSENCE of a sentence, a render site could only discriminate by matching English,
+ *  and rewording the copy meant editing the decision. */
+export type PortReach =
+  | { kind: "direct" }
+  | { kind: "needs-forward"; via: "loopback" | "remote-host" };
+
+/** The ONE openability decision, for both ends of the wire: a port answers on the
+ *  name in the viewer's address bar iff it is any-address-bound AND its terminal is
+ *  on the kolu server's own host.
+ *
+ *  The REMOTE-HOST arm wins, and that precedence is load-bearing: a wildcard bind
+ *  on a remote ssh host is reachable from THAT machine, and `location.hostname` is
+ *  not that machine — reading the wildcard first would offer an open that lands on
+ *  the kolu server's own (probably empty) port. It is also the more informative of
+ *  the two facts when both hold.
+ *
+ *  Pure and total over two booleans, so there is no third "unknown" arm for a
+ *  render site to get wrong. It lives beside {@link foldPorts} because this is part
+ *  of what `PortInfo.wildcard` MEANS, and because PRT2's forward manager needs the
+ *  same judgment server-side. */
+export function portReach(opts: {
+  wildcard: boolean;
+  onKoluHost: boolean;
+}): PortReach {
+  if (!opts.onKoluHost) return { kind: "needs-forward", via: "remote-host" };
+  if (!opts.wildcard) return { kind: "needs-forward", via: "loopback" };
+  return { kind: "direct" };
+}
+
 /** The comparison keys, READ OFF the schema so a new `PortInfo` field is covered
  *  with no second edit here — the `PERSISTED_SNAPSHOT_KEYS` mechanism
  *  (`padi/src/terminalEndpoint/local.ts`), which exists because a hand-listed

@@ -27,7 +27,12 @@
  *  would produce a broken tab more often than a working one. */
 
 import { activeArm } from "@kolu/padi/surface";
-import { foldPorts, type TerminalId } from "kolu-common/surface";
+import {
+  foldPorts,
+  type PortReach,
+  portReach,
+  type TerminalId,
+} from "kolu-common/surface";
 import { type Component, For, Show, createMemo } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OpenIcon } from "../ui/Icons";
@@ -42,22 +47,17 @@ export function portUrl(hostname: string, port: number): string {
   return `http://${hostname}:${port}`;
 }
 
-/** Why a chip is not openable, as the words shown to the user. `null` when it IS
- *  openable. Pure and total over the two facts a chip has (is it wildcard-bound, is
- *  its terminal on the kolu server's own host), so there is no third "unknown"
- *  rendering to get wrong. */
-export function needsForwardReason(opts: {
-  wildcard: boolean;
-  onKoluHost: boolean;
-}): string | null {
-  if (!opts.onKoluHost) {
-    return "on a remote host — needs a forward (coming next)";
-  }
-  if (!opts.wildcard) {
-    return "bound to loopback — needs a forward (coming next)";
-  }
-  return null;
-}
+/** The words for each reason a chip is not openable — a table over
+ *  `PortReach`'s `via` union, so a new forward mechanism (PRT2 adds one) is a
+ *  COMPILE ERROR here rather than a silently missing sentence. The decision itself
+ *  is `portReach` in the vocabulary; this file owns only how it reads. */
+export const FORWARD_REASON: Record<
+  Extract<PortReach, { kind: "needs-forward" }>["via"],
+  string
+> = {
+  "remote-host": "on a remote host — needs a forward (coming next)",
+  loopback: "bound to loopback — needs a forward (coming next)",
+};
 
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const store = useTerminalStore();
@@ -89,11 +89,17 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
         <div class="flex flex-col gap-1" data-testid="inspector-ports">
           <For each={ports()}>
             {(port) => {
-              const reason = () =>
-                needsForwardReason({
+              const reach = () =>
+                portReach({
                   wildcard: port.wildcard,
                   onKoluHost: onKoluHost(),
                 });
+              const forwardReason = () => {
+                const r = reach();
+                return r.kind === "needs-forward"
+                  ? FORWARD_REASON[r.via]
+                  : undefined;
+              };
               return (
                 <div class="flex items-baseline gap-2 text-[11px] leading-snug">
                   <span class="font-mono text-fg font-semibold tabular-nums">
@@ -104,16 +110,16 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                   </span>
                   <span class="ml-auto shrink-0">
                     <Show
-                      when={reason() === null}
+                      when={reach().kind === "direct"}
                       fallback={
                         // Inert on purpose — see the module header. `title` carries the
-                        // same sentence for the truncated layout, and the cursor stays
-                        // default so it never reads as a dead button.
+                        // reason for the truncated layout, and the cursor stays default
+                        // so it never reads as a dead button.
                         <span
                           class="text-fg-3/50 text-[10px] italic"
                           data-testid="inspector-port-needs-forward"
                           data-port={port.port}
-                          title={reason() ?? undefined}
+                          title={forwardReason()}
                         >
                           needs a forward
                         </span>
