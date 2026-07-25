@@ -81,6 +81,32 @@ let
     inherit (pkgs) lib;
   };
 
+  # padi's darwin port-scan reader: a libproc helper that replaced the `ps` + `lsof`
+  # pair, and the numbers are not close. Measured on zest (macOS 27.0): ~8.5-10.6 ms
+  # for one snapshot against 49 ms for `ps` ALONE and 94 ms for `lsof` ALONE — the old
+  # path spent ~143 ms of subprocess before a byte was parsed, for facts libproc
+  # returns in one call.
+  #
+  # A shared `sysinfo`+`listeners` Rust binary was built and MEASURED as the intended
+  # replacement, and it FAILED the address-parity gate on darwin: `listeners` drops the
+  # v4-mapping marker, reporting a `::ffff:127.0.0.1` bind as `::127.0.0.1`. The Atlas
+  # note records the exact bytes and what the follow-up must clear.
+  #
+  # `null` on linux, where the scan reads `/proc` directly — and that split is a
+  # boundary rather than an unfinished migration: the linux reader implements a policy
+  # a one-shot snapshot cannot express (`procReadFailure` — an unreadable FOREIGN-uid
+  # descendant is skipped, an unreadable REQUESTED ROOT is fatal), and collapsing those
+  # two was a real bug where one `sudo` prompt emptied the Ports section host-wide.
+  # So the bake is conditional rather than shipping an empty binary that would pretend
+  # to be a scanner.
+  # Read from koluEnv rather than re-deriving the path, so the wrapper and the dev
+  # shell cannot drift — the drift that made every darwin live test throw, since those
+  # tests run under bare vitest and never see this wrapper.
+  portScanHelperBakeArg =
+    if koluEnv ? KOLU_PORT_SCAN_HELPER
+    then ''--set KOLU_PORT_SCAN_HELPER "${koluEnv.KOLU_PORT_SCAN_HELPER}"''
+    else "";
+
   # The `.ts` filter for a hashed daemon fileset: real source only (drops `.test.ts`
   # AND `.testlib.ts` shared test-only helpers). The id is a content hash of the
   # fileset's store path, byte-identical across Darwin/Linux; the recipe + rationale
@@ -219,6 +245,11 @@ let
       # the npm deps are NOT here — surface is the framework "electricity" (a
       # stable, drishti-gated boundary) and the rest are pinned by pnpmDeps; both
       # are stable externals in the closure guard's ALLOWED list.)
+      # @kolu/port-scan — the OS reader padi's port sensor plugs into. Hashed like
+      # any other in-process root: which ports a terminal is serving is daemon
+      # BEHAVIOUR, so a change to the reader must flip padi's staleKey exactly as a
+      # change to the sensor that calls it does.
+      (padiPkgRoot ./packages/port-scan)
       (padiPkgRoot ./packages/serve-dir)
       (padiPkgRoot ./packages/shell-quote)
       (padiPkgRoot ./packages/html-escape)
@@ -405,6 +436,7 @@ let
       --add-flags "${koluStamped}/packages/kolu-cli/src/main.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      ${portScanHelperBakeArg} \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
@@ -526,6 +558,7 @@ let
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      ${portScanHelperBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
@@ -602,7 +635,23 @@ let
     inherit pkgs src pnpmDeps version;
     pname = "kolu-typecheck";
   };
+  # padi's darwin port-scan helper as its OWN package output, so the whole thing —
+  # the compile plus the install checks that bind a real dual-stack socket — builds
+  # and iterates alone on a Mac (`nix build .#port-scan-helper`): no client bundle,
+  # no node-pty rebuild, no pnpm fetch. That is the point of the derivation sitting
+  # in `packages/port-scan/native/` beside its one C file — the unit is self-contained,
+  # so building it should be too.
+  #
+  # The same `callPackage ./packages/port-scan/native` `nix/env.nix` bakes onto the
+  # wrappers, with the same (empty) argument set, so the two call sites cannot name
+  # different builds — they evaluate to one store path.
+  #
+  # Darwin-only, matching the derivation: it is `null` on linux, and a flake
+  # `packages` set cannot carry a null.
+  darwinOnly = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+    port-scan-helper = pkgs.callPackage ./packages/port-scan/native { };
+  };
 in
 {
   inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi;
-}
+} // darwinOnly

@@ -229,8 +229,20 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  state. That narrow edge is inherent to any additive minor; the common
  *  nix-run path converges the binder before it can occur.) That is
  *  the answer to "who reports the skew of the skew-reporter": the existing
- *  convergence machinery, before the new arm can reach an old parser. */
-export const PADI_SURFACE_VERSION = "4.1";
+ *  convergence machinery, before the new arm can reach an old parser.
+ *
+ *  4.2 (additive · minor): the ACTIVE terminal arm gains `ports` — the listening
+ *  TCP ports padi's port sensor attributes to each terminal (PRT1). A new REQUIRED
+ *  field on an emitted value, so the same rule 4.1 states applies: the shape a
+ *  padi emits changed, therefore the version says so. Required rather than
+ *  optional-with-a-default deliberately — an absent `ports` and an empty `ports`
+ *  are different facts ("this padi cannot tell you" vs "this terminal serves
+ *  nothing"), and spelling them the same would make the second unfalsifiable. The
+ *  minor suffices for the reason spelled out at 4.1: a newer binder against an old
+ *  4.1 padi fails the minor rule and drains it BEFORE consuming its surface, and an
+ *  older binder against a 4.2 padi is build-mismatched and drains it first — so an
+ *  old parser never meets a frame carrying (or missing) this field. */
+export const PADI_SURFACE_VERSION = "4.2";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });

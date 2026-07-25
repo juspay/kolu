@@ -62,6 +62,7 @@ const activeSnapshot: TerminalSnapshot = {
   pr: { kind: "pending" },
   agent: null,
   foreground: null,
+  ports: { status: "unknown" },
 };
 
 /** M distinct valid v4-shaped terminal ids. */

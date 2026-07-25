@@ -38,18 +38,16 @@ import {
   createActivityTracker,
   type ActivityTracker,
 } from "./terminalActivityTracker.ts";
-import { resubscribeStream } from "./terminalEndpoint/local.ts";
+import {
+  ACTIVITY_RESUBSCRIBE_DELAY_MS,
+  resubscribeStream,
+} from "./terminalEndpoint/local.ts";
 import { recomputeUrgency } from "./urgency.ts";
 
 /** Quiet window for the effective-finish fold — Padi attention policy, not shared
  *  wire vocabulary. Long enough to ride gaps between background sub-agent bursts;
  *  short enough the finished nudge is not noticeably late. */
 export const EFFECTIVE_FINISH_QUIET_MS = 5_000;
-
-/** Delay before re-subscribing to kaval's `activity` stream after it ends — same
- *  cadence as liveActivity so recycle recovery feels consistent. One constant for
- *  both consumers (must not drift). */
-export const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
 
 /** Waiting-episode phase for one terminal — one ADT, not waiting∪sticky∪isLive. */
 export type FinishEpisodePhase = "debouncing" | "finished";

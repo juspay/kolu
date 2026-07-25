@@ -149,13 +149,9 @@ const ReferenceGroup: Component<{
 
 const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
   const store = useTerminalStore();
-  // The tile root plus its splits, in server order. `terminalId` is the active
-  // *tile* (workspace root), never a split, so its sub-terminals are exactly the
-  // splits beneath it.
-  const terminals = () => [
-    props.terminalId,
-    ...store.getSubTerminalIds(props.terminalId),
-  ];
+  // The tile's panes — `terminalId` is the active *tile* (workspace root), never a
+  // split. The store owns what that means (see `getTilePaneIds`).
+  const terminals = () => store.getTilePaneIds(props.terminalId);
   const hasSplits = () => terminals().length > 1;
   // This server's kaval socket, resolved once and threaded to every card's
   // command builder (kavalCmd pins it after the id; see kavalCmd.ts). A memo,

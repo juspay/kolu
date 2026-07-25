@@ -22,8 +22,10 @@ import {
   createActivityTracker,
   sameActivitySet,
 } from "./terminalActivityTracker.ts";
-import { ACTIVITY_RESUBSCRIBE_DELAY_MS } from "./finishQuiet.ts";
-import { resubscribeStream } from "./terminalEndpoint/local.ts";
+import {
+  ACTIVITY_RESUBSCRIBE_DELAY_MS,
+  resubscribeStream,
+} from "./terminalEndpoint/local.ts";
 
 /** The `activity` stream backing shape — the live-set `source` thunk padi's
  *  `padiSurface` activity stream is wired with. Re-invoked per subscription

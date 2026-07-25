@@ -147,7 +147,7 @@ function authoredActive(
   };
 }
 
-/** The OBSERVATION half — the five snapshot fields a memoryless producer emits,
+/** The OBSERVATION half — the six snapshot fields a memoryless producer emits,
  *  with a RESOLVED live `pr` (so the wake-time reset back to `pending` is
  *  meaningful, and the sleep carry-over of the restore-relevant `pr` is visible). */
 function snapshotActive(): TerminalSnapshot {
@@ -167,6 +167,7 @@ function snapshotActive(): TerminalSnapshot {
     },
     agent: null,
     foreground: null,
+    ports: { status: "unknown" },
   };
 }
 

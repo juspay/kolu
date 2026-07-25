@@ -775,7 +775,7 @@ export function createAuthoredActive(
  *  of its own: the wire carries the two halves separately (`kolu.authored` +
  *  `terminalWorkspace.snapshots`) and the join lives at the reader. The authored
  *  record (`entry.meta`) carries location + memory + client fields + the
- *  discriminant; the observation carries the five snapshot fields. Reusing one
+ *  discriminant; the observation carries the six snapshot fields. Reusing one
  *  join at both the read and the persist site keeps disk and the client read from
  *  ever diverging.
  *
