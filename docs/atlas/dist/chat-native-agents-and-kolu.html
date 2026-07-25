@@ -118,7 +118,13 @@ protocol on a unix socket. The proxy adds only what a harness must own:
 spawn/respawn, cancel-with-grace, idle timeouts, logging.</span></span></span> The proxy
 is the volatility receptacle — process lifecycle, transport, per-vendor quirks
 live there and nowhere else — which is what makes it a <code>@kolu/*</code> package rather
-than pesu internals.</p>
+than pesu internals. Note the coupling runs one way only: <code>acp-proxy</code> imports
+nothing from kaval, padi, or <code>@kolu/surface</code> — both of its faces are standard
+ACP — and kolu never learns about it either. Running it in a tile is a
+deployment choice (that’s what puts the session on the canvas); the same
+binary runs identically under tmux or systemd, and the package (<code>packages/acp</code>
+in this repo) could move out to its own repo later as a file move, not
+surgery.</p>
 <p>Driving the agent through ACP instead of typing into its TUI deletes the whole
 observation problem for the bot path: no bracketed-paste races, no
 screen-settle detection, no turn-end heuristics, no transcript-file watching —
