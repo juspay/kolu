@@ -221,8 +221,11 @@ fmt: install
 # Biome lint — recommended preset with each deliberately-advisory rule
 # explicitly off (with a reason) in biome.jsonc. `--error-on-warnings` makes
 # the gate fail on *any* warning, not just errors, so warning-severity lint
-# debt can no longer accrue invisibly on master (#1362).
-biome: install
+# debt can no longer accrue invisibly on master (#1362). Biome 2.4.15's
+# jemalloc-backed process crashed nondeterministically while idli's Home Manager
+# VM fan-out was active (SIGSEGV/SIGABRT); run the one-second lint after that
+# existing critical path drains.
+biome: install home-manager
     {{ nix_shell }} biome lint --error-on-warnings .
 
 
