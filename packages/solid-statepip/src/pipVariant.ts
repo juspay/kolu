@@ -255,15 +255,25 @@ export const TITLE_PIP_BOX = "w-[16px] h-[16px] rounded-full";
 export const NEEDS_YOU_PILL_CLASS =
   "inline-flex items-center justify-center rounded-full bg-alert/90 text-[10px] font-semibold text-black/80 tabular-nums";
 
-/** Host-tab finished-unseen soft amber fill — same hue family as
- *  `ALERT_BADGE_CLASS` (obligation), softer than a corner badge. */
-export const FINISHED_DOT_CLASS = "rounded-full bg-attention/50";
+/** Host-tab finished-unseen COUNT pill — solid amber (`--color-attention`),
+ *  same obligation hue as `ALERT_BADGE_CLASS`. Geometry mirrors
+ *  `NEEDS_YOU_PILL_CLASS` so the two host-tab marks read as one vocabulary
+ *  split by hue, not by shape: violet = blocked on you, amber = finished and
+ *  unopened.
+ *
+ *  It was a 6 px `bg-attention/50` dot until #1988 — a half-alpha dot sat
+ *  quieter than the 8 px connection dot two elements to its left, so the mark
+ *  meant to summon you was the faintest thing on the tab. Solid fill + a real
+ *  number; the tab's own amber wash (`.host-tab[data-unseen]`) carries the
+ *  glance-distance signal that a dot of any size cannot. */
+export const UNSEEN_COUNT_CLASS =
+  "inline-flex items-center justify-center rounded-full bg-attention text-[10px] font-semibold text-surface-0 tabular-nums";
 
 /** Unread / obligation CORNER DOT on StatePip (top-right). Warm amber
  *  (`--color-attention`) — deliberately a different hue from needs-you
  *  violet so "state is awaiting" and "you have an unopened notification"
- *  never collapse into one mark. Host tab's quieter finished-unseen mark
- *  (`HostFinishedDot`) uses `FINISHED_DOT_CLASS`. */
+ *  never collapse into one mark. The host tab's finished-unseen mark
+ *  (`HostUnseenPill`) uses `UNSEEN_COUNT_CLASS`. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";
 
 /** Glyph size inside the 20 px dock pip box — 16 px mark, 2 px inset each side.

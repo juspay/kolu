@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,
   DOCK_ROW_PIP_BOX,
-  FINISHED_DOT_CLASS,
+  UNSEEN_COUNT_CLASS,
   GLYPH_SVG_CLASS,
   INDICATOR_BASE,
   NEEDS_YOU_PILL_CLASS,
@@ -178,7 +178,23 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     expect(cls).toContain("tabular-nums");
   });
 
-  it("FINISHED_DOT_CLASS is soft amber attention", () => {
-    expect(FINISHED_DOT_CLASS.split(/\s+/)).toContain("bg-attention/50");
+  it("UNSEEN_COUNT_CLASS is SOLID amber attention — never a half-alpha dot", () => {
+    const cls = UNSEEN_COUNT_CLASS.split(/\s+/);
+    expect(cls).toContain("bg-attention");
+    // The mark that summons you must not be fainter than the connection dot
+    // beside it — that was the #1988 defect. Any `/nn` alpha suffix regresses it.
+    expect(cls.some((c) => c.startsWith("bg-attention/"))).toBe(false);
+    expect(cls).toContain("tabular-nums");
+  });
+
+  it("unseen (amber) and needs-you (violet) share geometry, differ by hue", () => {
+    const unseen = UNSEEN_COUNT_CLASS.split(/\s+/);
+    const needsYou = NEEDS_YOU_PILL_CLASS.split(/\s+/);
+    for (const shape of ["rounded-full", "tabular-nums", "inline-flex"]) {
+      expect(unseen).toContain(shape);
+      expect(needsYou).toContain(shape);
+    }
+    expect(unseen).not.toContain("bg-alert/90");
+    expect(needsYou).not.toContain("bg-attention");
   });
 });
