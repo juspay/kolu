@@ -24,7 +24,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 4.1, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 4.2, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -43,7 +43,11 @@ describe("padiSurface contract", () => {
     // (SK4) — an additive arm, so a minor per the versioning doctrine in
     // surface.ts (the mirror of #1865, which folded a bump BACK because
     // nothing emitted had changed; here something did).
-    expect(PADI_SURFACE_VERSION).toBe("4.1");
+    // 4.2 (minor): the ACTIVE terminal arm gained `ports` — the listening TCP
+    // ports padi's port sensor attributes to each terminal (PRT1). A new required
+    // field on an emitted value, so the same rule applies: the emitted SHAPE
+    // changed, therefore the version says so.
+    expect(PADI_SURFACE_VERSION).toBe("4.2");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,

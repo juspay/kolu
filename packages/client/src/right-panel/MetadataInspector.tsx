@@ -1,5 +1,13 @@
 /** MetadataInspector — live view of the active terminal's full context.
- *  Pure rendering: receives metadata, renders sections. */
+ *
+ *  Layout + arm gating for the active terminal's sections. This file decides WHICH
+ *  sections show and in what order, not where their data comes from: a section that
+ *  needs more than `meta` reads it itself — `ComposeSection` reaches `activePadiRpc`,
+ *  `KavalAttachSection` and `PortsSection` the terminal store, `PortsSection` the
+ *  active host. (It used to claim "pure rendering: receives metadata, renders
+ *  sections", which three of its own children already broke — and a stated rule that
+ *  is false is worse than an unstated one, because the next reader either enforces
+ *  it wrongly or learns to ignore this file's comments.) */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { prValue } from "anyforge/schemas";
@@ -20,6 +28,7 @@ import Row from "../ui/Row";
 import Section from "../ui/Section";
 import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
+import PortsSection from "./PortsSection";
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;
@@ -262,6 +271,18 @@ const MetadataInspector: Component<{
                 </div>
               </Section>
             )}
+          </Show>
+
+          {/* Ports — what this TILE is serving, its splits included (a dev server
+              usually runs in a split, so a main-pane-only reading shows nothing in
+              the common case). Gated on the id alone, which is the only thing the
+              child needs: `PortsSection` owns which panes to read AND which of them
+              are awake — and the per-PANE arm read is the correct one, since a tile
+              can be active while a pane is asleep. It also owns which chips are
+              openable (that needs the active HOST, not just this metadata) and
+              rendering nothing at all when the tile serves nothing. */}
+          <Show when={props.terminalId}>
+            {(id) => <PortsSection terminalId={id()} />}
           </Show>
 
           {/* Foreground process */}

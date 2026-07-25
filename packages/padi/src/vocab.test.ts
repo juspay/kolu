@@ -46,6 +46,7 @@ const snapshot = (over: Partial<TerminalSnapshot> = {}): TerminalSnapshot => ({
   pr: { kind: "absent" },
   agent: claude("ses-A"),
   foreground: { name: "vim", title: null },
+  ports: { status: "unknown" },
   ...over,
 });
 

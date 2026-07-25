@@ -27,6 +27,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/port-scan": "workspace:*",
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",

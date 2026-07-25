@@ -67,7 +67,7 @@ const agentObs = (agent: AgentInfo | null): TerminalEvent => ({
   agent: { value: agent },
 });
 
-describe("foldSnapshot — last-write-wins over the five snapshot fields", () => {
+describe("foldSnapshot — last-write-wins over the six snapshot fields", () => {
   it("applies cwd/git/pr/foreground edges", () => {
     let o = seedSnapshot("/a");
     o = foldSnapshot(o, { kind: "cwd", cwd: "/b" });

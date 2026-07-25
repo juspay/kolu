@@ -22,11 +22,12 @@
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
-import { inMemoryChannel } from "@kolu/surface/server";
+import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
   AgentIdentity,
   TerminalEvent,
   TerminalId,
+  TerminalPorts,
   TerminalSnapshot,
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
@@ -44,6 +45,11 @@ import type {
 } from "../endpoint.ts";
 import { abortableDelay } from "../abortableDelay.ts";
 import { log } from "../log.ts";
+import {
+  createPortSampler,
+  type PortSampler,
+  type PortScanTarget,
+} from "../portSampler.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
@@ -331,6 +337,15 @@ export function bridgeStream<T>(
   })();
 }
 
+/** Delay before re-subscribing to a kaval stream after it ends — one cadence for
+ *  every consumer of {@link resubscribeStream} (the finish fold, the live dots, the
+ *  port scan's output nudge), so recycle recovery feels consistent and the number
+ *  cannot drift between them. Lives beside the loop it parameterizes rather than in
+ *  one of the three consumers: the third consumer is in this file, and importing it
+ *  back from `finishQuiet.ts` (which imports the loop from here) would make a cycle
+ *  out of what is really just a knob on the loop. */
+export const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
+
 /** Subscribe to a `ptyHostClient` stream and RE-SUBSCRIBE across daemon recycles
  *  (a B3.2 restart, a supervisor reconnect, the 5.2->5.3 force-recycle) until
  *  `signal` aborts. Fire-and-forget — callers `void` it; the loop owns its own
@@ -431,10 +446,18 @@ function restoreRelevantEqual(
 }
 
 /** Everything needed to stop one terminal's producer + tap bridges: abort the
- *  tap-stream subscriptions and stop the producer. */
+ *  tap-stream subscriptions and stop the producer — plus the two things the
+ *  HOST-WIDE port sampler needs to reach this terminal (its root pid to walk
+ *  from, its `ports` channel to publish into). Those live here rather than in a
+ *  second map because the sampler's target list must be exactly "the terminals
+ *  with a live sensor layer", and this map already IS that set — a separate map
+ *  would be a second definition of the same membership, free to drift. */
 interface TerminalLifecycle {
   abort: AbortController;
   stopAwareness: () => void;
+  /** OS pid of the PTY's root process — the port scan's walk origin. */
+  rootPid: number;
+  ports: Channel<TerminalPorts>;
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
@@ -469,9 +492,17 @@ export function adoptedSnapshot(
   liveEntry: PtyHostListEntry,
 ): TerminalSnapshot {
   return {
+    // Everything not saved starts at ITS SEED, from the one home for that set
+    // (`seedSnapshot`) rather than hand-spelled here: the live agent resets, the
+    // foreground resets before the live read below overrides it, and so do the
+    // ports — nothing about a port survived the restart in the saved record, and
+    // the host-wide scan re-derives the real set within a tick of the sensor layer
+    // starting. A SEVENTH snapshot field then lands in `seedSnapshot` alone.
+    ...seedSnapshot(liveEntry.cwd),
     ...PersistedSnapshotSchema.parse(record),
+    // The two DELIBERATE overrides: the live daemon snapshot is the authority for
+    // both (see above), so they win over the saved projection.
     cwd: liveEntry.cwd,
-    agent: null,
     foreground: liveForeground(liveEntry),
   };
 }
@@ -508,6 +539,69 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   /** id → its sensor-set + tap-bridge teardown. Its keys ARE the terminals
    *  with a live sensor layer in this process. */
   private readonly lifecycles = new Map<TerminalId, TerminalLifecycle>();
+
+  /** The ONE host-wide port sampler for this process, armed on the first terminal
+   *  that gets a sensor layer and then daemon-lifetime (its timer is `unref`'d, so
+   *  it holds nothing open). One scan serves every terminal — a per-terminal
+   *  sampler would re-read the whole `/proc` once per tile. */
+  private portSampler: PortSampler | undefined;
+
+  /** Lifetime of the port sampler's kaval nudge subscription — a field, so it
+   *  scopes to THIS endpoint rather than the process. Never aborted today: the
+   *  sampler lives as long as the endpoint does, like the finish-quiet feed that
+   *  reads the same stream. */
+  private readonly portNudgeAbort = new AbortController();
+
+  /** Arm the port sampler + its output nudge, once. Lazy rather than built with
+   *  the endpoint so a padi with no terminals runs no clock and opens no kaval
+   *  subscription at all. */
+  private ensurePortSampler(): PortSampler {
+    if (this.portSampler !== undefined) return this.portSampler;
+    const sampler = createPortSampler({
+      // Re-read at the top of every pass: the port scan repartitions from the
+      // CURRENT root pids, so a terminal that closed between two passes is
+      // simply absent and can leave no stale subtree behind.
+      targets: (): PortScanTarget[] =>
+        [...this.lifecycles].map(([id, lc]) => ({ id, rootPid: lc.rootPid })),
+      // Straight into the terminal's own `ports` channel — its port sensor owns
+      // the structural dedup, so an unchanged scan stops here.
+      // The sampler hands over a ready `TerminalPorts` it built from a SUCCESSFUL
+      // read, and republishes the same object while the host is unchanged — so this
+      // seam forwards a reference rather than minting a wrapper per terminal per
+      // pass. A terminal the sampler has never read stays at `seedSnapshot`'s
+      // `unknown`, which is a different fact from `known: []`.
+      publish: (id, ports) => this.lifecycles.get(id)?.ports.publish(ports),
+      rootPidOf: (id) => this.lifecycles.get(id)?.rootPid,
+      log,
+    });
+    this.portSampler = sampler;
+    // The output nudge. kaval's host-global `activity` edge is the SAME
+    // resize-excluded meaningful-output fact the finish fold and the live dots
+    // read — one subscription for the whole host, not a per-terminal byte tap —
+    // so a dev server's "ready" banner pulls its scan forward instead of waiting
+    // out the baseline. The stream is a hint about WHEN to look and nothing more:
+    // its payload is never read, only its arrival.
+    void resubscribeStream({
+      signal: this.portNudgeAbort.signal,
+      delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
+      getStream: () =>
+        ptyHostClient.surface.activity.get(
+          {},
+          { signal: this.portNudgeAbort.signal },
+        ),
+      onEvent: () => sampler.nudge(),
+      onDrop: (err) => {
+        // A dropped feed costs promptness, not correctness — the 5 s baseline
+        // still catches every bind. Debug, like the other consumers of this same
+        // stream, because a kaval recycle drops it as a matter of course.
+        log.debug(
+          { err },
+          "port-scan output nudge feed dropped; will resubscribe",
+        );
+      },
+    });
+    return sampler;
+  }
 
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo {
     // Sync shadow: register a connecting entry (proxy handle + default
@@ -850,7 +944,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       title: inMemoryChannel<string>(),
       commandRun: inMemoryChannel<CommandRunSample>(),
       foreground: inMemoryChannel<ForegroundSample>(),
+      // Fed by the host-wide port sampler (below), not by a pty-host tap.
+      ports: inMemoryChannel<TerminalPorts>(),
     };
+    // Arm the host-wide port sampler (once per process) up front, so the nudge is
+    // in hand for the command-mark bridge below. Its first pass can only run after
+    // this synchronous function returns — by then the lifecycle registration at the
+    // tail has published this terminal's root pid and channel.
+    const portSampler = this.ensurePortSampler();
 
     // Seed the fold accumulator from the entry's durable state (the caller —
     // spawnPty/wake/adopt — registered it before we get here). A fact the producer
@@ -936,7 +1037,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     void bridgeStream(
       ptyHostClient.surface.commandRun.get({ id }, { signal }),
       signal,
-      (msg) =>
+      (msg) => {
+        // An OSC 633 command mark is the other "look sooner" signal (the note's
+        // pair with output bursts): the command that just started is the one most
+        // likely to bind a port, and waiting out the baseline is exactly the delay
+        // the nudge exists to remove. A REPLAYED mark nudges too — it means this
+        // sensor layer just started (a restart / adopt), so the host's ports are
+        // unknown to us and worth reading now rather than in five seconds.
+        portSampler.nudge();
         signals.commandRun.publish({
           command: msg.command,
           replayed: msg.replayed,
@@ -947,7 +1055,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           // skew default lives ONLY here at the wire boundary; the internal sample
           // carries a definite dialect from this point on.
           shellJoin: msg.shellJoin ?? false,
-        }),
+        });
+      },
     );
     void bridgeStream(
       ptyHostClient.surface.foreground.get({ id }, { signal }),
@@ -997,7 +1106,18 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     );
 
-    this.lifecycles.set(id, { abort, stopAwareness });
+    // The port sampler's target list IS this map, so registering here is also what
+    // enrols the terminal in the scan; its `ports` channel is the route back.
+    this.lifecycles.set(id, {
+      abort,
+      stopAwareness,
+      rootPid: pid,
+      ports: signals.ports,
+    });
+    // Brand new to the scan — read now rather than up to a baseline later. An
+    // ADOPTED survivor is the case that needs it: its server has been serving for
+    // however long padi was down, and its first output burst may be minutes away.
+    portSampler.nudge();
   }
 
   /** Stop a terminal's sensor set + tap bridges (idempotent). Aborting the
@@ -1389,10 +1509,13 @@ function seedHandlelessTerminal<Saved extends { id: string }>(
   // cwd / branch / pr off it. The agent the terminal will resume rides the authored
   // record built by `toEntry`. The observation rides the entry's `snapshot` field (no
   // separate store), then fans out.
+  const persisted = PersistedSnapshotSchema.parse(parsed);
   const snapshot: TerminalSnapshot = {
-    ...PersistedSnapshotSchema.parse(parsed),
-    agent: null,
-    foreground: null,
+    // The live fields (agent, foreground, ports) come from the ONE home for the
+    // snapshot-default set rather than being re-spelled here: a cold-restored
+    // terminal has no process yet, so it can be serving nothing by construction.
+    ...seedSnapshot(persisted.cwd),
+    ...persisted,
   };
   registerAndInstall(id, toEntry(parsed, { info: { id, pid: 0 }, snapshot }));
   return true;

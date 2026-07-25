@@ -77,6 +77,7 @@ const activeSnapshot: TerminalSnapshot = {
   pr: { kind: "pending" },
   agent: null,
   foreground: null,
+  ports: { status: "unknown" },
 };
 
 // Parse through the authored-sleeping schema so the fixture is a VALID sleeping
@@ -96,6 +97,7 @@ const sleepingSnapshot: TerminalSnapshot = {
   pr: { kind: "absent" },
   agent: null,
   foreground: null,
+  ports: { status: "unknown" },
 };
 
 // Parse through the authored-parked schema so the fixture is a VALID parked arm —
@@ -115,6 +117,7 @@ const parkedSnapshot: TerminalSnapshot = {
   pr: { kind: "absent" },
   agent: null,
   foreground: null,
+  ports: { status: "unknown" },
 };
 
 function seed(): void {
