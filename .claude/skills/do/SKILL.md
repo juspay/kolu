@@ -21,59 +21,19 @@ The workflow is **forge-aware**: it auto-detects whether the repo lives on GitHu
 - `--minimal`: Skip the steps whose value is disproportionate on trivially-scoped diffs: **docs**, **hickey+lowy**, **police**, and **evidence**. The remaining flow runs in order: sync → research → branch → implement → check → fmt → commit → test → create-pr → ci → done. Use this when the change is obviously confined (one-line bug fix, typo, config tweak) and structural review / docs sync / quality gate / PR evidence are overkill — PR comments on small `/do` runs frequently note this. The four skipped steps each record `status="skipped"` with `reason="--minimal"`.
 - `--from <step-id>`: Start from a specific step (see entry points below)
 
-## Results Tracking
+## Bookkeeping
 
-Every step is bookended by two `scripts/do-results` calls: `step-start <name>` before the work begins, and `step-end <status> <verification> [reason]` after verification. This is what keeps per-step timing accurate — collapsing both into a single end-of-step call produces zero-second durations and worthless timing tables. The script tracks workflow state and emits the final timing table during **done**.
+Every step is bookended by two `scripts/do-results` calls — `step-start <name>`
+before the work, `step-end <status> "<verification>" ["<reason>"]` after
+verification — and updates the `TaskCreate` task list alongside them. The script
+drives the stop hook and the final timing table; the task list is the
+human-facing checklist. Miss either and the workflow is inconsistent.
 
-**Trust the script's stdout.** Every mutation echoes a one-line confirmation. Treat that line as your confirmation that the write succeeded; the script is the only public surface, and whatever it persists internally is private.
+**Read [`RESULTS.md`](RESULTS.md) once at sync** for the command reference, the
+lifecycle fields, the seeding rules, and the skip/retry/entry-point cases.
 
-**Lifecycle the script tracks intrinsically**:
-
-- Step `status` — `passed`, `failed`, or `skipped`. A `skipped` step must include a `reason` (e.g. `"non-github forge: bitbucket"`, `"--no-git"`, `"--minimal"`, `"no check command configured"`).
-- `active` — state enum (not a boolean). Set to `working` when the workflow starts (**sync**), `waiting` when the agent is idle waiting for an external process (e.g. background CI), back to `working` when that process returns, and `false` when **done** is reached. The stop hook uses this: `working` blocks exits; `waiting` and `false` allow them.
-- Workflow `status` — `completed` when **done** finishes, `failed` if halted. Informational.
-
-**Workflow fields /do also stashes via `set`** (the script doesn't interpret these — it just remembers them):
-
-- `forge` — `github`, `bitbucket`, or `unknown`. Populated by `scripts/steps/sync` after forge detection.
-- `noGit` — `true` or `false`. Reflects the `--no-git` flag. Git-mutating steps (**branch**, **commit**, **create-pr**) skip with `reason="--no-git"` when set.
-
-**Commands** (invoke with the full path, e.g. `.../skills/do/scripts/do-results ...`):
-
-- `init` — initialize the workflow's lifecycle skeleton. Echoes `init: startedAt=<ts>`.
-- `step-start <name>` — call before step work. Echoes `pending: <name>`.
-- `step-end <status> "<verification>" ["<reason>"]` — call after verification. Echoes `recorded: <name> <status> (steps=<count>, pending=<none|name>)`.
-- `step <name> <status> "<verification>" <startedAt> <completedAt> ["<reason>"]` — single-call form used by `scripts/steps/sync` where `startedAt` was captured in shell. Echoes `recorded: <name> <status> (steps=<count>)`. Agent code should prefer `step-start` / `step-end`.
-- `set <field> <value>` — set an arbitrary top-level field. Used both for lifecycle (`set active waiting`, `set status completed`) and for /do-specific values that sync stashes (`set forge github`, `set noGit false`). Echoes `set: <field>=<value>`.
-
-**Discipline**:
-
-- Bookend every step with `step-start` at the top and `step-end` at the bottom. Calling `step-end` without a prior `step-start` is an error; calling `step` with `now` for both timestamps collapses duration to 0 — neither pattern is allowed. Exceptions: `sync` is recorded by `scripts/steps/sync` itself, and skipped steps (duration always 0) may use back-to-back `step-start` / `step-end skipped`.
-- Don't run `date` yourself or guess timestamps — `do-results` resolves UTC internally.
-
-## Progress tracking
-
-Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with the step names in order:
-
-```
-sync, research, branch, implement, check, docs, fmt, commit, hickey+lowy, police, test, create-pr, ci, evidence, done
-```
-
-**Emit all `TaskCreate` calls as parallel `tool_use` blocks in a single assistant turn** — one model round-trip, not one per task. The seeded steps have no `addBlocks` / `addBlockedBy` dependencies, so there is nothing to serialize on. Sequential seeding (15 round-trips before any real work) is a regression: it adds latency to every `/do` invocation and clutters the transcript with 15 wrapper turns of "Task #N created successfully" before `sync` even starts.
-
-**Under `--minimal`, omit the four steps the flag skips** (`docs`, `hickey+lowy`, `police`, `evidence`) from the seeded list — the user explicitly opted out of them, so they shouldn't clutter the human-facing checklist. The seeded list becomes 11 items in `--minimal` runs. (Run-inherent skips like `--no-git` and forge skips stay in the list — see the Skipped steps rule below.)
-
-The `scripts/do-results` lifecycle still records `--minimal`-skipped steps with `status="skipped"` and `reason="--minimal"` via back-to-back `step-start` / `step-end` calls — that's what keeps the final timing table and `completed`-status logic correct. The task UI is independent of that recording.
-
-At each step boundary, update task state **alongside** the `scripts/do-results` script call — they are not redundant. The script's state drives the stop hook; the task list is the human-facing UI. Miss either and the workflow is inconsistent.
-
-Rules:
-
-- **Flip to `in_progress` when a step starts, `completed` when it verifies.** One step `in_progress` at a time.
-- **Retries stay `in_progress`.** If `check`, `test`, or `ci` loop through their retry budget, do **not** bounce the task state back to `pending` or flicker it — leave it `in_progress` until the step finally verifies (or the retries exhaust and the workflow fails).
-- **`--from <step>` entry points**: still seed the full list (minus any `--minimal` omissions). Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent view regardless of entry point.
-- **Skipped steps that stay in the list** (e.g. `branch`/`commit`/`create-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. Record the skip with a back-to-back `scripts/do-results step-start <name>` / `scripts/do-results step-end skipped ... "<reason>"`; the task list just shows the step as done. `--minimal` skips are **not** in this category — they're omitted from the seeded list entirely (see above), so there's no task entry to flip.
-- **Failure**: if retries exhaust and the workflow halts, leave the failing step `in_progress`, mark `done` `completed` after the failure summary is written, and run `scripts/do-results set status failed`.
+Why the workflow is ordered and constrained the way it is: [`RATIONALE.md`](RATIONALE.md)
+— read it when editing this skill, not when running it.
 
 ## Steps
 
@@ -216,8 +176,6 @@ Invoke `hickey` and `lowy` as two **parallel sub-agents** via the harness's agen
 
 **Fallback, never skip.** If the harness cannot honor the model declared in the reviewer skill's frontmatter, run hickey and lowy as sub-agents on the available model instead — this is the expected path on harnesses that ignore Claude Code's `model:` skill extension (opencode, Codex, etc.). If a sub-agent invocation fails for harness/tooling reasons before producing a review, retry that reviewer once; if it still cannot produce a sub-agent review, run that review in the main model by loading the reviewer skill against the same diff. This fallback is slower and uses more main-context budget, but it is still the `/do` hickey+lowy step. Do not replace it with an informal/manual review, and do not mark the step `skipped` because a preferred model was unavailable.
 
-**Why post-implement, not pre-implement.** Hickey's complecting critique and Lowy's volatility lens both bite harder on a concrete diff than on a plan sketch. Reviewing a plan tends to surface generic concerns; reviewing a real diff surfaces the specific interleavings and boundary misalignments that matter. Running here also means the review covers *everything* the diff contains — including whatever the plan glossed over and whatever drifted during implementation.
-
 <use_parallel_tool_calls>
 For maximum efficiency, invoke the `hickey` and `lowy` Agent tools **in parallel** rather than sequentially. You MUST use parallel tool calls: emit both `Agent` tool_use blocks (one with `subagent_type: "hickey"`, one with `subagent_type: "lowy"`) in a single response, with no other tool calls or text in that response.
 </use_parallel_tool_calls>
@@ -230,13 +188,11 @@ Each `Agent` prompt must be self-contained (sub-agents do not inherit this conve
 
 The sub-agent already knows to read its skill file and follow that methodology; don't re-state it in the prompt.
 
-**Do not seed structural questions.** The implementer's prompt must NOT include pre-formed questions like _"Is module X the right home for function Y?"_, _"Does the new field complect concerns A and B?"_, or _"Should constructor C be a sum?"_ — that framing shopping-lists the answer and produces circular reasoning at the reviewer (e.g. "primary consumer of `logPathFor` is `CommitStatus`" — true only because the implementer placed it there). Hickey and Lowy each have their own methodologies for generating findings; the reviewer reads the diff cold and surfaces what its lens shows. Anything beyond "here's the diff and the change rationale" is implementer bias bleeding into the review. If a specific concern feels worth flagging to the reviewer, that's evidence the implementer already smelled the problem — fix it in the diff before sending it to review, not by routing the question through a sub-agent for permission.
+**Do not seed structural questions.** Give each reviewer the diff and the change rationale — nothing more. Pre-formed questions ("is module X the right home for Y?") shopping-list the answer and produce circular reasoning at the reviewer. If a concern feels worth flagging, fix it in the diff instead of routing it through a sub-agent for permission. (`RATIONALE.md`)
 
-The **duplication-audit hint** above is the one allowed exception: it's a meta-process reminder (run the survey your skill describes), not a seeded finding about *this* diff. It points the reviewer at the codebase, not at a specific concern within the diff — that's the line. If the diff doesn't add new files, drop the hint and let the lens run unprimed.
+The **duplication-audit hint** above is the one allowed exception — it points the reviewer at the codebase, not at a concern within the diff.
 
-**Model selection lives in the skill, not here.** Both `hickey/SKILL.md` and `lowy/SKILL.md` declare `model: sonnet` in their frontmatter — Claude Code honors this and runs the review on Sonnet to keep the per-task cost cheap; opencode/Codex ignore the field (it isn't part of the Agent Skills standard) and fall through to the active model, which is the right behavior for harnesses that don't have Sonnet. Don't pass `model:` at the `Agent` tool level — the skill frontmatter is the single source of truth.
-
-**No deferrals.** The hickey and lowy skills emit two dispositions: **Fix in this PR** and **No-op**. There is no Defer. `/do` is not optimizing for minimal diff — it is optimizing for the simpler artifact landing in `master`. A PR that grows from 50 lines to 400 because hickey caught a real fragmentation bug is a *better* PR, not a worse one; the alternative is shipping the complected version and trusting a "broader refactor" follow-up that statistically never happens.
+**No deferrals.** hickey and lowy emit two dispositions: **Fix in this PR** and **No-op**. There is no Defer, and a PR growing because a reviewer caught a real problem is a better PR. (`RATIONALE.md`)
 
 If a sub-agent emits anything resembling a defer — `Defer #N`, "out of scope", "follow-up", "pre-existing, separate PR", "should be its own change", any phrasing that punts a finding to a future issue — treat it as a sub-agent rule violation. Flip the disposition to **Fix in this PR** unconditionally and apply the fix here. Do not create a follow-up issue, do not record the finding as deferred in the PR body, do not surface it as outstanding structural debt. The only way out of a finding is through it.
 
