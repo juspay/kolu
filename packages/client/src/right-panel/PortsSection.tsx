@@ -57,8 +57,11 @@ import {
   originWord,
 } from "../forwards/forwardTone";
 import { pasteableAddress } from "../forwards/ForwardRows";
-import { PortJump } from "../forwards/PortJump";
-import { terminalServingPort } from "../forwards/terminalServingPort";
+import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
+import {
+  servingTerminalName,
+  terminalServingPort,
+} from "../forwards/terminalServingPort";
 import { portUrl } from "../forwards/portUrl";
 import { type PortRow as PortRowData, portRows } from "../forwards/portRows";
 import { activeHost } from "../wire";
@@ -187,12 +190,25 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
       }),
     );
 
-  /** How an "also forwarded on this host" row reaches its terminal. Only the
-   *  TRAILING group gets this: a main port row is already a port of the terminal
-   *  you are inspecting, so a jump to it would go nowhere you are not. */
-  const jumpFor = (port: number): (() => void) | undefined => {
+  /** WHICH terminal an "also forwarded on this host" row belongs to, and how to
+   *  reach it. Only the TRAILING group gets this: a main port row is already a
+   *  port of the terminal you are inspecting, so naming it would name the thing
+   *  on screen and the jump would go nowhere you are not. */
+  const servingFor = (
+    port: number,
+  ): { name: string; jump: () => void } | undefined => {
     const found = terminalServingPort({ port, terminals: servingCandidates() });
-    return found === undefined ? undefined : () => store.activate(found);
+    if (found === undefined) return undefined;
+    const meta = store.getMetadata(found);
+    const arm = activeArm(meta);
+    // No arm means the tile the join pointed at has no live metadata to name it
+    // by. Rendering an unnamed link would put "go somewhere" on screen, which is
+    // the affordance-without-an-answer this whole pass exists to remove.
+    if (arm === undefined) return undefined;
+    return {
+      name: servingTerminalName({ git: arm.git ?? null, cwd: arm.cwd }),
+      jump: () => store.activate(found),
+    };
   };
 
   const rows = createMemo(() =>
@@ -241,8 +257,8 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
               return (
                 <PortRow
                   row={row}
-                  onJumpToTerminal={
-                    row.kind === "orphan" ? jumpFor(row.port) : undefined
+                  serving={
+                    row.kind === "orphan" ? servingFor(row.port) : undefined
                   }
                   action={action()}
                   openAt={openAt()}
@@ -291,17 +307,17 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
  *  It holds the one piece of state in this file — "a forward is being opened
  *  right now" — and a component per row is how that stays per row rather than
  *  becoming a map keyed by port number. */
-const PortRow: Component<{
+export const PortRow: Component<{
   row: PortRowData;
   action: PortAction;
   /** WHERE the link points, or `undefined` when a door has to be opened first. */
   openAt: { host: string; port: number } | undefined;
   /** Why this port is not open-as-is, when it is not. */
   forwardReason: string | undefined;
-  /** Go to the terminal serving this port — the trailing group's affordance.
-   *  Absent for a main port row (you are already there) and for a forward no
-   *  terminal serves. */
-  onJumpToTerminal?: () => void;
+  /** WHICH terminal serves this port, and how to get to it — the trailing
+   *  group's affordance. Absent for a main port row (you are already there) and
+   *  for a forward no terminal serves. */
+  serving?: { name: string; jump: () => void };
   /** Open the door. Resolves with the local port it answers on. */
   onForward: () => Promise<number>;
 }> = (props) => {
@@ -355,15 +371,32 @@ const PortRow: Component<{
       data-origin={forward()?.origin}
       data-orphan={props.row.kind === "orphan" ? "" : undefined}
     >
-      {/* The number, and — in the trailing group — the way back to the terminal
-       *  serving it. That group is where the question is sharpest: a port in it
-       *  is by definition served by some terminal OTHER than the one on screen. */}
-      <PortJump port={props.row.port} onJump={props.onJumpToTerminal} />
-      <span class="min-w-0 flex-1 truncate font-mono text-fg-3/80">
-        {props.row.kind === "port"
-          ? props.row.name
-          : "also forwarded on this host"}
+      <span class="shrink-0 font-mono tabular-nums text-fg">
+        {props.row.port}
       </span>
+      {/* What is behind the number — and, in the trailing group, the way to it.
+       *  That group is where the question is sharpest: a port in it is by
+       *  definition served by some terminal OTHER than the one on screen, so the
+       *  row NAMES that terminal instead of saying "this host" and leaving the
+       *  user to guess which of its terminals. When the join finds nothing the
+       *  old sentence stands, unlinked: honest copy about a door whose server
+       *  kolu cannot point at. */}
+      <Show
+        when={props.serving}
+        fallback={
+          <span class="min-w-0 flex-1 truncate font-mono text-fg-3/80">
+            {props.row.kind === "port"
+              ? props.row.name
+              : "also forwarded on this host"}
+          </span>
+        }
+      >
+        {(s) => (
+          <span class="min-w-0 flex-1 truncate">
+            <ServingTerminalLink name={s().name} onJump={s().jump} />
+          </span>
+        )}
+      </Show>
 
       {/* The door, as a teal pill. A bare `⇄` answered no question — forwarded
        *  WHERE? — so the pill always names the local port it answers on, and its

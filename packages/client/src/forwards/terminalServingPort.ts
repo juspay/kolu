@@ -22,6 +22,7 @@ import {
   type TerminalId,
   type TerminalPorts,
 } from "kolu-common/surface";
+import { terminalKey, type TerminalLocation } from "kolu-common/terminalKey";
 
 /** What this join needs from one terminal — deliberately not a `TerminalMetadata`:
  *  the caller has that and this needs three fields, so the seam stays testable
@@ -52,4 +53,19 @@ export function terminalServingPort(opts: {
     }
   }
   return undefined;
+}
+
+/** What a forward row CALLS the terminal it found — and therefore what the link
+ *  back to it reads as.
+ *
+ *  `terminalKey` is the repo's one identity-and-display projection: the tile
+ *  pill, the restore card, the palette row and this link all have to name the
+ *  same terminal the same way, and being the same projection is the only way
+ *  they stay that way. A positional "Terminal 3" would not do — the row's whole
+ *  job is to answer "go WHERE?", and a position answers it with a coordinate. */
+export function servingTerminalName(loc: TerminalLocation): string {
+  const key = terminalKey(loc);
+  // Non-git: `group` is the cwd BASENAME and `label` the shortened path, so
+  // `group/label` would read "scratch/~/scratch". The label alone is the name.
+  return loc.git ? `${key.group}/${key.label}` : key.label;
 }

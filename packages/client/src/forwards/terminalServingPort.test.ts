@@ -19,8 +19,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { GitInfo } from "kolu-git/schemas";
 import type { TerminalId } from "kolu-common/surface";
 import {
+  servingTerminalName,
   terminalServingPort,
   type ServingCandidate,
 } from "./terminalServingPort";
@@ -140,5 +142,27 @@ describe("the Inspector's trailing group — the surface that most needs the lin
     expect(
       terminalServingPort({ port: 61000, terminals: rows }),
     ).toBeUndefined();
+  });
+});
+
+describe("servingTerminalName", () => {
+  it("names a git terminal the way every other surface names it", () => {
+    // `terminalKey` is the repo's ONE identity/display projection — the pill,
+    // the restore card, the palette row and this link have to agree, and the
+    // only way they agree is by being the same projection.
+    expect(
+      servingTerminalName({
+        git: { repoName: "kolu", branch: "master" } as GitInfo,
+        cwd: "/home/srid/code/kolu",
+      }),
+    ).toBe("kolu/master");
+  });
+
+  it("falls back to the shortened path when there is no git", () => {
+    // Not "Terminal 3": a positional label is not a name, and the row's whole
+    // job is to answer "go WHERE?".
+    expect(servingTerminalName({ git: null, cwd: "/home/srid/scratch" })).toBe(
+      "~/scratch",
+    );
   });
 });
