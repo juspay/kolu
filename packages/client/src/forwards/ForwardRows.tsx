@@ -17,6 +17,7 @@ import type { KoluForward } from "kolu-common/surface";
 import { type Component, For, Show, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { FORWARD_PILL, originTooltip, originWord } from "./forwardTone";
+import { PortJump } from "./PortJump";
 import { portUrl } from "./portUrl";
 import { cancelForward } from "./useForwards";
 
@@ -98,11 +99,11 @@ export const ForwardCancelButton: Component<{ forward: KoluForward }> = (
   </button>
 );
 
-/** One row. `onOpenTerminal`, when supplied, makes the far-end label a link back
- *  to the terminal serving that port — the answer to "what IS this?", which is the
- *  question a forward row otherwise leaves hanging. Absent when nothing serves it
- *  (a ⌘K forward, or a server that has died): the row still renders, because a
- *  door you cannot cancel is worse than one with no link. */
+/** One row. `onOpenTerminal`, when supplied, makes the PORT NUMBER the way back
+ *  to the terminal serving it — the answer to "what IS this?", which a row of
+ *  numbers otherwise leaves hanging. Absent when nothing serves it (a ⌘K forward,
+ *  or a server that has died): the number renders plainly, because a door you
+ *  cannot cancel is worse than one with no link. */
 export const ForwardRow: Component<{
   forward: KoluForward;
   onOpenTerminal?: () => void;
@@ -113,12 +114,11 @@ export const ForwardRow: Component<{
     data-port={props.forward.remotePort}
     data-origin={props.forward.origin}
   >
-    {/* The REMOTE port, plain — the hostname is the dropdown's own title, and
-     *  repeating it on every row was the loudest thing in a panel about one
-     *  host. */}
-    <span class="shrink-0 font-mono tabular-nums text-fg">
-      {props.forward.remotePort}
-    </span>
+    {/* The REMOTE port — and the way back to the terminal serving it. The
+     *  hostname is the dropdown's own title, so repeating it on every row was
+     *  the loudest thing in a panel about one host; the number is the subject,
+     *  which is why it carries the jump rather than a separate glyph. */}
+    <PortJump port={props.forward.remotePort} onJump={props.onOpenTerminal} />
     {/* ONE pill carrying the address you can actually paste. The old row spent
      *  its width encoding the mapping twice (a `⇄` and a `→`) and still never
      *  showed a copyable address. */}
@@ -133,21 +133,6 @@ export const ForwardRow: Component<{
     >
       ⇄ {pasteableAddress(props.forward)}
     </a>
-    <Show when={props.onOpenTerminal}>
-      {(open) => (
-        <button
-          type="button"
-          class="shrink-0 text-[10px] text-fg-3/70 hover:text-fg transition-colors cursor-pointer"
-          data-testid="forward-open-terminal"
-          data-port={props.forward.remotePort}
-          title={`go to the terminal serving ${forwardLabel(props.forward)}`}
-          aria-label={`Go to the terminal serving ${forwardLabel(props.forward)}`}
-          onClick={() => open()()}
-        >
-          ↗
-        </button>
-      )}
-    </Show>
     <span
       class="shrink-0 text-[10px] text-fg-3/60"
       title={originTooltip(props.forward.origin)}

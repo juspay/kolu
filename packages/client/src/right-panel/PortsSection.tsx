@@ -57,6 +57,8 @@ import {
   originWord,
 } from "../forwards/forwardTone";
 import { pasteableAddress } from "../forwards/ForwardRows";
+import { PortJump } from "../forwards/PortJump";
+import { terminalServingPort } from "../forwards/terminalServingPort";
 import { portUrl } from "../forwards/portUrl";
 import { type PortRow as PortRowData, portRows } from "../forwards/portRows";
 import { activeHost } from "../wire";
@@ -171,6 +173,28 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
    *  whose listener died before the reap). Two titled groups used to render a
    *  forwarded port twice; the join is in `portRows` so its ordering and host
    *  scoping are pinned without a DOM. */
+  /** Every PANE of every tile on this host, as the port join needs them — panes
+   *  and not tiles, because a dev server almost always runs in a split and the
+   *  scanner attributes the port to the split's own subtree.
+   *  `terminalServingPort` folds the answer back to the tile. */
+  const servingCandidates = () =>
+    store.terminalIds().flatMap((tileId) =>
+      store.getTilePaneIds(tileId).flatMap((paneId) => {
+        const arm = activeArm(store.getMetadata(paneId));
+        return arm === undefined
+          ? []
+          : [{ id: paneId, parentId: arm.parentId ?? null, ports: arm.ports }];
+      }),
+    );
+
+  /** How an "also forwarded on this host" row reaches its terminal. Only the
+   *  TRAILING group gets this: a main port row is already a port of the terminal
+   *  you are inspecting, so a jump to it would go nowhere you are not. */
+  const jumpFor = (port: number): (() => void) | undefined => {
+    const found = terminalServingPort({ port, terminals: servingCandidates() });
+    return found === undefined ? undefined : () => store.activate(found);
+  };
+
   const rows = createMemo(() =>
     portRows({
       ports: ports(),
@@ -217,6 +241,9 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
               return (
                 <PortRow
                   row={row}
+                  onJumpToTerminal={
+                    row.kind === "orphan" ? jumpFor(row.port) : undefined
+                  }
                   action={action()}
                   openAt={openAt()}
                   forwardReason={
@@ -271,6 +298,10 @@ const PortRow: Component<{
   openAt: { host: string; port: number } | undefined;
   /** Why this port is not open-as-is, when it is not. */
   forwardReason: string | undefined;
+  /** Go to the terminal serving this port — the trailing group's affordance.
+   *  Absent for a main port row (you are already there) and for a forward no
+   *  terminal serves. */
+  onJumpToTerminal?: () => void;
   /** Open the door. Resolves with the local port it answers on. */
   onForward: () => Promise<number>;
 }> = (props) => {
@@ -324,9 +355,10 @@ const PortRow: Component<{
       data-origin={forward()?.origin}
       data-orphan={props.row.kind === "orphan" ? "" : undefined}
     >
-      <span class="font-mono font-semibold tabular-nums text-fg">
-        {props.row.port}
-      </span>
+      {/* The number, and — in the trailing group — the way back to the terminal
+       *  serving it. That group is where the question is sharpest: a port in it
+       *  is by definition served by some terminal OTHER than the one on screen. */}
+      <PortJump port={props.row.port} onJump={props.onJumpToTerminal} />
       <span class="min-w-0 flex-1 truncate font-mono text-fg-3/80">
         {props.row.kind === "port"
           ? props.row.name

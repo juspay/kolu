@@ -105,3 +105,40 @@ describe("terminalServingPort", () => {
     expect(terminalServingPort({ port: 5173, terminals: [] })).toBeUndefined();
   });
 });
+
+describe("the Inspector's trailing group — the surface that most needs the link", () => {
+  // A port in "also forwarded on this host" is BY DEFINITION served by some
+  // terminal other than the one being inspected (if the inspected tile served
+  // it, it would be a port row instead). So "which terminal?" is the exact
+  // question that group raises, and it was the one place with no answer.
+
+  it("finds the OTHER tile serving an orphaned forward", () => {
+    const rows = [serving("inspected", [3000]), serving("elsewhere", [9229])];
+    expect(terminalServingPort({ port: 9229, terminals: rows })).toBe(
+      id("elsewhere"),
+    );
+  });
+
+  it("finds it through that tile's SPLIT, and returns the tile", () => {
+    // The common shape twice over: the dev server is in a split, and it is a
+    // split of a tile you are not looking at. A link to the split's own id
+    // would point at a pane rather than at something the user can activate.
+    const rows = [
+      serving("inspected", [3000]),
+      serving("elsewhere", []),
+      serving("elsewhere-split", [9229], "elsewhere"),
+    ];
+    expect(terminalServingPort({ port: 9229, terminals: rows })).toBe(
+      id("elsewhere"),
+    );
+  });
+
+  it("has no answer for a ⌘K forward to a port nothing serves", () => {
+    // Which is precisely why the row must render the number plainly rather than
+    // as a link — the group still has to show the door so it can be cancelled.
+    const rows = [serving("inspected", [3000])];
+    expect(
+      terminalServingPort({ port: 61000, terminals: rows }),
+    ).toBeUndefined();
+  });
+});
