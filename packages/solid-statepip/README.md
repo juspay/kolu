@@ -16,8 +16,10 @@ badge as a single mark.
   Callers should use kolu's `bindStatePip` so surfaces cannot drift. A bare
   `<StatePip variant={…} />` is still valid.
 
-- **`PipVariant`**, **`pipForPaintClass`**, box sizes, needs-you pill class on
-  `./pipVariant`.
+- **`PipVariant`**, **`pipForPaintClass`**, box sizes, and the two host-tab count
+  pill classes on `./pipVariant` — `NEEDS_YOU_PILL_CLASS` (violet, blocked on you)
+  and `UNSEEN_COUNT_CLASS` (amber, finished and unopened). Same geometry, split by
+  hue; neither is the deliberately-quiet one.
 
 ## What it knows nothing about
 
