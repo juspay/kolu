@@ -394,7 +394,21 @@ messages instead of failing.</li>
 conversation with prior context, without double-posting earlier replies.</p>
 <p><strong>Later, on demand (small bounded additions, not phases):</strong> per-thread agent
 selection UX in pesu (the wire already takes any adapter); a small integration
-so proxy tiles light up dock state / awareness from the proxy’s own stream.</p>
+so proxy tiles light up dock state / awareness from the proxy’s own stream;
+<strong><a href="https://goose-docs.ai/">goose</a> as an optional agent</strong> — one argv away, no
+code — and a candidate for <em>default</em> only once HX2/HX3 land.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Why not
+now, grounded (2026-07-25, verified against the adapter and goose sources):
+goose’s native ACP is strongest exactly where the proxy currently masks the
+difference — it has first-class session persistence and cancellable
+permission requests, but the proxy advertises <code>loadSession: false</code> and
+auto-answers permissions until HX2/HX3, so those advantages are unobservable
+today, while the pinned wrappers already carry load, approvals, and their own
+cancel backstops. Goose’s <code>_goose/unstable</code> extensions (steer,
+system-prompt, rich usage) are optional for ordinary chat. Where goose wins
+decisively is provider breadth — 15+ API/cloud/local model providers, a
+natural fit for the “model swappable, host yours” moat — at the cost of one
+more runtime and configuration surface between kolu and the model when a
+claude/codex subscription is already the target.</span></span></span></p>
 <h2 id="background">Background</h2>
 <p><strong>Why chat at all.</strong> Anthropic shipped <a href="https://www.anthropic.com/news/introducing-claude-tag">Claude Tag</a>
 — one shared Claude per channel, pursuing tasks “over hours or days” — and

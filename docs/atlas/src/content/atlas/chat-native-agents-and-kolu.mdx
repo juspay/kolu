@@ -308,7 +308,21 @@ conversation with prior context, without double-posting earlier replies.
 
 **Later, on demand (small bounded additions, not phases):** per-thread agent
 selection UX in pesu (the wire already takes any adapter); a small integration
-so proxy tiles light up dock state / awareness from the proxy's own stream.
+so proxy tiles light up dock state / awareness from the proxy's own stream;
+**[goose](https://goose-docs.ai/) as an optional agent** — one argv away, no
+code — and a candidate for *default* only once HX2/HX3 land.<Footnote>Why not
+now, grounded (2026-07-25, verified against the adapter and goose sources):
+goose's native ACP is strongest exactly where the proxy currently masks the
+difference — it has first-class session persistence and cancellable
+permission requests, but the proxy advertises `loadSession: false` and
+auto-answers permissions until HX2/HX3, so those advantages are unobservable
+today, while the pinned wrappers already carry load, approvals, and their own
+cancel backstops. Goose's `_goose/unstable` extensions (steer,
+system-prompt, rich usage) are optional for ordinary chat. Where goose wins
+decisively is provider breadth — 15+ API/cloud/local model providers, a
+natural fit for the "model swappable, host yours" moat — at the cost of one
+more runtime and configuration surface between kolu and the model when a
+claude/codex subscription is already the target.</Footnote>
 
 ## Background
 
