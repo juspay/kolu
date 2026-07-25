@@ -3,7 +3,7 @@
 # nix/packages/* are pure callPackage-style leaf packages, auto-injected via
 # the overlay in nix/overlay.nix. The kolu build derivation and its runtime
 # wrapper live here in default.nix because they need per-invocation args
-# (commitHash, koluEnv, koluStamped) that aren't on pkgs.
+# (commitHash, koluEnv, koluClientDist) that aren't on pkgs.
 #
 # Used by flake.nix (thin wrapper), shell.nix, and nix-build directly.
 { pkgs ? import ./nix/nixpkgs.nix { }
@@ -42,6 +42,16 @@ let
   workspace = import ./nix/workspace.nix { inherit pkgs; };
   inherit (workspace) version src pnpmDeps;
 
+  # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
+  # hosted terminals, where node, npm, npx, and corepack are part of the existing
+  # environment.
+  runtimeNode = pkgs.nodejs;
+  # This nixpkgs revision builds tsx against Node 22. Point only tsx at the
+  # stock, cache.nixos.org-substitutable Node 24 runtime so the shipped closure
+  # carries one Node core.
+  runtimeTsx = pkgs.tsx.override { nodejs_22 = runtimeNode; };
+  runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
+
   # Exact source flake with a minimal remote-agent output surface.
   #
   # Baking root `self` would keep the whole repository (website, Atlas, evidence)
@@ -67,7 +77,7 @@ let
     ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
 
   # Build uses a placeholder so docs-only commits don't bust the derivation
-  # cache; koluStamped sed-replaces it with the real hash afterwards.
+  # cache; koluClientDist sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
   # The ONE recipe for a daemon's baked build identity (hashString over a behavioral
@@ -80,6 +90,32 @@ let
   mkDaemonIdentity = import ./packages/surface-daemon/nix/daemon-identity.nix {
     inherit (pkgs) lib;
   };
+
+  # padi's darwin port-scan reader: a libproc helper that replaced the `ps` + `lsof`
+  # pair, and the numbers are not close. Measured on zest (macOS 27.0): ~8.5-10.6 ms
+  # for one snapshot against 49 ms for `ps` ALONE and 94 ms for `lsof` ALONE — the old
+  # path spent ~143 ms of subprocess before a byte was parsed, for facts libproc
+  # returns in one call.
+  #
+  # A shared `sysinfo`+`listeners` Rust binary was built and MEASURED as the intended
+  # replacement, and it FAILED the address-parity gate on darwin: `listeners` drops the
+  # v4-mapping marker, reporting a `::ffff:127.0.0.1` bind as `::127.0.0.1`. The Atlas
+  # note records the exact bytes and what the follow-up must clear.
+  #
+  # `null` on linux, where the scan reads `/proc` directly — and that split is a
+  # boundary rather than an unfinished migration: the linux reader implements a policy
+  # a one-shot snapshot cannot express (`procReadFailure` — an unreadable FOREIGN-uid
+  # descendant is skipped, an unreadable REQUESTED ROOT is fatal), and collapsing those
+  # two was a real bug where one `sudo` prompt emptied the Ports section host-wide.
+  # So the bake is conditional rather than shipping an empty binary that would pretend
+  # to be a scanner.
+  # Read from koluEnv rather than re-deriving the path, so the wrapper and the dev
+  # shell cannot drift — the drift that made every darwin live test throw, since those
+  # tests run under bare vitest and never see this wrapper.
+  portScanHelperBakeArg =
+    if koluEnv ? KOLU_PORT_SCAN_HELPER
+    then ''--set KOLU_PORT_SCAN_HELPER "${koluEnv.KOLU_PORT_SCAN_HELPER}"''
+    else "";
 
   # The `.ts` filter for a hashed daemon fileset: real source only (drops `.test.ts`
   # AND `.testlib.ts` shared test-only helpers). The id is a content hash of the
@@ -219,6 +255,11 @@ let
       # the npm deps are NOT here — surface is the framework "electricity" (a
       # stable, drishti-gated boundary) and the rest are pinned by pnpmDeps; both
       # are stable externals in the closure guard's ALLOWED list.)
+      # @kolu/port-scan — the OS reader padi's port sensor plugs into. Hashed like
+      # any other in-process root: which ports a terminal is serving is daemon
+      # BEHAVIOUR, so a change to the reader must flip padi's staleKey exactly as a
+      # change to the sensor that calls it does.
+      (padiPkgRoot ./packages/port-scan)
       (padiPkgRoot ./packages/serve-dir)
       (padiPkgRoot ./packages/shell-quote)
       (padiPkgRoot ./packages/html-escape)
@@ -247,7 +288,7 @@ let
 
     nativeBuildInputs = [
       pkgs.nodejs
-      pkgs.pnpm
+      pkgs.pnpm_10
       pkgs.pnpmConfigHook
       pkgs.python3
       pkgs.node-gyp
@@ -298,25 +339,33 @@ let
       runHook preInstall
 
       # Strip build-only packages and artifacts BEFORE copying to $out.
-      # Removing ~187MB of dev deps here means cp -r copies 208MB instead
-      # of 395MB, halving the I/O and Nix NAR hashing time.
-      rm -rf packages/client/src packages/client/node_modules
+      rm -rf packages/client/src packages/client/node_modules packages/vazhi
       pushd node_modules/.pnpm
-      # NOTE: esbuild is kept (NOT pruned) because @kolu/artifact-sdk's server
-      # module bundles the in-iframe SDK script at runtime via esbuild. The
-      # cost is ~15MB in the production NAR for one platform-specific binary;
-      # the simplicity win is no separate build-step coordination with Nix.
+      # NOTE: esbuild is kept because @kolu/artifact-sdk bundles the in-iframe
+      # SDK script at runtime.
       rm -rf typescript@* \
-             lightningcss* rollup@* @rollup* \
+             @typescript+typescript-* \
+             lightningcss* rollup@* @rollup* rolldown@* @rolldown* \
              vitest@* @vitest* \
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
              @babel* babel-plugin-* \
+             concurrently@* rxjs@* happy-dom@* \
+             es-toolkit@* ink@* ink-text-input@* react-reconciler@* yoga-layout@* \
              es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
-             @types+node@* @types+ws@* \
+             @types+* type-fest@* csstype@* \
              core-js-compat@* regexpu-core@* regjsparser@* terser@*
-      local pty=node-pty@*/node_modules/node-pty
+      local pty
+      pty=$(echo node-pty@*/node_modules/node-pty)
+      local ptyInstance="''${pty%/node_modules/node-pty}"
+      # node-pty only needs its compiled addon at runtime. Preserve that file
+      # while removing node-gyp inputs, including node-addon-api at both places
+      # where pnpm's package-instance layout links it.
+      cp --preserve=mode "$pty/build/Release/pty.node" "$NIX_BUILD_TOP/pty.node"
+      rm -rf "$pty/build"
+      mkdir -p "$pty/build/Release"
+      cp --preserve=mode "$NIX_BUILD_TOP/pty.node" "$pty/build/Release/pty.node"
       rm -rf $pty/prebuilds $pty/third_party $pty/deps $pty/src $pty/scripts \
-             $pty/build/Release/obj.target $pty/node-addon-api@*
+             "$ptyInstance"/node-addon-api@* "$ptyInstance/node_modules/node-addon-api"
       popd
 
       cp -r . $out
@@ -339,17 +388,30 @@ let
   # index.html — assert that so a future build-graph change that moves it (back
   # into the bundle, or drops it) fails LOUD here instead of silently shipping an
   # unstamped or mis-stamped shell.
-  koluStamped = pkgs.runCommand "kolu-stamped" { } ''
-    cp -r ${kolu} $out
-    chmod -R u+w $out/packages/client/dist
-    shell="$out/packages/client/dist/index.html"
+  koluClientDist = pkgs.runCommand "kolu-client-dist" { } ''
+    # Only index.html changes with the commit. Link the content-hashed assets
+    # and other static files back to the cache-stable build instead of copying
+    # the entire runtime workspace into a second store path.
+    cp -rs ${kolu}/packages/client/dist/. "$out"
+    chmod u+w "$out"
+    rm "$out/index.html"
+    cp ${kolu}/packages/client/dist/index.html "$out/index.html"
+    chmod u+w "$out/index.html"
+    shell="$out/index.html"
     if ! grep -q '${koluCommitPlaceholder}' "$shell"; then
-      echo "koluStamped: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
+      echo "koluClientDist: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
       exit 1
     fi
-    if grep -rl '${koluCommitPlaceholder}' "$out/packages/client/dist/assets" 2>/dev/null; then
-      echo "koluStamped: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
+    if assetMatches=$(grep -rl '${koluCommitPlaceholder}' "$out/assets"); then
+      echo "koluClientDist: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
+      echo "$assetMatches" >&2
       exit 1
+    else
+      grepStatus=$?
+      if [ "$grepStatus" -ne 1 ]; then
+        echo "koluClientDist: failed to inspect hashed assets for '${koluCommitPlaceholder}'." >&2
+        exit "$grepStatus"
+      fi
     fi
     sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' "$shell"
   '';
@@ -385,7 +447,10 @@ let
       export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
     fi'';
 
-  # Base wrapper: tsx + env vars + PATH. Does NOT set KOLU_STATE_DIR —
+  # Base wrapper: single-process Node + tsx loader, env vars, and PATH. The
+  # loader form lets SIGTERM reach the server directly so its graceful shutdown
+  # exits zero; tsx's CLI parent otherwise exits 143 before the child completes.
+  # Does NOT set KOLU_STATE_DIR —
   # callers must provide it (state.ts crashes with a clear error if missing).
   # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
   # instead of silently falling back to the production ~/.config/kolu path.
@@ -401,17 +466,19 @@ let
       meta.mainProgram = "kolu";
     } ''
     mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
-      --add-flags "${koluStamped}/packages/kolu-cli/src/main.ts" \
-      --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
+    makeWrapper ${runtimeNode}/bin/node $out/bin/kolu \
+      --add-flags "--import ${runtimeTsxLoader}" \
+      --add-flags "${kolu}/packages/kolu-cli/src/main.ts" \
+      --set KOLU_CLIENT_DIST "${koluClientDist}" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      ${portScanHelperBakeArg} \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
       --set PADI_BUILD_ID "${padiIdentity.buildId}" \
       ${agentFlakeRefBakeArg} \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh pkgs.openssh pkgs.nix ]} \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
 
@@ -479,11 +546,11 @@ let
     # `kaval-…` subdir and arms the V8 heap-snapshot flags (incl.
     # --heapsnapshot-near-heap-limit), so the next near-OOM dumps a snapshot that
     # names the leak in the real workload. Unset = passthrough, zero overhead.
-    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/kaval \
-      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+    makeWrapper ${runtimeNode}/bin/node $out/bin/kaval \
+      --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
       ${kavalIdentity.bakeArgs} \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]} \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
 
@@ -519,14 +586,15 @@ let
       meta.mainProgram = "padi";
     } ''
     mkdir -p $out/bin
-    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/padi \
-      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+    makeWrapper ${runtimeNode}/bin/node $out/bin/padi \
+      --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/padi/src/bin.ts" \
       ${padiIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
+      ${portScanHelperBakeArg} \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
   '';
@@ -549,10 +617,10 @@ let
         meta.mainProgram = name;
       } ''
       mkdir -p $out/bin
-      makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/${name} \
+      makeWrapper ${runtimeTsx}/bin/tsx $out/bin/${name} \
         --add-flags "${kolu}/${entry}" \
         ${agentFlakeRefBakeArg} \
-        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
+        --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.openssh pkgs.nix ]}
     '';
 
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's
@@ -611,7 +679,23 @@ let
     inherit pkgs src pnpmDeps version;
     pname = "kolu-typecheck";
   };
+  # padi's darwin port-scan helper as its OWN package output, so the whole thing —
+  # the compile plus the install checks that bind a real dual-stack socket — builds
+  # and iterates alone on a Mac (`nix build .#port-scan-helper`): no client bundle,
+  # no node-pty rebuild, no pnpm fetch. That is the point of the derivation sitting
+  # in `packages/port-scan/native/` beside its one C file — the unit is self-contained,
+  # so building it should be too.
+  #
+  # The same `callPackage ./packages/port-scan/native` `nix/env.nix` bakes onto the
+  # wrappers, with the same (empty) argument set, so the two call sites cannot name
+  # different builds — they evaluate to one store path.
+  #
+  # Darwin-only, matching the derivation: it is `null` on linux, and a flake
+  # `packages` set cannot carry a null.
+  darwinOnly = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+    port-scan-helper = pkgs.callPackage ./packages/port-scan/native { };
+  };
 in
 {
   inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi acp-proxy acp-chat;
-}
+} // darwinOnly

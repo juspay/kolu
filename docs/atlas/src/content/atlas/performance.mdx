@@ -395,6 +395,134 @@ consider `vitest --shard` for the slowest packages (`git/index.test.ts`).
 
 - <span id="u-server-vitest" />**Server unit tests run single-file** — `packages/server/package.json` forces `vitest --fileParallelism=false` because all 16 server test files share one `KOLU_STATE_DIR` (keyed off the shell PID `$$`, resolved once so every worker inherits the same path), and a module-level `Conf` singleton would collide across parallel forks. Key the state dir per `VITEST_WORKER_ID` (each fork a private dir) and drop the flag to run the files across cores — a *within-package* U win distinct from the cross-package item above (that fans out whole packages; this unblocks the slowest one). *New this pass; bounded by whether server is the unit-lane long pole (`git` is named the slowest).* <Pill variant="lo">low</Pill>
 
+<Finding sev="low" id="u-port-scan-cost-accounting" title="What a port-scan pass actually spends, decomposed and measured">
+The architecture is "TypeScript calls an external process" on darwin and "TypeScript
+reads `/proc` in-process" on linux. Both overheads are now measured rather than
+argued about, so the decision to keep them is answerable.
+
+**Darwin — the ~6 ms pass, decomposed.** Round trip measured from Node exactly as padi
+calls it; the helper's own share read from its mach monotonic clock in the SAME
+invocation, so the parts cannot drift against the whole (an earlier attempt timed them
+in separate loops and the parts summed to *more* than the total). Instrumentation is a
+measure-only build; nothing ships with timers. zest, macOS 27.0, 718 rows / 20.9 KB of
+output, 15 runs:
+
+| component | median | share |
+|---|---|---|
+| **the C work itself** (libproc walk + format) | **4.11 ms** | 65% |
+| process lifecycle — fork/exec + dyld + teardown | **1.96 ms** | 31% |
+| pipe transfer + `execFile` plumbing | **0.30 ms** | 5% |
+| **round trip, shipping build** | **5.96 ms** | — |
+
+The lifecycle figure is measured, not inferred: it is a no-op C binary spawned from Node
+under identical conditions. The instrumented build costs 0.41 ms over the shipping one,
+which is why the shipping total is quoted separately.
+
+TSV parsing is small enough to be a rounding error and is measured with the SHIPPED
+`parseHelperOutput` over that same real output: **0.112 ms** median for 696 process
+rows + 21 listener rows (min 0.104, max 0.371, 200 runs). ~2% of the pass.
+
+**Linux — the ~14 ms in-process pass, decomposed.** No subprocess at all. Instrumented
+copy of the real reader, 573-process box, 12 runs:
+
+| stage | median | note |
+|---|---|---|
+| **pid table** (`readdir /proc` + batched `stat`/`cmdline`) | **13.29 ms** | ~96% of the pass |
+| socket table read (`/proc/net/tcp{,6}`) | 3.45 ms | runs CONCURRENTLY with the pid table, so it is hidden under it — not additive |
+| fd walk (only the subtree's pids) | 0.31 ms | |
+| join | 0.07 ms | |
+| socket table parse | 0.06 ms | |
+| **total `scanSubtreePorts`** | **13.91 ms** | |
+
+That settles a claim the module header had been asserting: the dominant cost really is
+the HOST pid table, and it scales with the host rather than with the question. It is also
+the measurement that makes `u-port-scan-subtree-descent` the right next move — 96% of
+the pass is the thing subtree descent would eliminate.
+
+**Steady state, both platforms.** Worst case is the duty-cycle floor's fast end, one pass
+per second (`nudgeFloorMs` keeps a fast pass at the 1 s minimum):
+
+| | per pass | worst-case cadence | cost |
+|---|---|---|---|
+| darwin | 5.96 ms | 1 / s | **0.60% of one core** |
+| linux | 13.91 ms | 1 / s | **1.39% of one core** |
+
+Darwin's spawn peaks at **1.9 MB RSS**, transient, once per pass.
+
+**The counterfactual, and why we pay it.** An in-process darwin reader (an N-API addon
+over the same libproc calls) would save the lifecycle plus the plumbing — **2.26 ms per
+pass**, taking ~5.96 ms to ~3.7 ms, or 0.23% of a core at the worst-case cadence. We
+decline it for reasons that outweigh 2 ms: a native addon couples padi's build to a
+Node ABI and forces a rebuild per Node bump inside the nix closure; a crash in a separate
+process cannot take padi down, whereas a segfault in an addon takes the daemon with it;
+and the subprocess boundary is what lets the same binary serve drishti later. The cost is
+small in absolute terms and is stated here so the trade can be re-examined against a
+number rather than a feeling.
+</Finding>
+
+<Finding sev="low" id="b-port-scan-duty-cycle" title="The port scan's nudge floor is duty-cycle bounded, so a slow platform cannot become a hot loop">
+**Banked** in <PrLink pr={1982} />. The sampler's nudge floor used to be a fixed
+1 s, which quietly makes per-pass cost a property of the PLATFORM rather than of the
+pass: the darwin path measured **93 ms** on a busy Mac, and 93 ms every second is
+**~9% of a core** for as long as any terminal streams output. Since kaval throttles
+its activity edge to one per PTY per 200 ms, a single streaming agent delivers ~5
+edges/s, so the floor — not the 5 s baseline — is the real period. That is the whole
+duty cycle, paid for the life of the daemon.
+
+The floor is now `clamp(lastPassMs * 20, 1 s, 5 s)` (`nudgeFloorMs`), measured
+around the whole pass in a `finally` so a pass that FAILED — a 5 s helper timeout is
+the most expensive pass there is — still pays for its own cost. Effect: **≤5% of one
+core by construction, on any platform**, with no knob and no platform switch. Linux
+(14-18 ms) and a quiet Mac (17 ms) sit at the 1 s minimum and never engage the bound;
+50 ms is the largest pass that still fits under it.
+
+Why bound rather than only optimise: a bound holds for costs nobody has measured yet.
+The darwin mechanism itself is under active review — a hand-rolled libproc helper vs
+adopting a maintained tool through nix — and whichever wins, the duty cycle is
+already capped.
+</Finding>
+
+<Finding sev="medium" id="u-port-scan-subtree-descent" title="Scan a terminal's subtree, not the whole host process table">
+padi's port sensor reads **every** `/proc/<pid>/stat` on the host to build a
+pid→ppid table, because procfs has no children index — except it does:
+`/proc/<pid>/task/<tid>/children`. So the pass costs what the HOST costs
+(515 processes here) rather than what the question costs (a terminal's subtree,
+typically a handful). **Measured** on a 515-process box, through the shipped
+module: **35-57 ms** per pass before batching, **14-18 ms** after (the pid table in
+bounded groups, the fd walk concurrent per pid — <PrLink pr={1982} />), and
+**&lt;1 ms** for a `children`-descent prototype over two subtrees.
+
+That last order of magnitude is worth taking because the cadence is not what it
+looks like: kaval throttles its activity edge to one per PTY per 200 ms, so one
+streaming agent delivers ~5 edges/s and the sampler's ≥1 s nudge floor — not the
+5 s baseline — becomes the real period. ~16 ms every second for the life of a
+padi is ~1.6% of a core; the pre-batching ~40 ms was ~4%.
+
+**Why it is not done yet:** descending `children` is a redesign of the walk (it
+must iterate `/proc/<pid>/task/*` so a multithreaded parent's children are not
+missed), and `proc(5)` warns the list may be incomplete if the process list
+changes mid-read. That is the same exit race the scanner already tolerates by
+policy (`procReadFailure` → skip), and the current `readdir("/proc")`-then-`stat`
+shape has the identical hazard — so this is a deliberate decision to write down,
+not a blocker. **Measure:** a pass on a 500-process box with 1 vs 30 terminals,
+table-walk vs `children`-descent.
+</Finding>
+
+<Finding sev="low" id="u-activity-edge-fanout" title="One kaval activity subscription, fanned out in padi">
+kaval's host-global `activity` stream now has **three** independent
+`resubscribeStream` consumers — the finish fold, the live dots, and the port-scan
+nudge (<PrLink pr={1982} />) — so every activity edge is encoded, transported over
+the padi↔kaval link and decoded **3×** instead of 2×, with a third retry loop and
+async iterator. One subscription publishing into an `inMemoryChannel` that all
+three consume cuts frames on that link by a third.
+
+Held back deliberately: the three are **not** three of one shape — the live-dots
+subscription is per-SUBSCRIBER by design while the other two are daemon-lifetime, so
+a shared receptacle would force the odd one in. The structural review's own
+disposition was "extract at the consumer that actually matches"; this records the
+measured cost so that decision is made against a number.
+</Finding>
+
 <Finding sev="low" id="u-kaval-queues" title="Bound subscriber queues by bytes, not just item count">
 Each subscriber queue caps at `maxQueue` (10k *items*) with no byte bound
 (`kaval/channel.ts:54-132`), so a stalled subscriber on a 1 KB/event PTY could

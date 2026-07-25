@@ -13,7 +13,8 @@
  *    · identity is Home + machine hostname (local) or ssh target (remote);
  *    · always-on connection status pip (green/amber/red) — click opens the
  *      per-host diagnostics popover; label only switches (never hover-open);
- *    · awaiting-count pill + finished-unseen amber dot stay on the strip;
+ *    · awaiting-count pill + finished-unseen amber count stay on the strip
+ *      (an unseen tab also washes amber — `.host-tab[data-unseen]`);
  *    · padi/kaval detail lives in the diagnostics popover, not on the strip;
  *    · remove is in the popover with a confirm step.
  *  A click on the label switches the canvas (a synchronous signal write —
@@ -68,8 +69,8 @@ import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
-import { HostFinishedDot } from "./HostFinishedDot";
 import { HostIdentityLabel } from "./HostIdentityLabel";
+import { HostUnseenPill } from "./HostUnseenPill";
 import {
   chipStatusDot,
   hostDisplayName,
@@ -122,8 +123,8 @@ const HostChip: Component<{
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
-  // Both host-tab attention marks — the amber "asking" pill and the quiet
-  // "finished, unseen" dot — read from the ONE cross-host store `useAttention`
+  // Both host-tab attention marks — the violet "asking" pill and the amber
+  // "finished, unseen" count — read from the ONE cross-host store `useAttention`
   // publishes (neither is the raw urgency count: a finished agent idles in
   // `waiting` forever). Bundled once; the host is fixed for this chip's lifetime,
   // so its key is encoded a single time.
@@ -161,6 +162,12 @@ const HostChip: Component<{
         // when down, with `.host-tab-down` layered on.
         class="host-tab relative flex h-8 items-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
         style={{ "--host-hue": hostHue(props.host) }}
+        // Finished-unseen washes the WHOLE tab amber (`.host-tab[data-unseen]`),
+        // not just the pill inside it. Area is what carries a mark into
+        // peripheral vision — a 6 px dot on a quiet tab did not (#1990). Mirrors
+        // `HostUnseenPill`'s own suppression, so the wash and the pill appear and
+        // vanish together and the active tab keeps its host-hue belly.
+        data-unseen={marks.unseenFinished() > 0 && !isActive() ? "" : undefined}
         classList={{
           "host-tab-active": isActive(),
           "host-tab-idle": !isActive() && !down(),
@@ -217,11 +224,11 @@ const HostChip: Component<{
             count={marks.asking()}
             sizeClass="min-w-4 px-1 h-4"
           />
-          <HostFinishedDot
+          <HostUnseenPill
             count={marks.unseenFinished()}
             active={isActive()}
             hostLabel={name()}
-            sizeClass="ml-0.5 h-1.5 w-1.5"
+            sizeClass="ml-0.5 min-w-4 px-1 h-4"
           />
         </button>
       </div>
@@ -318,11 +325,11 @@ const HostSwitcherRow: Component<{
           </span>
         </span>
         <HostAwaitingPill count={marks.asking()} sizeClass="min-w-4 px-1 h-4" />
-        <HostFinishedDot
+        <HostUnseenPill
           count={marks.unseenFinished()}
           active={isActive()}
           hostLabel={hostLabel(host)}
-          sizeClass="h-1.5 w-1.5"
+          sizeClass="min-w-4 px-1 h-4"
         />
       </button>
       <Show when={!isLocal()} fallback={<span class="h-7 w-6" />}>

@@ -20,7 +20,11 @@ import type { AgentAdapter, AgentInfoShape } from "anyagent";
 import { matchesAgent } from "anyagent";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type { ForegroundSample } from "kaval";
-import type { TerminalEvent, TerminalId } from "@kolu/terminal-vocab/schema";
+import type {
+  TerminalPorts,
+  TerminalEvent,
+  TerminalId,
+} from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   type CommandRunSample,
@@ -65,6 +69,7 @@ function startHarness(commandRooted: boolean) {
     title: inMemoryChannel<string>(),
     commandRun: inMemoryChannel<CommandRunSample>(),
     foreground: inMemoryChannel<ForegroundSample>(),
+    ports: inMemoryChannel<TerminalPorts>(),
   };
   // `currentAgent: "opencode"` models lock 1's argv seed already applied — so
   // this test isolates lock 2 (the shellIdle gate) alone. The trailing

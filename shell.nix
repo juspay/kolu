@@ -27,7 +27,7 @@ pkgs.mkShell {
     just
     jq # used by ci/lib.just recipes
     nodejs
-    pnpm
+    pnpm_10
     tsx
     nixpkgs-fmt
     # Biome from nixpkgs — single toolchain source, avoids per-platform Rust
@@ -50,7 +50,7 @@ pkgs.mkShell {
     # these in nativeBuildInputs; the dev shell needs them so `just install`
     # works outside the nix build.
     python3
-    nodePackages.node-gyp
+    node-gyp
     pkg-config
   ];
 }

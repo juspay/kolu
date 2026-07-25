@@ -337,6 +337,168 @@ consider <code>vitest --shard</code> for the slowest packages (<code>git/index.t
 <ul>
 <li><span id="u-server-vitest"></span><strong>Server unit tests run single-file</strong> — <code>packages/server/package.json</code> forces <code>vitest --fileParallelism=false</code> because all 16 server test files share one <code>KOLU_STATE_DIR</code> (keyed off the shell PID <code>$$</code>, resolved once so every worker inherits the same path), and a module-level <code>Conf</code> singleton would collide across parallel forks. Key the state dir per <code>VITEST_WORKER_ID</code> (each fork a private dir) and drop the flag to run the files across cores — a <em>within-package</em> U win distinct from the cross-package item above (that fans out whole packages; this unblocks the slowest one). <em>New this pass; bounded by whether server is the unit-lane long pole (<code>git</code> is named the slowest).</em> <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>low</span></li>
 </ul>
+<article class="finding finding-low" id="u-port-scan-cost-accounting" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-low" data-astro-cid-adrh2cs3>Low</span> What a port-scan pass actually spends, decomposed and measured</h3><div class="finding-body" data-astro-cid-adrh2cs3><p>The architecture is “TypeScript calls an external process” on darwin and “TypeScript
+reads <code>/proc</code> in-process” on linux. Both overheads are now measured rather than
+argued about, so the decision to keep them is answerable.</p><p><strong>Darwin — the ~6 ms pass, decomposed.</strong> Round trip measured from Node exactly as padi
+calls it; the helper’s own share read from its mach monotonic clock in the SAME
+invocation, so the parts cannot drift against the whole (an earlier attempt timed them
+in separate loops and the parts summed to <em>more</em> than the total). Instrumentation is a
+measure-only build; nothing ships with timers. zest, macOS 27.0, 718 rows / 20.9 KB of
+output, 15 runs:</p><table>
+<thead>
+<tr>
+<th>component</th>
+<th>median</th>
+<th>share</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>the C work itself</strong> (libproc walk + format)</td>
+<td><strong>4.11 ms</strong></td>
+<td>65%</td>
+</tr>
+<tr>
+<td>process lifecycle — fork/exec + dyld + teardown</td>
+<td><strong>1.96 ms</strong></td>
+<td>31%</td>
+</tr>
+<tr>
+<td>pipe transfer + <code>execFile</code> plumbing</td>
+<td><strong>0.30 ms</strong></td>
+<td>5%</td>
+</tr>
+<tr>
+<td><strong>round trip, shipping build</strong></td>
+<td><strong>5.96 ms</strong></td>
+<td>—</td>
+</tr>
+</tbody>
+</table><p>The lifecycle figure is measured, not inferred: it is a no-op C binary spawned from Node
+under identical conditions. The instrumented build costs 0.41 ms over the shipping one,
+which is why the shipping total is quoted separately.</p><p>TSV parsing is small enough to be a rounding error and is measured with the SHIPPED
+<code>parseHelperOutput</code> over that same real output: <strong>0.112 ms</strong> median for 696 process
+rows + 21 listener rows (min 0.104, max 0.371, 200 runs). ~2% of the pass.</p><p><strong>Linux — the ~14 ms in-process pass, decomposed.</strong> No subprocess at all. Instrumented
+copy of the real reader, 573-process box, 12 runs:</p><table>
+<thead>
+<tr>
+<th>stage</th>
+<th>median</th>
+<th>note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>pid table</strong> (<code>readdir /proc</code> + batched <code>stat</code>/<code>cmdline</code>)</td>
+<td><strong>13.29 ms</strong></td>
+<td>~96% of the pass</td>
+</tr>
+<tr>
+<td>socket table read (<code>/proc/net/tcp{,6}</code>)</td>
+<td>3.45 ms</td>
+<td>runs CONCURRENTLY with the pid table, so it is hidden under it — not additive</td>
+</tr>
+<tr>
+<td>fd walk (only the subtree’s pids)</td>
+<td>0.31 ms</td>
+<td></td>
+</tr>
+<tr>
+<td>join</td>
+<td>0.07 ms</td>
+<td></td>
+</tr>
+<tr>
+<td>socket table parse</td>
+<td>0.06 ms</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>total <code>scanSubtreePorts</code></strong></td>
+<td><strong>13.91 ms</strong></td>
+<td></td>
+</tr>
+</tbody>
+</table><p>That settles a claim the module header had been asserting: the dominant cost really is
+the HOST pid table, and it scales with the host rather than with the question. It is also
+the measurement that makes <code>u-port-scan-subtree-descent</code> the right next move — 96% of
+the pass is the thing subtree descent would eliminate.</p><p><strong>Steady state, both platforms.</strong> Worst case is the duty-cycle floor’s fast end, one pass
+per second (<code>nudgeFloorMs</code> keeps a fast pass at the 1 s minimum):</p><table>
+<thead>
+<tr>
+<th></th>
+<th>per pass</th>
+<th>worst-case cadence</th>
+<th>cost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>darwin</td>
+<td>5.96 ms</td>
+<td>1 / s</td>
+<td><strong>0.60% of one core</strong></td>
+</tr>
+<tr>
+<td>linux</td>
+<td>13.91 ms</td>
+<td>1 / s</td>
+<td><strong>1.39% of one core</strong></td>
+</tr>
+</tbody>
+</table><p>Darwin’s spawn peaks at <strong>1.9 MB RSS</strong>, transient, once per pass.</p><p><strong>The counterfactual, and why we pay it.</strong> An in-process darwin reader (an N-API addon
+over the same libproc calls) would save the lifecycle plus the plumbing — <strong>2.26 ms per
+pass</strong>, taking ~5.96 ms to ~3.7 ms, or 0.23% of a core at the worst-case cadence. We
+decline it for reasons that outweigh 2 ms: a native addon couples padi’s build to a
+Node ABI and forces a rebuild per Node bump inside the nix closure; a crash in a separate
+process cannot take padi down, whereas a segfault in an addon takes the daemon with it;
+and the subprocess boundary is what lets the same binary serve drishti later. The cost is
+small in absolute terms and is stated here so the trade can be re-examined against a
+number rather than a feeling.</p></div></article>
+<article class="finding finding-low" id="b-port-scan-duty-cycle" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-low" data-astro-cid-adrh2cs3>Low</span> The port scan&#39;s nudge floor is duty-cycle bounded, so a slow platform cannot become a hot loop</h3><div class="finding-body" data-astro-cid-adrh2cs3><p><strong>Banked</strong> in <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>. The sampler’s nudge floor used to be a fixed
+1 s, which quietly makes per-pass cost a property of the PLATFORM rather than of the
+pass: the darwin path measured <strong>93 ms</strong> on a busy Mac, and 93 ms every second is
+<strong>~9% of a core</strong> for as long as any terminal streams output. Since kaval throttles
+its activity edge to one per PTY per 200 ms, a single streaming agent delivers ~5
+edges/s, so the floor — not the 5 s baseline — is the real period. That is the whole
+duty cycle, paid for the life of the daemon.</p><p>The floor is now <code>clamp(lastPassMs * 20, 1 s, 5 s)</code> (<code>nudgeFloorMs</code>), measured
+around the whole pass in a <code>finally</code> so a pass that FAILED — a 5 s helper timeout is
+the most expensive pass there is — still pays for its own cost. Effect: <strong>≤5% of one
+core by construction, on any platform</strong>, with no knob and no platform switch. Linux
+(14-18 ms) and a quiet Mac (17 ms) sit at the 1 s minimum and never engage the bound;
+50 ms is the largest pass that still fits under it.</p><p>Why bound rather than only optimise: a bound holds for costs nobody has measured yet.
+The darwin mechanism itself is under active review — a hand-rolled libproc helper vs
+adopting a maintained tool through nix — and whichever wins, the duty cycle is
+already capped.</p></div></article>
+<article class="finding finding-medium" id="u-port-scan-subtree-descent" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-medium" data-astro-cid-adrh2cs3>Medium</span> Scan a terminal&#39;s subtree, not the whole host process table</h3><div class="finding-body" data-astro-cid-adrh2cs3><p>padi’s port sensor reads <strong>every</strong> <code>/proc/&lt;pid&gt;/stat</code> on the host to build a
+pid→ppid table, because procfs has no children index — except it does:
+<code>/proc/&lt;pid&gt;/task/&lt;tid&gt;/children</code>. So the pass costs what the HOST costs
+(515 processes here) rather than what the question costs (a terminal’s subtree,
+typically a handful). <strong>Measured</strong> on a 515-process box, through the shipped
+module: <strong>35-57 ms</strong> per pass before batching, <strong>14-18 ms</strong> after (the pid table in
+bounded groups, the fd walk concurrent per pid — <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>), and
+<strong>&lt;1 ms</strong> for a <code>children</code>-descent prototype over two subtrees.</p><p>That last order of magnitude is worth taking because the cadence is not what it
+looks like: kaval throttles its activity edge to one per PTY per 200 ms, so one
+streaming agent delivers ~5 edges/s and the sampler’s ≥1 s nudge floor — not the
+5 s baseline — becomes the real period. ~16 ms every second for the life of a
+padi is ~1.6% of a core; the pre-batching ~40 ms was ~4%.</p><p><strong>Why it is not done yet:</strong> descending <code>children</code> is a redesign of the walk (it
+must iterate <code>/proc/&lt;pid&gt;/task/*</code> so a multithreaded parent’s children are not
+missed), and <code>proc(5)</code> warns the list may be incomplete if the process list
+changes mid-read. That is the same exit race the scanner already tolerates by
+policy (<code>procReadFailure</code> → skip), and the current <code>readdir(&quot;/proc&quot;)</code>-then-<code>stat</code>
+shape has the identical hazard — so this is a deliberate decision to write down,
+not a blocker. <strong>Measure:</strong> a pass on a 500-process box with 1 vs 30 terminals,
+table-walk vs <code>children</code>-descent.</p></div></article>
+<article class="finding finding-low" id="u-activity-edge-fanout" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-low" data-astro-cid-adrh2cs3>Low</span> One kaval activity subscription, fanned out in padi</h3><div class="finding-body" data-astro-cid-adrh2cs3><p>kaval’s host-global <code>activity</code> stream now has <strong>three</strong> independent
+<code>resubscribeStream</code> consumers — the finish fold, the live dots, and the port-scan
+nudge (<a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>) — so every activity edge is encoded, transported over
+the padi↔kaval link and decoded <strong>3×</strong> instead of 2×, with a third retry loop and
+async iterator. One subscription publishing into an <code>inMemoryChannel</code> that all
+three consume cuts frames on that link by a third.</p><p>Held back deliberately: the three are <strong>not</strong> three of one shape — the live-dots
+subscription is per-SUBSCRIBER by design while the other two are daemon-lifetime, so
+a shared receptacle would force the odd one in. The structural review’s own
+disposition was “extract at the consumer that actually matches”; this records the
+measured cost so that decision is made against a number.</p></div></article>
 <article class="finding finding-low" id="u-kaval-queues" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-low" data-astro-cid-adrh2cs3>Low</span> Bound subscriber queues by bytes, not just item count</h3><div class="finding-body" data-astro-cid-adrh2cs3><p>Each subscriber queue caps at <code>maxQueue</code> (10k <em>items</em>) with no byte bound
 (<code>kaval/channel.ts:54-132</code>), so a stalled subscriber on a 1 KB/event PTY could
 pin ~10 MB before being dropped. Tracking queue byte size at publish and dropping

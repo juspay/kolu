@@ -47,6 +47,7 @@ let
       ../packages/padi
       ../packages/padi-tui
       ../packages/port-forward
+      ../packages/port-scan
       ../packages/vazhi
       ../packages/server
       ../packages/client
@@ -66,6 +67,9 @@ let
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
     inherit version src;
+    # Pin the package-manager major: nixpkgs' unversioned pnpm alias advances
+    # independently, while this workspace and lockfile use pnpm 10 semantics.
+    pnpm = pkgs.pnpm_10;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
     hash = "sha256-WIXgNcU//1MW6SYAdsmapDkTz9HIEECHPOiu6cCk99Q=";
