@@ -49,8 +49,13 @@ function listener(
   // GRANDCHILD — the ordinary shape of this feature (a shell in a PTY, an agent
   // running a dev server inside it), and the reason attribution is a subtree walk
   // rather than a direct-children check.
+  //
+  // The node path and the script ride as POSITIONAL ARGUMENTS (`$0`, `$1`) rather
+  // than interpolated into the command string. Nothing is quoted by hand, so a
+  // path containing a space — `/Users/My Name/…`, entirely ordinary on macOS —
+  // cannot split into two words and turn this into a different command.
   const child = opts.viaShell
-    ? spawn("/bin/sh", ["-c", `exec ${process.execPath} -e '${script}'`])
+    ? spawn("/bin/sh", ["-c", 'exec "$0" -e "$1"', process.execPath, script])
     : spawn(process.execPath, ["-e", script]);
   children.push(child);
   return new Promise((resolve, reject) => {
