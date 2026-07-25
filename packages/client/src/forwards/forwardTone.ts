@@ -5,7 +5,7 @@
  * The binding rule of the approved UX pass: **green is connection health, teal
  * is open doors, and neither surface may borrow the other's colour.** If a third
  * meaning ever appears it gets a third colour — never a second green. That rule
- * is why this is a module and not a class string typed four times: the notch on
+ * is why this is a module and not a class string typed four times: the ring on
  * the host tab, the pill in the dropdown, and the pill on a ports row all have to
  * be the same teal, and "the same" has to survive someone restyling one of them.
  *
@@ -21,17 +21,17 @@ export const FORWARD_TEXT = "text-teal-700 dark:text-teal-300";
 export const FORWARD_PILL =
   "rounded bg-teal-500/10 px-1 font-mono text-teal-700 dark:bg-teal-400/15 dark:text-teal-300";
 
-/** The corner badge on the host tab's connection pip — a small filled teal disc
- *  carrying the forward glyph, bordered in the TAB's background so it reads as
- *  its own object sitting over the pip rather than as chrome applied to it.
+/** The hairline ring around the host tab's connection pip. Geometry and one
+ *  colour: it composes AROUND the pip and never touches the pip's own health
+ *  colour.
  *
- *  It replaced a teal RING, which proved JARRING in the field: an outline drawn
- *  around the pip is visually heavy-handed at that size, and it read as a
- *  treatment OF the dot — a second, louder way of styling "connected" — instead
- *  of as a separate fact beside it. The border is what makes the badge legible
- *  over every pip tone without touching the pip's own colour. */
-export const FORWARD_NOTCH =
-  "border-2 border-surface-0 bg-teal-600 text-white dark:bg-teal-400 dark:text-surface-0";
+ *  Three cuts to settle, and the last two are why this is deliberately THIN. A
+ *  thick teal ring with an offset was rejected as **jarring** — heavy enough to
+ *  read as a treatment applied TO the dot rather than as a fact beside it. A
+ *  corner badge carrying the ⇄ glyph replaced it and failed for the opposite
+ *  reason: at tab size the glyph is illegible mush. The shape was never wrong;
+ *  the WEIGHT was. One pixel, tight against the pip, quiet. */
+export const FORWARD_RING = "ring-1 ring-teal-500/70 dark:ring-teal-300/60";
 
 /** How a forward's ORIGIN reads, and what the tooltip explains.
  *

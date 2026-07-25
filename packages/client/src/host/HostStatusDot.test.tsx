@@ -1,17 +1,24 @@
 // @vitest-environment happy-dom
 /**
- * The host tab's connection dot, and the forward NOTCH on its corner.
+ * The host tab's connection dot, and the thin forward RING around it.
  *
  * Field feedback replaced a separate `⇄ n` chip with a marker on the dot: the
  * dot is already the click target that opens the dropdown listing the forwards,
  * so a second chip beside it was chrome for a fact the dot could carry.
  *
- * The load-bearing property is the one this file exists to pin: **the notch never
- * touches the pip's colour.** That colour is painted from the connection-health
- * fact and nothing else (`.claude/rules/solidjs.md` — never colour a status dot
- * from anything but the fact), so the forward marker has to compose AROUND it.
- * A notch that recoloured the pip would be a green-over-a-dead-link dot by a new
- * route, which is exactly the class of bug that rule exists to make unrenderable.
+ * The marker took three cuts to settle, and the shape is now a HAIRLINE ring
+ * hugging the pip. A thick teal ring was rejected as jarring — heavy stroke plus
+ * offset made it read as a treatment applied to the dot. A corner badge carrying
+ * the ⇄ glyph replaced it and failed for the opposite reason: at tab size the
+ * glyph is illegible mush. Weight, not shape, was the problem.
+ *
+ * The load-bearing property survives every cut, and is what this file exists to
+ * pin: **the marker never touches the pip's colour.** That colour is painted from
+ * the connection-health fact and nothing else (`.claude/rules/solidjs.md` — never
+ * colour a status dot from anything but the fact), so it has to compose AROUND
+ * the pip. A marker that recoloured it would be a green-over-a-dead-link dot by a
+ * new route, which is exactly the class of bug that rule exists to make
+ * unrenderable.
  */
 
 import { render } from "solid-js/web";
@@ -34,48 +41,47 @@ function mount(props: { statusDot: string; forwardCount: number }) {
   dispose = render(() => <HostStatusDot {...props} />, host);
   return {
     pip: host.querySelector('[data-testid="host-status-pip"]'),
-    notch: host.querySelector('[data-testid="host-forward-notch"]'),
+    ring: host.querySelector('[data-testid="host-forward-ring"]'),
   };
 }
 
-/** Two real pip tones, so the notch is proved over more than the happy one. */
+/** Two real pip tones, so the ring is proved over more than the happy one. */
 const READY = "bg-emerald-400";
 const DOWN = "bg-rose-400";
 
 describe("HostStatusDot", () => {
-  it("draws no notch when the host has no forwards", () => {
-    const { pip, notch } = mount({ statusDot: READY, forwardCount: 0 });
+  it("draws no ring when the host has no forwards", () => {
+    const { pip, ring } = mount({ statusDot: READY, forwardCount: 0 });
     expect(pip).not.toBeNull();
-    expect(notch).toBeNull();
+    expect(ring).toBeNull();
   });
 
-  it("draws a notch when the host has forwards", () => {
-    const { pip, notch } = mount({ statusDot: READY, forwardCount: 2 });
+  it("draws a ring when the host has forwards", () => {
+    const { pip, ring } = mount({ statusDot: READY, forwardCount: 2 });
     expect(pip).not.toBeNull();
-    expect(notch).not.toBeNull();
+    expect(ring).not.toBeNull();
   });
 
   it("carries the COUNT in the accessible label, not in the visual", () => {
-    // The count left the chrome and moved here: the notch says "there are
+    // The count left the chrome and moved here: the ring says "there are
     // forwards", the label says how many, and the dropdown holds the rows.
-    const { notch } = mount({ statusDot: READY, forwardCount: 2 });
-    expect(notch?.getAttribute("aria-label")).toMatch(/2 forwarded ports/);
-    // The COUNT is not rendered — the notch shows the forward glyph, so the
-    // badge says "doors are open here" and the label says how many. A number
-    // baked into a 13px badge would be unreadable and would compete with the
-    // attention pills for the same job.
-    expect(notch?.textContent?.trim()).toBe("⇄");
+    const { ring } = mount({ statusDot: READY, forwardCount: 2 });
+    expect(ring?.getAttribute("aria-label")).toMatch(/2 forwarded ports/);
+    // Nothing is DRAWN inside it — not a count, not a glyph. Both were tried at
+    // tab scale and both are illegible there; the ring's whole job is "doors are
+    // open on this host", and the label carries the rest.
+    expect(ring?.textContent?.trim()).toBe("");
   });
 
   it("says 'port' rather than 'ports' for one", () => {
-    const { notch } = mount({ statusDot: READY, forwardCount: 1 });
-    expect(notch?.getAttribute("aria-label")).toMatch(/1 forwarded port\b/);
-    expect(notch?.getAttribute("aria-label")).not.toMatch(/ports/);
+    const { ring } = mount({ statusDot: READY, forwardCount: 1 });
+    expect(ring?.getAttribute("aria-label")).toMatch(/1 forwarded port\b/);
+    expect(ring?.getAttribute("aria-label")).not.toMatch(/ports/);
   });
 
   it("leaves the pip's COLOUR untouched, forwards or not", () => {
     // The hard rule: the pip is painted from the connection-health fact alone.
-    // The notch composes around it and may never recolour or replace it.
+    // The ring composes around it and may never recolour or replace it.
     const without = mount({ statusDot: READY, forwardCount: 0 }).pip?.className;
     dispose?.();
     host?.remove();
@@ -85,23 +91,23 @@ describe("HostStatusDot", () => {
     expect(withRing).toContain(READY);
   });
 
-  it("renders the notch over a DOWN pip too, not just a healthy one", () => {
+  it("renders the ring over a DOWN pip too, not just a healthy one", () => {
     // A host can be unreachable while kolu still holds doors it opened before
-    // the link dropped, so the notch has to read over every pip state.
-    const { pip, notch } = mount({ statusDot: DOWN, forwardCount: 1 });
-    expect(notch).not.toBeNull();
+    // the link dropped, so the ring has to read over every pip state.
+    const { pip, ring } = mount({ statusDot: DOWN, forwardCount: 1 });
+    expect(ring).not.toBeNull();
     expect(pip?.className).toContain(DOWN);
   });
 
-  it("reads as its OWN object — a bordered badge, not an outline on the pip", () => {
-    // The notch replaced a teal RING, and the reason is worth keeping: the ring
-    // was JARRING — an outline drawn around the pip is visually heavy-handed,
-    // and it read as chrome applied TO the dot rather than as a second fact
-    // sitting beside it. A small badge overlapping the corner, bordered in the
-    // tab's own background, is a separate object — which is what it is.
-    const { notch } = mount({ statusDot: READY, forwardCount: 1 });
-    expect(notch?.className).toMatch(/absolute/);
-    expect(notch?.className).toMatch(/border/);
+  it("is a HAIRLINE — the weight is what made the first ring jarring", () => {
+    // Not the shape: an outline around the pip is the right idea, and the
+    // corner badge that replaced it proved illegible at this size. What made
+    // the first ring heavy-handed was the stroke plus its offset, so this one
+    // is a single pixel sitting tight against the pip.
+    const { ring } = mount({ statusDot: READY, forwardCount: 1 });
+    expect(ring?.className).toMatch(/(^|\s)ring-1(\s|$)/);
+    expect(ring?.className).not.toMatch(/ring-2|ring-4|border-2/);
+    expect(ring?.className).not.toMatch(/ring-offset-[1-9]/);
   });
 
   it("marks in the FORWARD colour, never the connection colour", () => {
@@ -109,8 +115,8 @@ describe("HostStatusDot", () => {
     // health, teal means open doors, and neither surface may borrow the other's.
     // A green marker is a second, quieter way of saying "connected" rather than
     // a fact of its own — which is what the first cut drew by reusing the accent.
-    const { notch } = mount({ statusDot: READY, forwardCount: 1 });
-    expect(notch?.className).toMatch(/teal/);
-    expect(notch?.className).not.toMatch(/emerald|green|accent/);
+    const { ring } = mount({ statusDot: READY, forwardCount: 1 });
+    expect(ring?.className).toMatch(/teal/);
+    expect(ring?.className).not.toMatch(/emerald|green|accent/);
   });
 });

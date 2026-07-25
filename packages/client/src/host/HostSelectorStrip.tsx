@@ -71,7 +71,7 @@ import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import { forwardNotchLabel, HostStatusDot } from "./HostStatusDot";
+import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
 import { HostUnseenPill } from "./HostUnseenPill";
 import {
   chipStatusDot,
@@ -132,7 +132,7 @@ const HostChip: Component<{
   // so its key is encoded a single time.
   const encKey = encodeHostKey(props.host);
   const marks = hostMarks(encKey);
-  // How many doors kolu holds open to this host — the notch on the dot below.
+  // How many doors kolu holds open to this host — the ring on the dot below.
   const forwardCount = () => forwardsForHost(props.host).length;
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
@@ -184,7 +184,7 @@ const HostChip: Component<{
           data-testid="host-diagnostics-open"
           aria-haspopup="dialog"
           aria-expanded={diagOpen()}
-          aria-label={`Details for ${name()} — ${glance().title}${forwardCount() > 0 ? `, ${forwardNotchLabel(forwardCount())}` : ""}`}
+          aria-label={`Details for ${name()} — ${glance().title}${forwardCount() > 0 ? `, ${forwardRingLabel(forwardCount())}` : ""}`}
           title={`${glance().title} — click for details`}
           class="pointer-events-auto ml-2 flex h-7 w-4 shrink-0 items-center justify-center rounded-tl-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
           onClick={(e) => {
