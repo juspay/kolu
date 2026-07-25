@@ -67,7 +67,9 @@ async function main(): Promise<void> {
   };
 
   let turnRunning = false;
-  /** Lines are answered one at a time; `connectToProxy` owns the queueing. */
+  /** Sequences this REPL's own output state — the prompt redraw and
+   *  `turnRunning`. The transport-level queue in `connectToProxy` is a
+   *  different job: it serializes the turns themselves. */
   let queue: Promise<void> = Promise.resolve();
 
   const runTurn = async (text: string): Promise<void> => {

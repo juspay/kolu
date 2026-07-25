@@ -114,9 +114,13 @@ lets a debugging `acp-chat` sit beside a program that is driving the agent.
 ## Tests
 
 The end-to-end suite drives the real bins — spawned processes, a real socket,
-the official client library on the far end — against a scripted fake adapter
-(`src/fakeAdapter.fixture.ts`), and runs over two adapter argvs so
-agent-agnosticism is checked rather than claimed. Because it forks real
+the official client library on the far end — against scripted fake adapters, and
+runs over **three** of them: one fake twice (which proves the command is read)
+and a **second fake that is a different agent**, with other capabilities, a
+batched reply instead of a stream, the permission request on the far side of the
+tool call, and frame kinds the pinned library drops. That is what makes
+agent-agnosticism checked rather than claimed — it caught this suite asserting
+one vendor's literal wording for its `allow_once` option. Because it forks real
 processes it is gated behind `@kolu/daemon-test-gate`:
 
 ```sh

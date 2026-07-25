@@ -33,7 +33,7 @@ import {
 import { AdapterSession } from "./adapter.ts";
 import { parseArgv } from "./argv.ts";
 import { describeError } from "./errors.ts";
-import { SESSION_CWD_META } from "./connect.ts";
+import { SESSION_CWD_META } from "./protocol.ts";
 import { socketPathFor } from "./socketPath.ts";
 import type { ProxyEvent, SessionUpdate } from "./events.ts";
 import { TranscriptRenderer } from "./render.ts";
@@ -138,6 +138,11 @@ async function main(): Promise<void> {
   });
   adapterRef = adapter;
 
+  // Claimed before the adapter boots: this is a few syscalls, and failing it
+  // after a full agent handshake means spawning and killing an agent to learn
+  // something we could have known in a millisecond.
+  await claimSocketPath(socketPath).catch(die);
+
   await adapter.start().catch(die);
   emit({ kind: "sessionReady", sessionId });
 
@@ -240,7 +245,6 @@ async function main(): Promise<void> {
     });
   });
 
-  await claimSocketPath(socketPath).catch(die);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(socketPath, resolve);

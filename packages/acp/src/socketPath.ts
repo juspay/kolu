@@ -35,7 +35,7 @@ export function socketPathFor(id: string): string {
 }
 
 /** The private per-user directory a proxy's socket lives in. */
-export function runtimeDir(): string {
+function runtimeDir(): string {
   const xdg = process.env.XDG_RUNTIME_DIR;
   if (xdg !== undefined && xdg !== "") return join(xdg, APP);
   const uid = process.getuid?.() ?? "shared";

@@ -12,6 +12,7 @@
  * per token would be unreadable.
  */
 
+import { stripVTControlCharacters } from "node:util";
 import type { ProxyEvent, SessionUpdate } from "./events.ts";
 
 /** Marker column: who spoke. `▶` into the adapter, `◀` out of it, `●` a turn
@@ -21,10 +22,29 @@ const OUT = "◀";
 const TURN = "●";
 const HARNESS = "⎯";
 
+/**
+ * Everything rendered here is written by the *agent* — tool titles, message
+ * text, an error's reason — and it lands on a terminal. An escape sequence in a
+ * frame would let a careless or hostile agent repaint the transcript that is
+ * supposed to be reporting on it, so control characters are stripped before
+ * anything else: `\s` is whitespace only and does not cover `\x1b`, C0 or C1.
+ *
+ * The same call the repo already made for the same shape — see `plainDiagnostic`
+ * in `@kolu/port-forward`, whose strings are likewise rendered verbatim by a TUI.
+ */
+function plain(text: string): string {
+  return stripVTControlCharacters(text).replace(CONTROL_CHARACTERS, " ");
+}
+
+// Everything C0/C1 except tab, newline and carriage return, which the line
+// folding below handles as ordinary whitespace.
+const CONTROL_CHARACTERS =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
+
 /** One line of text, collapsed — a tool title or message can carry newlines,
  *  and a transcript stays scannable only if one event is one line. */
 function oneLine(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return plain(text).replace(/\s+/g, " ").trim();
 }
 
 /** The human-meaningful text of a content block, if it has any. */
@@ -43,7 +63,7 @@ function contentText(content: { type: string; text?: string }): string {
  */
 function chunkText(content: { type: string; text?: string }): string {
   return content.type === "text" && content.text !== undefined
-    ? content.text.replace(/[\r\n\t]+/g, " ")
+    ? plain(content.text).replace(/[\r\n\t]+/g, " ")
     : `<${content.type}>`;
 }
 
@@ -111,6 +131,8 @@ export function formatEvent(event: ProxyEvent): string | null {
       return `${TURN} turn end · stopReason: ${event.stopReason}`;
     case "turnFailed":
       return `${TURN} turn failed · ${oneLine(event.message)}`;
+    case "harnessError":
+      return `${HARNESS} harness error · ${oneLine(event.message)}`;
   }
 }
 

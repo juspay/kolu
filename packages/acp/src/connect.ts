@@ -17,6 +17,7 @@
 import { connect as connectSocket, type Socket } from "node:net";
 import { Readable, Writable } from "node:stream";
 import type { SessionUpdate } from "./events.ts";
+import { SESSION_CWD_META } from "./protocol.ts";
 import {
   type ClientSideConnection as ClientSideConnectionType,
   ClientSideConnection,
@@ -28,9 +29,6 @@ import {
   type RequestPermissionRequest,
   type SessionNotification,
 } from "@zed-industries/agent-client-protocol";
-
-/** Where the proxy publishes the working directory its session is rooted at. */
-export const SESSION_CWD_META = "kolu.acp/cwd";
 
 export interface ProxyClient {
   /** The proxy's single session. */

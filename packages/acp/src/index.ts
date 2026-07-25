@@ -10,9 +10,6 @@
  * would invite a consumer to depend on a shape that exists only to serve it.
  */
 
-export {
-  connectToProxy,
-  type ProxyClient,
-  SESSION_CWD_META,
-} from "./connect.ts";
+export { connectToProxy, type ProxyClient } from "./connect.ts";
+export { SESSION_CWD_META } from "./protocol.ts";
 export { socketPathFor } from "./socketPath.ts";

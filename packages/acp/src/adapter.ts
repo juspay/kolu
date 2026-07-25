@@ -163,16 +163,18 @@ export class AdapterSession {
     const turn = new Promise<PromptResponse>((resolve, reject) => {
       this.#pending = { resolve, reject };
     });
-    this.#bind(
-      generation,
-      generation.connection.prompt({
-        sessionId: generation.sessionId,
-        prompt,
-      }),
-    ).then(
-      (response) => this.#settle((pending) => pending.resolve(response)),
-      (error) => this.#settle((pending) => pending.reject(error)),
-    );
+    // NOT raced against `generation.dead`. `#onExit` is the single settler for
+    // a death, and it is the only one that knows whether the death was a
+    // cancellation being enforced (→ `cancelled`) or a failure (→ reject). With
+    // both racing, the right answer won only because `died()` schedules a
+    // microtask while `#settle` runs synchronously in the same tick — an
+    // ordering no type enforces and any future `await` would silently flip.
+    generation.connection
+      .prompt({ sessionId: generation.sessionId, prompt })
+      .then(
+        (response) => this.#settle((pending) => pending.resolve(response)),
+        (error) => this.#settle((pending) => pending.reject(error)),
+      );
     return await turn;
   }
 
@@ -284,8 +286,11 @@ export class AdapterSession {
           // A dead child's receive loop runs until EOF. Its frames belong to a
           // session that no longer exists and must not reach this one.
           if (this.#current?.id !== id) return;
-          this.#emit({ kind: "update", update: params.update });
+          // Clients first. `process.stdout.write` to a PTY is synchronous, so
+          // rendering the tile ahead of the fan-out would make every attached
+          // client wait on the terminal for every streamed token.
           this.#onUpdate(params.update);
+          this.#emit({ kind: "update", update: params.update });
         },
         requestPermission: async (params: RequestPermissionRequest) => {
           if (this.#current?.id !== id) {
@@ -330,7 +335,13 @@ export class AdapterSession {
     // ordinary exit closes these streams too, and `exit` may arrive just after
     // `close`. Letting the real cause win first keeps the transcript honest;
     // `#onExit` is once-only, so whichever gets there first is the whole story.
+    // Armed once: an ordinary EOF fires both `end` and `close`, and `#onExit`
+    // destroys stdout itself, so an unguarded handler schedules the same
+    // no-op check two to four times per generation.
+    let watching = false;
     const transportLost = () => {
+      if (watching) return;
+      watching = true;
       setTimeout(() => {
         if (generation.ended) return;
         if (child.exitCode !== null || child.signalCode !== null) return;
@@ -598,7 +609,7 @@ export class AdapterSession {
       // failure to signal, and gets said out loud rather than swallowed.
       if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
         this.#emit({
-          kind: "turnFailed",
+          kind: "harnessError",
           message: `could not signal the adapter process group: ${describeError(error)}`,
         });
       }

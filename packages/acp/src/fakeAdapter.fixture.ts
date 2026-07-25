@@ -126,15 +126,11 @@ class FakeAgent implements Agent {
       // Answer, then drop the protocol stream while staying alive.
       setTimeout(() => process.stdout.end(), 50);
     }
-    if (DIE_ON_RESPAWN) {
-      // Serve once, then go — so there IS a respawn, whose replacement then
-      // dies in its handshake. That second death is the one under test.
-      setTimeout(() => process.exit(9), 20);
-    }
-    if (DIE_WHEN_READY) {
-      // Answer first, then go — so the proxy sees a *ready* adapter die, which
-      // is the case the respawn policy has to pace rather than the handshake
-      // failure it must report.
+    if (DIE_WHEN_READY || DIE_ON_RESPAWN) {
+      // Answer first, then go, so the proxy sees a *ready* adapter die — the
+      // case the respawn policy must pace rather than report as a handshake
+      // failure. The two flags differ in what the NEXT generation does, not
+      // here: DIE_ON_RESPAWN's replacement dies inside its own handshake.
       setTimeout(() => process.exit(9), 20);
     }
     return { sessionId: SESSION_ID };

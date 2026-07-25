@@ -34,4 +34,7 @@ export type ProxyEvent =
   | { kind: "cancelRequested" }
   | { kind: "cancelGraceExpired"; graceMs: number }
   | { kind: "turnEnded"; stopReason: string }
-  | { kind: "turnFailed"; message: string };
+  | { kind: "turnFailed"; message: string }
+  /** A harness-level failure that is nobody's turn — reported on its own kind
+   *  so it never inflates a turn-failure count or interrupts a healthy turn. */
+  | { kind: "harnessError"; message: string };

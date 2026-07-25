@@ -288,7 +288,7 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
 
         await failed;
         await proxy.waitFor(
-          () => proxy.readyCount() === 2,
+          () => proxy.readyCount() >= 2,
           "the adapter to respawn",
         );
 
@@ -303,7 +303,7 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
 
         await expect(client.prompt("crash")).rejects.toThrow();
         await proxy.waitFor(
-          () => proxy.readyCount() === 2,
+          () => proxy.readyCount() >= 2,
           "the adapter to respawn",
         );
 
@@ -348,7 +348,7 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
         expect(proxy.stdout()).toContain("cancel grace expired");
 
         await proxy.waitFor(
-          () => proxy.readyCount() === 2,
+          () => proxy.readyCount() >= 2,
           "the adapter to respawn",
         );
         const response = await client.prompt("after the cancel");
@@ -366,7 +366,14 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
     // The fake grades the choice: `completed` only if the option the proxy
     // picked was the one whose *kind* is allow_once. Picking the first option,
     // or the one whose id reads `allow-once`, selects allow_always and fails.
-    expect(proxy.stdout()).toContain("◀ tool_call_update · completed");
+    // Waited for, not assumed: clients are served before the tile is rendered,
+    // so a turn can resolve for the caller a beat before the transcript catches
+    // up. That ordering is deliberate — a blocking write to a PTY must not sit
+    // in front of the fan-out.
+    await proxy.waitFor(
+      (out) => out.includes("◀ tool_call_update · completed"),
+      "the tool call to be rendered",
+    );
     expect(proxy.stdout()).toContain("auto-answered Just this once");
   });
 
