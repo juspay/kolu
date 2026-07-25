@@ -20,6 +20,7 @@ import Row from "../ui/Row";
 import Section from "../ui/Section";
 import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
+import PortsSection from "./PortsSection";
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;
@@ -261,6 +262,22 @@ const MetadataInspector: Component<{
                   </Show>
                 </div>
               </Section>
+            )}
+          </Show>
+
+          {/* Ports — what this terminal is SERVING. Gated on the active arm (a
+              sleeping terminal released its PTY, so its subtree and every
+              listener in it are gone) and on there being at least one, so a
+              terminal serving nothing shows no empty block. `PortsSection` owns
+              which chips are openable — that answer needs the active HOST, not
+              just the metadata. */}
+          <Show when={activeArm(meta())?.ports}>
+            {(ports) => (
+              <Show when={ports().length > 0}>
+                <Section title="Ports">
+                  <PortsSection ports={ports()} />
+                </Section>
+              </Show>
             )}
           </Show>
 

@@ -22,6 +22,7 @@ function meta(intent?: string): TerminalMetadata {
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
+    ports: [],
     lastActivityAt: 0,
     intent,
   };
