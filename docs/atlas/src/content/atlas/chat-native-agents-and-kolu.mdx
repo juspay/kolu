@@ -73,7 +73,7 @@ become flow-JSON cards with buttons — approve a gated tool from your phone.
 | Agent, v1 | `claude-agent-acp` only; `codex-acp` / goose are later config, not new code paths |
 | Permissions | Until HX2 the proxy auto-answers with the `allow_once` option; HX2 turns that off for bound threads and forwards the request |
 | Bind state | `threadId → { terminalId, socketPath, acpSessionId, authorUserId }`, JSON file beside pesu |
-| Reply shape | Post once, then `updateMessage` ≤1/s as the growing reply; split at XS's message cap<Footnote>The XS app API has no delta primitive: `updateMessage` is a full-body replace, messages cap at 9,500 chars (split with a "full answer attached" fallback), and `agentProgress` is ephemeral — a Redis-backed working/done pill with a one-line `toolLabel`, never persisted.</Footnote> |
+| Reply shape | Post once, then `updateMessage` ≤1/s as the growing reply; split at XS's 40,000-char message cap<Footnote>The XS app API has no delta primitive: `updateMessage` is a full-body replace, and `agentProgress` is ephemeral — a Redis-backed working/done pill with a one-line `toolLabel`, never persisted. The ≤1/s cadence is manners, not a platform limit — XS configures no rate limit on the app API routes.</Footnote> |
 
 ## Roadmap — HX
 
@@ -122,9 +122,23 @@ resolve the bind and prompt the same session. The XS leaf — `webhook.ts` +
 HMAC tests, `xyneApi.ts` + fake-XS tests, fail-fast env config, logging,
 allowlist, `nix run .#pesu` — ports from <PrLink pr={1810} />.
 
+The thread's ceremony-free home is a **DM** (every message is delivered); in a
+channel each message must @mention the app — the apps platform has no
+follow-the-thread.<Footnote>Follow-the-thread (replying in a bot's thread
+without re-mentioning) exists only in XS's separate bot-catalog system, not
+for installed apps. Two recorded options if the per-message @mention grates:
+an XS-side feature request for app thread-follow, or a pesu-side poller over
+one dedicated channel's `channelHistory` — not built until wanted.</Footnote>
+pesu answers the webhook 200 immediately and works async — delivery is
+fire-and-forget, so a slow handler loses events. Deployment shape: pesu binds
+`127.0.0.1` as a systemd user service fronted by **Tailscale Funnel** for the
+stable public webhook URL; secrets reach it **only as environment variables**
+— never the repo, logs, or an agent transcript.
+
 **Done when:** DM from the phone → tile exists on the host → reply lands in
 the thread; a second message continues the same session; opening the tile
-shows the live frame log.
+shows the live frame log; a forged-signature request is rejected (pinned by a
+test); a non-operator gets a one-line visible decline, never silence.
 
 <a id="hx2"></a>
 
@@ -162,6 +176,67 @@ conversation with prior context, without double-posting earlier replies.
 agents (`codex-acp`, goose — the wire is agent-agnostic already); a small
 integration so proxy tiles light up dock state / awareness from the proxy's
 own stream.
+
+## Background
+
+**Why chat at all.** Anthropic shipped [Claude Tag](https://www.anthropic.com/news/introducing-claude-tag)
+— one shared Claude per channel, pursuing tasks "over hours or days" — and
+[Karpathy called the shape](https://x.com/karpathy/status/2069547676849557725)
+"the 3rd major redesign of LLM UIUX": the agent as a persistent coworker that
+lives where the team already works.<Footnote>The proof-point Anthropic leads
+with is blunt: *"65% of our product team's code is created by our internal
+version."* The human's job shifts from driving keystrokes to managing
+agents.</Footnote> In that world chat owns the breadth and the terminal owns
+the depth — which is this note's spine: the XS thread is the conversation, the
+kolu tile is the live process you can step into.
+
+**Why kolu stays the substrate.** kolu runs claude, codex, or goose under any
+chat app, on infrastructure you control — the model swappable, the shell and
+files real, the host yours. Claude Tag is one vendor's model with the shell
+and files hidden in a cloud sandbox you don't own; that difference is the
+moat, and the ACP wire preserves it (any adapter, any chat front
+end).<Footnote>Marc Andreessen, [on what agent research converged
+on](https://www.youtube.com/watch?v=knx2wrILP1M): *"an agent is … a language
+model, and above that a bash shell … and then a file system, and the state is
+stored in files"* — and *"your agent is now actually independent of the model
+… you can swap out a different LLM underneath."* That is the architecture
+here, line for line; the headless session still acts through a real shell on
+files you own.</Footnote><Footnote>An earlier revision of this note designed
+the bridge as a *mirror of the coordinator* — observe flowing out raw, act
+flowing in through one orchestrator terminal, with a fleet status board and a
+campaign feed as phases. Thread-per-agent over ACP supersedes it; fleet-level
+chat (board, feed) is [campaign surface](campaign-surface.html)
+territory.</Footnote>
+
+### The XS apps platform, as grounded
+
+The contract HX1 builds against — read from the xyne-spaces source
+(2026-07-13), not its docs, because XS has **three separate integration
+systems** that are easy to conflate: the *bot catalog* (backend-native bots),
+*incoming webhooks* (URL-embedded-secret message drops), and the **apps
+platform** — installed apps with a webhook URL, a bearer token, and a signing
+secret. pesu is an installed app; only the third system applies.
+
+| Event | Fires when |
+| --- | --- |
+| `APP_MENTIONED` | the app is explicitly @mentioned in a channel — carries `conversationId` (thread), `channelId`, `messageId`, sender `userId`, body as HTML + plain text, attachments |
+| `DIRECT_MESSAGE` | *every* message in a 1:1 DM with the app (same shape, no `senderName`) |
+| `USER_MENTIONED` | a human is @mentioned where the app is present — observer signal |
+
+**Auth, both directions, one secret.** Deliveries carry `X-Xyne-Signature` —
+HMAC-SHA256 of the raw body with the app's signing secret; no timestamp or
+replay scheme, so verification is a constant-time compare and replay is an
+accepted, recorded risk. The bearer token is a JWT signed HS256 *with that
+same secret*, no expiry — it lives until regenerated.
+
+**The app API** (`/api/apps`, bearer): `chat/postMessage` (text, markdown, or
+structured content; `conversationId` targets a thread) · `chat/updateMessage`
+· `chat/agentProgress` · `chat/channelHistory` / `chat/conversationReplies`
+(catch-up after downtime) · `channel/openDm` · `user/info`.<Footnote>No
+webhook payload carries a sender email (the DM payload omits even the display
+name) — pesu resolves people through `user/info` and caches them. Event
+delivery is fire-and-forget with no retries: a delivery missed while pesu is
+down is lost; the read APIs recover.</Footnote>
 
 ## Out of scope
 
