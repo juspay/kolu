@@ -245,7 +245,7 @@ is for kolu’s own UI); per-forward auth would be a later, separate feature.</p
 data arrives on the terminal’s metadata like everything else). The flows:</p>
 <ul>
 <li><strong>Open.</strong> Click a chip → <code>window.open</code> on <code>http://${location.hostname}:…</code>, matching the Code tab’s external-open idiom (<code>CodeTab.tsx:1114</code>). Case-3 ports open <strong>directly</strong>; cases 1–2 call the embedded library’s <code>create</code>, get the listener port, open it, and the chip gains a <code>⇄ :61000</code> badge. Forwarding is <strong>lazy — first click only</strong>, never eager for every detected port.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An agent session can hold six listening ports; auto-tunneling all of them VS-Code-style keeps idle listeners alive for ports nobody opens. Lazy costs one ssh handshake on first click — the price of a forward that dies with the process that opened it, and the reason to pay it once per opened port rather than once per detected one.</span></span></span></li>
-<li><strong>Manage.</strong> A <strong>Forwarded Ports</strong> group lists every active kolu forward — <code>host:remotePort → :localPort</code>, origin <code>auto</code> (chip click) or <code>manual</code>, cancel <code>⨯</code> per row. Kolu auto-cancels an <code>auto</code> forward when the scanner sees its remote port die; <code>manual</code> forwards persist until cancelled or their host disconnects. The same list appears <strong>in the host tab’s dropdown</strong> (beside state · terminals · padi·kaval): forwards are host-scoped, so the host popover is their natural home — each row a clickable <code>http://…</code> link with its cancel <code>⨯</code> — while the Inspector group shows the same rows filtered to the active terminal’s host.</li>
+<li><strong>Manage.</strong> A <strong>Forwarded Ports</strong> group lists every active kolu forward — <code>host:remotePort → :localPort</code>, origin <code>auto</code> (chip click) or <code>manual</code>, cancel <code>⨯</code> per row. Kolu auto-cancels an <code>auto</code> forward when the scanner sees its remote port die; <code>manual</code> forwards persist until cancelled or their host disconnects. The same list appears <strong>in the host tab’s dropdown</strong> (beside state · terminals · padi·kaval), and the host tab itself carries a <strong><code>⇄ n</code> badge</strong> while forwards are live there: forwards are host-scoped, so the host popover is their natural home — each row a clickable <code>http://…</code> link with copy <code>⧉</code> and cancel <code>⨯</code> — while the Inspector group shows the same rows filtered to the active terminal’s host.</li>
 <li><strong>Manual forward.</strong> The <code>＋ Forward a port…</code> row and a <span class="kbd-chord" data-astro-cid-7vv3zwgx><kbd class="kbd" data-astro-cid-7vv3zwgx>⌘</kbd><span class="kbd-plus" data-astro-cid-7vv3zwgx>+</span><kbd class="kbd" data-astro-cid-7vv3zwgx>K</kbd></span> command accept <code>host:port</code> — for a port the scanner missed or one outside any terminal’s subtree.</li>
 <li><strong>The unit is the TILE, not the pane.</strong> A tile is one thing to the user and several PTYs to the daemon, so the scanner attributes a port to whichever <em>pane’s</em> subtree holds it — correct and unavoidable. But <strong>a dev server almost always runs in a split</strong>, so a section that read only the main pane showed nothing in the common case (observed on a live deployment during PRT1, not in review). Every ports surface therefore reads main + splits, the same unit the Attach section already documents, merging rather than grouping: which pane a listener sits in is a detail of how the user split their tile. PRT2’s <strong>Forwarded Ports</strong> group and auto-cancel inherit this — a forward belongs to the tile that opened it, not to a pane that may be closed while the server keeps running.</li>
 <li><strong>Discoverability.</strong> One tip in <code>settings/tips.ts</code>: “Click a port in the Inspector to open the server an agent just started.”</li>
@@ -738,6 +738,119 @@ every tick</strong>, so a terminal opening, closing, or being re-keyed never lea
 a stale subtree; and it is single-flight (the output-nudge and the baseline
 tick share one non-overlapping runner).</p>
 <h3 id="prt2--kolu-embeds-the-library-one-pr">PRT2 — kolu embeds the library (one PR)</h3>
+<div style="font-family:ui-sans-serif,system-ui;max-width:26rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)"><div style="padding:.7rem 1rem .45rem;border-bottom:1px solid #232834;font:.78rem/1.4 ui-monospace,monospace;color:#8b93a3"><span style="color:#d6dae2">⌂ pureintent</span>  ·  zest  ·  <span style="background:#2a2138;border:1px solid #4a3a68;border-radius:6px;padding:.1rem .45rem;color:#d6dae2">naiveintent <b style="color:#b79df0">⇄2</b></span>  ·  kolu-bot</div><div style="margin:.6rem 1rem;border:1px solid #2a2f3a;border-radius:8px;background:#181c24;padding:.55rem .8rem;font:.72rem/1.8 ui-monospace,monospace"><div style="color:#d6dae2"><b>naiveintent</b> <span style="color:#5b6470">— connected · terminals 7</span></div><div style="color:#8b93a3;letter-spacing:.08em;font-size:.62rem;margin-top:.3rem">FORWARDED PORTS</div><div style="color:#a9b0be">⇄ <a style="color:#4da3ff">5173 → :5173</a> · auto · <span style="color:#5b6470">⧉</span> <span style="color:#e06c60">⨯</span></div><div style="color:#a9b0be">⇄ <a style="color:#4da3ff">8080 → :61003</a> · manual · <span style="color:#5b6470">⧉</span> <span style="color:#e06c60">⨯</span></div></div><div style="padding:.4rem 1rem .2rem;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PORTS <span style="float:right;color:#5b6470">inspector</span></div><div style="padding:.1rem 1rem .5rem;font:.75rem/1.9 ui-monospace,monospace;color:#d6dae2"><div>🌐 <b>8124</b> <span style="color:#8b93a3">node</span> <span style="float:right"><span style="color:#4da3ff">⤴ open</span> <span style="background:#2a2138;color:#b79df0;border-radius:5px;padding:.05rem .4rem">⇄ :8124</span></span></div><div>🌐 <b>5173</b> <span style="color:#8b93a3">vite</span> <span style="float:right;color:#4da3ff">⤴ open</span></div></div><div style="margin:0 1rem .8rem;border:1px solid #2a2f3a;border-radius:8px;background:#0e1116;padding:.5rem .8rem;font:.72rem/1.7 ui-monospace,monospace"><div style="color:#5b6470">⌘K  <span style="color:#d6dae2">forw<span style="border-left:1px solid #d6dae2"> </span></span></div><div style="color:#d6dae2;background:#1d2331;border-radius:5px;padding:.15rem .5rem;margin-top:.25rem">⇄ Forward a port… <span style="color:#5b6470">host:port → opens a tunnel</span></div></div></div>
+<p>What ships, at a glance — detail lives in the footnotes:</p>
+<ul>
+<li><strong>Every chip opens.</strong> Click → the embedded library opens a door → new tab at <code>http://${location.hostname}:&lt;port&gt;</code>. Lazy, first click only.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Case-3 (wildcard on the kolu host) keeps opening directly with no door. Cases 1–2 call <code>create</code> and the chip gains a <code>⇄ :&lt;localPort&gt;</code> badge. Lazy because an agent session can hold six listening ports; eager VS-Code-style tunneling keeps doors open for ports nobody visits, and their knob matrix exists to walk that back.</span></span></span></li>
+<li><strong>Two door mechanisms</strong>, both shipped in PRT0 and vazhi-proven: an in-process TCP relay for the kolu host’s own loopback ports, one dedicated <code>ssh -L</code> child per remote forward.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The ssh child runs with <code>ControlPath=none</code> plus a hold-open remote command — it can neither ride nor create a shared master, so the forward’s lifetime IS the child’s lifetime. The shared-master design was measured and rejected in PRT0: <code>-O forward</code> listeners outlive their requester by the full ControlPersist window, and OpenSSH has no <code>-O list</code> to re-adopt them.</span></span></span></li>
+<li><strong>Same port when free</strong>: <code>box:5173</code> answers at <code>:5173</code>, predictable and bookmarkable; the kernel picks only on collision — and a restarted listener gets its old local port back.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The restart rule is one of two details adopted from VS Code’s Ports view; the other is copy-address on every row. Both exist so links survive a dev-server restart.</span></span></span></li>
+<li><strong>Forwarded Ports, three surfaces</strong>: a group in the Inspector (active terminal’s host), the same list in the <strong>host tab’s dropdown</strong>, and a <strong><code>⇄ n</code> badge on the host tab itself</strong> whenever that host has live forwards — glanceable from anywhere.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Forwards are host-scoped facts, so the host popover is their natural home; the Inspector group is the same rows filtered to the active terminal’s host. Rows: <code>host:remotePort → :localPort · auto|manual · ⧉ copy · ⨯ cancel</code>, each a clickable link.</span></span></span></li>
+<li><strong>⌘K: “Forward a port…”</strong> — accepts <code>host:port</code>, for anything the scanner missed or outside any terminal’s subtree.</li>
+<li><strong>Doors close themselves.</strong> Scanner sees the port die → <code>auto</code> forwards cancel; <code>manual</code> ones persist until cancelled or the host disconnects; kolu killed → the kernel closes everything, instantly.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The kolu-level twin of vazhi’s SIGKILL criterion, and it matters MORE here: the server restarts on every deploy. The old shared-master design would have orphaned every forward on each release while the restarted UI showed an empty list.</span></span></span></li>
+</ul>
+<figure class="diagram wide" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 520" font-family="ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="p2B" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a6ea5"/>
+    </marker>
+    <marker id="p2G" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1b7a3a"/>
+    </marker>
+    <marker id="p2O" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c2611b"/>
+    </marker>
+    <marker id="p2P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#6d4fa3"/>
+    </marker>
+  </defs>
+
+  <!-- ══════ Viewer ══════ -->
+  <rect x="20" y="40" width="300" height="400" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="38" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">VIEWER — zest</text>
+
+  <rect x="40" y="82" width="260" height="96" rx="8" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="56" y="103" font-size="13" font-weight="700" fill="#1b7a3a">Inspector chip (PRT1)</text>
+  <text x="56" y="125" font-size="12" font-family="ui-monospace,monospace" fill="#1a1c20">8124 node   ⤴ open</text>
+  <text x="56" y="145" font-size="12" font-family="ui-monospace,monospace" fill="#1a1c20">5173 vite   ⤴ open</text>
+  <text x="56" y="165" font-size="11" fill="#54785f">every chip now opens — that is PRT2</text>
+
+  <rect x="40" y="330" width="260" height="66" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="56" y="352" font-size="13" font-weight="700" fill="#1a1c20">new tab</text>
+  <text x="56" y="372" font-size="12" font-family="ui-monospace,monospace" fill="#6d4fa3">http://pureintent:8124</text>
+  <text x="56" y="388" font-size="10.5" fill="#8a8574">location.hostname, never "localhost"</text>
+
+  <line x1="170" y1="178" x2="170" y2="326" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#p2G)"/>
+  <text x="182" y="250" font-size="11" fill="#54785f">click → create → open</text>
+
+  <!-- ══════ Kolu server host ══════ -->
+  <rect x="360" y="40" width="440" height="440" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="378" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">KOLU SERVER HOST — pureintent</text>
+
+  <rect x="380" y="82" width="400" height="64" rx="8" fill="#fbeadd" stroke="#c2611b" stroke-width="1.5"/>
+  <text x="396" y="103" font-size="13" font-weight="700" fill="#c2611b">kolu server embeds @kolu/port-forward · new (PRT2)</text>
+  <text x="396" y="122" font-size="11.5" fill="#1a1c20">forwards = a cell on the existing surface · lazy on click</text>
+  <text x="396" y="138" font-size="11" fill="#8a5b34">⌘K "Forward a port…" · host-tab ⇄ badge · Forwarded Ports lists</text>
+
+  <!-- two mechanisms -->
+  <rect x="380" y="180" width="190" height="96" rx="8" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="394" y="201" font-size="12.5" font-weight="700" fill="#6d4fa3">case 1 — TCP relay</text>
+  <text x="394" y="221" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">0.0.0.0:8124</text>
+  <text x="394" y="237" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">  → 127.0.0.1:8124</text>
+  <text x="394" y="256" font-size="10.5" fill="#7a6b93">in-process; for THIS host's</text>
+  <text x="394" y="269" font-size="10.5" fill="#7a6b93">loopback-bound servers</text>
+
+  <rect x="590" y="180" width="190" height="96" rx="8" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="604" y="201" font-size="12.5" font-weight="700" fill="#6d4fa3">case 2 — ssh child</text>
+  <text x="604" y="221" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">ssh -L *:5173:</text>
+  <text x="604" y="237" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">  127.0.0.1:5173 box</text>
+  <text x="604" y="256" font-size="10.5" fill="#7a6b93">ONE child per forward;</text>
+  <text x="604" y="269" font-size="10.5" fill="#7a6b93">ControlPath=none</text>
+
+  <line x1="500" y1="146" x2="470" y2="176" stroke="#c2611b" stroke-width="1.6" marker-end="url(#p2O)"/>
+  <line x1="660" y1="146" x2="680" y2="176" stroke="#c2611b" stroke-width="1.6" marker-end="url(#p2O)"/>
+
+  <!-- lifecycle strip -->
+  <rect x="380" y="310" width="400" height="88" rx="8" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
+  <text x="396" y="331" font-size="12.5" font-weight="700" fill="#3a6ea5">a forward lives exactly as long as its owner</text>
+  <text x="396" y="351" font-size="11.5" fill="#1a1c20">cancel row → kill(child) · close relay</text>
+  <text x="396" y="369" font-size="11.5" fill="#1a1c20">scanner sees the port die → auto-cancel (auto forwards only)</text>
+  <text x="396" y="387" font-size="11.5" fill="#1a1c20">kolu killed → kernel closes every listener, instantly</text>
+
+  <rect x="380" y="424" width="400" height="40" rx="8" fill="#e3f4e9" stroke="#1b7a3a"/>
+  <text x="396" y="448" font-size="11.5" fill="#1b7a3a">padi port sensor (PRT1) — the death signal auto-cancel rides</text>
+  <line x1="580" y1="424" x2="580" y2="402" stroke="#3a6ea5" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#p2B)"/>
+
+  <!-- traffic: browser → listener → mechanisms -->
+  <line x1="300" y1="360" x2="376" y2="240" stroke="#6d4fa3" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#p2P)"/>
+  <text x="290" y="300" font-size="10.5" fill="#7a6b93">HTTP</text>
+
+  <!-- ══════ Remote host ══════ -->
+  <rect x="840" y="40" width="320" height="400" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="858" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">REMOTE HOST — e.g. kolu-bot</text>
+
+  <rect x="860" y="82" width="280" height="56" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="876" y="104" font-size="13" font-weight="700" fill="#1a1c20">sshd</text>
+  <text x="876" y="122" font-size="11" fill="#8a8574">the tunnel's far end</text>
+
+  <rect x="860" y="180" width="280" height="76" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="876" y="202" font-size="13" font-weight="700" fill="#1a1c20">dev server</text>
+  <text x="876" y="222" font-size="12" font-family="ui-monospace,monospace" fill="#6d4fa3">127.0.0.1:5173</text>
+  <text x="876" y="240" font-size="10.5" fill="#8a8574">loopback — unreachable from anywhere, until now</text>
+
+  <line x1="780" y1="220" x2="856" y2="110" stroke="#6d4fa3" stroke-width="1.8" marker-end="url(#p2P)"/>
+  <text x="790" y="150" font-size="10.5" fill="#7a6b93">encrypted</text>
+  <line x1="1000" y1="138" x2="1000" y2="176" stroke="#6d4fa3" stroke-width="1.8" marker-end="url(#p2P)"/>
+  <text x="1012" y="160" font-size="10.5" fill="#7a6b93">local hop</text>
+
+  <!-- ══════ Legend ══════ -->
+  <rect x="240" y="492" width="14" height="14" rx="3" fill="#e3f4e9" stroke="#1b7a3a"/>
+  <text x="262" y="503" font-size="12" fill="#1a1c20">shipped (PRT1)</text>
+  <rect x="420" y="492" width="14" height="14" rx="3" fill="#fbeadd" stroke="#c2611b"/>
+  <text x="442" y="503" font-size="12" fill="#1a1c20">new in PRT2</text>
+  <rect x="580" y="492" width="14" height="14" rx="3" fill="#efe9f8" stroke="#6d4fa3"/>
+  <text x="602" y="503" font-size="12" fill="#1a1c20">@kolu/port-forward mechanisms (shipped in PRT0, vazhi-proven)</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>One click, both mechanisms. A loopback port on the kolu host gets an in-process relay (case 1); a port on a remote host gets a dedicated ssh -L child whose death is the forward&#39;s death (case 2). The browser only ever opens the name already in its address bar. Auto-cancel rides PRT1&#39;s scanner; a killed kolu server takes every door with it, kernel-guaranteed.</figcaption></figure>
 <p><strong>A shape question PRT1’s review raised and deliberately left to PRT2:</strong> whether
 <code>PortInfo</code> should carry <code>wildcard: boolean</code> or a three-way
 <code>scope: &quot;any&quot; | &quot;loopback&quot; | &quot;interface&quot;</code>. The structural lens’s case is sound —

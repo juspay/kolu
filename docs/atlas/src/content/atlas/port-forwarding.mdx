@@ -13,6 +13,7 @@ import Kbd from "../../components/Kbd.astro";
 import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import arch from "../../diagrams/port-forwarding-arch.svg?raw";
+import prt2click from "../../diagrams/port-forwarding-prt2-click.svg?raw";
 
 export const Mockup = () => (
   <div style="font-family:ui-sans-serif,system-ui;max-width:24rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)">
@@ -28,6 +29,29 @@ export const Mockup = () => (
       <span style="color:#b79df0;font-weight:700">vazhi</span> <span style="color:#5b6470">— its own forwards, in its own terminal</span><br/>
       <span style="color:#8b93a3">pu-dev:3000 → 0.0.0.0:61010&nbsp;&nbsp;up 12m</span><br/>
       <span style="color:#5b6470"><b>a</b> add · <b>x</b> cancel · <b>q</b> quit</span>
+    </div>
+  </div>
+);
+
+export const Prt2Mockup = () => (
+  <div style="font-family:ui-sans-serif,system-ui;max-width:26rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)">
+    <div style="padding:.7rem 1rem .45rem;border-bottom:1px solid #232834;font:.78rem/1.4 ui-monospace,monospace;color:#8b93a3">
+      <span style="color:#d6dae2">⌂ pureintent</span>&nbsp;&nbsp;·&nbsp;&nbsp;zest&nbsp;&nbsp;·&nbsp;&nbsp;<span style="background:#2a2138;border:1px solid #4a3a68;border-radius:6px;padding:.1rem .45rem;color:#d6dae2">naiveintent <b style="color:#b79df0">⇄2</b></span>&nbsp;&nbsp;·&nbsp;&nbsp;kolu-bot
+    </div>
+    <div style="margin:.6rem 1rem;border:1px solid #2a2f3a;border-radius:8px;background:#181c24;padding:.55rem .8rem;font:.72rem/1.8 ui-monospace,monospace">
+      <div style="color:#d6dae2"><b>naiveintent</b> <span style="color:#5b6470">— connected · terminals 7</span></div>
+      <div style="color:#8b93a3;letter-spacing:.08em;font-size:.62rem;margin-top:.3rem">FORWARDED PORTS</div>
+      <div style="color:#a9b0be">⇄ <a style="color:#4da3ff">5173 → :5173</a> · auto · <span style="color:#5b6470">⧉</span> <span style="color:#e06c60">⨯</span></div>
+      <div style="color:#a9b0be">⇄ <a style="color:#4da3ff">8080 → :61003</a> · manual · <span style="color:#5b6470">⧉</span> <span style="color:#e06c60">⨯</span></div>
+    </div>
+    <div style="padding:.4rem 1rem .2rem;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PORTS <span style="float:right;color:#5b6470">inspector</span></div>
+    <div style="padding:.1rem 1rem .5rem;font:.75rem/1.9 ui-monospace,monospace;color:#d6dae2">
+      <div>🌐 <b>8124</b> <span style="color:#8b93a3">node</span> <span style="float:right"><span style="color:#4da3ff">⤴ open</span> <span style="background:#2a2138;color:#b79df0;border-radius:5px;padding:.05rem .4rem">⇄ :8124</span></span></div>
+      <div>🌐 <b>5173</b> <span style="color:#8b93a3">vite</span> <span style="float:right;color:#4da3ff">⤴ open</span></div>
+    </div>
+    <div style="margin:0 1rem .8rem;border:1px solid #2a2f3a;border-radius:8px;background:#0e1116;padding:.5rem .8rem;font:.72rem/1.7 ui-monospace,monospace">
+      <div style="color:#5b6470">⌘K&nbsp; <span style="color:#d6dae2">forw<span style="border-left:1px solid #d6dae2">&nbsp;</span></span></div>
+      <div style="color:#d6dae2;background:#1d2331;border-radius:5px;padding:.15rem .5rem;margin-top:.25rem">⇄ Forward a port… <span style="color:#5b6470">host:port → opens a tunnel</span></div>
     </div>
   </div>
 );
@@ -169,7 +193,7 @@ A **Ports** section joins the existing blocks in
 data arrives on the terminal's metadata like everything else). The flows:
 
 - **Open.** Click a chip → `window.open` on `http://${location.hostname}:…`, matching the Code tab's external-open idiom (`CodeTab.tsx:1114`). Case-3 ports open **directly**; cases 1–2 call the embedded library's `create`, get the listener port, open it, and the chip gains a `⇄ :61000` badge. Forwarding is **lazy — first click only**, never eager for every detected port.<Footnote>An agent session can hold six listening ports; auto-tunneling all of them VS-Code-style keeps idle listeners alive for ports nobody opens. Lazy costs one ssh handshake on first click — the price of a forward that dies with the process that opened it, and the reason to pay it once per opened port rather than once per detected one.</Footnote>
-- **Manage.** A **Forwarded Ports** group lists every active kolu forward — `host:remotePort → :localPort`, origin `auto` (chip click) or `manual`, cancel `⨯` per row. Kolu auto-cancels an `auto` forward when the scanner sees its remote port die; `manual` forwards persist until cancelled or their host disconnects. The same list appears **in the host tab's dropdown** (beside state · terminals · padi·kaval): forwards are host-scoped, so the host popover is their natural home — each row a clickable `http://…` link with its cancel `⨯` — while the Inspector group shows the same rows filtered to the active terminal's host.
+- **Manage.** A **Forwarded Ports** group lists every active kolu forward — `host:remotePort → :localPort`, origin `auto` (chip click) or `manual`, cancel `⨯` per row. Kolu auto-cancels an `auto` forward when the scanner sees its remote port die; `manual` forwards persist until cancelled or their host disconnects. The same list appears **in the host tab's dropdown** (beside state · terminals · padi·kaval), and the host tab itself carries a **`⇄ n` badge** while forwards are live there: forwards are host-scoped, so the host popover is their natural home — each row a clickable `http://…` link with copy `⧉` and cancel `⨯` — while the Inspector group shows the same rows filtered to the active terminal's host.
 - **Manual forward.** The `＋ Forward a port…` row and a <Kbd keys="⌘+K" /> command accept `host:port` — for a port the scanner missed or one outside any terminal's subtree.
 - **The unit is the TILE, not the pane.** A tile is one thing to the user and several PTYs to the daemon, so the scanner attributes a port to whichever *pane's* subtree holds it — correct and unavoidable. But **a dev server almost always runs in a split**, so a section that read only the main pane showed nothing in the common case (observed on a live deployment during PRT1, not in review). Every ports surface therefore reads main + splits, the same unit the Attach section already documents, merging rather than grouping: which pane a listener sits in is a detail of how the user split their tile. PRT2's **Forwarded Ports** group and auto-cancel inherit this — a forward belongs to the tile that opened it, not to a pane that may be closed while the server keeps running.
 - **Discoverability.** One tip in `settings/tips.ts`: "Click a port in the Inspector to open the server an agent just started."
@@ -591,6 +615,23 @@ a stale subtree; and it is single-flight (the output-nudge and the baseline
 tick share one non-overlapping runner).
 
 ### PRT2 — kolu embeds the library (one PR)
+
+<Prt2Mockup />
+
+What ships, at a glance — detail lives in the footnotes:
+
+- **Every chip opens.** Click → the embedded library opens a door → new tab at `http://${location.hostname}:<port>`. Lazy, first click only.<Footnote>Case-3 (wildcard on the kolu host) keeps opening directly with no door. Cases 1–2 call `create` and the chip gains a `⇄ :<localPort>` badge. Lazy because an agent session can hold six listening ports; eager VS-Code-style tunneling keeps doors open for ports nobody visits, and their knob matrix exists to walk that back.</Footnote>
+- **Two door mechanisms**, both shipped in PRT0 and vazhi-proven: an in-process TCP relay for the kolu host's own loopback ports, one dedicated `ssh -L` child per remote forward.<Footnote>The ssh child runs with `ControlPath=none` plus a hold-open remote command — it can neither ride nor create a shared master, so the forward's lifetime IS the child's lifetime. The shared-master design was measured and rejected in PRT0: `-O forward` listeners outlive their requester by the full ControlPersist window, and OpenSSH has no `-O list` to re-adopt them.</Footnote>
+- **Same port when free**: `box:5173` answers at `:5173`, predictable and bookmarkable; the kernel picks only on collision — and a restarted listener gets its old local port back.<Footnote>The restart rule is one of two details adopted from VS Code's Ports view; the other is copy-address on every row. Both exist so links survive a dev-server restart.</Footnote>
+- **Forwarded Ports, three surfaces**: a group in the Inspector (active terminal's host), the same list in the **host tab's dropdown**, and a **`⇄ n` badge on the host tab itself** whenever that host has live forwards — glanceable from anywhere.<Footnote>Forwards are host-scoped facts, so the host popover is their natural home; the Inspector group is the same rows filtered to the active terminal's host. Rows: `host:remotePort → :localPort · auto|manual · ⧉ copy · ⨯ cancel`, each a clickable link.</Footnote>
+- **⌘K: "Forward a port…"** — accepts `host:port`, for anything the scanner missed or outside any terminal's subtree.
+- **Doors close themselves.** Scanner sees the port die → `auto` forwards cancel; `manual` ones persist until cancelled or the host disconnects; kolu killed → the kernel closes everything, instantly.<Footnote>The kolu-level twin of vazhi's SIGKILL criterion, and it matters MORE here: the server restarts on every deploy. The old shared-master design would have orphaned every forward on each release while the restarted UI showed an empty list.</Footnote>
+
+<Svg
+  svg={prt2click}
+  wide
+  caption="One click, both mechanisms. A loopback port on the kolu host gets an in-process relay (case 1); a port on a remote host gets a dedicated ssh -L child whose death is the forward's death (case 2). The browser only ever opens the name already in its address bar. Auto-cancel rides PRT1's scanner; a killed kolu server takes every door with it, kernel-guaranteed."
+/>
 
 **A shape question PRT1's review raised and deliberately left to PRT2:** whether
 `PortInfo` should carry `wildcard: boolean` or a three-way
