@@ -55,14 +55,23 @@ at a host only changes one thing: whether the terminal counts as already **seen*
 
 | Agent state | Sound + popup (once) | On-screen marks | Goes away when |
 | --- | --- | --- | --- |
-| **Asking you** (waiting for input) | if not already seen | loud amber host-tab count + dock pip | you answer |
-| **Just finished** (no input needed) | if not already seen | quiet dim-amber host-tab dot + dock unread | you look at it |
+| **Asking you** (waiting for input) | if not already seen | violet host-tab count + dock pip | you answer |
+| **Just finished** (no input needed) | if not already seen | amber host-tab count on an amber-washed tab + washed dock row | you look at it |
 | Working / idle | — | (optional "live" ring) | — |
 
-The two host-tab marks share **one** colour language — the amber "needs you" of the
-count pill and the unread badge — in two tiers: the full-amber count for *asking*
-(actionable, blocking) and a dim-amber dot for an *unseen finish* (a lesser nudge),
-never a separate grey vocabulary.<Footnote>The dot reads the cross-host **unseen-finished** mark `useAttention` publishes, not the raw `finishedIds` — a finished agent idles in `waiting` ~forever, so "has any finished agent" would light every host permanently. The unseen rule is the pure, unit-tested `nextUnseenFinished`.</Footnote>
+The two host-tab marks share **one** shape — a count pill, identical geometry — and
+split by **hue**, not by intensity: violet for *asking* (blocked on you, a state)
+and amber for an *unseen finish* (an unopened obligation). Hue carries the meaning
+so neither mark has to be the quiet one.<Footnote>The amber count reads the cross-host **unseen-finished** mark `useAttention` publishes, not the raw `finishedIds` — a finished agent idles in `waiting` ~forever, so "has any finished agent" would light every host permanently. The unseen rule is the pure, unit-tested `nextUnseenFinished`.</Footnote>
+
+**Both surfaces put the mark on the whole row, not a dot on it** (<PrLink pr={1990} />).
+Unseen-finished washes the entire host tab amber; an unread dock row washes amber and
+fills its 3px leading stripe. The earlier design hung a 6px dot off the tab and a 7px
+corner badge off the dock pip — and the dock badge *already pulsed*, which is the useful
+evidence: unread threads still went unnoticed for hours. Motion on a 7px object doesn't
+buy attention; **area** does. Doubling a dot's diameter is a 4× area change, while
+tinting the surface behind it is ~100×. The pip's corner badge stays as the precise
+mark — it just isn't asked to do the catching.
 
 The only place "which host" enters is **seen**: a terminal you're staring at is seen
 by definition; one on a background host isn't. Everything else is identical across

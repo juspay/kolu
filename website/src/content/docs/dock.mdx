@@ -53,11 +53,17 @@ without separate dots fighting for space:
   terminal is effectively active, **glows** when it is blocked on you, and holds
   still when quiet. Under reduced motion, animations freeze. Active rows hide
   the "Xs ago" recency (it would only say "just now");
-- **obligation (amber corner badge)** — a background ping you have not opened
-  yet. Deliberately **amber**, not violet: needs-you is state (violet), unread
-  is an unopened notification (amber). The host strip uses the same pair —
-  a **violet count pill** for agents blocked on you, a quieter **amber dot**
-  for finished-but-unseen work on a background machine.
+- **obligation (amber row wash)** — a background ping you have not opened yet.
+  The whole row tints amber and its 3px leading stripe lights up, with the title
+  in bold; an amber corner badge on the pip carries the same fact precisely.
+  Deliberately **amber**, not violet: needs-you is state (violet), unread is an
+  unopened notification (amber). The host strip uses the same pair — a **violet
+  count pill** for agents blocked on you, and for finished-but-unseen work on a
+  background machine an **amber count** on a tab that washes amber too.
+
+The row, not a dot on it, is what carries unread. A mark you catch at the edge of
+vision survives on **area**: the dock's corner badge already pulsed and unread
+threads still went unnoticed, because motion on a 7px object doesn't buy attention.
 
 The same StatePip leads the tile title bar, so dock and title never disagree.
 
