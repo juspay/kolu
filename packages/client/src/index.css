@@ -104,6 +104,38 @@ body {
     inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
     0 -6px 16px -12px var(--host-hue);
 }
+/* Finished-unseen tab — the AREA channel. `HostUnseenPill` carries the count;
+ * this washes the whole tab amber so the mark survives peripheral vision.
+ * Doubling a dot is a 4× area change and still gets missed; tinting the tab
+ * behind it is ~100× (#1990).
+ *
+ * Amber `--color-attention` and NOT `--host-hue`: obligation is a fact about
+ * work, not about which host it happened on, and the hue-per-host palette
+ * already spends colour on identity. The two-hue rule still holds — amber
+ * unseen here, violet needs-you in `HostAwaitingPill`.
+ *
+ * Only ever paints an IDLE tab: `data-unseen` is suppressed on the active host
+ * (same predicate as the pill), so this can never fight the active tab's
+ * host-hue belly. Placed after `.host-tab-idle:hover` so a hovered unread tab
+ * keeps reading as unread. */
+.host-tab[data-unseen] {
+  color: var(--color-fg);
+  background: color-mix(in oklch, var(--color-attention) 18%, transparent);
+  border-color: color-mix(in oklch, var(--color-attention) 45%, transparent);
+}
+.host-tab[data-unseen]:hover {
+  background: color-mix(in oklch, var(--color-attention) 26%, transparent);
+  border-color: color-mix(in oklch, var(--color-attention) 60%, transparent);
+}
+/* Dark mode: same reason the active tab needs 32% instead of 13% — a low mix
+ * over near-black collapses to muddy grey and the tab stops reading as amber. */
+:root.dark .host-tab[data-unseen] {
+  background: color-mix(in oklch, var(--color-attention) 26%, transparent);
+  border-color: color-mix(in oklch, var(--color-attention) 55%, transparent);
+}
+:root.dark .host-tab[data-unseen]:hover {
+  background: color-mix(in oklch, var(--color-attention) 34%, transparent);
+}
 /* Unreachable host — desaturate the tab; struck label is classed in JSX.
  * Active+down keeps the host-hue belly so the selected failed host is still
  * the one that owns the canvas. */
@@ -612,6 +644,63 @@ body {
 .dock-cards-section > [data-testid="dock-row"]:last-child,
 .dock-cards-section > [data-testid="mobile-dock-row"]:last-child {
   border-bottom: 0;
+}
+
+/* ── Unread row wash ───────────────────────────────────────────
+ * The row is the biggest surface the dock has, so it carries the unread
+ * signal — a tint across the whole row plus the leading amber stripe. The
+ * StatePip corner badge (7 px, pulsing) stays as the precise mark, but it was
+ * never the thing that catches your eye from across the room: it ALREADY
+ * pulsed and unread threads still went unnoticed for hours (#1990). Motion on
+ * a 7 px object doesn't buy attention; area does.
+ *
+ * The stripe costs no new geometry — the row already reserves
+ * `border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent` for the
+ * active-row accent, so unread just fills the same 3 px channel. No reflow
+ * between read and unread, same as active.
+ *
+ * `:not([data-active])` is belt-and-braces: activating a tile clears unread
+ * (`createViewState`), so the two can't co-occur — but if they ever did, the
+ * row you're LOOKING at should win over an obligation you're already
+ * discharging.
+ *
+ * Read rows are deliberately NOT dimmed to push the contrast further: the dock
+ * already spends opacity on sleeping (`SLEEPING_RECEDE_CLASS`, 55%), and a
+ * second opacity channel at a neighbouring value would make "read" and
+ * "asleep" the same mark. */
+.dock-cards-section > [data-testid="dock-row"][data-unread]:not([data-active]),
+.dock-cards-section
+  > [data-testid="mobile-dock-row"][data-unread]:not([data-active]) {
+  background: color-mix(in oklab, var(--color-attention) 13%, transparent);
+  border-left-color: var(--color-attention);
+}
+/* Hover still has to answer — the wash out-specifies Tailwind's
+ * `hover:bg-surface-2/40`, so an unread row would otherwise go dead under the
+ * pointer. Deepen the amber instead of replacing it with the neutral hover. */
+.dock-cards-section
+> [data-testid="dock-row"][data-unread]:not([data-active]):hover {
+  background: color-mix(in oklab, var(--color-attention) 20%, transparent);
+}
+/* Dark mode: the same mix over near-black reads as brown sludge rather than
+ * amber — lift it, exactly as the host tab does. */
+:root.dark
+  .dock-cards-section
+  > [data-testid="dock-row"][data-unread]:not([data-active]),
+:root.dark
+  .dock-cards-section
+  > [data-testid="mobile-dock-row"][data-unread]:not([data-active]) {
+  background: color-mix(in oklab, var(--color-attention) 20%, transparent);
+}
+:root.dark
+  .dock-cards-section
+  > [data-testid="dock-row"][data-unread]:not([data-active]):hover {
+  background: color-mix(in oklab, var(--color-attention) 27%, transparent);
+}
+/* The label leans in with the row — weight is the one contrast channel that
+ * survives both the squint test and a greyscale display. */
+[data-testid="dock-row"][data-unread] .dock-cards-row-label,
+[data-testid="mobile-dock-row"][data-unread] .dock-cards-row-label {
+  font-weight: 700;
 }
 
 /* ── Rail-mode chip ────────────────────────────────────────────

@@ -66,6 +66,9 @@ let
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
     inherit version src;
+    # Pin the package-manager major: nixpkgs' unversioned pnpm alias advances
+    # independently, while this workspace and lockfile use pnpm 10 semantics.
+    pnpm = pkgs.pnpm_10;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
     hash = "sha256-e0bxLIKWHjsQovUtK6ROA89MZgttm6xrWjnkuTAOaFw=";

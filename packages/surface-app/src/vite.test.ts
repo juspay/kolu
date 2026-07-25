@@ -2,7 +2,7 @@
  * The Vite plugin must put the commit on the SHELL, never into the bundle.
  *
  * A bundler `define` bakes the commit into a content-hashed `/assets/*` file —
- * then a post-build stamp (kolu's `koluStamped`) rewrites the bytes of a file
+ * then a post-build stamp (kolu's `koluClientDist`) rewrites the bytes of a file
  * whose NAME doesn't change, and every returning browser is pinned on the old
  * stamp by the year-long `immutable` cache (kolu#1319). `vite.ts` is
  * deliberately self-contained (Node's ESM loader can't resolve extensionless

@@ -17,7 +17,7 @@ pkgs.stdenv.mkDerivation {
   pname = "kolu-workspace-tree";
   version = "0.1.0";
   inherit src;
-  nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm pkgs.pnpmConfigHook ];
+  nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm_10 pkgs.pnpmConfigHook ];
   inherit pnpmDeps;
   dontBuild = true;
   dontFixup = true;

@@ -271,7 +271,6 @@ describe("stdio link over loopback", () => {
     // nothing. With an isolated write stream, removing the guard makes
     // `destroy(err)` an uncaught 'error' that crashes this test — so the
     // green run is genuine evidence the guard is load-bearing.
-    // biome-ignore lint/correctness/noUnusedVariables: read only as a type via `typeof contract` below — this test drives the link itself, not the contract value, so the runtime binding is intentionally unused.
     const contract = {
       ping: oc.input(z.object({})).output(z.string()),
     };
@@ -298,7 +297,6 @@ describe("stdio link over loopback", () => {
     // never learned the transport died, so the call hung forever. The
     // framedSend onPeerGone hook routes the callback-only death into
     // handleTransportClosed: the in-flight call rejects instead of hanging.
-    // biome-ignore lint/correctness/noUnusedVariables: read only as a type via `typeof contract` below.
     const contract = {
       ping: oc.input(z.object({})).output(z.string()),
     };
@@ -379,7 +377,6 @@ describe("stdio link over loopback", () => {
     // uncaught error during a test fails the run, so the green run IS the
     // evidence nothing escaped — strip the `.catch` in `framedSend` and this
     // test errors with the exact teardown-time `write EPIPE`.
-    // biome-ignore lint/correctness/noUnusedVariables: read only as a type via `typeof contract` below — this test drives the link itself, not the contract value, so the runtime binding is intentionally unused.
     const contract = { ping: oc.input(z.object({})).output(z.string()) };
 
     const read = new PassThrough(); // never fed — the request stays in flight

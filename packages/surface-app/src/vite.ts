@@ -6,7 +6,7 @@
  * `index.html` — read it with `shellCommit()` from
  * `@kolu/surface-app/lifecycle`. The commit rides the `no-store` shell, NEVER
  * a bundler `define`: a define bakes it into a content-hashed `/assets/*`
- * file, and a post-build stamp (kolu's Nix `koluStamped`) then rewrites the
+ * file, and a post-build stamp (kolu's Nix `koluClientDist`) then rewrites the
  * bytes of a file whose name — and so whose year-long `immutable` cache
  * entry — doesn't change, pinning every returning browser on the old stamp
  * and looping the update prompt forever (kolu#1319).

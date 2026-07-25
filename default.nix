@@ -3,7 +3,7 @@
 # nix/packages/* are pure callPackage-style leaf packages, auto-injected via
 # the overlay in nix/overlay.nix. The kolu build derivation and its runtime
 # wrapper live here in default.nix because they need per-invocation args
-# (commitHash, koluEnv, koluStamped) that aren't on pkgs.
+# (commitHash, koluEnv, koluClientDist) that aren't on pkgs.
 #
 # Used by flake.nix (thin wrapper), shell.nix, and nix-build directly.
 { pkgs ? import ./nix/nixpkgs.nix { }
@@ -42,6 +42,16 @@ let
   workspace = import ./nix/workspace.nix { inherit pkgs; };
   inherit (workspace) version src pnpmDeps;
 
+  # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
+  # hosted terminals, where node, npm, npx, and corepack are part of the existing
+  # environment.
+  runtimeNode = pkgs.nodejs;
+  # This nixpkgs revision builds tsx against Node 22. Point only tsx at the
+  # stock, cache.nixos.org-substitutable Node 24 runtime so the shipped closure
+  # carries one Node core.
+  runtimeTsx = pkgs.tsx.override { nodejs_22 = runtimeNode; };
+  runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
+
   # Exact source flake with a minimal remote-agent output surface.
   #
   # Baking root `self` would keep the whole repository (website, Atlas, evidence)
@@ -67,7 +77,7 @@ let
     ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
 
   # Build uses a placeholder so docs-only commits don't bust the derivation
-  # cache; koluStamped sed-replaces it with the real hash afterwards.
+  # cache; koluClientDist sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
   # The ONE recipe for a daemon's baked build identity (hashString over a behavioral
@@ -278,7 +288,7 @@ let
 
     nativeBuildInputs = [
       pkgs.nodejs
-      pkgs.pnpm
+      pkgs.pnpm_10
       pkgs.pnpmConfigHook
       pkgs.python3
       pkgs.node-gyp
@@ -329,25 +339,33 @@ let
       runHook preInstall
 
       # Strip build-only packages and artifacts BEFORE copying to $out.
-      # Removing ~187MB of dev deps here means cp -r copies 208MB instead
-      # of 395MB, halving the I/O and Nix NAR hashing time.
-      rm -rf packages/client/src packages/client/node_modules
+      rm -rf packages/client/src packages/client/node_modules packages/vazhi
       pushd node_modules/.pnpm
-      # NOTE: esbuild is kept (NOT pruned) because @kolu/artifact-sdk's server
-      # module bundles the in-iframe SDK script at runtime via esbuild. The
-      # cost is ~15MB in the production NAR for one platform-specific binary;
-      # the simplicity win is no separate build-step coordination with Nix.
+      # NOTE: esbuild is kept because @kolu/artifact-sdk bundles the in-iframe
+      # SDK script at runtime.
       rm -rf typescript@* \
-             lightningcss* rollup@* @rollup* \
+             @typescript+typescript-* \
+             lightningcss* rollup@* @rollup* rolldown@* @rolldown* \
              vitest@* @vitest* \
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
              @babel* babel-plugin-* \
+             concurrently@* rxjs@* happy-dom@* \
+             es-toolkit@* ink@* ink-text-input@* react-reconciler@* yoga-layout@* \
              es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
-             @types+node@* @types+ws@* \
+             @types+* type-fest@* csstype@* \
              core-js-compat@* regexpu-core@* regjsparser@* terser@*
-      local pty=node-pty@*/node_modules/node-pty
+      local pty
+      pty=$(echo node-pty@*/node_modules/node-pty)
+      local ptyInstance="''${pty%/node_modules/node-pty}"
+      # node-pty only needs its compiled addon at runtime. Preserve that file
+      # while removing node-gyp inputs, including node-addon-api at both places
+      # where pnpm's package-instance layout links it.
+      cp --preserve=mode "$pty/build/Release/pty.node" "$NIX_BUILD_TOP/pty.node"
+      rm -rf "$pty/build"
+      mkdir -p "$pty/build/Release"
+      cp --preserve=mode "$NIX_BUILD_TOP/pty.node" "$pty/build/Release/pty.node"
       rm -rf $pty/prebuilds $pty/third_party $pty/deps $pty/src $pty/scripts \
-             $pty/build/Release/obj.target $pty/node-addon-api@*
+             "$ptyInstance"/node-addon-api@* "$ptyInstance/node_modules/node-addon-api"
       popd
 
       cp -r . $out
@@ -370,17 +388,30 @@ let
   # index.html — assert that so a future build-graph change that moves it (back
   # into the bundle, or drops it) fails LOUD here instead of silently shipping an
   # unstamped or mis-stamped shell.
-  koluStamped = pkgs.runCommand "kolu-stamped" { } ''
-    cp -r ${kolu} $out
-    chmod -R u+w $out/packages/client/dist
-    shell="$out/packages/client/dist/index.html"
+  koluClientDist = pkgs.runCommand "kolu-client-dist" { } ''
+    # Only index.html changes with the commit. Link the content-hashed assets
+    # and other static files back to the cache-stable build instead of copying
+    # the entire runtime workspace into a second store path.
+    cp -rs ${kolu}/packages/client/dist/. "$out"
+    chmod u+w "$out"
+    rm "$out/index.html"
+    cp ${kolu}/packages/client/dist/index.html "$out/index.html"
+    chmod u+w "$out/index.html"
+    shell="$out/index.html"
     if ! grep -q '${koluCommitPlaceholder}' "$shell"; then
-      echo "koluStamped: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
+      echo "koluClientDist: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
       exit 1
     fi
-    if grep -rl '${koluCommitPlaceholder}' "$out/packages/client/dist/assets" 2>/dev/null; then
-      echo "koluStamped: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
+    if assetMatches=$(grep -rl '${koluCommitPlaceholder}' "$out/assets"); then
+      echo "koluClientDist: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
+      echo "$assetMatches" >&2
       exit 1
+    else
+      grepStatus=$?
+      if [ "$grepStatus" -ne 1 ]; then
+        echo "koluClientDist: failed to inspect hashed assets for '${koluCommitPlaceholder}'." >&2
+        exit "$grepStatus"
+      fi
     fi
     sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' "$shell"
   '';
@@ -416,7 +447,10 @@ let
       export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
     fi'';
 
-  # Base wrapper: tsx + env vars + PATH. Does NOT set KOLU_STATE_DIR —
+  # Base wrapper: single-process Node + tsx loader, env vars, and PATH. The
+  # loader form lets SIGTERM reach the server directly so its graceful shutdown
+  # exits zero; tsx's CLI parent otherwise exits 143 before the child completes.
+  # Does NOT set KOLU_STATE_DIR —
   # callers must provide it (state.ts crashes with a clear error if missing).
   # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
   # instead of silently falling back to the production ~/.config/kolu path.
@@ -432,9 +466,10 @@ let
       meta.mainProgram = "kolu";
     } ''
     mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
-      --add-flags "${koluStamped}/packages/kolu-cli/src/main.ts" \
-      --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
+    makeWrapper ${runtimeNode}/bin/node $out/bin/kolu \
+      --add-flags "--import ${runtimeTsxLoader}" \
+      --add-flags "${kolu}/packages/kolu-cli/src/main.ts" \
+      --set KOLU_CLIENT_DIST "${koluClientDist}" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${portScanHelperBakeArg} \
       --set KOLU_COMMIT_HASH "${commitHash}" \
@@ -443,7 +478,7 @@ let
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
       --set PADI_BUILD_ID "${padiIdentity.buildId}" \
       ${agentFlakeRefBakeArg} \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh pkgs.openssh pkgs.nix ]} \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
 
@@ -511,11 +546,11 @@ let
     # `kaval-…` subdir and arms the V8 heap-snapshot flags (incl.
     # --heapsnapshot-near-heap-limit), so the next near-OOM dumps a snapshot that
     # names the leak in the real workload. Unset = passthrough, zero overhead.
-    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/kaval \
-      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+    makeWrapper ${runtimeNode}/bin/node $out/bin/kaval \
+      --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
       ${kavalIdentity.bakeArgs} \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]} \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
 
@@ -551,15 +586,15 @@ let
       meta.mainProgram = "padi";
     } ''
     mkdir -p $out/bin
-    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/padi \
-      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+    makeWrapper ${runtimeNode}/bin/node $out/bin/padi \
+      --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/padi/src/bin.ts" \
       ${padiIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${portScanHelperBakeArg} \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
   '';
@@ -582,10 +617,10 @@ let
         meta.mainProgram = name;
       } ''
       mkdir -p $out/bin
-      makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/${name} \
+      makeWrapper ${runtimeTsx}/bin/tsx $out/bin/${name} \
         --add-flags "${kolu}/${entry}" \
         ${agentFlakeRefBakeArg} \
-        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
+        --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.openssh pkgs.nix ]}
     '';
 
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's

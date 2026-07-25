@@ -11,7 +11,7 @@
  *  the EXACT desktop vocabulary — always-on connection status pip (green /
  *  amber pulse / red), Home glyph for local or hostname for remote, `hostHue`
  *  for the per-host identity accent, `HostAwaitingPill` (violet needs-you
- *  count) and `HostFinishedDot` (amber unseen-finished) — so a signal means
+ *  count) and `HostUnseenPill` (amber unseen-finished) — so a signal means
  *  the same thing on a phone as on a laptop. A tap calls `setActiveHost` (the
  *  identical write the desktop strip makes; W9 makes the switch instant).
  *  Adding a host reuses the shared `addHost` mechanism; only the CONTAINER
@@ -36,7 +36,7 @@ import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
-import { HostFinishedDot } from "./HostFinishedDot";
+import { HostUnseenPill } from "./HostUnseenPill";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import {
   chipStatusDot,
@@ -128,15 +128,15 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
         labelClass={`max-w-[10rem] truncate font-medium${glance().labelDecoration}`}
       />
       {/* Needs-you pill — shared violet `HostAwaitingPill` (roomier mobile).
-       *  Unseen-finished is the amber `HostFinishedDot` beside it. */}
+       *  Unseen-finished is the amber `HostUnseenPill` beside it. */}
       <HostAwaitingPill count={marks.asking()} sizeClass="h-5 min-w-5 px-1.5" />
-      {/* Quiet finished-work dot — amber unseen-finished (suppressed on the
+      {/* Finished-work count — amber unseen-finished (suppressed on the
        *  active host). */}
-      <HostFinishedDot
+      <HostUnseenPill
         count={marks.unseenFinished()}
         active={isActive()}
         hostLabel={hostLabel(props.host)}
-        sizeClass="h-2 w-2"
+        sizeClass="h-5 min-w-5 px-1.5"
       />
     </button>
   );
