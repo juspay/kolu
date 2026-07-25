@@ -20,6 +20,9 @@ export type ProxyEvent =
   | { kind: "adapterReady"; agentName: string; protocolVersion: number }
   | { kind: "adapterExited"; code: number | null; signal: string | null }
   | { kind: "adapterFailedToStart"; message: string }
+  /** A generation that HAD become ready and then failed at runtime — distinct
+   *  from one that never started, which is a different thing to go look at. */
+  | { kind: "adapterLost"; message: string }
   | { kind: "adapterRespawning"; attempt: number; delayMs: number }
   | { kind: "sessionReady"; sessionId: string }
   | { kind: "clientConnected"; clients: number }

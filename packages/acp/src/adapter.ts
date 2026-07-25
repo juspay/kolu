@@ -471,10 +471,20 @@ export class AdapterSession {
     // its exit must not disturb the session that replaced it.
     if (this.#stopped || this.#current?.id !== generation.id) return;
 
+    // Name the cause the way an operator would have to reason about it. A
+    // generation that never became ready failed to START; one that served for
+    // an hour and then lost its stream failed at RUNTIME, and calling that
+    // "failed to start" contradicts the ready line above it in the same
+    // transcript.
     this.#emit(
       spawnError === undefined
         ? { kind: "adapterExited", code, signal }
-        : { kind: "adapterFailedToStart", message: describeError(spawnError) },
+        : generation.readyAt !== null
+          ? { kind: "adapterLost", message: describeError(spawnError) }
+          : {
+              kind: "adapterFailedToStart",
+              message: describeError(spawnError),
+            },
     );
     const killedForCancel = this.#cancelState === "killing";
     this.#clearGrace();

@@ -85,6 +85,8 @@ export function formatEvent(event: ProxyEvent): string | null {
       return `${HARNESS} adapter exited · ${event.signal ? `signal ${event.signal}` : `code ${event.code}`}`;
     case "adapterFailedToStart":
       return `${HARNESS} adapter failed to start · ${oneLine(event.message)}`;
+    case "adapterLost":
+      return `${HARNESS} adapter lost · ${oneLine(event.message)}`;
     case "adapterRespawning":
       return `${HARNESS} respawning adapter · attempt ${event.attempt} in ${event.delayMs}ms`;
     case "sessionReady":

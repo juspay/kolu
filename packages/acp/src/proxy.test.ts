@@ -517,10 +517,17 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
     // that can never settle.
     const proxy = await startProxy(["--drop-stream"]);
 
+    // Named as the runtime failure it is. This adapter HAD become ready, so
+    // reporting it as "failed to start" would contradict the ready line sitting
+    // directly above it in the same transcript.
     await proxy.waitFor(
-      (out) => out.includes("closed its ACP stream"),
-      "the transport loss to be noticed",
+      (out) =>
+        out.includes(
+          "⎯ adapter lost · the adapter closed its ACP stream while still running",
+        ),
+      "the transport loss to be reported as a runtime loss",
     );
+    expect(proxy.stdout()).not.toContain("adapter failed to start");
     await proxy.waitFor(
       () => proxy.readyCount() >= 2,
       "the adapter to be replaced",
