@@ -1,0 +1,403 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Agent Client Protocol · the kolu Atlas</title><meta name="description" content="Field brief — what ACP is, how Buzz uses it in production (Nostr spine and all), and what adopting it could look like in Xyne Spaces."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/agent-client-protocol.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="The Agent Client Protocol · the kolu Atlas"><meta property="og:description" content="Field brief — what ACP is, how Buzz uses it in production (Nostr spine and all), and what adopting it could look like in Xyne Spaces."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/agent-client-protocol.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-24T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="The Agent Client Protocol · the kolu Atlas"><meta name="twitter:description" content="Field brief — what ACP is, how Buzz uses it in production (Nostr spine and all), and what adopting it could look like in Xyne Spaces."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.d2[data-astro-cid-cfiuptvn]{text-align:center;margin:1.75rem 0}.d2[data-astro-cid-cfiuptvn] svg{max-width:100%;height:auto}.d2[data-astro-cid-cfiuptvn] figcaption[data-astro-cid-cfiuptvn]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-body[data-astro-cid-q2ml7llr]>:first-child{margin-top:0}.callout-body[data-astro-cid-q2ml7llr]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">The Agent Client Protocol</h1><div class="meta-row"><span>Analysis</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><time datetime="2026-07-24T00:00:00.000Z">JUL 24, 2026</time></div><p class="note-sub">Field brief — what ACP is, how Buzz uses it in production (Nostr spine and all), and what adopting it could look like in Xyne Spaces.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#one-wire-for-driving-coding-agents" data-astro-cid-rda6bqd5>One wire for driving coding agents</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#buzz-acp-in-production-on-a-nostr-spine" data-astro-cid-rda6bqd5>Buzz: ACP in production, on a Nostr spine</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#xyne-spaces-it-already-built-the-machinery--privately" data-astro-cid-rda6bqd5>Xyne Spaces: it already built the machinery — privately</a></li></ul></nav></header><div class="prose"><p>What the Agent Client Protocol is, how Block’s Buzz actually uses it in
+production, and what adopting it could look like inside Xyne Spaces. Written as
+groundwork for the pesu chat-bridge design — see
+<a href="chat-native-agents-and-kolu.html">chat threads as terminals</a> for where it
+lands in kolu.</p>
+<h2 id="one-wire-for-driving-coding-agents">One wire for driving coding agents</h2>
+<p>Every product that embeds a coding agent — an editor, a chat app, a bot — faces
+the same problem: the good agents ship as CLIs with interactive UIs, and there
+is no standard way for a <em>program</em> to drive one. So each product invents a
+harness: spawn the process, feed it input, scrape or tail whatever it emits,
+guess when the turn ended.</p>
+<p>The <strong>Agent Client Protocol</strong> (<a href="https://agentclientprotocol.com">ACP</a>, created
+by Zed) standardizes that harness boundary. The model is deliberately simple:</p>
+<ul>
+<li>The <strong>client</strong> (editor, chat bridge, workspace app) spawns the <strong>agent</strong> as a
+subprocess and owns its stdin/stdout.</li>
+<li>The two speak <strong>JSON-RPC 2.0, newline-delimited, over stdio</strong>. No server, no
+port, no auth handshake — process ownership <em>is</em> the trust boundary.</li>
+<li>The protocol is <strong>bidirectional</strong>: the client calls methods on the agent
+(<code>session/new</code>, <code>session/prompt</code>, <code>session/cancel</code>), and the agent calls
+methods back on the client (permission requests, optional file-system and
+terminal services).</li>
+</ul>
+<p>A turn looks like this on the wire — client→agent frames marked <code>→</code>,
+agent→client <code>←</code>:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>// handshake, then a session</span></span>
+<span class="line"><span>→ {&quot;id&quot;:0,&quot;method&quot;:&quot;initialize&quot;,&quot;params&quot;:{&quot;protocolVersion&quot;:1,&quot;clientCapabilities&quot;:{…}}}</span></span>
+<span class="line"><span>← {&quot;id&quot;:0,&quot;result&quot;:{&quot;agentCapabilities&quot;:{&quot;loadSession&quot;:true,…}}}</span></span>
+<span class="line"><span>→ {&quot;id&quot;:1,&quot;method&quot;:&quot;session/new&quot;,&quot;params&quot;:{&quot;cwd&quot;:&quot;/work/repo&quot;,&quot;mcpServers&quot;:[…]}}</span></span>
+<span class="line"><span>← {&quot;id&quot;:1,&quot;result&quot;:{&quot;sessionId&quot;:&quot;sess_abc&quot;}}</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>// one turn: a prompt, a stream of updates, a stop reason</span></span>
+<span class="line"><span>→ {&quot;id&quot;:2,&quot;method&quot;:&quot;session/prompt&quot;,&quot;params&quot;:{&quot;sessionId&quot;:&quot;sess_abc&quot;,&quot;prompt&quot;:[{&quot;type&quot;:&quot;text&quot;,&quot;text&quot;:&quot;Fix the failing test&quot;}]}}</span></span>
+<span class="line"><span>← {&quot;method&quot;:&quot;session/update&quot;,&quot;params&quot;:{&quot;update&quot;:{&quot;sessionUpdate&quot;:&quot;agent_message_chunk&quot;,&quot;content&quot;:{&quot;type&quot;:&quot;text&quot;,&quot;text&quot;:&quot;Looking at the test…&quot;}}}}</span></span>
+<span class="line"><span>← {&quot;method&quot;:&quot;session/update&quot;,&quot;params&quot;:{&quot;update&quot;:{&quot;sessionUpdate&quot;:&quot;tool_call&quot;,&quot;toolCallId&quot;:&quot;call_1&quot;,&quot;title&quot;:&quot;Read tests/auth.test.ts&quot;,&quot;status&quot;:&quot;pending&quot;}}}</span></span>
+<span class="line"><span>← {&quot;method&quot;:&quot;session/update&quot;,&quot;params&quot;:{&quot;update&quot;:{&quot;sessionUpdate&quot;:&quot;tool_call_update&quot;,&quot;toolCallId&quot;:&quot;call_1&quot;,&quot;status&quot;:&quot;completed&quot;}}}</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>// the agent asks *the client* for permission — a structured question, not a TUI dialog</span></span>
+<span class="line"><span>← {&quot;id&quot;:9,&quot;method&quot;:&quot;session/request_permission&quot;,&quot;params&quot;:{&quot;toolCall&quot;:{…},&quot;options&quot;:[{&quot;optionId&quot;:&quot;o1&quot;,&quot;name&quot;:&quot;Allow once&quot;,&quot;kind&quot;:&quot;allow_once&quot;},{&quot;optionId&quot;:&quot;o2&quot;,&quot;name&quot;:&quot;Reject&quot;,&quot;kind&quot;:&quot;reject_once&quot;}]}}</span></span>
+<span class="line"><span>→ {&quot;id&quot;:9,&quot;result&quot;:{&quot;outcome&quot;:{&quot;outcome&quot;:&quot;selected&quot;,&quot;optionId&quot;:&quot;o1&quot;}}}</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>// the prompt call itself returns when the turn is over</span></span>
+<span class="line"><span>← {&quot;id&quot;:2,&quot;result&quot;:{&quot;stopReason&quot;:&quot;end_turn&quot;}}</span></span></code></pre>
+<p>Three properties matter more than the frame details:</p>
+<ol>
+<li><strong>Turn boundaries are explicit.</strong> <code>session/prompt</code> is a call that returns
+when the turn ends. No screen-settling heuristics, no state derivation.</li>
+<li><strong>Everything in between is structured.</strong> Message chunks, thought chunks,
+tool calls with a status lifecycle (<code>pending → in_progress → completed/failed</code>), plan updates. A client renders a live activity feed
+without parsing anything.</li>
+<li><strong>Permission requests flow to the client as data.</strong> The agent’s “may I run
+this?” arrives as a request with typed options, and the client answers
+programmatically — which means the answer can come from a UI, a policy, or
+a phone tap in a chat thread.</li>
+</ol>
+<p>Agents that advertise <code>loadSession</code> can also resume a previous session:
+<code>session/load</code> <strong>replays the full conversation history</strong> as the same
+<code>session/update</code> notifications before accepting new prompts — the protocol’s
+answer to “where did my conversation go when my process died.”<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Real
+deployments don’t always lean on it: Buzz, below, never calls it.</span></span></span></p>
+<p>The ecosystem, as of mid-2026:</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>ACP support</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claude Code</td>
+<td><code>claude-agent-acp</code> adapter</td>
+<td>npm <code>@agentclientprotocol/claude-agent-acp</code>; wraps the Claude Agent SDK (headless — no TUI involved); supports <code>session/load</code></td>
+</tr>
+<tr>
+<td>Codex</td>
+<td><code>codex-acp</code> adapter</td>
+<td>npm <code>@agentclientprotocol/codex-acp</code></td>
+</tr>
+<tr>
+<td>Goose</td>
+<td>native (<code>goose acp</code>)</td>
+<td>Block’s agent; ships vendor extensions under <code>_goose/unstable/*</code></td>
+</tr>
+<tr>
+<td>Gemini CLI</td>
+<td>native</td>
+<td>ACP’s original second implementation alongside Zed</td>
+</tr>
+</tbody>
+</table>
+<p>Client libraries are official and maintained in both directions: the
+<code>agent-client-protocol</code> Rust crate and the
+<code>@zed-industries/agent-client-protocol</code> npm package. Zed, Neovim, Emacs, and a
+growing set of non-editor clients (Buzz among them) consume the same adapters.</p>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>What ACP is not</p><div class="callout-body" data-astro-cid-q2ml7llr><p>It is a <em>drive-the-agent</em> protocol, not a <em>watch-the-agent</em> protocol. The
+client owns the process; there is no way to attach to an interactive CLI
+session someone else is running in a terminal. And it is a live stream, not a
+store — persistence beyond <code>session/load</code> is the client’s job.</p></div></aside>
+<h2 id="buzz-acp-in-production-on-a-nostr-spine">Buzz: ACP in production, on a Nostr spine</h2>
+<p><a href="https://github.com/block/buzz">Buzz</a> (Block, Apache-2.0) is a self-hostable
+team workspace where humans and AI agents are co-equal members. Its substrate
+is unusual: everything — messages, reactions, patches, reviews — is a signed
+<strong>Nostr event</strong> in one append-only log served by a relay. Agents participate as
+first-class members, and the way an agent runs is ACP end to end.</p>
+<figure class="d2" data-astro-cid-cfiuptvn><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" data-d2-version="v0.7.1" preserveAspectRatio="xMinYMin meet" viewBox="0 0 661 661"><svg class="d2-361733141 d2-svg" width="661" height="661" viewBox="24 -17 661 661"><rect x="24.000000" y="-17.000000" width="661.000000" height="661.000000" rx="0.000000" fill="#FFFFFF" class=" fill-N7" stroke-width="0" /><style type="text/css"><![CDATA[
+.d2-361733141 .text-bold {
+	font-family: "d2-361733141-font-bold";
+}
+@font-face {
+	font-family: d2-361733141-font-bold;
+	src: url("data:application/font-woff;base64,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");
+}
+.d2-361733141 .text-italic {
+	font-family: "d2-361733141-font-italic";
+}
+@font-face {
+	font-family: d2-361733141-font-italic;
+	src: url("data:application/font-woff;base64,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");
+}]]></style><style type="text/css"><![CDATA[.shape {
+  shape-rendering: geometricPrecision;
+  stroke-linejoin: round;
+}
+.connection {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.blend {
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+		.d2-361733141 .fill-N1{fill:#0A0F25;}
+		.d2-361733141 .fill-N2{fill:#676C7E;}
+		.d2-361733141 .fill-N3{fill:#9499AB;}
+		.d2-361733141 .fill-N4{fill:#CFD2DD;}
+		.d2-361733141 .fill-N5{fill:#DEE1EB;}
+		.d2-361733141 .fill-N6{fill:#EEF1F8;}
+		.d2-361733141 .fill-N7{fill:#FFFFFF;}
+		.d2-361733141 .fill-B1{fill:#0D32B2;}
+		.d2-361733141 .fill-B2{fill:#0D32B2;}
+		.d2-361733141 .fill-B3{fill:#E3E9FD;}
+		.d2-361733141 .fill-B4{fill:#E3E9FD;}
+		.d2-361733141 .fill-B5{fill:#EDF0FD;}
+		.d2-361733141 .fill-B6{fill:#F7F8FE;}
+		.d2-361733141 .fill-AA2{fill:#4A6FF3;}
+		.d2-361733141 .fill-AA4{fill:#EDF0FD;}
+		.d2-361733141 .fill-AA5{fill:#F7F8FE;}
+		.d2-361733141 .fill-AB4{fill:#EDF0FD;}
+		.d2-361733141 .fill-AB5{fill:#F7F8FE;}
+		.d2-361733141 .stroke-N1{stroke:#0A0F25;}
+		.d2-361733141 .stroke-N2{stroke:#676C7E;}
+		.d2-361733141 .stroke-N3{stroke:#9499AB;}
+		.d2-361733141 .stroke-N4{stroke:#CFD2DD;}
+		.d2-361733141 .stroke-N5{stroke:#DEE1EB;}
+		.d2-361733141 .stroke-N6{stroke:#EEF1F8;}
+		.d2-361733141 .stroke-N7{stroke:#FFFFFF;}
+		.d2-361733141 .stroke-B1{stroke:#0D32B2;}
+		.d2-361733141 .stroke-B2{stroke:#0D32B2;}
+		.d2-361733141 .stroke-B3{stroke:#E3E9FD;}
+		.d2-361733141 .stroke-B4{stroke:#E3E9FD;}
+		.d2-361733141 .stroke-B5{stroke:#EDF0FD;}
+		.d2-361733141 .stroke-B6{stroke:#F7F8FE;}
+		.d2-361733141 .stroke-AA2{stroke:#4A6FF3;}
+		.d2-361733141 .stroke-AA4{stroke:#EDF0FD;}
+		.d2-361733141 .stroke-AA5{stroke:#F7F8FE;}
+		.d2-361733141 .stroke-AB4{stroke:#EDF0FD;}
+		.d2-361733141 .stroke-AB5{stroke:#F7F8FE;}
+		.d2-361733141 .background-color-N1{background-color:#0A0F25;}
+		.d2-361733141 .background-color-N2{background-color:#676C7E;}
+		.d2-361733141 .background-color-N3{background-color:#9499AB;}
+		.d2-361733141 .background-color-N4{background-color:#CFD2DD;}
+		.d2-361733141 .background-color-N5{background-color:#DEE1EB;}
+		.d2-361733141 .background-color-N6{background-color:#EEF1F8;}
+		.d2-361733141 .background-color-N7{background-color:#FFFFFF;}
+		.d2-361733141 .background-color-B1{background-color:#0D32B2;}
+		.d2-361733141 .background-color-B2{background-color:#0D32B2;}
+		.d2-361733141 .background-color-B3{background-color:#E3E9FD;}
+		.d2-361733141 .background-color-B4{background-color:#E3E9FD;}
+		.d2-361733141 .background-color-B5{background-color:#EDF0FD;}
+		.d2-361733141 .background-color-B6{background-color:#F7F8FE;}
+		.d2-361733141 .background-color-AA2{background-color:#4A6FF3;}
+		.d2-361733141 .background-color-AA4{background-color:#EDF0FD;}
+		.d2-361733141 .background-color-AA5{background-color:#F7F8FE;}
+		.d2-361733141 .background-color-AB4{background-color:#EDF0FD;}
+		.d2-361733141 .background-color-AB5{background-color:#F7F8FE;}
+		.d2-361733141 .color-N1{color:#0A0F25;}
+		.d2-361733141 .color-N2{color:#676C7E;}
+		.d2-361733141 .color-N3{color:#9499AB;}
+		.d2-361733141 .color-N4{color:#CFD2DD;}
+		.d2-361733141 .color-N5{color:#DEE1EB;}
+		.d2-361733141 .color-N6{color:#EEF1F8;}
+		.d2-361733141 .color-N7{color:#FFFFFF;}
+		.d2-361733141 .color-B1{color:#0D32B2;}
+		.d2-361733141 .color-B2{color:#0D32B2;}
+		.d2-361733141 .color-B3{color:#E3E9FD;}
+		.d2-361733141 .color-B4{color:#E3E9FD;}
+		.d2-361733141 .color-B5{color:#EDF0FD;}
+		.d2-361733141 .color-B6{color:#F7F8FE;}
+		.d2-361733141 .color-AA2{color:#4A6FF3;}
+		.d2-361733141 .color-AA4{color:#EDF0FD;}
+		.d2-361733141 .color-AA5{color:#F7F8FE;}
+		.d2-361733141 .color-AB4{color:#EDF0FD;}
+		.d2-361733141 .color-AB5{color:#F7F8FE;}.appendix text.text{fill:#0A0F25}.md{--color-fg-default:#0A0F25;--color-fg-muted:#676C7E;--color-fg-subtle:#9499AB;--color-canvas-default:#FFFFFF;--color-canvas-subtle:#EEF1F8;--color-border-default:#0D32B2;--color-border-muted:#0D32B2;--color-neutral-muted:#EEF1F8;--color-accent-fg:#0D32B2;--color-accent-emphasis:#0D32B2;--color-attention-subtle:#676C7E;--color-danger-fg:red;}.sketch-overlay-B1{fill:url(#streaks-darker-d2-361733141);mix-blend-mode:lighten}.sketch-overlay-B2{fill:url(#streaks-darker-d2-361733141);mix-blend-mode:lighten}.sketch-overlay-B3{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-B4{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-B5{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-B6{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-AA2{fill:url(#streaks-dark-d2-361733141);mix-blend-mode:overlay}.sketch-overlay-AA4{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-AA5{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-AB4{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-AB5{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-N1{fill:url(#streaks-darker-d2-361733141);mix-blend-mode:lighten}.sketch-overlay-N2{fill:url(#streaks-dark-d2-361733141);mix-blend-mode:overlay}.sketch-overlay-N3{fill:url(#streaks-normal-d2-361733141);mix-blend-mode:color-burn}.sketch-overlay-N4{fill:url(#streaks-normal-d2-361733141);mix-blend-mode:color-burn}.sketch-overlay-N5{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-N6{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.sketch-overlay-N7{fill:url(#streaks-bright-d2-361733141);mix-blend-mode:darken}.light-code{display: block}.dark-code{display: none}]]></style><g class="YWdlbnQ="><g class="shape" ><rect x="255.000000" y="0.000000" width="338.000000" height="66.000000" stroke="#0D32B2" fill="#e6f4ea" class=" stroke-B1" style="stroke-width:2;" /></g><text x="424.000000" y="38.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">agent process — claude-agent-acp / goose</text></g><g class="aGFybmVzcw=="><g class="shape" ><rect x="75.000000" y="187.000000" width="378.000000" height="66.000000" stroke="#0D32B2" fill="#dbeafe" class=" stroke-B1" style="stroke-width:2;" /></g><text x="264.000000" y="225.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">buzz-acp harness (Rust, hand-rolled ACP client)</text></g><g class="cmVsYXk="><g class="shape" ><rect x="230.000000" y="374.000000" width="256.000000" height="66.000000" stroke="#0D32B2" fill="#efe3fa" class=" stroke-B1" style="stroke-width:2;" /></g><text x="358.000000" y="412.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">Nostr relay — signed event log</text></g><g class="ZGVza3RvcA=="><g class="shape" ><rect x="162.000000" y="561.000000" width="393.000000" height="66.000000" stroke="#0D32B2" fill="#fdf1db" class=" stroke-B1" style="stroke-width:2;" /></g><text x="358.500000" y="599.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">Buzz desktop — transcript UI + local sqlite archive</text></g><g class="KGFnZW50ICZsdDstJmd0OyBoYXJuZXNzKVswXQ=="><marker id="mk-d2-361733141-2451250203" markerWidth="10.000000" markerHeight="12.000000" refX="3.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="10.000000,0.000000 0.000000,6.000000 10.000000,12.000000" fill="#0D32B2" class="connection fill-B1" stroke-width="2" /> </marker><marker id="mk-d2-361733141-3488378134" markerWidth="10.000000" markerHeight="12.000000" refX="7.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="0.000000,0.000000 10.000000,6.000000 0.000000,12.000000" fill="#0D32B2" class="connection fill-B1" stroke-width="2" /> </marker><path d="M 364.049707 67.523729 C 284.299988 114.300003 263.500000 138.699997 263.500000 183.500000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-start="url(#mk-d2-361733141-2451250203)" marker-end="url(#mk-d2-361733141-3488378134)" mask="url(#d2-361733141)" /><text x="291.500000" y="116.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">ACP · NDJSON over stdio</text></g><g class="KGhhcm5lc3MgLSZndDsgcmVsYXkpWzBd"><path d="M 228.585786 253.914213 C 181.199997 301.299988 193.199997 325.700012 286.428214 372.699348" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-361733141-3488378134)" mask="url(#d2-361733141)" /><text x="199.000000" y="334.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">telemetry frames — kind 24200, NIP-44 encrypted</text></g><g class="KHJlbGF5IC0mZ3Q7IGRlc2t0b3ApWzBd"><path d="M 341.415665 441.317659 C 319.850006 488.299988 319.850006 512.700012 340.581329 557.864682" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-361733141-3488378134)" mask="url(#d2-361733141)" /><text x="319.500000" y="506.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">decrypt + replay</text></g><g class="KGRlc2t0b3AgLSZndDsgcmVsYXkpWzBd"><path d="M 421.513420 560.556416 C 510.950012 512.700012 511.149994 488.299988 424.269882 441.400113" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-361733141-3488378134)" mask="url(#d2-361733141)" /><text x="511.000000" y="506.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">control frames — cancel · switch model</text></g><g class="KHJlbGF5IC0mZ3Q7IGhhcm5lc3MpWzBd"><path d="M 358.000000 372.500000 C 358.000000 325.700012 345.799988 301.299988 299.828427 255.328427" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-361733141-3488378134)" mask="url(#d2-361733141)" /></g><g class="KGFnZW50IC0mZ3Q7IHJlbGF5KVswXQ=="><path d="M 482.225146 66.511865 C 563.700012 114.300003 584.500000 145.199997 584.500000 173.250000 C 584.500000 201.300003 555.299988 325.700012 442.190810 372.957949" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-361733141-3488378134)" mask="url(#d2-361733141)" /><text x="577.000000" y="238.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">acts via buzz CLI / MCP tools</text></g><mask id="d2-361733141" maskUnits="userSpaceOnUse" x="24" y="-17" width="661" height="661">
+<rect x="24" y="-17" width="661" height="661" fill="white"></rect>
+<rect x="210.000000" y="100.000000" width="163" height="21" fill="black"></rect>
+<rect x="38.000000" y="318.000000" width="322" height="21" fill="black"></rect>
+<rect x="264.000000" y="490.000000" width="111" height="21" fill="black"></rect>
+<rect x="383.000000" y="490.000000" width="256" height="21" fill="black"></rect>
+<rect x="483.000000" y="222.000000" width="188" height="21" fill="black"></rect>
+</mask></svg></svg>
+<figcaption data-astro-cid-cfiuptvn>One buzz-acp harness per agent. Every ACP frame is mirrored, encrypted, and republished onto the Nostr relay; the desktop decrypts and replays them to render the session. Control (cancel, model switch) flows back the same way.</figcaption></figure>
+<p>The <code>buzz-acp</code> crate spawns the agent (default <code>goose acp</code>; any stdio ACP agent
+works, Claude Code and Codex via their adapters) and speaks a <strong>hand-rolled</strong>
+ACP client — no upstream library, ~3,700 lines of Rust handling framing, the
+notification stream, permissions, and cancellation. One ACP session per Buzz
+channel, reused across turns.</p>
+<p>The Nostr trick is Buzz’s most distinctive move. The harness mirrors <em>every raw
+wire frame</em> — both directions — onto an internal observer bus, encrypts each
+frame to the agent owner’s public key (NIP-44), and publishes it to the relay
+as an <strong>ephemeral event</strong>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Kind 24200, in the 20000–29999 ephemeral
+range relays never store.</span></span></span> The desktop subscribes, decrypts, and
+replays the frames through a transcript state machine to render exactly what a
+native ACP client would show: streaming text, tool-call cards with status,
+permission request/response pairs, token usage. Control flows the same way in
+reverse — cancel and model-switch arrive as owner-signed events the harness
+verifies for freshness. The effect: the UI process and the agent process are
+fully decoupled — different machines, even — with the relay as the only
+rendezvous, and end-to-end encryption on the telemetry for free.</p>
+<p>What Buzz pointedly does <strong>not</strong> use ACP for:</p>
+<ul>
+<li><strong>Persistence.</strong> The harness stores nothing; a restart loses the ACP session
+outright. It never calls <code>session/load</code> — cross-restart “memory” comes from
+the agent re-reading channel history through Buzz’s own tools, and the
+desktop keeps an opt-in local SQLite archive of the ephemeral
+frames.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Validated fail-closed on ingest — signature, kind, owner
+tags — since the relay can’t re-verify events it never stored.</span></span></span></li>
+<li><strong>Human-in-the-loop permissions.</strong> Requests are auto-approved by picking the
+<code>allow_once</code> option; the desktop merely displays the exchange. Coarse policy
+is set per-session via a config option instead.</li>
+</ul>
+<p>Buzz’s code also documents where ACP’s edges are today — scar tissue the next
+implementer should steal as a checklist, not as code:</p>
+<ul>
+<li><code>session/cancel</code> is unreliable in some agents — Buzz gives a short
+acknowledgement grace, then kills and respawns the process group to actually
+stop work.</li>
+<li>Before cancelling, any in-flight permission request must be answered with a
+<code>cancelled</code> outcome, or the agent deadlocks.</li>
+<li>Timeouts can’t be wall-clock: agents go silent for minutes during tool
+execution, so the idle timer resets on any stdout byte and is explicitly
+kicked on <code>tool_call</code>.</li>
+<li>Vendor escape hatches are a fact of life: <code>_goose/unstable/*</code> notifications
+for steering and token usage, a non-standard meta flag for the Claude
+adapter’s subscription login, a version pin “squatting” on protocol v2 ahead
+of the upstream RFD.</li>
+<li>Auth failures surface as strings, not codes — Buzz string-matches and
+dead-letters them with a re-auth hint rather than retrying.</li>
+</ul>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>The takeaway</p><div class="callout-body" data-astro-cid-q2ml7llr><p>ACP reliably delivers the live session surface — streaming text, tool
+lifecycle, permissions, cancellation — and a serious production client built
+its whole agent UX on that. History, policy, and identity remained the
+product’s own problem, and Buzz solved them with the infrastructure it already
+had (the event log), not the protocol.</p></div></aside>
+<h2 id="xyne-spaces-it-already-built-the-machinery--privately">Xyne Spaces: it already built the machinery — privately</h2>
+<p>Xyne Spaces has no agent protocol today. Its public app API gives a bot exactly
+three verbs — <code>postMessage</code> (whole message, ~9,500-char cap), <code>updateMessage</code>
+(full-body replace, not a delta), and <code>agentProgress</code> (an ephemeral “working…”
+pill with a one-line tool label). No streaming, no tool-call blocks, no
+permission surface.</p>
+<p>The revealing part: XS’s own first-party agent platform (the <code>xyne-claw</code> stack,
+running agents server-side on the pi runtime) found that API insufficient and
+<strong>routed around it</strong>, hand-building the very things ACP standardizes:</p>
+<table>
+<thead>
+<tr>
+<th>Built privately in the claw stack</th>
+<th>The ACP equivalent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Redis live-conversation bus (<code>label</code> / <code>invocation</code> / <code>done</code> events) feeding an SSE endpoint</td>
+<td><code>session/update</code> notification stream</td>
+</tr>
+<tr>
+<td>Dual transport between services: legacy webhook callbacks <em>or</em> SSE, selected by <code>Accept</code> header</td>
+<td>one wire, one framing</td>
+</tr>
+<tr>
+<td>Postgres snapshot + live deltas so a viewer can join mid-run</td>
+<td><code>session/load</code> replay</td>
+</tr>
+<tr>
+<td>Exporter serializing server runs into Claude Code’s JSONL transcript format for local resume</td>
+<td><code>session/load</code>, again — hand-rolled and one-way</td>
+</tr>
+<tr>
+<td>Bespoke opencode adapter over that CLI’s HTTP API</td>
+<td>any ACP adapter, uniformly</td>
+</tr>
+<tr>
+<td>Tool activity throttled into a 10-second progress label</td>
+<td>typed <code>tool_call</code> / <code>tool_call_update</code> lifecycle</td>
+</tr>
+</tbody>
+</table>
+<p>Each row is working code that XS maintains alone, reachable only from inside
+its own services. Adopting ACP is less about adding a capability than about
+replacing private machinery with a published spec other people maintain
+adapters for. Three adoption moves, smallest first:</p>
+<ol>
+<li><strong>Speak ACP to agent runtimes internally.</strong> Put ACP at the boundary between
+the orchestration layer and whatever runs the agent. The dual callback/SSE
+transport and the per-runtime adapters collapse into one client; Claude
+Code, Codex, and Goose arrive via their existing adapters instead of
+bespoke integrations; local-resume stops being a hand-maintained
+file-format exporter.</li>
+<li><strong>Expose session updates to apps.</strong> XS’s internal “unified bot SDK” already
+defines an event union (<code>content</code> / <code>tool_input</code> / <code>tool_output</code> / <code>done</code>)
+that is nearly a subset of ACP’s update stream. Aligning it with ACP’s
+shapes and offering it on the public app surface would let external bots
+render live tool activity instead of squeezing everything into
+<code>agentProgress</code>.</li>
+<li><strong>Map the chat-native affordances.</strong> Two pairings fall out immediately: ACP
+<code>tool_call</code> events feeding <code>agentProgress</code> labels (live “Running: <code>git rebase…</code>” in the thread), and ACP permission requests rendered as XS
+<strong>flow-JSON button cards</strong> — the agent’s “may I?” becomes buttons in the
+thread, and a tap answers it. Approve-from-your-phone, with no new UI
+primitives on either side.</li>
+</ol>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Why this matters beyond XS</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The same protocol serves the other side of the bridge: an external bot (like
+pesu, the kolu ↔ XS bridge) can run its agents behind ACP and get structured
+turns, streamed tool activity, and answerable permission prompts — independent
+of whether XS ever adopts ACP internally. The two adoptions compound but don’t
+depend on each other.</p></div></aside></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+  (function () {
+    var fns = Array.prototype.slice.call(
+      document.querySelectorAll(".fn[data-fn]"),
+    );
+    if (!fns.length) return;
+
+    // Position an open popover: reset, measure, then pull it back inside the
+    // viewport horizontally and flip it above the marker if it overflows below.
+    function place(fn) {
+      var pop = fn.querySelector(".fn-pop");
+      if (!pop) return;
+      pop.style.setProperty("--fn-x", "0px");
+      pop.classList.remove("fn-pop-above");
+      var r = pop.getBoundingClientRect();
+      var pad = 8;
+      var dx = 0;
+      if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+      else if (r.left < pad) dx = pad - r.left;
+      if (dx) pop.style.setProperty("--fn-x", dx + "px");
+      if (r.bottom > window.innerHeight - pad) pop.classList.add("fn-pop-above");
+    }
+
+    function setPinned(fn, on) {
+      fn.classList.toggle("is-pinned", on);
+      var btn = fn.querySelector(".fn-ref");
+      if (btn) btn.setAttribute("aria-expanded", on ? "true" : "false");
+    }
+
+    function unpinAll(except) {
+      fns.forEach(function (fn) {
+        if (fn !== except) setPinned(fn, false);
+      });
+    }
+
+    fns.forEach(function (fn) {
+      var btn = fn.querySelector(".fn-ref");
+      if (!btn) return;
+      // Place on reveal so the CSS-shown popover lands in the right spot.
+      btn.addEventListener("pointerenter", function () {
+        place(fn);
+      });
+      btn.addEventListener("focus", function () {
+        place(fn);
+      });
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pin = !fn.classList.contains("is-pinned");
+        unpinAll(fn);
+        setPinned(fn, pin);
+        if (pin) place(fn);
+      });
+    });
+
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t || !t.closest || !t.closest(".fn[data-fn]")) unpinAll(null);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") unpinAll(null);
+    });
+    window.addEventListener("resize", function () {
+      fns.forEach(function (fn) {
+        if (fn.classList.contains("is-pinned")) place(fn);
+      });
+    });
+  })();
+</script></body></html>
