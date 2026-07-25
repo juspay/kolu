@@ -1,4 +1,3 @@
-import { readdirSync } from "node:fs";
 import { createServer, type Server as HttpServer } from "node:http";
 import {
   connect,
@@ -45,10 +44,21 @@ function serveOnLoopback(
   });
 }
 
-/** How many descriptors this process holds — the cheapest way to see a relay
- *  that is feeding itself. Linux-only, which is where the loop was measured. */
-function openFdCount(): number {
-  return readdirSync(`/proc/${process.pid}/fd`).length;
+/** How many SOCKETS this process holds — how a relay feeding itself shows up.
+ *
+ *  From libuv's own handle list rather than `/proc/<pid>/fd`, which exists only
+ *  on Linux: the first darwin run of this suite failed here, on a macOS box with
+ *  no `/proc` at all. Counting sockets is also the closer question — the loop's
+ *  signature is unbounded accept-then-dial, not descriptors in general. */
+function openSocketCount(): number {
+  const report = process.report;
+  if (report === undefined) {
+    throw new Error(
+      "port-forward tests: process.report is unavailable, so sockets cannot be counted.",
+    );
+  }
+  const { libuv } = report.getReport() as { libuv: Array<{ type: string }> };
+  return libuv.filter((handle) => handle.type === "tcp").length;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -115,7 +125,7 @@ describe("the local TCP relay", () => {
     const free = await pickFreePort();
     const relay = await relayTo(free, silent());
     cleanups.push(relay.close);
-    const before = openFdCount();
+    const before = openSocketCount();
 
     await new Promise<void>((resolve) => {
       const probe = connect({ host: "127.0.0.1", port: relay.localPort });
@@ -127,7 +137,7 @@ describe("the local TCP relay", () => {
       }, 500);
     });
 
-    expect(openFdCount() - before).toBeLessThan(50);
+    expect(openSocketCount() - before).toBeLessThan(50);
   });
 });
 
