@@ -1,6 +1,6 @@
 ---
 title: Chat threads as terminals, over ACP
-description: "One XS thread ↔ one kolu terminal running an ACP proxy: pesu speaks the Agent Client Protocol to a headless agent in a tile — structured turns, live tool labels, permissions you answer from your phone."
+description: "One XS thread ↔ one kolu terminal running an ACP proxy: pesu speaks the Agent Client Protocol to a headless agent in a tile — structured turns, live tool labels, permissions you answer from the thread."
 parents: [feature]
 status: proposed
 maturity: seedling
@@ -19,7 +19,7 @@ proxy**, not an interactive TUI. DM the bot in Xyne Spaces; pesu creates a tile
 whose process speaks the [Agent Client Protocol](https://agentclientprotocol.com)
 to a headless agent behind it. Your message is a `session/prompt`; replies and
 tool calls stream back as `session/update` frames; permission requests arrive
-as *data* you can answer from the phone. The tile stays an ordinary kolu
+as *data* you can answer from the thread. The tile stays an ordinary kolu
 terminal: the proxy renders the frame stream in its PTY, so clicking through
 from XS gives full depth.
 
@@ -61,7 +61,8 @@ take.</Footnote>
 
 What the PTY path could never offer, this one gets for free: tool-call frames
 become live `agentProgress` labels in the thread, and permission requests
-become flow-JSON cards with buttons — approve a gated tool from your phone.
+become flow-JSON cards with buttons — approve a gated tool right from the
+thread, without opening kolu at all.
 
 ## Decisions
 
@@ -79,8 +80,8 @@ become flow-JSON cards with buttons — approve a gated tool from your phone.
 
 export const PT = [
   { d: 0, g: "▶", c: "prog", l: "HX0 · an ACP agent in a tile", m: "@kolu/acp — proxy + companion CLI", h: "#hx0" },
-  { d: 0, g: "○", c: "last", l: "HX1 · phone round trip", m: "needs HX0 · XS webhook → tile → reply", h: "#hx1" },
-  { d: 0, g: "○", c: "last", l: "HX2 · approve from your phone", m: "needs HX1 · permission → flow card", h: "#hx2" },
+  { d: 0, g: "○", c: "last", l: "HX1 · the XS round trip", m: "needs HX0 · XS webhook → tile → reply", h: "#hx1" },
+  { d: 0, g: "○", c: "last", l: "HX2 · approve from the thread", m: "needs HX1 · permission → flow card", h: "#hx2" },
   { d: 0, g: "○", c: "last", l: "HX3 · turn polish", m: "needs HX1 · growing reply · resume", h: "#hx3" },
 ];
 
@@ -111,7 +112,7 @@ it):
 
 <a id="hx1"></a>
 
-### HX1 — phone round trip
+### HX1 — the XS round trip
 
 <Phase id="HX1" name="XS webhook → create tile → prompt → reply in thread" status="todo" needs={["HX0"]} />
 
@@ -135,14 +136,14 @@ fire-and-forget, so a slow handler loses events. Deployment shape: pesu binds
 stable public webhook URL; secrets reach it **only as environment variables**
 — never the repo, logs, or an agent transcript.
 
-**Done when:** DM from the phone → tile exists on the host → reply lands in
+**Done when:** DM the bot → tile exists on the host → reply lands in
 the thread; a second message continues the same session; opening the tile
 shows the live frame log; a forged-signature request is rejected (pinned by a
 test); a non-operator gets a one-line visible decline, never silence.
 
 <a id="hx2"></a>
 
-### HX2 — approve from your phone
+### HX2 — approve from the thread
 
 <Phase id="HX2" name="permission request → flow card → ACP response" status="todo" needs={["HX1"]} />
 
@@ -152,8 +153,8 @@ the ACP request; the card updates to show the decision. The request stays open
 until answered or the turn is cancelled. Proxy-side auto-answer is switched
 off for bound threads.
 
-**Done when:** an agent hits a gated tool, the card appears on the phone,
-tapping Allow unblocks the run — end to end, with auto-answer off.
+**Done when:** an agent hits a gated tool, the card appears in the thread,
+clicking Allow unblocks the run — end to end, with auto-answer off.
 
 <a id="hx3"></a>
 
@@ -250,6 +251,6 @@ down is lost; the read APIs recover.</Footnote>
 ## Done criterion (full tree)
 
 DM the bot → a tile with a headless agent exists → replies stream into the
-thread → the agent hits a gated tool → you tap **Allow** on the phone → the
+thread → the agent hits a gated tool → you click **Allow** in the thread → the
 run finishes and the reply grows in place → restart pesu and the thread
 resumes → at any point, click through and watch the session in the tile.

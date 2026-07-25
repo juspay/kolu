@@ -14,7 +14,7 @@
   <!-- ══════════ Xyne Spaces ══════════ -->
   <rect x="20" y="90" width="170" height="120" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
   <text x="38" y="114" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">XYNE SPACES</text>
-  <text x="38" y="136" font-size="12" fill="#1a1c20">thread on your phone</text>
+  <text x="38" y="136" font-size="12" fill="#1a1c20">your chat threads</text>
   <text x="38" y="156" font-size="12" fill="#1a1c20">app API · flow cards</text>
   <text x="38" y="176" font-size="12" fill="#8a8272">identity · delivery</text>
 
