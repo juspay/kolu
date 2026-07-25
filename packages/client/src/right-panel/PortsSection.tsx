@@ -51,6 +51,12 @@ import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OpenIcon } from "../ui/Icons";
 import Section from "../ui/Section";
+import {
+  FORWARD_PILL,
+  originTooltip,
+  originWord,
+} from "../forwards/forwardTone";
+import { pasteableAddress } from "../forwards/ForwardRows";
 import { portUrl } from "../forwards/portUrl";
 import { type PortRow as PortRowData, portRows } from "../forwards/portRows";
 import { activeHost } from "../wire";
@@ -322,21 +328,24 @@ const PortRow: Component<{
         {props.row.port}
       </span>
       <span class="min-w-0 flex-1 truncate font-mono text-fg-3/80">
-        {props.row.kind === "port" ? props.row.name : "forwarded on this host"}
+        {props.row.kind === "port"
+          ? props.row.name
+          : "also forwarded on this host"}
       </span>
 
-      {/* The door, when there is one — the number that is actually in the URL,
-       *  shown only when it DIFFERS from the port itself. Same-port is the
-       *  common case and repeating the number there is noise. */}
+      {/* The door, as a teal pill. A bare `⇄` answered no question — forwarded
+       *  WHERE? — so the pill always names the local port it answers on, and its
+       *  tooltip carries the whole address to paste. Teal, never the connection
+       *  green: one colour per meaning. */}
       <Show when={forward()}>
         {(f) => (
           <span
-            class="shrink-0 font-mono text-[10px] text-accent/80"
+            class={`shrink-0 text-[10px] tabular-nums ${FORWARD_PILL}`}
             data-testid="inspector-port-forward-badge"
             data-port={props.row.port}
-            title={`forwarded to port ${f().localPort} on this host · ${f().origin}`}
+            title={`${pasteableAddress(f())} · ${originWord(f().origin)} — ${originTooltip(f().origin)}`}
           >
-            {f().localPort === props.row.port ? "⇄" : `⇄ :${f().localPort}`}
+            ⇄ :{f().localPort}
           </span>
         )}
       </Show>
@@ -360,7 +369,7 @@ const PortRow: Component<{
             fallback={
               <button
                 type="button"
-                class="inline-flex items-center gap-1 text-accent hover:underline disabled:opacity-50"
+                class="inline-flex items-center gap-1 text-fg-3/70 transition-colors hover:text-accent hover:underline focus-visible:text-accent disabled:opacity-50 motion-reduce:transition-none"
                 data-testid="inspector-port-forward-open"
                 data-port={props.row.port}
                 disabled={opening()}

@@ -1,8 +1,8 @@
 /**
  * "Which of kolu's hosts is this browser sitting at?" — the resolver that joins
- * the pure decision table in `viewerHost.ts` to the two facts only the running
- * server has: its own interface addresses, and what each host's ssh destination
- * resolves to.
+ * the pure decision table in `@kolu/surface/viewerIdentity` to the two facts only
+ * the running server has: its own interface addresses, and what each ssh
+ * destination resolves to.
  *
  * Split from the decision table on purpose. That file is pure and total, so its
  * every arm is pinned by a table of literals; this one touches DNS and the OS,
@@ -17,7 +17,7 @@ import {
   effectiveViewerAddress,
   sshTargetHostname,
   viewerIsOnHost,
-} from "./viewerHost.ts";
+} from "@kolu/surface/viewerIdentity";
 
 /** Every address THIS machine answers on — what makes a connection from a local
  *  reverse proxy recognisable as a local hop.

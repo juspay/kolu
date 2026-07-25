@@ -48,7 +48,7 @@ import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
-import { forwardedForOf } from "./portForward/viewerHost.ts";
+import { forwardedForOf } from "@kolu/surface/viewerIdentity";
 import { createKoluForwards } from "./portForward/forwards.ts";
 import {
   makeHostPortsReader,

@@ -1,5 +1,18 @@
 /**
- * "Is the browser looking at kolu running ON one of kolu's own hosts?"
+ * "Which machine is the viewer actually AT?" — the transport fact behind any
+ * per-viewer decision a surface-served app makes.
+ *
+ * It lives in `@kolu/surface` because it hides a real volatility that has
+ * nothing to do with any one app: PROXY TOPOLOGY. Kolu got it wrong twice in a
+ * day — first comparing the TCP peer (which is the proxy, not the viewer, behind
+ * `tailscale serve`), then having to work out which forwarded header may be
+ * believed and when. Drishti's web face is deployed the same way and needs the
+ * identical answer the day it makes any per-viewer decision.
+ *
+ * Pure and total, with the OS-touching half (DNS, interface enumeration) left to
+ * the consumer: what this owns is the JUDGMENT, which is the part that was hard.
+ *
+ * ## The original question, kept because it is the worked example
  *
  * The case this answers, from the field: the human browses kolu from *zest*,
  * and *zest* is also one of kolu's remote hosts. Every port chip on zest's

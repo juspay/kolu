@@ -293,7 +293,8 @@ export const HostDiagnosticsPopover: Component<{
           <Show when={forwards().length > 0}>
             <div class="my-2 border-t border-edge/60" />
             <div class="py-0.5 text-[10px] uppercase tracking-wide text-fg-3">
-              forwarded ports
+              forwarded ports ·{" "}
+              <span class="tabular-nums">{forwards().length}</span>
             </div>
             <ForwardRows
               forwards={forwards()}

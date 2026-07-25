@@ -1,59 +1,99 @@
 /**
  * The reactor's loop guard — a poll whose own re-read fires its own change edge.
  *
- * This is the shape that froze a production server. `everyMsOr(interval, edge)`
- * is a legal, useful fuse: re-read on a clock AND the moment something says the
- * value moved. A read that ANNOUNCES on that same edge closes the circle, and the
- * reactor executes it exactly as written — read → announce → tick → read — with
- * the event loop never yielding again. HTTP died, `SIGTERM` went unanswered, and
- * `SIGKILL` was the only way out.
+ * This is the shape that froze a production server: `everyMsOr(interval, edge)`
+ * is a legal, useful fuse, and a read that ANNOUNCES on that same edge closes the
+ * circle. The reactor executes it exactly as written — read → announce → tick →
+ * read — with the event loop never yielding again.
  *
- * Two halves are needed to call it, and both matter:
+ * ## Why this guard is built on PROVENANCE and not on timing
  *
- *  - **Ticks arriving faster than the interval.** A fused source is SUPPOSED to
- *    re-read on an edge, so edges alone prove nothing.
- *  - **Value-equal results.** This is the discriminator that keeps a legitimate
- *    burst out of the trap: a source genuinely producing a run of DISTINCT values
- *    is doing its job, however fast the edges arrive. A cycle, by contrast, feeds
- *    itself — every lap re-reads the same world and produces the same answer, and
- *    that is what makes it a cycle rather than activity.
+ * The first cut of it asked "did a tick arrive close in time to a read, and did
+ * the value not change?". Adversarial verification refuted that in both
+ * directions, and the two failures are the reason all three tests below exist:
  *
- * A freeze becomes a stack trace naming the cell.
+ *  - **A healthy poll slower than its interval died.** A plain `everyMs(10)` cell
+ *    whose read takes 30 ms and returns a constant crashed in ~400 ms — no fused
+ *    edge, no self-announce. The coalesced path made "close in time" degenerate
+ *    into "was coalesced", which every slow poll does constantly.
+ *  - **Measuring lap START-to-START instead would have missed the real freeze.**
+ *    In a self-loop the next read starts only after the previous ends, so the lap
+ *    IS the read duration — and the incident's own reconcile takes tens of ms, so
+ *    a near-zero threshold never fires.
+ *
+ * Timing plus value-equality is a PROXY for causation, and every variant of it
+ * fails one direction or the other. So the guard asks the causal question
+ * directly: the read runs inside an `AsyncLocalStorage` context keyed to the
+ * cell, and a tick that fires UNDER that context — from the read's own stack or
+ * its async continuations — is self-caused by construction. A timer, an I/O
+ * completion, another cell's microtask burst: all carry a different context and
+ * can never count, however fast or however equal.
+ *
+ * The repo's own doctrine already said this: cut feedback loops with PROVENANCE,
+ * not value-dedup (`.claude/rules/solidjs.md`, the controlled-component echo
+ * rule). This is the same lesson in the reactor.
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { everyMsOr, source } from "./reactor";
+import { everyMs, everyMsOr, source } from "./reactor";
+import { __setLoopReporterForTests } from "./reactor";
 
-/** Drive a source through `derived.cell`'s connect path, as a served cell does.
- *
- *  The seed read runs BEFORE `install`, so a cycle cannot start during it — the
- *  edge has no subscriber yet. That mirrors production exactly: the freeze began
- *  at the first act that fired the edge, not at boot. So this waits for the
- *  install to land before a caller kicks anything. */
+/** Drive a poll source the way `derived.cell`'s connect seam does, and collect
+ *  any loop report instead of letting it throw the process down. */
 async function connect<T>(poll: ReturnType<typeof source<T>>) {
   const seen: T[] = [];
+  const loops: Error[] = [];
+  __setLoopReporterForTests((err) => loops.push(err));
   const stop = await (
     poll as { connectPoll: (set: (v: T) => void) => Promise<() => void> }
   ).connectPoll((v) => seen.push(v));
-  await new Promise((r) => setTimeout(r, 10));
-  return { seen, stop };
+  return {
+    seen,
+    loops,
+    stop: () => {
+      stop?.();
+      __setLoopReporterForTests(null);
+    },
+  };
 }
 
-describe("the reactor's self-tick loop guard", () => {
-  it("CRASHES on a read that fires its own change edge — the production freeze", async () => {
-    // The PRT2 wiring, in miniature: the read announces on the edge that
-    // triggers the read. Before the guard this ran forever inside the event
-    // loop; it must now fail loudly instead.
-    const listeners = new Set<() => void>();
-    const thrown: unknown[] = [];
-    let reads = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+describe("the reactor's self-caused-tick loop guard", () => {
+  it("leaves a healthy poll SLOWER than its interval alone — the shipped false positive", async () => {
+    // The executed repro that refuted the timing guard. Nothing here is a loop:
+    // one plain interval, no change edge at all, a read that simply takes longer
+    // than the cadence and returns the same value each time. Every tick lands
+    // mid-read and coalesces, which the timing guard read as "self-caused".
+    //
+    // This is an ordinary shape — drishti polls `ps`+`lsof` on a 2 s interval —
+    // so a guard that kills it is worse than no guard.
     const poll = source<number>({
       read: async () => {
-        reads += 1;
-        // The defect: announcing from inside the read.
-        for (const tick of listeners) tick();
-        // …and always the same answer, which is what makes it a cycle.
+        await sleep(30);
+        return 7;
+      },
+      install: everyMs(10),
+      label: "slow-but-honest",
+    });
+
+    const { loops, stop } = await connect(poll);
+    await sleep(400);
+    stop();
+
+    expect(loops).toEqual([]);
+  });
+
+  it("CRASHES on a read that fires its own change edge, even a SLOW one", async () => {
+    // The production freeze, with a read duration that would defeat a
+    // lap-timing guard: the self-loop's lap IS the read duration, so "laps are
+    // near-instant" is false here while the cycle is entirely real.
+    const listeners = new Set<() => void>();
+    const poll = source<number>({
+      read: async () => {
+        await sleep(20);
+        // The defect: announcing on the edge that triggers this read.
+        for (const tick of [...listeners]) tick();
         return 7;
       },
       install: everyMsOr(60_000, (tick) => {
@@ -61,98 +101,50 @@ describe("the reactor's self-tick loop guard", () => {
         return () => listeners.delete(tick);
       }),
       label: "forwards",
-      // Routed rather than thrown, ONLY so the suite can observe it. The default
-      // is a real throw on its own turn, because an unbounded cycle has to be a
-      // crash with a stack rather than a process that stops answering — the
-      // guard fires and stops the loop either way.
-      onLoop: (err) => thrown.push(err),
     });
 
-    const { stop } = await connect(poll);
-    // ONE external edge — the act that started it in production (a forward
+    const { loops, stop } = await connect(poll);
+    // One external edge — the act that started it in production (a forward
     // opened). From here the read feeds itself.
     for (const tick of [...listeners]) tick();
-    // The guard fires within a bounded number of laps rather than never.
-    await vi.waitFor(() => expect(reads).toBeGreaterThan(2), {
-      timeout: 2_000,
+    await vi.waitFor(() => expect(loops.length).toBeGreaterThan(0), {
+      timeout: 3_000,
     });
-    await new Promise((r) => setTimeout(r, 50));
-    const settled = reads;
-    await new Promise((r) => setTimeout(r, 50));
-    expect(reads).toBe(settled); // it STOPPED — a loop would still be climbing
-    expect(thrown).toHaveLength(1);
-    stop?.();
+    stop();
+
+    expect(String(loops[0])).toMatch(/forwards/);
+    expect(String(loops[0])).toMatch(/re-read/i);
   });
 
-  it("names the cell in the error, so a freeze reads as a stack trace", async () => {
+  it("leaves an EXTERNAL equal-value burst delivered on microtasks alone", async () => {
+    // The surviving false positive of any timing guard. Real `onState` bursts
+    // arrive on microtasks — a frame-per-line push log, deliberate no-change
+    // republishes, a channel resolving waiters — so "world ticks cross a
+    // macrotask" is simply false. These ticks are external: they carry a
+    // different async context and must never count, however fast or equal.
     const listeners = new Set<() => void>();
-    const thrown: unknown[] = [];
     const poll = source<number>({
       read: async () => {
-        for (const tick of listeners) tick();
-        return 1;
+        await sleep(15);
+        return 42; // never changes — the value-equality half is satisfied
       },
       install: everyMsOr(60_000, (tick) => {
         listeners.add(tick);
         return () => listeners.delete(tick);
       }),
-      label: "forwards",
-      onLoop: (err) => thrown.push(err),
+      label: "processMemory",
     });
-    const { stop } = await connect(poll);
-    for (const tick of [...listeners]) tick();
-    await vi.waitFor(() => expect(thrown.length).toBeGreaterThan(0), {
-      timeout: 2_000,
-    });
-    expect(String(thrown[0])).toMatch(/forwards/);
-    expect(String(thrown[0])).toMatch(/re-read/i);
-    stop?.();
-  });
 
-  it("leaves a fused source producing DISTINCT values alone", async () => {
-    // The discriminator, asserted as the thing it protects: rapid edges are
-    // legitimate when the value is genuinely moving. Without the value-equality
-    // condition this test is what a naive rate-only guard would break.
-    const listeners = new Set<() => void>();
-    const thrown: unknown[] = [];
-    let n = 0;
-    const poll = source<number>({
-      read: async () => {
-        n += 1;
-        return n;
-      },
-      install: everyMsOr(60_000, (tick) => {
-        listeners.add(tick);
-        return () => listeners.delete(tick);
-      }),
-      label: "counter",
-      onLoop: (err) => thrown.push(err),
-    });
-    const { stop } = await connect(poll);
-    // Drive many rapid edges from OUTSIDE the read — a real burst.
-    for (let i = 0; i < 20; i += 1) {
-      for (const tick of listeners) tick();
-      await new Promise((r) => setTimeout(r, 1));
+    const { loops, stop } = await connect(poll);
+    // A burst from OUTSIDE, delivered on microtasks, landing during reads.
+    for (let i = 0; i < 40; i += 1) {
+      await Promise.resolve().then(() => {
+        for (const tick of [...listeners]) tick();
+      });
     }
-    expect(thrown).toEqual([]);
-    expect(n).toBeGreaterThan(1);
-    stop?.();
-  });
+    await sleep(200);
+    stop();
 
-  it("leaves a QUIET fused source alone", async () => {
-    // Value-equal reads are the normal steady state of a poll — they must not
-    // trip anything on their own. Only equal reads driven by self-arriving
-    // ticks are the cycle.
-    const thrown: unknown[] = [];
-    const poll = source<number>({
-      read: async () => 42,
-      install: everyMsOr(60_000, () => () => {}),
-      label: "steady",
-      onLoop: (err) => thrown.push(err),
-    });
-    const { stop } = await connect(poll);
-    await new Promise((r) => setTimeout(r, 60));
-    expect(thrown).toEqual([]);
-    stop?.();
+    expect(loops).toEqual([]);
   });
 });

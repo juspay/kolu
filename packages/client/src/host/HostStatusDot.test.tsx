@@ -90,10 +90,19 @@ describe("HostStatusDot", () => {
     expect(pip?.className).toContain(DOWN);
   });
 
-  it("carries no colour of its own — the ring is geometry", () => {
-    // Stated as a property rather than a screenshot: a ring class that painted a
-    // background would be recolouring the dot area from a non-health fact.
+  it("carries no BACKGROUND of its own — it rings, it does not fill", () => {
     const { ring } = mount({ statusDot: READY, forwardCount: 1 });
     expect(ring?.className).not.toMatch(/\bbg-/);
+  });
+
+  it("rings in the FORWARD colour, never the connection colour", () => {
+    // The one binding rule of the approved UX pass: green means connection
+    // health, teal means open doors, and neither surface may borrow the other's
+    // colour. A green ring is a second, quieter way of saying "connected" — it
+    // reads as a focus or selection accent rather than "a door is open here",
+    // which is exactly what the first cut drew by reusing the accent.
+    const { ring } = mount({ statusDot: READY, forwardCount: 1 });
+    expect(ring?.className).toMatch(/teal/);
+    expect(ring?.className).not.toMatch(/emerald|green|accent/);
   });
 });

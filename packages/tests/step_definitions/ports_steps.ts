@@ -189,10 +189,11 @@ async function portsView(world: KoluWorld): Promise<PortsView> {
           const text =
             pick(row, "inspector-port-forward-badge")?.textContent ?? "";
           const named = /:(\d+)/.exec(text)?.[1];
-          // The badge shows `⇄ :61000` when the door differs from the port and a
-          // bare `⇄` when it does not — same-port is the common case and
-          // repeating the number there is noise. So a bare mark MEANS the local
-          // port equals the remote one, which is what this reports.
+          // The pill always names the port the door answers on — a bare `⇄`
+          // answered no question ("forwarded WHERE?"), which is why the approved
+          // UX pass gave it the number. An absent number is therefore the markup
+          // regressing, so this reports the row's own port and lets the caller's
+          // "the door is a DIFFERENT number" assertion catch it.
           return {
             port,
             localPort: named === undefined ? port : Number(named),

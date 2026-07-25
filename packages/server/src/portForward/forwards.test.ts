@@ -18,6 +18,8 @@ import type { HostKey } from "kolu-common/hostKey";
 import type { Forwards } from "kolu-common/surface";
 import pino from "pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assertCellConverges } from "@kolu/surface/assertCellConverges";
+import { everyMsOr, source } from "@kolu/surface/reactor";
 import { createKoluForwards, type HostPorts } from "./forwards.ts";
 
 const log = pino({ level: "silent" });
@@ -407,6 +409,43 @@ describe("the cell wiring — reconcile-on-a-fused-cadence", () => {
       stop,
     };
   }
+
+  it("CONVERGES under surface own convergence assertion (dogfood)", async () => {
+    // The same property this file already asserts with a hand-rolled harness,
+    // now asked through the helper surface ships for it. Kept ALONGSIDE the
+    // hand-rolled cases rather than replacing them: those model this cell~s
+    // exact fusion, while this proves the shared helper actually catches the
+    // shape it was generalized from — if the helper ever stopped working, a
+    // green suite here would be the lie.
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([5173])]]);
+    const h = harness(ports);
+    const listeners = new Set<() => void>();
+    h.onChange = () => {
+      for (const tick of listeners) tick();
+    };
+    await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
+
+    await expect(
+      assertCellConverges({
+        build: (onRead) =>
+          source<Forwards>({
+            read: async () => {
+              onRead();
+              return h.forwards.reconcile();
+            },
+            install: everyMsOr(60_000, (tick) => {
+              listeners.add(tick);
+              return () => listeners.delete(tick);
+            }),
+            label: "forwards",
+          }) as never,
+        kick: () => {
+          for (const tick of [...listeners]) tick();
+        },
+        settleMs: 150,
+      }),
+    ).resolves.toMatchObject({ loop: undefined });
+  });
 
   it("CONVERGES with a live auto forward — the production freeze", async () => {
     // Against the pre-fix code this trips the cap: create → publish → tick →

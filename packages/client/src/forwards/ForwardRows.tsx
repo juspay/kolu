@@ -16,6 +16,7 @@
 import type { KoluForward } from "kolu-common/surface";
 import { type Component, For, Show, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { FORWARD_PILL, originTooltip, originWord } from "./forwardTone";
 import { portUrl } from "./portUrl";
 import { cancelForward } from "./useForwards";
 
@@ -24,6 +25,13 @@ import { cancelForward } from "./useForwards";
  *  that served this page, and it is the one name reachable by construction. */
 export function forwardUrl(forward: KoluForward): string {
   return portUrl(window.location.hostname, forward.localPort);
+}
+
+/** The address a user can paste — the machine serving this page, and the port
+ *  the door answers on. This is the one fact on the row worth spending width on:
+ *  the old row showed a mapping twice and a copyable address never. */
+export function pasteableAddress(forward: KoluForward): string {
+  return `${window.location.hostname}:${forward.localPort}`;
 }
 
 /** What a row calls the far end — `pu-dev:5173`, or just `5173` when the far end
@@ -42,7 +50,7 @@ export const ForwardCopyButton: Component<{ forward: KoluForward }> = (
   return (
     <button
       type="button"
-      class="shrink-0 text-fg-3/70 hover:text-fg transition-colors cursor-pointer"
+      class="shrink-0 rounded p-1 text-fg-3/70 transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer motion-reduce:transition-none"
       data-testid="forward-copy"
       data-port={props.forward.remotePort}
       title={copied() ? "copied" : `copy ${forwardUrl(props.forward)}`}
@@ -72,7 +80,7 @@ export const ForwardCancelButton: Component<{ forward: KoluForward }> = (
 ) => (
   <button
     type="button"
-    class="shrink-0 text-fg-3/70 hover:text-danger transition-colors cursor-pointer"
+    class="shrink-0 rounded p-1 text-fg-3/70 transition-colors hover:bg-danger/10 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer motion-reduce:transition-none"
     data-testid="forward-cancel"
     data-port={props.forward.remotePort}
     title={`cancel the forward to ${forwardLabel(props.forward)}`}
@@ -100,23 +108,30 @@ export const ForwardRow: Component<{
   onOpenTerminal?: () => void;
 }> = (props) => (
   <div
-    class="flex items-baseline gap-1.5 text-[11px] leading-snug"
+    class="group/fwd flex items-center gap-1.5 rounded px-1 py-0.5 -mx-1 text-[11px] leading-snug transition-colors hover:bg-surface-2/60 motion-reduce:transition-none"
     data-testid="forward-row"
     data-port={props.forward.remotePort}
     data-origin={props.forward.origin}
   >
-    <span class="shrink-0 text-fg-3/70" aria-hidden="true">
-      ⇄
+    {/* The REMOTE port, plain — the hostname is the dropdown's own title, and
+     *  repeating it on every row was the loudest thing in a panel about one
+     *  host. */}
+    <span class="shrink-0 font-mono tabular-nums text-fg">
+      {props.forward.remotePort}
     </span>
+    {/* ONE pill carrying the address you can actually paste. The old row spent
+     *  its width encoding the mapping twice (a `⇄` and a `→`) and still never
+     *  showed a copyable address. */}
     <a
       href={forwardUrl(props.forward)}
       target="_blank"
       rel="noopener noreferrer"
-      class="min-w-0 truncate font-mono text-accent hover:underline"
+      class={`min-w-0 truncate ${FORWARD_PILL} hover:underline`}
       data-testid="forward-open"
       data-port={props.forward.remotePort}
+      title={forwardUrl(props.forward)}
     >
-      {forwardLabel(props.forward)} → :{props.forward.localPort}
+      ⇄ {pasteableAddress(props.forward)}
     </a>
     <Show when={props.onOpenTerminal}>
       {(open) => (
@@ -135,15 +150,11 @@ export const ForwardRow: Component<{
     </Show>
     <span
       class="shrink-0 text-[10px] text-fg-3/60"
-      title={
-        props.forward.origin === "auto"
-          ? "opened by clicking a port — closes itself when that port dies"
-          : "opened by hand — stays until you cancel it"
-      }
+      title={originTooltip(props.forward.origin)}
     >
-      {props.forward.origin}
+      {originWord(props.forward.origin)}
     </span>
-    <span class="ml-auto shrink-0 flex items-baseline gap-1.5">
+    <span class="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/fwd:opacity-100 motion-reduce:transition-none">
       <ForwardCopyButton forward={props.forward} />
       <ForwardCancelButton forward={props.forward} />
     </span>

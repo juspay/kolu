@@ -14,12 +14,14 @@
  *  dropdown, not in a second visual competing with the attention pills.
  *
  *  The ring reads on every pip tone rather than only the healthy one — a host can
- *  go unreachable while kolu still holds doors it opened before the link dropped
- *  — so it is drawn as a `ring-` outline in the ACCENT colour, offset by a hair
- *  so the pip's own colour stays legible inside it in both themes.
+ *  go unreachable while kolu still holds doors it opened before the link dropped.
+ *  It is drawn in the FORWARD colour (teal), never the connection colour: green
+ *  means health, teal means doors, and a green ring reads as a second, quieter
+ *  way of saying "connected" rather than as a fact of its own.
  */
 
 import { type Component, Show } from "solid-js";
+import { FORWARD_RING } from "../forwards/forwardTone";
 
 /** The words the ring answers to — the count moved here from the visual. */
 export function forwardRingLabel(count: number): string {
@@ -38,7 +40,7 @@ export const HostStatusDot: Component<{
        *  would be recolouring the dot's area from a fact that is not the
        *  connection's, which is the one thing this arrangement forbids. */}
       <span
-        class="pointer-events-none absolute inset-0 rounded-full ring-1 ring-accent/70"
+        class={`pointer-events-none absolute inset-0 rounded-full ${FORWARD_RING}`}
         role="img"
         data-testid="host-forward-ring"
         data-count={props.forwardCount}

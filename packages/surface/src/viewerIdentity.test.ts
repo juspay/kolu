@@ -18,7 +18,7 @@ import {
   normalizeAddress,
   sshTargetHostname,
   viewerIsOnHost,
-} from "./viewerHost.ts";
+} from "./viewerIdentity";
 
 describe("normalizeAddress", () => {
   it("unwraps a v4-mapped address, which is how a v4 peer arrives", () => {
