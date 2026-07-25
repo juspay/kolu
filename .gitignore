@@ -32,3 +32,6 @@ packages/client/public/fonts
 .self-improve/
 .be-review-state/
 bridge-data.js
+
+# Rust build output for the port-scan helper (its own crate, own flake).
+packages/port-scan/target/

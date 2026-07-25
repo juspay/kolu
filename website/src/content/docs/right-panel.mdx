@@ -27,6 +27,30 @@ the agent's input box for you to review and press Enter yourself, dodging the
 same paste race the CLI is careful about. Each terminal keeps its own draft in
 your browser, so a half-written prompt survives switching tiles or reloading.
 
+## Ports the terminal is serving
+
+When something in a terminal starts listening on a TCP port, a **Ports** section
+appears listing it — the port number and the program holding it. This is the
+answer to "where is the thing the agent just ran?", without scrolling back
+through output for a URL that has long since gone by. Detection is not a guess at
+printed text: kolu reads the host's own socket table every few seconds (and
+immediately whenever the terminal produces output), and attributes each listener
+to the terminal whose process subtree holds it. So a port appears because
+something is genuinely listening, and it disappears when that stops.
+
+A port bound to **all interfaces** on the machine running kolu already answers on
+the address you're viewing kolu at, so its chip has an **open** link that opens it
+in a new tab. A port bound only to **loopback** — or one on a remote host — can't
+be reached from your browser as-is; those are listed with a "needs a forward"
+note. Until forwarding lands, reach them with
+[`vazhi`](/vazhi), which opens a tunnel by hand.
+
+<Aside type="note" title="A daemonized server is not listed">
+A process that fully daemonizes itself (double-fork, reparented away from the
+shell) leaves the terminal's process tree, so it is deliberately not listed — at
+that point it isn't "this terminal's server" any more.
+</Aside>
+
 ## The terminal CLI, documented in place
 
 The Inspector documents the whole shell-facing CLI for the terminal you're

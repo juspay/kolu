@@ -1,7 +1,7 @@
 /**
  * The fold — a reduce over the producer's observation stream. `fold(cur, o, ctx)
  * → cur'` is a reducer; kolu's stored `TerminalState` is a left-fold (scan) over
- * the stream. For the five OBSERVED fields it is plain last-write-wins; the only
+ * the stream. For the six OBSERVED fields it is plain last-write-wins; the only
  * judgments are the two REMEMBERED fields — stamp `lastActivityAt` from a LIVE
  * agent observation (kolu's clock — an identity change always, a same-identity
  * output tick throttled) and keep `lastAgentCommand` from the latest
@@ -58,6 +58,12 @@ export function foldSnapshot(
         ...snapshot,
         foreground,
       }))
+      // Last-write-wins like the rest: the scan re-samples the WHOLE port set
+      // each pass, so a port that died is absent from the next sample rather
+      // than needing a removal event. The producer already dropped a sample
+      // structurally equal to the one before it (`portsEqual`), so anything that
+      // reaches here is a real change.
+      .with({ kind: "ports" }, ({ ports }) => ({ ...snapshot, ports }))
       // `unknown` returns the SAME reference (no clobber) — callers rely on the
       // identity to detect "nothing changed"; `{ value }` applies authoritatively.
       .with({ kind: "agent", agent: "unknown" }, () => snapshot)
@@ -200,7 +206,7 @@ export function restoreTargetEqual(
 export type FoldCtx = { live: boolean; at: number; runStartedAt: number };
 
 /** Fold one framed observation into a NEW `TerminalState` — nothing is mutated.
- *  Five snapshot fields: last-write-wins (via {@link foldSnapshot}). Two memory
+ *  Six snapshot fields: last-write-wins (via {@link foldSnapshot}). Two memory
  *  fields: `lastActivityAt` stamped from a LIVE agent observation — an IDENTITY
  *  change (kolu's clock) or, on a stable identity, an OUTPUT tick throttled to
  *  {@link RECENCY_THROTTLE_MS}; `lastAgentCommand` kept from the latest `commandRun`
