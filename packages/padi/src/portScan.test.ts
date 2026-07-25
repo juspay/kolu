@@ -189,6 +189,17 @@ describe("parseBindAddress / bindsAny", () => {
     expect(() => parseBindAddress("::1::2")).toThrow(PortScanError);
     expect(() => parseBindAddress("1:2:3")).toThrow(PortScanError);
   });
+
+  it("rejects the legacy non-dotted IPv4 spellings ipaddr.js accepts", () => {
+    // `ipaddr.parse` alone reads all three of these as addresses, and `"0"` as
+    // `0.0.0.0` — so an address field holding junk would classify as a WILDCARD
+    // bind and mint a chip claiming to be openable. That is the one direction this
+    // module must never be lax in, and no socket table spells a bind address this
+    // way, so the narrowing rejects only shapes that cannot legitimately arrive.
+    for (const spelling of ["0", "0x7f000001", "2130706433", "127.1"]) {
+      expect(() => parseBindAddress(spelling)).toThrow(PortScanError);
+    }
+  });
 });
 
 // ── /proc parsing ──────────────────────────────────────────────────────

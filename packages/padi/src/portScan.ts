@@ -107,6 +107,7 @@ import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { foldPorts } from "@kolu/terminal-vocab/schema";
+import ipaddr from "ipaddr.js";
 import { log } from "./log.ts";
 import type { PortInfo } from "@kolu/terminal-vocab/schema";
 
@@ -333,18 +334,37 @@ export function isAnyAddress(bytes: readonly number[]): boolean {
 
 /** Parse a TEXTUAL bind address into its bytes — or `"any"` for `*`, the literal
  *  `lsof` writes for a wildcard bind (the one spelling that is not an address at
- *  all). A v6 zone (`fe80::1%en0`) names an interface, not an address, so it is
- *  dropped before parsing.
+ *  all).
  *
- *  Fails LOUDLY on text it cannot read, like every other parse in this module: an
- *  address silently classified as "specific" is a chip that quietly claims to need
- *  a forward, which is the failure mode {@link isAnyAddress}'s v4-mapped arm was
- *  written for. */
+ *  Delegates the actual IPv4/IPv6 text grammar to `ipaddr.js` (`::` elision, a
+ *  trailing embedded v4, a v6 zone id like `fe80::1%en0`) rather than a hand-
+ *  rolled parser for the same grammar — `prefer-focused-library`. Fails LOUDLY on
+ *  text it cannot read, like every other parse in this module: an address
+ *  silently classified as "specific" is a chip that quietly claims to need a
+ *  forward, which is the failure mode {@link isAnyAddress}'s v4-mapped arm was
+ *  written for.
+ *
+ *  One place the library is DELIBERATELY narrowed. `ipaddr.parse` also accepts the
+ *  legacy non-dotted IPv4 spellings — `ipaddr.parse("0")`, `"0x7f000001"` and
+ *  `"2130706433"` all succeed — and `"0"` decodes to `0.0.0.0`, i.e. it would make
+ *  garbage in the address field read as a WILDCARD bind and mint a chip claiming
+ *  to be openable. No socket table writes a bind address that way, so the
+ *  narrowing costs nothing real and keeps the dangerous direction unreachable.
+ *  The check is the library's own (`isValidFourPartDecimal`), not a second
+ *  hand-rolled grammar. */
 export function parseBindAddress(text: string): number[] | "any" {
   if (text === "*") return "any";
-  const addr = text.split("%")[0] ?? "";
-  if (addr.includes(":")) return parseV6Address(addr, text);
-  return parseV4Address(addr, text);
+  const bad = (cause?: unknown) =>
+    new PortScanError("blind", `port scan: "${text}" is not a bind address`, {
+      cause,
+    });
+  if (!text.includes(":") && !ipaddr.IPv4.isValidFourPartDecimal(text))
+    throw bad();
+  try {
+    return ipaddr.parse(text).toByteArray();
+  } catch (err) {
+    throw bad(err);
+  }
 }
 
 /** Whether a TEXTUAL bind address is the ANY address — the one question a parser
@@ -353,76 +373,6 @@ export function parseBindAddress(text: string): number[] | "any" {
 export function bindsAny(text: string): boolean {
   const address = parseBindAddress(text);
   return address === "any" || isAnyAddress(address);
-}
-
-function parseV4Address(addr: string, text: string): number[] {
-  const parts = addr.split(".");
-  if (parts.length !== 4) {
-    throw new PortScanError(
-      "blind",
-      `port scan: "${text}" is not a bind address`,
-    );
-  }
-  return parts.map((part) => {
-    const byte = Number.parseInt(part, 10);
-    if (!/^\d{1,3}$/.test(part) || byte > 255) {
-      throw new PortScanError(
-        "blind",
-        `port scan: "${text}" is not a bind address (bad IPv4 byte "${part}")`,
-      );
-    }
-    return byte;
-  });
-}
-
-/** Expand an IPv6 text address to its 16 bytes, `::` elision and a trailing
- *  embedded v4 (`::ffff:127.0.0.1` — the form that makes the wildcard question
- *  subtle) included. */
-function parseV6Address(addr: string, text: string): number[] {
-  const halves = addr.split("::");
-  if (halves.length > 2) {
-    throw new PortScanError(
-      "blind",
-      `port scan: "${text}" is not a bind address (more than one "::")`,
-    );
-  }
-  const bytesOf = (half: string): number[] => {
-    if (half === "") return [];
-    const groups = half.split(":");
-    const bytes: number[] = [];
-    for (const [i, group] of groups.entries()) {
-      if (group.includes(".")) {
-        // An embedded v4 is legal only as the LAST group, and is four bytes wide.
-        if (i !== groups.length - 1) {
-          throw new PortScanError(
-            "blind",
-            `port scan: "${text}" is not a bind address (embedded IPv4 out of place)`,
-          );
-        }
-        bytes.push(...parseV4Address(group, text));
-        continue;
-      }
-      if (!/^[0-9A-Fa-f]{1,4}$/.test(group)) {
-        throw new PortScanError(
-          "blind",
-          `port scan: "${text}" is not a bind address (bad IPv6 group "${group}")`,
-        );
-      }
-      const word = Number.parseInt(group, 16);
-      bytes.push(word >> 8, word & 0xff);
-    }
-    return bytes;
-  };
-  const head = bytesOf(halves[0] ?? "");
-  const tail = halves.length === 2 ? bytesOf(halves[1] ?? "") : [];
-  const elided = 16 - head.length - tail.length;
-  if (elided < 0 || (halves.length === 1 && elided !== 0)) {
-    throw new PortScanError(
-      "blind",
-      `port scan: "${text}" is not a bind address (${head.length + tail.length} bytes)`,
-    );
-  }
-  return [...head, ...new Array<number>(elided).fill(0), ...tail];
 }
 
 /** A `/proc/net/tcp{,6}` LISTEN row, keyed by the socket inode the fd walk joins

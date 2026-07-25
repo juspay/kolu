@@ -40,6 +40,7 @@
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "conf": "^15.1.0",
+    "ipaddr.js": "^1.9.1",
     "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
