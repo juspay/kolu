@@ -174,12 +174,18 @@ describe("one ssh forward attempt", () => {
     // few kilobytes of noise and have the ready token resolve a half-bound
     // forward. The FACT is latched; only the text is truncated.
     const fake = new FakeSsh();
-    const opening = attempt(fake);
+    // The expectation is attached BEFORE the input that settles the attempt, as
+    // in every test here that feeds more than one chunk: each `await` between
+    // them turns the event loop, so a promise that rejects on the first chunk
+    // and is only awaited after the last one has spent a turn rejected with no
+    // handler — an unhandled rejection that fails the whole run while every
+    // assertion still passes.
+    const settled = expect(attempt(fake)).rejects.toThrow(PortUnavailableError);
     await fake.complains("bind [0.0.0.0]:4123: Address already in use\n");
     await fake.complains(`${"noise from the far end\n".repeat(400)}`);
     await fake.says("PORT-FORWARD-READY\n");
 
-    await expect(opening).rejects.toThrow(PortUnavailableError);
+    await settled;
   });
 
   it("comes up even when the far end floods its own announcement out of the tail", async () => {
@@ -193,6 +199,26 @@ describe("one ssh forward attempt", () => {
     );
 
     await expect(opening).resolves.toMatchObject({ localPort: 4123 });
+  });
+
+  it("reports a HALF bind that ssh only complained about after it was up", async () => {
+    // stdout and stderr are separate pipes, so which chunk this process reads
+    // first is the kernel's choice, not ours: the bind line can perfectly well
+    // land after the ready token it contradicts. The forward is up by then and
+    // taking another port is no longer on the table, so the half bind has to
+    // surface as trouble on a row that stays — never be latched into a boolean
+    // nothing reads again, which is what "the far end announced first" used to
+    // mean.
+    const fault = vi.fn<(reason: string) => void>();
+    const fake = new FakeSsh();
+    const opening = attempt(fake, { lost: () => {}, fault });
+    await fake.says("PORT-FORWARD-READY\n");
+    await expect(opening).resolves.toMatchObject({ localPort: 4123 });
+
+    await fake.complains("bind [0.0.0.0]:4123: Address already in use\n");
+
+    expect(fault).toHaveBeenCalledTimes(1);
+    expect(fault.mock.calls[0]?.[0]).toMatch(/bound only part of local port/);
   });
 
   it("is NOT up when ssh bound only half the port", async () => {
