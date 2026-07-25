@@ -223,8 +223,10 @@ function startForegroundSensor(
  *  map of last-known samples to prune when a terminal closes, and a re-keyed
  *  terminal cannot inherit a stale one.
  *
- *  The seed is the empty set, matching `seedSnapshot` — so the first scan of a
- *  terminal that serves nothing emits nothing at all.
+ *  The baseline seeds `unknown`, matching `seedSnapshot` — so the first
+ *  SUCCESSFUL scan always emits, even onto an empty set, because "we looked and
+ *  there is nothing" is news against "we have never looked". Repeated blind passes
+ *  stay quiet, and so does a repeated identical known sample.
  *
  *  Exported for its own producer-level test (as `startAgentSensor` is): the churn
  *  guard is the whole point of the sensor, and driving it through the full

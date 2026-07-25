@@ -380,51 +380,60 @@ describe("the platform refusal is permanent, and asked before the cadence", () =
     );
   });
 
-  it("installs NO cadence at all on an unsupported platform", async () => {
-    // Two gaps this closes. The contract one: checking the platform INSIDE the read
-    // could not deliver "say it once, then stop", because a first read on a host
-    // with no terminals yet answers an empty map without reaching the platform
-    // switch — so the refusal landed on a later tick, where the poll source logs
-    // and holds, and "stop" quietly became an error every 5 s forever.
+  it("installs NO cadence and never scans on an unsupported platform", async () => {
+    // The contract: checking the platform INSIDE the read could not deliver "say it
+    // once, then stop" — a first read on a host with no terminals yet answers an
+    // empty map without reaching the platform switch, so the refusal landed on a
+    // later tick where the poll source logs and HOLDS, and "stop" quietly became an
+    // error every 5 s forever.
     //
-    // And the TEST one: asserting only "one log line, no scans" could not tell an
-    // armed sampler from a refused one, since a poll source over permanently-empty
-    // targets also scans nothing and logs nothing. So this counts TIMERS — a
-    // refused sampler installs no interval, an armed one installs exactly one — and
-    // keeps a counting scan that must never be reached.
+    // Two earlier versions of this test could not detect a fall-through mutant, and
+    // both failures are worth naming because they were the same shape — an
+    // assertion whose subject could not vary:
+    //   1. "one log line, no publishes" over EMPTY targets: an armed poll source
+    //      also scans nothing and publishes nothing there.
+    //   2. a timer count read after settling: a mutant that armed, rejected its
+    //      unsupported seed and tore down would be back at the baseline by then, and
+    //      the `scans` counter had no producer at all because attaching one used to
+    //      BYPASS the guard.
+    // The guard is unconditional now, so the counting scan below is really attached
+    // to the code under test — a mutant that logs and arms anyway WILL scan.
     const real = process.platform;
     Object.defineProperty(process, "platform", { value: "sunos" });
     try {
       const errors: string[] = [];
       let scans = 0;
-      const timersBefore = vi.getTimerCount();
       const sampler = createPortSampler({
-        // A target IS present, so an armed sampler would really scan.
-        targets: () => [...ONE],
+        targets: () => [...ONE], // a real target: an armed sampler would scan
         publish: () => {
           throw new Error("must not publish on an unsupported platform");
         },
         log: platformLog(errors),
+        scan: async () => {
+          scans += 1;
+          return new Map();
+        },
       });
       await settle();
-
-      expect(vi.getTimerCount()).toBe(timersBefore); // nothing armed
       await vi.advanceTimersByTimeAsync(PORT_SCAN_INTERVAL_MS * 5);
-      expect(scans).toBe(0);
+
+      expect(scans).toBe(0); // never armed, so never read
       expect(errors).toHaveLength(1); // said ONCE, not once per tick
+      sampler.nudge(); // and a nudge into a refused sampler is inert
+      await settle();
+      expect(scans).toBe(0);
       sampler.dispose();
     } finally {
       Object.defineProperty(process, "platform", { value: real });
     }
   });
 
-  it("DOES install a cadence on a supported platform (the control)", async () => {
-    // Without this, the timer assertion above could pass because the counter never
-    // moves for any sampler.
-    const timersBefore = vi.getTimerCount();
+  it("DOES scan on a supported platform (the control)", async () => {
+    // Without this, the `scans === 0` assertion above could pass simply because the
+    // harness never counts for any sampler.
     const h = harness();
     await h.seeded();
-    expect(vi.getTimerCount()).toBeGreaterThan(timersBefore);
+    expect(h.passes()).toBeGreaterThan(0);
     h.sampler.dispose();
   });
 });

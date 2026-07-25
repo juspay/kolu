@@ -147,9 +147,14 @@ export function createPortSampler(opts: {
   // read could not deliver the "say it once, then stop" contract: the first read on
   // a host with no terminals yet answers an empty map without reaching the platform
   // switch, so the refusal would land on a later tick — where the poll source logs
-  // and holds, and "stop" quietly becomes an error every 5 s forever. An injected
-  // `scan` is a test's own business and is never gated on the real platform.
-  if (opts.scan === undefined && !portScanSupported()) {
+  // and holds, and "stop" quietly becomes an error every 5 s forever.
+  //
+  // UNCONDITIONAL, including when a `scan` is injected. It used to exempt an
+  // injected scan as "a test's own business", and that exemption was the reason the
+  // refusal could not be tested at all: a test could not attach a counting scan
+  // without also disabling the thing it wanted to observe, so a mutant that logged
+  // once and then armed anyway satisfied every assertion.
+  if (!portScanSupported()) {
     opts.log.error(
       { platform: process.platform },
       "port scan unsupported on this platform — the Ports section will stay empty; not arming the sampler",
@@ -220,13 +225,11 @@ export function createPortSampler(opts: {
         // Everything else is THIS pass failing to see (an EACCES on a requested
         // subtree, an lsof that timed out) and must not publish an empty set.
         //
-        // Name the terminals we hold NO last-good sample for. For those, holding
-        // the last sample cannot preserve the never-look-empty invariant — there is
-        // nothing to hold, and `seedSnapshot` has already put them at `ports: []`,
-        // which reads exactly like "serves nothing". Saying which ones makes that
-        // window visible to an operator instead of silent; representing it ON THE
-        // WIRE would need a sampling-status discriminator, recorded as a PRT2 shape
-        // question beside the `wildcard`/`scope` one.
+        // Name the terminals we hold NO last-good sample for. Holding the last
+        // sample cannot cover them — there is nothing yet to hold — so they stay
+        // `unknown` on the wire, which is now a REAL state rather than a `[]` that
+        // reads like "serves nothing". Naming them is an operator's view of a
+        // window the wire already represents honestly.
         const neverSampled = opts
           .targets()
           .filter((t) => last.get(t.id)?.rootPid !== t.rootPid)
@@ -234,7 +237,7 @@ export function createPortSampler(opts: {
         opts.log.error(
           { err, neverSampled },
           neverSampled.length > 0
-            ? "port scan failed — ports left at their last sample; these terminals have none yet, so they still read as serving nothing"
+            ? "port scan failed — ports left at their last sample; these terminals have none yet and stay unknown"
             : "port scan failed — ports left at their last sample",
         );
         return last;
