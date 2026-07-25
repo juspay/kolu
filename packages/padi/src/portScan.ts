@@ -83,17 +83,9 @@ import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { foldPorts } from "@kolu/terminal-vocab/schema";
-import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
+import type { PortInfo } from "@kolu/terminal-vocab/schema";
 
 const execFileAsync = promisify(execFile);
-
-/** One terminal to attribute ports to — its id and the ROOT pid of its PTY (the
- *  shell for a shell-rooted terminal, the command for a command-rooted one). The
- *  caller re-reads these every tick; the scan holds none of it. */
-export interface PortScanTarget {
-  id: TerminalId;
-  rootPid: number;
-}
 
 /** How long a darwin `ps` / `lsof` may run before it is killed. macOS ships no
  *  GNU `timeout`, so the timer is Node's (`execFile`'s own `timeout`, which sends
@@ -131,16 +123,17 @@ export interface ProcessRow {
   name: string;
 }
 
-/** Partition the host's process table into one pid SET per requested terminal.
+/** Partition the host's process table into one pid SET per requested ROOT pid.
  *
  *  Pure, so the walk is testable without a `/proc`. A pid can land in only one
- *  subtree (a process has one parent chain), and a root pid absent from the table
- *  yields an empty set — its terminal is exiting, which reads as "no ports" and
- *  is honest: the process really is gone. */
+ *  subtree (a process has one parent chain), and a root absent from the table
+ *  yields an empty set — that process really is gone, which reads honestly as "no
+ *  ports". Keyed by the ROOT PID, so two terminals rooted at the same pid are one
+ *  walk rather than two identical ones. */
 export function partitionSubtrees(
   table: readonly ProcessRow[],
-  targets: readonly PortScanTarget[],
-): Map<TerminalId, Set<number>> {
+  rootPids: readonly number[],
+): Map<number, Set<number>> {
   const children = new Map<number, number[]>();
   for (const row of table) {
     const siblings = children.get(row.ppid);
@@ -148,14 +141,14 @@ export function partitionSubtrees(
     else siblings.push(row.pid);
   }
   const alive = new Set(table.map((row) => row.pid));
-  const subtrees = new Map<TerminalId, Set<number>>();
-  for (const target of targets) {
+  const subtrees = new Map<number, Set<number>>();
+  for (const rootPid of rootPids) {
     const pids = new Set<number>();
-    if (alive.has(target.rootPid)) {
+    if (alive.has(rootPid)) {
       // Iterative walk with a `seen` fence: a corrupt/racy ppid chain could in
       // principle present a cycle, and a recursive descent would then overflow
       // the stack instead of reporting ports.
-      const queue = [target.rootPid];
+      const queue = [rootPid];
       while (queue.length > 0) {
         const pid = queue.pop()!;
         if (pids.has(pid)) continue;
@@ -163,7 +156,7 @@ export function partitionSubtrees(
         for (const child of children.get(pid) ?? []) queue.push(child);
       }
     }
-    subtrees.set(target.id, pids);
+    subtrees.set(rootPid, pids);
   }
   return subtrees;
 }
@@ -205,19 +198,19 @@ interface HostReading {
   nameOf(pid: number): Promise<string>;
 }
 
-/** Join one host reading to the requested terminals: partition the table into
- *  subtrees, gather each subtree pid's listeners, name the pids that hold one, and
- *  collapse per terminal.
+/** Join one host reading to the requested subtrees: partition the table, gather
+ *  each subtree pid's listeners, name the pids that hold one, and collapse per
+ *  root pid.
  *
  *  Platform-free by construction — it can only ask the three questions
  *  {@link HostReading} declares. */
-async function joinTerminalPorts(
+async function joinSubtreePorts(
   reading: HostReading,
-  targets: readonly PortScanTarget[],
-): Promise<Map<TerminalId, PortInfo[]>> {
-  const roots = new Set(targets.map((t) => t.rootPid));
-  const out = new Map<TerminalId, PortInfo[]>();
-  for (const [id, pids] of partitionSubtrees(reading.table, targets)) {
+  rootPids: readonly number[],
+): Promise<Map<number, PortInfo[]>> {
+  const roots = new Set(rootPids);
+  const out = new Map<number, PortInfo[]>();
+  for (const [rootPid, pids] of partitionSubtrees(reading.table, rootPids)) {
     const rows: PortInfo[] = [];
     for (const pid of pids) {
       const held = await reading.listenersOf(pid, roots.has(pid));
@@ -228,7 +221,7 @@ async function joinTerminalPorts(
       for (const l of held)
         rows.push({ port: l.port, wildcard: l.wildcard, name });
     }
-    out.set(id, foldPorts(rows));
+    out.set(rootPid, foldPorts(rows));
   }
   return out;
 }
@@ -794,31 +787,34 @@ async function readDarwin(): Promise<HostReading> {
 
 // ── The one entry point ────────────────────────────────────────────────
 
-/** Scan the host once and return each requested terminal's listening ports,
- *  sorted and deduplicated. Every requested id is present in the result (with an
- *  empty array when it serves nothing), so a caller can publish the whole set
- *  without asking which ids were covered.
+/** Scan the host once and return the listening ports of each requested ROOT PID's
+ *  process subtree, sorted and deduplicated. Every requested pid is present in the
+ *  result (with an empty array when its subtree serves nothing), so a caller can
+ *  publish the whole set without asking which were covered.
+ *
+ *  The scan names no TERMINAL. Everything in this module is OS vocabulary — pid
+ *  tables, socket inodes, errno policy — and a `TerminalId` here would be the
+ *  app's identity threaded through a module that reads nothing and means nothing
+ *  by it. The pid → terminal join belongs to the caller (`portSampler.ts`), which
+ *  also makes two terminals rooted at the same pid ONE walk instead of two.
  *
  *  Throws `PortScanError` on an unsupported platform — fail fast, exactly as
  *  `socketHolders` does: kolu's daemons run on linux and darwin, and a third
  *  platform needs a real reader, not a silent empty map. */
 export async function scanTerminalPorts(
-  targets: readonly PortScanTarget[],
-): Promise<Map<TerminalId, PortInfo[]>> {
+  rootPids: readonly number[],
+): Promise<Map<number, PortInfo[]>> {
   // `async` so EVERY failure arrives through one channel. Non-async, the two real
   // arms rejected while the unsupported-platform arm threw synchronously — so the
   // natural shape for a background sampler, `void scan(t).catch(log)`, handled a
   // blind /proc and an lsof timeout but blew up uncaught on exactly the arm the
   // doc advertises as fail-fast.
-  if (targets.length === 0) return new Map();
+  if (rootPids.length === 0) return new Map();
   switch (process.platform) {
     case "linux":
-      return joinTerminalPorts(
-        await readLinux(new Set(targets.map((t) => t.rootPid))),
-        targets,
-      );
+      return joinSubtreePorts(await readLinux(new Set(rootPids)), rootPids);
     case "darwin":
-      return joinTerminalPorts(await readDarwin(), targets);
+      return joinSubtreePorts(await readDarwin(), rootPids);
     default:
       throw new PortScanError(
         `port scan: unsupported platform '${process.platform}' — kolu daemons run on linux/darwin only`,

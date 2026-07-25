@@ -9,8 +9,8 @@ import {
   createPortSampler,
   PORT_SCAN_INTERVAL_MS,
   PORT_SCAN_MIN_GAP_MS,
+  type PortScanTarget,
 } from "./portSampler.ts";
-import type { PortScanTarget } from "./portScan.ts";
 
 const quietLog = {
   error: () => {},
@@ -29,7 +29,7 @@ function harness(opts: { targets?: PortScanTarget[] } = {}) {
   const published: Array<[TerminalId, readonly PortInfo[]]> = [];
   let passes = 0;
   let release: (() => void) | undefined;
-  let answer = new Map<TerminalId, PortInfo[]>();
+  let answer = new Map<number, PortInfo[]>();
   let failWith: Error | undefined;
   const sampler = createPortSampler({
     targets: () => opts.targets ?? ONE,
@@ -51,11 +51,11 @@ function harness(opts: { targets?: PortScanTarget[] } = {}) {
     published,
     passes: () => passes,
     setAnswer: (ports: PortInfo[]) => {
-      answer = new Map([["A" as TerminalId, ports]]);
+      answer = new Map([[100, ports]]);
     },
     /** Answer with a map the test spells itself — for the case where the scan
      *  fails to answer for a requested terminal at all. */
-    setAnswerRaw: (map: Map<TerminalId, PortInfo[]>) => {
+    setAnswerRaw: (map: Map<number, PortInfo[]>) => {
       answer = map;
     },
     setFailure: (err: Error) => {

@@ -31,7 +31,17 @@
 
 import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
-import { type PortScanTarget, scanTerminalPorts } from "./portScan.ts";
+import { scanTerminalPorts } from "./portScan.ts";
+
+/** One terminal to attribute ports to — its id and the ROOT pid of its PTY (the
+ *  shell for a shell-rooted terminal, the command for a command-rooted one). The
+ *  pid → terminal join lives HERE rather than in the scan, which knows only about
+ *  pids: the sampler is where the app's identity vocabulary belongs. The targets
+ *  are re-read every pass; nothing holds them. */
+export interface PortScanTarget {
+  id: TerminalId;
+  rootPid: number;
+}
 
 /** Baseline cadence of the port scan. The same 5 s `memorySampler` uses, for the
  *  same reason: coarse enough to be free, live enough to be worth reading. */
@@ -63,9 +73,7 @@ export function createPortSampler(opts: {
    *  hear about the empty set. The consumer owns the structural dedup. */
   publish: (id: TerminalId, ports: readonly PortInfo[]) => void;
   log: Logger;
-  scan?: (
-    targets: readonly PortScanTarget[],
-  ) => Promise<Map<TerminalId, PortInfo[]>>;
+  scan?: (rootPids: readonly number[]) => Promise<Map<number, PortInfo[]>>;
 }): PortSampler {
   const scan = opts.scan ?? scanTerminalPorts;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -109,19 +117,19 @@ export function createPortSampler(opts: {
     running = true;
     nudgedDuringPass = false;
     try {
-      const ports = await scan(targets);
+      const byPid = await scan(targets.map((t) => t.rootPid));
       if (disposed) return;
       for (const target of targets) {
-        const sample = ports.get(target.id);
+        const sample = byPid.get(target.rootPid);
         if (sample === undefined) {
-          // The scan's contract is that EVERY requested id comes back — with an
-          // empty array when the terminal serves nothing. A missing key is
+          // The scan's contract is that EVERY requested pid comes back — with an
+          // empty array when its subtree serves nothing. A missing key is
           // therefore a scan that failed to answer, not a terminal with no ports,
           // and defaulting it to `[]` would publish exactly the lie this whole
           // module's error handling exists to avoid. Throw into the blindness arm
           // below, which leaves the last sample standing.
           throw new Error(
-            `port scan returned no sample for requested terminal ${target.id}`,
+            `port scan returned no sample for requested root pid ${target.rootPid} (terminal ${target.id})`,
           );
         }
         opts.publish(target.id, sample);

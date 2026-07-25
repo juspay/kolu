@@ -45,8 +45,11 @@ import type {
 } from "../endpoint.ts";
 import { abortableDelay } from "../abortableDelay.ts";
 import { log } from "../log.ts";
-import { createPortSampler, type PortSampler } from "../portSampler.ts";
-import type { PortScanTarget } from "../portScan.ts";
+import {
+  createPortSampler,
+  type PortSampler,
+  type PortScanTarget,
+} from "../portSampler.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";

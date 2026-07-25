@@ -25,7 +25,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it } from "vitest";
-import { type PortScanTarget, scanTerminalPorts } from "./portScan.ts";
+import { scanTerminalPorts } from "./portScan.ts";
 
 const children: ChildProcess[] = [];
 
@@ -77,11 +77,10 @@ function listener(
 /** Scan for this process's own subtree — the test process stands in for a
  *  terminal's root shell, which is exactly the relationship padi has to a PTY. */
 async function scanSelf() {
-  const target: PortScanTarget = { id: "self", rootPid: process.pid };
-  const result = await scanTerminalPorts([target]);
-  const ports = result.get("self");
+  const result = await scanTerminalPorts([process.pid]);
+  const ports = result.get(process.pid);
   if (ports === undefined) {
-    throw new Error("the scan returned no sample for the requested terminal");
+    throw new Error("the scan returned no sample for the requested root pid");
   }
   return ports;
 }
@@ -174,14 +173,11 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     children.push(stranger);
     await new Promise((done) => setTimeout(done, 200));
 
-    const result = await scanTerminalPorts([
-      { id: "holder", rootPid: child.pid! },
-      { id: "stranger", rootPid: stranger.pid! },
-    ]);
-    expect(result.get("holder")).toContainEqual(
+    const result = await scanTerminalPorts([child.pid!, stranger.pid!]);
+    expect(result.get(child.pid!)).toContainEqual(
       expect.objectContaining({ port }),
     );
-    expect(result.get("stranger")).toEqual([]);
+    expect(result.get(stranger.pid!)).toEqual([]);
   });
 
   // Gated twice, and both gates are the POINT rather than a convenience:
@@ -198,19 +194,18 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
       // a real, unfakeable blind spot. Reporting `[]` here would render byte
       // -identically to "this terminal serves nothing"
       // (`caught-error-must-not-collapse-to-empty`).
-      await expect(
-        scanTerminalPorts([{ id: "unreadable", rootPid: 1 }]),
-      ).rejects.toThrow(/cannot list \/proc\/1\/fd/);
+      await expect(scanTerminalPorts([1])).rejects.toThrow(
+        /cannot list \/proc\/1\/fd/,
+      );
     },
   );
 
-  it("returns an empty set — not a missing key — for a terminal whose root is gone", async () => {
+  it("returns an empty set — not a missing key — for a root pid that is gone", async () => {
     // The contract the sampler relies on to tell "serves nothing" from "could not
-    // see": every requested id comes back.
-    const result = await scanTerminalPorts([
-      { id: "dead", rootPid: 0x7f_ff_ff_ff },
-    ]);
-    expect(result.has("dead")).toBe(true);
-    expect(result.get("dead")).toEqual([]);
+    // see": every requested pid comes back.
+    const dead = 0x7f_ff_ff_ff;
+    const result = await scanTerminalPorts([dead]);
+    expect(result.has(dead)).toBe(true);
+    expect(result.get(dead)).toEqual([]);
   });
 });

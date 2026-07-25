@@ -372,21 +372,26 @@ describe("partitionSubtrees", () => {
     { pid: 500, ppid: 400, name: "vite" },
   ];
 
-  it("walks grandchildren, and keeps sibling terminals apart", () => {
-    const subtrees = partitionSubtrees(table, [
-      { id: "A", rootPid: 100 },
-      { id: "B", rootPid: 400 },
-    ]);
-    expect([...subtrees.get("A")!].sort()).toEqual([100, 200, 300]);
-    expect([...subtrees.get("B")!].sort()).toEqual([400, 500]);
+  it("walks grandchildren, and keeps sibling subtrees apart", () => {
+    const subtrees = partitionSubtrees(table, [100, 400]);
+    expect([...subtrees.get(100)!].sort()).toEqual([100, 200, 300]);
+    expect([...subtrees.get(400)!].sort()).toEqual([400, 500]);
   });
 
-  it("gives a dead root an empty subtree rather than omitting the terminal", () => {
-    // Every requested id must be present, so the caller can publish the whole set
-    // without asking which ids were covered — an exiting terminal's ports leave.
-    const subtrees = partitionSubtrees(table, [{ id: "gone", rootPid: 9999 }]);
-    expect(subtrees.has("gone")).toBe(true);
-    expect(subtrees.get("gone")!.size).toBe(0);
+  it("gives a dead root an empty subtree rather than omitting the key", () => {
+    // Every requested pid must be present, so the caller can publish the whole set
+    // without asking which were covered — an exiting terminal's ports leave.
+    const subtrees = partitionSubtrees(table, [9999]);
+    expect(subtrees.has(9999)).toBe(true);
+    expect(subtrees.get(9999)!.size).toBe(0);
+  });
+
+  it("walks a repeated root pid once", () => {
+    // Keying on the pid rather than on a caller's label is what makes this true:
+    // two terminals rooted at the same pid ask one question, not two.
+    const subtrees = partitionSubtrees(table, [100, 100]);
+    expect(subtrees.size).toBe(1);
+    expect([...subtrees.get(100)!].sort()).toEqual([100, 200, 300]);
   });
 
   it("terminates on a cyclic ppid chain instead of overflowing the stack", () => {
@@ -396,7 +401,7 @@ describe("partitionSubtrees", () => {
       { pid: 10, ppid: 11, name: "a" },
       { pid: 11, ppid: 10, name: "b" },
     ];
-    const subtrees = partitionSubtrees(cyclic, [{ id: "C", rootPid: 10 }]);
-    expect([...subtrees.get("C")!].sort()).toEqual([10, 11]);
+    const subtrees = partitionSubtrees(cyclic, [10]);
+    expect([...subtrees.get(10)!].sort()).toEqual([10, 11]);
   });
 });
