@@ -138,6 +138,33 @@ async function main(): Promise<void> {
   });
   adapterRef = adapter;
 
+  /**
+   * Take the adapter down with us, whenever and however we are told to go.
+   *
+   * Registered BEFORE the adapter is spawned, and that ordering is the whole
+   * point: an agent takes seconds to complete its handshake, a Ctrl+C lands in
+   * the middle of that far more often than at any other moment, and until a
+   * handler exists Node's default for SIGINT is to exit immediately — running
+   * no cleanup at all. The adapter is spawned `detached` so that killing it
+   * reaches its own children, which also means the terminal's Ctrl+C never
+   * reaches *it*: the shell signals the foreground process group, and the
+   * adapter is deliberately not in it. Nothing else would ever stop it.
+   */
+  // Declared before the handler that touches it: a signal arriving during the
+  // handshake must not meet a const still in its temporal dead zone.
+  let server: Server | null = null;
+
+  const shutdown = () => {
+    adapter.stop();
+    server?.close();
+    rmSync(socketPath, { force: true });
+    process.exit(0);
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+  // The tile being closed is a hangup, not an interrupt.
+  process.once("SIGHUP", shutdown);
+
   // Claimed before the adapter boots: this is a few syscalls, and failing it
   // after a full agent handshake means spawning and killing an agent to learn
   // something we could have known in a millisecond.
@@ -176,7 +203,7 @@ async function main(): Promise<void> {
     };
   };
 
-  const server: Server = createServer((socket: Socket) => {
+  server = createServer((socket: Socket) => {
     socket.on("error", (error) => {
       process.stderr.write(`acp-proxy: client socket: ${String(error)}\n`);
     });
@@ -251,15 +278,6 @@ async function main(): Promise<void> {
   }).catch(die);
   chmodSync(socketPath, 0o600);
   emit({ kind: "listening", socketPath });
-
-  const shutdown = () => {
-    adapter.stop();
-    server.close();
-    rmSync(socketPath, { force: true });
-    process.exit(0);
-  };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
 }
 
 await main();

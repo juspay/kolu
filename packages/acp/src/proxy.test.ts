@@ -494,6 +494,60 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
     await failed;
   });
 
+  it("takes the adapter with it when interrupted mid-handshake", async () => {
+    // Reported from a real Ctrl+C: `acp-proxy … -- claude` printed only
+    // `adapter spawned`, and the agent was still running after the proxy was
+    // gone. Two things combined. The signal handlers were registered at the END
+    // of startup, so during the handshake — seconds long for a real agent, and
+    // the likeliest moment to interrupt — Node's default SIGINT applied and
+    // exited without cleanup. And the adapter is spawned `detached` (so a kill
+    // reaches ITS children), which takes it out of the foreground process
+    // group, so the terminal's own Ctrl+C never reached it either.
+    assertDaemonSpawnAllowed("the acp-proxy bin and its adapter");
+    const runtimeDir = mkdtempSync(join(tmpdir(), "acp-"));
+    // An adapter that starts but never speaks ACP: the proxy stays in its
+    // handshake, which is exactly the window that had no handler.
+    const child = spawn(
+      process.execPath,
+      proxyArgv(["-e", "setTimeout(() => {}, 1e6)"], process.execPath),
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir },
+      },
+    );
+    let stdout = "";
+    child.stdout?.on("data", (c) => {
+      stdout += String(c);
+    });
+
+    await vi.waitFor(() => expect(stdout).toMatch(/\(pid \d+\)/), {
+      timeout: WAIT_TIMEOUT_MS,
+      interval: 25,
+    });
+    const adapterPid = Number(/\(pid (\d+)\)/.exec(stdout)?.[1]);
+    expect(adapterPid).toBeGreaterThan(0);
+
+    try {
+      child.kill("SIGINT");
+      await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+
+      await vi.waitFor(
+        () => {
+          // ESRCH once it is gone.
+          expect(() => process.kill(adapterPid, 0)).toThrow();
+        },
+        { timeout: 10_000, interval: 100 },
+      );
+    } finally {
+      try {
+        process.kill(adapterPid, "SIGKILL");
+      } catch {
+        // Already gone, which is the passing case.
+      }
+      rmSync(runtimeDir, { recursive: true, force: true });
+    }
+  });
+
   it("takes the adapter's whole process tree with it when it dies", async () => {
     // An adapter runs its tools and MCP servers as its own children. Reaping
     // only the leader leaves them behind, and a proxy that respawns on every
