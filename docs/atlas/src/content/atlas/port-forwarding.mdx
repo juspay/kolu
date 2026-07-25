@@ -825,3 +825,50 @@ dev servers is a genuinely bigger build, and any server sending
 `X-Frame-Options: DENY` / `frame-ancestors` refuses framing — the new-tab
 path must remain the fallback regardless.</Footnote>; no design here yet —
 when it matures this section is rewritten, not layered.
+
+## What this track sends upstream
+
+PRT2's production incident is the best evidence for what belongs in the
+`@kolu/surface` frameworks rather than in this feature. Queued deliberately
+**behind** PRT2's field verification — these are dispatched only once the
+deployed fixes have been tested by hand — and deliberately short of minted
+phase ids: each becomes a phase in the *surface* notes when it is planned
+there, not here.
+
+1. **A loop guard in the reactor.** The freeze was the reactor executing a
+   legal wiring forever: `everyMsOr(interval, onChange)` plus a read that can
+   fire its own change edge is an unbounded cycle, and the failure mode is a
+   silent whole-process freeze that outranks SIGTERM. The consumer-side fix
+   (publish only on change) removes this instance; the class stays
+   expressible, and `processMemory` and `daemonInventory` sit on identical
+   wiring today. Upstream: the reactor detects change-ticks arriving faster
+   than the interval whose re-reads produce value-equal results, and **crashes
+   loudly naming the cell** — a freeze becomes a stack trace pointing at the
+   cycle.<Footnote>Companion: generalize PRT2's wiring-level convergence test
+   (the bounded-read-count assertion) into an `assertCellConverges` helper in
+   surface's test lib, so every future fused cell gets the regression for
+   free.</Footnote>
+2. **`Observed<T>` — the known/unknown vocabulary, deduplicated.** "Blind must
+   never look like empty" is now hand-rolled three times: `ProcessRss`,
+   `TerminalPorts`, and PRT2's `HostPorts` — the same discriminated shape with
+   the same fold-and-compare logic around each. One small
+   `Observed<T> = known(T) | unknown` with its fold, where surface consumers
+   share vocabulary; three real consumers on day one, a fourth when
+   [osfacts](./os-facts-tool.html)' `unreadable` section lands kolu-side.
+3. **Trusted-proxy viewer identity, once field-hardened.** "Who is actually at
+   the other end of this connection" is a transport fact any surface-served
+   app behind a reverse proxy needs — kolu got it wrong twice in one day
+   (peer ≠ viewer behind `tailscale serve`). The trust-gated resolution
+   (direct peer must be a local hop before `X-Forwarded-For` counts) lifts to
+   the surface server layer; drishti's web face, deployed the same way, needs
+   the identical answer the day it makes any per-viewer
+   decision.<Footnote>The larger horizon behind it — multi-viewer presence
+   ("which machine is each viewer on") — stays unplanned on purpose: this PR
+   itself proved that shapes predicted for imagined consumers turn out
+   unwanted when the real one arrives. Extraction here rides proven
+   duplication, not imagination.</Footnote>
+4. **Two doctrine lines for the surface contract docs.** *A per-viewer answer
+   is a root RPC, never a broadcast cell* (PRT2 got this right by instinct;
+   nothing enforces it), and *a poll read may reconcile, but publishes only on
+   change* (the incident's lesson in one sentence). Cheap to write down;
+   prevents the next consumer rediscovering either the hard way.
