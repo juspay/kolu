@@ -630,7 +630,23 @@ let
     inherit pkgs src pnpmDeps version;
     pname = "kolu-typecheck";
   };
+  # padi's darwin port-scan helper as its OWN package output, so the whole thing —
+  # the compile plus the install checks that bind a real dual-stack socket — builds
+  # and iterates alone on a Mac (`nix build .#port-scan-helper`): no client bundle,
+  # no node-pty rebuild, no pnpm fetch. That is the point of the derivation sitting
+  # in `packages/padi/native/` beside its one C file — the unit is self-contained,
+  # so building it should be too.
+  #
+  # The same `callPackage ./packages/padi/native` `nix/env.nix` bakes onto the
+  # wrappers, with the same (empty) argument set, so the two call sites cannot name
+  # different builds — they evaluate to one store path.
+  #
+  # Darwin-only, matching the derivation: it is `null` on linux, and a flake
+  # `packages` set cannot carry a null.
+  darwinOnly = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+    port-scan-helper = pkgs.callPackage ./packages/padi/native { };
+  };
 in
 {
   inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi;
-}
+} // darwinOnly

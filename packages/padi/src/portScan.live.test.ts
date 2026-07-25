@@ -140,7 +140,8 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     // cannot be: `PortInfo` carries `{port, name, wildcard}` and never the
     // address, so both spellings arrive identical at this layer. That is the
     // whole reason the darwin helper's own install check binds a dual-stack
-    // socket and inspects the emitted hex (`packages/padi/nix/`), where the
+    // socket and inspects the emitted hex (`packages/padi/native/default.nix`),
+    // where the
     // `insi_vflag` ordering it guards actually lives.
   });
 

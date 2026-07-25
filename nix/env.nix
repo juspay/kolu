@@ -39,5 +39,5 @@ in
 # evaluates to `null` there, so an unconditional attribute would be a broken path.
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
   KOLU_PORT_SCAN_HELPER =
-    "${pkgs.callPackage ../packages/padi/nix/port-scan-helper.nix { }}/bin/kolu-port-scan-darwin";
+    "${pkgs.callPackage ../packages/padi/native { }}/bin/kolu-port-scan-darwin";
 }

@@ -1,9 +1,11 @@
 # `kolu-port-scan-darwin` — the libproc helper padi's port scan runs on macOS.
 #
-# It lives inside `packages/padi/` rather than in `nix/packages/` because location
-# is structure: this derivation exists only to compile the C file beside it, and
-# the two must move together. (Same reason `packages/surface-daemon/nix/` holds the
-# daemon-identity recipe.)
+# This directory is the whole helper: the C source, its build, and the checks that
+# prove it works, with nothing about it anywhere else. It lives inside
+# `packages/padi/` rather than in `nix/packages/` because location is structure —
+# this derivation exists only to compile the files beside it, and they must move
+# together. Being `default.nix` is the same point one level down: a caller says
+# `callPackage ./native`, so the recipe cannot drift away from the source it builds.
 #
 # DARWIN ONLY. libproc is a macOS interface; the linux scan reads `/proc` directly
 # and needs no helper. Callers must guard on the platform rather than expecting a
@@ -18,7 +20,13 @@ else
     pname = "kolu-port-scan-darwin";
     version = "1";
 
-    src = ../native;
+    # The C files ALONE, not `./.` — this recipe now sits in the same directory, and
+    # a bare `./.` would make every comment edit here a fresh store path and a
+    # rebuild of a compiler-bound derivation that did not change.
+    src = lib.fileset.toSource {
+      root = ./.;
+      fileset = lib.fileset.unions [ ./portScanDarwin.c ./dualstack.c ];
+    };
 
     # No inputs beyond the C toolchain: libproc is in the system SDK that stdenv
     # already provides on darwin, and the helper links nothing else. That is the
@@ -63,33 +71,10 @@ else
       # test, because the defect it guards lives in the C: `insi_vflag` sets BOTH
       # INI_IPV4 and INI_IPV6 for a `::` socket, and an earlier revision tested
       # INI_IPV4 first and so reported `::` as `0.0.0.0`. A fixture cannot catch
-      # that — only a real socket can — so bind one right here and read it back.
-      cat > dualstack.c <<'DUALSTACK'
-      #include <netinet/in.h>
-      #include <stdio.h>
-      #include <string.h>
-      #include <sys/socket.h>
-      #include <unistd.h>
-      int main(void) {
-        int fd = socket(AF_INET6, SOCK_STREAM, 0);
-        if (fd < 0) return 2;
-        int off = 0;  /* dual-stack: v6only OFF, so both vflag bits get set */
-        setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
-        struct sockaddr_in6 sa;
-        memset(&sa, 0, sizeof(sa));
-        sa.sin6_family = AF_INET6;
-        sa.sin6_len = sizeof(sa);
-        sa.sin6_addr = in6addr_any;          /* :: */
-        if (bind(fd, (struct sockaddr *)&sa, sizeof(sa)) < 0) return 2;
-        if (listen(fd, 4) < 0) return 2;
-        socklen_t n = sizeof(sa);
-        if (getsockname(fd, (struct sockaddr *)&sa, &n) < 0) return 2;
-        printf("%d\n", ntohs(sa.sin6_port));  /* port 0 -> kernel picks a free one */
-        fflush(stdout);
-        sleep(20);
-        return 0;
-      }
-DUALSTACK
+      # that — only a real socket can, so `dualstack.c` beside this file binds one
+      # and the helper is made to read it back. It is its own file rather than a
+      # heredoc because a heredoc terminator has to sit at a column the formatter
+      # is free to move, and C reads better as C.
       $CC -O0 -o dualstack dualstack.c || {
         echo "could not build the dual-stack probe" >&2; exit 1; }
       ./dualstack > ds.port &
