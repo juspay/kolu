@@ -560,9 +560,10 @@ card with no stale asset involved; see juspay/kolu#1275.)
 > finally caught the actual cause. Keep this section as the **corrected, evidence-backed**
 > root cause; treat the heuristic-`/`-poison theory above as a refuted hypothesis.
 
-**The real poison was created by kolu's own build, not the browser.** `koluStamped`
-(`default.nix`) builds the client with a placeholder commit (so a docs-only commit
-reuses the cached derivation), then `sed`s the real sha into the built JS — i.e. it
+**The real poison was created by kolu's own build, not the browser.** The old
+`koluStamped` derivation (`default.nix`) built the client with a placeholder commit
+(so a docs-only commit reused the cached derivation), then `sed`ed the real sha into
+the built JS — i.e. it
 **rewrote the bytes of a content-hashed `/assets/index-*.js` file without changing
 its name**, and that path is served `Cache-Control: public, max-age=31536000, immutable`.
 So whenever two consecutive deploys differed only *outside* the client build fileset
@@ -605,9 +606,10 @@ construction.
 **The fix (#1319): build identity rides the `no-store` shell, never an `immutable` asset.**
 The `surfaceApp()` Vite plugin injects `window.__SURFACE_APP_COMMIT__` into `index.html`
 (via `transformIndexHtml`, `head-prepend`) instead of a bundler `define`; the client reads
-it with `shellCommit()` (`@kolu/surface-app/lifecycle`); `koluStamped` `sed`s the
-placeholder in `dist/index.html` **only** (and asserts it appears there and *not* under
-`dist/assets/`, failing the build loud if a future change moves it). Because the shell is
+it with `shellCommit()` (`@kolu/surface-app/lifecycle`); today's `koluClientDist`
+`sed`s the placeholder in `dist/index.html` **only** (and asserts it appears there
+and *not* under `dist/assets/`, failing the build loud if a future change moves it).
+Because the shell is
 re-fetched on every load, the stamp it carries is always the deployed one; the hashed
 bundle it names is paired with the deploy by *content*, not by an in-band sha. Stamp-only
 deploys now produce **no skew at all** (the card never shows — server and client report the

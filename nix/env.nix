@@ -1,6 +1,6 @@
 # Shared env vars consumed by the kolu build, the devShell, and the wrapper.
 # KOLU_COMMIT_HASH excluded — it busts the derivation cache on every commit.
-# The build uses a placeholder; koluStamped stamps the real hash afterwards.
+# The build uses a placeholder; koluClientDist stamps the real hash afterwards.
 #
 # Where possible, pass derivation references directly instead of
 # "${drv}/subpath" string interpolation — this defers store path
