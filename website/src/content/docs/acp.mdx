@@ -1,11 +1,30 @@
 ---
 title: ACP agents
-description: "Run a headless coding agent in a kolu tile and drive it over the Agent Client Protocol — structured turns instead of screen-scraping a TUI."
+description: "Alpha preview — run a headless coding agent in a kolu tile and drive it over the Agent Client Protocol, with structured turns instead of screen-scraping a TUI."
 order: 96
 section: Command Line
 ---
 
+{/*
+  Filed under Command Line, deliberately, and NOT as a "Chat" page: what ships
+  today is the substrate — two command-line bins and a socket. A Chat page
+  belongs with HX1, when there is an actual chat experience to document (DM a
+  bot, a tile appears, replies land in the thread). Until then a Chat page would
+  be documenting an intention. See the plan of record:
+  https://kolu.dev/atlas/chat-native-agents-and-kolu.html
+*/}
+
 import Aside from "../../components/docs/Aside.astro";
+
+<Aside type="caution" title="Alpha preview">
+This ships as a preview and **the surface may change** — flags, the socket
+contract, and the shape of the transcript are all still moving. Two things
+people reasonably expect are **not built yet**: you cannot answer an agent's
+permission request yourself (the proxy auto-answers — see below), and a session
+does not survive the agent being restarted. Both land in later phases. The
+library the package is built on is also mid-migration
+([#1989](https://github.com/juspay/kolu/issues/1989)).
+</Aside>
 
 Driving a coding agent by typing into its TUI means watching a screen and
 guessing: has the turn ended, was that keystroke swallowed, did the tool finish?
@@ -49,11 +68,12 @@ tile is where you go to watch it happen.
 ● turn end · stopReason: end_turn
 ```
 
-<Aside kind="note" title="The tile is not an input">
+<Aside type="note" title="The tile is not an input">
 Nothing is typed into the proxy's terminal. All input arrives as ACP calls on
 the socket, which is what makes the session drivable by a program and watchable
-by a person at the same time. Several clients can attach at once and all see the
-same turn.
+by a person at the same time. **Several clients can attach at once** and all see
+the same turn — so a second `acp-chat` can sit alongside whatever is driving the
+agent and watch, including the prompts it did not send.
 </Aside>
 
 ## Any agent
@@ -69,6 +89,10 @@ Both adapters ship with the package — no global install — and both use the l
 the host already has. Any other stdio ACP agent on your `PATH` works the same
 way.
 
+Note the adapter is an **ACP adapter**, not the interactive CLI: it is
+`claude-agent-acp`, not `claude`. Point it at the wrong one and the proxy tells
+you so after a few seconds rather than hanging.
+
 ## What the harness handles
 
 An agent process can die mid-turn, ignore a cancellation, or block waiting for
@@ -80,11 +104,32 @@ permission. The proxy absorbs all three so a client sees one durable session:
   retrying forever.
 - **A cancel always ends the turn.** It is forwarded first; an agent that keeps
   going anyway is replaced after a short grace window rather than left running.
-- **Permissions are answered "allow once"** for now, and the decision is shown in
-  the transcript. Answering them yourself is the next step for this feature.
+- **Permission requests are auto-answered "allow once"**, and every decision is
+  printed in the transcript. This is the current policy, not a setting: there is
+  no way to answer one yourself yet, and no way to decline. Run agents here only
+  where that is acceptable.
+- **The agent is taken down with the proxy**, including the tools and MCP servers
+  it spawned — Ctrl+C does not leave an agent running behind you.
 
-<Aside kind="note" title="Where this is heading">
-`acp-proxy` is the foundation for driving a kolu agent from a chat thread — one
-conversation to one tile, with permission prompts you answer from chat. Today it
-stands on its own as a way to run and script a headless agent.
-</Aside>
+## Where this is going
+
+Everything in this section is **future work — none of it is built.** What ships
+today is the substrate: a socket, two bins, and a transcript. The destination is
+an agent you talk to from a chat thread, and the plan of record is the Atlas
+note [Chat threads as terminals, over
+ACP](https://kolu.dev/atlas/chat-native-agents-and-kolu.html).
+
+The shape it is heading for:
+
+- **One chat thread ↔ one kolu terminal.** DM a bot; a daemon creates a proxy
+  tile on your host, prompts it, and streams the reply back into the thread. The
+  tile stays an ordinary terminal you can click into for the full frame log.
+- **Permissions you answer from the chat.** A permission request becomes a card
+  with a button per option; answering it unblocks the agent. That replaces
+  today's auto-answer.
+- **Sessions that survive a restart.** The bind is remembered and the
+  conversation resumes with its prior context, rather than starting fresh.
+- **Any agent, still.** The adapter stays argv, so the chat front end and the
+  agent behind it remain independent choices.
+
+None of that changes what is here now, and none of it is promised on a date.
