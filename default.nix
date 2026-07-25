@@ -81,6 +81,29 @@ let
     inherit (pkgs) lib;
   };
 
+  # padi's darwin port-scan reader: a libproc helper that replaced the `ps` + `lsof`
+  # pair, and the numbers are not close. Measured on zest (macOS 27.0): ~8.5-10.6 ms
+  # for one snapshot against 49 ms for `ps` ALONE and 94 ms for `lsof` ALONE — the old
+  # path spent ~143 ms of subprocess before a byte was parsed, for facts libproc
+  # returns in one call.
+  #
+  # A shared `sysinfo`+`listeners` Rust binary was built and MEASURED as the intended
+  # replacement, and it FAILED the address-parity gate on darwin: `listeners` drops the
+  # v4-mapping marker, reporting a `::ffff:127.0.0.1` bind as `::127.0.0.1`. The Atlas
+  # note records the exact bytes and what the follow-up must clear.
+  #
+  # `null` on linux, where the scan reads `/proc` directly — and that split is a
+  # boundary rather than an unfinished migration: the linux reader implements a policy
+  # a one-shot snapshot cannot express (`procReadFailure` — an unreadable FOREIGN-uid
+  # descendant is skipped, an unreadable REQUESTED ROOT is fatal), and collapsing those
+  # two was a real bug where one `sudo` prompt emptied the Ports section host-wide.
+  # So the bake is conditional rather than shipping an empty binary that would pretend
+  # to be a scanner.
+  portScanHelper = pkgs.callPackage ./packages/padi/nix/port-scan-helper.nix { };
+  portScanHelperBakeArg =
+    if portScanHelper == null then ""
+    else ''--set KOLU_PORT_SCAN_HELPER "${portScanHelper}/bin/kolu-port-scan-darwin"'';
+
   # The `.ts` filter for a hashed daemon fileset: real source only (drops `.test.ts`
   # AND `.testlib.ts` shared test-only helpers). The id is a content hash of the
   # fileset's store path, byte-identical across Darwin/Linux; the recipe + rationale
@@ -405,6 +428,7 @@ let
       --add-flags "${koluStamped}/packages/kolu-cli/src/main.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      ${portScanHelperBakeArg} \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
@@ -526,6 +550,7 @@ let
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      ${portScanHelperBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}

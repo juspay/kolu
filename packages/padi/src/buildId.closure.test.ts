@@ -106,11 +106,6 @@ const ALLOWED_EXTERNAL = [
   "mrmime",
   "simple-git",
   "string-argv",
-  // The port sensor's IPv4/IPv6 text-address grammar (`parseBindAddress`,
-  // `portScan.ts`) — `prefer-focused-library` over a hand-rolled parser. A stable
-  // leaf: it has no daemon-relevant behavioral surface of its own (no state, no
-  // wire contract), it only decodes text this repo already controls the shape of.
-  "ipaddr.js",
   "@kolu/surface",
   // @kolu/xterm-kit — the graduated xterm machinery. padi reaches it ONLY
   // transitively through kaval's embedded library (`ptyHost` → the runtime-

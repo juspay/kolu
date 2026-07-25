@@ -18,15 +18,13 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  bindsAny,
+  decodeNetworkAddress,
   decodeProcAddress,
   procReadFailure,
   isAnyAddress,
-  parseBindAddress,
-  parseLsofListeners,
+  parseHelperOutput,
   parseProcNetTcp,
   parseProcStat,
-  parsePsTable,
   partitionSubtrees,
   PortScanError,
   type ProcessRow,
@@ -54,43 +52,37 @@ const PROC_NET_TCP6 = `  sl  local_address                         remote_addres
    2: 0000000000000000FFFF000000000000:1F92 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 5557 1 0000000000000000 100 0 0 10 0
 `;
 
-/** `lsof -nP -w -iTCP -sTCP:LISTEN -Fpcn` **captured verbatim from macOS 27.0**
- *  (zest) and 26.4 (sincereintent), stitched into one body.
- *
- *  lsof replaced `netstat` here because on macOS 27.0 netstat returns an EMPTY
- *  internet table to a padi process while reporting success — see the module
- *  header. This shape is what the scan actually reads now. */
-const LSOF_LISTEN = `p757
-cControlCenter
-f9
-n*:7000
-f10
-n*:7000
-p27688
-c.emanote-wrapped
-f57
-n127.0.0.1:5566
-f60
-n*:8079
-p53082
-cnode
-f18
-n[::1]:5173
-f21
-n[::]:8080
-`;
+/** `::ffff:127.0.0.1` and `::ffff:0.0.0.0` in NETWORK order. They differ in their
+ *  last four bytes alone and mean opposite things: the first needs a forward, the
+ *  second already answers. */
+const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
+const V4_MAPPED_WILDCARD = "00000000000000000000ffff00000000";
 
-/** `ps -axo pid,ppid,comm` from the same macOS 26.4 box. The last two rows are
- *  real: `comm` is a full PATH that really does contain spaces, which is why the
- *  name is the line's untouched remainder and only then a basename. */
-const PS_TABLE = `  PID  PPID COMM
-    1     0 /sbin/launchd
-  581     1 /usr/libexec/logd
- 4200     1 /bin/zsh
- 4242  4200 /Users/srid/.nix-profile/bin/node
- 4243  4242 /System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated
- 4244  4242 Core Audio Driver (ParrotAudioPlugin.driver)
-`;
+/** The libproc helper's stdout, carrying the SAME real observations the retired
+ *  `ps`+`lsof` fixtures did (macOS 26.4 sincereintent and 27.0 zest): the
+ *  `ControlCenter` dual-fd wildcard, one process holding a loopback AND a wildcard
+ *  port at once, and a Node server on v6. Addresses are NETWORK-order hex, which is
+ *  what the helper prints. */
+const HELPER_OUTPUT = [
+  "V\t1",
+  "P\t1\t0\tlaunchd",
+  "P\t4200\t1\tzsh",
+  "P\t4242\t4200\tnode",
+  // A real name with spaces and parentheses — the reason `<name>` is the last field.
+  "P\t4243\t4242\tCore Audio Driver (ParrotAudioPlugin.driver)",
+  "P\t757\t1\tControlCenter",
+  "P\t27688\t4200\t.emanote-wrapped",
+  "P\t53082\t4200\tnode",
+  "L\t757\t7000\t00000000",
+  "L\t757\t7000\t00000000",
+  "L\t27688\t5566\t7f000001",
+  "L\t27688\t8079\t00000000",
+  "L\t53082\t5173\t00000000000000000000000000000001",
+  "L\t53082\t8080\t00000000000000000000000000000000",
+  `L\t53082\t8081\t${V4_MAPPED_LOOPBACK}`,
+  `L\t53082\t8082\t${V4_MAPPED_WILDCARD}`,
+  "",
+].join("\n");
 
 // ── Address decoding ───────────────────────────────────────────────────
 
@@ -146,64 +138,6 @@ describe("isAnyAddress", () => {
   });
 });
 
-describe("parseBindAddress / bindsAny", () => {
-  it("reads lsof's `*` as the wildcard it means", () => {
-    expect(parseBindAddress("*")).toBe("any");
-    expect(bindsAny("*")).toBe(true);
-  });
-
-  it("agrees with the /proc path on every wildcard spelling", () => {
-    // The finding this replaces: two predicates, one over bytes and one over
-    // text, that disagreed about `::ffff:0.0.0.0` — so the SAME server on the
-    // SAME port read as reachable on linux and as needing a forward on darwin.
-    for (const spelling of ["0.0.0.0", "::", "::ffff:0.0.0.0", "*"]) {
-      expect(bindsAny(spelling)).toBe(true);
-    }
-    for (const spelling of [
-      "127.0.0.1",
-      "::1",
-      "::ffff:127.0.0.1",
-      "192.168.1.5",
-      "fe80::1%en0",
-    ]) {
-      expect(bindsAny(spelling)).toBe(false);
-    }
-  });
-
-  it("expands `::` elision and a trailing embedded v4 to 16 bytes", () => {
-    expect(parseBindAddress("::1")).toEqual([...new Array(15).fill(0), 1]);
-    expect(parseBindAddress("::ffff:127.0.0.1")).toEqual([
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1,
-    ]);
-    expect(parseBindAddress("fe80::1")).toEqual([
-      0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    ]);
-  });
-
-  it("fails loudly on text that is not an address", () => {
-    // A silent "specific address" reading would render as an inert chip claiming
-    // a forward is needed, with nothing anywhere to say the parse was wrong.
-    expect(() => parseBindAddress("nonsense")).toThrow(PortScanError);
-    expect(() => parseBindAddress("1.2.3")).toThrow(PortScanError);
-    expect(() => parseBindAddress("300.1.1.1")).toThrow(PortScanError);
-    expect(() => parseBindAddress("::1::2")).toThrow(PortScanError);
-    expect(() => parseBindAddress("1:2:3")).toThrow(PortScanError);
-  });
-
-  it("rejects the legacy non-dotted IPv4 spellings ipaddr.js accepts", () => {
-    // `ipaddr.parse` alone reads all three of these as addresses, and `"0"` as
-    // `0.0.0.0` — so an address field holding junk would classify as a WILDCARD
-    // bind and mint a chip claiming to be openable. That is the one direction this
-    // module must never be lax in, and no socket table spells a bind address this
-    // way, so the narrowing rejects only shapes that cannot legitimately arrive.
-    for (const spelling of ["0", "0x7f000001", "2130706433", "127.1"]) {
-      expect(() => parseBindAddress(spelling)).toThrow(PortScanError);
-    }
-  });
-});
-
-// ── /proc parsing ──────────────────────────────────────────────────────
-
 describe("parseProcNetTcp", () => {
   it("takes LISTEN rows only, with their port and bind kind", () => {
     expect(parseProcNetTcp(PROC_NET_TCP)).toEqual([
@@ -258,9 +192,25 @@ describe("parseProcStat", () => {
 
 // ── darwin parsing ─────────────────────────────────────────────────────
 
-describe("parseLsofListeners", () => {
-  it("reads REAL macOS lsof field output: pid, port, and how it is bound", () => {
-    expect(parseLsofListeners(LSOF_LISTEN)).toEqual([
+describe("parseHelperOutput", () => {
+  it("reads the helper's two tables, and judges wildcardness through isAnyAddress", () => {
+    const { table, listeners } = parseHelperOutput(HELPER_OUTPUT);
+    // Names come through verbatim — the helper already took the basename, and one
+    // of these really does contain spaces on a live Mac.
+    expect(table).toEqual([
+      { pid: 1, ppid: 0, name: "launchd" },
+      { pid: 4200, ppid: 1, name: "zsh" },
+      { pid: 4242, ppid: 4200, name: "node" },
+      {
+        pid: 4243,
+        ppid: 4242,
+        name: "Core Audio Driver (ParrotAudioPlugin.driver)",
+      },
+      { pid: 757, ppid: 1, name: "ControlCenter" },
+      { pid: 27688, ppid: 4200, name: ".emanote-wrapped" },
+      { pid: 53082, ppid: 4200, name: "node" },
+    ]);
+    expect(listeners).toEqual([
       // Two fds on one wildcard port — a dual-stack listener, folded later.
       { port: 7000, wildcard: true, pid: 757 },
       { port: 7000, wildcard: true, pid: 757 },
@@ -268,78 +218,57 @@ describe("parseLsofListeners", () => {
       // beside a wildcard one (does not), in the SAME process.
       { port: 5566, wildcard: false, pid: 27688 },
       { port: 8079, wildcard: true, pid: 27688 },
-      // Bracketed IPv6: the port is after the LAST colon, which is what brackets
-      // make unambiguous.
+      // IPv6: `::1` is specific, `::` is the wildcard.
       { port: 5173, wildcard: false, pid: 53082 },
       { port: 8080, wildcard: true, pid: 53082 },
+      // The subtle pair, four bytes apart and opposite in meaning: the v4-mapped
+      // LOOPBACK needs a forward, the v4-mapped WILDCARD does not.
+      { port: 8081, wildcard: false, pid: 53082 },
+      { port: 8082, wildcard: true, pid: 53082 },
     ]);
   });
 
-  it("treats `::` and `0.0.0.0` as reachable, and a specific address as not", () => {
-    expect(
-      parseLsofListeners(
-        "p1\ncx\nf3\nn0.0.0.0:80\nf4\nn[::]:81\nf5\nn10.0.0.2:82\n",
-      ),
-    ).toEqual([
-      { port: 80, wildcard: true, pid: 1 },
-      { port: 81, wildcard: true, pid: 1 },
-      { port: 82, wildcard: false, pid: 1 },
-    ]);
-  });
-
-  it("classifies the v4-MAPPED pair exactly as the /proc parser does", () => {
-    // Pinned rather than assumed: nothing says lsof never spells a dual-stack
-    // `0.0.0.0` bind in its v4-mapped form, and the two platforms reading the
-    // same address differently is a chip that offers a forward for a port that
-    // already answers (or withholds one from a port that doesn't).
-    expect(
-      parseLsofListeners(
-        "p1\ncx\nf3\nn[::ffff:0.0.0.0]:80\nf4\nn[::ffff:127.0.0.1]:81\n",
-      ),
-    ).toEqual([
-      { port: 80, wildcard: true, pid: 1 },
-      { port: 81, wildcard: false, pid: 1 },
-    ]);
-  });
-
-  it("is empty for an empty body — lsof's honest 'nothing is listening'", () => {
-    expect(parseLsofListeners("")).toEqual([]);
-  });
-
-  it("fails loudly on an address with no port", () => {
-    expect(() => parseLsofListeners("p1\ncx\nf3\nnnonsense\n")).toThrow(
+  it("refuses output whose version is not the one this padi reads", () => {
+    // The helper is baked by Nix alongside padi, so a version mismatch means the
+    // two came from different builds. Failing loudly is the whole point: a shape
+    // this parser half-understands would yield zero listeners, which renders
+    // identically to "no terminal is serving anything".
+    expect(() => parseHelperOutput("V\t2\nP\t1\t0\tlaunchd\n")).toThrow(
       PortScanError,
     );
+    expect(() => parseHelperOutput("P\t1\t0\tlaunchd\n")).toThrow(
+      PortScanError,
+    );
+    expect(() => parseHelperOutput("")).toThrow(PortScanError);
   });
 
-  it("fails loudly on an address that arrives before any process", () => {
-    // Field output is positional by construction; an `n` with no `p` above it
-    // means we are not reading what we think we are.
-    expect(() => parseLsofListeners("f3\nn*:80\n")).toThrow(PortScanError);
-  });
-});
-
-describe("parsePsTable", () => {
-  it("reads pid/ppid and reduces comm to a basename", () => {
-    expect(parsePsTable(PS_TABLE)).toEqual([
-      { pid: 1, ppid: 0, name: "launchd" },
-      { pid: 581, ppid: 1, name: "logd" },
-      { pid: 4200, ppid: 1, name: "zsh" },
-      { pid: 4242, ppid: 4200, name: "node" },
-      // A real path with a space in it — the basename is past the space.
-      { pid: 4243, ppid: 4242, name: "softwareupdated" },
-      // And a real `comm` that is not a path at all, so the whole remainder is
-      // the name (spaces and parentheses included).
-      {
-        pid: 4244,
-        ppid: 4242,
-        name: "Core Audio Driver (ParrotAudioPlugin.driver)",
-      },
-    ]);
+  it("fails loudly on every row it cannot read, rather than skipping it", () => {
+    const bad = [
+      "V\t1\nP\t1\t0\n", // too few fields
+      "V\t1\nP\tnotapid\t0\tlaunchd\n", // non-numeric pid
+      "V\t1\nL\t1\t0\t00000000\n", // port 0 is not a listener
+      "V\t1\nL\t1\t70000\t00000000\n", // out of range
+      "V\t1\nL\t1\t8080\tzz000000\n", // not hex
+      "V\t1\nL\t1\t8080\t0000\n", // neither 8 nor 32 digits
+      "V\t1\nX\t1\t2\t3\n", // a tag from a future format
+    ];
+    for (const body of bad) {
+      expect(() => parseHelperOutput(body)).toThrow(PortScanError);
+    }
   });
 
-  it("fails loudly on a table with no header", () => {
-    expect(() => parsePsTable("4242 4200 node\n")).toThrow(PortScanError);
+  it("does NOT run the helper's hex through the /proc decoder", () => {
+    // The two byte orders are the one difference the types cannot catch. `/proc`
+    // prints each 32-bit word host-order, so its decoder byte-swaps; the helper
+    // emits network order already. Swapping `7f000001` would give `1.0.0.127` — a
+    // specific address either way, so nothing would throw and a loopback bind
+    // would just be mis-attributed to some other host.
+    expect(decodeNetworkAddress("7f000001")).toEqual([127, 0, 0, 1]);
+    expect(decodeProcAddress("7f000001")).toEqual([1, 0, 0, 127]);
+    // Which is exactly why the wildcard judge must be reached through the right
+    // decoder — and why `::ffff:0.0.0.0` still has to come out reachable.
+    expect(isAnyAddress(decodeNetworkAddress(V4_MAPPED_WILDCARD))).toBe(true);
+    expect(isAnyAddress(decodeNetworkAddress(V4_MAPPED_LOOPBACK))).toBe(false);
   });
 });
 

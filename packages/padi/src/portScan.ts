@@ -46,37 +46,50 @@
  *
  * ## Why these two mechanisms
  *
- * On linux, `/proc` is read directly: `ss` measured ~7× slower AND hides other
+ * On linux, `/proc` is read directly: `ss` measured ~7x slower AND hides other
  * users' pid attribution.
  *
- * On darwin the mechanism is **`lsof`**, reversing the plan's original choice of
- * `netstat` — but NOT for the reason this header used to give, which was wrong and
- * is retracted here rather than quietly edited.
+ * On darwin the mechanism is a **libproc helper we build** — see
+ * `packages/padi/native/portScanDarwin.c` and its derivation beside it. It replaced
+ * a `ps` + `lsof` pair, and the numbers are not close. Measured on zest (macOS 27.0,
+ * build 26A5388g, ~835 processes, 10-run medians, spawn-to-exit):
  *
- * **Retracted:** an earlier revision recorded, as a measured fact, that on macOS
- * 27.0 `netstat -anv` returns an EMPTY internet table while reporting success. That
- * does not reproduce. Re-checked on the same box (zest, macOS 27.0, build
- * 26A5388g): `/usr/sbin/netstat -anv -p tcp` returns 29 LISTEN rows and `-anv`
- * returns 241 KB, and `command -v netstat` there already resolves to
- * `/usr/sbin/netstat`. The most likely explanation for the original reading is that
- * it ran a PATH-resolved non-system `netstat` from inside a nix shell — the exact
- * trap this header documents two paragraphs down for `ps` — but that is a
- * hypothesis, not a measurement, and it is written as one. A false measurement must
- * not stay enshrined as the reason for anything.
+ *  | mechanism                   | median  |
+ *  |-----------------------------|---------|
+ *  | this helper                 | **8.5 ms**  |
+ *  | this helper, +100 listeners | 9.4 ms  |
+ *  | `/bin/ps` ALONE             | 49 ms   |
+ *  | `/usr/sbin/lsof` ALONE      | 94 ms   |
  *
- * **The real reason lsof wins here** is its OUTPUT, not its visibility. `netstat`'s
- * `Local Address` column is fixed-width and TRUNCATES: on zest a v6 listener prints
- * as `fe80::c051:5eff:.49508`, with the address cut and the port glued on after a
- * `.`. The bind address is precisely what this module judges reachability from, so a
- * column that silently truncates it is unusable for the one question being asked.
- * `lsof -F` is a documented machine-readable format with one tagged field per line,
- * so nothing depends on column widths at all. (netstat's owner column is spelled
- * `process:pid` — `remoted:401` — on both 26.4 and 27.0, so that part of the old
- * record stands.)
+ * So the old path cost ~143 ms of subprocess before a byte was parsed, for facts
+ * libproc hands over in one call — `ps` and `lsof` are themselves libproc clients.
+ * Re-measured on the shipped derivation at 10.6 ms/run on a busier zest (866
+ * processes), which is the number to beat, not to trust blindly.
  *
- * The "less complete" half of the old comparison costs us nothing: non-root lsof
- * reports only the invoking user's processes, and a terminal's subtree is padi's
- * OWN user by construction — every port we could ever attribute is one lsof shows.
+ * A maintained tool was researched rather than assumed away: `procs` **discards the
+ * bind address** (a hard functional failure here — loopback and wildcard become the
+ * same row) and costs ~30 ms; `osquery` is ~378 ms and not packaged for darwin;
+ * `rustnet` needs capture privileges. The decided end state is a small
+ * `sysinfo`+`listeners` Rust wrapper shared with drishti, behind a proof gate — the
+ * Atlas note records the gate and why this helper ships first.
+ *
+ * ### Retracted: the netstat blindness claim
+ *
+ * An earlier revision recorded, as a MEASURED FACT, that macOS 27.0 `netstat -anv`
+ * returns an empty internet table while reporting success. That does not reproduce.
+ * Re-checked on the same box (zest, 27.0, build 26A5388g): `/usr/sbin/netstat -anv -p
+ * tcp` returns 29 LISTEN rows, `-anv` returns 241 KB, and `command -v netstat` there
+ * already resolves to the system binary. The likely cause is a PATH-resolved nix
+ * netstat — the exact trap this file documents for `ps` — but that is a hypothesis,
+ * written as one. A false measurement must not stay enshrined as a reason.
+ *
+ * netstat would be wrong here anyway, for a reason that IS verified: its
+ * `Local Address` column is fixed-width and TRUNCATES (`fe80::c051:5eff:.49508` —
+ * address cut, port glued on after a `.`), and the bind address is precisely what
+ * reachability is judged from.
+ *
+ * Non-root visibility is the same as lsof had — own-uid pids only — and sufficient by
+ * construction: a terminal's subtree is padi's own uid.
  *
  * ## What a pass actually costs
  *
@@ -93,8 +106,13 @@
  *
  * So the inner loops are batched rather than strictly serial — the pid table in
  * bounded groups, the fd walk concurrently per pid — which measured **14-18 ms** on
- * the same 515-process box. Darwin's two `fork`/`exec`s (`ps` + `lsof`) dominate
- * there instead: 17 ms on a quiet box, 93 ms on a busy one.
+ * the same 515-process box. Darwin is now the FASTER platform at ~8.5-10.6 ms, since
+ * its helper does the whole join in one libproc pass with no subprocess text to
+ * parse.
+ *
+ * Either way the sampler no longer depends on these figures staying true: its nudge
+ * floor is duty-cycle bounded (`nudgeFloorMs`), so a pass that gets slower stretches
+ * its own cadence instead of taxing the box.
  *
  * The remaining order of magnitude is a KNOWN, recorded opportunity rather than a
  * mystery: `/proc/<pid>/task/<tid>/children` lets the walk descend from each
@@ -115,6 +133,14 @@
  * `node:53082`), so every darwin scan threw while every fixture test stayed green.
  * Found by running it on a Mac, not by reading it. The same suite is what SHOULD
  * have caught the retracted netstat-blindness claim above at the time.
+ *
+ * The helper was proved the same way before it shipped: built on zest and checked
+ * against `lsof` for all four bind shapes at once — `127.0.0.1`, `0.0.0.0`, `::1`,
+ * and a DUAL-STACK `::` socket (`ipv6Only: false`). That last one is the case worth
+ * naming: the helper's `insi_vflag & INI_IPV4` branch collapses it to its 4-byte v4
+ * form, so `isAnyAddress` calls it reachable and lsof agrees (`*:19304`). A reader
+ * without that branch would report a 16-byte address there and the two would part
+ * ways on exactly the case the v4-mapped arm exists for.
  */
 
 import { execFile } from "node:child_process";
@@ -122,7 +148,6 @@ import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { foldPorts } from "@kolu/terminal-vocab/schema";
-import ipaddr from "ipaddr.js";
 import { log } from "./log.ts";
 import type { PortInfo } from "@kolu/terminal-vocab/schema";
 
@@ -324,6 +349,31 @@ export function decodeProcAddress(hex: string): number[] {
   return bytes;
 }
 
+/** Decode a bind address printed in NETWORK order — what the darwin helper emits,
+ *  straight from the socket's `sockaddr` bytes.
+ *
+ *  Separate from {@link decodeProcAddress} on purpose, and the difference is one the
+ *  types cannot catch: linux's `/proc` prints each 32-bit word in HOST order, so its
+ *  decoder byte-swaps per word, while these bytes are already in the order the wire
+ *  uses. Running helper output through the `/proc` decoder would swap bytes that
+ *  need no swapping and turn `127.0.0.1` into `1.0.0.127` — a SPECIFIC address either
+ *  way, so it would not throw; it would quietly mis-classify. Two decoders, ONE judge
+ *  ({@link isAnyAddress}) keeps the byte-order difference local and the reachability
+ *  decision shared. */
+export function decodeNetworkAddress(hex: string): number[] {
+  if ((hex.length !== 8 && hex.length !== 32) || !/^[0-9A-Fa-f]+$/.test(hex)) {
+    throw new PortScanError(
+      "blind",
+      `port scan: "${hex}" is not a bind address (expected exactly 8 or 32 hex digits)`,
+    );
+  }
+  const bytes: number[] = [];
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes.push(Number.parseInt(hex.slice(i, i + 2), 16));
+  }
+  return bytes;
+}
+
 /** Is this the ANY address — `0.0.0.0`, `::`, or the v4-mapped `::ffff:0.0.0.0`?
  *  The v4-mapped arm is not hypothetical: a Node server that binds `0.0.0.0` on
  *  a dual-stack box is commonly reported in `tcp6` in exactly that form, and
@@ -331,11 +381,11 @@ export function decodeProcAddress(hex: string): number[] {
  *  that already answers.
  *
  *  Over BYTES, so this one arm answers for every spelling either platform
- *  produces — `/proc`'s reversed hex through {@link decodeProcAddress}, `lsof`'s
- *  text through {@link parseBindAddress}. There is deliberately no second,
- *  text-shaped predicate: the two used to disagree about exactly the case the
- *  paragraph above exists for, so darwin classified a reachable v4-mapped
- *  wildcard as needing a forward. */
+ *  produces: `/proc`'s host-order hex on linux and the helper's network-order hex on
+ *  darwin. There is deliberately no second, text-shaped predicate — an earlier
+ *  revision had one and the two disagreed about exactly the case the paragraph above
+ *  exists for, so darwin classified a reachable v4-mapped wildcard as needing a
+ *  forward. */
 export function isAnyAddress(bytes: readonly number[]): boolean {
   if (bytes.every((b) => b === 0)) return true;
   return (
@@ -345,49 +395,6 @@ export function isAnyAddress(bytes: readonly number[]): boolean {
     bytes[11] === 0xff &&
     bytes.slice(12).every((b) => b === 0)
   );
-}
-
-/** Parse a TEXTUAL bind address into its bytes — or `"any"` for `*`, the literal
- *  `lsof` writes for a wildcard bind (the one spelling that is not an address at
- *  all).
- *
- *  Delegates the actual IPv4/IPv6 text grammar to `ipaddr.js` (`::` elision, a
- *  trailing embedded v4, a v6 zone id like `fe80::1%en0`) rather than a hand-
- *  rolled parser for the same grammar — `prefer-focused-library`. Fails LOUDLY on
- *  text it cannot read, like every other parse in this module: an address
- *  silently classified as "specific" is a chip that quietly claims to need a
- *  forward, which is the failure mode {@link isAnyAddress}'s v4-mapped arm was
- *  written for.
- *
- *  One place the library is DELIBERATELY narrowed. `ipaddr.parse` also accepts the
- *  legacy non-dotted IPv4 spellings — `ipaddr.parse("0")`, `"0x7f000001"` and
- *  `"2130706433"` all succeed — and `"0"` decodes to `0.0.0.0`, i.e. it would make
- *  garbage in the address field read as a WILDCARD bind and mint a chip claiming
- *  to be openable. No socket table writes a bind address that way, so the
- *  narrowing costs nothing real and keeps the dangerous direction unreachable.
- *  The check is the library's own (`isValidFourPartDecimal`), not a second
- *  hand-rolled grammar. */
-export function parseBindAddress(text: string): number[] | "any" {
-  if (text === "*") return "any";
-  const bad = (cause?: unknown) =>
-    new PortScanError("blind", `port scan: "${text}" is not a bind address`, {
-      cause,
-    });
-  if (!text.includes(":") && !ipaddr.IPv4.isValidFourPartDecimal(text))
-    throw bad();
-  try {
-    return ipaddr.parse(text).toByteArray();
-  } catch (err) {
-    throw bad(err);
-  }
-}
-
-/** Whether a TEXTUAL bind address is the ANY address — the one question a parser
- *  over text (`lsof`) asks, routed through the SAME byte-level decision `/proc`
- *  uses. */
-export function bindsAny(text: string): boolean {
-  const address = parseBindAddress(text);
-  return address === "any" || isAnyAddress(address);
 }
 
 /** A `/proc/net/tcp{,6}` LISTEN row, keyed by the socket inode the fd walk joins
@@ -730,181 +737,191 @@ async function readLinux(roots: ReadonlySet<number>): Promise<HostReading> {
   };
 }
 
-// ── darwin: ps + lsof ──────────────────────────────────────────────────
+// ── darwin: one libproc pass ───────────────────────────────────────────
 
-/** Parse `ps -axo pid,ppid,comm` output.
- *
- *  `comm` is macOS's full executable PATH and may contain spaces, so it is the
- *  untouched remainder of the line and the name is its basename. A non-empty line
- *  that does not match throws — a `ps` whose shape changed must be a loud failure,
- *  not a silently short process table (which would mis-attribute ports to nobody). */
-export function parsePsTable(body: string): ProcessRow[] {
-  const lines = body.split("\n");
-  const header = lines.findIndex(
-    (l) => /\bPID\b/.test(l) && /\bPPID\b/.test(l),
-  );
-  if (header === -1) {
-    throw new PortScanError(
-      "blind",
-      "port scan: `ps` output had no PID/PPID header",
-    );
-  }
-  const rows: ProcessRow[] = [];
-  for (const line of lines.slice(header + 1)) {
-    if (line.trim() === "") continue;
-    const m = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
-    if (m === null) {
-      throw new PortScanError(
-        "blind",
-        `port scan: unreadable \`ps\` row: ${line}`,
-      );
-    }
-    rows.push({
-      pid: Number(m[1]),
-      ppid: Number(m[2]),
-      name: path.basename(m[3]!),
-    });
-  }
-  return rows;
-}
+/** The stdout grammar version this parser understands. The helper prints its own
+ *  version as the FIRST line and this refuses anything else — the one shape of
+ *  skew that must never degrade quietly, because a helper whose fields moved would
+ *  otherwise parse to zero listeners and read as "no terminal is serving
+ *  anything". Bump both together or not at all. */
+const HELPER_FORMAT_VERSION = 1;
 
-/** A darwin listener, keyed by the pid `lsof` reports for it. */
-interface LsofListener extends Listener {
+/** A darwin listener, keyed by the pid libproc reports holding the socket. */
+interface HelperListener extends Listener {
   pid: number;
 }
 
-/** Parse `lsof -nP -w -iTCP -sTCP:LISTEN -Fpcn` field output.
- *
- *  Field output rather than the human table because it is the format lsof
- *  documents as machine-readable: one field per line, tagged by its first
- *  character, so nothing depends on column widths or on a process name that
- *  contains a space. `p` opens a process set, `f` opens a file within it, `n` is
- *  the address:
- *
- *      p27688 · c.emanote-wrapped · f57 · n127.0.0.1:5566 · f60 · n*:8079
- *
- *  `-sTCP:LISTEN` means every `n` here is already a listener, so there is no state
- *  column to filter on. Addresses are `HOST:PORT` with the port after the LAST
- *  colon — IPv6 hosts are bracketed (`[::1]:5173`), which is what makes that
- *  unambiguous. */
-export function parseLsofListeners(body: string): LsofListener[] {
-  const listeners: LsofListener[] = [];
-  let pid: number | undefined;
-  for (const line of body.split("\n")) {
-    if (line === "") continue;
-    const tag = line[0];
-    const value = line.slice(1);
-    if (tag === "p") {
-      const parsed = Number.parseInt(value, 10);
-      if (!Number.isInteger(parsed)) {
-        throw new PortScanError(
-          "blind",
-          `port scan: unreadable lsof pid field: ${line}`,
-        );
-      }
-      pid = parsed;
-      continue;
-    }
-    if (tag !== "n") continue;
-    if (pid === undefined) {
-      throw new PortScanError(
-        "blind",
-        `port scan: lsof reported an address before any process: ${line}`,
-      );
-    }
-    const split = value.lastIndexOf(":");
-    if (split === -1) {
-      throw new PortScanError(
-        "blind",
-        `port scan: "${value}" is not an lsof listening address (expected HOST:PORT)`,
-      );
-    }
-    const port = Number.parseInt(value.slice(split + 1), 10);
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-      throw new PortScanError(
-        "blind",
-        `port scan: "${value}" carries no valid port in an lsof LISTEN row`,
-      );
-    }
-    // `[::1]` → `::1`; a v4 host and `*` are unbracketed already. The wildcard
-    // judgment is then the platform-independent one (`bindsAny` → bytes →
-    // `isAnyAddress`), so darwin and linux cannot disagree about a spelling —
-    // `::ffff:0.0.0.0` most of all.
-    const host = value.slice(0, split).replace(/^\[|\]$/g, "");
-    listeners.push({ port, wildcard: bindsAny(host), pid });
-  }
-  return listeners;
+/** Both tables the helper prints in one pass. */
+export interface HelperReading {
+  table: ProcessRow[];
+  listeners: HelperListener[];
 }
 
-/** Run a darwin helper by ABSOLUTE path.
+/** Parse `kolu-port-scan-darwin`'s output.
  *
- *  The path is absolute on purpose. kolu's macOS users run nix, and a
- *  nix-provided `ps` on `PATH` is procps — whose `-o comm` is a truncated name,
- *  not the executable path this parser reads. Resolving these through `PATH` makes
- *  the scan's correctness depend on the user's profile; naming the system binary
- *  makes it depend on macOS. */
-async function runDarwin(command: string, args: string[]): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync(command, args, {
-      timeout: PORT_SCAN_COMMAND_TIMEOUT_MS,
-      // SIGKILL, not execFile's default SIGTERM. The point of the timer is a helper
-      // that is WEDGED — on a contended mount, in uninterruptible I/O — and such a
-      // process is exactly the one entitled to ignore SIGTERM. A polite signal would
-      // make the timeout advisory and leave the sampler's single-flight slot held by
-      // a process that will not die, which is the failure this timer exists to stop.
-      killSignal: "SIGKILL",
-      // A 1000-process box's `ps` is ~110 KB; this is headroom, and a genuine
-      // overflow must fail rather than truncate into a short port list.
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return stdout;
-  } catch (err) {
-    // lsof exits 1 when it found nothing — a box serving no ports at all. That is
-    // an ANSWER, not a failure, and it is distinguishable: lsof writes nothing to
-    // either stream. A code-1 exit that DID say something is a real error and
-    // falls through to the throw.
-    const e = err as { code?: unknown; stdout?: string; stderr?: string };
-    if (e.code === 1 && e.stdout === "" && e.stderr === "") return "";
+ *  Tab-separated, tagged by the first field, version first:
+ *
+ *      V→1
+ *      P→<pid>→<ppid>→<name>          the process table
+ *      L→<pid>→<port>→<hex address>   one listening TCP socket
+ *
+ *  `<name>` is last because it may contain spaces (the helper strips tabs from it,
+ *  so arity is fixed). The address is the RAW bind bytes as hex — 8 chars for v4,
+ *  32 for v6 — decoded by {@link decodeProcAddress} and judged by
+ *  {@link isAnyAddress}, the SAME two functions the linux `/proc` reader uses. That
+ *  is the point of moving hex rather than a boolean across this boundary: one
+ *  classifier, so the two platforms cannot come to disagree about
+ *  `::ffff:0.0.0.0`.
+ *
+ *  Every unreadable line throws. A helper we cannot parse is a blind pass, and a
+ *  blind pass must not look like an empty one. */
+export function parseHelperOutput(body: string): HelperReading {
+  const lines = body.split("\n");
+  const first = lines[0] ?? "";
+  const version = /^V\t(\d+)$/.exec(first);
+  if (version === null) {
     throw new PortScanError(
       "blind",
-      `port scan: \`${command} ${args.join(" ")}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
+      `port scan: helper did not begin with a version line (got ${JSON.stringify(first.slice(0, 40))})`,
+    );
+  }
+  if (Number(version[1]) !== HELPER_FORMAT_VERSION) {
+    throw new PortScanError(
+      "blind",
+      `port scan: helper speaks format ${version[1]}, this padi reads ${HELPER_FORMAT_VERSION} — the baked helper and padi are from different builds`,
+    );
+  }
+
+  const table: ProcessRow[] = [];
+  const listeners: HelperListener[] = [];
+  for (const line of lines.slice(1)) {
+    if (line === "") continue;
+    const f = line.split("\t");
+    if (f[0] === "P") {
+      // 4 fields exactly: the name is the last and cannot contain a tab.
+      if (f.length !== 4) {
+        throw new PortScanError(
+          "blind",
+          `port scan: unreadable helper process row: ${line}`,
+        );
+      }
+      const pid = Number(f[1]);
+      const ppid = Number(f[2]);
+      if (!Number.isInteger(pid) || !Number.isInteger(ppid)) {
+        throw new PortScanError(
+          "blind",
+          `port scan: helper process row has a non-numeric pid: ${line}`,
+        );
+      }
+      // The helper already sends the executable's BASENAME; `path.basename` here
+      // would be a second opinion about a decision made there.
+      table.push({ pid, ppid, name: f[3]! });
+      continue;
+    }
+    if (f[0] === "L") {
+      if (f.length !== 4) {
+        throw new PortScanError(
+          "blind",
+          `port scan: unreadable helper listener row: ${line}`,
+        );
+      }
+      const pid = Number(f[1]);
+      const port = Number(f[2]);
+      if (!Number.isInteger(pid)) {
+        throw new PortScanError(
+          "blind",
+          `port scan: helper listener row has a non-numeric pid: ${line}`,
+        );
+      }
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        throw new PortScanError(
+          "blind",
+          `port scan: helper listener row carries no valid port: ${line}`,
+        );
+      }
+      listeners.push({
+        port,
+        wildcard: isAnyAddress(decodeNetworkAddress(f[3]!)),
+        pid,
+      });
+      continue;
+    }
+    throw new PortScanError(
+      "blind",
+      `port scan: unknown helper row tag ${JSON.stringify(f[0] ?? "")}: ${line}`,
+    );
+  }
+  return { table, listeners };
+}
+
+/** The baked path to the libproc helper.
+ *
+ *  Baked by Nix (`KOLU_PORT_SCAN_HELPER`, set on the padi and kolu wrappers in
+ *  `default.nix`), never resolved from `PATH` and with no fallback: a required
+ *  value that is absent is a crash, per the repo's fail-fast rule. Reading it
+ *  lazily — at scan time rather than module load — keeps importing this module
+ *  harmless on a host that will never scan (and keeps the linux path, which needs
+ *  no helper, from demanding one). */
+function portScanHelperPath(): string {
+  const v = process.env.KOLU_PORT_SCAN_HELPER;
+  if (!v) {
+    throw new PortScanError(
+      "blind",
+      "KOLU_PORT_SCAN_HELPER is not set — run padi through its Nix wrapper or `nix develop`. The darwin port scan has no PATH fallback by design.",
+    );
+  }
+  return v;
+}
+
+/** Read the whole darwin host once, through the libproc helper.
+ *
+ *  ONE fork/exec for both tables, where this used to be two (`ps` and `lsof`) plus
+ *  two text formats. The helper asks libproc — the same source `ps` and `lsof`
+ *  themselves read — so nothing is lost by not shelling out to them; see
+ *  `packages/padi/native/portScanDarwin.c` for the syscall-level detail and for
+ *  the non-root visibility caveat (own-uid pids only, which is sufficient because
+ *  a terminal's subtree is padi's own uid by construction). */
+async function readDarwin(): Promise<HostReading> {
+  const helper = portScanHelperPath();
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync(helper, [], {
+      timeout: PORT_SCAN_COMMAND_TIMEOUT_MS,
+      // SIGKILL, not execFile's default SIGTERM. The timer exists for a helper
+      // that is WEDGED in uninterruptible I/O, and that is precisely the process
+      // entitled to ignore SIGTERM — a polite signal would make the timeout
+      // advisory and leave the sampler's single-flight slot held forever.
+      killSignal: "SIGKILL",
+      // A 1000-process box prints ~60 KB; this is headroom. A genuine overflow
+      // must fail rather than truncate into a short port list.
+      maxBuffer: 8 * 1024 * 1024,
+    }));
+  } catch (err) {
+    throw new PortScanError(
+      "blind",
+      `port scan: \`${helper}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
       { cause: err },
     );
   }
-}
 
-/** macOS's own `ps` and `lsof` — see {@link runDarwin} for why these are absolute. */
-const DARWIN_PS = "/bin/ps";
-const DARWIN_LSOF = "/usr/sbin/lsof";
-
-/** Read the whole darwin host once: `ps` for the table, `lsof` for the listeners
- *  it already attributes to a pid. */
-async function readDarwin(): Promise<HostReading> {
-  const [ps, lsof] = await Promise.all([
-    runDarwin(DARWIN_PS, ["-axo", "pid,ppid,comm"]),
-    // `-n`/`-P` keep it from resolving DNS and port names (both would be slow and
-    // neither is wanted); `-w` suppresses warnings so stderr means something.
-    runDarwin(DARWIN_LSOF, ["-nP", "-w", "-iTCP", "-sTCP:LISTEN", "-Fpcn"]),
-  ]);
-  const table = parsePsTable(ps);
-  const comm = new Map(table.map((row) => [row.pid, row.name]));
-  const byPid = new Map<number, LsofListener[]>();
-  for (const l of parseLsofListeners(lsof)) {
+  const { table, listeners } = parseHelperOutput(stdout);
+  const name = new Map(table.map((row) => [row.pid, row.name]));
+  const byPid = new Map<number, HelperListener[]>();
+  for (const l of listeners) {
     const held = byPid.get(l.pid);
     if (held === undefined) byPid.set(l.pid, [l]);
     else held.push(l);
   }
   return {
     table,
-    // lsof already reported WHICH pid holds each listener, so there is no per-pid
-    // read to attempt and no failure to classify: a pid lsof could not see simply
-    // has no rows. (`procReadFailure`'s policy is linux's fd-walk policy — darwin
-    // does no fd walk, which is why the argument goes unread here.)
+    // The helper already reported WHICH pid holds each listener, so there is no
+    // per-pid read to attempt and no failure to classify: a pid it could not
+    // inspect simply has no rows. (`procReadFailure`'s policy is linux's fd-walk
+    // policy; darwin does no fd walk from this process.)
     listenersOf: (pid) => Promise.resolve(byPid.get(pid) ?? []),
-    // `ps -o comm` is macOS's full executable PATH, so its basename is ALREADY the
-    // good name — darwin needs no second read to earn what linux reads `cmdline`
-    // for (linux's `comm` is the THREAD name, which Node overwrites).
-    nameOf: (pid) => Promise.resolve(comm.get(pid) ?? String(pid)),
+    // Already the executable's basename, decided in the helper — darwin needs no
+    // second read to earn what linux reads `cmdline` for.
+    nameOf: (pid) => Promise.resolve(name.get(pid) ?? String(pid)),
   };
 }
 
