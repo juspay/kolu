@@ -143,11 +143,47 @@ static void emit_listeners(pid_t pid) {
     int port = ntohs((uint16_t)ini->insi_lport);
     if (port <= 0) continue;
 
-    /* A dual-stack listener is an AF_INET6 socket whose vflag says the bound
-     * address is v4 — emit the four bytes it actually bound, so the JS
-     * classifier sees the same shape linux's `/proc/net/tcp` gives it. */
-    int v4 = si.psi.soi_family == AF_INET ||
-             (ini->insi_vflag & INI_IPV4) != 0;
+    /* WHICH slot of `insi_laddr` holds the address? `soi_family` does not say —
+     * `insi_vflag` does, and the ORDER of the two flag checks is load-bearing.
+     *
+     * Measured on macOS 27.0, by binding each shape and reading `getsockname`
+     * beside this very struct:
+     *
+     *   bind               soi_family  insi_vflag           v4 slot     v6 slot
+     *   ::ffff:127.0.0.1   AF_INET6    0x01 (v4 only)       7f000001    ::127.0.0.1
+     *   ::  (dual-stack)   AF_INET6    0x03 (BOTH)          00000000    ::
+     *   ::1                AF_INET6    0x02 (v6 only)       00000001 !  ::1
+     *   127.0.0.1          AF_INET     0x01                 7f000001    -
+     *
+     * So INI_IPV6 must be tested FIRST: a dual-stack socket sets BOTH flags, and
+     * an earlier revision of this file tested INI_IPV4 first — which reported a
+     * `::` bind as `0.0.0.0`. And the v4 slot is never safe to read without
+     * INI_IPV4: for `::1` it holds `00000001`, which would surface as `0.0.0.1`.
+     *
+     * On the severity of the bug this replaces, stated honestly: it was a
+     * FIDELITY loss, not a CLASSIFICATION error. `0.0.0.0` and `::` both answer
+     * `isAnyAddress`, so no chip ever rendered wrongly because of it. It still had
+     * to go — PRT2 forwards to addresses rather than merely classifying them, and
+     * a reader that silently narrows a dual-stack listener to its v4 half is
+     * wrong in the record even when it happens to be right in the outcome. The
+     * same defect was found in an unrelated tool (`portview`) while surveying
+     * alternatives; we do not get to hold anyone else to a bar this file misses.
+     *
+     * A v4-mapped bind is still emitted as the FOUR-byte v4 form rather than the
+     * 16-byte mapped one. That is a representation choice, not a fidelity one —
+     * `127.0.0.1` and `::ffff:127.0.0.1` are the same address, it matches what
+     * `lsof` prints for that socket, and the consumer canonicalises the two
+     * together anyway. */
+    int v4;
+    if (si.psi.soi_family == AF_INET) {
+      v4 = 1; /* AF_INET can only be v4 */
+    } else if (ini->insi_vflag & INI_IPV6) {
+      v4 = 0; /* genuine v6, INCLUDING dual-stack (both flags set) */
+    } else if (ini->insi_vflag & INI_IPV4) {
+      v4 = 1; /* v4-mapped: the address lives in the 4-byte slot */
+    } else {
+      v4 = 0; /* neither flag: trust the family rather than invent a slot */
+    }
 
     printf("L\t%d\t%d\t", (int)pid, port);
     if (v4) {

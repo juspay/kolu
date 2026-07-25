@@ -346,6 +346,48 @@ its value on darwin, and linux keeping its subtree-scoped `/proc` reader may be 
 answer rather than a compromise. That is a call to make deliberately with these numbers in
 hand, not something to settle inside this PR.
 
+### Overturned: single-pass Rust matches C, so the shared binary is reopened
+
+Surveying one more candidate — [portview](https://github.com/Mapika/portview) (MIT,
+v1.6.0) — produced a number that invalidates the conclusion drawn above, so it is
+recorded here rather than left in a report.
+
+**portview measured ~9.9 ms median on darwin and ~25.5 ms on linux**, against our C
+helper's 10.6 ms on the same box by the same method. It is Rust, and it is a single pass
+over its own libproc / `/proc` code.
+
+So the `sysinfo`+`listeners` wrapper's 23.2 ms darwin / ~100 ms linux was never
+Rust's cost — it was the **double enumeration**, exactly as suspected: `sysinfo` walks
+the process list, then `listeners` walks it again (and on linux walks every process's
+fds to map inodes). One pass in Rust is as fast as one pass in C.
+
+**That reopens the shared kolu ⇄ drishti binary on performance grounds.** The blocker was
+never the language, and it was not really the crates either — it was composing two
+whole-host enumerations. A single-pass Rust binary written against the same libproc /
+`/proc` calls the C helper already uses should land in the same ~10 ms band, and it
+would carry the cross-platform boundary the C helper cannot.
+
+**What that binary must add over portview**, which is precisely what portview lacks:
+
+1. **A process table**, not just listener rows. portview emits one row per listening
+   socket with a single `ppid` edge, so a `shell → npm → node` server cannot be
+   walked back to its terminal: `npm` holds no listener and therefore never appears.
+   That is the same disqualifier that ruled out `portls`, and it is the whole question
+   this feature asks.
+2. **`--roots` scoping**, so cost tracks the ask rather than the host. portview's
+   single-port query is a host-wide scan followed by a filter — measured at 26.0 ms full
+   vs 25.1 ms scoped, i.e. no saving at all.
+
+Two smaller findings from the same survey, both already acted on:
+
+- portview does **not** shell out (own libproc/`/proc`/IpHelper code), so it inherits
+  neither the macOS netstat blindness nor the `listeners` v4-mapped bug — it reads
+  `insi_vflag`. But it tests `INI_IPV4` **before** `INI_IPV6`, so a dual-stack
+  `::` bind reports as `0.0.0.0` (predicted from its source, then measured on zest).
+- **Our own C helper had that identical defect**, and it is fixed in this PR — v6 is now
+  tested first, with the dual-stack case bound and read back in the helper's own install
+  check. We do not get to hold an upstream project to a bar our own reader misses.
+
 ### What the follow-up must clear, and the two things the fact-check corrected
 
 The finding above survived an adversarial re-run whose explicit goal was to destroy it
@@ -390,6 +432,7 @@ without revisiting the operational model.
 | `/usr/sbin/lsof` alone | 94 ms | — |
 | `procs --interval 1` | 29.6 ms — **and it discards the bind address** | 89.8 ms |
 | `osqueryi` union query | not packaged for darwin | 378 ms |
+| `portview` (MIT, own libproc//proc code) | **9.9 ms** — but listener rows only, no process table | 25.5 ms |
 | `sysinfo`+`listeners` wrapper | built and measured: low tens, but **FAILS address parity** (below) | built; parity green |
 
 So the old darwin path spent **~143 ms of subprocess** before parsing a byte, for

@@ -134,6 +134,36 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     expect(ports.filter((p) => p.port === port)).toEqual([
       { port, name: "node", wildcard: true },
     ]);
+
+    // The dual-stack BYTE fidelity — that `::` is read from the v6 slot and not
+    // narrowed to `0.0.0.0` — deliberately is NOT asserted here, because it
+    // cannot be: `PortInfo` carries `{port, name, wildcard}` and never the
+    // address, so both spellings arrive identical at this layer. That is the
+    // whole reason the darwin helper's own install check binds a dual-stack
+    // socket and inspects the emitted hex (`packages/padi/nix/`), where the
+    // `insi_vflag` ordering it guards actually lives.
+  });
+
+  it("tells the v4-MAPPED loopback from the v4-mapped wildcard", async () => {
+    // `::ffff:127.0.0.1` and `::ffff:0.0.0.0` differ in four bytes and mean
+    // opposite things, and every classification bug in this area has been one of
+    // them read as the other. Live rather than fixture because the two platforms
+    // arrive at these bytes by completely different routes: linux reads the
+    // mapped form literally out of `/proc/net/tcp6`, while darwin's helper has to
+    // pick the right half of a union using `insi_vflag`.
+    const mappedLoopback = await listener("::ffff:127.0.0.1");
+    const mappedWildcard = await listener("::ffff:0.0.0.0");
+
+    const ports = await scanSelf();
+    expect(ports.find((p) => p.port === mappedLoopback.port)).toEqual(
+      expect.objectContaining({ port: mappedLoopback.port, wildcard: false }),
+    );
+    expect(ports.find((p) => p.port === mappedWildcard.port)).toEqual(
+      expect.objectContaining({ port: mappedWildcard.port, wildcard: true }),
+    );
+
+    mappedLoopback.child.kill();
+    mappedWildcard.child.kill();
   });
 
   it("drops a port once its server dies", async () => {
