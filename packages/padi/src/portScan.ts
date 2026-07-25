@@ -28,12 +28,21 @@
  *
  * ## Errors: a blind scan must never look like an empty one
  *
- * Per-pid `ENOENT` is EXPECTED — a scan races process exit constantly — and a
- * pid outside every requested subtree may be another user's and unreadable.
- * Both are tolerated. But `EACCES` on a pid we were ASKED about is different: it
- * means we cannot see that terminal's sockets, and reporting "no ports" would be
- * a lie shaped exactly like the truth. That throws, and the caller surfaces it
- * (`caught-error-must-not-collapse-to-empty`).
+ * Per-pid `ENOENT` is EXPECTED — a scan races process exit constantly. So is an
+ * unreadable pid that is **not ours**, and that includes pids INSIDE a subtree:
+ * a setuid-root child (`sudo` at its password prompt, `su`, `pkexec`) is a
+ * routine descendant of an ordinary shell, and its `/proc/<pid>/fd` is `EACCES`
+ * to us. Both are skipped.
+ *
+ * The one fatal case is an unreadable **requested ROOT** pid — a shell padi
+ * spawned itself, so padi's own uid. Unreadable there means we genuinely cannot
+ * answer for that terminal, and answering "no ports" would be a lie shaped
+ * exactly like the truth. That throws (`caught-error-must-not-collapse-to-empty`).
+ *
+ * Getting that distinction wrong is not a small mistake, and this file had it
+ * wrong: every in-subtree `EACCES` threw, so one `sudo` in one terminal emptied
+ * the Ports section for **every** terminal on the host — and kept it empty, with
+ * an ERROR every 5 s, until the prompt was answered. See {@link fdListFailure}.
  *
  * ## Why these two mechanisms
  *
@@ -395,22 +404,57 @@ async function linuxProcessName(pid: number, comm: string): Promise<string> {
   }
 }
 
+/** What to do when `/proc/<pid>/fd` cannot be listed. The whole policy, as one
+ *  pure decision, because getting it wrong is not a small mistake:
+ *
+ *   - **The exit race** (`ENOENT`/`ESRCH`) — the process is gone. Skip it; it
+ *     holds nothing, which is the truth.
+ *   - **A foreign-uid DESCENDANT** (`EACCES`/`EPERM`) — skip that pid. A
+ *     setuid-root child is routine, not exotic: `sudo` sitting at its password
+ *     prompt is root-owned with an unreadable `fd/` (measured), and so is any
+ *     `su`/`pkexec`/setuid `ping`. Treating it as blindness took the WHOLE scan
+ *     down — one `sudo nixos-rebuild` in one terminal emptied the Ports section
+ *     for **every** terminal on the host and logged an ERROR every 5 s until the
+ *     prompt was answered. The header's own reasoning already tolerates "another
+ *     user's, unreadable" pids; the oversight was assuming they only appear
+ *     OUTSIDE a subtree.
+ *   - **A requested ROOT pid** — throw. That pid is a shell padi spawned itself,
+ *     so it is padi's own uid; unreadable there means we genuinely cannot answer
+ *     for that terminal, and answering "no ports" would be a lie shaped exactly
+ *     like the truth.
+ *
+ *  The cost of skipping, stated: a listener held ONLY by a root-owned descendant
+ *  is invisible. That is a real gap, and it is the better half of the trade —
+ *  a `sudo` prompt holds no listening socket, while the alternative blinds every
+ *  terminal on the box for as long as the prompt is open. */
+export function fdListFailure(
+  code: string | undefined,
+  isRequestedRoot: boolean,
+): "skip" | "throw" {
+  if (code === "ENOENT" || code === "ESRCH") return "skip";
+  if ((code === "EACCES" || code === "EPERM") && !isRequestedRoot)
+    return "skip";
+  return "throw";
+}
+
 /** The socket inodes a pid holds open, via the `/proc/<pid>/fd` readlink
  *  technique (`socketHolder.ts`'s, reused rather than re-derived).
  *
- *  Returns `undefined` for a pid that exited mid-walk — the caller treats that as
- *  "held nothing", which is true. `EACCES` here is the blindness case and
- *  throws: every pid reaching this function is inside a subtree we were asked
- *  about. */
-async function socketInodesOf(pid: number): Promise<Set<string> | undefined> {
+ *  Returns `undefined` when this pid cannot be inspected — an exited process, or
+ *  a foreign-uid descendant. See {@link fdListFailure} for which failures are
+ *  which, and why only a REQUESTED ROOT's unreadable `fd/` is fatal. */
+async function socketInodesOf(
+  pid: number,
+  isRequestedRoot: boolean,
+): Promise<Set<string> | undefined> {
   let fds: string[];
   try {
     fds = await readdir(`/proc/${pid}/fd`);
   } catch (err) {
-    const code = errnoOf(err);
-    if (code === "ENOENT" || code === "ESRCH") return undefined;
+    if (fdListFailure(errnoOf(err), isRequestedRoot) === "skip")
+      return undefined;
     throw new PortScanError(
-      `port scan: cannot list /proc/${pid}/fd inside a requested terminal subtree (${code})`,
+      `port scan: cannot list /proc/${pid}/fd for a requested terminal root (${errnoOf(err)})`,
       { cause: err },
     );
   }
@@ -421,11 +465,13 @@ async function socketInodesOf(pid: number): Promise<Set<string> | undefined> {
       target = await readlink(`/proc/${pid}/fd/${fd}`);
     } catch (err) {
       // A descriptor closed between the readdir and the readlink — the same exit
-      // race one level down. Anything else is a real failure and propagates.
-      const code = errnoOf(err);
-      if (code === "ENOENT" || code === "ESRCH") continue;
+      // race one level down. The permission arms ride the same policy as the
+      // listing above: a process that turned setuid between the readdir and this
+      // read is the descendant case arriving one level late, and it must not take
+      // the host's whole scan with it.
+      if (fdListFailure(errnoOf(err), isRequestedRoot) === "skip") continue;
       throw new PortScanError(
-        `port scan: cannot read /proc/${pid}/fd/${fd} (${code})`,
+        `port scan: cannot read /proc/${pid}/fd/${fd} (${errnoOf(err)})`,
         { cause: err },
       );
     }
@@ -463,7 +509,7 @@ async function scanLinux(
   for (const [id, pids] of subtrees) {
     const rows: (Listener & { name: string })[] = [];
     for (const pid of pids) {
-      const inodes = await socketInodesOf(pid);
+      const inodes = await socketInodesOf(pid, roots.has(pid));
       if (inodes === undefined) continue;
       const held = [...inodes]
         .map((inode) => listeners.get(inode))

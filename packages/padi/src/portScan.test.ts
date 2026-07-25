@@ -19,6 +19,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeProcAddress,
+  fdListFailure,
   foldPorts,
   isAnyAddress,
   parseLsofListeners,
@@ -260,6 +261,40 @@ describe("parsePsTable", () => {
 
   it("fails loudly on a table with no header", () => {
     expect(() => parsePsTable("4242 4200 node\n")).toThrow(PortScanError);
+  });
+});
+
+// ── Which /proc/<pid>/fd failures are fatal ────────────────────────────
+
+describe("fdListFailure", () => {
+  // Reviewed into existence: every in-subtree EACCES used to throw, so ONE
+  // `sudo` at a password prompt in ONE terminal emptied the Ports section for
+  // EVERY terminal on the host until the prompt was answered. Verified on a live
+  // box: a `sudo` child is root-owned with an unreadable `fd/`, and its ppid is a
+  // shell — a descendant, not a root.
+  it("skips a foreign-uid DESCENDANT rather than blinding the whole host", () => {
+    expect(fdListFailure("EACCES", false)).toBe("skip");
+    expect(fdListFailure("EPERM", false)).toBe("skip");
+  });
+
+  it("THROWS when the unreadable pid is a requested terminal root", () => {
+    // padi spawned that shell, so it is padi's own uid; unreadable there means we
+    // truly cannot answer for the terminal, and "no ports" would be a lie.
+    expect(fdListFailure("EACCES", true)).toBe("throw");
+    expect(fdListFailure("EPERM", true)).toBe("throw");
+  });
+
+  it("skips the exit race on either kind of pid", () => {
+    for (const isRoot of [true, false]) {
+      expect(fdListFailure("ENOENT", isRoot)).toBe("skip");
+      expect(fdListFailure("ESRCH", isRoot)).toBe("skip");
+    }
+  });
+
+  it("THROWS on an errno it does not recognize, root or not", () => {
+    // An unmodelled failure is not something to swallow on either kind of pid.
+    expect(fdListFailure("EIO", false)).toBe("throw");
+    expect(fdListFailure(undefined, false)).toBe("throw");
   });
 });
 
