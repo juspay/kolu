@@ -116,6 +116,20 @@ frames — and it stays useful afterwards as a debugging client.
 <Hx0Mock />
 <HxStyles />
 
+**Test flows (this PR):**
+
+1. Create a kolu terminal running `acp-proxy` (or run it by hand in any
+   shell) — it prints the socket path and the spawned adapter, then idles.
+2. From another terminal, `acp-chat <socket>`; ask a question — the reply
+   streams in the REPL while the tile scrolls the same turn as frames.
+3. Ask something that needs a tool ("what does `git status` say here?") —
+   watch `tool_call` / `tool_call_update` frames appear in the tile, with the
+   auto-answered permission line between them.
+4. `Ctrl+C` in `acp-chat` mid-turn — the tile shows `session/cancel` and the
+   turn stops (or the grace window expires and the adapter respawns).
+5. `kill` the adapter's PID mid-turn — the proxy respawns it; your next
+   prompt works.
+
 **Done when** (the phase exists to prove the socket path, so the criteria pin
 it):
 
@@ -155,6 +169,21 @@ stable public webhook URL; secrets reach it **only as environment variables**
 
 <Hx1Mock />
 
+**Test flows (this PR):**
+
+1. DM the bot a question — ack arrives, a new tile appears on the kolu
+   canvas, the reply lands in the thread.
+2. Send a follow-up in the same DM — **no new terminal**; the same session
+   answers with the earlier context.
+3. Keep the tile open in kolu while asking a third question — watch the turn
+   scroll by as frames while the thread gets the reply.
+4. Have someone not on the allowlist DM the bot — they get the one-line
+   decline; no terminal is created.
+5. `curl` the webhook with a bad `X-Xyne-Signature` — rejected, nothing
+   posted, nothing created.
+6. In a channel, `@kolu <ask>` works; a plain message in the same thread
+   without the @mention does nothing (the documented apps-platform gap).
+
 **Done when:** DM the bot → tile exists on the host → reply lands in
 the thread; a second message continues the same session; opening the tile
 shows the live frame log; a forged-signature request is rejected (pinned by a
@@ -174,6 +203,17 @@ off for bound threads.
 
 <Hx2Mock />
 
+**Test flows (this PR):**
+
+1. Ask the bot for something gated ("push this branch") — the permission card
+   appears in the thread and the tile shows the pending request; the agent is
+   visibly paused.
+2. Click **Allow once** — the run unblocks; the card flips to the resolved
+   "allowed by you" state.
+3. Repeat and click **Reject** — the agent declines and says so in its reply.
+4. Leave a card unanswered and cancel the turn — the request resolves as
+   cancelled; no deadlock, no orphaned card.
+
 **Done when:** an agent hits a gated tool, the card appears in the thread,
 clicking Allow unblocks the run — end to end, with auto-answer off.
 
@@ -192,6 +232,19 @@ proxy's tile rendering and pesu's cursor logic need no special
 path.</Footnote>
 
 <Hx3Mock />
+
+**Test flows (this PR):**
+
+1. Ask for a long task — **one** message grows in place (edited ≤1/s) instead
+   of a stream of separate messages.
+2. Watch the progress pill change labels as the agent moves between tools;
+   it clears when the turn ends.
+3. Click the deep link in the ack — kolu opens focused on that tile.
+4. `systemctl --user restart pesu` mid-conversation, then send the next DM —
+   the conversation continues with prior context and no earlier reply is
+   double-posted.
+5. Provoke a reply longer than 40,000 chars — it splits into consecutive
+   messages instead of failing.
 
 **Done when:** restart pesu mid-conversation; the next DM continues the same
 conversation with prior context, without double-posting earlier replies.
