@@ -55,7 +55,7 @@
 import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { everyMsOr, source } from "@kolu/surface/reactor";
 import type { Logger } from "pino";
-import { scanTerminalPorts } from "./portScan.ts";
+import { PortScanError, scanTerminalPorts } from "./portScan.ts";
 
 /** Baseline cadence of the port scan. The same 5 s `memorySampler` uses, for the
  *  same reason: coarse enough to be free, live enough to be worth reading. */
@@ -175,8 +175,15 @@ export function createPortSampler(opts: {
         last = new Map(targets.map((t) => [t.id, byPid.get(t.rootPid)!]));
         return last;
       } catch (err) {
-        // A scan that could not SEE (an EACCES on a requested subtree, an lsof
-        // that timed out) must not publish an empty set.
+        // The PERMANENT arm propagates: a platform this scan cannot read will not
+        // become readable in five seconds, so retrying it is a caught error
+        // degrading into an error loop instead of surfacing. It faults the seed
+        // (the `.catch` below stops the sampler and says so, once) rather than
+        // logging forever with the cadence dutifully re-arming.
+        if (err instanceof PortScanError && err.kind === "unsupported-platform")
+          throw err;
+        // Everything else is THIS pass failing to see (an EACCES on a requested
+        // subtree, an lsof that timed out) and must not publish an empty set.
         opts.log.error(
           { err },
           "port scan failed — ports left at their last sample",
@@ -199,16 +206,25 @@ export function createPortSampler(opts: {
   // channel, so the fan-out below IS the publisher. `connectPoll` is public on
   // `PollSource` for exactly this, and its abort signal is the sampler's teardown.
   const abort = new AbortController();
+  const sampler: PortSampler = {
+    nudge: () => edge?.fire(),
+    dispose: () => abort.abort(),
+  };
   void node
     .connectPoll((byTerminal) => {
       for (const [id, ports] of byTerminal) opts.publish(id, ports);
     }, abort.signal)
     .catch((err: unknown) => {
-      opts.log.error({ err }, "port sampler seed failed — cadence not armed");
+      // The seed read's first failure propagates by design, and after this module's
+      // total `read` the only way through is the PERMANENT arm. Say so once, at
+      // fatal, and stop — never a five-second error loop, and never a sampler that
+      // looks armed while it can never answer.
+      opts.log.fatal(
+        { err },
+        "port sampler stopped — this host's listening ports cannot be read",
+      );
+      sampler.dispose();
     });
 
-  return {
-    nudge: () => edge?.fire(),
-    dispose: () => abort.abort(),
-  };
+  return sampler;
 }

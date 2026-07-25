@@ -16,9 +16,11 @@ import {
   PORT_SCAN_INTERVAL_MS,
   type PortScanTarget,
 } from "./portSampler.ts";
+import { PortScanError } from "./portScan.ts";
 
 const quietLog = {
   error: () => {},
+  fatal: () => {},
   debug: () => {},
   info: () => {},
   warn: () => {},
@@ -250,6 +252,23 @@ describe("the port sampler's cadence", () => {
 
     expect(h.published).toEqual([]);
     h.sampler.dispose();
+  });
+
+  it("STOPS on a permanently unreadable host instead of looping the error", async () => {
+    // The two failure axes have opposite right answers. A blind pass retries (the
+    // two cases above); an unsupported platform can never become readable, so
+    // retrying it every 5 s is a caught error degrading into a log loop.
+    const fatal = new PortScanError(
+      "unsupported-platform",
+      "port scan: unsupported platform 'sunos'",
+    );
+    const h = harness({ fail: fatal });
+    await h.seeded();
+    expect(h.passes()).toBe(1);
+
+    await h.advance(PORT_SCAN_INTERVAL_MS * 5);
+    expect(h.passes()).toBe(1); // never retried
+    expect(h.published).toEqual([]);
   });
 
   it("recovers its cadence after a failed pass", async () => {

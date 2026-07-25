@@ -94,12 +94,29 @@ const execFileAsync = promisify(execFile);
  *  mistaken for a hang. */
 export const PORT_SCAN_COMMAND_TIMEOUT_MS = 5_000;
 
-/** A scan that could not SEE what it was asked about — distinct from a scan that
- *  looked and found nothing. Thrown so the caller reports blindness instead of
- *  publishing an empty port list that reads identically to "this terminal serves
- *  nothing". */
+/** A scan that did not answer — thrown so the caller reports the failure instead
+ *  of publishing an empty port list that reads identically to "this terminal serves
+ *  nothing".
+ *
+ *  TAGGED, because two failure axes with OPPOSITE correct responses arrive through
+ *  this one type:
+ *
+ *   - `"blind"` — *this pass* could not see (an `EACCES` on a requested subtree, a
+ *     malformed socket table, an `lsof` that timed out). Transient: hold the last
+ *     sample and retry on the next tick.
+ *   - `"unsupported-platform"` — this host can NEVER be read. Permanent, so a
+ *     caller that retried it would log an error every 5 s forever, which is a
+ *     caught error degrading into a loop rather than surfacing. The sampler stops
+ *     and says so instead.
+ *
+ *  Untagged, the `async` entry point below routed the second into the first —
+ *  exactly the collapse the fail-fast rule forbids. */
 export class PortScanError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
+  constructor(
+    readonly kind: "blind" | "unsupported-platform",
+    message: string,
+    options?: { cause?: unknown },
+  ) {
     super(message, options);
     this.name = "PortScanError";
   }
@@ -241,6 +258,7 @@ const TCP_LISTEN_STATE = "0A";
 export function decodeProcAddress(hex: string): number[] {
   if (hex.length % 8 !== 0 || hex.length === 0 || !/^[0-9A-Fa-f]+$/.test(hex)) {
     throw new PortScanError(
+      "blind",
       `port scan: "${hex}" is not a /proc/net/tcp address (expected 8 or 32 hex digits)`,
     );
   }
@@ -305,12 +323,16 @@ export function bindsAny(text: string): boolean {
 function parseV4Address(addr: string, text: string): number[] {
   const parts = addr.split(".");
   if (parts.length !== 4) {
-    throw new PortScanError(`port scan: "${text}" is not a bind address`);
+    throw new PortScanError(
+      "blind",
+      `port scan: "${text}" is not a bind address`,
+    );
   }
   return parts.map((part) => {
     const byte = Number.parseInt(part, 10);
     if (!/^\d{1,3}$/.test(part) || byte > 255) {
       throw new PortScanError(
+        "blind",
         `port scan: "${text}" is not a bind address (bad IPv4 byte "${part}")`,
       );
     }
@@ -325,6 +347,7 @@ function parseV6Address(addr: string, text: string): number[] {
   const halves = addr.split("::");
   if (halves.length > 2) {
     throw new PortScanError(
+      "blind",
       `port scan: "${text}" is not a bind address (more than one "::")`,
     );
   }
@@ -337,6 +360,7 @@ function parseV6Address(addr: string, text: string): number[] {
         // An embedded v4 is legal only as the LAST group, and is four bytes wide.
         if (i !== groups.length - 1) {
           throw new PortScanError(
+            "blind",
             `port scan: "${text}" is not a bind address (embedded IPv4 out of place)`,
           );
         }
@@ -345,6 +369,7 @@ function parseV6Address(addr: string, text: string): number[] {
       }
       if (!/^[0-9A-Fa-f]{1,4}$/.test(group)) {
         throw new PortScanError(
+          "blind",
           `port scan: "${text}" is not a bind address (bad IPv6 group "${group}")`,
         );
       }
@@ -358,6 +383,7 @@ function parseV6Address(addr: string, text: string): number[] {
   const elided = 16 - head.length - tail.length;
   if (elided < 0 || (halves.length === 1 && elided !== 0)) {
     throw new PortScanError(
+      "blind",
       `port scan: "${text}" is not a bind address (${head.length + tail.length} bytes)`,
     );
   }
@@ -381,6 +407,7 @@ export function parseProcNetTcp(body: string): ProcListener[] {
   const header = lines.findIndex((l) => l.includes("local_address"));
   if (header === -1) {
     throw new PortScanError(
+      "blind",
       "port scan: /proc/net/tcp had no `local_address` header row",
     );
   }
@@ -392,6 +419,7 @@ export function parseProcNetTcp(body: string): ProcListener[] {
     // the retransmit detail) varies by kernel and is none of our business.
     if (cols.length < 10) {
       throw new PortScanError(
+        "blind",
         `port scan: unreadable /proc/net/tcp row (${cols.length} columns): ${line.trim()}`,
       );
     }
@@ -400,12 +428,14 @@ export function parseProcNetTcp(body: string): ProcListener[] {
     const split = local.lastIndexOf(":");
     if (split === -1) {
       throw new PortScanError(
+        "blind",
         `port scan: "${local}" is not a /proc/net/tcp local_address (expected <hex>:<hex-port>)`,
       );
     }
     const port = Number.parseInt(local.slice(split + 1), 16);
     if (!Number.isInteger(port) || port <= 0 || port > 65535) {
       throw new PortScanError(
+        "blind",
         `port scan: "${local}" carries no valid port in a /proc/net/tcp row`,
       );
     }
@@ -429,6 +459,7 @@ export function parseProcStat(body: string): ProcessRow {
   const close = body.lastIndexOf(")");
   if (open === -1 || close === -1 || close < open) {
     throw new PortScanError(
+      "blind",
       `port scan: unreadable /proc/<pid>/stat body: ${body.slice(0, 80)}`,
     );
   }
@@ -442,6 +473,7 @@ export function parseProcStat(body: string): ProcessRow {
   const ppid = Number.parseInt(rest[1] ?? "", 10);
   if (!Number.isInteger(pid) || !Number.isInteger(ppid)) {
     throw new PortScanError(
+      "blind",
       `port scan: /proc/<pid>/stat had no pid/ppid pair: ${body.slice(0, 80)}`,
     );
   }
@@ -457,7 +489,9 @@ async function linuxProcessTable(
   roots: ReadonlySet<number>,
 ): Promise<ProcessRow[]> {
   const entries = await readdir("/proc").catch((err: unknown) => {
-    throw new PortScanError("port scan: /proc is unreadable", { cause: err });
+    throw new PortScanError("blind", "port scan: /proc is unreadable", {
+      cause: err,
+    });
   });
   const rows: ProcessRow[] = [];
   for (const entry of entries) {
@@ -472,6 +506,7 @@ async function linuxProcessTable(
       if (code === "ENOENT" || code === "ESRCH") continue;
       if (roots.has(Number(entry))) {
         throw new PortScanError(
+          "blind",
           `port scan: cannot read /proc/${entry}/stat for a requested terminal root (${code})`,
           { cause: err },
         );
@@ -560,6 +595,7 @@ async function socketInodesOf(
     if (fdListFailure(errnoOf(err), isRequestedRoot) === "skip")
       return undefined;
     throw new PortScanError(
+      "blind",
       `port scan: cannot list /proc/${pid}/fd for a requested terminal root (${errnoOf(err)})`,
       { cause: err },
     );
@@ -577,6 +613,7 @@ async function socketInodesOf(
       // the host's whole scan with it.
       if (fdListFailure(errnoOf(err), isRequestedRoot) === "skip") continue;
       throw new PortScanError(
+        "blind",
         `port scan: cannot read /proc/${pid}/fd/${fd} (${errnoOf(err)})`,
         { cause: err },
       );
@@ -638,14 +675,20 @@ export function parsePsTable(body: string): ProcessRow[] {
     (l) => /\bPID\b/.test(l) && /\bPPID\b/.test(l),
   );
   if (header === -1) {
-    throw new PortScanError("port scan: `ps` output had no PID/PPID header");
+    throw new PortScanError(
+      "blind",
+      "port scan: `ps` output had no PID/PPID header",
+    );
   }
   const rows: ProcessRow[] = [];
   for (const line of lines.slice(header + 1)) {
     if (line.trim() === "") continue;
     const m = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
     if (m === null) {
-      throw new PortScanError(`port scan: unreadable \`ps\` row: ${line}`);
+      throw new PortScanError(
+        "blind",
+        `port scan: unreadable \`ps\` row: ${line}`,
+      );
     }
     rows.push({
       pid: Number(m[1]),
@@ -686,6 +729,7 @@ export function parseLsofListeners(body: string): LsofListener[] {
       const parsed = Number.parseInt(value, 10);
       if (!Number.isInteger(parsed)) {
         throw new PortScanError(
+          "blind",
           `port scan: unreadable lsof pid field: ${line}`,
         );
       }
@@ -695,18 +739,21 @@ export function parseLsofListeners(body: string): LsofListener[] {
     if (tag !== "n") continue;
     if (pid === undefined) {
       throw new PortScanError(
+        "blind",
         `port scan: lsof reported an address before any process: ${line}`,
       );
     }
     const split = value.lastIndexOf(":");
     if (split === -1) {
       throw new PortScanError(
+        "blind",
         `port scan: "${value}" is not an lsof listening address (expected HOST:PORT)`,
       );
     }
     const port = Number.parseInt(value.slice(split + 1), 10);
     if (!Number.isInteger(port) || port <= 0 || port > 65535) {
       throw new PortScanError(
+        "blind",
         `port scan: "${value}" carries no valid port in an lsof LISTEN row`,
       );
     }
@@ -744,6 +791,7 @@ async function runDarwin(command: string, args: string[]): Promise<string> {
     const e = err as { code?: unknown; stdout?: string; stderr?: string };
     if (e.code === 1 && e.stdout === "" && e.stderr === "") return "";
     throw new PortScanError(
+      "blind",
       `port scan: \`${command} ${args.join(" ")}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
       { cause: err },
     );
@@ -798,9 +846,11 @@ async function readDarwin(): Promise<HostReading> {
  *  by it. The pid → terminal join belongs to the caller (`portSampler.ts`), which
  *  also makes two terminals rooted at the same pid ONE walk instead of two.
  *
- *  Throws `PortScanError` on an unsupported platform — fail fast, exactly as
- *  `socketHolders` does: kolu's daemons run on linux and darwin, and a third
- *  platform needs a real reader, not a silent empty map. */
+ *  Throws `PortScanError` — `"blind"` for a pass that could not see, and
+ *  `"unsupported-platform"` for a host that never can, which the caller must NOT
+ *  retry. Fail fast on the latter, exactly as `socketHolders` does: kolu's daemons
+ *  run on linux and darwin, and a third platform needs a real reader, not a silent
+ *  empty map. */
 export async function scanTerminalPorts(
   rootPids: readonly number[],
 ): Promise<Map<number, PortInfo[]>> {
@@ -817,6 +867,7 @@ export async function scanTerminalPorts(
       return joinSubtreePorts(await readDarwin(), rootPids);
     default:
       throw new PortScanError(
+        "unsupported-platform",
         `port scan: unsupported platform '${process.platform}' — kolu daemons run on linux/darwin only`,
       );
   }
