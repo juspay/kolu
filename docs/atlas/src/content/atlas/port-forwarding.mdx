@@ -14,6 +14,8 @@ import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import arch from "../../diagrams/port-forwarding-arch.svg?raw";
 import prt2click from "../../diagrams/port-forwarding-prt2-click.svg?raw";
+import sshAnatomy from "../../diagrams/port-forwarding-ssh-anatomy.svg?raw";
+import sshLifetime from "../../diagrams/port-forwarding-ssh-lifetime.svg?raw";
 
 export const Mockup = () => (
   <div style="font-family:ui-sans-serif,system-ui;max-width:24rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)">
@@ -187,6 +189,44 @@ the same exposure as running the dev server on `0.0.0.0` yourself. That is
 the accepted v1 trust model (the tailnet is the trust boundary, as it already
 is for kolu's own UI); per-forward auth would be a later, separate feature.
 </Callout>
+
+## How the tunnel works, from zero
+
+No new machinery, no daemon, nothing installed on either machine: a forward is
+one ordinary `ssh` process — the same tool that logs you in — told to hold a
+door open. Here is the actual command kolu runs, taken apart:
+
+<Svg
+  svg={sshAnatomy}
+  caption="The command, dissected — and the numbered path a page request takes through it."
+/>
+
+A dev server bound to **loopback** answers only its own machine — `127.0.0.1`
+and `::1` both just mean "this computer".<Footnote>Two spellings because there
+are two loopbacks, IPv4's and IPv6's — and a server listening on one is NOT
+reachable on the other, which is why the command dials the exact loopback the
+scanner saw the server bind. Dialling the wrong one was a real shipped bug in
+this very track.</Footnote> The tunnel lends that private server a public door:
+`ssh` listens on the kolu host, and everything that knocks is carried — inside
+the same encrypted connection ssh always uses — to the far machine, where
+`sshd` knocks on the server's own loopback on your behalf. Your browser never
+learns any of this happened; it just loads a URL on the kolu
+host.<Footnote>The unlabelled flags in the real invocation are the mechanism
+section's story in option form: `BatchMode` (keys only, never prompt),
+`ExitOnForwardFailure` (if the door can't open, fail loudly instead of
+half-connecting), `ControlPath=none` (never share a connection — the lifetime
+argument above).</Footnote>
+
+<Svg
+  svg={sshLifetime}
+  caption="Birth, life, death: the door is the process's own open socket, so it cannot outlive it."
+/>
+
+That is the entire protocol: one `READY` line at birth, a `cat` that waits
+forever, and a kernel that closes the listener the instant the process ends —
+which is why there is no cleanup code to forget and no way to leak a port. The
+mechanism section above carries the expert-level detail (why each forward gets
+its own connection, what `-N` would break, the measured evidence).
 
 ## Port links in the Inspector
 
@@ -824,43 +864,49 @@ when it matures this section is rewritten, not layered.
 
 ## What this track sent upstream
 
-PRT2 production incident was the best evidence for what belongs in the
-`@kolu/surface` frameworks rather than in this feature, and the human unlocked
-this once the deployed fixes were verified by hand. Two of the four shipped in
-this PR; the other two are reported here as they actually stand, because a
-roadmap that claims work it did not do is worse than one that is short.
+PRT2's production incident was the best evidence for what belongs in the
+`@kolu/surface` frameworks rather than in this feature. Four items were
+dispatched; **three shipped, one was withdrawn on verified grounds** — and the
+withdrawal is recorded here rather than left looking pending, because a roadmap
+that claims work it did not do is worse than one that is short.
 
-**Shipped.**
+1. **A loop guard in the reactor, built on PROVENANCE.** The freeze was the
+   reactor executing a legal wiring forever, and the class stayed expressible
+   after the consumer-side fix — `processMemory` and `daemonInventory` sit on
+   identical wiring. Each poll read now runs inside an `AsyncLocalStorage`
+   context keyed to its own source, so a change edge that fires *under that
+   context* was caused by the read it is about to re-trigger. Three consecutive
+   self-caused ticks crash naming the cell.<Footnote>The first cut asked about
+   TIMING and value-equality instead, and adversarial verification refuted it in
+   both directions: a plain `everyMs(10)` cell whose read takes 30 ms and returns
+   a constant crashed in ~400 ms (every coalesced trailing read looked
+   "immediate"), while the proposed lap-timing fix would have MISSED the real
+   freeze, since a self-loop's lap is just its read duration. Timing is a proxy
+   for causation and every variant of it fails one direction or the other. The
+   repo's own doctrine already said so — cut feedback loops with provenance, not
+   value-dedup (the controlled-component echo rule).</Footnote> Its companion
+   `assertCellConverges` ships beside it as the authoring-time twin, and PRT2's
+   own convergence test uses it.
+2. **Viewer identity graduated** to `@kolu/surface/viewerIdentity`. "Which
+   machine is the viewer actually at" is a transport fact any surface-served app
+   behind a reverse proxy needs, and kolu got it wrong twice in one day. The
+   judgment (trusted-peer gating, which forwarded hop may be believed) is the
+   package's; the OS-touching half — DNS, interface enumeration — stays with the
+   consumer.
+3. **The doctrine, written down** where surface rules live: a per-viewer answer
+   is a root RPC and never a broadcast cell; a poll read may reconcile, but
+   publishes only by returning. Both cite this incident.
 
-1. **A loop guard in the reactor.** The freeze was the reactor executing a legal
-   wiring forever, and the class stayed expressible after the consumer-side fix —
-   `processMemory` and `daemonInventory` sit on identical wiring today. The poll
-   source now detects it: three consecutive re-reads triggered by a change edge
-   fired DURING the previous read, each producing a value-equal result, throw
-   naming the source. **Value-equality is the discriminator**, and it is what
-   makes the guard safe to ship — a genuine burst of distinct values through a
-   fused cadence is precisely what `everyMsOr` exists for, so a rate-only guard
-   would fire on the healthy case. Proved by removing it: without the guard the
-   guard test suite HANGS, which is the freeze reproduced.
-2. **The doctrine, written down** where surface rules live (Reactive honesty): a
-   per-viewer answer is a root RPC and never a broadcast cell; a poll read may
-   reconcile, but publishes only by returning. Both cite this incident.
-
-**Not shipped, and why — these are findings, not omissions.**
-
-3. **`Observed<T>` does not have the three consumers it was predicted to have.**
-   Examined rather than assumed: `TerminalPorts` fits, but its wire field is
-   `list` and renaming it to a generic `value` is a protocol change the brief
-   explicitly forbade; `HostPorts` fits and is internal, so it could move alone;
-   and **`ProcessRss` does not fit at all** — it is a deliberate THREE-way
-   (`ok | absent | error`) whose third arm exists so a failed read never renders
-   as "no process to measure". Folding it into `known | unknown` would destroy
-   that distinction AND move a wire shape. So the extraction would ride one real
-   consumer, which is the bar this very PR twice found wanting: shapes predicted
-   for imagined consumers turn out unwanted when the real ones arrive.
-4. **Viewer identity has not moved into surface yet.** The code is ready to
-   (`viewerHost.ts` is already a pure, fully-tested decision table), but the move
-   makes it `@kolu/surface` public API, which trips the drishti companion-repo
-   gate — and that gate is not satisfiable inside a branch that stops at push.
-   It should ride its own PR, paired with drishti, rather than be smuggled into
-   this one.
+**Withdrawn: `Observed<T>`.** The item's own premise — "the same discriminated
+shape hand-rolled three times" — turned out to be factually wrong, and checking
+it was the whole value of the exercise. `ProcessRss` is a deliberate THREE-way
+whose `error` arm is load-bearing on the wire (producers emit it, two client
+consumers render distinct UI from it), so it was never a candidate. Between the
+remaining two the honest duplication is ~5–7 lines of map-accumulate skeleton:
+the one real merge rule (`preferredFamily`) is already shared, the compare logic
+overlaps not at all, and `HostPorts` is a *projection from* `TerminalPorts`
+rather than a parallel fold of the same thing. The repo also already has an
+in-process generic for this (`Known<T>`, payload key `value`) that a wire
+unification would collide with. There is nothing worth extracting; it may be
+revisited only if osfacts' kolu-side adoption ever creates real duplicated fold
+logic.
