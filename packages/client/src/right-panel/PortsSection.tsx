@@ -144,8 +144,8 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                        *  then gives middle-click, cmd-click, "copy link address" and a
                        *  status-bar URL preview for free (that last one is why the
                        *  button had to hand-roll a `title`), and a popup blocker
-                       *  cannot eat it. `openExternal` stays right for the Code tab,
-                       *  where the URL arrives by `postMessage` and there is no
+                       *  cannot eat it. A `window.open` call stays right for the Code
+                       *  tab, where the URL arrives by `postMessage` and there is no
                        *  element to hang an href on. */}
                       <a
                         href={portUrl(window.location.hostname, port.port)}

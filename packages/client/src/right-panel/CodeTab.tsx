@@ -52,7 +52,6 @@ import {
   GitBranchIcon,
 } from "../ui/Icons";
 import { resolveRef } from "../ui/lineRef";
-import { openExternal } from "../ui/openExternal";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
 import {
   pierreIconConfig,
@@ -90,6 +89,14 @@ const EMPTY_STATE: Record<GitDiffMode, string> = {
 };
 
 const NO_BRANCH_BASE = "No branch base to compare";
+
+/** The flag pair for leaving kolu in a new tab, fire-and-forget: `noopener`
+ *  denies the new tab a handle on kolu's `window`, `noreferrer` keeps kolu's
+ *  URL — which can carry a terminal id — out of the target's `Referer`. One
+ *  named constant rather than a literal at the call site, because a hand-typed
+ *  copy of this pair has drifted before (`exportSessionAsHtml.ts` carries
+ *  `noopener` alone, missing the second flag). */
+const EXTERNAL_OPEN_FLAGS = "noopener,noreferrer";
 
 const FileSelectHint: Component<{ label: string }> = (props) => (
   <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
@@ -1111,7 +1118,9 @@ const CodeTab: Component<{
                           // in `observeIframeOpenExternal` so `javascript:`/`data:`
                           // (which would run in kolu's own origin) can never reach
                           // `window.open`.
-                          onOpenExternal={(url) => openExternal(url)}
+                          onOpenExternal={(url) =>
+                            window.open(url, "_blank", EXTERNAL_OPEN_FLAGS)
+                          }
                           // A kolu deep link clicked in the preview routes the
                           // app through the SAME pipeline a typed `#/…` URL
                           // takes (safe: the router is view-only by law).
