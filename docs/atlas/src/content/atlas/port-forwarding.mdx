@@ -379,7 +379,7 @@ whole-host enumerations. A single-pass Rust binary written against the same libp
 `/proc` calls the C helper already uses should land in the same ~10 ms band, and it
 would carry the cross-platform boundary the C helper cannot.
 
-That design is now written down in its own note — [osfacts](./os-facts-tool) (proposed) —
+That design is now written down in its own note — [osfacts](./os-facts-tool.html) (proposed) —
 which also folds in `memorySampler`, `socketHolder`, the supervisor's start-time reads and
 drishti, since they are all the same question asked five ways.
 
@@ -561,7 +561,10 @@ is the property the per-forward connection exists to give.
 ### PRT1 — detection + Ports section (shipped: <PrLink pr={1982} />)
 
 Scanner, `ports` schema field, sensor fold, the Inspector section, direct-open
-chips, the tip. **Done when** an e2e scenario runs
+chips, the tip. The shipped mechanisms — the linux `/proc` reader and the
+darwin C helper — have a designed successor: one shared Rust binary serving
+kolu and drishti, planned in [osfacts](./os-facts-tool.html); until it passes
+that note's gates, what ships here is the measured best on each platform. **Done when** an e2e scenario runs
 `node -e 'require("http").createServer((_,r)=>r.end("ok")).listen(8123,"0.0.0.0")'`
 in a real kolu terminal and asserts the `8123` chip appears within two scan
 ticks and clicking it opens the page at `location.hostname:8123` — pinning the

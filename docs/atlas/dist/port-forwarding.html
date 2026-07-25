@@ -486,7 +486,7 @@ never the language, and it was not really the crates either — it was composing
 whole-host enumerations. A single-pass Rust binary written against the same libproc /
 <code>/proc</code> calls the C helper already uses should land in the same ~10 ms band, and it
 would carry the cross-platform boundary the C helper cannot.</p>
-<p>That design is now written down in its own note — <a href="./os-facts-tool">osfacts</a> (proposed) —
+<p>That design is now written down in its own note — <a href="./os-facts-tool.html">osfacts</a> (proposed) —
 which also folds in <code>memorySampler</code>, <code>socketHolder</code>, the supervisor’s start-time reads and
 drishti, since they are all the same question asked five ways.</p>
 <p><strong>What that binary must add over portview</strong>, which is precisely what portview lacks:</p>
@@ -711,7 +711,10 @@ proof that makes PRT2’s embed mechanical — and <code>kill -9</code> on vazhi
 is the property the per-forward connection exists to give.</p>
 <h3 id="prt1--detection--ports-section-shipped-">PRT1 — detection + Ports section (shipped: <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>)</h3>
 <p>Scanner, <code>ports</code> schema field, sensor fold, the Inspector section, direct-open
-chips, the tip. <strong>Done when</strong> an e2e scenario runs
+chips, the tip. The shipped mechanisms — the linux <code>/proc</code> reader and the
+darwin C helper — have a designed successor: one shared Rust binary serving
+kolu and drishti, planned in <a href="./os-facts-tool.html">osfacts</a>; until it passes
+that note’s gates, what ships here is the measured best on each platform. <strong>Done when</strong> an e2e scenario runs
 <code>node -e &#39;require(&quot;http&quot;).createServer((_,r)=&gt;r.end(&quot;ok&quot;)).listen(8123,&quot;0.0.0.0&quot;)&#39;</code>
 in a real kolu terminal and asserts the <code>8123</code> chip appears within two scan
 ticks and clicking it opens the page at <code>location.hostname:8123</code> — pinning the
