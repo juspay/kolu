@@ -18,8 +18,8 @@ application behavior.
 |                    | Bytes         | Display size |
 | ------------------ | ------------- | ------------ |
 | **Baseline**       | 1,351,008,904 | 1.3 GiB      |
-| **Final**          | 686,314,112   | 654.5 MiB    |
-| **Improvement**    | 664,694,792   | 49.2%        |
+| **Final**          | 697,319,744   | 665.0 MiB    |
+| **Improvement**    | 653,689,160   | 48.4%        |
 
 ## Baseline Findings
 
@@ -37,25 +37,26 @@ application behavior.
 | Cycle | Change | Before | After | Delta | Kept? |
 | ----- | ------ | ------ | ----- | ----- | ----- |
 | 1 | Link immutable client files; copy and stamp only `index.html` | 1,351,008,904 | 1,064,463,240 | -286,545,664 (-21.2%) | Yes |
-| 2 | Build the existing TSX 4.21.0 package against Kolu's Node 24 runtime | 1,064,463,240 | 964,649,168 | -99,814,072 (-9.4%) | Yes |
+| 2 | Use a Node-24-backed TSX package so the closure carries one Node major | 1,064,463,240 | 964,649,168 | -99,814,072 (-9.4%) | Yes |
 | 3 | Use the same Git 2.53 core via nixpkgs' minimal output | 964,649,168 | 883,921,464 | -80,727,704 (-8.4%) | Yes |
 | 4 | Keep only node-pty's runtime native module; remove node-gyp metadata | 883,921,464 | 760,435,216 | -123,486,248 (-14.0%) | Yes |
 | 5 | Remove remaining compiler, bundler, DOM-test, and dev-runner packages | 760,435,216 | 696,677,968 | -63,757,248 (-8.4%) | Yes |
 | 6 | Remove type-only packages and Vazhi-only Ink dependencies from Kolu's shared tree | 696,677,968 | 686,323,424 | -10,354,544 (-1.5%) | Yes |
+| 7 | Advance nixpkgs to its final x86_64-darwin-supporting revision; keep pnpm 10 and stock cached Node 24.15 | 686,314,112 | 697,319,744 | +11,005,632 (+1.6%) | Yes |
 
 ## Final Largest Paths
 
 These are individual NAR sizes, not marginal closure costs; dependencies shared
-by several roots are counted once in the 640.9 MiB total.
+by several roots are counted once in the 665.0 MiB total.
 
 | Path | NAR size | Why it remains |
 | ---- | -------- | -------------- |
 | Production Kolu workspace | 203 MiB | Server, daemons, terminal clients, runtime npm modules, and the client bundle |
-| Node.js core | 80 MiB | Executes the TypeScript application and daemons |
+| Node.js core | 84 MiB | Executes the TypeScript application and daemons |
 | Git minimal | 52 MiB | Repository status, diffs, worktrees, and remote context |
-| ICU | 39 MiB | Node.js internationalization |
-| GitHub CLI | 37 MiB | PR and forge integration |
-| glibc | 29 MiB | Linux runtime |
+| ICU | 38 MiB | Node.js internationalization |
+| GitHub CLI | 39 MiB | PR and forge integration |
+| glibc | 33 MiB | Linux runtime |
 
 ## Verification
 
@@ -66,7 +67,7 @@ by several roots are counted once in the 640.9 MiB total.
   --no-build`
 - Ran each shipped CLI far enough to load its packaged TypeScript dependency
   graph
-- Loaded the rebuilt node-pty native module under the shipped Node 24.13.0
+- Loaded the rebuilt node-pty native module under the shipped Node 24.15.0
 - `just ci::smoke`: `/api/health` returned 200, SIGTERM shut down cleanly, and
   the production wrapper honored an inherited `KOLU_STATE_DIR`; its hosted
   terminal retained `node`, `npm`, `npx`, and `corepack`
@@ -92,9 +93,12 @@ by several roots are counted once in the 640.9 MiB total.
   the duplicate bytes.
 - Generated node-gyp metadata retained Python and node-gyp even though runtime
   only needs `build/Release/pty.node`.
-- The wrapper graph and nixpkgs' default TSX package collectively retained two
-  Node majors. Building TSX against Kolu's Node 24 removes the second major;
-  the full Node 24 toolset remains because hosted terminals inherit its `npm`,
+- The original wrapper graph and nixpkgs' TSX package collectively retained two
+  Node majors. The newest pin that still supports x86_64-darwin builds TSX
+  against Node 22, so Kolu overrides only that input with nixpkgs' stock Node
+  24.15 core. The final closure carries one Node core, and that Node output is
+  substitutable from `cache.nixos.org`; only the small TSX package is rebuilt.
+  The full Node 24 toolset remains because hosted terminals inherit its `npm`,
   `npx`, and `corepack` commands.
 - The remaining large external tools are tied to Kolu features: Nix and SSH
   provision remote agents, Git supplies repository behavior, and `gh` supplies

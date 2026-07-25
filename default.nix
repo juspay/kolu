@@ -44,11 +44,12 @@ let
 
   # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
-  # environment. Wrappers and tsx share this one Node version.
+  # environment.
   runtimeNode = pkgs.nodejs;
-  # nixpkgs builds tsx with nodejs_22 by default. Align it with Kolu's Node 24
-  # runtime so the shipped closure carries one Node.js major version.
-  runtimeTsx = pkgs.tsx.override { nodejs_22 = runtimeNode; };
+  # The newest nixpkgs revision that still supports x86_64-darwin builds tsx
+  # against Node 22. Point only tsx at the stock, cache.nixos.org-substitutable
+  # Node 24 core so the shipped closure carries one Node core.
+  runtimeTsx = pkgs.tsx.override { nodejs-slim_22 = pkgs.nodejs-slim_24; };
   runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
 
   # Exact source flake with a minimal remote-agent output surface.
@@ -256,7 +257,7 @@ let
 
     nativeBuildInputs = [
       pkgs.nodejs
-      pkgs.pnpm
+      pkgs.pnpm_10
       pkgs.pnpmConfigHook
       pkgs.python3
       pkgs.node-gyp
