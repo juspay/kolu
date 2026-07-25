@@ -8,7 +8,7 @@
  * undo once a third producer exists.
  */
 
-import type { SessionNotification } from "@zed-industries/agent-client-protocol";
+import type { SessionNotification } from "@agentclientprotocol/sdk";
 
 export type SessionUpdate = SessionNotification["update"];
 

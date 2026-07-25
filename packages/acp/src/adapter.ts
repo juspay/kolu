@@ -10,16 +10,27 @@
  *
  * **Generations are the spine.** Every spawn gets an identity, and everything
  * that depends on that process — its connection, its pending requests, its
- * grace timer, its frame handlers — is scoped to it. Two facts force this:
+ * grace timer, its frame handlers — is scoped to it. Three facts force this:
  *
- *  1. The ACP library never rejects an in-flight request when its stream ends
- *     (`Connection.#receive` breaks out of the read loop and releases the lock;
- *     `#pendingResponses` is left untouched). A dead child therefore looks
- *     exactly like a slow one, forever. So a generation carries a `dead`
- *     promise that rejects the moment its child exits, and every await on the
- *     library races it — the child's lifetime bounds the request's.
- *  2. A dead child's receive loop keeps running until EOF. Without an identity
+ *  1. A dead child's receive loop keeps running until EOF. Without an identity
  *     check its handlers would write frames into the session that replaced it.
+ *  2. Only the supervisor knows what a death *means*: the same exit is a
+ *     `cancelled` turn when it is a cancel being enforced and a failure
+ *     otherwise. `#onExit` is the single settler because it is the only place
+ *     that distinction exists.
+ *  3. A process can lose its ACP stream without losing its life. The library
+ *     cannot see that — its stream simply goes quiet — so the generation's
+ *     `dead` promise is what turns "this transport is finished" into an ended
+ *     turn and a replacement.
+ *
+ * Point 3 used to be much broader: `@zed-industries/agent-client-protocol`
+ * 0.4.5 never rejected an in-flight request when its stream ended, so a dead
+ * child was indistinguishable from a slow one forever, and the `dead` promise
+ * was the ONLY thing bounding any request. `@agentclientprotocol/sdk` closes
+ * that gap — `Connection.receive`'s `finally` calls `close()`, which rejects
+ * every pending response with "ACP connection closed" (verified against the
+ * installed source and by probe). The generation still owns the cases the
+ * library cannot see, and points 1 and 2 were never the library's job at all.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -35,7 +46,7 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
-} from "@zed-industries/agent-client-protocol";
+} from "@agentclientprotocol/sdk";
 import { describeError } from "./errors.ts";
 import type { ProxyEvent } from "./events.ts";
 
@@ -92,6 +103,10 @@ interface Generation {
    *  a dead process can never masquerade as a slow one. */
   readonly dead: Promise<never>;
   readonly died: (error: unknown) => void;
+  /** Why this generation ended, recorded before anything is told about it, so
+   *  the reason reported is the informative one rather than whichever
+   *  mechanism happened to notice first. */
+  cause: unknown;
   sessionId: string | null;
   readyAt: number | null;
   /** Set once its end has been accounted for, so `error` + `exit` (which can
@@ -246,10 +261,21 @@ export class AdapterSession {
 
   /**
    * Bound `work` to a generation's lifetime, so the death of its process ends
-   * the wait. Without this every library call outlives its child forever.
+   * the wait — including the case the library cannot see, where the transport
+   * dies while the process lives.
+   *
+   * On a death both notice, prefer the generation's account of it. The library
+   * says "ACP connection closed"; the generation says "the adapter exited (code
+   * 7)", which is the sentence an operator actually needs. Which of them
+   * notices first is a race between the child's `exit` event and its pipe's
+   * EOF, so the better message is chosen deliberately rather than won.
    */
   async #bind<T>(generation: Generation, work: Promise<T>): Promise<T> {
-    return await Promise.race([work, generation.dead]);
+    try {
+      return await Promise.race([work, generation.dead]);
+    } catch (error) {
+      throw generation.cause ?? error;
+    }
   }
 
   /** As `#bind`, plus a wall-clock backstop for a live-but-mute adapter. */
@@ -352,6 +378,7 @@ export class AdapterSession {
       sessionId: null,
       readyAt: null,
       ended: false,
+      cause: undefined,
       awaitedByStart: this.#starting,
     };
     this.#current = generation;
@@ -407,6 +434,16 @@ export class AdapterSession {
     try {
       await this.#handshake(generation);
     } catch (error) {
+      // Said here rather than left to `#onExit`. An adapter that dies at boot
+      // takes the proxy with it fast enough that the child's `exit` event is
+      // never delivered — the process is already gone — so the transcript would
+      // otherwise end at "adapter spawned" and never name the failure at all.
+      if (this.#current?.id === generation.id) {
+        this.#emit({
+          kind: "adapterFailedToStart",
+          message: describeError(generation.cause ?? error),
+        });
+      }
       // Clean up *this* generation only. It may already have been replaced by a
       // respawn while this handshake was in flight, in which case the live one
       // must be left strictly alone.
@@ -503,14 +540,16 @@ export class AdapterSession {
     if (generation.ended) return;
     generation.ended = true;
 
-    // Ends every await bound to this generation — including a handshake, which
-    // the library would otherwise leave pending until the wall clock gave up.
-    generation.died(
+    // Recorded before anyone is told, so `#bind` can report THIS rather than
+    // the library's generic "ACP connection closed" if its stream noticed the
+    // same death first.
+    generation.cause =
       spawnError ??
-        RequestError.internalError({
-          reason: `the adapter exited (${signal ? `signal ${signal}` : `code ${code}`})`,
-        }),
-    );
+      RequestError.internalError({
+        reason: `the adapter exited (${signal ? `signal ${signal}` : `code ${code}`})`,
+      });
+    // Ends every await bound to this generation.
+    generation.died(generation.cause);
     // The leader is gone but its group is not: an adapter runs its tools and
     // MCP servers as its own children, and they outlive it. Without this, every
     // crash-and-respawn cycle leaks one process tree.
@@ -520,7 +559,7 @@ export class AdapterSession {
 
     // A generation that is no longer current has already been accounted for;
     // its exit must not disturb the session that replaced it.
-    if (this.#stopped || this.#current?.id !== generation.id) return;
+    if (this.#current?.id !== generation.id) return;
 
     // Name the cause the way an operator would have to reason about it. A
     // generation that never became ready failed to START; one that served for
@@ -541,6 +580,11 @@ export class AdapterSession {
     this.#clearGrace();
     this.#cancelState = "none";
     this.#current = null;
+
+    // Reported above even when shutting down — a death is a fact worth showing
+    // whoever is watching the tile. Everything past here is about what to do
+    // NEXT, and a stopped session has no next.
+    if (this.#stopped) return;
 
     this.#settle((pending) => {
       if (killedForCancel) pending.resolve({ stopReason: "cancelled" });
@@ -613,13 +657,28 @@ export class AdapterSession {
     }, delayMs);
   }
 
-  /** Settle the in-flight turn exactly once, whoever gets there first. */
+  /**
+   * Settle the in-flight turn exactly once, whoever gets there first.
+   *
+   * A turn ending while we are killing the adapter to enforce a cancel IS a
+   * cancelled turn, whichever mechanism noticed the death — the library
+   * rejecting its own request when the stream closed, or `#onExit`. Deciding
+   * that here rather than at each call site removes the race instead of
+   * depending on winning it: the SDK rejects pending requests on stream end
+   * (0.4.5 did not), which flipped that ordering and turned three cancel tests
+   * red the moment the library changed underneath.
+   */
   #settle(finish: (pending: PendingTurn) => void): void {
     const pending = this.#pending;
     if (!pending) return;
+    const cancelling = this.#cancelState === "killing";
     this.#pending = null;
     this.#clearGrace();
     this.#cancelState = "none";
+    if (cancelling) {
+      pending.resolve({ stopReason: "cancelled" });
+      return;
+    }
     finish(pending);
   }
 

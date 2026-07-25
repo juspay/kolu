@@ -68,7 +68,7 @@ let
     inherit version src;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-S6wdxF94N8Q0UdFwYuOxMmwAXc0AHZebLJvJTCPmcU4=";
+    hash = "sha256-WIXgNcU//1MW6SYAdsmapDkTz9HIEECHPOiu6cCk99Q=";
     fetcherVersion = 3;
   };
 in

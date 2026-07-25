@@ -35,7 +35,7 @@ import {
   type PromptRequest,
   type PromptResponse,
   type InitializeResponse,
-} from "@zed-industries/agent-client-protocol";
+} from "@agentclientprotocol/sdk";
 
 const VERBOSE = process.argv.includes("--verbose");
 const DECOY_PERMISSION = process.argv.includes("--decoy-permission");

@@ -177,6 +177,32 @@
   },
   "overrides": [
     {
+      // `@kolu/acp` is built on `AgentSideConnection` / `ClientSideConnection`
+      // from `@agentclientprotocol/sdk`, which the SDK marks `@deprecated` in
+      // favour of its newer `agent()` / `client()` app model. They are exported,
+      // documented, fully functional, and the SDK's OWN test suite still uses
+      // them — this is a direction signal, not a removal.
+      //
+      // Adopting the app model is not a rename: it changes the programming
+      // model on both faces of the proxy plus both test fixtures. Doing that in
+      // the PR that introduced the package would have meant rewriting its
+      // process-supervision core, unreviewed, immediately after the review
+      // gauntlet that caught four lifetime bugs in exactly that code.
+      //
+      // So it is scoped off HERE and only here, and it is temporary: removing
+      // this block is the completion signal for
+      // https://github.com/juspay/kolu/issues/1989, which carries the migration
+      // and its own review.
+      "includes": ["packages/acp/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noDeprecatedImports": "off"
+          }
+        }
+      }
+    },
+    {
       // `defineSurface`'s generic machinery is a library over *heterogeneous*
       // descriptor maps: `Record<string, CellSpec<any, any>>` and the mapped
       // types that walk it. `unknown` can't stand in — a concrete

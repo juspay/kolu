@@ -29,7 +29,7 @@ import {
   type PromptRequest,
   type PromptResponse,
   RequestError,
-} from "@zed-industries/agent-client-protocol";
+} from "@agentclientprotocol/sdk";
 import { AdapterSession } from "./adapter.ts";
 import { parseArgv } from "./argv.ts";
 import { describeError } from "./errors.ts";

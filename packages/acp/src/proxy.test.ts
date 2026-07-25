@@ -28,7 +28,7 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import type { PromptResponse } from "@zed-industries/agent-client-protocol";
+import type { PromptResponse } from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CANCEL_GRACE_MS } from "./adapter.ts";
 import { connectToProxy } from "./connect.ts";
@@ -357,6 +357,22 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
     });
   }
 
+  it("delivers the newer frame kinds instead of dropping them", async () => {
+    // The previous library (0.4.5) validated `session/update` against a schema
+    // that predated `usage_update`, so it rejected and discarded the frame —
+    // both real adapters send it, and nobody ever saw one. The SDK knows it, so
+    // it has to reach the transcript rather than vanish.
+    const proxy = await startProxy([], FAKE_ADAPTER_B);
+    const client = await connectClient(proxy.socketPath);
+
+    await client.prompt("hello");
+    await proxy.waitFor(
+      (out) => out.includes("◀ usage_update · "),
+      "the usage frame to be rendered",
+    );
+    expect(proxy.stdout()).toMatch(/◀ usage_update · \d+\/\d+ context/);
+  });
+
   it("answers a permission request by kind, never by option id", async () => {
     const proxy = await startProxy(["--decoy-permission"]);
     const client = await connectClient(proxy.socketPath);
@@ -409,7 +425,13 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
 
     expect(code).toBe(1);
     expect(Date.now() - startedAt).toBeLessThan(20_000);
-    expect(stderr).toMatch(/adapter exited/);
+    // The transcript must NAME the failure. It cannot rely on the child's exit
+    // event: an adapter that dies at boot takes the proxy down faster than Node
+    // delivers that event, so the handshake reports it instead. Which *cause*
+    // is quoted depends on whether the exit or the pipe's EOF was noticed
+    // first — both true — so the assertion pins the line, not the phrasing.
+    expect(stdout).toMatch(/⎯ adapter failed to start · /);
+    expect(stderr.trim()).not.toBe("");
     // It never claimed to be serving: no client can have connected to a proxy
     // whose agent never came up.
     expect(stdout).not.toContain("⎯ listening · ");

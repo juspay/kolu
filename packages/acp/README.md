@@ -103,13 +103,14 @@ lets a debugging `acp-chat` sit beside a program that is driving the agent.
 
 ## Caveats worth knowing
 
-- The pinned `@zed-industries/agent-client-protocol` (0.4.5) validates
-  `session/update` against the v1 schema and **drops kinds it does not know** —
-  today `usage_update` and `session_info_update`, which both shipped adapters
-  send. The library logs those to stderr; the transcript on stdout is unaffected,
-  but the frames do not reach clients.
 - The proxy serves one turn at a time. A second concurrent prompt is refused
   rather than queued.
+- The protocol library is **`@agentclientprotocol/sdk`** — the same lineage as
+  the adapters this package pins, which is what keeps the frame vocabulary in
+  step with what they actually send. It replaced
+  `@zed-industries/agent-client-protocol` 0.4.5, whose older schema rejected
+  `usage_update` and `session_info_update` outright, so frames both adapters
+  send reached no one. They are delivered and rendered now.
 
 ## Tests
 

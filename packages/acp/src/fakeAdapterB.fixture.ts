@@ -14,8 +14,8 @@
  *   - the reply arrives as ONE batched chunk instead of a stream
  *   - the frame ORDER is different: a plan, then the permission request BEFORE
  *     the tool call it guards, then the call, then its update
- *   - it emits frames the pinned client library does not know and drops
- *     (`usage_update`), which must not disturb the transcript or the turn
+ *   - it emits the newer frame kinds (`usage_update`), which the previous
+ *     library version rejected outright and this one delivers
  *
  * Same observable contract, so the same tests run against it unchanged.
  */
@@ -33,7 +33,7 @@ import {
   type PromptRequest,
   type PromptResponse,
   type SessionNotification,
-} from "@zed-industries/agent-client-protocol";
+} from "@agentclientprotocol/sdk";
 
 const SESSION_ID = "vendor-b/0001";
 
@@ -152,9 +152,10 @@ class VendorBAgent implements Agent {
   }
 
   /**
-   * A frame kind the pinned client library's v1 schema rejects and drops (both
-   * real adapters send these). It must reach neither the transcript nor a
-   * client, and must not break the turn.
+   * A frame kind both real adapters send. The previous library's schema did not
+   * know it and rejected it, so it never reached anyone; this one does, so it
+   * lands in the transcript and at every attached client. Either way it must
+   * not break the turn.
    */
   async #noise(sessionId: string): Promise<void> {
     await this.#connection.sessionUpdate({

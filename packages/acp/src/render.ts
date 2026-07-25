@@ -89,6 +89,19 @@ export function formatUpdate(update: SessionUpdate): string | null {
       return `${OUT} available_commands_update · ${update.availableCommands.length} commands`;
     case "current_mode_update":
       return `${OUT} current_mode_update · ${update.currentModeId}`;
+    case "plan_update":
+      return `${OUT} plan_update`;
+    case "plan_removed":
+      return `${OUT} plan_removed · ${update.planId}`;
+    case "config_option_update":
+      return `${OUT} config_option_update · ${update.configOptions.length} options`;
+    // These two are why the library version matters: 0.4.5's schema did not
+    // know them, so it rejected and dropped them. The SDK does, so they reach
+    // the tile instead of vanishing.
+    case "session_info_update":
+      return `${OUT} session_info_update · ${update.title ? oneLine(update.title) : "(no title)"}`;
+    case "usage_update":
+      return `${OUT} usage_update · ${update.used}/${update.size} context`;
   }
 }
 

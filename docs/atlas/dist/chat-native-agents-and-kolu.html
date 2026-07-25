@@ -153,7 +153,7 @@ thread, without opening kolu at all.</p>
 <tbody>
 <tr>
 <td>Language + library</td>
-<td>TypeScript, official <code>@zed-industries/agent-client-protocol</code> (client <em>and</em> proxy-server side) — pesu and the workspace are TS</td>
+<td>TypeScript, official <code>@agentclientprotocol/sdk</code> (client <em>and</em> proxy-server side) — pesu and the workspace are TS. Shipped first on <code>@zed-industries/agent-client-protocol</code>; moved to the SDK, which is the lineage the pinned adapters are built on (see HX0’s footnote)</td>
 </tr>
 <tr>
 <td>Package boundary</td>
@@ -193,14 +193,22 @@ maps it onto the adapter’s, so a respawn never invalidates an id a client is
 holding; and it advertises <code>loadSession: false</code> — the adapters offer it, but the
 proxy does not forward it yet, and advertising a capability it would then refuse
 is worse than saying no. Conversation history therefore does not survive a
-respawn until HX3.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Two further notes from the build. The pinned
-<code>@zed-industries/agent-client-protocol</code> (0.4.5) validates <code>session/update</code>
-against the v1 schema and <strong>drops kinds it does not know</strong> — both shipped
-adapters send <code>usage_update</code> and <code>session_info_update</code>, which never reach
-clients (the library logs them to stderr, so the rendered transcript is
-unaffected). And no idle timeout was built: a turn that goes quiet during a long
-tool run is normal, and a wrong timeout kills real work, so a dead adapter is
-detected by its exit rather than by silence.</span></span></span></p>
+respawn until HX3.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Two further notes from the build. The library is
+<strong><code>@agentclientprotocol/sdk</code></strong>, not the <code>@zed-industries/agent-client-protocol</code>
+the Decisions table first named: same protocol, but the lineage the adapters
+themselves are built on, and the ecosystem has consolidated there. The switch
+was not cosmetic — 0.4.5 validated <code>session/update</code> against a schema that
+predated <code>usage_update</code> and <code>session_info_update</code>, rejecting and discarding
+frames <em>both</em> shipped adapters send, so nobody ever saw one; the SDK knows them
+and the tile renders them. It also closed a gap the supervisor was built around:
+0.4.5 left an in-flight request pending forever when its stream ended, while the
+SDK rejects it with <code>ACP connection closed</code> (probed, not assumed). The
+generation model stays regardless — it exists to keep a dead adapter’s frames
+out of the session that replaced it, and to know whether a death means
+<code>cancelled</code> or failure, neither of which is a library concern. And no idle
+timeout was built: a turn that goes quiet during a long tool run is normal, and
+a wrong timeout kills real work, so a dead adapter is detected by its exit
+rather than by silence.</span></span></span></p>
 <p>The <code>@kolu/acp</code> package and its two bins. The adapter to spawn is the proxy’s
 argv, so agent-agnosticism is structural, not a feature to add.</p>
 <p><strong>Nothing about the tile is special.</strong> An “ACP tile” is an ordinary kolu

@@ -28,7 +28,7 @@ import {
   RequestError,
   type RequestPermissionRequest,
   type SessionNotification,
-} from "@zed-industries/agent-client-protocol";
+} from "@agentclientprotocol/sdk";
 
 export interface ProxyClient {
   /** The proxy's single session. */
