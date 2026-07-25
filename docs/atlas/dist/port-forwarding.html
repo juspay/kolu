@@ -247,6 +247,7 @@ data arrives on the terminal’s metadata like everything else). The flows:</p>
 <li><strong>Open.</strong> Click a chip → <code>window.open</code> on <code>http://${location.hostname}:…</code>, matching the Code tab’s external-open idiom (<code>CodeTab.tsx:1114</code>). Case-3 ports open <strong>directly</strong>; cases 1–2 call the embedded library’s <code>create</code>, get the listener port, open it, and the chip gains a <code>⇄ :61000</code> badge. Forwarding is <strong>lazy — first click only</strong>, never eager for every detected port.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An agent session can hold six listening ports; auto-tunneling all of them VS-Code-style keeps idle listeners alive for ports nobody opens. Lazy costs one ssh handshake on first click — the price of a forward that dies with the process that opened it, and the reason to pay it once per opened port rather than once per detected one.</span></span></span></li>
 <li><strong>Manage.</strong> A <strong>Forwarded Ports</strong> group lists every active kolu forward — <code>host:remotePort → :localPort</code>, origin <code>auto</code> (chip click) or <code>manual</code>, cancel <code>⨯</code> per row. Kolu auto-cancels an <code>auto</code> forward when the scanner sees its remote port die; <code>manual</code> forwards persist until cancelled or their host disconnects. The same list appears <strong>in the host tab’s dropdown</strong> (beside state · terminals · padi·kaval): forwards are host-scoped, so the host popover is their natural home — each row a clickable <code>http://…</code> link with its cancel <code>⨯</code> — while the Inspector group shows the same rows filtered to the active terminal’s host.</li>
 <li><strong>Manual forward.</strong> The <code>＋ Forward a port…</code> row and a <span class="kbd-chord" data-astro-cid-7vv3zwgx><kbd class="kbd" data-astro-cid-7vv3zwgx>⌘</kbd><span class="kbd-plus" data-astro-cid-7vv3zwgx>+</span><kbd class="kbd" data-astro-cid-7vv3zwgx>K</kbd></span> command accept <code>host:port</code> — for a port the scanner missed or one outside any terminal’s subtree.</li>
+<li><strong>The unit is the TILE, not the pane.</strong> A tile is one thing to the user and several PTYs to the daemon, so the scanner attributes a port to whichever <em>pane’s</em> subtree holds it — correct and unavoidable. But <strong>a dev server almost always runs in a split</strong>, so a section that read only the main pane showed nothing in the common case (observed on a live deployment during PRT1, not in review). Every ports surface therefore reads main + splits, the same unit the Attach section already documents, merging rather than grouping: which pane a listener sits in is a detail of how the user split their tile. PRT2’s <strong>Forwarded Ports</strong> group and auto-cancel inherit this — a forward belongs to the tile that opened it, not to a pane that may be closed while the server keeps running.</li>
 <li><strong>Discoverability.</strong> One tip in <code>settings/tips.ts</code>: “Click a port in the Inspector to open the server an agent just started.”</li>
 </ul>
 <h2 id="detection-ports-attributed-to-the-terminal">Detection: ports, attributed to the terminal</h2>
@@ -268,7 +269,7 @@ pid→ppid table once, partitions it into per-shell subtrees, and joins
 listening TCP sockets against each subtree:</p>
 <ul>
 <li><strong>linux</strong> — pid table from <code>/proc/*/stat</code>; LISTEN rows (with their <strong>bind address</strong>) from <code>/proc/net/tcp</code> + <code>tcp6</code>, joined to pids via <code>/proc/&lt;pid&gt;/fd</code> socket-inode readlinks (the <code>socketHolder.ts:100</code> technique), walking <strong>only the union of terminal subtrees</strong>. Expect and tolerate per-pid <code>EACCES</code>/<code>ENOENT</code> outside the subtrees — but <code>EACCES</code> on a <em>requested</em> subtree surfaces as a scan error, never an empty port list. Do not spawn <code>ss</code> (measured ~7× slower, and it hides other-users’ pid attribution anyway).</li>
-<li><strong>darwin</strong> — <code>ps -axo pid,ppid,comm</code> for the table; <strong><code>netstat -anv -p tcp</code></strong> for ports — <em>not</em> <code>lsof</code>, and not as a fallback either: measured on real hardware, netstat is ~11× faster (1.4 ms vs 15.6 ms median) <em>and</em> more complete (it reports pid+comm for other users’ listeners where non-root lsof shows only your own). Filter to <code>LISTEN</code>, accept <code>tcp4|tcp6|tcp46</code> (dual-stack), parse the port from the final dot of the address column, and run it under a <strong>Node-side kill timer</strong> — macOS ships no GNU <code>timeout</code>. Both platforms gate CI; the darwin path is day-one work.</li>
+<li><strong>darwin</strong> — <code>ps -axo pid,ppid,comm</code> for the table; <strong><code>lsof -nP -w -iTCP -sTCP:LISTEN -Fpcn</code></strong> for ports, both by <strong>absolute path</strong> (<code>/bin/ps</code>, <code>/usr/sbin/lsof</code>): a nix <code>ps</code> on <code>PATH</code> is procps, whose <code>-o comm</code> is a truncated name rather than the executable path the parser reads, so resolving through <code>PATH</code> would make correctness depend on the user’s profile. Read lsof’s tagged <strong>field output</strong> (<code>p</code> pid · <code>c</code> command · <code>n</code> address), not its human table — nothing then depends on column widths or on a name containing a space. <code>lsof</code> exits <strong>1 with empty output when nothing is listening</strong>, which is an answer, not a failure. Run it under a <strong>Node-side kill timer</strong> — macOS ships no GNU <code>timeout</code>. Both platforms gate CI; the darwin path is day-one work.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><strong>This reverses the spike’s choice, and the reversal was found in the field, not by review.</strong> The spike measured <code>netstat -anv -p tcp</code> as ~11× faster than lsof (1.4 ms vs 15.6 ms median) <em>and</em> more complete (it reports pid+comm for other users’ listeners, where non-root lsof shows only your own), and picked it with “not <code>lsof</code>, and not as a fallback either”. Both measurements were true of the box they were taken on. But on <strong>macOS 27.0</strong>, <code>netstat -anv</code> returns an <strong>empty internet table to the calling process while reporting success</strong> — zero bytes, exit 0, nothing on stderr — where an ssh shell on the same host prints the real table and <code>lsof</code> sees everything from inside that very same process. Verified against the same binary by absolute path, through a shell, and with <code>-f inet</code>: all empty. A mechanism that silently answers “no ports” is the worst possible one for a feature whose entire job is answering that question, so netstat is <em>replaced</em>, not demoted to a fallback. The completeness half of the old comparison costs nothing: a terminal’s subtree is padi’s <strong>own user</strong> by construction, so every port that could ever be attributed is one non-root lsof shows.</span></span></span></li>
 </ul>
 <p><strong>Attribution is the live ppid subtree — and nothing more.</strong> Backgrounded
 (<code>&amp;</code>) processes, pipelines, and grandchildren all keep the shell as an
@@ -293,16 +294,21 @@ regex, full stop). Most of its knob matrix — autoForwardPortsSource, the
 20-forward hybrid fallback, per-port action overrides, focus-gated toasts —
 compensates for eager forwarding on uncertain evidence. Kolu’s lazy,
 scanner-derived design needs none of it.</span></span></span></p>
-<p>Spike-measured on real hosts (2026-07-24, 10 runs each, non-root): a complete
-linux scan is <strong>3.0 ms</strong> wall (~0.06% of a core at the 5 s cadence, 30-process
-box); the macOS pair is <strong>~17 ms</strong> (420-process box). The 5-second cadence has
-two orders of magnitude of headroom.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Parser subtleties the spike
-surfaced, all fixture-worthy: <code>/proc/net/tcp</code> addresses are byte-reversed hex
-and IPv6 words are little-endian; v4-mapped IPv6 must be normalized and
-dual-stack rows deduplicated on the final structural <code>PortInfo</code>; a
-fork-inherited socket maps one inode to several pids, so attribution folds at
-subtree level before dedup; netstat encodes the owner as <code>comm:pid</code> and
-wildcard as <code>*.PORT</code>.</span></span></span></p>
+<p>Measured end-to-end through the shipped scanner (non-root): a complete linux
+scan is <strong>~3 ms</strong> (~0.06% of a core at the 5 s cadence); the macOS pair is
+<strong>17 ms</strong> on a quiet box and <strong>93 ms</strong> on a busy one (~1.9% of a core). The
+5-second cadence has room to spare on both.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Parser subtleties, all
+fixture-worthy: <code>/proc/net/tcp</code> addresses are byte-reversed hex and IPv6 words
+are little-endian <em>per 32-bit word</em>, not across the address; v4-mapped IPv6
+must be normalized (<code>::ffff:0.0.0.0</code> is a wildcard, <code>::ffff:127.0.0.1</code> is not,
+and they differ in four bytes) and dual-stack rows deduplicated on the final
+structural <code>PortInfo</code>; a fork-inherited socket maps one inode to several pids,
+so attribution folds at subtree level before dedup; lsof brackets IPv6 hosts
+(<code>[::1]:5173</code>), which is what makes “port after the last colon” unambiguous,
+and spells the wildcard bind <code>*</code>. One more, found live: <code>/proc/&lt;pid&gt;/stat</code>’s
+<code>comm</code> is the THREAD name, and Node renames its main thread — a plain
+<code>node</code> dev server reports <code>MainThread</code>, so the displayed name comes from
+<code>/proc/&lt;pid&gt;/cmdline</code>’s <code>argv[0]</code> instead.</span></span></span></p>
 <p>Each terminal’s sample — <code>PortInfo { port, name, wildcard }</code> in
 <code>packages/terminal-vocab/src/schema.ts</code>, beside <code>ForegroundSchema:145</code> — is
 <strong>deduped by structural equality</strong> before it touches the snapshot, so an
@@ -384,10 +390,16 @@ in a real kolu terminal and asserts the <code>8123</code> chip appears within tw
 ticks and clicking it opens the page at <code>location.hostname:8123</code> — pinning the
 real path (padi scan → snapshot → surface → reconcile
 store), which no client-side mock can satisfy. Parser unit tests run on
-fixture <code>/proc</code> trees <em>and</em> fixture <code>netstat -anv -p tcp</code> output (including
-<code>tcp46</code> dual-stack rows); the darwin gate
+fixture <code>/proc</code> trees <em>and</em> fixture <code>lsof</code> field output; the darwin gate
 (<code>aarch64-darwin</code>) must be green, not skipped. Loopback-bound chips render
 with a “needs a forward” affordance that activates in PRT2.</p>
+<p><strong>Fixtures are not enough, and this phase proved it twice.</strong> A fixture pins the
+parser; it cannot pin the assumption that the parser is handed the shape it
+expects — and both darwin bugs lived exactly there, green fixtures over a scan
+that threw or saw nothing. So the scanner also carries a <strong>live</strong> suite that
+spawns real listeners and asks the real scanner about them on whatever platform
+it runs (<code>describeDaemon</code>-gated, so it rides the <code>ci::daemon</code> node that is
+required on both platforms).</p>
 <p>Scanner discipline, pinned from the Zed/VS Code comparisons: the pass holds
 <strong>no OS state between ticks</strong> — parse, join, emit the structural <code>PortInfo</code>
 snapshot, drop everything else (no retained fds, no process objects, no
