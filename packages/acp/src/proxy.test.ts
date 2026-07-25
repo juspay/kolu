@@ -36,11 +36,22 @@ const TSX_LOADER = pathToFileURL(
 const here = dirname(fileURLToPath(import.meta.url));
 const PROXY = join(here, "proxy.ts");
 const FAKE_ADAPTER = join(here, "fakeAdapter.fixture.ts");
+const FAKE_ADAPTER_B = join(here, "fakeAdapterB.fixture.ts");
 
-/** Two argvs of the same fake — the parameter that proves agent-agnosticism. */
+/** The adapters the whole suite runs over. Two argvs of one fake prove the
+ *  command is read; the THIRD is a different agent altogether — different
+ *  session-id shape, different capabilities, a batched reply instead of a
+ *  stream, the permission request before the tool call rather than after, and
+ *  frame kinds the pinned library drops — which is what actually proves the
+ *  package holds no assumptions about how an agent behaves. */
 const ADAPTER_STYLES = [
-  { name: "terse", args: [] as string[] },
-  { name: "verbose", args: ["--verbose"] },
+  { name: "fake A", script: FAKE_ADAPTER, args: [] as string[] },
+  { name: "fake A, verbose", script: FAKE_ADAPTER, args: ["--verbose"] },
+  {
+    name: "fake B, another vendor",
+    script: FAKE_ADAPTER_B,
+    args: [] as string[],
+  },
 ];
 
 /** Long enough for a spawn plus a handshake on a loaded CI box. */
@@ -93,10 +104,14 @@ async function runProxyToExit(
   return { code, stdout, stderr };
 }
 
-function proxyArgv(adapterArgs: string[], command?: string): string[] {
+function proxyArgv(
+  adapterArgs: string[],
+  command?: string,
+  script: string = FAKE_ADAPTER,
+): string[] {
   const adapter =
     command === undefined
-      ? [process.execPath, "--import", TSX_LOADER, FAKE_ADAPTER]
+      ? [process.execPath, "--import", TSX_LOADER, script]
       : [command];
   return [
     "--import",
@@ -110,15 +125,22 @@ function proxyArgv(adapterArgs: string[], command?: string): string[] {
   ];
 }
 
-async function startProxy(adapterArgs: string[]): Promise<RunningProxy> {
+async function startProxy(
+  adapterArgs: string[],
+  script: string = FAKE_ADAPTER,
+): Promise<RunningProxy> {
   assertDaemonSpawnAllowed("the acp-proxy bin and its adapter");
   // A private XDG_RUNTIME_DIR keeps the socket off the real one and keeps the
   // path short enough for the ~108-byte sockaddr_un limit.
   const runtimeDir = mkdtempSync(join(tmpdir(), "acp-"));
-  const child: ChildProcess = spawn(process.execPath, proxyArgv(adapterArgs), {
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir },
-  });
+  const child: ChildProcess = spawn(
+    process.execPath,
+    proxyArgv(adapterArgs, undefined, script),
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir },
+    },
+  );
 
   let stdout = "";
   let stderr = "";
@@ -199,9 +221,9 @@ const TRANSCRIPT_MARKERS = ["▶", "◀", "●", "⎯"];
 
 describeDaemon("acp-proxy, end to end over a real socket", () => {
   for (const style of ADAPTER_STYLES) {
-    describe(`adapter argv: fake ${style.name}`, () => {
+    describe(`adapter: ${style.name}`, () => {
       it("carries a prompt to the adapter and streams the reply back", async () => {
-        const proxy = await startProxy(style.args);
+        const proxy = await startProxy(style.args, style.script);
         const client = await connectClient(proxy.socketPath);
 
         const response = await client.prompt("hello");
@@ -211,7 +233,7 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
       });
 
       it("renders the tile transcript from frames alone", async () => {
-        const proxy = await startProxy(style.args);
+        const proxy = await startProxy(style.args, style.script);
         const client = await connectClient(proxy.socketPath);
         await client.prompt("hello");
         await proxy.waitFor(
@@ -225,7 +247,11 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
         expect(out).toContain("◀ agent_message_chunk · ");
         expect(out).toContain("echo: hello");
         expect(out).toContain("◀ tool_call · execute — echo hello");
-        expect(out).toContain("auto-answered Allow once");
+        // The option's NAME is the agent's wording, not ours — asserting a
+        // literal here is how a suite quietly encodes one vendor's vocabulary.
+        expect(out).toMatch(
+          /◀ session\/request_permission · echo hello → auto-answered \S/,
+        );
         expect(out).toContain("◀ tool_call_update · completed");
         expect(out).toContain("● turn end · stopReason: end_turn");
 
@@ -239,7 +265,7 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
       });
 
       it("respawns the adapter after it dies mid-turn, and the next prompt works", async () => {
-        const proxy = await startProxy(style.args);
+        const proxy = await startProxy(style.args, style.script);
         const client = await connectClient(proxy.socketPath);
 
         // `hang` streams and then goes quiet, so the turn is provably still
@@ -268,7 +294,7 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
       });
 
       it("respawns the adapter after it exits on its own mid-turn", async () => {
-        const proxy = await startProxy(style.args);
+        const proxy = await startProxy(style.args, style.script);
         const client = await connectClient(proxy.socketPath);
 
         await expect(client.prompt("crash")).rejects.toThrow();
@@ -283,7 +309,7 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
       });
 
       it("ends a turn the adapter cancels cleanly, without replacing it", async () => {
-        const proxy = await startProxy(style.args);
+        const proxy = await startProxy(style.args, style.script);
         const client = await connectClient(proxy.socketPath);
 
         const slow = client.prompt("slow");
@@ -302,7 +328,7 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
       });
 
       it("kills and replaces an adapter that ignores the cancel", async () => {
-        const proxy = await startProxy(style.args);
+        const proxy = await startProxy(style.args, style.script);
         const client = await connectClient(proxy.socketPath);
 
         const hung = client.prompt("hang");

@@ -37,7 +37,7 @@ import {
   type SessionNotification,
 } from "@zed-industries/agent-client-protocol";
 import { describeError } from "./errors.ts";
-import type { ProxyEvent } from "./render.ts";
+import type { ProxyEvent } from "./events.ts";
 
 /**
  * How long a cancelled turn has to end on its own before the adapter is killed

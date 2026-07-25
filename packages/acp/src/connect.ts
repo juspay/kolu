@@ -16,6 +16,7 @@
 
 import { connect as connectSocket, type Socket } from "node:net";
 import { Readable, Writable } from "node:stream";
+import type { SessionUpdate } from "./events.ts";
 import {
   type ClientSideConnection as ClientSideConnectionType,
   ClientSideConnection,
@@ -30,8 +31,6 @@ import {
 
 /** Where the proxy publishes the working directory its session is rooted at. */
 export const SESSION_CWD_META = "kolu.acp/cwd";
-
-type SessionUpdate = SessionNotification["update"];
 
 export interface ProxyClient {
   /** The proxy's single session. */

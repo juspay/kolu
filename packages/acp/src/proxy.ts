@@ -29,16 +29,14 @@ import {
   type PromptRequest,
   type PromptResponse,
   RequestError,
-  type SessionNotification,
 } from "@zed-industries/agent-client-protocol";
 import { AdapterSession } from "./adapter.ts";
 import { parseArgv } from "./argv.ts";
 import { describeError } from "./errors.ts";
 import { SESSION_CWD_META } from "./connect.ts";
 import { socketPathFor } from "./socketPath.ts";
-import { type ProxyEvent, TranscriptRenderer } from "./render.ts";
-
-type SessionUpdate = SessionNotification["update"];
+import type { ProxyEvent, SessionUpdate } from "./events.ts";
+import { TranscriptRenderer } from "./render.ts";
 
 /**
  * Claim the socket path. A proxy that crashed leaves its socket file behind

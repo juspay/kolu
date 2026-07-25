@@ -12,30 +12,7 @@
  * per token would be unreadable.
  */
 
-import type { SessionNotification } from "@zed-industries/agent-client-protocol";
-
-type SessionUpdate = SessionNotification["update"];
-
-/** Everything the tile can show. Lifecycle entries are the harness duties the
- *  proxy owns; the rest is protocol traffic in one direction or the other. */
-export type ProxyEvent =
-  | { kind: "listening"; socketPath: string }
-  | { kind: "adapterSpawned"; command: string; args: string[]; pid: number }
-  | { kind: "adapterReady"; agentName: string; protocolVersion: number }
-  | { kind: "adapterExited"; code: number | null; signal: string | null }
-  | { kind: "adapterFailedToStart"; message: string }
-  | { kind: "adapterRespawning"; attempt: number; delayMs: number }
-  | { kind: "sessionReady"; sessionId: string }
-  | { kind: "clientConnected"; clients: number }
-  | { kind: "clientDisconnected"; clients: number }
-  | { kind: "prompt"; text: string }
-  | { kind: "update"; update: SessionUpdate }
-  | { kind: "permissionAutoAnswered"; title: string; optionName: string }
-  | { kind: "permissionUnanswerable"; title: string }
-  | { kind: "cancelRequested" }
-  | { kind: "cancelGraceExpired"; graceMs: number }
-  | { kind: "turnEnded"; stopReason: string }
-  | { kind: "turnFailed"; message: string };
+import type { ProxyEvent, SessionUpdate } from "./events.ts";
 
 /** Marker column: who spoke. `▶` into the adapter, `◀` out of it, `●` a turn
  *  boundary, `⎯` the harness talking about itself. */
