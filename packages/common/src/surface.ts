@@ -115,6 +115,7 @@ export {
   AgentKindSchema,
   AgentMemorySchema,
   ForegroundSchema,
+  foldPorts,
   PrResultSchema,
   PrUnavailableSourceSchema,
   prUnavailableReason,

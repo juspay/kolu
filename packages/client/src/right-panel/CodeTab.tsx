@@ -52,6 +52,7 @@ import {
   GitBranchIcon,
 } from "../ui/Icons";
 import { resolveRef } from "../ui/lineRef";
+import { openExternal } from "../ui/openExternal";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
 import {
   pierreIconConfig,
@@ -1110,9 +1111,7 @@ const CodeTab: Component<{
                           // in `observeIframeOpenExternal` so `javascript:`/`data:`
                           // (which would run in kolu's own origin) can never reach
                           // `window.open`.
-                          onOpenExternal={(url) =>
-                            window.open(url, "_blank", "noopener,noreferrer")
-                          }
+                          onOpenExternal={(url) => openExternal(url)}
                           // A kolu deep link clicked in the preview routes the
                           // app through the SAME pipeline a typed `#/…` URL
                           // takes (safe: the router is view-only by law).

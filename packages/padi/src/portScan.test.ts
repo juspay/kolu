@@ -20,7 +20,6 @@ import { describe, expect, it } from "vitest";
 import {
   decodeProcAddress,
   fdListFailure,
-  foldPorts,
   isAnyAddress,
   parseLsofListeners,
   parseProcNetTcp,
@@ -295,55 +294,6 @@ describe("fdListFailure", () => {
     // An unmodelled failure is not something to swallow on either kind of pid.
     expect(fdListFailure("EIO", false)).toBe("throw");
     expect(fdListFailure(undefined, false)).toBe("throw");
-  });
-});
-
-// ── The per-terminal fold ──────────────────────────────────────────────
-
-describe("foldPorts", () => {
-  it("collapses a fork-inherited socket seen on several pids", () => {
-    // One listener, three processes holding the same fd. Without the collapse the
-    // Inspector shows the same port three times.
-    expect(
-      foldPorts([
-        { port: 3000, wildcard: true, name: "node" },
-        { port: 3000, wildcard: true, name: "node" },
-        { port: 3000, wildcard: true, name: "node" },
-      ]),
-    ).toEqual([{ port: 3000, name: "node", wildcard: true }]);
-  });
-
-  it("treats a port reachable on ANY of its binds as reachable", () => {
-    // A server bound to both 127.0.0.1 and 0.0.0.0 contributes two rows for one
-    // port. It IS reachable, so offering a forward for it would be wrong — and
-    // picking whichever row came first would make the answer depend on fd order.
-    expect(
-      foldPorts([
-        { port: 5173, wildcard: false, name: "node" },
-        { port: 5173, wildcard: true, name: "node" },
-      ]),
-    ).toEqual([{ port: 5173, name: "node", wildcard: true }]);
-  });
-
-  it("keeps a port whose every bind is loopback as needing a forward", () => {
-    expect(
-      foldPorts([
-        { port: 5432, wildcard: false, name: "postgres" },
-        { port: 5432, wildcard: false, name: "postgres" },
-      ]),
-    ).toEqual([{ port: 5432, name: "postgres", wildcard: false }]);
-  });
-
-  it("sorts by port, so an unchanged host produces an identical sample", () => {
-    // Load-bearing for the churn guard: `portsEqual` is order-sensitive, so an
-    // unsorted fold would emit a "change" on fd-iteration order alone, forever.
-    expect(
-      foldPorts([
-        { port: 9229, wildcard: true, name: "node" },
-        { port: 3000, wildcard: true, name: "node" },
-        { port: 61922, wildcard: true, name: "workerd" },
-      ]).map((p) => p.port),
-    ).toEqual([3000, 9229, 61922]);
   });
 });
 

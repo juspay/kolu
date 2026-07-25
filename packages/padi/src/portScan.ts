@@ -82,6 +82,7 @@ import { execFile } from "node:child_process";
 import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { foldPorts } from "@kolu/terminal-vocab/schema";
 import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 
 const execFileAsync = promisify(execFile);
@@ -175,42 +176,6 @@ export function partitionSubtrees(
 interface Listener {
   port: number;
   wildcard: boolean;
-}
-
-/** Fold a subtree's listeners into the sorted, deduplicated `PortInfo` set that
- *  rides the snapshot.
- *
- *  Three collapses happen here, and each has a concrete cause:
- *   - a **fork-inherited** listening socket is held by several pids at once, so
- *     the same (port, name) arrives repeatedly;
- *   - a **dual-stack** server shows up once in `tcp` and again in `tcp6` (or as
- *     `tcp46`) for one logical port;
- *   - a server bound to BOTH `0.0.0.0` and a specific address contributes two
- *     rows for one port.
- *
- *  The last is why `wildcard` folds with OR rather than picking a row: the
- *  question a chip asks is "is this reachable from another machine as-is?", and
- *  one any-address bind is enough to make the answer yes. Sorted by port so an
- *  unchanged host produces a BYTE-identical sample and `portsEqual` can dedup it
- *  away — an unsorted set would defeat the churn guard on `Set` iteration order
- *  alone. */
-export function foldPorts(
-  rows: readonly (Listener & { name: string })[],
-): PortInfo[] {
-  const byPort = new Map<number, PortInfo>();
-  for (const row of rows) {
-    const prior = byPort.get(row.port);
-    if (prior === undefined) {
-      byPort.set(row.port, {
-        port: row.port,
-        name: row.name,
-        wildcard: row.wildcard,
-      });
-      continue;
-    }
-    if (row.wildcard) prior.wildcard = true;
-  }
-  return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
 
 // ── linux: /proc ───────────────────────────────────────────────────────
@@ -697,10 +662,15 @@ async function scanDarwin(
  *  Throws `PortScanError` on an unsupported platform — fail fast, exactly as
  *  `socketHolders` does: kolu's daemons run on linux and darwin, and a third
  *  platform needs a real reader, not a silent empty map. */
-export function scanTerminalPorts(
+export async function scanTerminalPorts(
   targets: readonly PortScanTarget[],
 ): Promise<Map<TerminalId, PortInfo[]>> {
-  if (targets.length === 0) return Promise.resolve(new Map());
+  // `async` so EVERY failure arrives through one channel. Non-async, the two real
+  // arms rejected while the unsupported-platform arm threw synchronously — so the
+  // natural shape for a background sampler, `void scan(t).catch(log)`, handled a
+  // blind /proc and an lsof timeout but blew up uncaught on exactly the arm the
+  // doc advertises as fail-fast.
+  if (targets.length === 0) return new Map();
   switch (process.platform) {
     case "linux":
       return scanLinux(targets);

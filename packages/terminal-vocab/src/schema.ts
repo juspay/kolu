@@ -168,8 +168,10 @@ export const ForegroundSchema = z.object({
 export const PortInfoSchema = z.object({
   /** The TCP port the socket is listening on. */
   port: z.number().int().min(1).max(65535),
-  /** Process name holding the listener (`node`, `workerd`, …) — the scanner's
-   *  `comm`, for a glanceable "who is this?" beside the number. */
+  /** The PROGRAM holding the listener (`node`, `workerd`, …), for a glanceable
+   *  "who is this?" beside the number — `argv[0]`'s basename on linux, `ps comm`'s
+   *  basename on darwin. Deliberately not linux's `comm`: that is the THREAD name,
+   *  which Node overwrites, so a plain `node` dev server would read `MainThread`. */
   name: z.string(),
   /** True when the socket is bound to the ANY address (`0.0.0.0` / `::`, and the
    *  v4-mapped `::ffff:0.0.0.0`), so it already answers on every interface of the
@@ -179,6 +181,36 @@ export const PortInfoSchema = z.object({
   wildcard: z.boolean(),
 });
 export type PortInfo = z.infer<typeof PortInfoSchema>;
+
+/** Collapse listening sockets into the one row per PORT that a reader wants —
+ *  sorted by port, deduplicated, with `wildcard` folded by OR.
+ *
+ *  This is part of what `PortInfo` MEANS, which is why it lives in the vocabulary
+ *  rather than in either consumer: the same collapse is needed at both ends of the
+ *  wire, for the same reason but over different inputs. The scanner folds one
+ *  terminal's raw sockets (a fork-inherited listener is held by several pids; a
+ *  dual-stack server appears in both socket tables; a server bound to `0.0.0.0`
+ *  AND a specific address contributes two rows). A client folds several PANES of
+ *  an already-folded set into one tile. Written twice it was the same algebra
+ *  twice, one copy tested and one not.
+ *
+ *  `wildcard` folds with OR rather than first-wins because the question a reader
+ *  asks is "is this reachable from another machine as-is?", and one any-address
+ *  bind is enough to make the answer yes. The name is first-wins: two programs on
+ *  one port can only differ by address, and naming either is honest.
+ *
+ *  Sorting is load-bearing, not cosmetic: {@link portsEqual} is order-sensitive,
+ *  so an unsorted fold would report a "change" on socket-iteration order alone,
+ *  forever. */
+export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
+  const byPort = new Map<number, PortInfo>();
+  for (const row of rows) {
+    const prior = byPort.get(row.port);
+    if (prior === undefined) byPort.set(row.port, { ...row });
+    else if (row.wildcard) prior.wildcard = true;
+  }
+  return [...byPort.values()].sort((a, b) => a.port - b.port);
+}
 
 /** Are two port samples the same fact? The dedup gate a scanner applies BEFORE a
  *  sample reaches the snapshot: an unchanged scan must emit nothing, or a

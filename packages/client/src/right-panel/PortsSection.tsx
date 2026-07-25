@@ -27,10 +27,11 @@
  *  would produce a broken tab more often than a working one. */
 
 import { activeArm } from "@kolu/padi/surface";
-import type { PortInfo, TerminalId } from "kolu-common/surface";
+import { foldPorts, type TerminalId } from "kolu-common/surface";
 import { type Component, For, Show, createMemo } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OpenIcon } from "../ui/Icons";
+import { openExternal } from "../ui/openExternal";
 import Section from "../ui/Section";
 import { activeHost } from "../wire";
 
@@ -58,36 +59,6 @@ export function needsForwardReason(opts: {
   return null;
 }
 
-/** Every port the TILE is serving — its main pane's and each split's, merged and
- *  re-sorted.
- *
- *  A tile is one thing to the user and several PTYs to the daemon. The scanner
- *  attributes a port to the pane whose subtree holds it, which is correct and
- *  unavoidable (each pane is its own process tree) — but "run the dev server in
- *  the split, read the Inspector on the main pane, see nothing" is then the
- *  DEFAULT experience, because a split is exactly where a long-running server
- *  goes. Observed on a real deployment before this was fixed.
- *
- *  So the section reads the tile, the same unit `KavalAttachSection` already
- *  documents as "the main terminal AND each split". Ports are merged rather than
- *  grouped per pane: which pane a listener happens to live in is an implementation
- *  detail of how the user split their tile, not something they asked about.
- *
- *  Merging keeps `wildcard` true if ANY pane reports the port as such, for the
- *  same reason the scanner's own fold does: one reachable bind makes it
- *  reachable. */
-export function mergeTilePorts(panes: readonly (readonly PortInfo[])[]) {
-  const byPort = new Map<number, PortInfo>();
-  for (const ports of panes) {
-    for (const port of ports) {
-      const prior = byPort.get(port.port);
-      if (prior === undefined) byPort.set(port.port, { ...port });
-      else if (port.wildcard) prior.wildcard = true;
-    }
-  }
-  return [...byPort.values()].sort((a, b) => a.port - b.port);
-}
-
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const store = useTerminalStore();
   // Is the terminal being inspected on the machine serving this page? The
@@ -98,9 +69,20 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   // The tile root plus its splits, exactly as the Attach section enumerates them:
   // `terminalId` is the active TILE (never a split), so its sub-terminals are its
   // panes.
+  //
+  // A tile is one thing to the user and several PTYs to the daemon. The scanner
+  // attributes a port to the pane whose subtree holds it — correct and
+  // unavoidable, each pane being its own process tree — but "run the dev server in
+  // the split, read the Inspector on the main pane, see nothing" is then the
+  // DEFAULT experience, because a split is exactly where a long-running server
+  // goes. Observed on a real deployment before this was fixed.
+  //
+  // `foldPorts` is the vocabulary's own collapse (the same one the scanner applies
+  // per terminal), so the wildcard-OR rule is stated once for both ends of the
+  // wire rather than re-implemented here.
   const ports = createMemo(() =>
-    mergeTilePorts(
-      [props.terminalId, ...store.getSubTerminalIds(props.terminalId)].map(
+    foldPorts(
+      [props.terminalId, ...store.getSubTerminalIds(props.terminalId)].flatMap(
         (id) => activeArm(store.getMetadata(id))?.ports ?? [],
       ),
     ),
@@ -141,10 +123,9 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                         </span>
                       }
                     >
-                      {/* `window.open` with `noopener,noreferrer`, the same
-                       *  external-open idiom the Code tab's preview uses — one way to
-                       *  leave kolu for an http(s) URL, so the flags can't drift
-                       *  between two hand-written call sites. */}
+                      {/* `openExternal` — the one way kolu leaves for an http(s)
+                       *  URL, shared with the Code tab's preview, so the
+                       *  `noopener,noreferrer` posture really is stated once. */}
                       <button
                         type="button"
                         class="inline-flex items-center gap-1 text-accent hover:underline cursor-pointer"
@@ -152,10 +133,8 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                         data-port={port.port}
                         title={portUrl(window.location.hostname, port.port)}
                         onClick={() =>
-                          window.open(
+                          openExternal(
                             portUrl(window.location.hostname, port.port),
-                            "_blank",
-                            "noopener,noreferrer",
                           )
                         }
                       >
