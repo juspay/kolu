@@ -212,6 +212,15 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
   return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
 
+/** The comparison keys, READ OFF the schema so a new `PortInfo` field is covered
+ *  with no second edit here — the `PERSISTED_SNAPSHOT_KEYS` mechanism
+ *  (`padi/src/terminalEndpoint/local.ts`), which exists because a hand-listed
+ *  field set silently stops seeing the field you just added. Here the cost of that
+ *  drift is invisible by construction: `portsEqual` is a DEDUP gate, so a field it
+ *  does not compare is a field whose changes are swallowed, with nothing anywhere
+ *  to report why the chip never updated. */
+const PORT_INFO_KEYS = Object.keys(PortInfoSchema.shape) as (keyof PortInfo)[];
+
 /** Are two port samples the same fact? The dedup gate a scanner applies BEFORE a
  *  sample reaches the snapshot: an unchanged scan must emit nothing, or a
  *  seconds-cadence ticker would publish a fresh array — and a fresh reference
@@ -220,7 +229,8 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
  *  Order-sensitive by design: the scanner emits ports sorted, so equal content in
  *  a different order cannot occur and treating it as a change would be honest
  *  anyway. Hand-written rather than `isDeepStrictEqual` so this stays browser-safe
- *  (the vocab is bundled into the client). */
+ *  (the vocab is bundled into the client) — but over `PORT_INFO_KEYS`, not a
+ *  hand-listed triple, so the field set is the schema's and not a convention. */
 export function portsEqual(
   a: readonly PortInfo[],
   b: readonly PortInfo[],
@@ -229,9 +239,7 @@ export function portsEqual(
     a.length === b.length &&
     a.every((p, i) => {
       const q = b[i]!;
-      return (
-        p.port === q.port && p.name === q.name && p.wildcard === q.wildcard
-      );
+      return PORT_INFO_KEYS.every((k) => p[k] === q[k]);
     })
   );
 }
