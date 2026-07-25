@@ -107,7 +107,7 @@ body {
 /* Finished-unseen tab — the AREA channel. `HostUnseenPill` carries the count;
  * this washes the whole tab amber so the mark survives peripheral vision.
  * Doubling a dot is a 4× area change and still gets missed; tinting the tab
- * behind it is ~100× (#1988).
+ * behind it is ~100× (#1990).
  *
  * Amber `--color-attention` and NOT `--host-hue`: obligation is a fact about
  * work, not about which host it happened on, and the hue-per-host palette
@@ -651,7 +651,7 @@ body {
  * signal — a tint across the whole row plus the leading amber stripe. The
  * StatePip corner badge (7 px, pulsing) stays as the precise mark, but it was
  * never the thing that catches your eye from across the room: it ALREADY
- * pulsed and unread threads still went unnoticed for hours (#1988). Motion on
+ * pulsed and unread threads still went unnoticed for hours (#1990). Motion on
  * a 7 px object doesn't buy attention; area does.
  *
  * The stripe costs no new geometry — the row already reserves

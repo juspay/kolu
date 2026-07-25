@@ -12,7 +12,7 @@
  *
  *  Carries the COUNT, not a bare dot: the host tab already renders an 8 px
  *  connection dot two elements to the left, so a second, smaller, half-alpha dot
- *  read as part of it (#1988). The number is also the thing you actually want —
+ *  read as part of it (#1990). The number is also the thing you actually want —
  *  "two finished over there" is a different decision from "one". */
 
 import { UNSEEN_COUNT_CLASS } from "@kolu/solid-statepip/pipVariant";

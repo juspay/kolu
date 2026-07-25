@@ -164,7 +164,7 @@ const HostChip: Component<{
         style={{ "--host-hue": hostHue(props.host) }}
         // Finished-unseen washes the WHOLE tab amber (`.host-tab[data-unseen]`),
         // not just the pill inside it. Area is what carries a mark into
-        // peripheral vision — a 6 px dot on a quiet tab did not (#1988). Mirrors
+        // peripheral vision — a 6 px dot on a quiet tab did not (#1990). Mirrors
         // `HostUnseenPill`'s own suppression, so the wash and the pill appear and
         // vanish together and the active tab keeps its host-hue belly.
         data-unseen={marks.unseenFinished() > 0 && !isActive() ? "" : undefined}

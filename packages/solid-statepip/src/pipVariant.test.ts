@@ -182,7 +182,7 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     const cls = UNSEEN_COUNT_CLASS.split(/\s+/);
     expect(cls).toContain("bg-attention");
     // The mark that summons you must not be fainter than the connection dot
-    // beside it — that was the #1988 defect. Any `/nn` alpha suffix regresses it.
+    // beside it — that was the #1990 defect. Any `/nn` alpha suffix regresses it.
     expect(cls.some((c) => c.startsWith("bg-attention/"))).toBe(false);
     expect(cls).toContain("tabular-nums");
   });

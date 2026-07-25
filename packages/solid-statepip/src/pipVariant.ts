@@ -261,7 +261,7 @@ export const NEEDS_YOU_PILL_CLASS =
  *  split by hue, not by shape: violet = blocked on you, amber = finished and
  *  unopened.
  *
- *  It was a 6 px `bg-attention/50` dot until #1988 — a half-alpha dot sat
+ *  It was a 6 px `bg-attention/50` dot until #1990 — a half-alpha dot sat
  *  quieter than the 8 px connection dot two elements to its left, so the mark
  *  meant to summon you was the faintest thing on the tab. Solid fill + a real
  *  number; the tab's own amber wash (`.host-tab[data-unseen]`) carries the
