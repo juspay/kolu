@@ -168,6 +168,37 @@ describe("vazhi's screen", () => {
     expect(fake.cancelled()).toEqual(["remote:pu-dev:5173"]);
   });
 
+  it("keeps cancelling once the selected forward has left the table", async () => {
+    // The selection is a key, and the row it names can leave without anyone
+    // pressing anything. Held as truth on its own it went on naming a forward
+    // that was gone, and the next `x` answered "no forwards to cancel" over a
+    // table with a live row still in it.
+    const fake = fakeManager();
+    const { stdin, lastFrame } = start(fake);
+
+    stdin.write("a");
+    await settle();
+    stdin.write("pu-dev:5173\r");
+    await settle();
+    stdin.write("a");
+    await settle();
+    stdin.write("zest:8080\r");
+    await settle();
+
+    stdin.write("k");
+    await settle();
+    stdin.write("x");
+    await settle();
+    stdin.write("x");
+    await settle();
+
+    expect(fake.cancelled()).toEqual([
+      "remote:pu-dev:5173",
+      "remote:zest:8080",
+    ]);
+    expect(plain(lastFrame() ?? "")).not.toContain("no forwards to cancel");
+  });
+
   it("tears every forward down before it lets the process end", async () => {
     const fake = fakeManager();
     const { stdin } = start(fake);

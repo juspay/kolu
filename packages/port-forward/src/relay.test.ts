@@ -6,12 +6,18 @@ import {
   type Server,
 } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import type { OpenedForward } from "./mechanism.ts";
+import type { ForwardReport, OpenedForward } from "./mechanism.ts";
 import { pickFreePort } from "./freePort.ts";
-import { openRelay, openRelayWith } from "./relay.ts";
+import { openRelay } from "./relay.ts";
 
 /** A report that records nothing — for the cases that only care about bytes. */
 const silent = () => ({ lost: () => {}, fault: () => {} });
+
+/** The relay as production builds it: node's own listener, which is what
+ *  `nativeMechanisms` hands it. The cases that inject a fake listener call
+ *  `openRelay` directly. */
+const relayTo = (port: number, report: ForwardReport) =>
+  openRelay({ port, report, listen: createNetServer });
 
 /** A dev server exactly like the ones this exists for: bound to loopback, so
  *  unreachable from any other machine. */
@@ -55,7 +61,7 @@ describe("the local TCP relay", () => {
   it("serves a loopback-only server on a port bound to every interface", async () => {
     const origin = await serveOnLoopback("hello from loopback");
     cleanups.push(origin.stop);
-    const relay = await openRelay(origin.port, silent());
+    const relay = await relayTo(origin.port, silent());
     cleanups.push(relay.close);
 
     const response = await fetch(`http://127.0.0.1:${relay.localPort}/`);
@@ -65,7 +71,7 @@ describe("the local TCP relay", () => {
   it("cancelling severs it — the door is shut, not just closed to new callers", async () => {
     const origin = await serveOnLoopback("still here");
     cleanups.push(origin.stop);
-    const relay = await openRelay(origin.port, silent());
+    const relay = await relayTo(origin.port, silent());
 
     // A served request leaves a pooled keep-alive socket on the relay; close()
     // must destroy it rather than wait politely for it to end on its own —
@@ -82,9 +88,9 @@ describe("the local TCP relay", () => {
   it("picks a different local port per forward", async () => {
     const origin = await serveOnLoopback("x");
     cleanups.push(origin.stop);
-    const first = await openRelay(origin.port, silent());
+    const first = await relayTo(origin.port, silent());
     cleanups.push(first.close);
-    const second = await openRelay(origin.port, silent());
+    const second = await relayTo(origin.port, silent());
     cleanups.push(second.close);
 
     expect(second.localPort).not.toBe(first.localPort);
@@ -96,7 +102,7 @@ describe("the local TCP relay", () => {
     // connection opened ~29,000 file descriptors in 1.5s before anything else
     // noticed.
     const free = await pickFreePort();
-    const relay = await openRelay(free, silent());
+    const relay = await relayTo(free, silent());
     cleanups.push(relay.close);
 
     expect(relay.localPort).not.toBe(free);
@@ -107,7 +113,7 @@ describe("the local TCP relay", () => {
     // to a relay whose target is dead must end, and must cost a bounded number
     // of sockets.
     const free = await pickFreePort();
-    const relay = await openRelay(free, silent());
+    const relay = await relayTo(free, silent());
     cleanups.push(relay.close);
     const before = openFdCount();
 
@@ -147,7 +153,7 @@ describe("a relay that fails after it was up", () => {
     report: { lost: (r: string) => void; fault: (r: string) => void },
   ): Promise<{ relay: OpenedForward; server: Server }> {
     let server: Server | undefined;
-    const relay = await openRelayWith({
+    const relay = await openRelay({
       port,
       report,
       listen: (onConnection) => {
@@ -188,7 +194,7 @@ describe("a relay that fails after it was up", () => {
     const origin = await serveOnLoopback("bye");
     cleanups.push(origin.stop);
     const losses: string[] = [];
-    const relay = await openRelay(origin.port, {
+    const relay = await relayTo(origin.port, {
       lost: (reason) => losses.push(reason),
       fault: (reason) => losses.push(reason),
     });
@@ -230,7 +236,7 @@ describe("a relay that fails after it was up", () => {
     const faults: string[] = [];
     let refuse = true;
     let server: Server | undefined;
-    const relay = await openRelayWith({
+    const relay = await openRelay({
       port: origin.port,
       report: { lost: (r) => losses.push(r), fault: (r) => faults.push(r) },
       listen: (onConnection) => {
@@ -264,7 +270,7 @@ describe("a relay that fails after it was up", () => {
   it("is safe to close twice", async () => {
     const origin = await serveOnLoopback("bye");
     cleanups.push(origin.stop);
-    const relay = await openRelay(origin.port, silent());
+    const relay = await relayTo(origin.port, silent());
 
     await relay.close();
     await expect(relay.close()).resolves.toBeUndefined();

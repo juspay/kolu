@@ -6,6 +6,7 @@
  * to `0.0.0.0`, needs no forward and never reaches here.)
  */
 
+import { createServer } from "node:net";
 import type { ForwardMechanisms } from "./mechanism.ts";
 import { openRelay } from "./relay.ts";
 import { openSshForward, spawnSshChild } from "./sshForward.ts";
@@ -14,7 +15,7 @@ export function nativeMechanisms(): ForwardMechanisms {
   return {
     open(target, report) {
       return target.kind === "local"
-        ? openRelay(target.port, report)
+        ? openRelay({ port: target.port, report, listen: createServer })
         : openSshForward(target.host, target.port, report, spawnSshChild);
     },
   };

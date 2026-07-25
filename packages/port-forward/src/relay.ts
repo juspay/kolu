@@ -12,7 +12,8 @@
  * forward was cancelled, and "cancel severs it" has to mean severed.
  */
 
-import { connect, createServer, type Server, type Socket } from "node:net";
+import { connect, type Server, type Socket } from "node:net";
+import { messageOf } from "./diagnostic.ts";
 import type { ForwardReport, OpenedForward } from "./mechanism.ts";
 
 /** The address a `local` target listens on — loopback, by definition of the
@@ -30,18 +31,14 @@ const LOOPBACK = "127.0.0.1";
  *  `0.0.0.0:<port>` while relaying to `127.0.0.1:<port>` points the relay at
  *  ITSELF: every accepted connection dials back into the listener and accepts
  *  again, forever. Measured before this was closed: one connection opened
- *  ~29,000 file descriptors in 1.5 seconds. */
-export function openRelay(
-  port: number,
-  report: ForwardReport,
-): Promise<OpenedForward> {
-  return openRelayWith({ port, report, listen: createServer });
-}
-
-/** The relay with its listener injected — the seam the "what happens when the
- *  listener fails after it was up?" tests need, since that failure cannot be
- *  provoked through a real socket. `openRelay` supplies node's own. */
-export function openRelayWith(opts: {
+ *  ~29,000 file descriptors in 1.5 seconds.
+ *
+ *  `listen` is the seam the "what happens when the listener fails after it was
+ *  up?" tests need, since that failure cannot be provoked through a real socket.
+ *  Production passes node's own from `nativeMechanisms`, which is where the ssh
+ *  mechanism is handed its real spawner too — the one module that knows what the
+ *  real thing is. */
+export function openRelay(opts: {
   port: number;
   report: ForwardReport;
   listen: (onConnection: (socket: Socket) => void) => Server;
@@ -143,11 +140,7 @@ export function openRelayWith(opts: {
             // a fault — the row stays, and the trouble is passed on rather than
             // swallowed.
             report.fault(
-              `${reason}, and closing it failed too: ${
-                closeError instanceof Error
-                  ? closeError.message
-                  : String(closeError)
-              }`,
+              `${reason}, and closing it failed too: ${messageOf(closeError)}`,
             ),
         );
       });

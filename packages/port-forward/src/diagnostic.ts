@@ -21,6 +21,14 @@ import { stripVTControlCharacters } from "node:util";
  *  that OSC 8 rides on), DEL, and C1. */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]+/g;
 
+/** What an unknown thrown value SAYS. Every mechanism catches `unknown` and has
+ *  to put it in a sentence, and each hand-written copy of this coercion was
+ *  another chance for one of them to render a bare "[object Object]" at the one
+ *  moment the reader needs the reason. */
+export function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Plain text: ANSI sequences removed, every remaining control character
  *  collapsed to a space. */
 export function plainDiagnostic(text: string): string {

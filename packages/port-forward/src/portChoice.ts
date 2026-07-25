@@ -18,6 +18,7 @@
  * different port would fail identically while telling the user the wrong story.
  */
 
+import { messageOf } from "./diagnostic.ts";
 import { canBindLocally, pickFreePort } from "./freePort.ts";
 
 /** Thrown by an attempt that failed *because of the port it was given*. This is
@@ -68,7 +69,7 @@ export async function openPreferringPort<T>(opts: {
   try {
     return await opts.open(await pickFreePort());
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = messageOf(err);
     throw new Error(`${message} — after falling back from ${taken.message}`, {
       cause: err,
     });
