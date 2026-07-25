@@ -72,6 +72,19 @@ describe("foldPorts", () => {
   it("is empty for no sockets", () => {
     expect(foldPorts([])).toEqual([]);
   });
+
+  it("folds the same SET to the same row whatever order it was observed in", () => {
+    // Two programs on one port is a legitimate configuration (`127.0.0.1:8080`
+    // and `192.168.1.5:8080`), and the scanner's pid-iteration order is no stable
+    // function of the host's state — on linux it descends from `readdir("/proc")`.
+    // A first-wins name would therefore flip between passes, and `portsEqual`
+    // reads the name, so every flip would republish "a change" forever.
+    const rows = [p(8080, false, "python"), p(8080, false, "node")];
+    expect(portsEqual(foldPorts(rows), foldPorts([...rows].reverse()))).toBe(
+      true,
+    );
+    expect(foldPorts(rows)).toEqual([p(8080, false, "node")]);
+  });
 });
 
 describe("portsEqual", () => {

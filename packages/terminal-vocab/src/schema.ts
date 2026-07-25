@@ -196,18 +196,28 @@ export type PortInfo = z.infer<typeof PortInfoSchema>;
  *
  *  `wildcard` folds with OR rather than first-wins because the question a reader
  *  asks is "is this reachable from another machine as-is?", and one any-address
- *  bind is enough to make the answer yes. The name is first-wins: two programs on
- *  one port can only differ by address, and naming either is honest.
+ *  bind is enough to make the answer yes.
  *
- *  Sorting is load-bearing, not cosmetic: {@link portsEqual} is order-sensitive,
- *  so an unsorted fold would report a "change" on socket-iteration order alone,
- *  forever. */
+ *  The whole fold is a function of the observed SET, never of the order it was
+ *  observed in — that is one property, and BOTH the sort and the name rule serve
+ *  it, because {@link portsEqual} reads the array order AND the name. So the name
+ *  is the lexicographically smallest of the candidates rather than first-wins:
+ *  two programs on one port (`127.0.0.1:8080` and `192.168.1.5:8080` — a
+ *  legitimate configuration) would otherwise alternate names with the scanner's
+ *  pid-iteration order, which on linux descends from `readdir("/proc")` and is no
+ *  stable function of the state, and every flip would publish a "change" through
+ *  the fold, the registry, the wire and into a store write, forever. Naming either
+ *  program is honest; naming a DIFFERENT one each pass is not. */
 export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
   const byPort = new Map<number, PortInfo>();
   for (const row of rows) {
     const prior = byPort.get(row.port);
-    if (prior === undefined) byPort.set(row.port, { ...row });
-    else if (row.wildcard) prior.wildcard = true;
+    if (prior === undefined) {
+      byPort.set(row.port, { ...row });
+      continue;
+    }
+    if (row.wildcard) prior.wildcard = true;
+    if (row.name < prior.name) prior.name = row.name;
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
