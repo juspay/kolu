@@ -72,12 +72,6 @@ export function Screen({
   const CHROME_ROWS = 5;
   const tableLines = Math.max(1, size.rows - CHROME_ROWS);
   const shown = viewport({ rows: forwards, selectedKey, lines: tableLines });
-  // Render an indicator only when BOTH the rows and every indicator fit —
-  // computed once, so the two sides cannot disagree (they did: one used `<`
-  // and the other `<=`, which lost a fitting "↑ N more" at the bottom of a
-  // list). In the one-line fallback the row wins and neither is drawn.
-  const indicatorCount = (shown.above > 0 ? 1 : 0) + (shown.below > 0 ? 1 : 0);
-  const showIndicators = shown.rows.length + indicatorCount <= tableLines;
 
   return (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
@@ -96,7 +90,7 @@ export function Screen({
           </Text>
         ) : (
           <>
-            {shown.above > 0 && showIndicators && (
+            {shown.above > 0 && shown.indicators && (
               <Text dimColor>{`  ↑ ${shown.above} more`}</Text>
             )}
             {shown.rows.map((row) => (
@@ -109,7 +103,7 @@ export function Screen({
                 targetWidth={targetWidth}
               />
             ))}
-            {shown.below > 0 && showIndicators && (
+            {shown.below > 0 && shown.indicators && (
               <Text dimColor>{`  ↓ ${shown.below} more`}</Text>
             )}
           </>

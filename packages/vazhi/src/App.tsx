@@ -17,12 +17,16 @@ import {
   type ForwardLoss,
   type ForwardManager,
   formatTarget,
+  type ForwardTarget,
   parseTarget,
 } from "@kolu/port-forward";
 import { Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { forwardUrl, messageOf, readPromptInput } from "./format.ts";
 import { type Mode, Screen, type Status } from "./Screen.tsx";
+
+/** The ways something outside asks this process to stop. */
+const STOP_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
 /** How often the uptime column moves and the list is re-read. */
 const TICK_MS = 1000;
@@ -119,7 +123,7 @@ export function App({
   quitRef.current = quit;
 
   const add = async (text: string): Promise<void> => {
-    let target: ReturnType<typeof parseTarget>;
+    let target: ForwardTarget;
     try {
       target = parseTarget(text);
     } catch (err) {
@@ -199,10 +203,14 @@ export function App({
     { isActive: mode.kind === "table" && !quitting },
   );
 
-  // Esc leaves the prompt; the prompt itself owns every other key.
+  // Esc leaves the prompt; Ctrl+C still quits from inside it. Both are needed
+  // here: ink is told not to handle Ctrl+C (the app tears its forwards down
+  // first), and raw mode means no SIGINT arrives either — so without this the
+  // key did nothing at all while the prompt was open.
   useInput(
-    (_input, key) => {
+    (input, key) => {
       if (key.escape) setMode({ kind: "table" });
+      else if (key.ctrl && input === "c") void quitRef.current();
     },
     { isActive: mode.kind === "add" && !quitting },
   );
@@ -215,13 +223,9 @@ export function App({
     const onSignal = (): void => {
       void quitRef.current();
     };
-    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-      process.on(signal, onSignal);
-    }
+    for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
     return () => {
-      for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-        process.off(signal, onSignal);
-      }
+      for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
     };
   }, []);
 

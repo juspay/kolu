@@ -21,6 +21,7 @@
  */
 
 import type { ForwardMechanisms, OpenedForward } from "./mechanism.ts";
+import { plainDiagnostic } from "./diagnostic.ts";
 import { assertTarget, type ForwardTarget, targetKey } from "./target.ts";
 
 /** A live forward, as callers see it. */
@@ -37,9 +38,12 @@ export interface Forward {
 
 /** Rejects a `create` that finished opening after `dispose` had already run:
  *  the listener it produced was closed immediately, so this is the map keeping
- *  its promise, not a teardown failure. `dispose` tells the two apart by this
- *  type — a flight that rejects for any OTHER reason means a teardown it
- *  ordered did not happen. */
+ *  its promise, not a teardown failure.
+ *
+ *  It carries no decision — `dispose` counts `SurvivedTeardownError` and
+ *  nothing else (see there for why that direction is the safe one). This type
+ *  exists so the caller's rejection SAYS what happened rather than reading like
+ *  a fault. */
 export class DisposedMidOpenError extends Error {
   constructor() {
     super(
@@ -201,7 +205,6 @@ export function makeForwardManager(opts: {
       if (kind === "gone") lostWhileClosing.add(key);
       return;
     }
-    if (slot.state !== "open") return;
     // A fault KEEPS the slot: the listener may still be reachable and must
     // stay visible and retryable. Only a loss removes it.
     if (kind === "gone") slots.delete(key);
@@ -325,8 +328,13 @@ export function makeForwardManager(opts: {
     opening.add(token);
     const flight = (async () => {
       const opened = await opts.mechanisms.open(target, {
-        lost: (reason) => lose(key, reason, token, "gone"),
-        fault: (reason) => lose(key, reason, token, "degraded"),
+        // Sanitised HERE, at the seam, not in whichever mechanism happened to
+        // remember: every reason is rendered verbatim by a consumer, and a
+        // mechanism that reads a subprocess's stderr is carrying text the far
+        // end chose. One mechanism's discipline is not a library guarantee.
+        lost: (reason) => lose(key, plainDiagnostic(reason), token, "gone"),
+        fault: (reason) =>
+          lose(key, plainDiagnostic(reason), token, "degraded"),
       });
 
       // The mechanism may have called this listener DEAD before its own
@@ -439,7 +447,8 @@ export function makeForwardManager(opts: {
       // call put there (identity-checked, so a replacement is never erased)
       // and let the next create try again. The exception is a flight that
       // opened a listener and then failed to CLOSE it during dispose: that
-      // listener may still be live, so its slot stays (see `closeFailed`).
+      // listener may still be live, so its slot stays (the SurvivedTeardownError
+      // branch above).
       reportedWhileOpening.delete(token);
       opening.delete(token);
       const current = slots.get(key);

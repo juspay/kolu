@@ -31,7 +31,7 @@
  */
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { stripVTControlCharacters } from "node:util";
+import { plainDiagnostic } from "./diagnostic.ts";
 import type { ForwardReport, OpenedForward } from "./mechanism.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 
@@ -113,22 +113,6 @@ const HOLD_OPEN_COMMAND = `echo ${READY_TOKEN}; cat`;
  *  the worst it could still buy is a fallback port — never a forward reported
  *  as up when it is not. */
 const BIND_FAILURE = /^(?:bind \[|Could not request local forwarding)/m;
-
-/** Make ssh's own words safe to put in an error string.
- *
- *  Everything on that stream is UNTRUSTED: the remote command's stderr is
- *  merged into it, so a hostile or careless far end can emit SGR (rewriting
- *  what the operator reads) or OSC 8 (a clickable link of its choosing) — and
- *  these strings are rendered verbatim by vazhi's TUI today and kolu's
- *  Inspector later. Sanitising in one renderer would leave the other exposed,
- *  so the library hands out plain text and nothing else. `stripVTControlCharacters`
- *  removes ANSI sequences; the remaining C0/C1 characters (including the bare
- *  ESC and BEL that OSC 8 rides on) become spaces. */
-export function plainDiagnostic(text: string): string {
-  return stripVTControlCharacters(text)
-    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
-    .trim();
-}
 
 /** Did ssh report that it could not bind the local port? Read from the stderr
  *  accumulated so far — see `BIND_FAILURE` for why the match is line-anchored

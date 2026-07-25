@@ -30,6 +30,10 @@ export interface OpenedForward {
  *  reachable — so reporting it as `lost` would make the map drop its only
  *  handle on it, while reporting nothing at all left the operator looking at a
  *  row that was quietly broken. */
+/** NB the map SANITISES every `reason` before it reaches a consumer (see
+ *  `plainDiagnostic`): these strings are rendered verbatim by a TUI today and
+ *  a browser later, and a mechanism that reads a subprocess's stderr is
+ *  carrying text the far end chose. A mechanism may pass its raw text here. */
 export interface ForwardReport {
   /** It is GONE. The map drops it and tells its consumer why. */
   lost(reason: string): void;

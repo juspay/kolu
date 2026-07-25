@@ -3,12 +3,12 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { PortUnavailableError } from "./portChoice.ts";
+import { plainDiagnostic } from "./diagnostic.ts";
 import type { ForwardReport } from "./mechanism.ts";
 import {
   forwardCommandArgs,
   forwardSpec,
   openSshAttempt,
-  plainDiagnostic,
   reportsBindFailure,
   SSH_OPTS,
   type SpawnSsh,

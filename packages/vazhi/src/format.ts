@@ -1,3 +1,6 @@
+import { link } from "ansi-escapes";
+import cliTruncate from "cli-truncate";
+
 /**
  * The pure pieces of vazhi's screen: how a forward reads as text.
  *
@@ -10,8 +13,6 @@
 export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
-
-import cliTruncate from "cli-truncate";
 
 /** How long a forward has been up, in the coarsest unit that still says
  *  something: seconds under a minute, then minutes, then hours, then days.
@@ -57,13 +58,12 @@ export function readPromptInput(input: string): PromptInput {
     : { kind: "submit", value: input.slice(0, newline) };
 }
 
-/** The two control characters an OSC 8 hyperlink is made of. Written as char
- *  codes rather than as literal escapes so the source stays readable text. */
-const OSC = `${String.fromCharCode(27)}]`;
-const BEL = String.fromCharCode(7);
-
-/** Wrap text in an OSC 8 hyperlink, so the URL is clickable in kolu's terminal
- *  and every other terminal that speaks OSC 8.
+/** A URL the terminal will make clickable — an OSC 8 hyperlink.
+ *
+ *  `ansi-escapes` (already in the tree, underneath Ink) rather than the escape
+ *  bytes by hand: off tmux it emits exactly the same sequence, and inside tmux
+ *  it adds the passthrough wrapper without which tmux swallows the link — and a
+ *  forward TUI is a plausible thing to run in tmux.
  *
  *  Emitted UNCONDITIONALLY — no capability detection. A terminal that doesn't
  *  understand OSC 8 ignores the sequence and shows the text, which is already
@@ -71,7 +71,7 @@ const BEL = String.fromCharCode(7);
  *  keyed on `$TERM` would get kolu's own terminal wrong and drop the link where
  *  it matters most. */
 export function hyperlink(url: string): string {
-  return `${OSC}8;;${url}${BEL}${url}${OSC}8;;${BEL}`;
+  return link(url, url);
 }
 
 /** What the table can actually show, and what is scrolled out of sight.
@@ -92,13 +92,23 @@ export function viewport<T extends { readonly key: string }>(opts: {
   rows: readonly T[];
   selectedKey: string | undefined;
   lines: number;
-}): { rows: readonly T[]; above: number; below: number } {
+}): {
+  rows: readonly T[];
+  above: number;
+  below: number;
+  /** Whether the "N more" lines fit alongside the rows. Decided HERE because
+   *  the capacity arithmetic is here: the screen re-deriving it from the counts
+   *  was a second computation of one fact, and the two disagreed once. */
+  indicators: boolean;
+} {
   const { rows, selectedKey } = opts;
   const lines = Math.max(0, Math.floor(opts.lines));
   if (lines === 0 || rows.length === 0) {
-    return { rows: [], above: 0, below: rows.length };
+    return { rows: [], above: 0, below: rows.length, indicators: false };
   }
-  if (rows.length <= lines) return { rows, above: 0, below: 0 };
+  if (rows.length <= lines) {
+    return { rows, above: 0, below: 0, indicators: false };
+  }
 
   const anchor = Math.max(
     0,
@@ -116,7 +126,12 @@ export function viewport<T extends { readonly key: string }>(opts: {
     const below = rows.length - start - capacity;
     const indicators = (above > 0 ? 1 : 0) + (below > 0 ? 1 : 0);
     if (capacity + indicators <= lines) {
-      return { rows: rows.slice(start, start + capacity), above, below };
+      return {
+        rows: rows.slice(start, start + capacity),
+        above,
+        below,
+        indicators: true,
+      };
     }
   }
   // Too little room for even one row PLUS its indicators. The row wins: a
@@ -125,7 +140,12 @@ export function viewport<T extends { readonly key: string }>(opts: {
   // the counts are still returned, and the header already says how many
   // forwards there are.
   const only = rows.slice(anchor, anchor + 1);
-  return { rows: only, above: anchor, below: rows.length - anchor - 1 };
+  return {
+    rows: only,
+    above: anchor,
+    below: rows.length - anchor - 1,
+    indicators: false,
+  };
 }
 
 /** Squeeze text onto exactly one terminal row.

@@ -128,7 +128,16 @@ export function parseTarget(text: string): ForwardTarget {
   }
   const port = Number(portText);
   assertPort(port, `the port in "${text}"`);
-  if (host === "" || host === "localhost" || host === "127.0.0.1") {
+  // Every spelling of "this machine" — the same set `@kolu/common`'s
+  // `LOOPBACK_SELF_SPELLINGS` documents as canonical (restated, not imported:
+  // this package stays dependency-free). Without `::1`, `::1:5173` parsed as an
+  // ssh hop to a host named `::1` instead of a local relay.
+  if (
+    host === "" ||
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1"
+  ) {
     return { kind: "local", port };
   }
   assertHost(host);
