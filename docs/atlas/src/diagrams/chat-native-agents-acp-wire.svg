@@ -36,10 +36,10 @@
   <text x="536" y="186" font-size="12" fill="#8a8272">renders frames in the PTY</text>
 
   <rect x="760" y="100" width="200" height="110" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
-  <text x="776" y="124" font-size="12" font-weight="700" fill="#1a1c20">claude-agent-acp</text>
-  <text x="776" y="146" font-size="12" fill="#1a1c20">headless Claude Code</text>
-  <text x="776" y="166" font-size="12" fill="#1a1c20">(Agent SDK)</text>
-  <text x="776" y="186" font-size="12" font-family="ui-monospace,monospace" fill="#8a8272">codex · goose later</text>
+  <text x="776" y="124" font-size="12" font-weight="700" fill="#1a1c20">ACP adapter</text>
+  <text x="776" y="146" font-size="12" fill="#1a1c20">claude-agent-acp ·</text>
+  <text x="776" y="166" font-size="12" fill="#1a1c20">codex-acp · goose …</text>
+  <text x="776" y="186" font-size="12" font-family="ui-monospace,monospace" fill="#8a8272">headless — no TUI</text>
 
   <text x="520" y="250" font-size="12" fill="#8a8272">the tile is the depth view — messages, tool calls, permission decisions scroll by</text>
 

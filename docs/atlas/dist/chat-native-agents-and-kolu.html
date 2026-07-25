@@ -44,10 +44,10 @@ from XS gives full depth.</p>
   <text x="536" y="186" font-size="12" fill="#8a8272">renders frames in the PTY</text>
 
   <rect x="760" y="100" width="200" height="110" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
-  <text x="776" y="124" font-size="12" font-weight="700" fill="#1a1c20">claude-agent-acp</text>
-  <text x="776" y="146" font-size="12" fill="#1a1c20">headless Claude Code</text>
-  <text x="776" y="166" font-size="12" fill="#1a1c20">(Agent SDK)</text>
-  <text x="776" y="186" font-size="12" font-family="ui-monospace,monospace" fill="#8a8272">codex · goose later</text>
+  <text x="776" y="124" font-size="12" font-weight="700" fill="#1a1c20">ACP adapter</text>
+  <text x="776" y="146" font-size="12" fill="#1a1c20">claude-agent-acp ·</text>
+  <text x="776" y="166" font-size="12" fill="#1a1c20">codex-acp · goose …</text>
+  <text x="776" y="186" font-size="12" font-family="ui-monospace,monospace" fill="#8a8272">headless — no TUI</text>
 
   <text x="520" y="250" font-size="12" fill="#8a8272">the tile is the depth view — messages, tool calls, permission decisions scroll by</text>
 
@@ -99,9 +99,9 @@ from XS gives full depth.</p>
 <td>Spawns the adapter; serves ACP on a unix socket; renders frames in the PTY</td>
 </tr>
 <tr>
-<td><strong><code>claude-agent-acp</code></strong></td>
+<td><strong>ACP adapter</strong></td>
 <td>child of the proxy</td>
-<td>Headless Claude Code (Agent SDK) behind standard ACP</td>
+<td>The headless agent behind standard ACP — <code>claude-agent-acp</code>, <code>codex-acp</code>, <code>goose acp</code>, any stdio ACP agent</td>
 </tr>
 <tr>
 <td><strong>padi / kaval</strong></td>
@@ -164,8 +164,8 @@ thread, without opening kolu at all.</p>
 <td><code>$XDG_RUNTIME_DIR/kolu/acp-&lt;terminalId&gt;.sock</code>, mode 0600, one session per proxy</td>
 </tr>
 <tr>
-<td>Agent, v1</td>
-<td><code>claude-agent-acp</code> only; <code>codex-acp</code> / goose are later config, not new code paths</td>
+<td>Agents</td>
+<td><strong>Any stdio ACP agent</strong> — the adapter command is the proxy’s argv (<code>acp-proxy -- claude-agent-acp</code>), nothing agent-specific in the code. Day one: <code>claude-agent-acp</code>, <code>codex-acp</code>, <code>goose acp</code>; pesu’s default agent is env config, per-thread selection is later UX</td>
 </tr>
 <tr>
 <td>Permissions</td>
@@ -187,7 +187,8 @@ thread, without opening kolu at all.</p>
 <a id="hx0"></a>
 <h3 id="hx0--an-acp-agent-in-a-tile">HX0 — an ACP agent in a tile</h3>
 <div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">HX0</span><span style="color:#334155">· @kolu/acp: acp-proxy + acp-chat</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
-<p>The <code>@kolu/acp</code> package and its two bins.</p>
+<p>The <code>@kolu/acp</code> package and its two bins. The adapter to spawn is the proxy’s
+argv, so agent-agnosticism is structural, not a feature to add.</p>
 <p><strong>Nothing about the tile is special.</strong> An “ACP tile” is an ordinary kolu
 terminal whose child happens to be <code>acp-proxy</code> — kaval sees a process in a
 PTY, padi sees a terminal, and no kolu code changes anywhere. Create it like
@@ -252,6 +253,9 @@ the proxy never reads <code>~/.claude/projects</code> or any session file.</li>
 <li>Kill the adapter process mid-turn: the proxy respawns it and the next prompt
 works.</li>
 <li><code>session/cancel</code> is exercised, including the grace-then-respawn fallback.</li>
+<li>The same flows pass against a <strong>second adapter</strong> (<code>codex-acp</code> or
+<code>goose acp</code>) changing only the proxy’s argv — proving nothing in the
+package is claude-shaped.</li>
 </ul>
 <a id="hx1"></a>
 <h3 id="hx1--the-xs-round-trip">HX1 — the XS round trip</h3>
@@ -322,10 +326,11 @@ clicking Allow unblocks the run — end to end, with auto-answer off.</p>
 <p>The growing reply (<code>updateMessage</code> ≤1/s, cap-aware split); <code>tool_call</code> frames
 → <code>agentProgress</code> labels while the turn runs; deep link to the tile in the
 ack; <code>acpSessionId</code> in the bind so a pesu restart resumes the conversation via
-<code>session/load</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>claude-agent-acp</code> advertises <code>loadSession</code>; resume
-replays the session’s history as the same <code>session/update</code> stream, so the
-proxy’s tile rendering and pesu’s cursor logic need no special
-path.</span></span></span></p>
+<code>session/load</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>claude-agent-acp</code> and <code>codex-acp</code> advertise
+<code>loadSession</code>; resume replays the session’s history as the same
+<code>session/update</code> stream, so the proxy’s tile rendering and pesu’s cursor logic
+need no special path. For an adapter that doesn’t advertise it, pesu starts a
+fresh session and says so in the thread — visibly, never silently.</span></span></span></p>
 <div class="hx-frame" role="img" aria-label="The XS thread during turn polish: a live tool label pill, one growing reply that updates in place, and a system line showing pesu restarted and resumed the session via session/load."><div class="hx-bar"># DM — kolu<span class="hx-badge">APP</span></div><div class="hx-msgs"><div class="hx-pill">⚙ Running: bash — pnpm vitest run e2e/ports…</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">edited · updates ≤1/s</span><br/>Fixed the pool to lease disjoint port ranges; re-running the suite to confirm…<span class="hx-cursor">▍</span></div><div class="hx-sys">— pesu restarted · session resumed via session/load —</div><div class="hx-msg"><span class="hx-name hx-human">Srid</span><span class="hx-time">9:02 PM</span><br/>and the darwin lane?</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">9:02 PM</span><br/>Same fix covers it — the lease is platform-agnostic. Suite is green on both.</div></div></div>
 <p><strong>Test flows (this PR):</strong></p>
 <ol>
@@ -342,10 +347,9 @@ messages instead of failing.</li>
 </ol>
 <p><strong>Done when:</strong> restart pesu mid-conversation; the next DM continues the same
 conversation with prior context, without double-posting earlier replies.</p>
-<p><strong>Later, on demand (config or small bounded additions, not phases):</strong> other
-agents (<code>codex-acp</code>, goose — the wire is agent-agnostic already); a small
-integration so proxy tiles light up dock state / awareness from the proxy’s
-own stream.</p>
+<p><strong>Later, on demand (small bounded additions, not phases):</strong> per-thread agent
+selection UX in pesu (the wire already takes any adapter); a small integration
+so proxy tiles light up dock state / awareness from the proxy’s own stream.</p>
 <h2 id="background">Background</h2>
 <p><strong>Why chat at all.</strong> Anthropic shipped <a href="https://www.anthropic.com/news/introducing-claude-tag">Claude Tag</a>
 — one shared Claude per channel, pursuing tasks “over hours or days” — and

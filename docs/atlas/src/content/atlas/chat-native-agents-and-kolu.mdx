@@ -32,7 +32,7 @@ from XS gives full depth.
 | **Xyne Spaces** | XS cloud | Threads, identity, @mention/DM webhooks, flow cards |
 | **pesu** | daemon beside kolu (`packages/pesu`) | Webhook + author gate + binds; ACP client |
 | **`acp-proxy`** | child of kaval, in a PTY tile (`@kolu/acp`) | Spawns the adapter; serves ACP on a unix socket; renders frames in the PTY |
-| **`claude-agent-acp`** | child of the proxy | Headless Claude Code (Agent SDK) behind standard ACP |
+| **ACP adapter** | child of the proxy | The headless agent behind standard ACP — `claude-agent-acp`, `codex-acp`, `goose acp`, any stdio ACP agent |
 | **padi / kaval** | per-host daemons | `lifecycle.create` / PTYs — unchanged; the tile is an ordinary terminal |
 
 ACP is the boundary **on both sides** of the proxy — pesu speaks it over the
@@ -77,7 +77,7 @@ thread, without opening kolu at all.
 | Language + library | TypeScript, official `@zed-industries/agent-client-protocol` (client *and* proxy-server side) — pesu and the workspace are TS |
 | Package boundary | `@kolu/acp` workspace package, bins `acp-proxy` + `acp-chat`; pesu is a consumer |
 | Socket | `$XDG_RUNTIME_DIR/kolu/acp-<terminalId>.sock`, mode 0600, one session per proxy |
-| Agent, v1 | `claude-agent-acp` only; `codex-acp` / goose are later config, not new code paths |
+| Agents | **Any stdio ACP agent** — the adapter command is the proxy's argv (`acp-proxy -- claude-agent-acp`), nothing agent-specific in the code. Day one: `claude-agent-acp`, `codex-acp`, `goose acp`; pesu's default agent is env config, per-thread selection is later UX |
 | Permissions | Until HX2 the proxy auto-answers with the `allow_once` option; HX2 turns that off for bound threads and forwards the request |
 | Bind state | `threadId → { terminalId, socketPath, acpSessionId, authorUserId }`, JSON file beside pesu |
 | Reply shape | Post once, then `updateMessage` ≤1/s as the growing reply; split at XS's 40,000-char message cap<Footnote>The XS app API has no delta primitive: `updateMessage` is a full-body replace, and `agentProgress` is ephemeral — a Redis-backed working/done pill with a one-line `toolLabel`, never persisted. The ≤1/s cadence is manners, not a platform limit — XS configures no rate limit on the app API routes.</Footnote> |
@@ -99,7 +99,8 @@ export const PT = [
 
 <Phase id="HX0" name="@kolu/acp: acp-proxy + acp-chat" status="next" />
 
-The `@kolu/acp` package and its two bins.
+The `@kolu/acp` package and its two bins. The adapter to spawn is the proxy's
+argv, so agent-agnosticism is structural, not a feature to add.
 
 **Nothing about the tile is special.** An "ACP tile" is an ordinary kolu
 terminal whose child happens to be `acp-proxy` — kaval sees a process in a
@@ -146,6 +147,9 @@ it):
 - Kill the adapter process mid-turn: the proxy respawns it and the next prompt
   works.
 - `session/cancel` is exercised, including the grace-then-respawn fallback.
+- The same flows pass against a **second adapter** (`codex-acp` or
+  `goose acp`) changing only the proxy's argv — proving nothing in the
+  package is claude-shaped.
 
 <a id="hx1"></a>
 
@@ -232,10 +236,11 @@ clicking Allow unblocks the run — end to end, with auto-answer off.
 The growing reply (`updateMessage` ≤1/s, cap-aware split); `tool_call` frames
 → `agentProgress` labels while the turn runs; deep link to the tile in the
 ack; `acpSessionId` in the bind so a pesu restart resumes the conversation via
-`session/load`.<Footnote>`claude-agent-acp` advertises `loadSession`; resume
-replays the session's history as the same `session/update` stream, so the
-proxy's tile rendering and pesu's cursor logic need no special
-path.</Footnote>
+`session/load`.<Footnote>`claude-agent-acp` and `codex-acp` advertise
+`loadSession`; resume replays the session's history as the same
+`session/update` stream, so the proxy's tile rendering and pesu's cursor logic
+need no special path. For an adapter that doesn't advertise it, pesu starts a
+fresh session and says so in the thread — visibly, never silently.</Footnote>
 
 <Hx3Mock />
 
@@ -255,10 +260,9 @@ path.</Footnote>
 **Done when:** restart pesu mid-conversation; the next DM continues the same
 conversation with prior context, without double-posting earlier replies.
 
-**Later, on demand (config or small bounded additions, not phases):** other
-agents (`codex-acp`, goose — the wire is agent-agnostic already); a small
-integration so proxy tiles light up dock state / awareness from the proxy's
-own stream.
+**Later, on demand (small bounded additions, not phases):** per-thread agent
+selection UX in pesu (the wire already takes any adapter); a small integration
+so proxy tiles light up dock state / awareness from the proxy's own stream.
 
 ## Background
 
