@@ -52,7 +52,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OpenIcon } from "../ui/Icons";
 import Section from "../ui/Section";
 import { portUrl } from "../forwards/portUrl";
-import { type PortRow as PortRowData, portRows } from "./portRows";
+import { type PortRow as PortRowData, portRows } from "../forwards/portRows";
 import { activeHost } from "../wire";
 
 /** The words for each reason a chip is not open-as-is — a table over `PortReach`'s

@@ -87,7 +87,7 @@ import {
   MEMORY_SAMPLE_INTERVAL_MS,
   sampleServerMemory,
 } from "./memorySampler.ts";
-import { FORWARD_REAP_INTERVAL_MS } from "./forwards.ts";
+import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { store } from "./state.ts";
 

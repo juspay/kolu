@@ -487,3 +487,17 @@ _Allowed_ — the boundary that keeps this from becoming a blanket anti-null cru
 - **A genuine two-state encoding where both values are named and needed**: `token: string | null` where `null` = "between tokens" and `""` = "an empty token in progress" (round-tripping `shellJoin`) — two states, two meanings, correctly distinct.
 
 _Rationale_: a nullable that answers two questions complects two states into one slot (hickey) and makes an illegal state representable (architecture-first). Because the type can't tell `disconnected` from `errored`, the two get handled the same and one silently rots — exactly how a real read failure hides behind an "absent" dash. A `{ kind: … }` sum turns each state into a name the compiler forces every consumer to branch on; adding a state later is a compile error at every site, not a silent fall-through. Codified after the `SurfaceIdentity` design debate (2026-07-05) — the exemplar above — and the L26 sweep that recorded its honest single-meaning survivors.
+
+### feature-subsystem-gets-a-directory
+
+A feature that grows **more than two non-test modules in one package's `src/`** — a policy, a reading, a resolver, a wire seam — must live in its own subdirectory named for the feature, not spread flat beside unrelated leaves. The same applies to its helpers currently inlined in a boot/entry file: if a function only exists to serve that feature, its home is the feature's directory, not `index.ts`.
+
+Flag, on a PR diff:
+- **three or more new sibling `src/*.ts` modules that share one feature's vocabulary** (`forwards.ts` + `viewerHost.ts` + `hostPorts.ts`) landing flat next to unrelated leaves (`tls.ts`, `log.ts`, `hostname.ts`);
+- **feature-specific functions defined inline in an entry file** (`index.ts`, `main.ts`) — a reader opening the boot file to learn how the app starts should not have to page past a DNS cache, a port reader, or a policy resolver;
+- a subdirectory that already exists for a sibling feature (`server/src/padi/`) while a comparable feature stays flat — the asymmetry is the tell.
+
+Bad: `server/src/forwards.ts`, `server/src/viewerHost.ts`, plus `readHostPorts` / `addressesOf` / `viewerHost` defined inline in `server/src/index.ts`.
+Good: `server/src/portForward/{forwards,hostPorts,resolveViewerHost,viewerHost}.ts`, with `index.ts` reduced to constructing them over injected seams.
+
+_Rationale_: a flat `src/` says every module is a peer leaf, which stops being true the moment a feature owns several. The cost is paid twice — a reader looking for "how do forwards work" greps instead of opening a directory, and the entry file accretes domain logic that has nothing to do with entering. Extracting also forces the seams to be named and injected (the boot file must now pass a pool, a mirror, a logger), which is what makes the pieces testable without booting anything. Where a package enumerates its modules for a boundary guard (`server/src/seal.test.ts`), the directory is also the place the guard's comment can explain the whole subsystem once rather than per file. Codified after PRT2's port-forward feature reached four modules plus three inlined helpers.

@@ -15,7 +15,6 @@ import {
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import {
-  activePadiTerminal,
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
@@ -48,17 +47,14 @@ import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
-import { lookup } from "node:dns/promises";
-import { networkInterfaces } from "node:os";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import { forwardedForOf } from "./portForward/viewerHost.ts";
+import { createKoluForwards } from "./portForward/forwards.ts";
 import {
-  effectiveViewerAddress,
-  forwardedForOf,
-  sshTargetHostname,
-  viewerIsOnHost,
-} from "./viewerHost.ts";
-import { type PortFamily, preferredFamily } from "@kolu/port-scan/ports";
-import { createKoluForwards, type HostPorts } from "./forwards.ts";
+  makeHostPortsReader,
+  type TerminalsFace,
+} from "./portForward/hostPorts.ts";
+import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
@@ -678,75 +674,21 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // deploy restarts kolu, the kernel closes every listener, and the restarted
   // Inspector's empty list is the truth rather than an orphaned lie.
 
-  /** The ports currently listening on `host`, as its port scanner sees them —
-   *  the evidence the auto-cancel rule needs, and the ONLY thing that may close
-   *  an `auto` door.
-   *
-   *  Read off the host's re-serve MIRROR (the same store the browser reads), so a
-   *  remote host costs no ssh round trip here: the mirror already holds its
-   *  terminals. `"unknown"` whenever nothing can be positively observed — the host
-   *  has no session, the mirror yields no frame, or every terminal's own `ports`
-   *  is `unknown` — because "we could not look" must never read as "nothing is
-   *  listening". A terminal that HAS been scanned and serves nothing contributes an
-   *  honest empty set, which is what lets a dead port actually be reaped.
-   *
-   *  The union across a host's terminals, not per-terminal, and deliberately: a
-   *  forward outlives the tile that opened it (a pane can be closed while the
-   *  server keeps running), so the question is "is this port still listening on
-   *  this machine?", not "is it still in that terminal's subtree?". */
-  async function readHostPorts(host: HostKey): Promise<HostPorts> {
-    const session = pool.getSession(encodeHostKey(host));
-    if (session === undefined) return "unknown";
-    const client = surfaceClientRef(
-      reServeFor(host, session).surface,
-      reServeFor(host, session).router as Parameters<
-        typeof surfaceClientRef
-      >[1],
-    );
-    const ctl = new AbortController();
-    try {
-      const keys = await firstFrameOrUndefined(
-        await client.surface.terminals.keys({}, { signal: ctl.signal }),
+  /** The forward reaper's port reading, over this host's re-serve mirror. The
+   *  reader itself lives in `portForward/` — this only hands it the padi seam. */
+  const readHostPorts = makeHostPortsReader({
+    log,
+    terminalsOf: (host) => {
+      const session = pool.getSession(encodeHostKey(host));
+      if (session === undefined) return null;
+      const served = reServeFor(host, session);
+      const client = surfaceClientRef(
+        served.surface,
+        served.router as Parameters<typeof surfaceClientRef>[1],
       );
-      if (keys === undefined) return "unknown";
-      const ports = new Map<number, PortFamily>();
-      let sawAnything = false;
-      for (const id of keys) {
-        const record = await firstFrameOrUndefined(
-          await client.surface.terminals.get(
-            { key: id },
-            { signal: ctl.signal },
-          ),
-        );
-        const arm = activePadiTerminal(record);
-        if (arm === undefined || arm.ports.status !== "known") continue;
-        // One KNOWN sample is enough to make this whole reading an observation:
-        // the remaining terminals being unscanned cannot resurrect a port, and
-        // requiring every terminal to be known would mean a single wedged pane
-        // kept every dead forward alive forever.
-        sawAnything = true;
-        for (const p of arm.ports.list) {
-          // Two terminals can hold the same port across the union (a fork, a
-          // shared socket), so the families are folded by the SAME rule the
-          // per-terminal fold uses — v4 wins — rather than last-write.
-          const prior = ports.get(p.port);
-          ports.set(
-            p.port,
-            prior === undefined ? p.family : preferredFamily(prior, p.family),
-          );
-        }
-      }
-      return sawAnything ? ports : "unknown";
-    } catch (err) {
-      // A read that FAILED is not evidence a port died. Report the honest
-      // `unknown` — never an empty set, which would reap every auto forward on
-      // the host — and let the caller log it.
-      log.error({ err, host: encodeHostKey(host) }, "host port read failed");
-      return "unknown";
-    } finally {
-      ctl.abort();
-    }
-  }
+      return client.surface.terminals as unknown as TerminalsFace;
+    },
+  });
 
   /** The forward map + kolu's policy over it. `onChange` is the cell's fused
    *  change EDGE — a bare tick that makes the poll re-read at once — so an act
@@ -791,59 +733,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
    *  `~/.ssh/config` alias naming no real host is entirely ordinary), a viewer
    *  behind a NAT or a proxy, a connection with no peer address. That direction
    *  is the design — see `viewerHost.ts`. */
-  /** Every address THIS machine answers on — what makes a connection from a
-   *  local reverse proxy recognisable as a local hop.
-   *
-   *  Re-read per call rather than cached: an interface can come and go (a
-   *  tailnet link, a VPN, a docker bridge), and the read is a cheap in-process
-   *  syscall. A cached list that missed a new interface would silently stop
-   *  trusting the proxy that arrived with it. */
-  const ownAddresses = (): string[] =>
-    Object.values(networkInterfaces())
-      .flatMap((addresses) => addresses ?? [])
-      .map((a) => a.address);
-
-  const hostAddressCache = new Map<string, readonly string[]>();
-  async function addressesOf(hostname: string): Promise<readonly string[]> {
-    const hit = hostAddressCache.get(hostname);
-    if (hit !== undefined) return hit;
-    let found: readonly string[] = [];
-    try {
-      found = (await lookup(hostname, { all: true })).map((a) => a.address);
-    } catch {
-      // Unresolvable is the ORDINARY case for an ssh alias, not an anomaly, so
-      // this is not logged at error — it simply means kolu cannot recognise a
-      // viewer sitting at that host, and the forward stays.
-      found = [];
-    }
-    hostAddressCache.set(hostname, found);
-    return found;
-  }
-
-  async function viewerHost(connection: {
-    peerAddress: string | undefined;
-    forwardedFor: string | undefined;
-  }): Promise<HostKey | null> {
-    // WHOSE address to judge by. Behind a reverse proxy the TCP peer is the
-    // proxy — measured on production, `tailscale serve` dials the backend from
-    // this host's OWN tailnet address — so the viewer's address only exists in
-    // the forwarded header, and only a trusted peer may vouch for it.
-    const viewerAddress = effectiveViewerAddress({
-      peerAddress: connection.peerAddress,
-      forwardedFor: connection.forwardedFor,
-      hostAddresses: ownAddresses(),
-    });
-    if (viewerAddress === undefined) return null;
-    for (const encoded of pool.hosts()) {
-      const host = decodeHostKey(encoded);
-      if (host.kind !== "remote") continue;
-      const addresses = await addressesOf(sshTargetHostname(host.target));
-      if (viewerIsOnHost({ viewerAddress, hostAddresses: addresses })) {
-        return host;
-      }
-    }
-    return null;
-  }
+  /** "Which of kolu's hosts is this browser at?" — resolver in `portForward/`;
+   *  this supplies the pool membership it walks. */
+  const viewerHost = makeViewerHostResolver({ hosts: () => pool.hosts() });
 
   // Serve kolu-server's own surface. SR8.c: `implementKoluSurface` builds EVERY member from
   // these plain domain deps — index.ts imports no reactor primitive, and no member is

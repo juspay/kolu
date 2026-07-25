@@ -17,7 +17,7 @@
 import { createRouterClient } from "@orpc/server";
 import type { HostKey } from "kolu-common/hostKey";
 import { describe, expect, it, vi } from "vitest";
-import { buildAppRouter, type BuildAppRouterDeps } from "./router.ts";
+import { buildAppRouter, type BuildAppRouterDeps } from "../router.ts";
 
 const ZEST: HostKey = { kind: "remote", target: "zest" };
 

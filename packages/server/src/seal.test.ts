@@ -96,19 +96,24 @@ const WEB_SHELL_FILES = [
   // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
   // ownership; runs no terminal domain), so it lives beside the binder.
   "padi/supervisorClaim",
+  // ── the port-forward arm (packages/server/src/portForward/) ──
+  // PRT2's forward subsystem, isolated the same way the padi arm is: a POLICY
+  // over `@kolu/port-forward`'s map (auto-vs-manual death, "only a real port
+  // observation may close a door"), the port READING the reaper acts on, and the
+  // per-viewer identity question a chip needs before it offers a door. All
+  // web-shell code by construction — the LISTENERS are sockets in THIS process on
+  // THIS machine, and the identity fact is a property of a connection only the
+  // serving process can see. None of it runs terminal domain.
+  "portForward/forwards",
+  "portForward/hostPorts",
+  "portForward/resolveViewerHost",
+  "portForward/viewerHost",
   // ── the serving shell + true leaves (top-level) ──
   // The web face's boot contract — the ONE flag artifact (cleye schema +
   // derived `KoluBootFlags`), a LEAF importing only kolu-common/config so the
   // kolu-cli parse deep-imports it without loading index.ts's runtime graph.
   // Web-shell code (it names how the web face boots), not terminal domain.
   "bootFlags",
-  // PRT2's forward POLICY — auto-vs-manual death, "only a real port observation
-  // may close a door", the host-key ↔ ssh-target mapping — over
-  // `@kolu/port-forward`'s map. Web-shell code by construction: the LISTENERS are
-  // sockets in THIS process on THIS machine, so they belong to the serving shell
-  // and die with it. It runs no terminal domain (it consumes a port READING the
-  // shell hands it), so it is not a @kolu/padi module.
-  "forwards",
   "hostname",
   // W10 host-membership persistence — the pool (the web shell's authority for map
   // membership) is its one writer, so its atomic-JSON load/validate/save leaf lives
@@ -136,12 +141,6 @@ const WEB_SHELL_FILES = [
   "state",
   "surface",
   "tls",
-  // "Is the browser sitting AT one of kolu's hosts?" — the address comparison
-  // behind a port chip opening on the viewer's own loopback instead of through a
-  // forward. Pure shell code: it compares a connection's peer address (which
-  // only the serving process sees) with a host's resolved addresses, and runs no
-  // terminal domain.
-  "viewerHost",
 ].sort();
 
 /** Terminal-domain modules that MUST NOT reappear under `packages/server/src` —

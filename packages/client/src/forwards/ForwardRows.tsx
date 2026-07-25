@@ -90,8 +90,15 @@ export const ForwardCancelButton: Component<{ forward: KoluForward }> = (
   </button>
 );
 
-/** One row. */
-export const ForwardRow: Component<{ forward: KoluForward }> = (props) => (
+/** One row. `onOpenTerminal`, when supplied, makes the far-end label a link back
+ *  to the terminal serving that port — the answer to "what IS this?", which is the
+ *  question a forward row otherwise leaves hanging. Absent when nothing serves it
+ *  (a ⌘K forward, or a server that has died): the row still renders, because a
+ *  door you cannot cancel is worse than one with no link. */
+export const ForwardRow: Component<{
+  forward: KoluForward;
+  onOpenTerminal?: () => void;
+}> = (props) => (
   <div
     class="flex items-baseline gap-1.5 text-[11px] leading-snug"
     data-testid="forward-row"
@@ -111,6 +118,21 @@ export const ForwardRow: Component<{ forward: KoluForward }> = (props) => (
     >
       {forwardLabel(props.forward)} → :{props.forward.localPort}
     </a>
+    <Show when={props.onOpenTerminal}>
+      {(open) => (
+        <button
+          type="button"
+          class="shrink-0 text-[10px] text-fg-3/70 hover:text-fg transition-colors cursor-pointer"
+          data-testid="forward-open-terminal"
+          data-port={props.forward.remotePort}
+          title={`go to the terminal serving ${forwardLabel(props.forward)}`}
+          aria-label={`Go to the terminal serving ${forwardLabel(props.forward)}`}
+          onClick={() => open()()}
+        >
+          ↗
+        </button>
+      )}
+    </Show>
     <span
       class="shrink-0 text-[10px] text-fg-3/60"
       title={
@@ -131,13 +153,21 @@ export const ForwardRow: Component<{ forward: KoluForward }> = (props) => (
 /** The rows for a list, or nothing at all when there are none. Rendering an
  *  empty "Forwarded Ports" heading would be a claim about a feature the user may
  *  never have used; absence is the honest empty state. */
-export const ForwardRows: Component<{ forwards: readonly KoluForward[] }> = (
-  props,
-) => (
+export const ForwardRows: Component<{
+  forwards: readonly KoluForward[];
+  /** How to reach the terminal serving a given forward, when one does. The
+   *  lookup lives with the caller because only it holds that host's terminals. */
+  openTerminalFor?: (forward: KoluForward) => (() => void) | undefined;
+}> = (props) => (
   <Show when={props.forwards.length > 0}>
     <div class="flex flex-col gap-1" data-testid="forward-rows">
       <For each={props.forwards}>
-        {(forward) => <ForwardRow forward={forward} />}
+        {(forward) => (
+          <ForwardRow
+            forward={forward}
+            onOpenTerminal={props.openTerminalFor?.(forward)}
+          />
+        )}
       </For>
     </div>
   </Show>

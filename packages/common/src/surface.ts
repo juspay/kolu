@@ -122,6 +122,7 @@ export {
   foldPorts,
   knownPorts,
   type PortReach,
+  type TerminalPorts,
   portReach,
   samePortList,
   PrResultSchema,

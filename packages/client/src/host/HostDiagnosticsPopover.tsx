@@ -22,13 +22,23 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { hostMarks } from "../attention/attentionMarks";
+import { activePadiTerminal } from "@kolu/padi/surface";
+import type { KoluForward } from "kolu-common/surface";
 import { ForwardRows } from "../forwards/ForwardRows";
+import { terminalServingPort } from "../forwards/terminalServingPort";
+import { selectFleetTerminal } from "../palette/fleetActions";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import { forwardsForHost } from "../forwards/useForwards";
 import { formatTimeAgo } from "../terminal/staleness";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
-import { interpretClientError, padiMap } from "../wire";
+import {
+  activeHost,
+  interpretClientError,
+  padiMap,
+  setActiveHost,
+} from "../wire";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
 import { reconnectHost } from "./reconnectHost";
@@ -85,7 +95,42 @@ export const HostDiagnosticsPopover: Component<{
   const glance = () => hostGlance(state());
   const marks = hostMarks(encodeHostKey(props.host));
   const isLocal = () => props.host.kind === "local";
+  const store = useTerminalStore();
   const forwards = () => forwardsForHost(props.host);
+  /** How to reach the terminal serving a forwarded port — the answer to "what IS
+   *  this?", which a row of numbers otherwise leaves hanging.
+   *
+   *  The lookup lives HERE rather than in the row because only this component
+   *  holds the host's terminals, and it holds them UNFILTERED — splits included.
+   *  That matters: a dev server almost always runs in a split, so a source that
+   *  dropped splits (the fleet index does, deliberately) would find nothing in
+   *  the common case. `terminalServingPort` folds a split back to its tile. */
+  const openTerminalFor = (forward: KoluForward): (() => void) | undefined => {
+    const candidates = keys().flatMap((id) => {
+      const arm = activePadiTerminal(terminals.byKey(id)?.());
+      return arm === undefined
+        ? []
+        : [{ id, parentId: arm.parentId ?? null, ports: arm.ports }];
+    });
+    const found = terminalServingPort({
+      port: forward.remotePort,
+      terminals: candidates,
+    });
+    if (found === undefined) return undefined;
+    return () => {
+      // Switch host first when the row is foreign, then activate — the same
+      // sequencing the palette uses, so a forward row and a palette row behave
+      // identically rather than by coincidence.
+      selectFleetTerminal(
+        props.host,
+        found,
+        activeHost(),
+        setActiveHost,
+        store.activate,
+      );
+      props.onDismiss();
+    };
+  };
   const [confirmRemove, setConfirmRemove] = createSignal(false);
   // Local: machine hostname when known (same as the tab label); remotes: target.
   const { hostname } = useServerIdentity();
@@ -250,7 +295,10 @@ export const HostDiagnosticsPopover: Component<{
             <div class="py-0.5 text-[10px] uppercase tracking-wide text-fg-3">
               forwarded ports
             </div>
-            <ForwardRows forwards={forwards()} />
+            <ForwardRows
+              forwards={forwards()}
+              openTerminalFor={openTerminalFor}
+            />
           </Show>
 
           <Show when={!isLocal()}>
