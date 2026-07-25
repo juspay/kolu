@@ -102,11 +102,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "right-panel",
   },
   {
-    id: "amb-inspector-ports",
-    text: "The Inspector tab's Ports section lists every port the terminal's processes are listening on, splits included — one bound to all interfaces gets an open link, so you reach the server an agent just started without scrolling back for the URL (a loopback-only or remote-host port is listed as needing a forward)",
-    doc: "right-panel",
-  },
-  {
     id: "amb-inspector-compose",
     text: "The Inspector tab's Compose box lets you draft a multiline prompt and send it into the active terminal (⌘/Ctrl+Enter) — it lands in the agent's input box for you to review and submit, and each terminal keeps its own draft across reloads",
     doc: "right-panel",
