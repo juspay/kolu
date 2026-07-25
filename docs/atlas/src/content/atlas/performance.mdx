@@ -395,6 +395,47 @@ consider `vitest --shard` for the slowest packages (`git/index.test.ts`).
 
 - <span id="u-server-vitest" />**Server unit tests run single-file** — `packages/server/package.json` forces `vitest --fileParallelism=false` because all 16 server test files share one `KOLU_STATE_DIR` (keyed off the shell PID `$$`, resolved once so every worker inherits the same path), and a module-level `Conf` singleton would collide across parallel forks. Key the state dir per `VITEST_WORKER_ID` (each fork a private dir) and drop the flag to run the files across cores — a *within-package* U win distinct from the cross-package item above (that fans out whole packages; this unblocks the slowest one). *New this pass; bounded by whether server is the unit-lane long pole (`git` is named the slowest).* <Pill variant="lo">low</Pill>
 
+<Finding sev="medium" id="u-port-scan-subtree-descent" title="Scan a terminal's subtree, not the whole host process table">
+padi's port sensor reads **every** `/proc/<pid>/stat` on the host to build a
+pid→ppid table, because procfs has no children index — except it does:
+`/proc/<pid>/task/<tid>/children`. So the pass costs what the HOST costs
+(515 processes here) rather than what the question costs (a terminal's subtree,
+typically a handful). **Measured** on a 515-process box, through the shipped
+module: **35-57 ms** per pass before batching, **14-18 ms** after (the pid table in
+bounded groups, the fd walk concurrent per pid — <PrLink pr={1982} />), and
+**&lt;1 ms** for a `children`-descent prototype over two subtrees.
+
+That last order of magnitude is worth taking because the cadence is not what it
+looks like: kaval throttles its activity edge to one per PTY per 200 ms, so one
+streaming agent delivers ~5 edges/s and the sampler's ≥1 s nudge floor — not the
+5 s baseline — becomes the real period. ~16 ms every second for the life of a
+padi is ~1.6% of a core; the pre-batching ~40 ms was ~4%.
+
+**Why it is not done yet:** descending `children` is a redesign of the walk (it
+must iterate `/proc/<pid>/task/*` so a multithreaded parent's children are not
+missed), and `proc(5)` warns the list may be incomplete if the process list
+changes mid-read. That is the same exit race the scanner already tolerates by
+policy (`procReadFailure` → skip), and the current `readdir("/proc")`-then-`stat`
+shape has the identical hazard — so this is a deliberate decision to write down,
+not a blocker. **Measure:** a pass on a 500-process box with 1 vs 30 terminals,
+table-walk vs `children`-descent.
+</Finding>
+
+<Finding sev="low" id="u-activity-edge-fanout" title="One kaval activity subscription, fanned out in padi">
+kaval's host-global `activity` stream now has **three** independent
+`resubscribeStream` consumers — the finish fold, the live dots, and the port-scan
+nudge (<PrLink pr={1982} />) — so every activity edge is encoded, transported over
+the padi↔kaval link and decoded **3×** instead of 2×, with a third retry loop and
+async iterator. One subscription publishing into an `inMemoryChannel` that all
+three consume cuts frames on that link by a third.
+
+Held back deliberately: the three are **not** three of one shape — the live-dots
+subscription is per-SUBSCRIBER by design while the other two are daemon-lifetime, so
+a shared receptacle would force the odd one in. The structural review's own
+disposition was "extract at the consumer that actually matches"; this records the
+measured cost so that decision is made against a number.
+</Finding>
+
 <Finding sev="low" id="u-kaval-queues" title="Bound subscriber queues by bytes, not just item count">
 Each subscriber queue caps at `maxQueue` (10k *items*) with no byte bound
 (`kaval/channel.ts:54-132`), so a stalled subscriber on a 1 KB/event PTY could

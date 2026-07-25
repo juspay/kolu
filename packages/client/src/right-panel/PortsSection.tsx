@@ -32,14 +32,14 @@ import {
   knownPorts,
   type PortReach,
   portReach,
+  samePortList,
   type TerminalId,
 } from "kolu-common/surface";
 import { type Component, For, Show, createMemo } from "solid-js";
+import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OpenIcon } from "../ui/Icons";
-import { openExternal } from "../ui/openExternal";
 import Section from "../ui/Section";
-import { activeHost } from "../wire";
 
 /** The URL a wildcard-bound port answers on: the host the page was served from,
  *  which IS the kolu server's host. Exported for the unit test — the whole point of
@@ -62,11 +62,10 @@ export const FORWARD_REASON: Record<
 
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const store = useTerminalStore();
-  // Is the terminal being inspected on the machine serving this page? The
-  // Inspector always shows the ACTIVE host's terminal, and `{ kind: "local" }` is
-  // exactly "the padi on the kolu server's own host" — so this is the whole
-  // question, read off the key rather than compared against a hostname string.
-  const onKoluHost = () => activeHost().kind === "local";
+  // "Is the inspected terminal on the machine serving this page?" has a named home
+  // in the host layer (`isActiveHostLocal`), and reading it from there matters more
+  // here than in a cosmetic caller: `portReach`s remote-host arm decides whether
+  // kolu offers a link that would land on the WRONG machine.
   // Every pane of the tile: the scanner attributes a port to the pane whose
   // subtree holds it — correct and unavoidable, each pane being its own process
   // tree — but "run the dev server in the split, read the Inspector on the main
@@ -82,13 +81,21 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   // contributes nothing to the tile rather than asserting it serves nothing. The
   // section then renders nothing at all for a tile with no KNOWN ports, so an
   // unknown pane never produces a claim on screen either way.
-  const ports = createMemo(() =>
-    foldPorts(
-      store.getTilePaneIds(props.terminalId).flatMap((id) => {
-        const arm = activeArm(store.getMetadata(id));
-        return arm ? knownPorts(arm.ports) : [];
-      }),
-    ),
+  // `equals` keeps the memo's IDENTITY across a recompute that produced the same
+  // ports, which matters because `<For>` keys by item reference: `foldPorts` mints
+  // fresh objects every run, so without this every host-wide terminal spawn, kill or
+  // sleep would dispose and rebuild every port chip's DOM. Same remedy as
+  // `sameTerminalIdOrder` and `sameParentSnapshot` elsewhere in the client.
+  const ports = createMemo(
+    () =>
+      foldPorts(
+        store.getTilePaneIds(props.terminalId).flatMap((id) => {
+          const arm = activeArm(store.getMetadata(id));
+          return arm ? knownPorts(arm.ports) : [];
+        }),
+      ),
+    undefined,
+    { equals: samePortList },
   );
   return (
     <Show when={ports().length > 0}>
@@ -99,7 +106,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
               const reach = () =>
                 portReach({
                   wildcard: port.wildcard,
-                  onKoluHost: onKoluHost(),
+                  onKoluHost: isActiveHostLocal(),
                 });
               const forwardReason = () => {
                 const r = reach();
@@ -132,24 +139,25 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                         </span>
                       }
                     >
-                      {/* `openExternal` — the one way kolu leaves for an http(s)
-                       *  URL, shared with the Code tab's preview, so the
-                       *  `noopener,noreferrer` posture really is stated once. */}
-                      <button
-                        type="button"
-                        class="inline-flex items-center gap-1 text-accent hover:underline cursor-pointer"
+                      {/* An ANCHOR, matching the Pull Request row two sections up
+                       *  in this same panel — not a `window.open` button. The browser
+                       *  then gives middle-click, cmd-click, "copy link address" and a
+                       *  status-bar URL preview for free (that last one is why the
+                       *  button had to hand-roll a `title`), and a popup blocker
+                       *  cannot eat it. `openExternal` stays right for the Code tab,
+                       *  where the URL arrives by `postMessage` and there is no
+                       *  element to hang an href on. */}
+                      <a
+                        href={portUrl(window.location.hostname, port.port)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="inline-flex items-center gap-1 text-accent hover:underline"
                         data-testid="inspector-port-open"
                         data-port={port.port}
-                        title={portUrl(window.location.hostname, port.port)}
-                        onClick={() =>
-                          openExternal(
-                            portUrl(window.location.hostname, port.port),
-                          )
-                        }
                       >
                         <OpenIcon class="w-3 h-3" />
                         open
-                      </button>
+                      </a>
                     </Show>
                   </span>
                 </div>

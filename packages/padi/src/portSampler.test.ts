@@ -10,7 +10,7 @@
  */
 
 import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import type { Logger } from "pino";
+import pino, { type Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPortSampler,
@@ -19,14 +19,7 @@ import {
 } from "./portSampler.ts";
 import { PortScanError, portScanSupported } from "./portScan.ts";
 
-const quietLog = {
-  error: () => {},
-  fatal: () => {},
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  // biome-ignore lint/suspicious/noExplicitAny: a pino stand-in, not a pino
-} as any;
+const quietLog = pino({ level: "silent" });
 
 const ONE: PortScanTarget[] = [{ id: "A" as TerminalId, rootPid: 100 }];
 const PORT: PortInfo = { port: 8080, name: "node", wildcard: true };
@@ -51,7 +44,7 @@ function harness(
     fail?: Error;
   } = {},
 ) {
-  const published: Array<[TerminalId, readonly PortInfo[]]> = [];
+  const published: Array<[TerminalId, readonly PortInfo[] | "unknown"]> = [];
   let passes = 0;
   let release: (() => void) | undefined;
   let answer =
@@ -59,8 +52,10 @@ function harness(
     new Map<number, PortInfo[]>(opts.answer ? [[100, opts.answer]] : []);
   let failWith: Error | undefined = opts.fail;
   const sampler = createPortSampler({
-    targets: () => opts.targets ?? ONE,
-    publish: (id, ports) => published.push([id, ports]),
+    targets: () => [...(opts.targets ?? ONE)],
+    rootPidOf: (id) => (opts.targets ?? ONE).find((x) => x.id === id)?.rootPid,
+    publish: (id, ports) =>
+      published.push([id, ports.status === "known" ? ports.list : "unknown"]),
     log: quietLog,
     scan: async () => {
       passes += 1;
@@ -113,12 +108,14 @@ function harness(
 
 /** A pino stand-in that records only what this suite asserts on. */
 function platformLog(errors: string[]): Logger {
-  return {
-    ...quietLog,
+  // A real pino with its `error` intercepted, so `child()` and every other method
+  // still exist — the stub this replaced had none.
+  const log = pino({ level: "silent" });
+  return Object.assign(Object.create(log) as Logger, {
     error: (_obj: unknown, msg?: string) => {
       if (msg !== undefined) errors.push(msg);
     },
-  } as unknown as Logger;
+  });
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -307,11 +304,13 @@ describe("a sample belongs to the lifecycle that produced it", () => {
   // never attributed to the current PTY.
   it("does NOT publish a pre-sleep sample to the same id on a new root pid", async () => {
     const targets: PortScanTarget[] = [{ id: "A" as TerminalId, rootPid: 100 }];
-    const published: Array<[TerminalId, readonly PortInfo[]]> = [];
+    const published: Array<[TerminalId, readonly PortInfo[] | "unknown"]> = [];
     let release: (() => void) | undefined = () => {};
     const sampler = createPortSampler({
       targets: () => [...targets],
-      publish: (id, ports) => published.push([id, ports]),
+      rootPidOf: (id) => targets.find((t) => t.id === id)?.rootPid,
+      publish: (id, ports) =>
+        published.push([id, ports.status === "known" ? ports.list : "unknown"]),
       log: quietLog,
       scan: async () => {
         if (release !== undefined) {
@@ -347,11 +346,13 @@ describe("a sample belongs to the lifecycle that produced it", () => {
 
   it("a blind pass re-serves ONLY to the lifecycle that produced the sample", async () => {
     const targets: PortScanTarget[] = [{ id: "A" as TerminalId, rootPid: 100 }];
-    const published: Array<[TerminalId, readonly PortInfo[]]> = [];
+    const published: Array<[TerminalId, readonly PortInfo[] | "unknown"]> = [];
     let fail = false;
     const sampler = createPortSampler({
       targets: () => [...targets],
-      publish: (id, ports) => published.push([id, ports]),
+      rootPidOf: (id) => targets.find((t) => t.id === id)?.rootPid,
+      publish: (id, ports) =>
+        published.push([id, ports.status === "known" ? ports.list : "unknown"]),
       log: quietLog,
       scan: async (pids) => {
         if (fail) throw new PortScanError("blind", "EACCES");
@@ -405,6 +406,7 @@ describe("the platform refusal is permanent, and asked before the cadence", () =
       let scans = 0;
       const sampler = createPortSampler({
         targets: () => [...ONE], // a real target: an armed sampler would scan
+        rootPidOf: (id) => ONE.find((t) => t.id === id)?.rootPid,
         publish: () => {
           throw new Error("must not publish on an unsupported platform");
         },

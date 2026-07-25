@@ -63,13 +63,7 @@ export function foldSnapshot(
       // than needing a removal event. The producer already dropped a sample
       // structurally equal to the one before it (`portsEqual`), so anything that
       // reaches here is a real change.
-      .with({ kind: "ports" }, ({ ports }) => ({
-        ...snapshot,
-        ports:
-          ports.status === "known"
-            ? { status: "known" as const, list: [...ports.list] }
-            : ports,
-      }))
+      .with({ kind: "ports" }, ({ ports }) => ({ ...snapshot, ports }))
       // `unknown` returns the SAME reference (no clobber) — callers rely on the
       // identity to detect "nothing changed"; `{ value }` applies authoritatively.
       .with({ kind: "agent", agent: "unknown" }, () => snapshot)

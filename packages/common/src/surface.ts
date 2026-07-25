@@ -119,6 +119,7 @@ export {
   knownPorts,
   type PortReach,
   portReach,
+  samePortList,
   PrResultSchema,
   PrUnavailableSourceSchema,
   prUnavailableReason,

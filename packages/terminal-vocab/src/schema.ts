@@ -317,18 +317,30 @@ const PORT_INFO_KEYS = Object.keys(PortInfoSchema.shape) as (keyof PortInfo)[];
  *  anyway. Hand-written rather than `isDeepStrictEqual` so this stays browser-safe
  *  (the vocab is bundled into the client) — but over `PORT_INFO_KEYS`, not a
  *  hand-listed triple, so the field set is the schema's and not a convention. */
+/** Are two port LISTS the same fact? Split out from {@link portsEqual} because a
+ *  consumer that has already collapsed the union — the client's tile fold — needs the
+ *  list comparison alone, as a SolidJS memo `equals` gate. Compared over
+ *  `PORT_INFO_KEYS` (the schema's own field set) so a field added later cannot be
+ *  silently ignored, and order-sensitively, because every producer sorts by port. */
+export function samePortList(
+  a: readonly PortInfo[],
+  b: readonly PortInfo[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((p, i) => {
+      const q = b[i]!;
+      return PORT_INFO_KEYS.every((k) => p[k] === q[k]);
+    })
+  );
+}
+
 export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
   // A status flip is always a change: "we finally saw" and "we still cannot see"
   // are exactly the transitions a dedup gate must not swallow.
   if (a.status !== b.status) return false;
   if (a.status !== "known" || b.status !== "known") return true;
-  return (
-    a.list.length === b.list.length &&
-    a.list.every((p, i) => {
-      const q = b.list[i]!;
-      return PORT_INFO_KEYS.every((k) => p[k] === q[k]);
-    })
-  );
+  return samePortList(a.list, b.list);
 }
 
 // ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────

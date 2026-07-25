@@ -81,7 +81,9 @@ async function portRows(
 Then(
   "the inspector should show an openable port chip for {int}",
   async function (this: KoluWorld, port: number) {
-    const rows = await pollFor({
+    // `pollFor` returns only when `isDone` holds and otherwise throws `onTimeout`,
+    // so the predicate IS the assertion here — no trailing `assert` that cannot fail.
+    await pollFor({
       observe: () => portRows(this),
       isDone: (rows) => rows.some((r) => r.port === port && r.openable),
       timeoutMs: PORT_SCAN_TIMEOUT,
@@ -90,7 +92,6 @@ Then(
           `Expected an openable chip for port ${port} within ${elapsedMs}ms; the Ports section showed ${JSON.stringify(last ?? [])}`,
         ),
     });
-    assert.ok(rows.some((r) => r.port === port && r.openable));
   },
 );
 
@@ -122,7 +123,7 @@ Then(
 Then(
   "the inspector should stop showing port {int}",
   async function (this: KoluWorld, port: number) {
-    const rows = await pollFor({
+    await pollFor({
       observe: () => portRows(this),
       isDone: (rows) => !rows.some((r) => r.port === port),
       timeoutMs: PORT_SCAN_TIMEOUT,
@@ -131,47 +132,27 @@ Then(
           `Expected port ${port} to leave the Ports section within ${elapsedMs}ms; it still showed ${JSON.stringify(last ?? [])}`,
         ),
     });
-    assert.ok(!rows.some((r) => r.port === port));
-  },
-);
-
-When(
-  "I click the open link for port {int}",
-  async function (this: KoluWorld, port: number) {
-    // Trap `window.open` rather than let a real tab open: the assertion is about
-    // the URL kolu BUILDS (specifically that its host is the page's own, never a
-    // literal "localhost"), and a real popup would need the server to answer
-    // before the test could read anything.
-    await this.page.evaluate(() => {
-      const w = window as unknown as { __koluOpened?: string[] };
-      w.__koluOpened = [];
-      window.open = ((url?: string | URL) => {
-        w.__koluOpened?.push(String(url));
-        return null;
-      }) as typeof window.open;
-    });
-    const link = this.page.locator(
-      `[data-testid="inspector-port-open"][data-port="${port}"]`,
-    );
-    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await link.click();
-    await this.waitForFrame();
   },
 );
 
 Then(
-  "the opened URL should be port {int} on the page's own host",
+  "the open link for port {int} should point at the page's own host",
   async function (this: KoluWorld, port: number) {
-    const { opened, hostname } = await this.page.evaluate(() => ({
-      opened: (window as unknown as { __koluOpened?: string[] }).__koluOpened,
-      hostname: window.location.hostname,
-    }));
-    assert.deepStrictEqual(
-      opened,
-      [`http://${hostname}:${port}`],
-      // The failure this pins: "localhost" in a link means the VIEWER's machine,
-      // which is the one box certainly not running the dev server.
-      `Expected exactly one open at the page's own host; got ${JSON.stringify(opened)}`,
+    // The chip is an anchor now, so the assertion is the URL kolu BUILT — no need to
+    // trap `window.open` or open a real tab. What this pins is the hostname it does
+    // NOT use: "localhost" in a link means the VIEWER's machine, which is the one box
+    // certainly not running the dev server.
+    const link = this.page.locator(
+      `[data-testid="inspector-port-open"][data-port="${port}"]`,
     );
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const [href, hostname] = await Promise.all([
+      link.getAttribute("href"),
+      this.page.evaluate(() => window.location.hostname),
+    ]);
+    assert.strictEqual(href, `http://${hostname}:${port}`);
+    assert.strictEqual(await link.getAttribute("target"), "_blank");
+    // The security posture rides on the element, so it is worth pinning too.
+    assert.strictEqual(await link.getAttribute("rel"), "noopener noreferrer");
   },
 );

@@ -52,7 +52,12 @@
  *    with a throw in it did.
  */
 
-import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
+import type {
+  PortInfo,
+  TerminalId,
+  TerminalPorts,
+} from "@kolu/terminal-vocab/schema";
+import { samePortList } from "@kolu/terminal-vocab/schema";
 import { everyMsOr, source } from "@kolu/surface/reactor";
 import type { Logger } from "pino";
 import {
@@ -138,7 +143,12 @@ export function createPortSampler(opts: {
   /** Deliver one terminal's re-sampled port set. Called for EVERY target of the
    *  pass, including those serving nothing — a terminal whose last port died must
    *  hear about the empty set. The consumer owns the structural dedup. */
-  publish: (id: TerminalId, ports: readonly PortInfo[]) => void;
+  publish: (id: TerminalId, ports: TerminalPorts) => void;
+  /** The root pid this terminal has RIGHT NOW, or `undefined` if it is gone — the
+   *  freshness question, asked per terminal at the publish boundary. Separate from
+   *  `targets()` because it is a point lookup the caller can answer from the map it
+   *  already keys by id, where `targets()` would rebuild the whole list. */
+  rootPidOf: (id: TerminalId) => number | undefined;
   log: Logger;
   scan?: (rootPids: readonly number[]) => Promise<Map<number, PortInfo[]>>;
 }): PortSampler {
@@ -173,15 +183,12 @@ export function createPortSampler(opts: {
    *  byte-identically to "this terminal serves nothing"
    *  (`caught-error-must-not-collapse-to-empty`) — but only to the lifecycle that
    *  actually produced it. */
-  let last = new Map<
-    TerminalId,
-    { rootPid: number; ports: readonly PortInfo[] }
-  >();
+  let last = new Map<TerminalId, { rootPid: number; ports: TerminalPorts }>();
   /** The nudge edge, live only while the cadence is installed. */
   let edge: { fire: () => void; cancel: () => void } | undefined;
 
   const node = source<
-    ReadonlyMap<TerminalId, { rootPid: number; ports: readonly PortInfo[] }>
+    ReadonlyMap<TerminalId, { rootPid: number; ports: TerminalPorts }>
   >({
     // TOTAL by the poll source's contract: a transient failure logs and re-serves
     // the last map, so it can never tear the cadence down. Only a genuinely
@@ -207,12 +214,27 @@ export function createPortSampler(opts: {
           );
           return last;
         }
-        last = new Map(
-          targets.map((t) => [
-            t.id,
-            { rootPid: t.rootPid, ports: byPid.get(t.rootPid)! },
-          ]),
-        );
+        // Build each terminal's `TerminalPorts` ONCE and keep it. An unchanged host
+        // then republishes the SAME OBJECT, which lets the per-terminal sensor drop
+        // it on a pointer compare instead of walking every port — and allocates
+        // nothing in the steady state, which is where a 1 Hz sampler spends its life.
+        // A port that really moved gets a fresh object, so the gate still sees it.
+        const next = new Map<
+          TerminalId,
+          { rootPid: number; ports: TerminalPorts }
+        >();
+        for (const t of targets) {
+          const list = byPid.get(t.rootPid)!;
+          const held = last.get(t.id);
+          const ports: TerminalPorts =
+            held?.rootPid === t.rootPid &&
+            held.ports.status === "known" &&
+            samePortList(held.ports.list, list)
+              ? held.ports
+              : { status: "known", list };
+          next.set(t.id, { rootPid: t.rootPid, ports });
+        }
+        last = next;
         return last;
       } catch (err) {
         // The PERMANENT arm propagates: a platform this scan cannot read will not
@@ -276,9 +298,12 @@ export function createPortSampler(opts: {
       // published only to the exact lifecycle that produced it. A terminal that
       // changed identity simply hears nothing this pass and is sampled afresh on
       // the next one.
-      const live = new Map(opts.targets().map((t) => [t.id, t.rootPid]));
       for (const [id, sample] of byTerminal) {
-        if (live.get(id) !== sample.rootPid) continue;
+        // A POINT lookup against the caller's own map, rather than rebuilding the
+        // whole target list and indexing it again: the question here is "is this one
+        // terminal still who it was?", asked at most N times, and the caller already
+        // holds a Map keyed by exactly that id.
+        if (opts.rootPidOf(id) !== sample.rootPid) continue;
         opts.publish(id, sample.ports);
       }
     }, abort.signal)

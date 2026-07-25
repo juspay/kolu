@@ -243,7 +243,10 @@ export function startPortSensor(
   plog.debug("started");
   const cleanup = signals.ports.consume({
     onEvent: (ports) => {
-      if (portsEqual(published, ports)) return;
+      // Reference first: the sampler republishes the SAME object while the host is
+      // unchanged, which is the overwhelmingly common case at a 1 Hz cadence, so the
+      // steady state costs one pointer compare instead of walking every port.
+      if (published === ports || portsEqual(published, ports)) return;
       plog.debug(
         ports.status === "known"
           ? { ports: ports.list.map((p) => p.port) }

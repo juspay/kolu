@@ -565,14 +565,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         [...this.lifecycles].map(([id, lc]) => ({ id, rootPid: lc.rootPid })),
       // Straight into the terminal's own `ports` channel — its port sensor owns
       // the structural dedup, so an unchanged scan stops here.
-      // The sampler only ever publishes a set it SUCCESSFULLY read, so this seam
-      // is where that becomes the honest `known` arm. A terminal it has never
-      // read stays at `seedSnapshot`'s `unknown` — which is a different fact from
-      // `known: []` and must not be spelled the same way.
-      publish: (id, list) =>
-        this.lifecycles
-          .get(id)
-          ?.ports.publish({ status: "known", list: [...list] }),
+      // The sampler hands over a ready `TerminalPorts` it built from a SUCCESSFUL
+      // read, and republishes the same object while the host is unchanged — so this
+      // seam forwards a reference rather than minting a wrapper per terminal per
+      // pass. A terminal the sampler has never read stays at `seedSnapshot`'s
+      // `unknown`, which is a different fact from `known: []`.
+      publish: (id, ports) => this.lifecycles.get(id)?.ports.publish(ports),
+      rootPidOf: (id) => this.lifecycles.get(id)?.rootPid,
       log,
     });
     this.portSampler = sampler;

@@ -64,8 +64,32 @@
  * reports only the invoking user's processes, and a terminal's subtree is padi's
  * OWN user by construction — every port we could ever attribute is one lsof shows.
  *
- * Measured end-to-end through this module: linux ~3 ms; macOS 26.4 lsof 17 ms,
- * macOS 27.0 lsof 93 ms (a busier box).
+ * ## What a pass actually costs
+ *
+ * The spike's "linux ~3 ms" was measured on a 30-process box and does not survive
+ * a real one: this module's dominant cost is the HOST pid table, which scales with
+ * the host's process count and not with how many terminals were asked about. On a
+ * 515-process box a full pass measured **35-57 ms** — an order of magnitude over
+ * the figure the cadence argument was written against.
+ *
+ * That mattered more than it looks, because the effective cadence is not 5 s
+ * either: kaval throttles its activity edge to one per PTY per 200 ms, so a single
+ * streaming agent delivers ~5 edges/s and the nudge floor (≥1 s) becomes the real
+ * period. ~40 ms every second, for the life of the daemon, is ~4% of a core.
+ *
+ * So the inner loops are batched rather than strictly serial — the pid table in
+ * bounded groups, the fd walk concurrently per pid — which measured **14-18 ms** on
+ * the same 515-process box. Darwin's two `fork`/`exec`s (`ps` + `lsof`) dominate
+ * there instead: 17 ms on a quiet box, 93 ms on a busy one.
+ *
+ * The remaining order of magnitude is a KNOWN, recorded opportunity rather than a
+ * mystery: `/proc/<pid>/task/<tid>/children` lets the walk descend from each
+ * requested root instead of reading the whole host table (measured at <1 ms for two
+ * subtrees), which would make the cost scale with subtree size — what the feature
+ * is actually about. It is not taken here because it is a redesign of the walk, and
+ * `proc(5)` warns `children` may be incomplete under churn; that is the same exit
+ * race this module already tolerates by policy, so it is a decision to make
+ * deliberately rather than at the end of a review pass. See the performance note.
  *
  * ## Both platforms are verified against a live OS, not just fixtures
  *
@@ -98,6 +122,12 @@ const execFileAsync = promisify(execFile);
  *  in a second home — the duplication the `socketInodesOf` note tracks. Cross-named
  *  in both places so a change to one is at least FINDABLE from the other. */
 export const PORT_SCAN_COMMAND_TIMEOUT_MS = 5_000;
+
+/** How many `/proc/<pid>/stat` reads are in flight at once. Bounded rather than
+ *  "all of them": the win is saturating libuv's small threadpool, which 64 already
+ *  does, while an unbounded `Promise.all` over a 10 000-process host would queue
+ *  10 000 threadpool items to no benefit. */
+const PROC_READ_BATCH = 64;
 
 /** A scan that did not answer — thrown so the caller reports the failure instead
  *  of publishing an empty port list that reads identically to "this terminal serves
@@ -502,31 +532,49 @@ async function linuxProcessTable(
       cause: err,
     });
   });
-  const rows: ProcessRow[] = [];
-  for (const entry of entries) {
-    if (!/^\d+$/.test(entry)) continue;
-    let body: string;
+  /** One pid's row, or `undefined` for a pid this pass may skip.
+   *
+   *  The SAME triad the fd walk uses (`procReadFailure`), not a looser one of its
+   *  own. This catch used to `continue` on EVERY non-ENOENT errno for a non-root
+   *  pid — so an unexpected `EIO`/`EMFILE` on an ordinary same-uid descendant
+   *  silently dropped that row, disconnecting ITS descendants from the requested
+   *  root and letting the pass publish a confidently PARTIAL answer. That is a
+   *  caught error collapsing to missing state, which is the one thing this module
+   *  is built not to do; only the exit race and the deliberate foreign-uid case
+   *  are skippable. */
+  const readRow = async (pid: string): Promise<ProcessRow | undefined> => {
     try {
-      body = await readFile(`/proc/${entry}/stat`, "utf8");
+      return parseProcStat(await readFile(`/proc/${pid}/stat`, "utf8"));
     } catch (err) {
-      // The SAME triad the fd walk uses (`procReadFailure`), not a looser one of
-      // its own. This catch used to `continue` on EVERY non-ENOENT errno for a
-      // non-root pid — so an unexpected `EIO`/`EMFILE` on an ordinary same-uid
-      // descendant silently dropped that row, disconnecting ITS descendants from
-      // the requested root and letting the pass publish a confidently PARTIAL
-      // answer. That is a caught error collapsing to missing state, which is the
-      // one thing this module is built not to do; only the exit race and the
-      // deliberate foreign-uid case are skippable.
-      if (procReadFailure(errnoOf(err), roots.has(Number(entry))) === "skip") {
-        continue;
+      if (procReadFailure(errnoOf(err), roots.has(Number(pid))) === "skip") {
+        return undefined;
       }
       throw new PortScanError(
         "blind",
-        `port scan: cannot read /proc/${entry}/stat (${errnoOf(err)})`,
+        `port scan: cannot read /proc/${pid}/stat (${errnoOf(err)})`,
         { cause: err },
       );
     }
-    rows.push(parseProcStat(body));
+  };
+
+  // Read in BOUNDED batches rather than one strictly-serial await per pid. This is
+  // the pass's dominant cost by an order of magnitude — it scales with the HOST's
+  // process count, not with how many terminals we were asked about — and each
+  // `await` was one libuv threadpool round-trip with three of four threads idle.
+  // Measured on a 511-process box: 30 ms serial → 11 ms batched.
+  //
+  // Bounded (not one `Promise.all` over everything) so a 10 000-process host does
+  // not queue 10 000 threadpool items at once. Order is irrelevant to the result:
+  // `partitionSubtrees` builds a children map, and `foldPorts` picks its name by
+  // lexicographic minimum rather than by arrival.
+  const pids = entries.filter((entry) => /^\d+$/.test(entry));
+  const rows: ProcessRow[] = [];
+  for (let i = 0; i < pids.length; i += PROC_READ_BATCH) {
+    for (const row of await Promise.all(
+      pids.slice(i, i + PROC_READ_BATCH).map(readRow),
+    )) {
+      if (row !== undefined) rows.push(row);
+    }
   }
   return rows;
 }
@@ -643,27 +691,36 @@ async function socketInodesOf(
       { cause: err },
     );
   }
+  // Concurrent, for the same reason the pid table is batched: the fd list is
+  // already in hand and small, and a Node process in a terminal's subtree can hold
+  // a couple of hundred descriptors. Measured over the 30 most fd-heavy pids on a
+  // real box (1 823 readlinks): 33 ms serial → 18 ms concurrent.
+  //
+  // A throw inside `Promise.all` still rejects the pass, so the blindness policy is
+  // unchanged — only the interleaving is.
   const inodes = new Set<string>();
-  for (const fd of fds) {
-    let target: string;
-    try {
-      target = await readlink(`/proc/${pid}/fd/${fd}`);
-    } catch (err) {
-      // A descriptor closed between the readdir and the readlink — the same exit
-      // race one level down. The permission arms ride the same policy as the
-      // listing above: a process that turned setuid between the readdir and this
-      // read is the descendant case arriving one level late, and it must not take
-      // the host's whole scan with it.
-      if (procReadFailure(errnoOf(err), isRequestedRoot) === "skip") continue;
-      throw new PortScanError(
-        "blind",
-        `port scan: cannot read /proc/${pid}/fd/${fd} (${errnoOf(err)})`,
-        { cause: err },
-      );
-    }
-    const inode = /^socket:\[(\d+)\]$/.exec(target)?.[1];
-    if (inode !== undefined) inodes.add(inode);
-  }
+  await Promise.all(
+    fds.map(async (fd) => {
+      let target: string;
+      try {
+        target = await readlink(`/proc/${pid}/fd/${fd}`);
+      } catch (err) {
+        // A descriptor closed between the readdir and the readlink — the same exit
+        // race one level down. The permission arms ride the same policy as the
+        // listing above: a process that turned setuid between the readdir and this
+        // read is the descendant case arriving one level late, and it must not take
+        // the host's whole scan with it.
+        if (procReadFailure(errnoOf(err), isRequestedRoot) === "skip") return;
+        throw new PortScanError(
+          "blind",
+          `port scan: cannot read /proc/${pid}/fd/${fd} (${errnoOf(err)})`,
+          { cause: err },
+        );
+      }
+      const inode = /^socket:\[(\d+)\]$/.exec(target)?.[1];
+      if (inode !== undefined) inodes.add(inode);
+    }),
+  );
   return inodes;
 }
 

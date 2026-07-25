@@ -24,7 +24,7 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { scanTerminalPorts } from "./portScan.ts";
 
 const children: ChildProcess[] = [];
@@ -37,14 +37,18 @@ afterEach(() => {
  *  gave it. Port 0 + the child reporting back beats picking a number ourselves:
  *  there is no window in which another process could take the port we chose. */
 function listener(
-  host: string,
+  host?: string,
   opts: { viaShell?: boolean } = {},
 ): Promise<{ port: number; child: ChildProcess }> {
   // The runtime leash. This helper lives OUTSIDE the gated block, so the gate
   // cannot see it as covered by `describeDaemon` — and that is the point of the
   // leash: a helper is exactly how a fork gets smuggled past a gate.
   assertDaemonSpawnAllowed("a test HTTP listener");
-  const script = `require("http").createServer((_,r)=>r.end("ok")).listen(0,"${host}",function(){console.log(this.address().port)})`;
+  // No `host` means the DUAL-STACK form (`listen(0)` binds `::`), which is its own
+  // test case — so it rides this helper rather than a hand-rolled copy that would
+  // skip the fork leash above and the exit-rejection below.
+  const bind = host === undefined ? "0" : `0,"${host}"`;
+  const script = `require("http").createServer((_,r)=>r.end("ok")).listen(${bind},function(){console.log(this.address().port)})`;
   // `viaShell` puts a shell between us and the server, so the listener is a
   // GRANDCHILD — the ordinary shape of this feature (a shell in a PTY, an agent
   // running a dev server inside it), and the reason attribution is a subtree walk
@@ -124,18 +128,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   it("reports a dual-stack listener ONCE", async () => {
     // A `::` bind shows up in both socket tables (linux: tcp + tcp6; darwin: a
     // `tcp46` row), so an un-folded scan would render two chips for one server.
-    const script = `require("http").createServer((_,r)=>r.end("ok")).listen(0,function(){console.log(this.address().port)})`;
-    const child = spawn(process.execPath, ["-e", script]);
-    children.push(child);
-    const port = await new Promise<number>((resolve, reject) => {
-      let out = "";
-      child.stdout?.on("data", (chunk: Buffer) => {
-        out += chunk.toString();
-        const p = Number.parseInt(out.trim(), 10);
-        if (Number.isInteger(p) && p > 0) resolve(p);
-      });
-      child.on("error", reject);
-    });
+    const { port } = await listener();
 
     const ports = await scanSelf();
     expect(ports.filter((p) => p.port === port)).toEqual([
@@ -149,15 +142,16 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
 
     child.kill("SIGKILL");
     await new Promise((done) => child.once("exit", done));
-    // The socket may linger for a moment after the process goes; the scan is
-    // re-derived from the OS each pass, so retry until the OS agrees rather than
-    // asserting on one reading.
-    for (let i = 0; i < 40; i++) {
-      if (!(await scanSelf()).some((p) => p.port === port)) return;
-      await new Promise((done) => setTimeout(done, 50));
-    }
-    expect(await scanSelf()).not.toContainEqual(
-      expect.objectContaining({ port }),
+    // The socket may linger a moment after the process goes, so retry until the OS
+    // agrees. `vi.waitFor` (the repo's mechanism for this) keeps the assertion ON
+    // the success path — the hand-rolled loop it replaced `return`ed early, so a
+    // pass could not be told from "observed the drop".
+    await vi.waitFor(
+      async () =>
+        expect(await scanSelf()).not.toContainEqual(
+          expect.objectContaining({ port }),
+        ),
+      { timeout: 5_000, interval: 50 },
     );
   });
 

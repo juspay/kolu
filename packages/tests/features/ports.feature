@@ -24,8 +24,7 @@ Feature: Ports section (PRT1)
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     Then the inspector should show an openable port chip for 8123
-    When I click the open link for port 8123
-    Then the opened URL should be port 8123 on the page's own host
+    Then the open link for port 8123 should point at the page's own host
     And there should be no page errors
 
   Scenario: A loopback-only listener is listed but waits for a forward
