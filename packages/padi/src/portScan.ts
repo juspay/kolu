@@ -91,7 +91,11 @@ const execFileAsync = promisify(execFile);
  *  GNU `timeout`, so the timer is Node's (`execFile`'s own `timeout`, which sends
  *  the kill signal) — a hung helper must not wedge the sampler's single-flight
  *  slot forever. Generous against the measured 17-93 ms so a loaded box is not
- *  mistaken for a hang. */
+ *  mistaken for a hang.
+ *
+ *  The same number as `socketHolder.ts`'s `LSOF_TIMEOUT_MS`, for the same reason,
+ *  in a second home — the duplication the `socketInodesOf` note tracks. Cross-named
+ *  in both places so a change to one is at least FINDABLE from the other. */
 export const PORT_SCAN_COMMAND_TIMEOUT_MS = 5_000;
 
 /** A scan that did not answer — thrown so the caller reports the failure instead
@@ -530,7 +534,8 @@ async function linuxProcessTable(
  *
  *  Read only for the pids that actually hold a listening socket — a handful, not
  *  the whole table — so this costs nothing on a box serving nothing. The
- *  cmdline→comm order is `socketHolder.ts`'s, reused rather than re-invented. */
+ *  cmdline→comm order is the same one `socketHolder.ts` reaches for, but it is
+ *  RE-DERIVED here, not shared — see {@link socketInodesOf}. */
 async function linuxProcessName(pid: number, comm: string): Promise<string> {
   try {
     const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8");
@@ -578,8 +583,20 @@ export function fdListFailure(
   return "throw";
 }
 
-/** The socket inodes a pid holds open, via the `/proc/<pid>/fd` readlink
- *  technique (`socketHolder.ts`'s, reused rather than re-derived).
+/** The socket inodes a pid holds open, via the `/proc/<pid>/fd` readlink technique.
+ *
+ *  ⚠ RE-DERIVED, NOT SHARED. `@kolu/surface-daemon-supervisor`'s
+ *  `socketHolder.ts` (`linuxSocketHolders`) walks `/proc/<pid>/fd` for
+ *  `socket:[inode]` links too, and padi already depends on that package — so "how
+ *  does this OS attribute a socket to a process" is encapsulated TWICE in this repo,
+ *  and the next `/proc`/`lsof`/macOS change has two edit sites. The copies do NOT
+ *  agree: that one blanket-`catch { continue }`s an unreadable `/proc/<pid>/fd` and
+ *  collapses an unreadable `/proc` to `[]` (the very
+ *  `caught-error-must-not-collapse-to-empty` shape {@link fdListFailure} exists to
+ *  forbid), because its question is "who holds THIS socket path" rather than "what
+ *  is this terminal serving". Extracting one leaf both plug into — with the
+ *  fd-failure policy INJECTED so each keeps its own — is the real fix, and is a
+ *  standing item rather than something this module can do alone.
  *
  *  Returns `undefined` when this pid cannot be inspected — an exited process, or
  *  a foreign-uid descendant. See {@link fdListFailure} for which failures are

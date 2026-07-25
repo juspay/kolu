@@ -42,8 +42,19 @@ import { promisify } from "node:util";
 const execFileP = promisify(execFile);
 
 /** Hard ceiling on the darwin `lsof` subprocess — a wedged `lsof` (contended mount,
- *  slow box) must be killed and rejected, never left to hang the serving event loop. */
+ *  slow box) must be killed and rejected, never left to hang the serving event loop.
+ *
+ *  The same number as padi's `PORT_SCAN_COMMAND_TIMEOUT_MS` (`portScan.ts`), which
+ *  runs the same binary for its own question; the two are cross-named because the
+ *  socket↔pid reading is re-derived in both places rather than shared. */
 const LSOF_TIMEOUT_MS = 5_000;
+
+/** macOS's OWN `lsof`, by ABSOLUTE path. kolu's macOS users run nix, so `lsof` on
+ *  `PATH` may be a different build than the system one this parse was verified
+ *  against — resolving it through `PATH` would make a boot-path check's correctness
+ *  depend on the user's profile. Same call, same reason, as `portScan.ts`'s
+ *  `DARWIN_LSOF`. */
+const DARWIN_LSOF = "/usr/sbin/lsof";
 
 /** A process the OS reports as holding a socket path — its pid and a human
  *  command label (for the foreign-holder error that must name the culprit). */
@@ -172,7 +183,7 @@ async function darwinSocketHolders(
     // a hard `timeout` so a wedged lsof is SIGKILLed and rejected, never hanging
     // the serving event loop.
     ({ stdout: out } = await execFileP(
-      "lsof",
+      DARWIN_LSOF,
       ["-w", "-n", "-P", "-F", "pcn", "--", socketPath],
       { encoding: "utf8", timeout: LSOF_TIMEOUT_MS },
     ));
