@@ -55,6 +55,10 @@ export const CANCEL_GRACE_MS = 3000;
  */
 export const HANDSHAKE_TIMEOUT_MS = 60_000;
 
+/** When to say "still nothing" — early enough to be useful while the person
+ *  who typed the command is still watching. */
+const HANDSHAKE_NOTICE_MS = 8_000;
+
 /** Respawn pacing. An adapter that dies on boot must not be retried in a hot
  *  loop — unpaced, a `false` adapter respawned ~230 times a second. */
 const RESPAWN_BASE_DELAY_MS = 250;
@@ -255,6 +259,16 @@ export class AdapterSession {
     what: string,
   ): Promise<T> {
     let timer: NodeJS.Timeout | undefined;
+    // Say something long before the deadline. A wrong command — an interactive
+    // CLI where an ACP adapter belongs — otherwise looks identical to a slow
+    // agent for a full minute, with nothing on screen but "adapter spawned".
+    const notice = setTimeout(() => {
+      this.#emit({
+        kind: "adapterSilent",
+        command: [this.#spec.command, ...this.#spec.args].join(" "),
+        afterMs: HANDSHAKE_NOTICE_MS,
+      });
+    }, HANDSHAKE_NOTICE_MS);
     try {
       return await Promise.race([
         this.#bind(generation, work),
@@ -263,7 +277,12 @@ export class AdapterSession {
             () =>
               reject(
                 new Error(
-                  `${what} did not complete within ${HANDSHAKE_TIMEOUT_MS}ms`,
+                  `${what} did not complete within ${HANDSHAKE_TIMEOUT_MS}ms.\n` +
+                    `  The adapter is: ${[this.#spec.command, ...this.#spec.args].join(" ")}\n` +
+                    "  It started but never answered, which usually means it does not speak the\n" +
+                    "  Agent Client Protocol on stdio. acp-proxy needs an ACP *adapter*, not an\n" +
+                    "  interactive CLI — `claude-agent-acp` rather than `claude`, `codex-acp`\n" +
+                    "  rather than `codex`. Both ship with this package and are already on PATH.",
                 ),
               ),
             HANDSHAKE_TIMEOUT_MS,
@@ -272,6 +291,7 @@ export class AdapterSession {
       ]);
     } finally {
       clearTimeout(timer);
+      clearTimeout(notice);
     }
   }
 

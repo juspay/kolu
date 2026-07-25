@@ -99,6 +99,8 @@ export function formatEvent(event: ProxyEvent): string | null {
       return `${HARNESS} listening · ${event.socketPath}`;
     case "adapterSpawned":
       return `${HARNESS} adapter spawned · ${[event.command, ...event.args].join(" ")} (pid ${event.pid})`;
+    case "adapterSilent":
+      return `${HARNESS} adapter silent for ${event.afterMs}ms · ${oneLine(event.command)} has not answered initialize — if it is not an ACP adapter (try \`claude-agent-acp\`, not \`claude\`) this will time out`;
     case "adapterReady":
       return `${HARNESS} adapter ready · ${event.agentName} · protocol v${event.protocolVersion}`;
     case "adapterExited":

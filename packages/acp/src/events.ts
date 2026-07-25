@@ -18,6 +18,9 @@ export type ProxyEvent =
   | { kind: "listening"; socketPath: string }
   | { kind: "adapterSpawned"; command: string; args: string[]; pid: number }
   | { kind: "adapterReady"; agentName: string; protocolVersion: number }
+  /** Spawned, but not a word back yet. Emitted well before the handshake
+   *  deadline so a wrong command explains itself in seconds, not a minute. */
+  | { kind: "adapterSilent"; command: string; afterMs: number }
   | { kind: "adapterExited"; code: number | null; signal: string | null }
   | { kind: "adapterFailedToStart"; message: string }
   /** A generation that HAD become ready and then failed at runtime — distinct
