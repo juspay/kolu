@@ -14,49 +14,112 @@
  * no liveness check, and most of its knob matrix exists to compensate for
  * forwarding on that uncertain evidence.
  *
- * Three properties, and the reason for each:
- *  - **Single-flight.** The nudge and the baseline share ONE non-overlapping
- *    runner, so a burst of output during a slow pass cannot stack passes on top
- *    of each other. A nudge that arrives mid-pass is remembered, not dropped —
- *    the running pass may have read `/proc` before the new listener existed.
- *  - **A ≥1 s floor between passes.** An agent streaming output would otherwise
- *    nudge every few milliseconds forever.
+ * ## The cadence is DECLARED, not implemented
+ *
+ * This module used to hand-roll the loop: a `setTimeout` chain, a `running`
+ * non-overlap flag, a mid-flight nudge latch, an error arm that held the last
+ * sample, an `unref`, and a `disposed` teardown latch. Every one of those belongs
+ * to the reactor's poll source (`@kolu/surface`'s `reactor.ts`), which is where
+ * padi's `memorySampler` and host-inventory samplers already read them from:
+ *
+ *  - `source({ read, install })` owns the T+0 seed, the non-overlap (`inFlight`)
+ *    guard, the mid-flight coalesce (a tick that arrives during a read LATCHES and
+ *    a trailing read runs after it — the property this module argued for by hand),
+ *    later-read LOG-SKIP-CONTINUE, and teardown through the connector's signal.
+ *  - `everyMs` owns the `unref`'d interval; `everyMsOr(ms, subscribe)` owns the
+ *    interval-plus-edge fuse — itself the graduated form of two app-local twins of
+ *    exactly this shape.
+ *
+ * What is left here is the one policy that is genuinely padi's: the **≥1 s floor**
+ * on the nudge edge. "How often may this host's output nudge us?" is a domain
+ * question the reactor deliberately declines to name, so it is a throttle wrapped
+ * around the edge subscription rather than a new knob on the framework. Note the
+ * narrowing that buys: the floor now governs the EDGE only, not the interval —
+ * a nudge landing right after a baseline pass may scan again at once (one extra
+ * ~3 ms pass), while the unbounded case the floor exists for (an agent streaming
+ * output, nudging every few milliseconds forever) is still bounded to one pass per
+ * gap.
+ *
+ * ## The two remaining properties, and why
+ *
  *  - **The baseline still matters.** It catches a QUIET bind (a server that
  *    printed nothing) and, just as importantly, port DEATH — which PRT2's
  *    auto-cancel policy rides on.
- *
- * The timer is `unref`'d: a live readout must never be the reason the process
- * stays alive.
+ *  - **A pass is ALL OR NOTHING.** The read joins the whole scan to the whole
+ *    target list and returns one map; a scan that could not answer for any one
+ *    target re-serves the last map instead. There is no way to spell "published
+ *    the first two targets, then failed", which is what a per-target publish loop
+ *    with a throw in it did.
  */
 
 import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
+import { everyMsOr, source } from "@kolu/surface/reactor";
 import type { Logger } from "pino";
 import { scanTerminalPorts } from "./portScan.ts";
-
-/** One terminal to attribute ports to — its id and the ROOT pid of its PTY (the
- *  shell for a shell-rooted terminal, the command for a command-rooted one). The
- *  pid → terminal join lives HERE rather than in the scan, which knows only about
- *  pids: the sampler is where the app's identity vocabulary belongs. The targets
- *  are re-read every pass; nothing holds them. */
-export interface PortScanTarget {
-  id: TerminalId;
-  rootPid: number;
-}
 
 /** Baseline cadence of the port scan. The same 5 s `memorySampler` uses, for the
  *  same reason: coarse enough to be free, live enough to be worth reading. */
 export const PORT_SCAN_INTERVAL_MS = 5_000;
 
-/** Floor between two passes, however many nudges arrive. */
+/** Floor between two NUDGED passes, however many nudges arrive. */
 export const PORT_SCAN_MIN_GAP_MS = 1_000;
 
+/** One terminal to attribute ports to — its id and the ROOT pid of its PTY (the
+ *  shell for a shell-rooted terminal, the command for a command-rooted one). The
+ *  pid → terminal join lives HERE rather than in the scan, which knows only about
+ *  pids: this is where the app's identity vocabulary belongs. The targets are
+ *  re-read every pass; nothing holds them. */
+export interface PortScanTarget {
+  id: TerminalId;
+  rootPid: number;
+}
+
 export interface PortSampler {
-  /** Something happened in a terminal — look sooner. Coalesced, floored, and a
-   *  no-op while a pass is already in flight (that pass re-runs instead). */
+  /** Something happened in a terminal — look sooner. Floored to one pass per
+   *  {@link PORT_SCAN_MIN_GAP_MS}, and coalesced by the poll source: a nudge that
+   *  lands mid-pass makes that pass re-run rather than being dropped (the running
+   *  pass may have read the socket table before the new listener existed). */
   nudge(): void;
-  /** Stop the baseline. Idempotent; a pass already in flight completes and its
+  /** Stop the cadence. Idempotent; a pass already in flight completes and its
    *  result is discarded. */
   dispose(): void;
+}
+
+/** A THROTTLED edge: `fire()` passes the first call straight through and then
+ *  coalesces everything inside `minGapMs` into a single trailing call at the end
+ *  of the gap. The padi-side residue of the cadence — see the module header for
+ *  why it lives here and not in the reactor's cadence family. The timer is
+ *  `unref`'d for the same reason `everyMs`'s interval is: a live readout must
+ *  never be the reason the process stays alive. */
+function flooredEdge(
+  tick: () => void,
+  minGapMs: number,
+): { fire: () => void; cancel: () => void } {
+  let lastAt = 0;
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  const run = (): void => {
+    lastAt = Date.now();
+    tick();
+  };
+  return {
+    fire: () => {
+      if (pending !== undefined) return; // already coalescing into the trailing call
+      const since = Date.now() - lastAt;
+      if (since >= minGapMs) {
+        run();
+        return;
+      }
+      pending = setTimeout(() => {
+        pending = undefined;
+        run();
+      }, minGapMs - since);
+      pending.unref();
+    },
+    cancel: () => {
+      if (pending !== undefined) clearTimeout(pending);
+      pending = undefined;
+    },
+  };
 }
 
 /** Start the port sampler. `targets()` is re-read at the top of EVERY pass — that
@@ -76,99 +139,76 @@ export function createPortSampler(opts: {
   scan?: (rootPids: readonly number[]) => Promise<Map<number, PortInfo[]>>;
 }): PortSampler {
   const scan = opts.scan ?? scanTerminalPorts;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let disposed = false;
-  let running = false;
-  /** A nudge that arrived while a pass was in flight — that pass may have read
-   *  the socket table BEFORE the event that prompted the nudge, so its result
-   *  cannot be treated as covering it. */
-  let nudgedDuringPass = false;
-  let lastPassAt = 0;
+  /** The last map a pass actually produced. A blind pass RE-SERVES it rather than
+   *  publishing an empty set — `[]` reads byte-identically to "this terminal serves
+   *  nothing" (`caught-error-must-not-collapse-to-empty`), while re-serving the
+   *  last sample is dedup'd away by the per-terminal sensor. */
+  let last = new Map<TerminalId, readonly PortInfo[]>();
+  /** The nudge edge, live only while the cadence is installed. */
+  let edge: { fire: () => void; cancel: () => void } | undefined;
 
-  /** Arm the next pass, replacing any pending one. `delayMs` is clamped to the
-   *  floor measured from the last pass, so the floor holds across the baseline
-   *  and the nudge alike rather than being a property of one of them. */
-  function arm(delayMs: number): void {
-    if (disposed) return;
-    if (timer !== undefined) clearTimeout(timer);
-    const sinceLast = Date.now() - lastPassAt;
-    const floored = Math.max(delayMs, PORT_SCAN_MIN_GAP_MS - sinceLast);
-    timer = setTimeout(
-      () => {
-        timer = undefined;
-        void pass();
-      },
-      Math.max(floored, 0),
-    );
-    timer.unref();
-  }
-
-  async function pass(): Promise<void> {
-    if (disposed || running) return;
-    const targets = opts.targets();
-    lastPassAt = Date.now();
-    if (targets.length === 0) {
-      // No terminals, no OS work at all — not even a `/proc` readdir. The clock
-      // keeps ticking so the first terminal of a session is picked up without the
+  const node = source<ReadonlyMap<TerminalId, readonly PortInfo[]>>({
+    // TOTAL by the poll source's contract: a transient failure logs and re-serves
+    // the last map, so it can never tear the cadence down. Only a genuinely
+    // permanent failure is allowed to propagate out of here.
+    read: async () => {
+      const targets = opts.targets();
+      // No terminals, no OS work at all — not even a `/proc` readdir. The interval
+      // keeps ticking, so the first terminal of a session is picked up without the
       // sampler needing to be re-armed from outside.
-      arm(PORT_SCAN_INTERVAL_MS);
-      return;
-    }
-    running = true;
-    nudgedDuringPass = false;
-    try {
-      const byPid = await scan(targets.map((t) => t.rootPid));
-      if (disposed) return;
-      for (const target of targets) {
-        const sample = byPid.get(target.rootPid);
-        if (sample === undefined) {
-          // The scan's contract is that EVERY requested pid comes back — with an
-          // empty array when its subtree serves nothing. A missing key is
-          // therefore a scan that failed to answer, not a terminal with no ports,
-          // and defaulting it to `[]` would publish exactly the lie this whole
-          // module's error handling exists to avoid. Throw into the blindness arm
-          // below, which leaves the last sample standing.
-          throw new Error(
-            `port scan returned no sample for requested root pid ${target.rootPid} (terminal ${target.id})`,
+      if (targets.length === 0) return new Map();
+      try {
+        const byPid = await scan(targets.map((t) => t.rootPid));
+        // The scan's contract is that EVERY requested pid comes back — with an
+        // empty array when its subtree serves nothing. A missing key is a scan
+        // that failed to answer, not a terminal with no ports, so the whole pass
+        // is void: publishing the targets that DID answer would leave a mixed
+        // old/new sample whose halves depend on iteration order.
+        const missing = targets.filter((t) => !byPid.has(t.rootPid));
+        if (missing.length > 0) {
+          opts.log.error(
+            { missing: missing.map((t) => t.id) },
+            "port scan did not answer for every requested terminal — ports left at their last sample",
           );
+          return last;
         }
-        opts.publish(target.id, sample);
+        last = new Map(targets.map((t) => [t.id, byPid.get(t.rootPid)!]));
+        return last;
+      } catch (err) {
+        // A scan that could not SEE (an EACCES on a requested subtree, an lsof
+        // that timed out) must not publish an empty set.
+        opts.log.error(
+          { err },
+          "port scan failed — ports left at their last sample",
+        );
+        return last;
       }
-    } catch (err) {
-      // A scan that could not SEE (an EACCES on a requested subtree, a netstat
-      // that timed out) must not publish an empty set — that reads identically to
-      // "this terminal serves nothing". Publishing nothing leaves the last known
-      // sample standing and logs the blindness; the next pass re-reads.
-      opts.log.error(
-        { err },
-        "port scan failed — ports left at their last sample",
-      );
-    } finally {
-      running = false;
-      if (!disposed) {
-        // A nudge that landed mid-pass earned its own pass (floored), rather than
-        // waiting out the full baseline behind a pass that may have missed it.
-        arm(nudgedDuringPass ? 0 : PORT_SCAN_INTERVAL_MS);
-        nudgedDuringPass = false;
-      }
-    }
-  }
+    },
+    install: everyMsOr(PORT_SCAN_INTERVAL_MS, (tick) => {
+      const floored = flooredEdge(tick, PORT_SCAN_MIN_GAP_MS);
+      edge = floored;
+      return () => {
+        edge = undefined;
+        floored.cancel();
+      };
+    }),
+  });
 
-  arm(PORT_SCAN_INTERVAL_MS);
+  // Driven OUTSIDE a `derived.cell`: these samples are not a wire member of padi's
+  // surface — each terminal's set re-enters its own producer through the sensor
+  // channel, so the fan-out below IS the publisher. `connectPoll` is public on
+  // `PollSource` for exactly this, and its abort signal is the sampler's teardown.
+  const abort = new AbortController();
+  void node
+    .connectPoll((byTerminal) => {
+      for (const [id, ports] of byTerminal) opts.publish(id, ports);
+    }, abort.signal)
+    .catch((err: unknown) => {
+      opts.log.error({ err }, "port sampler seed failed — cadence not armed");
+    });
 
   return {
-    nudge: () => {
-      if (disposed) return;
-      if (running) {
-        nudgedDuringPass = true;
-        return;
-      }
-      arm(0);
-    },
-    dispose: () => {
-      disposed = true;
-      if (timer !== undefined) clearTimeout(timer);
-      timer = undefined;
-    },
+    nudge: () => edge?.fire(),
+    dispose: () => abort.abort(),
   };
 }
