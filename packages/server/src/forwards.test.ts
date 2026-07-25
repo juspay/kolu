@@ -15,11 +15,21 @@ import type {
 } from "@kolu/port-forward";
 import { makeForwardManager } from "@kolu/port-forward";
 import type { HostKey } from "kolu-common/hostKey";
+import type { Forwards } from "kolu-common/surface";
 import pino from "pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createKoluForwards, type HostPorts } from "./forwards.ts";
 
 const log = pino({ level: "silent" });
+
+/** A host reading: these ports are listening, all on v4.
+ *
+ *  The family is uniform here because no case in this file turns on it — the
+ *  auto-cancel rule reads port NUMBERS, and which loopback a port is on is the
+ *  library's concern once a door is opened. The one case that does care (a
+ *  create picking its dial) states its own families inline. */
+const listening = (ports: number[]): HostPorts =>
+  new Map(ports.map((port) => [port, "v4" as const]));
 
 const LOCAL: HostKey = { kind: "local" };
 const PU: HostKey = { kind: "remote", target: "pu-dev" };
@@ -64,14 +74,31 @@ function harness(
     async (host: HostKey): Promise<HostPorts> =>
       ports.get(host.kind === "local" ? "local" : host.target) ?? "unknown",
   );
+  // The change edge, redirectable: most cases only want to COUNT announcements,
+  // while the wiring cases below need to route them into a real re-read (which
+  // is what production does, and what the freeze rode on).
+  const h = {
+    onChange: (list: Forwards) => {
+      published.push(list);
+    },
+  };
   const forwards = createKoluForwards({
     readHostPorts,
     log,
-    onChange: (list) => published.push(list),
+    onChange: (list) => h.onChange(list),
     makeManager: (o: { onLost: (loss: ForwardLoss) => void }): ForwardManager =>
       makeForwardManager({ mechanisms: fake.mechanisms, onLost: o.onLost }),
   });
-  return { forwards, published, readHostPorts, fake, ports };
+  return {
+    forwards,
+    published,
+    readHostPorts,
+    fake,
+    ports,
+    set onChange(fn: (list: Forwards) => void) {
+      h.onChange = fn;
+    },
+  };
 }
 
 describe("origins", () => {
@@ -123,18 +150,18 @@ describe("origins", () => {
 
 describe("the auto-cancel rule", () => {
   it("closes an auto forward once the scanner says its port is gone", async () => {
-    const ports = new Map<string, HostPorts>([["pu-dev", new Set([5173])]]);
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([5173])]]);
     const h = harness(ports);
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
 
     // Still listening: nothing happens.
-    await h.forwards.reapDeadAuto();
+    await h.forwards.reconcile();
     expect(h.forwards.list()).toHaveLength(1);
 
     // The dev server died. The scan is a real observation that does not contain
     // the port, which is the only thing that may close the door.
-    ports.set("pu-dev", new Set([9229]));
-    await h.forwards.reapDeadAuto();
+    ports.set("pu-dev", listening([9229]));
+    await h.forwards.reconcile();
     expect(h.forwards.list()).toEqual([]);
     expect(h.fake.closed).toEqual([5173]);
   });
@@ -143,11 +170,11 @@ describe("the auto-cancel rule", () => {
     // A manual forward may point at something no scanner can see — a port
     // outside every terminal's subtree, a service started before kolu — so
     // "the scan does not list it" is its NORMAL state, not evidence of death.
-    const ports = new Map<string, HostPorts>([["pu-dev", new Set<number>()]]);
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([])]]);
     const h = harness(ports);
     await h.forwards.create({ host: PU, port: 5173, origin: "manual" });
 
-    await h.forwards.reapDeadAuto();
+    await h.forwards.reconcile();
     expect(h.forwards.list()).toHaveLength(1);
   });
 
@@ -159,7 +186,7 @@ describe("the auto-cancel rule", () => {
     const h = harness(ports);
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
 
-    await h.forwards.reapDeadAuto();
+    await h.forwards.reconcile();
     expect(h.forwards.list()).toHaveLength(1);
   });
 
@@ -170,7 +197,7 @@ describe("the auto-cancel rule", () => {
     h.readHostPorts.mockRejectedValue(new Error("the mirror is down"));
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
 
-    await h.forwards.reapDeadAuto();
+    await h.forwards.reconcile();
     expect(h.forwards.list()).toHaveLength(1);
   });
 
@@ -178,11 +205,11 @@ describe("the auto-cancel rule", () => {
     // The other side of the coin: a scanned host that serves nothing is an
     // observation, so the final auto forward on it must close. Without this the
     // `unknown` rule above would quietly mean forwards never die at all.
-    const ports = new Map<string, HostPorts>([["pu-dev", new Set<number>()]]);
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([])]]);
     const h = harness(ports);
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
 
-    await h.forwards.reapDeadAuto();
+    await h.forwards.reconcile();
     expect(h.forwards.list()).toEqual([]);
   });
 
@@ -190,7 +217,7 @@ describe("the auto-cancel rule", () => {
     // Cost tracks the feature's USE, not the size of the fleet: a kolu whose
     // user has never clicked a port chip reads nothing at all.
     const ports = new Map<string, HostPorts>([
-      ["pu-dev", new Set([5173, 8080])],
+      ["pu-dev", listening([5173, 8080])],
     ]);
     const h = harness(ports);
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
@@ -198,7 +225,7 @@ describe("the auto-cancel rule", () => {
     await h.forwards.create({ host: ZEST, port: 3000, origin: "manual" });
 
     h.readHostPorts.mockClear();
-    await h.forwards.reapDeadAuto();
+    await h.forwards.reconcile();
     expect(h.readHostPorts.mock.calls.map(([host]) => host)).toEqual([PU]);
   });
 
@@ -207,7 +234,7 @@ describe("the auto-cancel rule", () => {
     await h.forwards.create({ host: PU, port: 5173, origin: "manual" });
 
     h.readHostPorts.mockClear();
-    await h.forwards.reapDeadAuto();
+    await h.forwards.reconcile();
     expect(h.readHostPorts).not.toHaveBeenCalled();
   });
 
@@ -216,16 +243,18 @@ describe("the auto-cancel rule", () => {
     // leave a door open with nothing left pointing at it; keeping it means the
     // next pass — or the user — can retry.
     const fake = fakeMechanisms();
-    const ports = new Map<string, HostPorts>([["pu-dev", new Set<number>()]]);
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([])]]);
     const h = harness(ports, { onMechanisms: fake });
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
 
     fake.refuseClose(true);
-    await expect(h.forwards.reapDeadAuto()).resolves.toBeUndefined();
+    // Reports the door as still there rather than throwing — the pass must not
+    // abandon the remaining forwards over one that would not close.
+    await expect(h.forwards.reconcile()).resolves.toHaveLength(1);
     expect(h.forwards.list()).toHaveLength(1);
 
     fake.refuseClose(false);
-    await h.forwards.reapDeadAuto();
+    await h.forwards.reconcile();
     expect(h.forwards.list()).toEqual([]);
   });
 });
@@ -261,7 +290,7 @@ describe("a host leaving", () => {
 describe("what the cell sees", () => {
   let h: ReturnType<typeof harness>;
   beforeEach(() => {
-    h = harness(new Map([["pu-dev", new Set<number>()]]));
+    h = harness(new Map([["pu-dev", listening([])]]));
   });
 
   it("publishes on create and on cancel", async () => {
@@ -276,10 +305,40 @@ describe("what the cell sees", () => {
     expect(h.published.at(-1)).toEqual([]);
   });
 
-  it("publishes when a forward dies on its own", async () => {
+  it("REPORTS a reconciliation by returning it, and never by announcing", async () => {
+    // The production freeze, as a unit case. `reconcile` runs INSIDE the cell's
+    // read, and the cell's change edge is what triggers that read — so a
+    // reconcile that announces re-triggers itself, forever. It froze the whole
+    // server on the first forward click.
+    //
+    // Asserted for the pass that CANCELS something, not just the idle one: a
+    // "publish only when it changed" fix would still announce here and still
+    // close the cycle, one lap slower. The only shape that cannot loop is one
+    // that reports by returning.
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
-    await h.forwards.reapDeadAuto();
-    expect(h.published.at(-1)).toEqual([]);
+    const announcementsAfterCreate = h.published.length;
+
+    // The host serves nothing now, so this pass really does cancel the forward.
+    const reported = await h.forwards.reconcile();
+
+    expect(reported).toEqual([]);
+    expect(h.forwards.list()).toEqual([]);
+    expect(h.published).toHaveLength(announcementsAfterCreate);
+  });
+
+  it("announces nothing for an idle pass either", async () => {
+    // The cheaper half of the same property: a pass over a healthy forward has
+    // nothing to say, and saying it anyway would tick every reader of the cell
+    // once per interval forever.
+    h.ports.set("pu-dev", listening([5173]));
+    await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
+    const before = h.published.length;
+
+    await h.forwards.reconcile();
+    await h.forwards.reconcile();
+
+    expect(h.forwards.list()).toHaveLength(1);
+    expect(h.published).toHaveLength(before);
   });
 
   it("rejects a cancel for a key it does not hold", async () => {
@@ -293,5 +352,124 @@ describe("what the cell sees", () => {
     await h.forwards.dispose();
     expect(h.forwards.list()).toEqual([]);
     expect(h.published.at(-1)).toEqual([]);
+  });
+});
+
+describe("the cell wiring — reconcile-on-a-fused-cadence", () => {
+  /** The fusion `surface.ts` actually installs, in miniature:
+   *
+   *    read    = deps.forwards.read           (which runs the reconciliation)
+   *    install = everyMsOr(ms, onChange)      (so the change edge re-reads)
+   *
+   *  Only the EDGE half is modelled — the interval is a timer and not what
+   *  froze production. What froze it is that `onChange` triggers `read`, so
+   *  anything `read` announces comes straight back to `read`.
+   *
+   *  This harness is the smallest thing that can exhibit that, and it exists
+   *  because neither half is wrong alone: the reap was reasonable, the fused
+   *  cadence was reasonable, and the defect lived in the JOIN — which is exactly
+   *  the shape a per-module unit test cannot see. */
+  function fusedCell(opts: {
+    read: () => Promise<Forwards>;
+    onChange: (tick: () => void) => () => void;
+    /** Reads allowed before the harness calls it a runaway. Bounded rather than
+     *  awaited-forever so the pre-fix code FAILS here instead of hanging the
+     *  suite — a test that hangs reports as infrastructure trouble, not as the
+     *  bug it caught. */
+    cap: number;
+  }) {
+    let reads = 0;
+    let runaway = false;
+    let chain: Promise<void> = Promise.resolve();
+    const pump = (): void => {
+      chain = chain.then(async () => {
+        if (runaway) return;
+        reads += 1;
+        if (reads > opts.cap) {
+          runaway = true;
+          return;
+        }
+        await opts.read();
+      });
+    };
+    const stop = opts.onChange(pump);
+    pump(); // the T+0 seed read
+    return {
+      /** One interval firing — the OTHER half of `everyMsOr`, driven explicitly
+       *  rather than by a real timer so a test says when time passes. */
+      tick: pump,
+      settled: async () => {
+        // Let the chain quiesce. Each lap of a true loop schedules the next, so
+        // a runaway keeps extending `chain` and trips the cap rather than ending.
+        for (let i = 0; i < 200 && !runaway; i += 1) await chain;
+        return { reads, runaway };
+      },
+      stop,
+    };
+  }
+
+  it("CONVERGES with a live auto forward — the production freeze", async () => {
+    // Against the pre-fix code this trips the cap: create → publish → tick →
+    // read → reap → publish → tick → … with no yield to anything else. On the
+    // real server that was the whole event loop, so HTTP died and SIGTERM went
+    // unanswered until systemd sent SIGKILL.
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([5173])]]);
+    const h = harness(ports);
+    const listeners = new Set<() => void>();
+    const cell = fusedCell({
+      read: () => h.forwards.reconcile(),
+      onChange: (tick) => {
+        listeners.add(tick);
+        return () => listeners.delete(tick);
+      },
+      cap: 25,
+    });
+    // The forwards module announces on the SAME edge the cell subscribes to.
+    h.onChange = () => {
+      for (const tick of listeners) tick();
+    };
+
+    await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
+    const { reads, runaway } = await cell.settled();
+    cell.stop();
+
+    expect(runaway).toBe(false);
+    // A seed read, plus the one the create's announcement earns. The exact
+    // number matters less than that it is BOUNDED — but pinning it small keeps
+    // a future change from quietly turning one extra read into ten.
+    expect(reads).toBeLessThanOrEqual(3);
+  });
+
+  it("CONVERGES when the reconciliation actually cancels something", async () => {
+    // The harder half: a pass that changes the map has something to say, which
+    // is exactly when a "publish only when it changed" fix would still tick and
+    // still close the cycle. Reporting by return is what bounds it.
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([5173])]]);
+    const h = harness(ports);
+    const listeners = new Set<() => void>();
+    const cell = fusedCell({
+      read: () => h.forwards.reconcile(),
+      onChange: (tick) => {
+        listeners.add(tick);
+        return () => listeners.delete(tick);
+      },
+      cap: 25,
+    });
+    h.onChange = () => {
+      for (const tick of listeners) tick();
+    };
+
+    await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
+    await cell.settled();
+    // The dev server dies. Nothing announces that — it is the INTERVAL half of
+    // the fused cadence that notices, so drive one tick and let it settle.
+    ports.set("pu-dev", listening([]));
+    cell.tick();
+    const { reads, runaway } = await cell.settled();
+    cell.stop();
+
+    expect(runaway).toBe(false);
+    expect(reads).toBeLessThanOrEqual(4);
+    expect(h.forwards.list()).toEqual([]);
   });
 });

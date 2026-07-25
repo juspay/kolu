@@ -23,7 +23,12 @@ import { PortScanError, portScanSupported } from "@kolu/port-scan";
 const quietLog = pino({ level: "silent" });
 
 const ONE: PortScanTarget[] = [{ id: "A" as TerminalId, rootPid: 100 }];
-const PORT: PortInfo = { port: 8080, name: "node", scope: "any" };
+const PORT: PortInfo = {
+  port: 8080,
+  name: "node",
+  scope: "any",
+  family: "v4",
+};
 
 /** Let a pass settle. One pass is `read → scan → publish` — several promise hops,
  *  so advancing the clock alone leaves the publish in the microtask queue. */

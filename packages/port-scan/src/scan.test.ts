@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  addressScope,
+  addressBind,
   decodeNetworkAddress,
   decodeProcAddress,
   procReadFailure,
@@ -120,7 +120,7 @@ describe("decodeProcAddress", () => {
   });
 });
 
-describe("addressScope", () => {
+describe("addressBind", () => {
   /** `::ffff:<v4>` — the v4-mapped form. */
   const mapped = (v4: number[]) => [
     ...new Array(10).fill(0),
@@ -129,58 +129,85 @@ describe("addressScope", () => {
     ...v4,
   ];
 
-  it("calls 0.0.0.0 and :: the ANY address", () => {
-    expect(addressScope([0, 0, 0, 0])).toBe("any");
-    expect(addressScope(new Array(16).fill(0))).toBe("any");
+  it("calls 0.0.0.0 and :: the ANY address, each in its own family", () => {
+    expect(addressBind([0, 0, 0, 0])).toEqual({ scope: "any", family: "v4" });
+    expect(addressBind(new Array(16).fill(0))).toEqual({
+      scope: "any",
+      family: "v6",
+    });
   });
 
   it("tells the v4-mapped ANY address from the v4-mapped loopback", () => {
-    // The pair that differs in four bytes and means opposite things.
-    expect(addressScope(mapped([0, 0, 0, 0]))).toBe("any");
-    expect(addressScope(mapped([127, 0, 0, 1]))).toBe("loopback");
+    // The pair that differs in four bytes and means opposite things. Both read
+    // as family v4: the socket is AF_INET6, but a v4 dial reaches the address it
+    // carries, and the dial is the only thing the family decides.
+    expect(addressBind(mapped([0, 0, 0, 0]))).toEqual({
+      scope: "any",
+      family: "v4",
+    });
+    expect(addressBind(mapped([127, 0, 0, 1]))).toEqual({
+      scope: "loopback",
+      family: "v4",
+    });
   });
 
   it("calls the whole 127.0.0.0/8 loopback, in either width", () => {
-    expect(addressScope([127, 0, 0, 1])).toBe("loopback");
+    expect(addressBind([127, 0, 0, 1])).toEqual({
+      scope: "loopback",
+      family: "v4",
+    });
     // A resolver stub on 127.0.0.53 is loopback too — a `=== 127.0.0.1` test
     // would call it a routable interface and offer it as directly openable.
-    expect(addressScope([127, 0, 0, 53])).toBe("loopback");
-    expect(addressScope(mapped([127, 1, 2, 3]))).toBe("loopback");
-    // `::1`, and ONLY `::1`.
-    expect(addressScope([...new Array(15).fill(0), 1])).toBe("loopback");
+    expect(addressBind([127, 0, 0, 53]).scope).toBe("loopback");
+    expect(addressBind(mapped([127, 1, 2, 3])).scope).toBe("loopback");
+  });
+
+  it("calls ::1 a V6 loopback — the bind a v4 dial cannot reach", () => {
+    // The production defect, at its source. `::1` is loopback, so the old
+    // `scope`-only answer said "forwardable" and both mechanisms then dialled
+    // `127.0.0.1`, where a `[::1]`-only dev server is not listening. Scope alone
+    // was never enough to open the door onto the right address.
+    expect(addressBind([...new Array(15).fill(0), 1])).toEqual({
+      scope: "loopback",
+      family: "v6",
+    });
   });
 
   it("calls one specific non-loopback address an INTERFACE bind", () => {
     // The arm PRT2 added, and the reason it is not cosmetic: both forward
-    // mechanisms dial `127.0.0.1` on the far side, so a door opened for either
-    // of these would come up and then refuse every connection through it. The
-    // old boolean read them as `wildcard: false` — the same answer it gave the
+    // mechanisms dial the far side loopback, so a door opened for either of
+    // these would come up and then refuse every connection through it. The old
+    // boolean read them as `wildcard: false` — the same answer it gave the
     // loopback binds above, which ARE forwardable.
-    expect(addressScope([192, 168, 1, 5])).toBe("interface");
-    expect(addressScope(mapped([192, 168, 1, 5]))).toBe("interface");
+    expect(addressBind([192, 168, 1, 5])).toEqual({
+      scope: "interface",
+      family: "v4",
+    });
+    expect(addressBind(mapped([192, 168, 1, 5])).scope).toBe("interface");
     // A tailnet v6 address (`fd7a:…`) — not `::1`, so not loopback.
-    expect(addressScope([0xfd, 0x7a, ...new Array(13).fill(0), 2])).toBe(
-      "interface",
-    );
+    expect(addressBind([0xfd, 0x7a, ...new Array(13).fill(0), 2])).toEqual({
+      scope: "interface",
+      family: "v6",
+    });
   });
 });
 
 describe("parseProcNetTcp", () => {
   it("takes LISTEN rows only, each with the scope it is bound at", () => {
     expect(parseProcNetTcp(PROC_NET_TCP)).toEqual([
-      { port: 8080, scope: "any", inode: "4242" },
-      { port: 5001, scope: "loopback", inode: "4243" },
+      { port: 8080, scope: "any", family: "v4", inode: "4242" },
+      { port: 5001, scope: "loopback", family: "v4", inode: "4243" },
       // The LAN-interface bind: forwardable by neither mechanism, and the row
       // the boolean could not tell apart from the loopback one above it.
-      { port: 8079, scope: "interface", inode: "4245" },
+      { port: 8079, scope: "interface", family: "v4", inode: "4245" },
     ]);
   });
 
   it("reads a v4-mapped ANY address as `any` and a v4-mapped loopback as `loopback`", () => {
     expect(parseProcNetTcp(PROC_NET_TCP6)).toEqual([
-      { port: 5201, scope: "any", inode: "5555" },
-      { port: 8081, scope: "loopback", inode: "5556" },
-      { port: 8082, scope: "any", inode: "5557" },
+      { port: 5201, scope: "any", family: "v6", inode: "5555" },
+      { port: 8081, scope: "loopback", family: "v4", inode: "5556" },
+      { port: 8082, scope: "any", family: "v4", inode: "5557" },
     ]);
   });
 
@@ -223,7 +250,7 @@ describe("parseProcStat", () => {
 // ── darwin parsing ─────────────────────────────────────────────────────
 
 describe("parseHelperOutput", () => {
-  it("reads the helper's two tables, and judges each bind through addressScope", () => {
+  it("reads the helper's two tables, and judges each bind through addressBind", () => {
     const { table, listeners } = parseHelperOutput(HELPER_OUTPUT);
     // Names come through verbatim — the helper already took the basename, and one
     // of these really does contain spaces on a live Mac.
@@ -242,22 +269,22 @@ describe("parseHelperOutput", () => {
     ]);
     expect(listeners).toEqual([
       // Two fds on one any-address port — a dual-stack listener, folded later.
-      { port: 7000, scope: "any", pid: 757 },
-      { port: 7000, scope: "any", pid: 757 },
+      { port: 7000, scope: "any", family: "v4", pid: 757 },
+      { port: 7000, scope: "any", family: "v4", pid: 757 },
       // The case from the field report: a loopback dev server (needs a forward)
       // beside an any-address one (does not), in the SAME process.
-      { port: 5566, scope: "loopback", pid: 27688 },
-      { port: 8079, scope: "any", pid: 27688 },
+      { port: 5566, scope: "loopback", family: "v4", pid: 27688 },
+      { port: 8079, scope: "any", family: "v4", pid: 27688 },
       // IPv6: `::1` is loopback, `::` is the ANY address.
-      { port: 5173, scope: "loopback", pid: 53082 },
-      { port: 8080, scope: "any", pid: 53082 },
+      { port: 5173, scope: "loopback", family: "v6", pid: 53082 },
+      { port: 8080, scope: "any", family: "v6", pid: 53082 },
       // The subtle pair, four bytes apart and opposite in meaning: the v4-mapped
       // LOOPBACK needs a forward, the v4-mapped ANY address does not.
-      { port: 8081, scope: "loopback", pid: 53082 },
-      { port: 8082, scope: "any", pid: 53082 },
+      { port: 8081, scope: "loopback", family: "v4", pid: 53082 },
+      { port: 8082, scope: "any", family: "v4", pid: 53082 },
       // A LAN-interface bind on darwin: reachable at that address, and by no
       // door kolu can open.
-      { port: 8078, scope: "interface", pid: 53082 },
+      { port: 8078, scope: "interface", family: "v4", pid: 53082 },
     ]);
   });
 
@@ -300,14 +327,16 @@ describe("parseHelperOutput", () => {
     expect(decodeProcAddress("7f000001")).toEqual([1, 0, 0, 127]);
     // Which is exactly why the scope judge must be reached through the right
     // decoder — and why `::ffff:0.0.0.0` still has to come out as `any`.
-    expect(addressScope(decodeNetworkAddress(V4_MAPPED_WILDCARD))).toBe("any");
-    expect(addressScope(decodeNetworkAddress(V4_MAPPED_LOOPBACK))).toBe(
+    expect(addressBind(decodeNetworkAddress(V4_MAPPED_WILDCARD)).scope).toBe(
+      "any",
+    );
+    expect(addressBind(decodeNetworkAddress(V4_MAPPED_LOOPBACK)).scope).toBe(
       "loopback",
     );
     // And the mis-swap the paragraph above describes is now VISIBLE rather than
     // merely mis-attributed: `7f000001` read through the wrong decoder is
     // `1.0.0.127`, which classifies as a routable interface, not as loopback.
-    expect(addressScope(decodeProcAddress("7f000001"))).toBe("interface");
+    expect(addressBind(decodeProcAddress("7f000001")).scope).toBe("interface");
   });
 });
 

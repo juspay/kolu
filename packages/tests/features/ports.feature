@@ -59,6 +59,25 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     And the Forwarded Ports group should list port 8127
     And there should be no page errors
 
+  Scenario: A dev server on the v6 loopback forwards to the v6 loopback
+    # The production defect, end to end. `[::1]` and `127.0.0.1` are both
+    # loopback and are NOT the same address, and the first cut of PRT2 folded
+    # them into one `scope` and then dialled v4 for both. A `[::1]`-only dev
+    # server got a door that came up healthy and served nothing at all — the
+    # worst available failure, because every signal said it had worked.
+    #
+    # The proof is the same as the v4 case and has to be: the listener's OWN
+    # body, through a port it never bound. A chip merely appearing proves
+    # nothing here — it appeared before the fix too.
+    When I start a listener on port 8129 bound to the v6 loopback only
+    And I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show port 8129 as needing a forward
+    When I click forward-and-open for port 8129
+    Then the forwarded tab should load the listener's page
+    And there should be no page errors
+
   Scenario: Cancelling a forward severs it
     When I start a listener on port 8128 bound to loopback only
     And I press the toggle inspector shortcut

@@ -49,6 +49,10 @@ export interface BuildAppRouterDeps {
    *  forwards to that host's `padiSession.renew()` — the binder-owned drain →
    *  re-dial → re-realise pipeline. Throws for an unknown host. */
   renewHostDaemon: (host: HostKey) => Promise<void>;
+  /** WHICH pool host the connection at `viewerAddress` is sitting at, or `null`
+   *  when none is or kolu cannot tell. `null` is the answer for every uncertain
+   *  case — it leaves the port chip's forward exactly as it was. */
+  viewerHost: (viewerAddress: string | undefined) => Promise<HostKey | null>;
 }
 
 /** Assemble the full host router from the surface router + the raw RPCs.
@@ -96,6 +100,15 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
       }),
     },
     hosts: {
+      // WHICH host the caller is sitting at, if any. Reads the peer address off
+      // THIS call's context (kolu-server populates it at both the HTTP and ws
+      // entry points), so the answer is genuinely per-viewer — which a surface
+      // cell, being broadcast, could not be.
+      viewer: t.hosts.viewer.handler(async ({ context }) => ({
+        host: await deps.viewerHost(
+          (context as { viewerAddress?: string }).viewerAddress,
+        ),
+      })),
       // Runtime pool membership — the selector strip's add/remove. The handler
       // forwards to the pool; `index.ts` owns the fail-loud unremovable-default guard
       // (a `remove` of LOCAL_HOST / the boot default throws `UnremovableHostError`,

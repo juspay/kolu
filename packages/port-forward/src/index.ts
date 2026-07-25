@@ -34,8 +34,13 @@ import { makeForwardManager } from "./manager.ts";
 import { nativeMechanisms } from "./nativeMechanisms.ts";
 
 export type { Forward, ForwardLoss, ForwardManager } from "./manager.ts";
-export type { ForwardTarget } from "./target.ts";
-export { formatTarget, parseTarget, targetKey } from "./target.ts";
+export type { ForwardTarget, LoopbackFamily } from "./target.ts";
+export {
+  formatTarget,
+  LOOPBACK_ADDRESS,
+  parseTarget,
+  targetKey,
+} from "./target.ts";
 
 /** The map over INJECTED mechanisms, and the contract they satisfy — the seam a
  *  consumer drives its own tests through, exactly as this package's do.

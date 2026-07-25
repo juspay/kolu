@@ -38,7 +38,8 @@ import {
 } from "kolu-common/surface";
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { createForward, forwardFor } from "../forwards/useForwards";
+import { createForward, forwardFor, viewerHost } from "../forwards/useForwards";
+import { sameHost } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OpenIcon } from "../ui/Icons";
@@ -82,6 +83,50 @@ export const NO_MECHANISM_REASON: Record<
   "interface-bind":
     "bound to one interface of a remote host — no forward can reach it",
 };
+
+/** What clicking a chip should DO — the join of "is this port reachable as-is?"
+ *  (`portReach`, which knows nothing about the viewer) with "is the viewer
+ *  sitting at the machine this port is on?".
+ *
+ *  The second half exists because a host in kolu's fleet can be the machine you
+ *  are reading kolu FROM. Without it, a port on that machine offered a forward:
+ *  a door on the kolu SERVER so that your browser could reach a port on the
+ *  machine you are already sitting at — a round trip through a third box to
+ *  arrive where you started. It worked, and it was baffling.
+ *
+ *  Pure and total, so the whole decision is testable without a socket, and so
+ *  that the render site below is a reader of it rather than a second copy:
+ *
+ *   - `here`     — open `<the page's own host>:<port>`. The port answers on the
+ *                  machine serving this page.
+ *   - `viewer`   — open `localhost:<port>`. The port is on the machine the
+ *                  browser is running on, so the browser's OWN loopback reaches
+ *                  it and no door is needed or possible.
+ *   - `forward`  — open a door first.
+ *   - `none`     — nothing reaches it; say so. */
+export type PortAction =
+  | { kind: "here" }
+  | { kind: "viewer" }
+  | { kind: "forward" }
+  | { kind: "none" };
+
+export function portAction(opts: {
+  reach: PortReach;
+  /** Is the port's host the machine this browser is running on? */
+  viewerOnHost: boolean;
+}): PortAction {
+  // The viewer arm wins over `needs-forward`, and ONLY over it. A `direct` port
+  // already answers on the page's own host, which is the link the user can also
+  // paste elsewhere, so there is nothing to gain by rewriting it to `localhost`
+  // — and `localhost` is the one hostname that means something different on
+  // every machine, which is the trap this whole feature was built to avoid.
+  if (opts.viewerOnHost && opts.reach.kind !== "direct") {
+    return { kind: "viewer" };
+  }
+  if (opts.reach.kind === "direct") return { kind: "here" };
+  if (opts.reach.kind === "needs-forward") return { kind: "forward" };
+  return { kind: "none" };
+}
 
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const store = useTerminalStore();
@@ -135,17 +180,40 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
               /** The door kolu already holds for this port, if any — what turns the
                *  chip into a plain link and gives it its `⇄ :<localPort>` badge. */
               const forward = () => forwardFor(host(), port.port);
-              /** WHICH port on this machine answers for this chip. A direct port
-               *  answers on its own number; a forwarded one answers on its door's.
-               *  `undefined` means there is nothing to open YET — the click opens
-               *  the door first. */
-              const openablePort = () =>
-                reach().kind === "direct" ? port.port : forward()?.localPort;
+              /** What a click should do — the one decision, made in `portAction`
+               *  so this render site reads it rather than restating it. */
+              const action = () =>
+                portAction({
+                  reach: reach(),
+                  // A `null` viewer host is "kolu cannot tell", which must read
+                  // as NOT a match — that keeps the forward, which works.
+                  viewerOnHost:
+                    viewerHost() !== null && sameHost(viewerHost()!, host()),
+                });
+              /** WHERE the link points. `here` answers on the page's own host;
+               *  `viewer` on the browser's own machine, which is the ONE place
+               *  `localhost` is the right word rather than the trap; a forwarded
+               *  port answers on its door. `undefined` means there is nothing to
+               *  open YET — the click opens the door first. */
+              const openAt = (): { host: string; port: number } | undefined => {
+                const a = action();
+                if (a.kind === "here") {
+                  return { host: window.location.hostname, port: port.port };
+                }
+                if (a.kind === "viewer") {
+                  return { host: "localhost", port: port.port };
+                }
+                const local = forward()?.localPort;
+                return local === undefined
+                  ? undefined
+                  : { host: window.location.hostname, port: local };
+              };
               return (
                 <PortRow
                   port={port}
                   reach={reach()}
-                  openablePort={openablePort()}
+                  action={action()}
+                  openAt={openAt()}
                   localPort={forward()?.localPort}
                   onForward={async () => {
                     // LAZY — this is the first click on this port, so the door is
@@ -176,9 +244,10 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
 const PortRow: Component<{
   port: PortInfo;
   reach: PortReach;
-  /** The port on THIS machine that answers for this chip, or `undefined` when a
-   *  door has to be opened first. */
-  openablePort: number | undefined;
+  /** What a click should do — see {@link portAction}. */
+  action: PortAction;
+  /** WHERE the link points, or `undefined` when a door has to be opened first. */
+  openAt: { host: string; port: number } | undefined;
   /** The door's port, when there is a door — rendered as the `⇄ :N` badge. */
   localPort: number | undefined;
   /** Open the door. Resolves with the local port it answers on. */
@@ -259,7 +328,7 @@ const PortRow: Component<{
           </span>
         </Show>
         <Show
-          when={props.reach.kind !== "no-mechanism"}
+          when={props.action.kind !== "none"}
           fallback={
             // No door exists and none can be built — the one arm with nothing to
             // offer. It states the situation rather than presenting an action
@@ -275,7 +344,7 @@ const PortRow: Component<{
           }
         >
           <Show
-            when={props.openablePort}
+            when={props.openAt}
             fallback={
               // No door yet: a BUTTON, because the click has work to do before
               // there is a URL to point at. An anchor with no href would be a
@@ -295,7 +364,7 @@ const PortRow: Component<{
               </button>
             }
           >
-            {(answeringPort) => (
+            {(at) => (
               /* An ANCHOR, matching the Pull Request row two sections up
                *  in this same panel — not a `window.open` button. The browser
                *  then gives middle-click, cmd-click, "copy link address" and a
@@ -306,7 +375,7 @@ const PortRow: Component<{
                *  element to hang an href on — and for the forward path above,
                *  where the URL does not exist until the door is open. */
               <a
-                href={portUrl(window.location.hostname, answeringPort())}
+                href={portUrl(at().host, at().port)}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="inline-flex items-center gap-1 text-accent hover:underline"

@@ -13,8 +13,8 @@
 
 import type { ForwardOrigin, Forwards } from "kolu-common/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { createMemo, createRoot } from "solid-js";
-import { app } from "../wire";
+import { createMemo, createResource, createRoot } from "solid-js";
+import { app, client } from "../wire";
 
 // An app-lifetime subscription, for the same reason `useDaemonInventory`'s is:
 // a bare module-const `.use()` is the cache's ownerless path, torn down a
@@ -69,4 +69,25 @@ export function createForward(input: {
 /** Take one down. Rejects on a key the server does not hold. */
 export function cancelForward(key: string) {
   return app.procedures.forwards.cancel({ key });
+}
+
+/** WHICH of kolu's hosts this browser is sitting at, or `null`.
+ *
+ *  Asked ONCE per page: it is a fact about where the browser is, which does not
+ *  change while the page is open. The server answers it (only it can see the
+ *  address the connection comes from), and answers `null` for every uncertain
+ *  case — so a `null` here means "keep offering the forward", which is the
+ *  behaviour that always works.
+ *
+ *  It exists because a host in kolu's fleet can be the machine you are reading
+ *  kolu FROM: forwarding one of its loopback ports then opens a door on the kolu
+ *  server so your browser can reach a port on the machine you are sitting at, by
+ *  way of a third one. */
+const viewerHostQuery = createRoot(() =>
+  createResource(async () => (await client.hosts.viewer()).host),
+);
+
+export function viewerHost(): HostKey | null {
+  const [data] = viewerHostQuery;
+  return data() ?? null;
 }

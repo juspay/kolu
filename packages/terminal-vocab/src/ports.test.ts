@@ -26,6 +26,11 @@ const p = (
   port,
   name,
   scope,
+  // The IP family plays no part in anything THIS file tests: `portsEqual`
+  // compares it like every other field of the schema, and `portReach` never
+  // reads it (which loopback a port is on does not change whether a door is
+  // needed — only what that door dials). So it is pinned rather than varied.
+  family: "v4",
 });
 
 /** The known arm, for the equality cases below. */

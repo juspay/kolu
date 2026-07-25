@@ -106,6 +106,20 @@ When(
 );
 
 When(
+  "I start a listener on port {int} bound to the v6 loopback only",
+  async function (this: KoluWorld, port: number) {
+    // `[::1]` and `127.0.0.1` are BOTH loopback and are NOT the same address —
+    // and this is the bind vite and several Node versions choose by default. The
+    // shipped forward dialled `127.0.0.1` unconditionally, so a door for this
+    // listener came up reporting success and refused every connection through
+    // it. Nothing on screen said anything was wrong, which is what makes this
+    // worth a scenario of its own rather than a fixture.
+    await this.terminalRun(listenerCommand(port, "::1"));
+    await waitForListening(this, port, MAIN_PANE);
+  },
+);
+
+When(
   "I start a listener on port {int} in the split terminal",
   async function (this: KoluWorld, port: number) {
     // A split is its own PTY with its own process subtree, so its ports are

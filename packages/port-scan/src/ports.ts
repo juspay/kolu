@@ -41,6 +41,36 @@ import { z } from "zod";
 export const PortScopeSchema = z.enum(["any", "loopback", "interface"]);
 export type PortScope = z.infer<typeof PortScopeSchema>;
 
+/** WHICH IP family a socket is bound on — `127.0.0.1` and `::1` are both
+ *  loopback, and they are NOT the same address.
+ *
+ *  Carried because a forward has to DIAL one of them, and dialling the wrong one
+ *  fails in the worst available way: the door opens, and every connection through
+ *  it is refused at the far end. That is not hypothetical — it is what PRT2
+ *  shipped. A dev server on `[::1]:5173` (vite and several Node versions bind v6
+ *  loopback by default) was forwarded to `127.0.0.1:5173`, where nothing was
+ *  listening, so the tunnel came up healthy and served nothing at all.
+ *
+ *  It is a separate field from {@link PortScopeSchema} rather than four scope
+ *  values because the two answer different questions and only one of them is a
+ *  reachability judgment: `scope` decides WHETHER a door is needed, `family`
+ *  decides WHAT it dials. Folding them would put `loopback-v4` and `loopback-v6`
+ *  into the ordering that `widerScope` defines, where neither is wider.
+ *
+ *  A v4-MAPPED bind (`::ffff:127.0.0.1`) reads as `v4`: the socket is AF_INET6,
+ *  but the address it carries is a v4 one and a v4 dial reaches it. The family
+ *  here is the family of the ADDRESS, which is what a dial needs — not the family
+ *  of the socket, which it does not. */
+export const PortFamilySchema = z.enum(["v4", "v6"]);
+export type PortFamily = z.infer<typeof PortFamilySchema>;
+
+/** The family to dial when one port has binds in both — v4, because a v4 dial
+ *  reaches a v4 listener and a dual-stack one, while a v6 dial reaches neither
+ *  of a v4-only pair. Total and order-independent, like {@link widerScope}. */
+export function preferredFamily(a: PortFamily, b: PortFamily): PortFamily {
+  return a === "v4" || b === "v4" ? "v4" : "v6";
+}
+
 /** How reachable each scope is, most-reachable first — the fold's ordering when
  *  one port has several binds (see {@link foldPorts}). `any` subsumes the other
  *  two: a server bound to both `127.0.0.1` and `0.0.0.0` IS reachable, and an
@@ -80,6 +110,8 @@ export const PortInfoSchema = z.object({
   name: z.string(),
   /** Where it is bound — see {@link PortScopeSchema}. */
   scope: PortScopeSchema,
+  /** Which IP family it is bound on — see {@link PortFamilySchema}. */
+  family: PortFamilySchema,
 });
 export type PortInfo = z.infer<typeof PortInfoSchema>;
 
@@ -117,6 +149,7 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
       continue;
     }
     prior.scope = widerScope(prior.scope, row.scope);
+    prior.family = preferredFamily(prior.family, row.family);
     if (row.name < prior.name) prior.name = row.name;
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);

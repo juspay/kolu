@@ -253,6 +253,7 @@ async function bootReServedPadi(stateRoot: string): Promise<{
     removeHost: async () => {},
     reconnectHost: () => {},
     renewHostDaemon: async () => {},
+    viewerHost: async () => null,
   });
   // `directLink` internally; drive the assembled router in-process and walk it
   // structurally (`surface.padi.<member>`).

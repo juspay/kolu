@@ -15,7 +15,9 @@ import {
   foldPorts,
   type PortInfo,
   PortInfoSchema,
+  type PortFamily,
   type PortScope,
+  preferredFamily,
   samePortList,
   widerScope,
 } from "./ports.ts";
@@ -24,10 +26,12 @@ const p = (
   port: number,
   scope: PortScope = "any",
   name = "node",
+  family: PortFamily = "v4",
 ): PortInfo => ({
   port,
   name,
   scope,
+  family,
 });
 
 describe("widerScope", () => {
@@ -46,6 +50,23 @@ describe("widerScope", () => {
     expect(widerScope("interface", "any")).toBe("any");
     expect(widerScope("loopback", "any")).toBe("any");
     expect(widerScope("loopback", "loopback")).toBe("loopback");
+  });
+});
+
+describe("preferredFamily", () => {
+  it("prefers v4 when a port is bound on both, in either order", () => {
+    // A v4 dial reaches a v4 listener and a dual-stack one; a v6 dial reaches
+    // neither half of a v4-only pair. So when a port answers on both, v4 is the
+    // dial that cannot be wrong.
+    expect(preferredFamily("v4", "v6")).toBe("v4");
+    expect(preferredFamily("v6", "v4")).toBe("v4");
+    expect(preferredFamily("v4", "v4")).toBe("v4");
+  });
+
+  it("keeps v6 when that is the only family bound", () => {
+    // The case the whole field exists for: a `[::1]`-only dev server. Folding
+    // this to v4 is what opened a door onto an address with no listener.
+    expect(preferredFamily("v6", "v6")).toBe("v6");
   });
 });
 
@@ -164,6 +185,7 @@ describe("samePortList", () => {
       [p(1000), { ...p(1000), port: 1001 }],
       [p(1000), { ...p(1000), name: "other" }],
       [p(1000), { ...p(1000), scope: "loopback" }],
+      [p(1000), { ...p(1000), family: "v6" }],
     ];
     // Counted against the SCHEMA, not a literal: adding a field to `PortInfo`
     // reds this line until a pair covering it is added, which is the whole point.

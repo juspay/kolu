@@ -14,8 +14,8 @@ function forward(
   upMs: number,
 ): Forward {
   return {
-    key: targetKey({ kind: "remote", host, port }),
-    target: { kind: "remote", host, port },
+    key: targetKey({ kind: "remote", host, port, loopback: "v4" }),
+    target: { kind: "remote", host, port, loopback: "v4" },
     localPort,
     createdAt: NOW - upMs,
   };

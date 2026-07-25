@@ -21,17 +21,21 @@ const relayTo = (port: number, report: ForwardReport) =>
     report,
     listen: createNetServer,
     lastLocalPort: undefined,
+    loopback: "v4",
   });
 
 /** A dev server exactly like the ones this exists for: bound to loopback, so
- *  unreachable from any other machine. */
+ *  unreachable from any other machine. `host` picks WHICH loopback — `::1` is
+ *  what vite and several Node versions bind by default, and it is the bind the
+ *  relay used to be unable to reach. */
 function serveOnLoopback(
   body: string,
+  host = "127.0.0.1",
 ): Promise<{ port: number; stop: () => Promise<void> }> {
   const server: HttpServer = createServer((_req, res) => res.end(body));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, host, () => {
       const address = server.address();
       if (address === null || typeof address === "string") {
         reject(new Error("no address"));
@@ -81,6 +85,29 @@ describe("the local TCP relay", () => {
 
     const response = await fetch(`http://127.0.0.1:${relay.localPort}/`);
     expect(await response.text()).toBe("hello from loopback");
+  });
+
+  it("serves a server bound to the V6 loopback — the production defect", async () => {
+    // `[::1]:5173` is what vite and several Node versions bind by default, and
+    // the relay used to dial `127.0.0.1` unconditionally. The door came up
+    // reporting success and refused every connection through it, which is the
+    // worst available failure: nothing in the UI said anything was wrong.
+    //
+    // This test is the reason the family is a REQUIRED field rather than an
+    // optional one — an optional field is exactly how the v4 assumption got in.
+    const origin = await serveOnLoopback("hello from ::1", "::1");
+    cleanups.push(origin.stop);
+    const relay = await openRelay({
+      port: origin.port,
+      report: silent(),
+      listen: createNetServer,
+      lastLocalPort: undefined,
+      loopback: "v6",
+    });
+    cleanups.push(relay.close);
+
+    const response = await fetch(`http://127.0.0.1:${relay.localPort}/`);
+    expect(await response.text()).toBe("hello from ::1");
   });
 
   it("cancelling severs it — the door is shut, not just closed to new callers", async () => {
@@ -176,6 +203,7 @@ describe("a relay that fails after it was up", () => {
         return server;
       },
       lastLocalPort: undefined,
+      loopback: "v4",
     });
     if (server === undefined) throw new Error("no listener was created");
     return { relay, server };
@@ -268,6 +296,7 @@ describe("a relay that fails after it was up", () => {
         return server;
       },
       lastLocalPort: undefined,
+      loopback: "v4",
     });
     cleanups.push(async () => {
       refuse = false;
@@ -310,6 +339,7 @@ describe("a relay that fails after it was up", () => {
         report: silent(),
         listen: createNetServer,
         lastLocalPort: port,
+        loopback: "v4",
       });
       cleanups.push(() => again.close());
       expect(again.localPort).toBe(port);
@@ -328,6 +358,7 @@ describe("a relay that fails after it was up", () => {
         report: silent(),
         listen: createNetServer,
         lastLocalPort: squatter.port,
+        loopback: "v4",
       });
       cleanups.push(() => relay.close());
       expect(relay.localPort).not.toBe(squatter.port);
@@ -347,6 +378,7 @@ describe("a relay that fails after it was up", () => {
           report: silent(),
           listen: createNetServer,
           lastLocalPort: origin.port,
+          loopback: "v4",
         }),
       ).toThrow(/relay into itself/);
     });

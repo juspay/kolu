@@ -136,6 +136,12 @@ const WEB_SHELL_FILES = [
   "state",
   "surface",
   "tls",
+  // "Is the browser sitting AT one of kolu's hosts?" — the address comparison
+  // behind a port chip opening on the viewer's own loopback instead of through a
+  // forward. Pure shell code: it compares a connection's peer address (which
+  // only the serving process sees) with a host's resolved addresses, and runs no
+  // terminal domain.
+  "viewerHost",
 ].sort();
 
 /** Terminal-domain modules that MUST NOT reappear under `packages/server/src` —
@@ -598,6 +604,9 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       removeHost: async () => {},
       reconnectHost: () => {},
       renewHostDaemon: async () => {},
+      // No viewer identity in a router-shape assertion — `null` is the answer
+      // for every uncertain case anyway.
+      viewerHost: async () => null,
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();

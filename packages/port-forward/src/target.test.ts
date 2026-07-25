@@ -13,6 +13,7 @@ describe("parseTarget", () => {
       kind: "remote",
       host: "pu-dev",
       port: 5173,
+      loopback: "v4",
     });
   });
 
@@ -21,6 +22,7 @@ describe("parseTarget", () => {
       kind: "remote",
       host: "nix@prod.example.com",
       port: 8080,
+      loopback: "v4",
     });
   });
 
@@ -29,7 +31,27 @@ describe("parseTarget", () => {
     "localhost:5173",
     "127.0.0.1:5173",
   ])("reads %s as a local target", (text) => {
-    expect(parseTarget(text)).toEqual({ kind: "local", port: 5173 });
+    expect(parseTarget(text)).toEqual({
+      kind: "local",
+      port: 5173,
+      loopback: "v4",
+    });
+  });
+
+  it("reads ::1 as a V6 loopback target, because that is what it says", () => {
+    // The spelling names the family outright, and getting it wrong is not a
+    // cosmetic miss: every mechanism dials the loopback it is told, so a `::1`
+    // target dialled at `127.0.0.1` opens a door onto nothing at all. That is
+    // the production defect this field exists to close.
+    expect(parseTarget("::1:5173")).toEqual({
+      kind: "local",
+      port: 5173,
+      loopback: "v6",
+    });
+    // `localhost` is deliberately NOT read as v6 even though it often resolves
+    // there first: a resolver's preference is not an observation, and this field
+    // carries observations.
+    expect(parseTarget("localhost:5173").loopback).toBe("v4");
   });
 
   it("ignores surrounding whitespace from a prompt", () => {
@@ -37,6 +59,7 @@ describe("parseTarget", () => {
       kind: "remote",
       host: "pu-dev",
       port: 3000,
+      loopback: "v4",
     });
   });
 
@@ -59,23 +82,30 @@ describe("parseTarget", () => {
 
 describe("targetKey", () => {
   it("keys a remote target by host and port", () => {
-    expect(targetKey({ kind: "remote", host: "zest", port: 8080 })).toBe(
-      "remote:zest:8080",
-    );
+    expect(
+      targetKey({ kind: "remote", host: "zest", port: 8080, loopback: "v4" }),
+    ).toBe("remote:zest:8080");
   });
 
   it('does not collide with an ssh host literally called "local"', () => {
     // `local` is a legal ssh alias. Without the kind in the key both of these
     // would be "local:5173" and the map would hand out whichever came first.
-    expect(targetKey({ kind: "local", port: 5173 })).not.toBe(
-      targetKey({ kind: "remote", host: "local", port: 5173 }),
+    expect(targetKey({ kind: "local", port: 5173, loopback: "v4" })).not.toBe(
+      targetKey({ kind: "remote", host: "local", port: 5173, loopback: "v4" }),
     );
   });
 
   it("keeps local targets in their own namespace", () => {
-    expect(targetKey({ kind: "local", port: 8080 })).toBe("local:8080");
-    expect(targetKey({ kind: "local", port: 8080 })).not.toBe(
-      targetKey({ kind: "remote", host: "localhost", port: 8080 }),
+    expect(targetKey({ kind: "local", port: 8080, loopback: "v4" })).toBe(
+      "local:8080",
+    );
+    expect(targetKey({ kind: "local", port: 8080, loopback: "v4" })).not.toBe(
+      targetKey({
+        kind: "remote",
+        host: "localhost",
+        port: 8080,
+        loopback: "v4",
+      }),
     );
   });
 });

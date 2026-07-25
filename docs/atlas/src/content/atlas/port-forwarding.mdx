@@ -679,6 +679,51 @@ for a given viewer needs the HOST as well, which no field of `PortInfo` ever
 carried — so the judgment stays `portReach(scope, onKoluHost)` in kolu's own
 vocabulary, where both ends of the wire read the one copy.
 
+### …and then production froze, and `scope` turned out to be half the fact
+
+The first deploy of PRT2 **froze the entire kolu server on the first forward
+click** — UI dead, HTTP dead, `SIGTERM` ignored until systemd sent `SIGKILL` —
+and the forward it did open served nothing. Three defects, and the two that
+matter are the same mistake in different clothes.
+
+**The freeze was a cycle between two reasonable halves.** The forward cell is a
+poll on a *fused* cadence (`everyMsOr(interval, onChange)`): the interval runs
+the auto-cancel pass, and the change edge makes an act publish at once instead of
+waiting out a tick. Separately, the auto-cancel pass ended by announcing its
+result. Each half is right on its own; together, the pass announced on the very
+edge that triggers the pass — read → reap → announce → tick → read — and the
+event loop never yielded again. It was invisible until the first click because
+with zero `auto` forwards the pass returned *before* announcing. The fix is not a
+guard on the announcement but the removal of the shape: the reconciliation
+**reports by returning**, the poll publishes what it returns, and "reap and
+announce" is no longer spellable.<Footnote>The general lesson is worth more than
+the fix: neither module was wrong in isolation, so no unit test of either could
+have caught it. What catches it is a test of the JOIN — the regression test
+reproduces the fusion in miniature and asserts the read count stays BOUNDED,
+which is a property of the wiring rather than of any module in it.</Footnote>
+
+**And `scope` was half a fact.** `127.0.0.1` and `::1` are both `loopback` and
+are *not the same address*; the classifier folded them together, and both
+mechanisms then dialled v4. A dev server on `[::1]:5173` — what vite and several
+Node versions bind by default — got a tunnel that came up perfectly and served
+nothing, because there was no listener at the address the door opened onto. So
+`PortInfo` now carries `family` beside `scope`, and it is a **separate field
+rather than a fourth scope value** because the two answer different questions:
+`scope` decides *whether* a door is needed, `family` decides *what it dials*, and
+only the first is a reachability judgment with an ordering.
+
+The two are one lesson, stated once because it has now cost two defects in one
+PR: **a fact the OS handed us was collapsed below what the consumer needed, and
+the collapse was invisible until something dialled the answer.** `wildcard` lost
+the interface case; `scope` lost the family. Both looked like tidy reductions and
+both were reductions past the point of use.<Footnote>Which is why the dial family
+is now read SERVER-side off kolu's own scan rather than accepted from the client:
+a client's copy of the port facts can be a scan or two stale, and a stale family
+opens a door onto an address with nothing behind it — the same failure by a
+different route. The one place kolu cannot observe it (a manual forward to a port
+no terminal serves) assumes v4 at a single named constant, with the failure loud
+at the point of use rather than silent.</Footnote>
+
 **A second question of the same shape was RAISED AND SETTLED IN PRT1**, not deferred: whether a terminal that has never been successfully scanned is distinguishable on the wire from one that serves nothing. It was first argued as unreachable and the peer review refuted that with three surviving routes — a first-pass `lsof` timeout on darwin, a transient `/proc/net/tcp` read failure on linux, and (widened by PRT1&rsquo;s own fix) any unexpected `/proc` errno — none of which needs the terminal&rsquo;s own shell to be unreadable. So `ports` is a discriminated `known` / `unknown` two-way, the same honest shape `ProcessRss` already uses, and holding a last-good sample now covers only what it can actually cover.<Footnote>PRT1 also left a
 second, smaller judgment on the table: kaval's one host-global `activity` edge now
 has three independent `resubscribeStream` consumers (the finish fold, the live
@@ -707,6 +752,34 @@ every deploy: **kill the kolu server and every forward it created must refuse
 connections at once** — the old shared-master design would have orphaned them
 on each release while the restarted Inspector showed an empty list. Evidence
 video of the click-to-page flow.
+
+**When the viewer IS the host.** A machine in kolu's fleet can be the machine you
+are reading kolu from — the plan's own footnote called this "roundabout but
+correct, and not worth a special case in v1", and in practice it was baffling:
+every chip on *zest*'s terminals, viewed from zest, offered to open a door on
+*pureintent* so that zest's browser could reach a port on zest. So kolu now
+recognises it, from the one fact that can settle it: the **peer address of the
+viewer's own connection**, which only the server can see, compared against the
+addresses the host resolves to.
+
+Two things make an inexact comparison acceptable here, and neither is incidental.
+First, **the failure direction is safe**: a match opens the port directly on the
+viewer's own loopback, and every way of failing to recognise the viewer — a NAT,
+a proxy, an ssh alias DNS cannot resolve — leaves the forward exactly as it was,
+which works. Second, **a `direct` port is never rewritten to `localhost`**: it
+already answers on a name that means the same thing from every machine, and
+`localhost` is the one hostname that does not — trading the first for the second
+would undo the rule this whole feature is built on.
+
+It rides a ROOT rpc rather than a surface member, and that is structural rather
+than convenient: the answer differs per viewer, and a surface cell is broadcast,
+so it has no shape that can carry a different answer to each connected
+browser.<Footnote>The reliable version of this needs a fact kolu does not have —
+the host's own interface addresses, which padi could report but does not — so
+what ships resolves the ssh destination instead. That is genuinely weaker for
+alias-named hosts, where it simply never fires. Recorded as a limit rather than
+hidden, because the alternative was to add a padi surface field inside an
+incident fix.</Footnote>
 
 **What the automated suite actually covers, and what it deliberately does not.**
 The e2e scenarios drive the **relay** case end to end — a real loopback listener

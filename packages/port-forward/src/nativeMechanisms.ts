@@ -20,6 +20,7 @@ export function nativeMechanisms(): ForwardMechanisms {
             report,
             listen: createServer,
             lastLocalPort,
+            loopback: target.loopback,
           })
         : openSshForward(
             target.host,
@@ -27,6 +28,7 @@ export function nativeMechanisms(): ForwardMechanisms {
             report,
             spawnSshChild,
             lastLocalPort,
+            target.loopback,
           );
     },
   };

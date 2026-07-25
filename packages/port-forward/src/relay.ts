@@ -15,11 +15,13 @@
 import { connect, type Server, type Socket } from "node:net";
 import { messageOf } from "./diagnostic.ts";
 import type { ForwardReport, OpenedForward } from "./mechanism.ts";
+import { LOOPBACK_ADDRESS, type LoopbackFamily } from "./target.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 
-/** The address a `local` target listens on — loopback, by definition of the
- *  problem this solves. */
-const LOOPBACK = "127.0.0.1";
+// The address a `local` target listens on is loopback by definition of the
+// problem this solves — but WHICH loopback is the caller's to say, and it used
+// to be hardcoded to `127.0.0.1`. A dev server on `[::1]:5173` then got a relay
+// that bound, reported success, and refused every connection it accepted.
 
 /** Relay `0.0.0.0:<local>` → `127.0.0.1:<port>`. Resolves once the door is
  *  open; rejects (never half-opens) if the bind fails. `report` carries what
@@ -51,6 +53,8 @@ export function openRelay(opts: {
   report: ForwardReport;
   listen: (onConnection: (socket: Socket) => void) => Server;
   lastLocalPort: number | undefined;
+  /** WHICH loopback the far end is on. Required — see {@link LoopbackFamily}. */
+  loopback: LoopbackFamily;
 }): Promise<OpenedForward> {
   const { port, lastLocalPort } = opts;
   if (lastLocalPort === port) {
@@ -76,14 +80,16 @@ function openRelayOn(
     port: number;
     report: ForwardReport;
     listen: (onConnection: (socket: Socket) => void) => Server;
+    loopback: LoopbackFamily;
   },
   localPort: number,
 ): Promise<OpenedForward> {
   const { port, report } = opts;
+  const dial = LOOPBACK_ADDRESS[opts.loopback];
   const live = new Set<Socket>();
 
   const server = opts.listen((inbound) => {
-    const outbound = connect({ host: LOOPBACK, port });
+    const outbound = connect({ host: dial, port });
     live.add(inbound);
     live.add(outbound);
     // Either half ending or failing takes the pair down: a relay owns no

@@ -84,6 +84,21 @@ export const contract = oc.router({
   // the shared contract (not a kolu-server-local splice like `padi`) because the CLIENT
   // strip calls them.
   hosts: {
+    /** WHICH of kolu's hosts the calling browser is sitting AT, or `null` when
+     *  none of them is (the ordinary case) or kolu cannot tell.
+     *
+     *  A ROOT rpc rather than a surface member for a structural reason: the
+     *  answer is per-CALLER — it depends on the address this particular
+     *  connection comes from — and a surface cell is broadcast, so it has no
+     *  shape that can carry a different answer to each viewer. A procedure call
+     *  is inherently per-caller, and kolu-server owns the request context at both
+     *  its HTTP and websocket entry points.
+     *
+     *  Used by the Ports section: a port on a host you are physically at is
+     *  reachable on your OWN loopback, so forwarding it through the kolu server
+     *  and back is a pointless round trip. `null` keeps the forward, which is why
+     *  every uncertain case answers `null` rather than guessing. */
+    viewer: oc.output(z.object({ host: HostKeySchema.nullable() })),
     /** Add a padi host to the warm pool at runtime. Resolves once the pool has seeded
      *  the binding; the entry then warms through the map's `entries` collection
      *  (connecting → connected). Re-adding an existing

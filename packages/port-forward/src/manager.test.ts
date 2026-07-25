@@ -60,8 +60,18 @@ function fakeMechanisms(): {
   };
 }
 
-const PU: ForwardTarget = { kind: "remote", host: "pu-dev", port: 5173 };
-const ZEST: ForwardTarget = { kind: "remote", host: "zest", port: 8080 };
+const PU: ForwardTarget = {
+  kind: "remote",
+  host: "pu-dev",
+  port: 5173,
+  loopback: "v4",
+};
+const ZEST: ForwardTarget = {
+  kind: "remote",
+  host: "zest",
+  port: 8080,
+  loopback: "v4",
+};
 
 describe("the forward map", () => {
   it("opens one listener per target and lists it", async () => {
@@ -79,9 +89,14 @@ describe("the forward map", () => {
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
 
     await forwards.create(PU);
-    await forwards.create({ kind: "remote", host: "pu-dev", port: 9229 });
+    await forwards.create({
+      kind: "remote",
+      host: "pu-dev",
+      port: 9229,
+      loopback: "v4",
+    });
     await forwards.create(ZEST);
-    await forwards.create({ kind: "local", port: 5173 });
+    await forwards.create({ kind: "local", port: 5173, loopback: "v4" });
 
     expect(forwards.list().map((f) => f.key)).toEqual([
       "remote:pu-dev:5173",
@@ -140,11 +155,16 @@ describe("the forward map", () => {
     const fake = fakeMechanisms();
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
 
-    await expect(forwards.create({ kind: "local", port: 0 })).rejects.toThrow(
-      /between 1 and 65535/,
-    );
     await expect(
-      forwards.create({ kind: "remote", host: "-oProxyCommand=x", port: 22 }),
+      forwards.create({ kind: "local", port: 0, loopback: "v4" }),
+    ).rejects.toThrow(/between 1 and 65535/);
+    await expect(
+      forwards.create({
+        kind: "remote",
+        host: "-oProxyCommand=x",
+        port: 22,
+        loopback: "v4",
+      }),
     ).rejects.toThrow(/starts with "-"/);
     expect(fake.opens).toEqual([]);
     expect(forwards.list()).toEqual([]);
@@ -560,7 +580,7 @@ describe("the forward map", () => {
     });
     await forwards.create(PU);
     await forwards.create(ZEST);
-    await forwards.create({ kind: "local", port: 3000 });
+    await forwards.create({ kind: "local", port: 3000, loopback: "v4" });
 
     await expect(forwards.dispose()).rejects.toThrow(AggregateError);
     expect(closed).toEqual([100, 102]);

@@ -15,17 +15,52 @@
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
 
+/** WHICH loopback address the far side is actually listening on.
+ *
+ *  `127.0.0.1` and `::1` are both "loopback" and they are not the same address.
+ *  Every mechanism here connects to the far side's loopback, so getting this
+ *  wrong fails in the worst available way: the door opens, reports success, and
+ *  refuses every connection through it. Measured, not theorised — a dev server on
+ *  `[::1]:5173` was forwarded to `127.0.0.1:5173` and served nothing at all.
+ *
+ *  Required rather than defaulted, so a caller must state what it observed. A
+ *  default would be a guess wearing the shape of a fact, and it is exactly the
+ *  guess that shipped. */
+export type LoopbackFamily = "v4" | "v6";
+
+/** The loopback address of each family — the literal a mechanism dials. */
+export const LOOPBACK_ADDRESS: Record<LoopbackFamily, string> = {
+  v4: "127.0.0.1",
+  v6: "::1",
+};
+
 export type ForwardTarget =
   /** A loopback listener on the machine this library runs on. */
-  | { readonly kind: "local"; readonly port: number }
+  | {
+      readonly kind: "local";
+      readonly port: number;
+      readonly loopback: LoopbackFamily;
+    }
   /** A loopback listener on `host`, reached over ssh. `host` is any ssh
    *  destination — `user@box`, an `~/.ssh/config` alias, a bare hostname. */
-  | { readonly kind: "remote"; readonly host: string; readonly port: number };
+  | {
+      readonly kind: "remote";
+      readonly host: string;
+      readonly port: number;
+      readonly loopback: LoopbackFamily;
+    };
 
 /** The identity of a target — one forward per (host, port), so this is the
  *  key of the forward map. `local` is its own namespace: `localhost:5173`
  *  reached over ssh to a host named `localhost` would be a different tunnel
  *  than the same port relayed here.
+ *
+ *  `loopback` is deliberately NOT part of the key. It says how to reach the
+ *  target, not which target it is: a server listening on both `127.0.0.1:5173`
+ *  and `[::1]:5173` is ONE server, and two creates naming it by different
+ *  families must not open two doors onto it. So the second create is the
+ *  idempotent hit the map already promises, and it keeps the family the first
+ *  one opened with — which is correct, since that door demonstrably works.
  *
  *  A map key and never display text — it differs from `formatTarget` for local
  *  targets (`local:5173` vs `localhost:5173`), so anything a user reads must
@@ -108,6 +143,14 @@ export function assertTarget(target: ForwardTarget): void {
  *  with the offending text on anything else: this is user input arriving from
  *  a TUI prompt or a command palette, so the message is the error UI.
  *
+ *  The loopback FAMILY is read off the spelling where the spelling says it —
+ *  `::1:5173` is a v6 target, `127.0.0.1:5173` a v4 one. Where it does not say
+ *  (a bare `:5173`, or any remote `box:5173`, neither of which names an address
+ *  at all) it is **v4**, and that is the one assumption in this file: v4 loopback
+ *  is what almost everything binds, and it is what every forward did before the
+ *  family existed. A caller that KNOWS better — kolu reads the family off its
+ *  port scan — builds the target itself rather than going through here.
+ *
  *  Bracketed IPv6 literals (`[::1]:5173`) are rejected: the brackets are URL
  *  syntax that ssh does not take, so they fail loudly here rather than reaching
  *  an ssh argv that cannot use them. */
@@ -138,8 +181,11 @@ export function parseTarget(text: string): ForwardTarget {
     host === "127.0.0.1" ||
     host === "::1"
   ) {
-    return { kind: "local", port };
+    // `::1` is the one spelling that names v6 outright. `localhost` is NOT
+    // treated as v6 even though it often resolves there first: this field exists
+    // to carry an observed fact, and a resolver's preference is not one.
+    return { kind: "local", port, loopback: host === "::1" ? "v6" : "v4" };
   }
   assertHost(host);
-  return { kind: "remote", host, port };
+  return { kind: "remote", host, port, loopback: "v4" };
 }

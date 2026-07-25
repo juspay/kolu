@@ -169,7 +169,7 @@
  * against `lsof` for all four bind shapes at once — `127.0.0.1`, `0.0.0.0`, `::1`,
  * and a DUAL-STACK `::` socket (`ipv6Only: false`). That last one is the case worth
  * naming: the helper's `insi_vflag & INI_IPV4` branch collapses it to its 4-byte v4
- * form, so `addressScope` calls it `any` and lsof agrees (`*:19304`). A reader
+ * form, so `addressBind` calls it `any` and lsof agrees (`*:19304`). A reader
  * without that branch would report a 16-byte address there and the two would part
  * ways on exactly the case the v4-mapped arm exists for.
  */
@@ -180,7 +180,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { Logger } from "@kolu/log";
 import { foldPorts } from "./ports.ts";
-import type { PortInfo, PortScope } from "./ports.ts";
+import type { PortFamily, PortInfo, PortScope } from "./ports.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -297,6 +297,7 @@ export function partitionSubtrees(
 interface Listener {
   port: number;
   scope: PortScope;
+  family: PortFamily;
 }
 
 // ── What a platform must answer, and the ONE join over it ───────────────
@@ -338,7 +339,8 @@ async function joinSubtreePorts(
       const name = await reading.nameOf(pid);
       // Built field by field, not spread: a reader's own key (the socket inode,
       // the owning pid) is its business and must not ride out on the wire value.
-      for (const l of held) rows.push({ port: l.port, scope: l.scope, name });
+      for (const l of held)
+        rows.push({ port: l.port, scope: l.scope, family: l.family, name });
     }
     out.set(rootPid, foldPorts(rows));
   }
@@ -388,7 +390,7 @@ export function decodeProcAddress(hex: string): number[] {
  *  uses. Running helper output through the `/proc` decoder would swap bytes that
  *  need no swapping and turn `127.0.0.1` into `1.0.0.127` — a SPECIFIC address either
  *  way, so it would not throw; it would quietly mis-classify. Two decoders, ONE judge
- *  ({@link addressScope}) keeps the byte-order difference local and the
+ *  ({@link addressBind}) keeps the byte-order difference local and the
  *  reachability decision shared. */
 export function decodeNetworkAddress(hex: string): number[] {
   if ((hex.length !== 8 && hex.length !== 32) || !/^[0-9A-Fa-f]+$/.test(hex)) {
@@ -425,28 +427,54 @@ function mappedV4(bytes: readonly number[]): readonly number[] | undefined {
  *  revision had one and the two disagreed about exactly the v4-mapped case, so
  *  darwin classified a reachable v4-mapped wildcard as needing a forward.
  *
- *  The `interface` arm is what PRT2 added, and it is not cosmetic: both forward
- *  mechanisms dial `127.0.0.1` on the far side, so a port bound to one specific
- *  non-loopback address is reachable at THAT address and by no door kolu can
- *  open. Folding it in with loopback — which the old `isAnyAddress` boolean did —
- *  meant offering a forward that would open successfully and then refuse every
- *  connection through it. */
-export function addressScope(bytes: readonly number[]): PortScope {
-  // The ANY address in either width, plus `::ffff:0.0.0.0`: all-zero payload.
-  if (bytes.every((b) => b === 0)) return "any";
+ *  It answers BOTH questions a forward needs, and they are different questions:
+ *  `scope` decides whether a door is needed at all, `family` decides what that
+ *  door dials. Both were learned the hard way, one per shipped defect:
+ *
+ *   - The `interface` arm replaced a `wildcard: boolean` that folded "bound to
+ *     `192.168.1.5`" in with "bound to `127.0.0.1`". They want opposite handling:
+ *     both mechanisms dial the far side's loopback, so an interface bind is
+ *     reachable at THAT address and by no door kolu can open.
+ *   - `family` exists because the first cut of `scope` folded `127.0.0.1` and
+ *     `::1` into one `loopback`, and BOTH mechanisms then dialled v4. A dev
+ *     server on `[::1]:5173` got a tunnel that came up perfectly and served
+ *     nothing — the door was open onto an address with no listener behind it.
+ *
+ *  Both defects have the same shape, which is why they are called out together:
+ *  a fact the OS gave us was collapsed below what the consumer needed, and the
+ *  collapse was invisible until something dialled the answer. */
+export function addressBind(bytes: readonly number[]): {
+  scope: PortScope;
+  family: PortFamily;
+} {
+  // A v4-MAPPED address (`::ffff:a.b.c.d`) is judged as the v4 address it
+  // carries, in BOTH answers: the socket is AF_INET6, but a v4 dial reaches it,
+  // and the dial is what the family exists to decide.
   const mapped = mappedV4(bytes);
-  if (mapped?.every((b) => b === 0)) return "any";
-  // Loopback: v4 is the whole `127.0.0.0/8` (a dev server on `127.0.0.53` is
-  // still loopback), v6 is exactly `::1`, and a v4-mapped loopback is judged as
-  // the v4 address it carries.
   const v4 = bytes.length === 4 ? bytes : mapped;
-  if (v4 !== undefined) return v4[0] === 127 ? "loopback" : "interface";
+  if (v4 !== undefined) {
+    // `0.0.0.0` / the mapped wildcard · the whole `127.0.0.0/8` (a resolver stub
+    // on `127.0.0.53` is loopback too) · anything else is one real interface.
+    const scope = v4.every((b) => b === 0)
+      ? "any"
+      : v4[0] === 127
+        ? "loopback"
+        : "interface";
+    return { scope, family: "v4" };
+  }
   if (bytes.length === 16) {
+    if (bytes.every((b) => b === 0)) return { scope: "any", family: "v6" };
     const isV6Loopback =
       bytes.slice(0, 15).every((b) => b === 0) && bytes[15] === 1;
-    return isV6Loopback ? "loopback" : "interface";
+    return {
+      scope: isV6Loopback ? "loopback" : "interface",
+      family: "v6",
+    };
   }
-  return "interface";
+  // A width neither decoder produces. The decoders already refuse anything but
+  // 4 or 16 bytes, so this is unreachable by construction — but it must answer
+  // SOMETHING, and the safe answer is the one that offers no door.
+  return { scope: "interface", family: "v6" };
 }
 
 /** A `/proc/net/tcp{,6}` LISTEN row, keyed by the socket inode the fd walk joins
@@ -500,7 +528,7 @@ export function parseProcNetTcp(body: string): ProcListener[] {
     }
     listeners.push({
       port,
-      scope: addressScope(decodeProcAddress(local.slice(0, split))),
+      ...addressBind(decodeProcAddress(local.slice(0, split))),
       inode: cols[9]!,
     });
   }
@@ -827,7 +855,7 @@ export interface HelperReading {
  *  `<name>` is last because it may contain spaces (the helper strips tabs from it,
  *  so arity is fixed). The address is the RAW bind bytes as hex — 8 chars for v4,
  *  32 for v6 — decoded by {@link decodeProcAddress} and judged by
- *  {@link addressScope}, the SAME two functions the linux `/proc` reader uses. That
+ *  {@link addressBind}, the SAME two functions the linux `/proc` reader uses. That
  *  is the point of moving hex rather than a tag across this boundary: one
  *  classifier, so the two platforms cannot come to disagree about
  *  `::ffff:0.0.0.0`.
@@ -900,7 +928,7 @@ export function parseHelperOutput(body: string): HelperReading {
       }
       listeners.push({
         port,
-        scope: addressScope(decodeNetworkAddress(f[3]!)),
+        ...addressBind(decodeNetworkAddress(f[3]!)),
         pid,
       });
       continue;

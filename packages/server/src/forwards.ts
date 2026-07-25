@@ -32,8 +32,10 @@ import {
   type ForwardLoss,
   type ForwardManager,
   type ForwardTarget,
+  type LoopbackFamily,
 } from "@kolu/port-forward";
 import type { Logger } from "@kolu/log";
+import type { PortFamily } from "@kolu/port-scan/ports";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type {
   ForwardCreateInput,
@@ -51,13 +53,21 @@ import type {
  *  that one. */
 export const FORWARD_REAP_INTERVAL_MS = 5_000;
 
-/** What a host's listening ports look like to this module.
+/** What a host's listening ports look like to this module — each port mapped to
+ *  the IP family it is bound on.
  *
  *  `"unknown"` is not "none" and the distinction is the whole of the auto-cancel
  *  rule: it means no terminal on that host has ever been scanned successfully, or
- *  every scan we have is blind. A set — even an empty one — is an OBSERVATION,
- *  and only an observation may close a door. */
-export type HostPorts = ReadonlySet<number> | "unknown";
+ *  every scan we have is blind. A map — even an empty one — is an OBSERVATION,
+ *  and only an observation may close a door.
+ *
+ *  It carries the FAMILY and not just the port numbers because the same reading
+ *  answers both of this module's questions: which doors to close, and — for a
+ *  door about to be opened — which loopback to dial. Deriving the family here
+ *  rather than accepting it from the client is deliberate: the client's copy can
+ *  be a scan or two stale, and a stale family opens a door onto an address with
+ *  nothing behind it. */
+export type HostPorts = ReadonlyMap<number, PortFamily> | "unknown";
 
 export interface KoluForwards {
   /** Open a forward, or return the live one for the same target. A `manual`
@@ -65,12 +75,25 @@ export interface KoluForwards {
   create(input: ForwardCreateInput): Promise<KoluForward>;
   /** Take one down by key. Rejects on an unknown key. */
   cancel(key: string): Promise<void>;
-  /** Every live forward, oldest first — the cell's value. */
+  /** Every live forward, oldest first — a plain read, no reconciliation. */
   list(): Forwards;
-  /** One auto-cancel pass: close every `auto` forward whose remote port the
-   *  scanner can positively say is gone. Never throws; a host that cannot be
-   *  read is a host whose forwards are left standing. */
-  reapDeadAuto(): Promise<void>;
+  /** Reconcile, then report: close every `auto` forward whose remote port the
+   *  scanner can positively say is gone, and return the resulting list.
+   *
+   *  ONE method rather than a reap plus a read, and that is a fix rather than a
+   *  convenience. When they were two, the reap announced its own changes on the
+   *  cell's change edge — and the cell's change edge is what triggers the read
+   *  the reap runs inside. So a single live `auto` forward made the server spin:
+   *  read → reap → announce → tick → read → … with the event loop never
+   *  yielding to anything else. It froze production on the first forward click
+   *  (HTTP dead, SIGTERM ignored) and was invisible until then, because with zero
+   *  auto forwards the reap returned before it announced.
+   *
+   *  Collapsing them removes the cycle at the source instead of damping it: this
+   *  reports by RETURNING, the poll publishes what it returns, and there is no
+   *  spelling of "reap and announce" left for a later caller to reach for. Never
+   *  throws — a host that cannot be read keeps its forwards. */
+  reconcile(): Promise<Forwards>;
   /** A host left the pool — take ITS forwards down, both origins. A door to a
    *  machine kolu no longer has is a door to nowhere. */
   hostDeparted(host: HostKey): Promise<void>;
@@ -78,14 +101,31 @@ export interface KoluForwards {
   dispose(): Promise<void>;
 }
 
+/** The loopback family kolu dials for a port it has NO scan row for — a manual
+ *  forward to something outside every terminal's subtree, or to a host whose scan
+ *  is blind.
+ *
+ *  The ONE place a family is assumed rather than observed, named so it is
+ *  greppable. v4 because it is what almost everything binds and what every
+ *  forward did before the family existed; and when it is wrong the failure is
+ *  loud at the point of use (connections refused through an open door) rather
+ *  than silent. There is deliberately no "try the other one" path: a dial that
+ *  guesses twice is a fallback chain, and the fix for not knowing is to know —
+ *  which is what the scan reading below is for. */
+const ASSUMED_LOOPBACK: LoopbackFamily = "v4";
+
 /** The library target for a kolu host + port. The two vocabularies are the same
  *  two cases, which is not a coincidence: a port on the machine kolu-server runs
  *  on needs a relay (both ends are here), and a port anywhere else needs the ssh
  *  hop whose destination kolu already holds as the host key's target. */
-export function targetFor(host: HostKey, port: number): ForwardTarget {
+export function targetFor(
+  host: HostKey,
+  port: number,
+  loopback: LoopbackFamily,
+): ForwardTarget {
   return host.kind === "local"
-    ? { kind: "local", port }
-    : { kind: "remote", host: host.target, port };
+    ? { kind: "local", port, loopback }
+    : { kind: "remote", host: host.target, port, loopback };
 }
 
 /** …and back, so a row can be filtered to a terminal's host. Total, because the
@@ -157,7 +197,25 @@ export function createKoluForwards(deps: {
 
   return {
     async create(input) {
-      const target = targetFor(input.host, input.port);
+      // WHICH loopback to dial comes from kolu's own scan of that host, never
+      // from the caller: a client's copy of the port facts can be a scan or two
+      // stale, and a stale family opens a door onto an address with nothing
+      // behind it — which is exactly the shape of the bug this reading closes.
+      // A port the scan cannot speak for falls to `ASSUMED_LOOPBACK`.
+      const seen = await deps
+        .readHostPorts(input.host)
+        .catch((err: unknown) => {
+          deps.log.error(
+            { err, host: encodeHostKey(input.host) },
+            "could not read a host's ports while opening a forward — dialling the assumed loopback",
+          );
+          return "unknown" as const;
+        });
+      const loopback =
+        seen === "unknown"
+          ? ASSUMED_LOOPBACK
+          : (seen.get(input.port) ?? ASSUMED_LOOPBACK);
+      const target = targetFor(input.host, input.port, loopback);
       const forward = await manager.create(target);
       // Idempotent by target, so this may be a forward that already existed. A
       // `manual` request over an `auto` forward PROMOTES it: the user has now
@@ -180,12 +238,12 @@ export function createKoluForwards(deps: {
 
     list,
 
-    async reapDeadAuto() {
+    async reconcile() {
       // Which hosts to ask is decided by the forwards themselves, so a kolu with
       // no auto forwards reads nothing at all — the cost tracks the feature's
       // use rather than the size of the fleet.
       const auto = manager.list().filter((f) => origins.get(f.key) === "auto");
-      if (auto.length === 0) return;
+      if (auto.length === 0) return list();
 
       const hosts = new Map<string, HostKey>();
       for (const f of auto)
@@ -231,7 +289,9 @@ export function createKoluForwards(deps: {
           );
         }
       }
-      publish();
+      // Reported by RETURNING, never by announcing. Announcing here is what
+      // triggered the read this runs inside — see `reconcile` on the interface.
+      return list();
     },
 
     async hostDeparted(host) {

@@ -34,6 +34,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { plainDiagnostic } from "./diagnostic.ts";
 import type { ForwardReport, OpenedForward } from "./mechanism.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
+import { LOOPBACK_ADDRESS, type LoopbackFamily } from "./target.ts";
 
 /** The options every forward connection is opened with.
  *
@@ -138,12 +139,25 @@ const DIAGNOSTIC_TAIL_BYTES = 4096;
  *  interfaces regardless of `GatewayPorts`, which is the whole point — the
  *  browser that opens this port is on another machine. The far end is always
  *  the target host's own loopback, since a port already bound to `0.0.0.0`
- *  there needs no forward at all. */
+ *  there needs no forward at all — but WHICH loopback is the caller's to say.
+ *
+ *  A v6 far end is BRACKETED (`[::1]`), which is ssh's own syntax for an IPv6
+ *  address inside a forward spec; unbracketed, its colons would be read as the
+ *  spec's own field separators and ssh would reject the whole argument. Note
+ *  this is the opposite of the rule for the `host` argument, which ssh wants
+ *  BARE — `assertHost` rejects brackets there for exactly that reason. Two
+ *  different syntaxes for two different positions, which is why the bracketing
+ *  lives here and not in the target. */
 export function forwardSpec(opts: {
   localPort: number;
   remotePort: number;
+  loopback: LoopbackFamily;
 }): string {
-  return `*:${opts.localPort}:127.0.0.1:${opts.remotePort}`;
+  const far =
+    opts.loopback === "v6"
+      ? `[${LOOPBACK_ADDRESS.v6}]`
+      : LOOPBACK_ADDRESS[opts.loopback];
+  return `*:${opts.localPort}:${far}:${opts.remotePort}`;
 }
 
 /** The whole argv of a forward: options, the tunnel, the host, and the command
@@ -153,6 +167,7 @@ export function forwardCommandArgs(opts: {
   host: string;
   localPort: number;
   remotePort: number;
+  loopback: LoopbackFamily;
 }): string[] {
   return [...opts.base, "-L", forwardSpec(opts), opts.host, HOLD_OPEN_COMMAND];
 }
@@ -189,10 +204,17 @@ export function openSshAttempt(opts: {
   localPort: number;
   report: ForwardReport;
   spawnSsh: SpawnSsh;
+  loopback: LoopbackFamily;
 }): Promise<OpenedForward> {
-  const { host, remotePort, localPort, report } = opts;
+  const { host, remotePort, localPort, report, loopback } = opts;
   const child = opts.spawnSsh(
-    forwardCommandArgs({ base: SSH_OPTS, host, localPort, remotePort }),
+    forwardCommandArgs({
+      base: SSH_OPTS,
+      host,
+      localPort,
+      remotePort,
+      loopback,
+    }),
   );
 
   // Only the TAIL is kept. These buffers live as long as the ssh child, which
@@ -366,6 +388,7 @@ export async function openSshForward(
   report: ForwardReport,
   spawnSsh: SpawnSsh,
   lastLocalPort: number | undefined,
+  loopback: LoopbackFamily,
 ): Promise<OpenedForward> {
   // The number this target answered on last time, else the target's own port —
   // `pu-dev:4123` answers on `0.0.0.0:4123` when that number is free here. The
@@ -378,6 +401,13 @@ export async function openSshForward(
   return await openPreferringPort({
     preferred: lastLocalPort ?? remotePort,
     open: (localPort) =>
-      openSshAttempt({ host, remotePort, localPort, report, spawnSsh }),
+      openSshAttempt({
+        host,
+        remotePort,
+        localPort,
+        report,
+        spawnSsh,
+        loopback,
+      }),
   });
 }

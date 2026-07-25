@@ -48,7 +48,10 @@ import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
+import { lookup } from "node:dns/promises";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import { sshTargetHostname, viewerIsOnHost } from "./viewerHost.ts";
+import { type PortFamily, preferredFamily } from "@kolu/port-scan/ports";
 import { createKoluForwards, type HostPorts } from "./forwards.ts";
 import {
   TERMINAL_FILE_ROUTE_BASE,
@@ -700,7 +703,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         await client.surface.terminals.keys({}, { signal: ctl.signal }),
       );
       if (keys === undefined) return "unknown";
-      const ports = new Set<number>();
+      const ports = new Map<number, PortFamily>();
       let sawAnything = false;
       for (const id of keys) {
         const record = await firstFrameOrUndefined(
@@ -716,7 +719,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         // requiring every terminal to be known would mean a single wedged pane
         // kept every dead forward alive forever.
         sawAnything = true;
-        for (const p of arm.ports.list) ports.add(p.port);
+        for (const p of arm.ports.list) {
+          // Two terminals can hold the same port across the union (a fork, a
+          // shared socket), so the families are folded by the SAME rule the
+          // per-terminal fold uses — v4 wins — rather than last-write.
+          const prior = ports.get(p.port);
+          ports.set(
+            p.port,
+            prior === undefined ? p.family : preferredFamily(prior, p.family),
+          );
+        }
       }
       return sawAnything ? ports : "unknown";
     } catch (err) {
@@ -757,6 +769,54 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     }
   });
 
+  /** Which pool host the browser at `viewerAddress` is sitting at, or `null`.
+   *
+   *  The addresses come from resolving each REMOTE host's ssh destination. Only
+   *  remote hosts are asked about: kolu's LOCAL host is the machine serving the
+   *  page, so a port there is already handled by the direct-open arm and needs no
+   *  identity check at all.
+   *
+   *  Resolution is cached for the process's life, keyed by the hostname. It is a
+   *  DNS answer about a machine in the user's own fleet, re-read only across a
+   *  restart — and the cost of it being stale is that a chip offers the forward
+   *  that already works, which is the same thing every other uncertain case does.
+   *
+   *  Every failure lands on `null`: a destination DNS cannot resolve (an
+   *  `~/.ssh/config` alias naming no real host is entirely ordinary), a viewer
+   *  behind a NAT or a proxy, a connection with no peer address. That direction
+   *  is the design — see `viewerHost.ts`. */
+  const hostAddressCache = new Map<string, readonly string[]>();
+  async function addressesOf(hostname: string): Promise<readonly string[]> {
+    const hit = hostAddressCache.get(hostname);
+    if (hit !== undefined) return hit;
+    let found: readonly string[] = [];
+    try {
+      found = (await lookup(hostname, { all: true })).map((a) => a.address);
+    } catch {
+      // Unresolvable is the ORDINARY case for an ssh alias, not an anomaly, so
+      // this is not logged at error — it simply means kolu cannot recognise a
+      // viewer sitting at that host, and the forward stays.
+      found = [];
+    }
+    hostAddressCache.set(hostname, found);
+    return found;
+  }
+
+  async function viewerHost(
+    viewerAddress: string | undefined,
+  ): Promise<HostKey | null> {
+    if (viewerAddress === undefined) return null;
+    for (const encoded of pool.hosts()) {
+      const host = decodeHostKey(encoded);
+      if (host.kind !== "remote") continue;
+      const addresses = await addressesOf(sshTargetHostname(host.target));
+      if (viewerIsOnHost({ viewerAddress, hostAddresses: addresses })) {
+        return host;
+      }
+    }
+    return null;
+  }
+
   // Serve kolu-server's own surface. SR8.c: `implementKoluSurface` builds EVERY member from
   // these plain domain deps — index.ts imports no reactor primitive, and no member is
   // ctx-written (the reactor graph is each one's writer). The `onState` dep projects each
@@ -793,15 +853,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         }),
       ),
     forwards: {
-      // Reconcile, then report — one read, so the list that reaches the wire has
-      // already had its dead doors closed. TOTAL by construction: `reapDeadAuto`
-      // logs and continues past every failure (a host it cannot read keeps its
-      // forwards), and `list()` reads an in-memory map, so a poll seed here
-      // cannot throw and take the runtime's `done` with it.
-      read: async () => {
-        await forwards.reapDeadAuto();
-        return forwards.list();
-      },
+      // Reconcile, then report — ONE call, so the list that reaches the wire has
+      // already had its dead doors closed. It is one call rather than a reap
+      // followed by a read for a reason paid for in production: when the reap
+      // announced its own result on `onChange`, and `onChange` is this read's own
+      // trigger, a single live `auto` forward spun the event loop forever. TOTAL
+      // by construction — `reconcile` logs and continues past every failure, and
+      // the list is an in-memory map — so this poll's seed cannot throw and take
+      // the runtime's `done` with it.
+      read: () => forwards.reconcile(),
       onChange: (tick) => {
         forwardListeners.add(tick);
         return () => forwardListeners.delete(tick);
@@ -860,6 +920,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // recycles the old kaval from its new build. One seam for local and remote
     // alike (D1): the local session is a pool member exactly like a remote one.
     // An unknown host is a loud throw, never a silent no-op.
+    viewerHost,
     renewHostDaemon: async (host) => {
       const s = pool.getSession(encodeHostKey(host));
       if (s === undefined)
@@ -900,7 +961,13 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     if (rejected) return rejected;
     const { matched, response } = await rpcHandler.handle(c.req.raw, {
       prefix: "/rpc",
-      context: {},
+      // Same per-caller fact as the websocket path below. `c.env` carries node's
+      // own request, which is where the peer address lives; a missing one is an
+      // honest `undefined` and answers `null`, never a guess.
+      context: {
+        viewerAddress: (c.env as { incoming?: IncomingMessage } | undefined)
+          ?.incoming?.socket.remoteAddress,
+      },
     });
     if (matched) return response;
     return next();
@@ -1180,14 +1247,19 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   });
 
   let nextConnId = 0;
-  wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
+  wss.on("connection", (ws: WebSocket, req: IncomingMessage, url: URL) => {
     const connId = ++nextConnId;
     const connLog = log.child({ ws: connId });
     // `accept` gates (stale-tab) → enrols in the reaper → runs our dispatch. A
     // stale tab is closed and never dispatched or enrolled.
     acceptor.accept(ws, url, () => {
       connLog.info({ total: wss.clients.size }, "connected");
-      wsRpcHandler.upgrade(ws, { context: {} });
+      // The viewer's peer address rides the CONTEXT, so `hosts.viewer` can
+      // answer per caller — which is the only shape that fits, since the answer
+      // differs by connection and a surface cell is broadcast to all of them.
+      wsRpcHandler.upgrade(ws, {
+        context: { viewerAddress: req.socket.remoteAddress },
+      });
       ws.on("close", (code, reason) => {
         const reasonStr = reason.toString();
         connLog.info(

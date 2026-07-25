@@ -141,6 +141,30 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     );
   });
 
+  it("tells a V6 loopback listener from a v4 one — the production defect", async () => {
+    // `[::1]:5173` is what vite and several Node versions bind by default. Both
+    // forward mechanisms dial the family they are told, so a v6 bind reported as
+    // v4 produces a door onto an address with no listener behind it — which is
+    // exactly what shipped, and it looked healthy the whole time.
+    //
+    // LIVE rather than fixture because the two platforms reach these bytes by
+    // completely different routes, and the fixture for one proves nothing about
+    // the other.
+    const v6 = await listener("::1");
+    const v4 = await listener("127.0.0.1");
+    const ports = await scanSelf();
+
+    expect(ports.find((p) => p.port === v6.port)).toEqual(
+      expect.objectContaining({ scope: "loopback", family: "v6" }),
+    );
+    expect(ports.find((p) => p.port === v4.port)).toEqual(
+      expect.objectContaining({ scope: "loopback", family: "v4" }),
+    );
+
+    v6.child.kill();
+    v4.child.kill();
+  });
+
   it("names the program, not the thread", async () => {
     // Node renames its main thread, so `/proc/<pid>/stat`'s `comm` reads
     // `MainThread` — measured. Every Node dev server would be labelled that.
@@ -163,8 +187,13 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     const { port } = await listener();
 
     const ports = await scanSelf();
+    // The family is asserted with `expect.any` rather than pinned: a dual-stack
+    // `::` bind is reported by linux as a v6 row and collapsed by the darwin
+    // helper's `INI_IPV4` branch to its v4 form, so the two platforms honestly
+    // disagree about the family while agreeing about the scope. Both are
+    // dialable — that is what `any` means — so this case has no stake in which.
     expect(ports.filter((p) => p.port === port)).toEqual([
-      { port, name: "node", scope: "any" },
+      { port, name: "node", scope: "any", family: expect.any(String) },
     ]);
 
     // The dual-stack BYTE fidelity — that `::` is read from the v6 slot and not

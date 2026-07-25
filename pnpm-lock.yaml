@@ -1049,6 +1049,9 @@ importers:
       '@kolu/port-forward':
         specifier: workspace:*
         version: link:../port-forward
+      '@kolu/port-scan':
+        specifier: workspace:*
+        version: link:../port-scan
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir
