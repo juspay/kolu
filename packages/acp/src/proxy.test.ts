@@ -7,11 +7,15 @@
  * — a process dying mid-turn, a cancel that the agent ignores — only exist
  * between real processes.
  *
- * The adapter is a parameter. The suite runs over two argvs of the same
- * scripted fake, which is how "nothing in the package is shaped like one
+ * The adapter is a parameter, and the suite runs over three: one fake twice
+ * (proving the command is read) and a second fake that is a genuinely
+ * different agent — other capabilities, batched rather than streamed replies,
+ * the permission request on the other side of the tool call, frame kinds the
+ * pinned library drops. That is how "nothing in the package is shaped like one
  * vendor's agent" becomes something the tests check rather than something the
- * README claims. The real second adapter (`codex-acp`) is covered by the
- * out-of-band smoke described in the package README.
+ * README claims. Real adapters (`claude-agent-acp`, `codex-acp`) are covered
+ * by the out-of-band smoke described in the package README, since CI has no
+ * credentials for them.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
