@@ -1,0 +1,243 @@
+---
+title: The Agent Client Protocol
+description: Field brief — what ACP is, how Buzz uses it in production (Nostr spine and all), and what adopting it could look like in Xyne Spaces.
+parents: [analysis]
+maturity: seedling
+updated: 2026-07-24
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import D2 from "../../components/D2.astro";
+
+What the Agent Client Protocol is, how Block's Buzz actually uses it in
+production, and what adopting it could look like inside Xyne Spaces. Written as
+groundwork for the pesu chat-bridge design — see
+[chat threads as terminals](chat-native-agents-and-kolu.html) for where it
+lands in kolu.
+
+## One wire for driving coding agents
+
+Every product that embeds a coding agent — an editor, a chat app, a bot — faces
+the same problem: the good agents ship as CLIs with interactive UIs, and there
+is no standard way for a *program* to drive one. So each product invents a
+harness: spawn the process, feed it input, scrape or tail whatever it emits,
+guess when the turn ended.
+
+The **Agent Client Protocol** ([ACP](https://agentclientprotocol.com), created
+by Zed) standardizes that harness boundary. The model is deliberately simple:
+
+- The **client** (editor, chat bridge, workspace app) spawns the **agent** as a
+  subprocess and owns its stdin/stdout.
+- The two speak **JSON-RPC 2.0, newline-delimited, over stdio**. No server, no
+  port, no auth handshake — process ownership *is* the trust boundary.
+- The protocol is **bidirectional**: the client calls methods on the agent
+  (`session/new`, `session/prompt`, `session/cancel`), and the agent calls
+  methods back on the client (permission requests, optional file-system and
+  terminal services).
+
+A turn looks like this on the wire — client→agent frames marked `→`,
+agent→client `←`:
+
+```
+// handshake, then a session
+→ {"id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{…}}}
+← {"id":0,"result":{"agentCapabilities":{"loadSession":true,…}}}
+→ {"id":1,"method":"session/new","params":{"cwd":"/work/repo","mcpServers":[…]}}
+← {"id":1,"result":{"sessionId":"sess_abc"}}
+
+// one turn: a prompt, a stream of updates, a stop reason
+→ {"id":2,"method":"session/prompt","params":{"sessionId":"sess_abc","prompt":[{"type":"text","text":"Fix the failing test"}]}}
+← {"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looking at the test…"}}}}
+← {"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"Read tests/auth.test.ts","status":"pending"}}}
+← {"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed"}}}
+
+// the agent asks *the client* for permission — a structured question, not a TUI dialog
+← {"id":9,"method":"session/request_permission","params":{"toolCall":{…},"options":[{"optionId":"o1","name":"Allow once","kind":"allow_once"},{"optionId":"o2","name":"Reject","kind":"reject_once"}]}}
+→ {"id":9,"result":{"outcome":{"outcome":"selected","optionId":"o1"}}}
+
+// the prompt call itself returns when the turn is over
+← {"id":2,"result":{"stopReason":"end_turn"}}
+```
+
+Three properties matter more than the frame details:
+
+1. **Turn boundaries are explicit.** `session/prompt` is a call that returns
+   when the turn ends. No screen-settling heuristics, no state derivation.
+2. **Everything in between is structured.** Message chunks, thought chunks,
+   tool calls with a status lifecycle (`pending → in_progress →
+   completed/failed`), plan updates. A client renders a live activity feed
+   without parsing anything.
+3. **Permission requests flow to the client as data.** The agent's "may I run
+   this?" arrives as a request with typed options, and the client answers
+   programmatically — which means the answer can come from a UI, a policy, or
+   a phone tap in a chat thread.
+
+Agents that advertise `loadSession` can also resume a previous session:
+`session/load` **replays the full conversation history** as the same
+`session/update` notifications before accepting new prompts — the protocol's
+answer to "where did my conversation go when my process died."<Footnote>Real
+deployments don't always lean on it: Buzz, below, never calls it.</Footnote>
+
+The ecosystem, as of mid-2026:
+
+| Agent | ACP support | Notes |
+| --- | --- | --- |
+| Claude Code | `claude-agent-acp` adapter | npm `@agentclientprotocol/claude-agent-acp`; wraps the Claude Agent SDK (headless — no TUI involved); supports `session/load` |
+| Codex | `codex-acp` adapter | npm `@agentclientprotocol/codex-acp` |
+| Goose | native (`goose acp`) | Block's agent; ships vendor extensions under `_goose/unstable/*` |
+| Gemini CLI | native | ACP's original second implementation alongside Zed |
+
+Client libraries are official and maintained in both directions: the
+`agent-client-protocol` Rust crate and the
+`@zed-industries/agent-client-protocol` npm package. Zed, Neovim, Emacs, and a
+growing set of non-editor clients (Buzz among them) consume the same adapters.
+
+<Callout kind="note" title="What ACP is not">
+It is a *drive-the-agent* protocol, not a *watch-the-agent* protocol. The
+client owns the process; there is no way to attach to an interactive CLI
+session someone else is running in a terminal. And it is a live stream, not a
+store — persistence beyond `session/load` is the client's job.
+</Callout>
+
+## Buzz: ACP in production, on a Nostr spine
+
+[Buzz](https://github.com/block/buzz) (Block, Apache-2.0) is a self-hostable
+team workspace where humans and AI agents are co-equal members. Its substrate
+is unusual: everything — messages, reactions, patches, reviews — is a signed
+**Nostr event** in one append-only log served by a relay. Agents participate as
+first-class members, and the way an agent runs is ACP end to end.
+
+<D2 caption="One buzz-acp harness per agent. Every ACP frame is mirrored, encrypted, and republished onto the Nostr relay; the desktop decrypts and replays them to render the session. Control (cancel, model switch) flows back the same way." code={`
+direction: down
+
+agent: "agent process — claude-agent-acp / goose" {
+  style.fill: "#e6f4ea"
+}
+harness: "buzz-acp harness (Rust, hand-rolled ACP client)" {
+  style.fill: "#dbeafe"
+}
+relay: "Nostr relay — signed event log" {
+  style.fill: "#efe3fa"
+}
+desktop: "Buzz desktop — transcript UI + local sqlite archive" {
+  style.fill: "#fdf1db"
+}
+
+agent <-> harness: "ACP · NDJSON over stdio"
+harness -> relay: "telemetry frames — kind 24200, NIP-44 encrypted"
+relay -> desktop: "decrypt + replay"
+desktop -> relay: "control frames — cancel · switch model"
+relay -> harness: ""
+agent -> relay: "acts via buzz CLI / MCP tools"
+`} />
+
+The `buzz-acp` crate spawns the agent (default `goose acp`; any stdio ACP agent
+works, Claude Code and Codex via their adapters) and speaks a **hand-rolled**
+ACP client — no upstream library, ~3,700 lines of Rust handling framing, the
+notification stream, permissions, and cancellation. One ACP session per Buzz
+channel, reused across turns.
+
+The Nostr trick is Buzz's most distinctive move. The harness mirrors *every raw
+wire frame* — both directions — onto an internal observer bus, encrypts each
+frame to the agent owner's public key (NIP-44), and publishes it to the relay
+as an **ephemeral event**.<Footnote>Kind 24200, in the 20000–29999 ephemeral
+range relays never store.</Footnote> The desktop subscribes, decrypts, and
+replays the frames through a transcript state machine to render exactly what a
+native ACP client would show: streaming text, tool-call cards with status,
+permission request/response pairs, token usage. Control flows the same way in
+reverse — cancel and model-switch arrive as owner-signed events the harness
+verifies for freshness. The effect: the UI process and the agent process are
+fully decoupled — different machines, even — with the relay as the only
+rendezvous, and end-to-end encryption on the telemetry for free.
+
+What Buzz pointedly does **not** use ACP for:
+
+- **Persistence.** The harness stores nothing; a restart loses the ACP session
+  outright. It never calls `session/load` — cross-restart "memory" comes from
+  the agent re-reading channel history through Buzz's own tools, and the
+  desktop keeps an opt-in local SQLite archive of the ephemeral
+  frames.<Footnote>Validated fail-closed on ingest — signature, kind, owner
+  tags — since the relay can't re-verify events it never stored.</Footnote>
+- **Human-in-the-loop permissions.** Requests are auto-approved by picking the
+  `allow_once` option; the desktop merely displays the exchange. Coarse policy
+  is set per-session via a config option instead.
+
+Buzz's code also documents where ACP's edges are today — scar tissue the next
+implementer should steal as a checklist, not as code:
+
+- `session/cancel` is unreliable in some agents — Buzz gives a short
+  acknowledgement grace, then kills and respawns the process group to actually
+  stop work.
+- Before cancelling, any in-flight permission request must be answered with a
+  `cancelled` outcome, or the agent deadlocks.
+- Timeouts can't be wall-clock: agents go silent for minutes during tool
+  execution, so the idle timer resets on any stdout byte and is explicitly
+  kicked on `tool_call`.
+- Vendor escape hatches are a fact of life: `_goose/unstable/*` notifications
+  for steering and token usage, a non-standard meta flag for the Claude
+  adapter's subscription login, a version pin "squatting" on protocol v2 ahead
+  of the upstream RFD.
+- Auth failures surface as strings, not codes — Buzz string-matches and
+  dead-letters them with a re-auth hint rather than retrying.
+
+<Callout kind="accent" title="The takeaway">
+ACP reliably delivers the live session surface — streaming text, tool
+lifecycle, permissions, cancellation — and a serious production client built
+its whole agent UX on that. History, policy, and identity remained the
+product's own problem, and Buzz solved them with the infrastructure it already
+had (the event log), not the protocol.
+</Callout>
+
+## Xyne Spaces: it already built the machinery — privately
+
+Xyne Spaces has no agent protocol today. Its public app API gives a bot exactly
+three verbs — `postMessage` (whole message, ~9,500-char cap), `updateMessage`
+(full-body replace, not a delta), and `agentProgress` (an ephemeral "working…"
+pill with a one-line tool label). No streaming, no tool-call blocks, no
+permission surface.
+
+The revealing part: XS's own first-party agent platform (the `xyne-claw` stack,
+running agents server-side on the pi runtime) found that API insufficient and
+**routed around it**, hand-building the very things ACP standardizes:
+
+| Built privately in the claw stack | The ACP equivalent |
+| --- | --- |
+| Redis live-conversation bus (`label` / `invocation` / `done` events) feeding an SSE endpoint | `session/update` notification stream |
+| Dual transport between services: legacy webhook callbacks *or* SSE, selected by `Accept` header | one wire, one framing |
+| Postgres snapshot + live deltas so a viewer can join mid-run | `session/load` replay |
+| Exporter serializing server runs into Claude Code's JSONL transcript format for local resume | `session/load`, again — hand-rolled and one-way |
+| Bespoke opencode adapter over that CLI's HTTP API | any ACP adapter, uniformly |
+| Tool activity throttled into a 10-second progress label | typed `tool_call` / `tool_call_update` lifecycle |
+
+Each row is working code that XS maintains alone, reachable only from inside
+its own services. Adopting ACP is less about adding a capability than about
+replacing private machinery with a published spec other people maintain
+adapters for. Three adoption moves, smallest first:
+
+1. **Speak ACP to agent runtimes internally.** Put ACP at the boundary between
+   the orchestration layer and whatever runs the agent. The dual callback/SSE
+   transport and the per-runtime adapters collapse into one client; Claude
+   Code, Codex, and Goose arrive via their existing adapters instead of
+   bespoke integrations; local-resume stops being a hand-maintained
+   file-format exporter.
+2. **Expose session updates to apps.** XS's internal "unified bot SDK" already
+   defines an event union (`content` / `tool_input` / `tool_output` / `done`)
+   that is nearly a subset of ACP's update stream. Aligning it with ACP's
+   shapes and offering it on the public app surface would let external bots
+   render live tool activity instead of squeezing everything into
+   `agentProgress`.
+3. **Map the chat-native affordances.** Two pairings fall out immediately: ACP
+   `tool_call` events feeding `agentProgress` labels (live "Running: `git
+   rebase…`" in the thread), and ACP permission requests rendered as XS
+   **flow-JSON button cards** — the agent's "may I?" becomes buttons in the
+   thread, and a tap answers it. Approve-from-your-phone, with no new UI
+   primitives on either side.
+
+<Callout kind="note" title="Why this matters beyond XS">
+The same protocol serves the other side of the bridge: an external bot (like
+pesu, the kolu ↔ XS bridge) can run its agents behind ACP and get structured
+turns, streamed tool activity, and answerable permission prompts — independent
+of whether XS ever adopts ACP internally. The two adoptions compound but don't
+depend on each other.
+</Callout>
