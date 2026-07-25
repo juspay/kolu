@@ -120,6 +120,23 @@ Never push, never merge. The pass writes its result to
 `<repoPath>/.lens-debate/outcome.md` — per finding: id, origin, title, location,
 outcome, and the commit SHA for applied fixes — and returns a short summary.
 
+**Apply-then-verify, never verify-then-apply.** The pass's prompt must tell it
+to commit its **first** fix before working the rest of the list, and to keep
+committing as it goes. A pass that opens by re-verifying all N findings against
+the tree produces nothing on disk for as long as that takes, and from outside is
+indistinguishable from a dead one — a 38-finding merge sat 45 minutes with a
+clean tree, an empty `.lens-debate/`, and no answer to a nudge, and the caller
+ended up doing the merge itself. Its commits *are* its liveness signal, which is
+why they land one at a time.
+
+**The caller waits on that signal, not on a clock.** The first `fix(lens):`
+commit in `git -C "$repoPath" log` is the real event to block on. If the pass
+returns, **or** ~10 minutes pass with zero commits, an untouched tree, and no
+`outcome.md`, it is not slow — it is not producing: stop it and apply the
+findings yourself. Both lists are on disk precisely so this hand-off costs
+nothing. (This is not the babysitting `/be-review` bans: nudging a stage that is
+visibly committing is churn; taking over one that has produced nothing is not.)
+
 ### 4. The two valves
 
 **Valve 1 — bounded debate, contradictions only.** A finding reaches it only when

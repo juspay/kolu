@@ -13,6 +13,25 @@ fixes directly. Why serial, and the incidents behind the rules below:
 [`RATIONALE.md`](RATIONALE.md) — read it when editing this skill, not when
 running it.
 
+**Sole editor means sole test-runner too — you don't get to run the suite
+while a step is live.** Every reviewer here runs the tests itself, and a suite
+whose `vitest.config.ts` sets `fileParallelism: false` is serial across
+*processes*, not just across files inside one run: two concurrent runs bind the
+same sockets and ports and fail each other. Your run and code-police's raced
+once and produced a 13-failure report that was **pure contention** — half an
+hour spent chasing phantom bugs, then a PID-by-PID cleanup of 18 stray workers.
+Wait for the step to return before you verify anything; see `/test` for how to
+check a suite is serial-only and that nothing else is running it.
+
+**Stage by path after any step — never `git add -A`.** Reviewers spawn
+subagents that write scratch into the tree (a repro script, a probe) and don't
+always clean it up, so `git status` after a step shows untracked files that
+aren't yours. `nix/workspace.nix` adds package directories *wholesale*, so a
+swept-in scratch file ships inside the build source closure: that is how a lens
+agent's `cwdprobe.mjs` reached a commit and survived three review passes before
+`/simplify` caught it. Read `git status --short` before every commit and stage
+the paths you meant.
+
 1. **architecture-first-principles** — FIRST, for a diff touching framework packages
    (`@kolu/surface*`), adding/reshaping module structure, **or whose correctness
    rests on a concurrency / ordering claim** (a race declared closed, one event

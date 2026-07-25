@@ -28,3 +28,18 @@ Three things from the older engine are load-bearing and survive intact:
   every lens *judgment* is an Opus judgment.
 - **The lowy lens runs Löwy's electricity probe** (#1111) — not a second voice,
   the same volatility vote with a sharper question.
+
+## Why the reconcile pass commits before it verifies
+
+On kolu #1985 the reconcile pass drew 38 findings and opened by re-verifying
+each against the tree. Forty-five minutes later there were no commits, no
+`.lens-debate/outcome.md`, a clean working tree, and no reply to a nudge — the
+caller could not distinguish "carefully working" from "dead", spent eight blind
+polls finding out, then stopped it and merged the two lists itself.
+
+Nothing about the merge was wrong; the *ordering* was. Commits are the only
+liveness signal a subagent working in a shared tree emits, so the pass earns
+that signal early (first fix committed before the rest of the list) and the
+caller blocks on it rather than on a timer. The takeover bound exists because
+the findings files are on disk: the caller can always finish the job, so a
+non-producing pass is never worth waiting out.

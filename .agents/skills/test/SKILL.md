@@ -18,3 +18,21 @@ Run e2e tests scoped to the current branch's changes.
 5. **Run**: `just test-quick features/foo.feature` (or `just test-quick features/foo.feature:42` for a single scenario).
 
 `just test-quick` is fast — no nix build, no separate dev server needed — but **fast is not local-by-default**: see step 4.
+
+## Serial-only unit suites — one run at a time, machine-wide
+
+Some packages set `fileParallelism: false` in their own `vitest.config.ts`
+(`packages/{acp,padi,port-forward,kaval}` today — grep for the flag rather than
+trusting this list) because their tests bind real unix sockets and ports and
+spawn real child processes. **That flag serializes files inside one run; it says
+nothing about a second run.** Two concurrent runs of such a suite contend for
+the same sockets and fail each other, and the failures look exactly like real
+bugs — one run reported 13 failures that were pure contention and cost half an
+hour of phantom debugging plus a PID-by-PID cleanup of 18 orphaned workers.
+
+So before starting one of these suites, confirm nothing else is running it:
+`pgrep -f vitest` clean, and no subagent or review stage of yours still live (a
+`/code-police` or `/simplify` pass runs the suite itself — see `/be-review`).
+When a run does go wrong, kill by explicit PID from `pgrep -af`; never
+`pkill -f` a substring, per `/dev-server`. And read a failure that appears
+*only* under contention as contention until a clean solo run reproduces it.
