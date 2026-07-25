@@ -302,6 +302,19 @@ export function useTerminalMetadata(deps: {
     });
   }
 
+  /** The PANES of a tile — its root plus its splits, in server order.
+   *
+   *  A tile is ONE thing to the user and SEVERAL PTYs to the daemon, so every
+   *  surface that speaks about "this terminal" in the user's sense reads this:
+   *  the Attach section's command list, the Ports section (a dev server started
+   *  in a split is the default case, not the exotic one — observed on a real
+   *  deployment), and PRT2's forwarded-port group. Stated here once, beside the
+   *  parent/child relation the store already owns, rather than re-derived with a
+   *  fresh explanatory comment at every call site. */
+  function getTilePaneIds(tileId: TerminalId): TerminalId[] {
+    return [tileId, ...getSubTerminalIds(tileId)];
+  }
+
   /** True if any terminal outside of `excludeId`'s tree is also on
    *  `worktreePath`. Callers use this to decide whether removing the
    *  worktree would yank it out from under a live terminal.
@@ -342,6 +355,7 @@ export function useTerminalMetadata(deps: {
     recordPhases,
     terminalIds,
     getSubTerminalIds,
+    getTilePaneIds,
     isWorktreeShared,
     getDisplayInfo,
     terminalLabel,

@@ -66,25 +66,21 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   // exactly "the padi on the kolu server's own host" — so this is the whole
   // question, read off the key rather than compared against a hostname string.
   const onKoluHost = () => activeHost().kind === "local";
-  // The tile root plus its splits, exactly as the Attach section enumerates them:
-  // `terminalId` is the active TILE (never a split), so its sub-terminals are its
-  // panes.
-  //
-  // A tile is one thing to the user and several PTYs to the daemon. The scanner
-  // attributes a port to the pane whose subtree holds it — correct and
-  // unavoidable, each pane being its own process tree — but "run the dev server in
-  // the split, read the Inspector on the main pane, see nothing" is then the
-  // DEFAULT experience, because a split is exactly where a long-running server
-  // goes. Observed on a real deployment before this was fixed.
+  // Every pane of the tile: the scanner attributes a port to the pane whose
+  // subtree holds it — correct and unavoidable, each pane being its own process
+  // tree — but "run the dev server in the split, read the Inspector on the main
+  // pane, see nothing" would then be the DEFAULT experience, because a split is
+  // exactly where a long-running server goes. What a tile's panes ARE is the
+  // store's to say (`getTilePaneIds`), not this section's.
   //
   // `foldPorts` is the vocabulary's own collapse (the same one the scanner applies
   // per terminal), so the wildcard-OR rule is stated once for both ends of the
   // wire rather than re-implemented here.
   const ports = createMemo(() =>
     foldPorts(
-      [props.terminalId, ...store.getSubTerminalIds(props.terminalId)].flatMap(
-        (id) => activeArm(store.getMetadata(id))?.ports ?? [],
-      ),
+      store
+        .getTilePaneIds(props.terminalId)
+        .flatMap((id) => activeArm(store.getMetadata(id))?.ports ?? []),
     ),
   );
   return (
