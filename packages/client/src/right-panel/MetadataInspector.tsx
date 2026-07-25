@@ -1,5 +1,13 @@
 /** MetadataInspector — live view of the active terminal's full context.
- *  Pure rendering: receives metadata, renders sections. */
+ *
+ *  Layout + arm gating for the active terminal's sections. This file decides WHICH
+ *  sections show and in what order, not where their data comes from: a section that
+ *  needs more than `meta` reads it itself — `ComposeSection` reaches `activePadiRpc`,
+ *  `KavalAttachSection` and `PortsSection` the terminal store, `PortsSection` the
+ *  active host. (It used to claim "pure rendering: receives metadata, renders
+ *  sections", which three of its own children already broke — and a stated rule that
+ *  is false is worse than an unstated one, because the next reader either enforces
+ *  it wrongly or learns to ignore this file's comments.) */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { prValue } from "anyforge/schemas";
