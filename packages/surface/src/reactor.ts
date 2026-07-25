@@ -156,6 +156,17 @@ export interface PollSourceOptions<T> {
   /** Install the tick cadence: called once after the seed lands, handed a `tick`
    *  that triggers a guarded re-read. Return an uninstall fn (or nothing). */
   install: (tick: () => void) => SourceCleanup;
+  /** What to call this source in a loop-guard error. Diagnostics only — it
+   *  changes no behaviour, and it is what turns a freeze into a message naming
+   *  the cell rather than a stack in framework code. */
+  label?: string;
+  /** Where a detected self-tick loop goes. Default: THROW on its own turn, so an
+   *  unbounded cycle surfaces as a loud crash rather than a silent freeze.
+   *
+   *  Not an opt-out — the guard always fires and always stops the loop; this only
+   *  redirects the report, and exists because a test has to be able to observe it
+   *  without taking the process down. */
+  onLoop?: (err: Error) => void;
 }
 
 /** Whether a graph node is a POLL source (so `derived.cell` wires its async
@@ -291,6 +302,43 @@ export function source<T>(
  *  `unref`'d so a live sampler is not a reason to keep the event loop alive, and
  *  the returned cleanup clears it. This is the one home for the unref'd-interval
  *  hygiene every interval-driven poll source would otherwise re-spell. */
+/** How close to a finished read a tick must arrive to count as SELF-emitted.
+ *  A tick from the world crosses at least one turn of the event loop; one fired
+ *  from inside the read lands with no elapsed time at all. Small enough that an
+ *  ordinary fast edge is not mistaken for one. */
+const SELF_TICK_WINDOW_MS = 2;
+
+/** How many consecutive self-tick, value-equal re-reads make it a loop rather
+ *  than a coincidence. Three, because one or two can happen honestly — a change
+ *  edge racing a scheduled read, twice — while a genuine cycle produces them
+ *  without bound and reaches three at once. Deliberately a constant and not an
+ *  option: a threshold a consumer can raise is a threshold that gets raised to
+ *  silence the crash it exists to cause. */
+const SELF_TICK_STREAK = 3;
+
+/** Say it, loudly. Default is a throw on its own turn — an unbounded cycle must
+ *  be a crash with a stack, not a process that stops answering. */
+function reportSelfTickLoop(
+  label: string | undefined,
+  onLoop: ((err: Error) => void) | undefined,
+): void {
+  const named = label === undefined ? "" : ` "${label}"`;
+  const err = new Error(
+    `surface reactor: the poll source${named} is re-reading itself — ${SELF_TICK_STREAK} ` +
+      "consecutive re-reads were triggered by a change edge fired DURING the previous read, and each " +
+      "produced the same value. Its read announces on the very edge that triggers it, which is an " +
+      "unbounded cycle (this froze a production server: HTTP dead, SIGTERM ignored). Report the " +
+      "reconciled value by RETURNING it — the poll publishes what the read returns.",
+  );
+  if (onLoop !== undefined) {
+    onLoop(err);
+    return;
+  }
+  queueMicrotask(() => {
+    throw err;
+  });
+}
+
 export function everyMs(ms: number): (tick: () => void) => SourceCleanup {
   return (tick) => {
     const iv = setInterval(tick, ms);
@@ -347,9 +395,33 @@ export function everyMsOr(
  *  source it has no per-occurrence `subscribe` (a poll level has no per-emission
  *  meaning — it is sampled), so it is not a `scan` input; it is published
  *  directly as a cell (or a collection). */
-function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
+function pollSource<T>({
+  read,
+  install,
+  label,
+  onLoop,
+}: PollSourceOptions<T>): PollSource<T> {
   const level = signal<T | undefined>(undefined);
   let inFlight = false;
+  // ── The self-tick loop guard ─────────────────────────────────────────
+  //
+  // A poll on a FUSED cadence (`everyMsOr`) re-reads on an edge as well as a
+  // clock. A read that ANNOUNCES on that same edge closes a circle the reactor
+  // will execute forever — read → announce → tick → read — and the failure mode
+  // is a whole-process freeze that outranks SIGTERM. It happened in production.
+  //
+  // TWO conditions, and the second is what makes this safe to ship: ticks
+  // arriving in the same breath as the read that just finished (an edge from
+  // INSIDE the read, not from the world), AND results that are value-equal.
+  // Rapid edges alone are legitimate — a fused source is meant to re-read on
+  // them, and a genuine burst produces DISTINCT values. A cycle feeds itself, so
+  // every lap re-reads the same world and returns the same answer; that is what
+  // separates a loop from activity, and a rate-only guard would false-positive
+  // on exactly the bursts this fuse exists to serve.
+  let lastReadEndedAt = 0;
+  let lastSeen: string | undefined;
+  let loopStreak = 0;
+  let looped = false;
   // A tick that arrived while a read was in flight LATCHES here instead of being
   // dropped — the non-overlap guard coalesces a burst, but a trailing read after
   // the current one lands so a genuine change edge (a `install` force-resample) is
@@ -379,16 +451,35 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
   // guard but NON-fatal here. Without it a publisher throw would become an UNHANDLED
   // rejection, since nothing awaits this chain.
   const tickRead = (set: (next: T) => void): void => {
-    if (disposed) return;
+    if (disposed || looped) return;
     if (inFlight) {
       dirty = true; // coalesce; a trailing read runs when the current one finishes
       return;
     }
+    // Did this tick arrive in the same breath as the read that just ended? A
+    // world-driven edge takes at least a turn of the event loop to reach us; one
+    // emitted from inside the read arrives with no time elapsed at all.
+    const immediate =
+      lastReadEndedAt !== 0 &&
+      Date.now() - lastReadEndedAt <= SELF_TICK_WINDOW_MS;
     inFlight = true;
     Promise.resolve()
       .then(() => read(connSignal))
       .then((v) => {
         if (disposed) return;
+        // The value-equality half. A structural compare rather than a supplied
+        // comparator: this is a LOOP detector, not the wire dedup, so it needs
+        // "did the world move at all" — and a cell equals() may legitimately
+        // call two genuinely different values the same.
+        const shape = JSON.stringify(v);
+        loopStreak = immediate && shape === lastSeen ? loopStreak + 1 : 0;
+        lastSeen = shape;
+        lastReadEndedAt = Date.now();
+        if (loopStreak >= SELF_TICK_STREAK) {
+          looped = true;
+          reportSelfTickLoop(label, onLoop);
+          return;
+        }
         level.value = v;
         set(v);
       })

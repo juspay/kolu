@@ -71,6 +71,7 @@ import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
+import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
 import { HostUnseenPill } from "./HostUnseenPill";
 import {
   chipStatusDot,
@@ -131,7 +132,7 @@ const HostChip: Component<{
   // so its key is encoded a single time.
   const encKey = encodeHostKey(props.host);
   const marks = hostMarks(encKey);
-  // How many doors kolu holds open to this host — the `⇄ n` badge below.
+  // How many doors kolu holds open to this host — the ring on the dot below.
   const forwardCount = () => forwardsForHost(props.host).length;
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
@@ -183,7 +184,7 @@ const HostChip: Component<{
           data-testid="host-diagnostics-open"
           aria-haspopup="dialog"
           aria-expanded={diagOpen()}
-          aria-label={`Details for ${name()} — ${glance().title}`}
+          aria-label={`Details for ${name()} — ${glance().title}${forwardCount() > 0 ? `, ${forwardRingLabel(forwardCount())}` : ""}`}
           title={`${glance().title} — click for details`}
           class="pointer-events-auto ml-2 flex h-7 w-4 shrink-0 items-center justify-center rounded-tl-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
           onClick={(e) => {
@@ -192,9 +193,15 @@ const HostChip: Component<{
             props.diagnostics.toggle(encKey);
           }}
         >
-          <span
-            class={`inline-block h-2 w-2 rounded-full shrink-0 ${statusDot()}`}
-            aria-hidden="true"
+          {/* The dot, ringed when kolu holds forwards to this host. The ring
+           *  composes AROUND the pip and never touches its colour — see
+           *  `HostStatusDot`. It replaced a `⇄ n` chip beside the label: this
+           *  button is already what opens the dropdown the forward rows live
+           *  in, so the count belongs in its label rather than in a second
+           *  visual competing with the attention pills. */}
+          <HostStatusDot
+            statusDot={statusDot()}
+            forwardCount={forwardCount()}
           />
         </button>
         <button
@@ -233,22 +240,6 @@ const HostChip: Component<{
             hostLabel={name()}
             sizeClass="ml-0.5 min-w-4 px-1 h-4"
           />
-          {/* `⇄ n` — this host has open forwards. Deliberately NOT an attention
-           *  mark: the two pills above are things asking for your attention, and a
-           *  forward is a standing state you chose. It reads as "kolu is holding
-           *  doors open here", which is glanceable from anywhere without opening
-           *  the dropdown that lists them. Hidden at zero. */}
-          <Show when={forwardCount() > 0}>
-            <span
-              class="ml-0.5 inline-flex h-4 shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-medium tabular-nums bg-accent/15 text-accent"
-              data-testid="host-forward-badge"
-              data-host={encKey}
-              data-count={forwardCount()}
-              title={`${forwardCount()} forwarded port${forwardCount() === 1 ? "" : "s"} on ${name()}`}
-            >
-              ⇄{forwardCount()}
-            </span>
-          </Show>
         </button>
       </div>
       <Show when={diagOpen()}>

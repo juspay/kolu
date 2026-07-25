@@ -11,11 +11,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { portUrl } from "../forwards/portUrl";
 import {
   FORWARD_REASON,
   NO_MECHANISM_REASON,
   portAction,
-  portUrl,
 } from "./PortsSection";
 
 describe("portUrl", () => {

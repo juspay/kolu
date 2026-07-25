@@ -163,39 +163,64 @@ async function portsView(world: KoluWorld): Promise<PortsView> {
     const section = document.querySelector('[data-testid="inspector-ports"]');
     if (section === null)
       return { present: false, rows: [], forwardable: [], badges: [] };
-    const byTestId = (id: string) => [
-      ...section.querySelectorAll(`[data-testid="${id}"]`),
+    // Read ROW BY ROW rather than by scanning every `[data-port]` in the
+    // section: the merged section carries that attribute on the row AND on the
+    // controls inside it, so a flat scan would report one port several times and
+    // "is it openable?" could be answered by whichever element came first. Per
+    // row, each question has exactly one answer.
+    const rows = [
+      ...section.querySelectorAll('[data-testid="inspector-port-row"]'),
     ];
+    const pick = (row: Element, id: string) =>
+      row.querySelector(`[data-testid="${id}"]`);
     return {
       present: true,
-      rows: [...section.querySelectorAll("[data-port]")].map((el) => ({
-        port: Number(el.getAttribute("data-port")),
-        openable: el.getAttribute("data-testid") === "inspector-port-open",
+      rows: rows.map((row) => ({
+        port: Number(row.getAttribute("data-port")),
+        openable: pick(row, "inspector-port-open") !== null,
       })),
-      forwardable: byTestId("inspector-port-forward-open").map((el) =>
-        Number(el.getAttribute("data-port")),
-      ),
-      badges: byTestId("inspector-port-forward-badge").map((el) => ({
-        port: Number(el.getAttribute("data-port")),
-        // `⇄ :61000` — the number is what a user would read off the row and
-        // paste, so the assertion reads it the same way rather than trusting a
-        // second attribute the rendering does not show.
-        localPort: Number(/:(\d+)/.exec(el.textContent ?? "")?.[1] ?? 0),
-      })),
+      forwardable: rows
+        .filter((row) => pick(row, "inspector-port-forward-open") !== null)
+        .map((row) => Number(row.getAttribute("data-port"))),
+      badges: rows
+        .filter((row) => pick(row, "inspector-port-forward-badge") !== null)
+        .map((row) => {
+          const port = Number(row.getAttribute("data-port"));
+          const text =
+            pick(row, "inspector-port-forward-badge")?.textContent ?? "";
+          const named = /:(\d+)/.exec(text)?.[1];
+          // The badge shows `⇄ :61000` when the door differs from the port and a
+          // bare `⇄` when it does not — same-port is the common case and
+          // repeating the number there is noise. So a bare mark MEANS the local
+          // port equals the remote one, which is what this reports.
+          return {
+            port,
+            localPort: named === undefined ? port : Number(named),
+          };
+        }),
     };
   });
 }
 
-/** What the Forwarded Ports group is showing, wherever it is rendered. */
+/** The forward state carried by rows of the ONE ports section.
+ *
+ *  There used to be a second titled "Forwarded Ports" group, and a forwarded
+ *  port appeared in BOTH — once as a chip and again as a row. The merge means a
+ *  forwarded port is one row that carries its own forward controls, so this
+ *  reads the ports section rather than a separate group. */
 async function forwardRows(
   world: KoluWorld,
 ): Promise<Array<{ port: number; origin: string }>> {
-  return world.page.evaluate(() =>
-    [...document.querySelectorAll('[data-testid="forward-row"]')].map((el) => ({
-      port: Number(el.getAttribute("data-port")),
-      origin: el.getAttribute("data-origin") ?? "",
-    })),
-  );
+  return world.page.evaluate(() => {
+    const section = document.querySelector('[data-testid="inspector-ports"]');
+    if (section === null) return [];
+    return [...section.querySelectorAll('[data-forwarded="yes"]')].map(
+      (el) => ({
+        port: Number(el.getAttribute("data-port")),
+        origin: el.getAttribute("data-origin") ?? "",
+      }),
+    );
+  });
 }
 
 /** How a timed-out poll describes what it last saw. */
@@ -385,7 +410,7 @@ Then(
 );
 
 Then(
-  "the Forwarded Ports group should list port {int}",
+  "the ports section should show port {int} as forwarded",
   async function (this: KoluWorld, port: number) {
     const rows = await pollFor({
       observe: () => forwardRows(this),
@@ -403,7 +428,7 @@ Then(
 );
 
 Then(
-  "the Forwarded Ports group should not list port {int}",
+  "the ports section should no longer show port {int} as forwarded",
   async function (this: KoluWorld, port: number) {
     await pollFor({
       observe: () => forwardRows(this),

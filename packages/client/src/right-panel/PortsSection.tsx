@@ -30,7 +30,6 @@ import { activeArm } from "@kolu/padi/surface";
 import {
   foldPorts,
   knownPorts,
-  type PortInfo,
   type PortReach,
   portReach,
   samePortList,
@@ -38,28 +37,23 @@ import {
 } from "kolu-common/surface";
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { createForward, forwardFor, viewerHost } from "../forwards/useForwards";
+import {
+  ForwardCancelButton,
+  ForwardCopyButton,
+} from "../forwards/ForwardRows";
+import {
+  createForward,
+  forwardsForHost,
+  viewerHost,
+} from "../forwards/useForwards";
 import { sameHost } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OpenIcon } from "../ui/Icons";
 import Section from "../ui/Section";
+import { portUrl } from "../forwards/portUrl";
+import { type PortRow as PortRowData, portRows } from "./portRows";
 import { activeHost } from "../wire";
-
-/** The URL a wildcard-bound port answers on: the host the page was served from,
- *  which IS the kolu server's host. Exported for the unit test — the whole point of
- *  this function is the hostname it does NOT use.
- *
- *  An IPv6 literal is RE-BRACKETED. `location.hostname` strips the brackets the URL
- *  form requires, so a kolu reached over IPv6 (a tailnet `fd7a:…` address is the
- *  ordinary case, not an exotic one) yielded `http://fd7a::2:8123` — where the
- *  parser reads the last `:8123` as part of the address and the URL is simply
- *  malformed. Detected by the colon: a registered hostname or an IPv4 literal can
- *  never contain one, so this needs no address parsing. */
-export function portUrl(hostname: string, port: number): string {
-  const host = hostname.includes(":") ? `[${hostname}]` : hostname;
-  return `http://${host}:${port}`;
-}
 
 /** The words for each reason a chip is not open-as-is — a table over `PortReach`'s
  *  `via` union, so a new mechanism is a COMPILE ERROR here rather than a silently
@@ -166,22 +160,33 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     { equals: samePortList },
   );
   const host = () => activeHost();
+  /** The ONE list: what this terminal serves, joined to the doors kolu holds,
+   *  plus this host's doors that match no scanned port (a ⌘K forward, or one
+   *  whose listener died before the reap). Two titled groups used to render a
+   *  forwarded port twice; the join is in `portRows` so its ordering and host
+   *  scoping are pinned without a DOM. */
+  const rows = createMemo(() =>
+    portRows({
+      ports: ports(),
+      forwards: forwardsForHost(host()),
+      host: host(),
+    }),
+  );
   return (
-    <Show when={ports().length > 0}>
+    <Show when={rows().length > 0}>
       <Section title="Ports">
-        <div class="flex flex-col gap-1" data-testid="inspector-ports">
-          <For each={ports()}>
-            {(port) => {
+        <div class="flex flex-col" data-testid="inspector-ports">
+          <For each={rows()}>
+            {(row) => {
               const reach = () =>
-                portReach({
-                  scope: port.scope,
-                  onKoluHost: isActiveHostLocal(),
-                });
-              /** The door kolu already holds for this port, if any — what turns the
-               *  chip into a plain link and gives it its `⇄ :<localPort>` badge. */
-              const forward = () => forwardFor(host(), port.port);
-              /** What a click should do — the one decision, made in `portAction`
-               *  so this render site reads it rather than restating it. */
+                row.kind === "orphan"
+                  ? // An orphan has no bind to judge — it is a door, not a
+                    // listener. It always has a forward, so its link is the door.
+                    ({ kind: "needs-forward", via: "loopback" } as PortReach)
+                  : portReach({
+                      scope: row.info.scope,
+                      onKoluHost: isActiveHostLocal(),
+                    });
               const action = () =>
                 portAction({
                   reach: reach(),
@@ -190,31 +195,33 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                   viewerOnHost:
                     viewerHost() !== null && sameHost(viewerHost()!, host()),
                 });
-              /** WHERE the link points. `here` answers on the page's own host;
-               *  `viewer` on the browser's own machine, which is the ONE place
-               *  `localhost` is the right word rather than the trap; a forwarded
-               *  port answers on its door. `undefined` means there is nothing to
-               *  open YET — the click opens the door first. */
               const openAt = (): { host: string; port: number } | undefined => {
                 const a = action();
                 if (a.kind === "here") {
-                  return { host: window.location.hostname, port: port.port };
+                  return { host: window.location.hostname, port: row.port };
                 }
                 if (a.kind === "viewer") {
-                  return { host: "localhost", port: port.port };
+                  return { host: "localhost", port: row.port };
                 }
-                const local = forward()?.localPort;
+                const local = row.forward?.localPort;
                 return local === undefined
                   ? undefined
                   : { host: window.location.hostname, port: local };
               };
               return (
                 <PortRow
-                  port={port}
-                  reach={reach()}
+                  row={row}
                   action={action()}
                   openAt={openAt()}
-                  localPort={forward()?.localPort}
+                  forwardReason={
+                    reach().kind === "needs-forward"
+                      ? FORWARD_REASON[
+                          (reach() as { via: "loopback" | "remote-host" }).via
+                        ]
+                      : reach().kind === "no-mechanism"
+                        ? NO_MECHANISM_REASON["interface-bind"]
+                        : undefined
+                  }
                   onForward={async () => {
                     // LAZY — this is the first click on this port, so the door is
                     // opened now rather than eagerly for every port the scanner
@@ -223,7 +230,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                     // door has nothing behind it and closes itself.
                     const created = await createForward({
                       host: host(),
-                      port: port.port,
+                      port: row.port,
                       origin: "auto",
                     });
                     return created.localPort;
@@ -238,22 +245,31 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   );
 };
 
-/** One port row. Split out because it holds the one piece of state in this file —
- *  "a forward is being opened right now" — and a component per row is how that
- *  stays per row rather than becoming a map keyed by port number. */
+/** One row of the ports section — a port this terminal serves, or a door on this
+ *  host with no scanned port behind it.
+ *
+ *  Hierarchy is deliberate and is the whole of the "look nicer" ask: the NUMBER
+ *  and the program name are the subject and carry the weight; everything else —
+ *  the door it answers on, copy, cancel — is quiet until the row is hovered or
+ *  focused, and reachable by keyboard regardless. An orphan row is dimmer still,
+ *  because it is a footnote about the host rather than an answer about this
+ *  terminal.
+ *
+ *  It holds the one piece of state in this file — "a forward is being opened
+ *  right now" — and a component per row is how that stays per row rather than
+ *  becoming a map keyed by port number. */
 const PortRow: Component<{
-  port: PortInfo;
-  reach: PortReach;
-  /** What a click should do — see {@link portAction}. */
+  row: PortRowData;
   action: PortAction;
   /** WHERE the link points, or `undefined` when a door has to be opened first. */
   openAt: { host: string; port: number } | undefined;
-  /** The door's port, when there is a door — rendered as the `⇄ :N` badge. */
-  localPort: number | undefined;
+  /** Why this port is not open-as-is, when it is not. */
+  forwardReason: string | undefined;
   /** Open the door. Resolves with the local port it answers on. */
   onForward: () => Promise<number>;
 }> = (props) => {
   const [opening, setOpening] = createSignal(false);
+  const forward = () => props.row.forward;
 
   /** Open the door, then the page. The window is opened SYNCHRONOUSLY inside the
    *  click — before the await — because a popup blocker judges a `window.open`
@@ -266,8 +282,7 @@ const PortRow: Component<{
    *  there would be no handle to navigate once the forward is up — the flag and
    *  this flow are mutually exclusive. Severing `opener` on the blank tab (while
    *  it is still same-origin `about:blank`, the one moment this is possible)
-   *  reaches the same posture the anchor path gets from `rel="noopener"`: the
-   *  dev server cannot reach back into kolu's window. */
+   *  reaches the same posture the anchor path gets from `rel="noopener"`. */
   const openThroughForward = async (): Promise<void> => {
     if (opening()) return;
     setOpening(true);
@@ -277,9 +292,6 @@ const PortRow: Component<{
       const localPort = await props.onForward();
       const url = portUrl(window.location.hostname, localPort);
       if (tab === null) {
-        // The blocker ate it anyway (or the browser refuses popups outright).
-        // The door IS open and listed, so say where it is rather than failing
-        // silently — the user can click the row in Forwarded Ports.
         toast.info(`Forward open on port ${localPort}`, {
           description: "Your browser blocked the new tab.",
         });
@@ -289,55 +301,55 @@ const PortRow: Component<{
     } catch (err) {
       tab?.close();
       toast.error(
-        `Could not forward port ${props.port.port}: ${(err as Error).message}`,
+        `Could not forward port ${props.row.port}: ${(err as Error).message}`,
       );
     } finally {
       setOpening(false);
     }
   };
 
-  const noMechanismReason = () =>
-    props.reach.kind === "no-mechanism"
-      ? NO_MECHANISM_REASON[props.reach.via]
-      : undefined;
-  const forwardReason = () =>
-    props.reach.kind === "needs-forward"
-      ? FORWARD_REASON[props.reach.via]
-      : undefined;
-
   return (
-    <div class="flex items-baseline gap-2 text-[11px] leading-snug">
-      <span class="font-mono text-fg font-semibold tabular-nums">
-        {props.port.port}
+    <div
+      class="group/port flex items-baseline gap-2 rounded px-1 py-0.5 -mx-1 text-[11px] leading-snug transition-colors hover:bg-surface-2/60"
+      classList={{ "opacity-70": props.row.kind === "orphan" }}
+      data-testid="inspector-port-row"
+      data-port={props.row.port}
+      data-forwarded={forward() ? "yes" : undefined}
+      data-origin={forward()?.origin}
+      data-orphan={props.row.kind === "orphan" ? "" : undefined}
+    >
+      <span class="font-mono font-semibold tabular-nums text-fg">
+        {props.row.port}
       </span>
-      <span class="font-mono text-fg-3/80 truncate min-w-0">
-        {props.port.name}
+      <span class="min-w-0 flex-1 truncate font-mono text-fg-3/80">
+        {props.row.kind === "port" ? props.row.name : "forwarded on this host"}
       </span>
-      <span class="ml-auto shrink-0 flex items-baseline gap-1.5">
-        <Show when={props.localPort !== undefined}>
-          {/* The door, named by the port it answers on — the number in the URL
-           *  that just opened, so a user who wants to paste it can read it off
-           *  the row instead of the tab. */}
+
+      {/* The door, when there is one — the number that is actually in the URL,
+       *  shown only when it DIFFERS from the port itself. Same-port is the
+       *  common case and repeating the number there is noise. */}
+      <Show when={forward()}>
+        {(f) => (
           <span
-            class="font-mono text-[10px] rounded px-1 bg-accent/15 text-accent"
+            class="shrink-0 font-mono text-[10px] text-accent/80"
             data-testid="inspector-port-forward-badge"
-            data-port={props.port.port}
-            title={`forwarded to port ${props.localPort} on this host`}
+            data-port={props.row.port}
+            title={`forwarded to port ${f().localPort} on this host · ${f().origin}`}
           >
-            ⇄ :{props.localPort}
+            {f().localPort === props.row.port ? "⇄" : `⇄ :${f().localPort}`}
           </span>
-        </Show>
+        )}
+      </Show>
+
+      <span class="ml-auto flex shrink-0 items-baseline gap-1.5">
         <Show
           when={props.action.kind !== "none"}
           fallback={
-            // No door exists and none can be built — the one arm with nothing to
-            // offer. It states the situation rather than presenting an action
-            // that would open a listener refusing every connection through it.
             <span
-              class="text-fg-3/50 text-[10px] italic"
+              class="text-[10px] italic text-fg-3/50"
               data-testid="inspector-port-no-mechanism"
-              data-port={props.port.port}
-              title={noMechanismReason()}
+              data-port={props.row.port}
+              title={props.forwardReason}
             >
               not reachable
             </span>
@@ -346,47 +358,47 @@ const PortRow: Component<{
           <Show
             when={props.openAt}
             fallback={
-              // No door yet: a BUTTON, because the click has work to do before
-              // there is a URL to point at. An anchor with no href would be a
-              // link to nowhere, and one with a guessed href would open a tab at
-              // a port nothing answers on.
               <button
                 type="button"
                 class="inline-flex items-center gap-1 text-accent hover:underline disabled:opacity-50"
                 data-testid="inspector-port-forward-open"
-                data-port={props.port.port}
+                data-port={props.row.port}
                 disabled={opening()}
-                title={forwardReason()}
+                title={props.forwardReason}
                 onClick={() => void openThroughForward()}
               >
-                <OpenIcon class="w-3 h-3" />
+                <OpenIcon class="h-3 w-3" />
                 {opening() ? "opening…" : "forward & open"}
               </button>
             }
           >
             {(at) => (
-              /* An ANCHOR, matching the Pull Request row two sections up
-               *  in this same panel — not a `window.open` button. The browser
-               *  then gives middle-click, cmd-click, "copy link address" and a
-               *  status-bar URL preview for free (that last one is why the
-               *  button had to hand-roll a `title`), and a popup blocker
-               *  cannot eat it. A `window.open` call stays right for the Code
-               *  tab, where the URL arrives by `postMessage` and there is no
-               *  element to hang an href on — and for the forward path above,
-               *  where the URL does not exist until the door is open. */
               <a
                 href={portUrl(at().host, at().port)}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="inline-flex items-center gap-1 text-accent hover:underline"
                 data-testid="inspector-port-open"
-                data-port={props.port.port}
+                data-port={props.row.port}
               >
-                <OpenIcon class="w-3 h-3" />
+                <OpenIcon class="h-3 w-3" />
                 open
               </a>
             )}
           </Show>
+        </Show>
+
+        {/* Copy and cancel belong to the DOOR, so they appear only on a row that
+         *  has one. Quiet until the row is hovered or something in it is
+         *  focused — always reachable by keyboard, never shouting on a list
+         *  the user is only reading. */}
+        <Show when={forward()}>
+          {(f) => (
+            <span class="flex items-baseline gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/port:opacity-100">
+              <ForwardCopyButton forward={f()} />
+              <ForwardCancelButton forward={f()} />
+            </span>
+          )}
         </Show>
       </span>
     </div>

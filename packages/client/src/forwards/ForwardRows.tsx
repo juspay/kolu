@@ -1,20 +1,22 @@
 /**
- * The forward ROWS — `host:remotePort → :localPort · auto|manual · ⧉ · ⨯` — as
- * one component, rendered by all three of the surfaces that show forwards: the
- * Inspector's Forwarded Ports group, the host tab's dropdown, and (via the count)
- * the host tab's own `⇄ n` badge.
+ * The forward row and its two controls.
  *
- * One component rather than three renderings of the same list, because the row is
- * where the small decisions live — which port goes in the link (the LOCAL one,
- * always: the remote port is the far end's number and answers nowhere the browser
- * can reach), what the copy button copies, what cancelling actually cancels — and
- * three copies of those would be three chances to get one of them subtly wrong.
+ * The Inspector no longer renders a "Forwarded Ports" GROUP — its ports section
+ * merged the two, so a forwarded port is one row carrying its own door inline —
+ * but it still uses the two BUTTONS from here (`ForwardCopyButton`,
+ * `ForwardCancelButton`), which is the point of them being their own components:
+ * what copy copies and what cancel cancels are decided once, wherever a door is
+ * shown.
+ *
+ * `ForwardRows` itself is now the HOST DROPDOWN's list alone. It has no ports
+ * context to merge into — it is a host's doors, listed as such — so it keeps the
+ * fuller `host:remotePort → :localPort · origin` row.
  */
 
 import type { KoluForward } from "kolu-common/surface";
 import { type Component, For, Show, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { portUrl } from "../right-panel/PortsSection";
+import { portUrl } from "./portUrl";
 import { cancelForward } from "./useForwards";
 
 /** The URL a forward answers on. Always built from `location.hostname` and the
@@ -33,7 +35,9 @@ export function forwardLabel(forward: KoluForward): string {
     : `${forward.host.target}:${forward.remotePort}`;
 }
 
-const CopyButton: Component<{ forward: KoluForward }> = (props) => {
+export const ForwardCopyButton: Component<{ forward: KoluForward }> = (
+  props,
+) => {
   const [copied, setCopied] = createSignal(false);
   return (
     <button
@@ -63,7 +67,9 @@ const CopyButton: Component<{ forward: KoluForward }> = (props) => {
   );
 };
 
-const CancelButton: Component<{ forward: KoluForward }> = (props) => (
+export const ForwardCancelButton: Component<{ forward: KoluForward }> = (
+  props,
+) => (
   <button
     type="button"
     class="shrink-0 text-fg-3/70 hover:text-danger transition-colors cursor-pointer"
@@ -116,8 +122,8 @@ export const ForwardRow: Component<{ forward: KoluForward }> = (props) => (
       {props.forward.origin}
     </span>
     <span class="ml-auto shrink-0 flex items-baseline gap-1.5">
-      <CopyButton forward={props.forward} />
-      <CancelButton forward={props.forward} />
+      <ForwardCopyButton forward={props.forward} />
+      <ForwardCancelButton forward={props.forward} />
     </span>
   </div>
 );

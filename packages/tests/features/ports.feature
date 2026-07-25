@@ -56,7 +56,7 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     When I click forward-and-open for port 8127
     Then the forwarded tab should load the listener's page
     And the inspector should show a forward badge for port 8127
-    And the Forwarded Ports group should list port 8127
+    And the ports section should show port 8127 as forwarded
     And there should be no page errors
 
   Scenario: A dev server on the v6 loopback forwards to the v6 loopback
@@ -86,7 +86,7 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     And I click forward-and-open for port 8128
     Then the forwarded tab should load the listener's page
     When I cancel the forward for port 8128
-    Then the Forwarded Ports group should not list port 8128
+    Then the ports section should no longer show port 8128 as forwarded
     # The door is really shut, not just unlisted — the whole reason cancel exists.
     And the forwarded port should refuse connections
     And there should be no page errors

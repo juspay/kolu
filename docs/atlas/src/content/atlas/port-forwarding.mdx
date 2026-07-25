@@ -36,18 +36,14 @@ export const Mockup = () => (
 export const Prt2Mockup = () => (
   <div style="font-family:ui-sans-serif,system-ui;max-width:26rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)">
     <div style="padding:.7rem 1rem .45rem;border-bottom:1px solid #232834;font:.78rem/1.4 ui-monospace,monospace;color:#8b93a3">
-      <span style="color:#d6dae2">⌂ pureintent</span>&nbsp;&nbsp;·&nbsp;&nbsp;zest&nbsp;&nbsp;·&nbsp;&nbsp;<span style="background:#2a2138;border:1px solid #4a3a68;border-radius:6px;padding:.1rem .45rem;color:#d6dae2">naiveintent <b style="color:#b79df0">⇄2</b></span>&nbsp;&nbsp;·&nbsp;&nbsp;kolu-bot
+      <span style="color:#d6dae2">⌂ pureintent</span>&nbsp;&nbsp;·&nbsp;&nbsp;zest&nbsp;&nbsp;·&nbsp;&nbsp;<span style="background:#2a2138;border:1px solid #4a3a68;border-radius:6px;padding:.1rem .45rem;color:#d6dae2"><span style="display:inline-block;width:.55rem;height:.55rem;border-radius:50%;background:#4ade80;box-shadow:0 0 0 2px #14171e,0 0 0 3px #b79df0;margin-right:.35rem"></span>naiveintent</span>&nbsp;&nbsp;·&nbsp;&nbsp;kolu-bot
     </div>
-    <div style="margin:.6rem 1rem;border:1px solid #2a2f3a;border-radius:8px;background:#181c24;padding:.55rem .8rem;font:.72rem/1.8 ui-monospace,monospace">
-      <div style="color:#d6dae2"><b>naiveintent</b> <span style="color:#5b6470">— connected · terminals 7</span></div>
-      <div style="color:#8b93a3;letter-spacing:.08em;font-size:.62rem;margin-top:.3rem">FORWARDED PORTS</div>
-      <div style="color:#a9b0be">⇄ <a style="color:#4da3ff">5173 → :5173</a> · auto · <span style="color:#5b6470">⧉</span> <span style="color:#e06c60">⨯</span></div>
-      <div style="color:#a9b0be">⇄ <a style="color:#4da3ff">8080 → :61003</a> · manual · <span style="color:#5b6470">⧉</span> <span style="color:#e06c60">⨯</span></div>
-    </div>
-    <div style="padding:.4rem 1rem .2rem;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PORTS <span style="float:right;color:#5b6470">inspector</span></div>
-    <div style="padding:.1rem 1rem .5rem;font:.75rem/1.9 ui-monospace,monospace;color:#d6dae2">
-      <div>🌐 <b>8124</b> <span style="color:#8b93a3">node</span> <span style="float:right"><span style="color:#4da3ff">⤴ open</span> <span style="background:#2a2138;color:#b79df0;border-radius:5px;padding:.05rem .4rem">⇄ :8124</span></span></div>
-      <div>🌐 <b>5173</b> <span style="color:#8b93a3">vite</span> <span style="float:right;color:#4da3ff">⤴ open</span></div>
+    <div style="padding:.5rem 1rem .2rem;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PORTS <span style="float:right;color:#5b6470">inspector</span></div>
+    <div style="padding:.15rem 1rem .5rem;font:.75rem/1.95 ui-monospace,monospace;color:#d6dae2">
+      <div><b>8124</b> <span style="color:#8b93a3">node</span> <span style="float:right"><span style="color:#b79df0;font-size:.68rem">⇄ :61000</span>&nbsp; <span style="color:#4da3ff">open</span> <span style="color:#5b6470">⧉ ⨯</span></span></div>
+      <div><b>5173</b> <span style="color:#8b93a3">vite</span> <span style="float:right"><span style="color:#b79df0;font-size:.68rem">⇄</span>&nbsp; <span style="color:#4da3ff">open</span> <span style="color:#5b6470">⧉ ⨯</span></span></div>
+      <div><b>9229</b> <span style="color:#8b93a3">node</span> <span style="float:right;color:#4da3ff">forward &amp; open</span></div>
+      <div style="opacity:.62"><b>8080</b> <span style="color:#8b93a3">forwarded on this host</span> <span style="float:right"><span style="color:#b79df0;font-size:.68rem">⇄ :61003</span>&nbsp; <span style="color:#4da3ff">open</span> <span style="color:#5b6470">⧉ ⨯</span></span></div>
     </div>
     <div style="margin:0 1rem .8rem;border:1px solid #2a2f3a;border-radius:8px;background:#0e1116;padding:.5rem .8rem;font:.72rem/1.7 ui-monospace,monospace">
       <div style="color:#5b6470">⌘K&nbsp; <span style="color:#d6dae2">forw<span style="border-left:1px solid #d6dae2">&nbsp;</span></span></div>
@@ -201,7 +197,7 @@ A **Ports** section joins the existing blocks in
 data arrives on the terminal's metadata like everything else). The flows:
 
 - **Open.** Click a chip → `window.open` on `http://${location.hostname}:…`, matching the Code tab's external-open idiom (`CodeTab.tsx:1114`). Case-3 ports open **directly**; cases 1–2 call the embedded library's `create`, get the listener port, open it, and the chip gains a `⇄ :61000` badge. Forwarding is **lazy — first click only**, never eager for every detected port.<Footnote>An agent session can hold six listening ports; auto-tunneling all of them VS-Code-style keeps idle listeners alive for ports nobody opens. Lazy costs one ssh handshake on first click — the price of a forward that dies with the process that opened it, and the reason to pay it once per opened port rather than once per detected one.</Footnote>
-- **Manage.** A **Forwarded Ports** group lists every active kolu forward — `host:remotePort → :localPort`, origin `auto` (chip click) or `manual`, cancel `⨯` per row. Kolu auto-cancels an `auto` forward when the scanner sees its remote port die; `manual` forwards persist until cancelled or their host disconnects. The same list appears **in the host tab's dropdown** (beside state · terminals · padi·kaval), and the host tab itself carries a **`⇄ n` badge** while forwards are live there: forwards are host-scoped, so the host popover is their natural home — each row a clickable `http://…` link with copy `⧉` and cancel `⨯` — while the Inspector group shows the same rows filtered to the active terminal's host.
+- **Manage, in ONE section.** The Inspector shows a single **Ports** list: a forwarded port is ONE row carrying its own door — the local port when it differs from its own number, open, copy `⧉`, cancel `⨯`, and its `auto`/`manual` origin in the tooltip. It used to be two stacked groups, and a forwarded port appeared in both (a chip in one, a row in the other); two renderings of one fact invite the reader to hunt for the difference. What the second group was RIGHT about is kept: a forward is a fact about the HOST, so a ⌘K forward, or one whose listener has died but whose door is not reaped yet, matches no scanned port — those trail the same section as subdued rows rather than disappearing. The **host tab's dropdown** keeps its own fuller list (it has no ports context to merge into), and the host tab's **connection dot wears a ring** while forwards are live there — the dot is already what opens that dropdown, so the count moved into its label rather than into a second chip beside it.<Footnote>The ring composes AROUND the pip and never touches its colour, which is painted from the connection-health fact and nothing else. A forward marker that recoloured the dot would be a green-over-a-dead-link dot by a new route — the exact class of bug that rule exists to make unrenderable — so the two facts share a glyph without sharing a paint.</Footnote>
 - **Manual forward.** The `＋ Forward a port…` row and a <Kbd keys="⌘+K" /> command accept `host:port` — for a port the scanner missed or one outside any terminal's subtree.
 - **The unit is the TILE, not the pane.** A tile is one thing to the user and several PTYs to the daemon, so the scanner attributes a port to whichever *pane's* subtree holds it — correct and unavoidable. But **a dev server almost always runs in a split**, so a section that read only the main pane showed nothing in the common case (observed on a live deployment during PRT1, not in review). Every ports surface therefore reads main + splits, the same unit the Attach section already documents, merging rather than grouping: which pane a listener sits in is a detail of how the user split their tile. PRT2's **Forwarded Ports** group and auto-cancel inherit this — a forward belongs to the tile that opened it, not to a pane that may be closed while the server keeps running.
 - **Discoverability.** One tip in `settings/tips.ts`: "Click a port in the Inspector to open the server an agent just started."
@@ -826,49 +822,45 @@ dev servers is a genuinely bigger build, and any server sending
 path must remain the fallback regardless.</Footnote>; no design here yet —
 when it matures this section is rewritten, not layered.
 
-## What this track sends upstream
+## What this track sent upstream
 
-PRT2's production incident is the best evidence for what belongs in the
-`@kolu/surface` frameworks rather than in this feature. Queued deliberately
-**behind** PRT2's field verification — these are dispatched only once the
-deployed fixes have been tested by hand — and deliberately short of minted
-phase ids: each becomes a phase in the *surface* notes when it is planned
-there, not here.
+PRT2 production incident was the best evidence for what belongs in the
+`@kolu/surface` frameworks rather than in this feature, and the human unlocked
+this once the deployed fixes were verified by hand. Two of the four shipped in
+this PR; the other two are reported here as they actually stand, because a
+roadmap that claims work it did not do is worse than one that is short.
 
-1. **A loop guard in the reactor.** The freeze was the reactor executing a
-   legal wiring forever: `everyMsOr(interval, onChange)` plus a read that can
-   fire its own change edge is an unbounded cycle, and the failure mode is a
-   silent whole-process freeze that outranks SIGTERM. The consumer-side fix
-   (publish only on change) removes this instance; the class stays
-   expressible, and `processMemory` and `daemonInventory` sit on identical
-   wiring today. Upstream: the reactor detects change-ticks arriving faster
-   than the interval whose re-reads produce value-equal results, and **crashes
-   loudly naming the cell** — a freeze becomes a stack trace pointing at the
-   cycle.<Footnote>Companion: generalize PRT2's wiring-level convergence test
-   (the bounded-read-count assertion) into an `assertCellConverges` helper in
-   surface's test lib, so every future fused cell gets the regression for
-   free.</Footnote>
-2. **`Observed<T>` — the known/unknown vocabulary, deduplicated.** "Blind must
-   never look like empty" is now hand-rolled three times: `ProcessRss`,
-   `TerminalPorts`, and PRT2's `HostPorts` — the same discriminated shape with
-   the same fold-and-compare logic around each. One small
-   `Observed<T> = known(T) | unknown` with its fold, where surface consumers
-   share vocabulary; three real consumers on day one, a fourth when
-   [osfacts](./os-facts-tool.html)' `unreadable` section lands kolu-side.
-3. **Trusted-proxy viewer identity, once field-hardened.** "Who is actually at
-   the other end of this connection" is a transport fact any surface-served
-   app behind a reverse proxy needs — kolu got it wrong twice in one day
-   (peer ≠ viewer behind `tailscale serve`). The trust-gated resolution
-   (direct peer must be a local hop before `X-Forwarded-For` counts) lifts to
-   the surface server layer; drishti's web face, deployed the same way, needs
-   the identical answer the day it makes any per-viewer
-   decision.<Footnote>The larger horizon behind it — multi-viewer presence
-   ("which machine is each viewer on") — stays unplanned on purpose: this PR
-   itself proved that shapes predicted for imagined consumers turn out
-   unwanted when the real one arrives. Extraction here rides proven
-   duplication, not imagination.</Footnote>
-4. **Two doctrine lines for the surface contract docs.** *A per-viewer answer
-   is a root RPC, never a broadcast cell* (PRT2 got this right by instinct;
-   nothing enforces it), and *a poll read may reconcile, but publishes only on
-   change* (the incident's lesson in one sentence). Cheap to write down;
-   prevents the next consumer rediscovering either the hard way.
+**Shipped.**
+
+1. **A loop guard in the reactor.** The freeze was the reactor executing a legal
+   wiring forever, and the class stayed expressible after the consumer-side fix —
+   `processMemory` and `daemonInventory` sit on identical wiring today. The poll
+   source now detects it: three consecutive re-reads triggered by a change edge
+   fired DURING the previous read, each producing a value-equal result, throw
+   naming the source. **Value-equality is the discriminator**, and it is what
+   makes the guard safe to ship — a genuine burst of distinct values through a
+   fused cadence is precisely what `everyMsOr` exists for, so a rate-only guard
+   would fire on the healthy case. Proved by removing it: without the guard the
+   guard test suite HANGS, which is the freeze reproduced.
+2. **The doctrine, written down** where surface rules live (Reactive honesty): a
+   per-viewer answer is a root RPC and never a broadcast cell; a poll read may
+   reconcile, but publishes only by returning. Both cite this incident.
+
+**Not shipped, and why — these are findings, not omissions.**
+
+3. **`Observed<T>` does not have the three consumers it was predicted to have.**
+   Examined rather than assumed: `TerminalPorts` fits, but its wire field is
+   `list` and renaming it to a generic `value` is a protocol change the brief
+   explicitly forbade; `HostPorts` fits and is internal, so it could move alone;
+   and **`ProcessRss` does not fit at all** — it is a deliberate THREE-way
+   (`ok | absent | error`) whose third arm exists so a failed read never renders
+   as "no process to measure". Folding it into `known | unknown` would destroy
+   that distinction AND move a wire shape. So the extraction would ride one real
+   consumer, which is the bar this very PR twice found wanting: shapes predicted
+   for imagined consumers turn out unwanted when the real ones arrive.
+4. **Viewer identity has not moved into surface yet.** The code is ready to
+   (`viewerHost.ts` is already a pure, fully-tested decision table), but the move
+   makes it `@kolu/surface` public API, which trips the drishti companion-repo
+   gate — and that gate is not satisfiable inside a branch that stops at push.
+   It should ride its own PR, paired with drishti, rather than be smuggled into
+   this one.
