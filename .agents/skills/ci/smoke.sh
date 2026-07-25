@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Boot the packaged Kolu (production wrapper, .#default) and verify the two
+# Boot the packaged Kolu (production wrapper, .#default) and verify the three
 # runtime contracts a green `nix build` can still break:
 #
 #   1. It serves /api/health — catches packaging regressions where the build
@@ -8,11 +8,12 @@
 #   2. It HONORS an inherited KOLU_STATE_DIR — #531 made default.nix export it
 #      unconditionally, silently forcing state under $HOME/.config/kolu so a
 #      second production instance couldn't relocate its state (juspay/kolu#1414).
+#   3. A hosted terminal can run node, npm, npx, and corepack. The wrapper PATH
+#      is the terminal's base PATH, so using nodejs-slim there silently removes
+#      the package-management commands even though the daemons still boot.
 #
-# Both contracts are exercised the same way — boot the wrapper on an ephemeral
-# port, poll its log for a marker line, read a field off it — so that shared
-# mechanism lives in wait_for_marker + json_field; each contract is the thin
-# remainder (which env, which marker, which assertion).
+# The first two contracts share the same boot-and-read-log mechanism; the third
+# drives the real padi socket to prove what a hosted shell actually inherits.
 
 set -euo pipefail
 
@@ -23,6 +24,7 @@ readonly TEARDOWN_TIMEOUT_SEC=10
 readonly TEARDOWN_QUIET_SEC=2
 
 KOLU=$(nix build .#default --no-link --print-out-paths)/bin/kolu
+PADI_TUI=$(nix build .#padi-tui --no-link --print-out-paths)/bin/padi-tui
 
 tmp=$(mktemp -d)
 log="$tmp/kolu.log"
@@ -95,6 +97,32 @@ wait_for_padi_ready() {
     return 1
 }
 
+probe_terminal_node_tools() {
+    local logfile=$1 proc=$2
+    local socket output="$tmp/terminal-node-tools"
+    socket=$(find "$runtime" -name padi.sock -type s -print -quit)
+    "$PADI_TUI" create --socket "$socket" -- /bin/sh -c \
+        'for tool in node npm npx corepack; do command -v "$tool" || exit 1; done; printf ok >"$1"' \
+        _ "$output" >/dev/null
+
+    local deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
+    while kill -0 "$proc" 2>/dev/null; do
+        if [[ -s "$output" ]]; then
+            echo "hosted terminal retains node, npm, npx, and corepack"
+            return 0
+        fi
+        if (( SECONDS >= deadline )); then
+            echo "hosted terminal could not run the packaged Node toolset" >&2
+            cat "$logfile" >&2
+            return 1
+        fi
+        sleep "$POLL_INTERVAL_SEC"
+    done
+    echo "kolu exited before the hosted-terminal Node tool probe completed" >&2
+    cat "$logfile" >&2
+    return 1
+}
+
 cleanup() {
     # Best-effort teardown on EXIT — `|| true` because the trap can race with
     # the process's own exit, and we don't want a stale-PID kill to mask the
@@ -156,8 +184,10 @@ json_field() {
 # Bind padi + kaval to this server process. The subshell's BASHPID becomes the
 # exec'd server's pid, so both daemons self-reap after SIGTERM and release their
 # gates before cleanup removes the isolated runtime/state tree.
+# Use plain sh for the probe terminal: unlike bash/zsh, it has no Kolu rc replay
+# that can replace the inherited base PATH with the runner's /etc/profile PATH.
 (
-    exec env -i HOME="$tmp" XDG_RUNTIME_DIR="$runtime" \
+    exec env -i HOME="$tmp" SHELL=/bin/sh XDG_RUNTIME_DIR="$runtime" \
         KOLU_DAEMON_BIND_PID="$BASHPID" \
         "$KOLU" --host 127.0.0.1 --port 0
 ) >"$log" 2>&1 &
@@ -190,6 +220,7 @@ echo "/api/health returned 200"
 
 # Graceful shutdown: SIGTERM, expect exit 0.
 wait_for_padi_ready "$log" "$pid"
+probe_terminal_node_tools "$log" "$pid"
 kill -TERM "$pid"
 ec=0
 wait "$pid" || ec=$?
