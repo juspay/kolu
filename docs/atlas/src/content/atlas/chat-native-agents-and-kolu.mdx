@@ -1,6 +1,6 @@
 ---
 title: "Agentic chat: pesu standalone, kolu for the takeover"
-description: "pesu is a Buzz-shaped daemon — XS webhook in, an embedded ACP client driving a headless agent it spawns as its own child, replies back in the thread. kolu is not its skeleton but its complement: the takeover surface, where a terminal in the thread's worktree plus claude --resume opens the bot's own conversation."
+description: "pesu is a git-first, Buzz-shaped daemon: every conversation lives under a git repo that is also its memory — conclusions leave a thread only as commits, markdown or code. XS webhook in, an embedded ACP client driving a headless agent child, replies back in the thread; kolu is the takeover surface, where a terminal in the thread's worktree plus claude --resume opens the bot's own conversation."
 parents: [feature]
 status: proposed
 maturity: seedling
@@ -25,6 +25,12 @@ supervisor, and session pool; it owns each adapter's stdin/stdout directly
 (`crates/buzz-acp/src/acp.rs`) and re-serves ACP on nothing — its observer
 module advertises publishing telemetry "without exposing a local HTTP port"
 (`crates/buzz-acp/src/observer.rs`).</Footnote>
+
+One choice is central and distinguishing: **pesu is git-first.** Every
+conversation lives under a git repo — always — and the repo is the bot's
+memory: what a thread concludes gets committed, as markdown notes or as
+code. Coding is the natural extension of that, not the founding case,
+because software projects are already git repos.
 
 What kolu contributes is deliberately *outside* that loop: **the takeover.**
 The agent's work is real files in a real git worktree, and its conversation
@@ -93,6 +99,41 @@ at all: the model is instructed to post by running a `buzz messages send`
 CLI. pesu keeps one adapter process per thread and posts the turn's own
 result; both simplifications fall out of not pooling.
 
+## Git-first — the repo is the memory
+
+**Every pesu conversation lives under a git repo. There is no repo-less
+mode.** A thread that names no repo binds the configured default; the repo
+is not a feature pesu offers but the ground it stands on, and it is the
+identity choice that distinguishes pesu from other chat-agent systems: the
+repo is the bot's **memory**. What a thread concludes must leave it as
+commits — markdown notes for a discussion, code for a task — so knowledge
+accumulates as history you can diff, grep, review, and clone, and the next
+thread over the same repo starts from everything the last one
+committed.<Footnote>Contrast the systems around it: Claude Tag's agent state
+lives in a cloud sandbox you don't own; buzz's durable trace is events on
+its relay. pesu's durable state is a git repo on your machine — the same
+artifact your team already knows how to share, review, and back
+up.</Footnote>
+
+This is pesu's answer to the **agent memory problem**: not a vendor's opaque
+memory feature, but plain files under version control — greppable,
+reviewable, model-agnostic, owned. And knowledge **stacks**: a conversation
+may refer to several repos — `work off srid/my-notebook + team-docs` — the
+first named is the workspace, where commits land; the rest are checked out
+read-only beside it as context layers.
+
+<PsNotebookMock />
+
+A discussion thread is the plainest case: `@kolu work off srid/my-notebook —
+explain to @john why foo beats qux, based on context X`. The agent argues
+from the repo's notes and commits the thread's conclusion back as markdown —
+humans talk, the repo remembers. **Coding is the natural extension, not a
+separate mode**: software projects are already git repos, so "fix the flaky
+e2e suite" is just another repo-bound thread whose commits happen to be
+code. Repo selection is deliberately dumb: the first message may name one
+or more aliases from pesu's configured allowlist (exact token match, no
+parsing cleverness); no match means the configured default repo.
+
 ## The takeover — what kolu distinctly adds
 
 The handoff medium is the filesystem plus the session store — no protocol,
@@ -122,16 +163,8 @@ no export step, no transcript plumbing:
 <PsTakeoverMock />
 <PsStyles />
 
-**Not only code.** A thread can just as well bind to a knowledge repo:
-
-<PsNotebookMock />
-
-The agent participates in a discussion among humans, grounded in the repo's
-notes, and captures the outcome as markdown commits. The takeover is
-identical — a terminal and a git repo — because the mechanics never cared
-what the files were. Repo selection is deliberately dumb: the first message
-may name an alias from pesu's configured allowlist (exact token match, no
-parsing cleverness); no match means the configured default repo.
+Discussion thread or coding thread, the takeover is identical — a terminal
+and a git repo — because the mechanics never cared what the files were.
 
 ## Decisions
 
@@ -140,7 +173,9 @@ parsing cleverness); no match means the configured default repo.
 | Library | TypeScript, [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk) on its current `agent()`/`client()` model — the deprecated connection classes from the #1985 branch never reach master (supersedes #1989) |
 | Package boundary | **None in v1 — KISS.** The ACP client and supervision are pesu modules, ported with their tests from the closed #1985 branch; extract a package only when a second consumer actually exists |
 | Adapter | pesu config — **any stdio ACP agent**; day one `claude-agent-acp` and `codex-acp`, pinned as npm deps (no global installs) |
-| Workspace | per-thread git worktree, cut from a repo on pesu's env-configured allowlist (`alias → path`); first message may name an allowlisted alias verbatim; no match → default repo |
+| Workspace | **every thread binds a repo — no repo-less mode.** A per-thread git worktree, cut from a repo on pesu's env-configured allowlist (`alias → path`); the first message may name allowlisted aliases verbatim; no match → default repo |
+| Knowledge stack | a conversation may name **several** repos — the first is the workspace, where commits land; the rest are checked out read-only beside it as context layers |
+| Memory | **the repo is the memory.** Durable conclusions leave a thread only as commits (markdown or code), steered by pesu's base prompt; pesu itself persists nothing but the bind file |
 | Bind state | `threadId → { cwd, acpSessionId, authorUserId, agent }`, JSON file beside pesu |
 | Session visibility | every ACP frame appended to a per-session log file beside the bind state; no viewer process |
 | Takeover ack | the ack carries the worktree path, the session id, and the exact `claude --resume` line |
@@ -217,6 +252,9 @@ variables** — never the repo, logs, or an agent transcript.
    without the @mention does nothing (the documented apps-platform gap).
 7. Ask for something gated — the run proceeds without pausing
    (auto-approved `allow_once`), exactly as the bot's docs say it will.
+8. Start a thread over a notes repo, stacking a second repo — the reply
+   argues from both; the conclusion lands as a markdown commit in the
+   workspace (the git-first loop, end to end).
 
 **Done when:** DM → worktree exists → reply lands; a second message
 continues the same session; the ack's resume line provably opens the same
