@@ -62,12 +62,13 @@ Everything a harness must, and nothing else.
 
 | Duty | Behaviour |
 | --- | --- |
-| Session | One per proxy. Its id outlives the adapter processes behind it, so a respawn never invalidates an id a client is holding. |
-| Respawn | An adapter that dies mid-turn fails that turn loudly and is replaced; the next prompt works. A *handshake* that fails is terminal — a proxy that cannot bring up an adapter exits rather than looping. |
+| Session | One per proxy, rooted at the proxy's own working directory. Its id outlives the adapter processes behind it, so a respawn never invalidates an id a client is holding. A client asking for a different `cwd`, or for MCP servers, is refused rather than handed a session that quietly ignores what it asked for. |
+| Respawn | An adapter that dies mid-turn fails that turn loudly and is replaced; the next prompt works. Replacement is paced (exponential backoff) and capped: an adapter that never stays up makes the proxy give up and say so, rather than fork replacements in a hot loop. The very first handshake is not retried at all — a proxy whose adapter never came up should fail, not spin. |
 | Cancel | `session/cancel` is forwarded. If the turn has not ended within `CANCEL_GRACE_MS` (3s), the adapter is killed and replaced and the turn reports `cancelled` — because some agents keep streaming after a cancel, and a cancel that cannot be honoured must still end the turn. |
 | Permissions | Auto-answered with the `allow_once` option, found **by `kind`** — never by id or position, which is how a harness accidentally picks `allow_always`. A request offering no `allow_once` fails loudly instead of being widened. |
 | Process tree | The adapter is spawned as a group leader and killed as a group, so the tools and MCP servers it spawned are reaped rather than orphaned across respawns. |
-| Socket | `$XDG_RUNTIME_DIR/kolu/acp-<id>.sock`, mode 0600. An absent `XDG_RUNTIME_DIR` is an error, not a fallback to `/tmp`. |
+| Socket | `$XDG_RUNTIME_DIR/kolu/acp-<id>.sock` on systemd Linux, else the fixed per-user `/tmp/kolu-$UID/acp-<id>.sock` — the same rendezvous shape kaval uses, pinned by a test against `getRuntimeSocketPath`. Directory 0700, socket 0600. |
+| Lifetimes | Everything scoped to an adapter process — its pending requests, its frame handlers, its grace timer — dies with it. The ACP library never rejects an in-flight request when its stream ends, so without this a dead adapter is indistinguishable from a slow one, forever. |
 | Transcript | Rendered from ACP traffic alone. The proxy never reads an agent's session files. |
 
 Multiple clients may attach at once and all see the same session — which is what

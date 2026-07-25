@@ -12,8 +12,10 @@
  * (`echo "reply with exactly: pong" | acp-chat <sock>`).
  */
 
+import { once } from "node:events";
 import { connect } from "node:net";
 import { createInterface } from "node:readline";
+import { describeError } from "./errors.ts";
 import { Readable, Writable } from "node:stream";
 import {
   type Client,
@@ -94,11 +96,25 @@ async function main(): Promise<void> {
     ndJsonStream(Writable.toWeb(socket), Readable.toWeb(socket)),
   );
 
-  await connection.initialize({ protocolVersion: PROTOCOL_VERSION });
-  const session = await connection.newSession({
-    cwd: process.cwd(),
-    mcpServers: [],
+  /**
+   * Rejects when the proxy goes away. The ACP library leaves in-flight requests
+   * pending forever when its stream ends, so without this a dead proxy is
+   * indistinguishable from a thinking agent — the REPL would sit there, silent,
+   * with no error and no prompt, for as long as you let it.
+   */
+  const gone = new Promise<never>((_resolve, reject) => {
+    socket.once("close", () =>
+      reject(new Error("the proxy closed the connection")),
+    );
   });
+  gone.catch(() => {});
+  const untilGone = async <T>(work: Promise<T>): Promise<T> =>
+    await Promise.race([work, gone]);
+
+  await untilGone(connection.initialize({ protocolVersion: PROTOCOL_VERSION }));
+  const session = await untilGone(
+    connection.newSession({ cwd: process.cwd(), mcpServers: [] }),
+  );
 
   const repl = createInterface({
     input: process.stdin,
@@ -116,17 +132,19 @@ async function main(): Promise<void> {
   const runTurn = async (text: string): Promise<void> => {
     turnRunning = true;
     try {
-      const response = await connection.prompt({
-        sessionId: session.sessionId,
-        prompt: [{ type: "text", text }],
-      });
+      const response = await untilGone(
+        connection.prompt({
+          sessionId: session.sessionId,
+          prompt: [{ type: "text", text }],
+        }),
+      );
       endStream();
       if (response.stopReason !== "end_turn") {
         process.stdout.write(`  · turn ended: ${response.stopReason}\n`);
       }
     } catch (error) {
       endStream();
-      process.stdout.write(`  · turn failed: ${String(error)}\n`);
+      process.stdout.write(`  · turn failed: ${describeError(error)}\n`);
     } finally {
       turnRunning = false;
       showPrompt();
@@ -152,12 +170,20 @@ async function main(): Promise<void> {
     void connection.cancel({ sessionId: session.sessionId });
   });
 
-  await new Promise<void>((resolve) => repl.once("close", () => resolve()));
+  // A proxy that goes away ends the session; carrying on prompting into a dead
+  // socket would just queue turns nobody will answer.
+  socket.once("close", () => {
+    process.stderr.write("acp-chat: the proxy closed the connection\n");
+    process.exitCode = 1;
+    repl.close();
+  });
+
+  await once(repl, "close");
   await queue;
   socket.destroy();
 }
 
 await main().catch((error) => {
-  process.stderr.write(`acp-chat: ${String(error)}\n`);
+  process.stderr.write(`acp-chat: ${describeError(error)}\n`);
   process.exit(1);
 });

@@ -12,6 +12,7 @@ import type { Component, JSX } from "solid-js";
 /** Every product-docs page under `website/src/content/docs/`. Keep in lock-step
  *  with the basenames there — the set-equality test enforces both directions. */
 export const DOC_SLUGS = [
+  "acp",
   "agent-detection",
   "agent-fleets",
   "architecture",

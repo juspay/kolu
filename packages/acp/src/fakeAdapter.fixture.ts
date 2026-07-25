@@ -36,6 +36,11 @@ import {
 
 const VERBOSE = process.argv.includes("--verbose");
 const DECOY_PERMISSION = process.argv.includes("--decoy-permission");
+/** Exit before answering anything — the adapter that dies during the handshake. */
+const DIE_ON_BOOT = process.argv.includes("--die-on-boot");
+/** Complete the handshake, then exit — the adapter that never stays up, which
+ *  is what the respawn backoff and give-up cap exist for. */
+const DIE_WHEN_READY = process.argv.includes("--die-when-ready");
 const SESSION_ID = "fake-session-1";
 
 const PLAIN_OPTIONS: PermissionOption[] = [
@@ -69,6 +74,12 @@ class FakeAgent implements Agent {
   }
 
   async newSession(): Promise<NewSessionResponse> {
+    if (DIE_WHEN_READY) {
+      // Answer first, then go — so the proxy sees a *ready* adapter die, which
+      // is the case the respawn policy has to pace rather than the handshake
+      // failure it must report.
+      setTimeout(() => process.exit(9), 20);
+    }
     return { sessionId: SESSION_ID };
   }
 
@@ -169,6 +180,8 @@ class FakeAgent implements Agent {
     });
   }
 }
+
+if (DIE_ON_BOOT) process.exit(7);
 
 new AgentSideConnection(
   (connection) => new FakeAgent(connection),

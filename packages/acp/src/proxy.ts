@@ -23,6 +23,7 @@ import {
   type AgentCapabilities,
   type CancelNotification,
   type InitializeResponse,
+  type NewSessionRequest,
   ndJsonStream,
   PROTOCOL_VERSION,
   type PromptRequest,
@@ -30,34 +31,10 @@ import {
   RequestError,
 } from "@zed-industries/agent-client-protocol";
 import { AdapterSession } from "./adapter.ts";
+import { parseArgv } from "./argv.ts";
+import { describeError } from "./errors.ts";
 import { socketPathFor } from "./socketPath.ts";
 import { type ProxyEvent, TranscriptRenderer } from "./render.ts";
-
-const USAGE = "usage: acp-proxy --id <id> -- <adapter-command> [args...]";
-
-interface Argv {
-  id: string;
-  command: string;
-  args: string[];
-}
-
-/** `--id <id> -- <command> [args...]`. Everything after `--` is the adapter,
- *  verbatim; nothing before it is optional. */
-export function parseArgv(argv: string[]): Argv {
-  const separator = argv.indexOf("--");
-  if (separator === -1) {
-    throw new Error(`the adapter command must follow \`--\`\n${USAGE}`);
-  }
-  const flags = argv.slice(0, separator);
-  const [command, ...args] = argv.slice(separator + 1);
-  if (!command) {
-    throw new Error(`no adapter command after \`--\`\n${USAGE}`);
-  }
-  if (flags[0] !== "--id" || !flags[1] || flags.length !== 2) {
-    throw new Error(`--id <id> is required\n${USAGE}`);
-  }
-  return { id: flags[1], command, args };
-}
 
 /**
  * Claim the socket path. A proxy that crashed leaves its socket file behind
@@ -67,16 +44,25 @@ export function parseArgv(argv: string[]): Argv {
  */
 async function claimSocketPath(socketPath: string): Promise<void> {
   mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
-  const live = await new Promise<boolean>((resolve) => {
+  const failure = await new Promise<NodeJS.ErrnoException | null>((resolve) => {
     const probe = connect(socketPath)
       .on("connect", () => {
         probe.destroy();
-        resolve(true);
+        resolve(null);
       })
-      .on("error", () => resolve(false));
+      .on("error", (error) => resolve(error as NodeJS.ErrnoException));
   });
-  if (live) {
+  if (failure === null) {
     throw new Error(`another proxy is already listening on ${socketPath}`);
+  }
+  // Only "nobody is there" licenses deleting the file. Any other error — a
+  // permission problem, a path that is not a socket — means we do not actually
+  // know what is at that path, and removing it blind is how a live thing gets
+  // evicted by a proxy that never established it was dead.
+  if (failure.code !== "ECONNREFUSED" && failure.code !== "ENOENT") {
+    throw new Error(
+      `cannot determine whether ${socketPath} is in use: ${String(failure)}`,
+    );
   }
   rmSync(socketPath, { force: true });
 }
@@ -84,6 +70,7 @@ async function claimSocketPath(socketPath: string): Promise<void> {
 async function main(): Promise<void> {
   const { id, command, args } = parseArgv(process.argv.slice(2));
   const socketPath = socketPathFor(id);
+  const cwd = process.cwd();
 
   const renderer = new TranscriptRenderer((text) => process.stdout.write(text));
   const emit = (event: ProxyEvent) => renderer.event(event);
@@ -93,13 +80,17 @@ async function main(): Promise<void> {
   const sessionId = `acp-${id}`;
   const clients = new Set<AgentSideConnection>();
 
+  let adapterRef: AdapterSession | null = null;
   const die = (error: unknown): never => {
-    process.stderr.write(`acp-proxy: ${String(error)}\n`);
+    process.stderr.write(`acp-proxy: ${describeError(error)}\n`);
+    // Take the adapter — and the process group it leads — down with us. A
+    // proxy that exits alone leaves an orphaned agent holding the host.
+    adapterRef?.stop();
     process.exit(1);
   };
 
   const adapter = new AdapterSession({
-    spec: { command, args, cwd: process.cwd() },
+    spec: { command, args, cwd },
     emit,
     onUpdate: (update) => {
       for (const client of clients) {
@@ -108,6 +99,7 @@ async function main(): Promise<void> {
     },
     onFatal: die,
   });
+  adapterRef = adapter;
 
   await adapter.start().catch(die);
   emit({ kind: "sessionReady", sessionId });
@@ -144,7 +136,25 @@ async function main(): Promise<void> {
 
     const agent: Agent = {
       initialize: async () => capabilities(),
-      newSession: async () => ({ sessionId }),
+      // The session is the proxy's, created against the proxy's own cwd when
+      // it launched. A client asking for a different working directory or for
+      // MCP servers is asking for a session this proxy cannot give it, so it
+      // is told rather than handed a session that quietly ignores what it
+      // asked for.
+      newSession: async (params: NewSessionRequest) => {
+        if (params.cwd !== cwd) {
+          throw RequestError.invalidParams({
+            reason: `this proxy serves one session, rooted at ${cwd}; it cannot open one at ${params.cwd}`,
+          });
+        }
+        if (params.mcpServers.length > 0) {
+          throw RequestError.invalidParams({
+            reason:
+              "this proxy does not attach MCP servers; configure them on the adapter instead",
+          });
+        }
+        return { sessionId };
+      },
       authenticate: async () => {},
       prompt: async (params: PromptRequest): Promise<PromptResponse> => {
         requireSession(params.sessionId);
@@ -159,7 +169,7 @@ async function main(): Promise<void> {
           emit({ kind: "turnEnded", stopReason: response.stopReason });
           return response;
         } catch (error) {
-          emit({ kind: "turnFailed", message: String(error) });
+          emit({ kind: "turnFailed", message: describeError(error) });
           throw error;
         }
       },

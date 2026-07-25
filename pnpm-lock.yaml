@@ -50,6 +50,9 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

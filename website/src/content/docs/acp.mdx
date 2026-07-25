@@ -75,7 +75,9 @@ An agent process can die mid-turn, ignore a cancellation, or block waiting for
 permission. The proxy absorbs all three so a client sees one durable session:
 
 - **A dead adapter is replaced.** The turn it was running fails loudly; your next
-  prompt works. Conversation history does not survive the restart.
+  prompt works. Conversation history does not survive the restart. Replacement is
+  paced and capped, so an agent that cannot start at all tells you so instead of
+  retrying forever.
 - **A cancel always ends the turn.** It is forwarded first; an agent that keeps
   going anyway is replaced after a short grace window rather than left running.
 - **Permissions are answered "allow once"** for now, and the decision is shown in

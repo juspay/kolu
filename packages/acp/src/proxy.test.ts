@@ -69,31 +69,57 @@ afterEach(() => {
   while (running.length) running.pop()?.stop();
 });
 
+/** Launch the proxy without waiting for it to serve — for the cases where it
+ *  is supposed to fail instead. Resolves with the exit code and its output. */
+async function runProxyToExit(
+  adapterArgs: string[],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  assertDaemonSpawnAllowed("the acp-proxy bin and its adapter");
+  const runtimeDir = mkdtempSync(join(tmpdir(), "acp-"));
+  const child = spawn(process.execPath, proxyArgv(adapterArgs), {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir },
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (c) => {
+    stdout += String(c);
+  });
+  child.stderr?.on("data", (c) => {
+    stderr += String(c);
+  });
+  const code = await new Promise<number | null>((resolve) =>
+    child.once("exit", resolve),
+  );
+  rmSync(runtimeDir, { recursive: true, force: true });
+  return { code, stdout, stderr };
+}
+
+function proxyArgv(adapterArgs: string[]): string[] {
+  return [
+    "--import",
+    TSX_LOADER,
+    PROXY,
+    "--id",
+    "test",
+    "--",
+    process.execPath,
+    "--import",
+    TSX_LOADER,
+    FAKE_ADAPTER,
+    ...adapterArgs,
+  ];
+}
+
 async function startProxy(adapterArgs: string[]): Promise<RunningProxy> {
   assertDaemonSpawnAllowed("the acp-proxy bin and its adapter");
   // A private XDG_RUNTIME_DIR keeps the socket off the real one and keeps the
   // path short enough for the ~108-byte sockaddr_un limit.
   const runtimeDir = mkdtempSync(join(tmpdir(), "acp-"));
-  const child: ChildProcess = spawn(
-    process.execPath,
-    [
-      "--import",
-      TSX_LOADER,
-      PROXY,
-      "--id",
-      "test",
-      "--",
-      process.execPath,
-      "--import",
-      TSX_LOADER,
-      FAKE_ADAPTER,
-      ...adapterArgs,
-    ],
-    {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir },
-    },
-  );
+  const child: ChildProcess = spawn(process.execPath, proxyArgv(adapterArgs), {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir },
+  });
 
   let stdout = "";
   let stderr = "";
@@ -350,6 +376,47 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
 
     first.cancel();
     expect((await slow).stopReason).toBe("cancelled");
+  });
+
+  it("fails fast when the adapter dies during the handshake", async () => {
+    // The ACP library never rejects a request when its stream ends, so a child
+    // that dies mid-handshake looks exactly like a slow one. Before the
+    // generation's death was wired to the request, this sat for the full 60s
+    // handshake timeout — never opening the socket — and then killed whatever
+    // had respawned in the meantime.
+    const startedAt = Date.now();
+    const { code, stdout, stderr } = await runProxyToExit(["--die-on-boot"]);
+
+    expect(code).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(20_000);
+    expect(stderr).toMatch(/adapter exited/);
+    // It never claimed to be serving: no client can have connected to a proxy
+    // whose agent never came up.
+    expect(stdout).not.toContain("⎯ listening · ");
+  });
+
+  it("paces respawns and gives up loudly when the adapter never stays up", async () => {
+    // Unpaced, an adapter that exits on boot was respawned as fast as the
+    // kernel allowed — measured at ~230 processes a second, indefinitely.
+    const { code, stdout, stderr } = await runProxyToExit(["--die-when-ready"]);
+
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/failed \d+ times in a row/);
+
+    const attempts = [
+      ...stdout.matchAll(/respawning adapter · attempt (\d+)/g),
+    ];
+    // A handful of paced attempts, not a spin: bounded by the give-up cap.
+    expect(attempts.length).toBeLessThanOrEqual(6);
+    expect(attempts.map((m) => Number(m[1]))).toEqual(
+      attempts.map((_m, i) => i + 1),
+    );
+    // And the wait grows rather than staying at zero.
+    const delays = [...stdout.matchAll(/attempt \d+ in (\d+)ms/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(delays.length).toBeGreaterThan(1);
+    expect(delays[delays.length - 1]).toBeGreaterThan(delays[0] as number);
   });
 
   it("streams the session to every attached client at once", async () => {

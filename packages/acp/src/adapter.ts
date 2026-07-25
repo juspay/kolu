@@ -7,22 +7,36 @@
  * `cancel` — and never learn that the process behind it was replaced.
  *
  * Nothing here is agent-specific. The command to spawn arrives as data.
+ *
+ * **Generations are the spine.** Every spawn gets an identity, and everything
+ * that depends on that process — its connection, its pending requests, its
+ * grace timer, its frame handlers — is scoped to it. Two facts force this:
+ *
+ *  1. The ACP library never rejects an in-flight request when its stream ends
+ *     (`Connection.#receive` breaks out of the read loop and releases the lock;
+ *     `#pendingResponses` is left untouched). A dead child therefore looks
+ *     exactly like a slow one, forever. So a generation carries a `dead`
+ *     promise that rejects the moment its child exits, and every await on the
+ *     library races it — the child's lifetime bounds the request's.
+ *  2. A dead child's receive loop keeps running until EOF. Without an identity
+ *     check its handlers would write frames into the session that replaced it.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import {
   type AgentCapabilities,
-  type ContentBlock,
   ClientSideConnection,
+  type ContentBlock,
   ndJsonStream,
   PROTOCOL_VERSION,
   type PromptResponse,
+  RequestError,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
-  RequestError,
   type SessionNotification,
 } from "@zed-industries/agent-client-protocol";
+import { describeError } from "./errors.ts";
 import type { ProxyEvent } from "./render.ts";
 
 /**
@@ -34,60 +48,22 @@ import type { ProxyEvent } from "./render.ts";
 export const CANCEL_GRACE_MS = 3000;
 
 /**
- * How long the ACP handshake (`initialize` + `session/new`) may take before the
- * adapter is declared stuck. Both calls are local bookkeeping that finish in
- * well under a second on a healthy agent, so a minute of silence means the
- * process will never answer — and a proxy that waits forever for it is a hang
- * where a crash belongs.
+ * A backstop for an adapter that is alive but mute during the handshake. It is
+ * *not* how a dead adapter is detected — that is the generation's `dead`
+ * promise, which fires immediately. A wall clock in that role once meant 60
+ * seconds of dead air before a healthy respawned adapter was killed.
  */
 export const HANDSHAKE_TIMEOUT_MS = 60_000;
 
-/** Reject if `work` has not settled within `ms`. */
-async function withTimeout<T>(
-  work: Promise<T>,
-  ms: number,
-  what: string,
-): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`${what} did not complete within ${ms}ms`)),
-          ms,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Kill the adapter's whole process group.
- *
- * An ACP adapter is a process *tree* — it runs the model's tools and any MCP
- * servers as its own children. Killing only the adapter leaves those orphaned,
- * and a proxy that respawns on every crash would leak a fresh set each time.
- * The children are reachable as a group because the adapter is spawned
- * `detached`, which makes it a group leader.
- */
-function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-  const pid = child.pid;
-  if (pid === undefined) return;
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    // The group is already gone, or was never created (the child died between
-    // spawn and here). Killing the process directly is then the whole job.
-    try {
-      child.kill(signal);
-    } catch {
-      // Nothing left to signal.
-    }
-  }
-}
+/** Respawn pacing. An adapter that dies on boot must not be retried in a hot
+ *  loop — unpaced, a `false` adapter respawned ~230 times a second. */
+const RESPAWN_BASE_DELAY_MS = 250;
+const RESPAWN_MAX_DELAY_MS = 5_000;
+/** Consecutive failed generations before the proxy gives up and says so. */
+const RESPAWN_FAILURE_LIMIT = 5;
+/** How long a generation must survive to count as healthy, clearing the
+ *  failure streak. Shorter than this and "it started" proves nothing. */
+const HEALTHY_UPTIME_MS = 10_000;
 
 /** The adapter to run. `command` is resolved on PATH, exactly as typed. */
 export interface AdapterSpec {
@@ -103,13 +79,26 @@ interface PendingTurn {
   reject: (error: unknown) => void;
 }
 
+/** One spawned adapter process and everything scoped to its lifetime. */
+interface Generation {
+  readonly id: number;
+  readonly child: ChildProcess;
+  readonly connection: ClientSideConnection;
+  /** Rejects the instant this child exits. Raced against every library call so
+   *  a dead process can never masquerade as a slow one. */
+  readonly dead: Promise<never>;
+  readonly died: (error: unknown) => void;
+  sessionId: string | null;
+  readyAt: number | null;
+}
+
 export interface AdapterSessionOptions {
   spec: AdapterSpec;
   /** Transcript + lifecycle sink — the tile's view. */
   emit: (event: ProxyEvent) => void;
   /** Session updates, with the downstream session id already stripped. */
   onUpdate: (update: SessionUpdate) => void;
-  /** The adapter could not be brought up. The proxy cannot serve without one. */
+  /** The adapter could not be kept up. The proxy cannot serve without one. */
   onFatal: (error: unknown) => void;
 }
 
@@ -119,13 +108,18 @@ export class AdapterSession {
   readonly #onUpdate: (update: SessionUpdate) => void;
   readonly #onFatal: (error: unknown) => void;
 
-  #child: ChildProcess | null = null;
-  #connection: ClientSideConnection | null = null;
-  #sessionId: string | null = null;
+  #current: Generation | null = null;
+  #generations = 0;
   #agentCapabilities: AgentCapabilities = {};
   #pending: PendingTurn | null = null;
   #cancelState: "none" | "requested" | "killing" = "none";
   #graceTimer: NodeJS.Timeout | null = null;
+  #respawnTimer: NodeJS.Timeout | null = null;
+  #respawning = false;
+  #consecutiveFailures = 0;
+  /** The first handshake belongs to `start()`'s caller, not to the respawn
+   *  policy: a proxy whose adapter never came up should fail, not retry. */
+  #starting = false;
   #stopped = false;
 
   constructor(options: AdapterSessionOptions) {
@@ -138,7 +132,12 @@ export class AdapterSession {
   /** Spawn the adapter and complete the ACP handshake. Throws if either fails
    *  — a proxy with no adapter has nothing to serve. */
   async start(): Promise<void> {
-    await this.#spawnAndHandshake();
+    this.#starting = true;
+    try {
+      await this.#spawnAndHandshake();
+    } finally {
+      this.#starting = false;
+    }
   }
 
   /** What the adapter said it can do, as of the most recent handshake. */
@@ -154,16 +153,21 @@ export class AdapterSession {
         reason: "a turn is already in progress on this session",
       });
     }
-    const connection = this.#connection;
-    const sessionId = this.#sessionId;
-    if (!connection || !sessionId) {
+    const generation = this.#current;
+    if (!generation?.sessionId) {
       throw RequestError.internalError({ reason: "the adapter is not ready" });
     }
 
     const turn = new Promise<PromptResponse>((resolve, reject) => {
       this.#pending = { resolve, reject };
     });
-    connection.prompt({ sessionId, prompt }).then(
+    this.#bind(
+      generation,
+      generation.connection.prompt({
+        sessionId: generation.sessionId,
+        prompt,
+      }),
+    ).then(
       (response) => this.#settle((pending) => pending.resolve(response)),
       (error) => this.#settle((pending) => pending.reject(error)),
     );
@@ -175,15 +179,23 @@ export class AdapterSession {
    *  the turn reports `cancelled`. */
   cancel(): void {
     this.#emit({ kind: "cancelRequested" });
-    if (this.#connection && this.#sessionId) {
-      void this.#connection.cancel({ sessionId: this.#sessionId });
+    const generation = this.#current;
+    if (generation?.sessionId) {
+      void generation.connection
+        .cancel({ sessionId: generation.sessionId })
+        .catch(() => {
+          // The child is already gone; its exit is the authority on ending the
+          // turn, and it is handled in #onExit.
+        });
     }
-    if (!this.#pending || this.#cancelState !== "none") return;
+    if (!this.#pending || this.#cancelState !== "none" || !generation) return;
     this.#cancelState = "requested";
     this.#graceTimer = setTimeout(() => {
+      // Only the generation that was asked to stop may be killed for it.
+      if (this.#current !== generation) return;
       this.#emit({ kind: "cancelGraceExpired", graceMs: CANCEL_GRACE_MS });
       this.#cancelState = "killing";
-      if (this.#child) killGroup(this.#child, "SIGKILL");
+      this.#killGroup(generation.child, "SIGKILL");
     }, CANCEL_GRACE_MS);
   }
 
@@ -191,8 +203,53 @@ export class AdapterSession {
   stop(): void {
     this.#stopped = true;
     this.#clearGrace();
-    if (this.#child) killGroup(this.#child, "SIGTERM");
-    this.#child = null;
+    if (this.#respawnTimer) clearTimeout(this.#respawnTimer);
+    this.#respawnTimer = null;
+    const generation = this.#current;
+    this.#current = null;
+    // A caller waiting on a turn must hear that it will never finish — the
+    // library will not tell them, and #onExit is disarmed by #stopped.
+    this.#settle((pending) =>
+      pending.reject(
+        RequestError.internalError({ reason: "the proxy is shutting down" }),
+      ),
+    );
+    if (generation) this.#killGroup(generation.child, "SIGTERM");
+  }
+
+  /**
+   * Bound `work` to a generation's lifetime, so the death of its process ends
+   * the wait. Without this every library call outlives its child forever.
+   */
+  async #bind<T>(generation: Generation, work: Promise<T>): Promise<T> {
+    return await Promise.race([work, generation.dead]);
+  }
+
+  /** As `#bind`, plus a wall-clock backstop for a live-but-mute adapter. */
+  async #bindWithTimeout<T>(
+    generation: Generation,
+    work: Promise<T>,
+    what: string,
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        this.#bind(generation, work),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `${what} did not complete within ${HANDSHAKE_TIMEOUT_MS}ms`,
+                ),
+              ),
+            HANDSHAKE_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async #spawnAndHandshake(): Promise<void> {
@@ -209,15 +266,53 @@ export class AdapterSession {
     if (!stdin || !stdout) {
       throw new Error("the adapter was spawned without usable stdio pipes");
     }
-    this.#child = child;
 
-    // A spawn that never starts (a command not on PATH) surfaces here, and is
-    // fatal: there is no adapter to serve.
-    child.once("error", (error) => {
-      if (this.#stopped) return;
-      this.#onFatal(error);
+    let died: (error: unknown) => void = () => {};
+    const dead = new Promise<never>((_resolve, reject) => {
+      died = reject;
     });
-    child.once("exit", (code, signal) => this.#onExit(code, signal));
+    // Marked handled up front: nothing is racing it until the first library
+    // call, and an unraced rejection would otherwise crash the process.
+    dead.catch(() => {});
+
+    const id = ++this.#generations;
+    const connection = new ClientSideConnection(
+      () => ({
+        sessionUpdate: async (params: SessionNotification) => {
+          // A dead child's receive loop runs until EOF. Its frames belong to a
+          // session that no longer exists and must not reach this one.
+          if (this.#current?.id !== id) return;
+          this.#emit({ kind: "update", update: params.update });
+          this.#onUpdate(params.update);
+        },
+        requestPermission: async (params: RequestPermissionRequest) => {
+          if (this.#current?.id !== id) {
+            throw RequestError.internalError({
+              reason: "this adapter generation has been replaced",
+            });
+          }
+          return this.#answerPermission(params);
+        },
+      }),
+      ndJsonStream(Writable.toWeb(stdin), Readable.toWeb(stdout)),
+    );
+
+    const generation: Generation = {
+      id,
+      child,
+      connection,
+      dead,
+      died,
+      sessionId: null,
+      readyAt: null,
+    };
+    this.#current = generation;
+
+    // A spawn that never starts (a command not on PATH) surfaces here.
+    child.once("error", (error) => generation.died(error));
+    child.once("exit", (code, signal) =>
+      this.#onExit(generation, code, signal),
+    );
 
     this.#emit({
       kind: "adapterSpawned",
@@ -226,35 +321,21 @@ export class AdapterSession {
       pid: child.pid ?? -1,
     });
 
-    const connection = new ClientSideConnection(
-      () => ({
-        sessionUpdate: async (params: SessionNotification) => {
-          this.#emit({ kind: "update", update: params.update });
-          this.#onUpdate(params.update);
-        },
-        requestPermission: async (params: RequestPermissionRequest) =>
-          this.#answerPermission(params),
-      }),
-      ndJsonStream(Writable.toWeb(stdin), Readable.toWeb(stdout)),
-    );
-    this.#connection = connection;
-
     try {
-      await this.#handshake(connection);
+      await this.#handshake(generation);
     } catch (error) {
-      // An adapter that cannot complete a handshake will not complete the next
-      // one either, so this is terminal rather than something to respawn into
-      // a loop. Stop first: the kill below would otherwise land in `#onExit`
-      // and start exactly that loop.
-      this.#stopped = true;
-      killGroup(child, "SIGKILL");
+      // Clean up *this* generation only. It may already have been replaced by a
+      // respawn while this handshake was in flight, in which case the live one
+      // must be left strictly alone.
+      this.#killGroup(child, "SIGKILL");
       throw error;
     }
   }
 
-  async #handshake(connection: ClientSideConnection): Promise<void> {
-    const initialized = await withTimeout(
-      connection.initialize({
+  async #handshake(generation: Generation): Promise<void> {
+    const initialized = await this.#bindWithTimeout(
+      generation,
+      generation.connection.initialize({
         protocolVersion: PROTOCOL_VERSION,
         // No filesystem or terminal services are offered: the proxy is not an
         // editor, and an agent that needs to read or run something does it
@@ -263,17 +344,21 @@ export class AdapterSession {
           fs: { readTextFile: false, writeTextFile: false },
         },
       }),
-      HANDSHAKE_TIMEOUT_MS,
       "initialize",
     );
-    this.#agentCapabilities = initialized.agentCapabilities ?? {};
 
-    const session = await withTimeout(
-      connection.newSession({ cwd: this.#spec.cwd, mcpServers: [] }),
-      HANDSHAKE_TIMEOUT_MS,
+    const session = await this.#bindWithTimeout(
+      generation,
+      generation.connection.newSession({
+        cwd: this.#spec.cwd,
+        mcpServers: [],
+      }),
       "session/new",
     );
-    this.#sessionId = session.sessionId;
+
+    this.#agentCapabilities = initialized.agentCapabilities ?? {};
+    generation.sessionId = session.sessionId;
+    generation.readyAt = Date.now();
     this.#cancelState = "none";
 
     // Announced only once the session exists, so "ready" means promptable —
@@ -321,16 +406,30 @@ export class AdapterSession {
     return { outcome: { outcome: "selected", optionId: option.optionId } };
   }
 
-  #onExit(code: number | null, signal: NodeJS.Signals | null): void {
-    if (this.#stopped) return;
-    this.#emit({ kind: "adapterExited", code, signal });
+  #onExit(
+    generation: Generation,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    // Ends every await bound to this generation — including a handshake, which
+    // the library would otherwise leave pending until the wall clock gave up.
+    generation.died(
+      RequestError.internalError({
+        reason: `the adapter exited (${signal ? `signal ${signal}` : `code ${code}`})`,
+      }),
+    );
+    // Stop the orphaned receive loop rather than let it drain to EOF.
+    generation.child.stdout?.destroy();
 
+    // A generation that is no longer current has already been accounted for;
+    // its exit must not disturb the session that replaced it.
+    if (this.#stopped || this.#current?.id !== generation.id) return;
+
+    this.#emit({ kind: "adapterExited", code, signal });
     const killedForCancel = this.#cancelState === "killing";
     this.#clearGrace();
     this.#cancelState = "none";
-    this.#connection = null;
-    this.#sessionId = null;
-    this.#child = null;
+    this.#current = null;
 
     this.#settle((pending) => {
       if (killedForCancel) pending.resolve({ stopReason: "cancelled" });
@@ -342,8 +441,61 @@ export class AdapterSession {
         );
     });
 
-    this.#emit({ kind: "adapterRespawning" });
-    this.#spawnAndHandshake().catch((error) => this.#onFatal(error));
+    // The first handshake is the caller's to fail; respawning underneath it
+    // would race `start()` and hide the failure it is waiting to hear about.
+    if (this.#starting) return;
+
+    this.#scheduleRespawn(generation);
+  }
+
+  /**
+   * Replace the adapter, paced. An adapter that dies immediately and forever
+   * is a misconfiguration, and the honest response is to say so and stop — not
+   * to fork a replacement as fast as the kernel allows.
+   */
+  #scheduleRespawn(previous: Generation): void {
+    if (this.#respawnTimer || this.#respawning) return;
+
+    const survived =
+      previous.readyAt !== null &&
+      Date.now() - previous.readyAt >= HEALTHY_UPTIME_MS;
+    if (survived) this.#consecutiveFailures = 0;
+    this.#consecutiveFailures += 1;
+
+    if (this.#consecutiveFailures > RESPAWN_FAILURE_LIMIT) {
+      this.#onFatal(
+        new Error(
+          `the adapter failed ${this.#consecutiveFailures} times in a row without staying up; giving up`,
+        ),
+      );
+      return;
+    }
+
+    const delayMs = Math.min(
+      RESPAWN_BASE_DELAY_MS * 2 ** (this.#consecutiveFailures - 1),
+      RESPAWN_MAX_DELAY_MS,
+    );
+    this.#emit({
+      kind: "adapterRespawning",
+      attempt: this.#consecutiveFailures,
+      delayMs,
+    });
+    this.#respawnTimer = setTimeout(() => {
+      this.#respawnTimer = null;
+      if (this.#stopped) return;
+      this.#respawning = true;
+      this.#spawnAndHandshake()
+        .catch((error) => {
+          if (this.#stopped) return;
+          // A handshake that failed leaves no live generation, so the exit that
+          // accompanied it cannot schedule the next try. Do it here.
+          this.#scheduleRespawn(previous);
+          this.#emit({ kind: "turnFailed", message: describeError(error) });
+        })
+        .finally(() => {
+          this.#respawning = false;
+        });
+    }, delayMs);
   }
 
   /** Settle the in-flight turn exactly once, whoever gets there first. */
@@ -360,5 +512,32 @@ export class AdapterSession {
     if (!this.#graceTimer) return;
     clearTimeout(this.#graceTimer);
     this.#graceTimer = null;
+  }
+
+  /**
+   * Kill the adapter's whole process group.
+   *
+   * An ACP adapter is a process *tree* — it runs the model's tools and any MCP
+   * servers as its own children. Killing only the adapter leaves those
+   * orphaned, and a proxy that respawns on every crash would leak a fresh set
+   * each time. The children are reachable as a group because the adapter is
+   * spawned `detached`, which makes it a group leader.
+   */
+  #killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+    const pid = child.pid;
+    if (pid === undefined) return;
+    try {
+      process.kill(-pid, signal);
+    } catch (error) {
+      // ESRCH means the group is already gone — the ordinary race between a
+      // child exiting and us deciding to kill it. Anything else is a real
+      // failure to signal, and gets said out loud rather than swallowed.
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+        this.#emit({
+          kind: "turnFailed",
+          message: `could not signal the adapter process group: ${describeError(error)}`,
+        });
+      }
+    }
   }
 }

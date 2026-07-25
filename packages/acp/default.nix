@@ -29,6 +29,18 @@
 let
   tree = import ../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
 
+  # Just the two pinned adapters, not the package's whole `node_modules/.bin`.
+  # That directory also holds the toolchain (tsc, tsx, vitest, biome), and
+  # prefixing it onto PATH would shadow those binaries for every command the
+  # agent itself runs inside the tile — a proxy has no business rewriting the
+  # toolchain of the work happening under it.
+  adapters = pkgs.runCommand "acp-adapters" { } ''
+    mkdir -p $out/bin
+    for a in claude-agent-acp codex-acp; do
+      ln -s ${tree}/packages/acp/node_modules/.bin/$a $out/bin/$a
+    done
+  '';
+
   mkBin = { name, entry, description }:
     pkgs.runCommand name
       {
@@ -39,8 +51,8 @@ let
       makeWrapper ${pkgs.nodejs}/bin/node $out/bin/${name} \
         --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
         --add-flags "${tree}/packages/acp/${entry}" \
-        --prefix PATH : ${tree}/packages/acp/node_modules/.bin \
-        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+        --suffix PATH : ${adapters}/bin \
+        --suffix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
     '';
 in
 {
