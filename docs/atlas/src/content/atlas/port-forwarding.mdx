@@ -334,7 +334,16 @@ prose — are fixed independently, and because **PRT2 is where the second consum
 appears.** Choosing relay-vs-`ssh -L` needs the host, which `wildcard` never
 carried either, so PRT2 reshapes this surface regardless — and it can then design
 the tag against two real consumers instead of one. Same discipline as the
-`list()`/`subscribe()` and tagged-error questions above.<Footnote>PRT1 also left a
+`list()`/`subscribe()` and tagged-error questions above. **A second question of the
+same shape**, raised by the peer review: whether a terminal that has never had a
+successful scan should be distinguishable ON THE WIRE from one that serves
+nothing. Today both read as `ports: []`, and holding a last-good sample cannot
+cover the pre-first-success window because there is nothing yet to hold. The
+reachable routes into that window were all closed in PRT1 (an unreadable requested
+root throws; an unexpected `/proc` errno throws; an unsupported platform refuses at
+construction), and padi logs which terminals it holds no sample for — so the
+remedy, a sampling-status discriminator beside `ports`, waits for the same second
+consumer the scope tag does rather than re-bumping the surface twice.<Footnote>PRT1 also left a
 second, smaller judgment on the table: kaval's one host-global `activity` edge now
 has three independent `resubscribeStream` consumers (the finish fold, the live
 dots, the port-scan nudge). They are not three copies of one shape — the live-dots

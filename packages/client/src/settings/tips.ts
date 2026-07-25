@@ -103,7 +103,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-inspector-ports",
-    text: "The Inspector tab's Ports section lists every port the terminal's processes are listening on — click one to open the server an agent just started, no scrolling back for the URL",
+    text: "The Inspector tab's Ports section lists every port the terminal's processes are listening on, splits included — one bound to all interfaces gets an open link, so you reach the server an agent just started without scrolling back for the URL (a loopback-only or remote-host port is listed as needing a forward)",
     doc: "right-panel",
   },
   {

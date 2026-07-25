@@ -420,7 +420,16 @@ prose — are fixed independently, and because <strong>PRT2 is where the second 
 appears.</strong> Choosing relay-vs-<code>ssh -L</code> needs the host, which <code>wildcard</code> never
 carried either, so PRT2 reshapes this surface regardless — and it can then design
 the tag against two real consumers instead of one. Same discipline as the
-<code>list()</code>/<code>subscribe()</code> and tagged-error questions above.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>PRT1 also left a
+<code>list()</code>/<code>subscribe()</code> and tagged-error questions above. <strong>A second question of the
+same shape</strong>, raised by the peer review: whether a terminal that has never had a
+successful scan should be distinguishable ON THE WIRE from one that serves
+nothing. Today both read as <code>ports: []</code>, and holding a last-good sample cannot
+cover the pre-first-success window because there is nothing yet to hold. The
+reachable routes into that window were all closed in PRT1 (an unreadable requested
+root throws; an unexpected <code>/proc</code> errno throws; an unsupported platform refuses at
+construction), and padi logs which terminals it holds no sample for — so the
+remedy, a sampling-status discriminator beside <code>ports</code>, waits for the same second
+consumer the scope tag does rather than re-bumping the surface twice.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>PRT1 also left a
 second, smaller judgment on the table: kaval’s one host-global <code>activity</code> edge now
 has three independent <code>resubscribeStream</code> consumers (the finish fold, the live
 dots, the port-scan nudge). They are not three copies of one shape — the live-dots

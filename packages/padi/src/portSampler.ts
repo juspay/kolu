@@ -55,7 +55,11 @@
 import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { everyMsOr, source } from "@kolu/surface/reactor";
 import type { Logger } from "pino";
-import { PortScanError, scanTerminalPorts } from "./portScan.ts";
+import {
+  PortScanError,
+  portScanSupported,
+  scanTerminalPorts,
+} from "./portScan.ts";
 
 /** Baseline cadence of the port scan. The same 5 s `memorySampler` uses, for the
  *  same reason: coarse enough to be free, live enough to be worth reading. */
@@ -139,15 +143,41 @@ export function createPortSampler(opts: {
   scan?: (rootPids: readonly number[]) => Promise<Map<number, PortInfo[]>>;
 }): PortSampler {
   const scan = opts.scan ?? scanTerminalPorts;
-  /** The last map a pass actually produced. A blind pass RE-SERVES it rather than
-   *  publishing an empty set — `[]` reads byte-identically to "this terminal serves
-   *  nothing" (`caught-error-must-not-collapse-to-empty`), while re-serving the
-   *  last sample is dedup'd away by the per-terminal sensor. */
-  let last = new Map<TerminalId, readonly PortInfo[]>();
+  // The permanent refusal, asked BEFORE the cadence exists. Checking it inside the
+  // read could not deliver the "say it once, then stop" contract: the first read on
+  // a host with no terminals yet answers an empty map without reaching the platform
+  // switch, so the refusal would land on a later tick — where the poll source logs
+  // and holds, and "stop" quietly becomes an error every 5 s forever. An injected
+  // `scan` is a test's own business and is never gated on the real platform.
+  if (opts.scan === undefined && !portScanSupported()) {
+    opts.log.error(
+      { platform: process.platform },
+      "port scan unsupported on this platform — the Ports section will stay empty; not arming the sampler",
+    );
+    return { nudge: () => {}, dispose: () => {} };
+  }
+  /** The last map a pass actually produced, per SAMPLED LIFECYCLE (`id` + the
+   *  `rootPid` it was read from). Keyed by id alone it outlived the terminal it
+   *  described: sleep/wake deliberately reuses the same terminal UUID with a NEW
+   *  root pid, so a blind pass after a wake re-served the PRE-SLEEP process tree's
+   *  ports into the fresh sensor — whose dedup baseline had just been reset, so it
+   *  published them. The Inspector would then show, and offer to open, a service
+   *  that was never attributed to the current PTY.
+   *
+   *  A blind pass still RE-SERVES rather than publishing an empty set — `[]` reads
+   *  byte-identically to "this terminal serves nothing"
+   *  (`caught-error-must-not-collapse-to-empty`) — but only to the lifecycle that
+   *  actually produced it. */
+  let last = new Map<
+    TerminalId,
+    { rootPid: number; ports: readonly PortInfo[] }
+  >();
   /** The nudge edge, live only while the cadence is installed. */
   let edge: { fire: () => void; cancel: () => void } | undefined;
 
-  const node = source<ReadonlyMap<TerminalId, readonly PortInfo[]>>({
+  const node = source<
+    ReadonlyMap<TerminalId, { rootPid: number; ports: readonly PortInfo[] }>
+  >({
     // TOTAL by the poll source's contract: a transient failure logs and re-serves
     // the last map, so it can never tear the cadence down. Only a genuinely
     // permanent failure is allowed to propagate out of here.
@@ -172,7 +202,12 @@ export function createPortSampler(opts: {
           );
           return last;
         }
-        last = new Map(targets.map((t) => [t.id, byPid.get(t.rootPid)!]));
+        last = new Map(
+          targets.map((t) => [
+            t.id,
+            { rootPid: t.rootPid, ports: byPid.get(t.rootPid)! },
+          ]),
+        );
         return last;
       } catch (err) {
         // The PERMANENT arm propagates: a platform this scan cannot read will not
@@ -184,9 +219,23 @@ export function createPortSampler(opts: {
           throw err;
         // Everything else is THIS pass failing to see (an EACCES on a requested
         // subtree, an lsof that timed out) and must not publish an empty set.
+        //
+        // Name the terminals we hold NO last-good sample for. For those, holding
+        // the last sample cannot preserve the never-look-empty invariant — there is
+        // nothing to hold, and `seedSnapshot` has already put them at `ports: []`,
+        // which reads exactly like "serves nothing". Saying which ones makes that
+        // window visible to an operator instead of silent; representing it ON THE
+        // WIRE would need a sampling-status discriminator, recorded as a PRT2 shape
+        // question beside the `wildcard`/`scope` one.
+        const neverSampled = opts
+          .targets()
+          .filter((t) => last.get(t.id)?.rootPid !== t.rootPid)
+          .map((t) => t.id);
         opts.log.error(
-          { err },
-          "port scan failed — ports left at their last sample",
+          { err, neverSampled },
+          neverSampled.length > 0
+            ? "port scan failed — ports left at their last sample; these terminals have none yet, so they still read as serving nothing"
+            : "port scan failed — ports left at their last sample",
         );
         return last;
       }
@@ -212,7 +261,23 @@ export function createPortSampler(opts: {
   };
   void node
     .connectPoll((byTerminal) => {
-      for (const [id, ports] of byTerminal) opts.publish(id, ports);
+      // FRESHNESS CHECK at the publish boundary, not the read one. Between a scan
+      // starting and its result landing, a terminal can sleep and wake — which
+      // deliberately keeps its id and gets a NEW root pid — so an id-keyed publish
+      // would deliver the pre-sleep process tree's ports into the woken terminal's
+      // fresh sensor, whose dedup baseline has just been reset and would therefore
+      // emit them. The Inspector would show, and offer to open, a service that was
+      // never attributed to the current PTY.
+      //
+      // Re-reading `targets()` HERE is what makes that unspellable: a sample is
+      // published only to the exact lifecycle that produced it. A terminal that
+      // changed identity simply hears nothing this pass and is sampled afresh on
+      // the next one.
+      const live = new Map(opts.targets().map((t) => [t.id, t.rootPid]));
+      for (const [id, sample] of byTerminal) {
+        if (live.get(id) !== sample.rootPid) continue;
+        opts.publish(id, sample.ports);
+      }
     }, abort.signal)
     .catch((err: unknown) => {
       // The seed read's first failure propagates by design, and after this module's

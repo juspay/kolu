@@ -16,7 +16,7 @@ import {
   PORT_SCAN_INTERVAL_MS,
   type PortScanTarget,
 } from "./portSampler.ts";
-import { PortScanError } from "./portScan.ts";
+import { PortScanError, portScanSupported } from "./portScan.ts";
 
 const quietLog = {
   error: () => {},
@@ -285,5 +285,117 @@ describe("the port sampler's cadence", () => {
     h.sampler.dispose();
     await h.advance(PORT_SCAN_INTERVAL_MS * 5);
     expect(h.passes()).toBe(1);
+  });
+});
+
+describe("a sample belongs to the lifecycle that produced it", () => {
+  // Sleep/wake deliberately reuses a terminal's UUID and gives it a NEW root pid.
+  // Keyed by id alone, a sample captured before the sleep was published into the
+  // WOKEN terminal's fresh sensor — whose dedup baseline had just been reset, so it
+  // emitted them: the Inspector would show, and offer to open, a service that was
+  // never attributed to the current PTY.
+  it("does NOT publish a pre-sleep sample to the same id on a new root pid", async () => {
+    const targets: PortScanTarget[] = [{ id: "A" as TerminalId, rootPid: 100 }];
+    const published: Array<[TerminalId, readonly PortInfo[]]> = [];
+    let release: (() => void) | undefined = () => {};
+    const sampler = createPortSampler({
+      targets: () => [...targets],
+      publish: (id, ports) => published.push([id, ports]),
+      log: quietLog,
+      scan: async () => {
+        if (release !== undefined) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return new Map([[100, [PORT]]]);
+      },
+    });
+
+    // The pass is in flight against rootPid 100…
+    await settle();
+    // …and while it is, the terminal sleeps and wakes: same id, new pid.
+    targets[0] = { id: "A" as TerminalId, rootPid: 999 };
+    release?.();
+    release = undefined;
+    await vi.advanceTimersByTimeAsync(0);
+    await settle();
+
+    expect(published).toEqual([]);
+    sampler.dispose();
+  });
+
+  it("publishes normally when the lifecycle did not change under it", async () => {
+    // The control: same test, same held pass, no wake — so the freshness check must
+    // not be silently swallowing every publish.
+    const h = harness({ answer: [PORT] });
+    await h.seeded();
+    expect(h.published).toEqual([["A", [PORT]]]);
+    h.sampler.dispose();
+  });
+
+  it("a blind pass re-serves ONLY to the lifecycle that produced the sample", async () => {
+    const targets: PortScanTarget[] = [{ id: "A" as TerminalId, rootPid: 100 }];
+    const published: Array<[TerminalId, readonly PortInfo[]]> = [];
+    let fail = false;
+    const sampler = createPortSampler({
+      targets: () => [...targets],
+      publish: (id, ports) => published.push([id, ports]),
+      log: quietLog,
+      scan: async (pids) => {
+        if (fail) throw new PortScanError("blind", "EACCES");
+        return new Map(pids.map((p) => [p, [PORT]]));
+      },
+    });
+    await settle();
+    expect(published).toHaveLength(1); // the good seed
+
+    // Wake under it, then go blind: the held last-good sample belongs to pid 100 and
+    // must not be re-served to pid 999.
+    targets[0] = { id: "A" as TerminalId, rootPid: 999 };
+    fail = true;
+    await vi.advanceTimersByTimeAsync(PORT_SCAN_INTERVAL_MS);
+    await settle();
+
+    expect(published).toHaveLength(1);
+    sampler.dispose();
+  });
+});
+
+describe("the platform refusal is permanent, and asked before the cadence", () => {
+  it("portScanSupported is true only for the two platforms with a reader", () => {
+    expect(portScanSupported()).toBe(
+      process.platform === "linux" || process.platform === "darwin",
+    );
+  });
+
+  it("does not arm at all on an unsupported platform", async () => {
+    // The gap this closes: checking the platform INSIDE the read could not deliver
+    // "say it once, then stop". A first read on a host with no terminals yet answers
+    // an empty map without reaching the platform switch, so the refusal landed on a
+    // later tick — where the poll source logs and holds, turning "stop" into an
+    // error every 5 s forever.
+    const real = process.platform;
+    Object.defineProperty(process, "platform", { value: "sunos" });
+    try {
+      const errors: string[] = [];
+      const sampler = createPortSampler({
+        targets: () => [],
+        publish: () => {
+          throw new Error("must not publish on an unsupported platform");
+        },
+        // biome-ignore lint/suspicious/noExplicitAny: a pino stand-in, not a pino
+        log: {
+          ...quietLog,
+          error: (_o: unknown, m: string) => errors.push(m),
+        } as any,
+      });
+      await settle();
+      await vi.advanceTimersByTimeAsync(PORT_SCAN_INTERVAL_MS * 5);
+      expect(errors).toHaveLength(1); // said once
+      sampler.dispose();
+    } finally {
+      Object.defineProperty(process, "platform", { value: real });
+    }
   });
 });

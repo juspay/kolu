@@ -42,7 +42,7 @@
  * Getting that distinction wrong is not a small mistake, and this file had it
  * wrong: every in-subtree `EACCES` threw, so one `sudo` in one terminal emptied
  * the Ports section for **every** terminal on the host — and kept it empty, with
- * an ERROR every 5 s, until the prompt was answered. See {@link fdListFailure}.
+ * an ERROR every 5 s, until the prompt was answered. See {@link procReadFailure}.
  *
  * ## Why these two mechanisms
  *
@@ -83,6 +83,7 @@ import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { foldPorts } from "@kolu/terminal-vocab/schema";
+import { log } from "./log.ts";
 import type { PortInfo } from "@kolu/terminal-vocab/schema";
 
 const execFileAsync = promisify(execFile);
@@ -208,7 +209,7 @@ interface HostReading {
   table: readonly ProcessRow[];
   /** The listening sockets this pid holds, or `undefined` when the pid cannot be
    *  inspected at all (an exit race, a foreign-uid descendant) — see
-   *  {@link fdListFailure} for which failures are which and why only a requested
+   *  {@link procReadFailure} for which failures are which and why only a requested
    *  ROOT's is fatal. An inspectable pid holding nothing is an empty list. */
   listenersOf(
     pid: number,
@@ -260,10 +261,14 @@ const TCP_LISTEN_STATE = "0A";
  *  whole string) is what makes a v4-mapped address come out as
  *  `00…00 FF FF <v4>` rather than gibberish. */
 export function decodeProcAddress(hex: string): number[] {
-  if (hex.length % 8 !== 0 || hex.length === 0 || !/^[0-9A-Fa-f]+$/.test(hex)) {
+  // EXACTLY v4 or v6 — the two widths `/proc/net/tcp{,6}` can print. The old
+  // `% 8 !== 0` admitted 16 and 24 digits too, so a changed or corrupt row would
+  // sail past this loud parser and be classified as a SPECIFIC bind (the safe-
+  // looking answer) instead of faulting the pass.
+  if ((hex.length !== 8 && hex.length !== 32) || !/^[0-9A-Fa-f]+$/.test(hex)) {
     throw new PortScanError(
       "blind",
-      `port scan: "${hex}" is not a /proc/net/tcp address (expected 8 or 32 hex digits)`,
+      `port scan: "${hex}" is not a /proc/net/tcp address (expected exactly 8 or 32 hex digits)`,
     );
   }
   const bytes: number[] = [];
@@ -504,18 +509,22 @@ async function linuxProcessTable(
     try {
       body = await readFile(`/proc/${entry}/stat`, "utf8");
     } catch (err) {
-      const code = errnoOf(err);
-      // ENOENT is the exit race, on a root pid as much as any other: the
-      // terminal's shell is genuinely gone, so "no ports" is the truth.
-      if (code === "ENOENT" || code === "ESRCH") continue;
-      if (roots.has(Number(entry))) {
-        throw new PortScanError(
-          "blind",
-          `port scan: cannot read /proc/${entry}/stat for a requested terminal root (${code})`,
-          { cause: err },
-        );
+      // The SAME triad the fd walk uses (`procReadFailure`), not a looser one of
+      // its own. This catch used to `continue` on EVERY non-ENOENT errno for a
+      // non-root pid — so an unexpected `EIO`/`EMFILE` on an ordinary same-uid
+      // descendant silently dropped that row, disconnecting ITS descendants from
+      // the requested root and letting the pass publish a confidently PARTIAL
+      // answer. That is a caught error collapsing to missing state, which is the
+      // one thing this module is built not to do; only the exit race and the
+      // deliberate foreign-uid case are skippable.
+      if (procReadFailure(errnoOf(err), roots.has(Number(entry))) === "skip") {
+        continue;
       }
-      continue;
+      throw new PortScanError(
+        "blind",
+        `port scan: cannot read /proc/${entry}/stat (${errnoOf(err)})`,
+        { cause: err },
+      );
     }
     rows.push(parseProcStat(body));
   }
@@ -537,21 +546,38 @@ async function linuxProcessTable(
  *  cmdline→comm order is the same one `socketHolder.ts` reaches for, but it is
  *  RE-DERIVED here, not shared — see {@link socketInodesOf}. */
 async function linuxProcessName(pid: number, comm: string): Promise<string> {
+  let cmdline: string;
   try {
-    const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8");
-    // NUL-separated argv. An empty cmdline is a kernel thread, which cannot own a
-    // TCP listener — but if one ever reaches here, `comm` is the honest answer.
-    const argv0 = cmdline.split("\0")[0];
-    return argv0 !== undefined && argv0 !== "" ? path.basename(argv0) : comm;
-  } catch {
-    // The process exited between the socket join and this read — the routine
-    // mid-scan race. The name is cosmetic; the port is the fact.
+    cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8");
+  } catch (err) {
+    // A blanket `catch { return comm }` here swallowed EVERY failure into the
+    // fallback — an `EIO`, an `EMFILE`, a permission change — and published the
+    // fallback label as though it had been observed. Narrowed to the errnos that
+    // MEAN "there is nothing to read": the exit race, and a pid that turned out
+    // not to be ours.
+    //
+    // An unexpected errno still falls back rather than throwing, and that is
+    // deliberate rather than lazy: `comm` is a REAL value this scan already read,
+    // not a fabrication, and failing the whole terminal's port list over a
+    // cosmetic label would trade a slightly-worse name for no ports at all. What
+    // it must not be is SILENT, so it is logged.
+    if (procReadFailure(errnoOf(err), false) !== "skip") {
+      log.warn(
+        { err, pid },
+        "port scan: unexpected /proc/<pid>/cmdline failure — labelling the port from `comm` instead",
+      );
+    }
     return comm;
   }
+  // NUL-separated argv. An empty cmdline is a kernel thread, which cannot own a
+  // TCP listener — but if one ever reaches here, `comm` is the honest answer.
+  const argv0 = cmdline.split("\0")[0];
+  return argv0 !== undefined && argv0 !== "" ? path.basename(argv0) : comm;
 }
 
-/** What to do when `/proc/<pid>/fd` cannot be listed. The whole policy, as one
- *  pure decision, because getting it wrong is not a small mistake:
+/** What to do when a `/proc/<pid>` read fails — the fd listing, the `stat` row,
+ *  or a name lookup. ONE policy for all of them, as one pure decision, because
+ *  getting it wrong is not a small mistake:
  *
  *   - **The exit race** (`ENOENT`/`ESRCH`) — the process is gone. Skip it; it
  *     holds nothing, which is the truth.
@@ -573,7 +599,7 @@ async function linuxProcessName(pid: number, comm: string): Promise<string> {
  *  is invisible. That is a real gap, and it is the better half of the trade —
  *  a `sudo` prompt holds no listening socket, while the alternative blinds every
  *  terminal on the box for as long as the prompt is open. */
-export function fdListFailure(
+export function procReadFailure(
   code: string | undefined,
   isRequestedRoot: boolean,
 ): "skip" | "throw" {
@@ -592,14 +618,14 @@ export function fdListFailure(
  *  and the next `/proc`/`lsof`/macOS change has two edit sites. The copies do NOT
  *  agree: that one blanket-`catch { continue }`s an unreadable `/proc/<pid>/fd` and
  *  collapses an unreadable `/proc` to `[]` (the very
- *  `caught-error-must-not-collapse-to-empty` shape {@link fdListFailure} exists to
+ *  `caught-error-must-not-collapse-to-empty` shape {@link procReadFailure} exists to
  *  forbid), because its question is "who holds THIS socket path" rather than "what
  *  is this terminal serving". Extracting one leaf both plug into — with the
  *  fd-failure policy INJECTED so each keeps its own — is the real fix, and is a
  *  standing item rather than something this module can do alone.
  *
  *  Returns `undefined` when this pid cannot be inspected — an exited process, or
- *  a foreign-uid descendant. See {@link fdListFailure} for which failures are
+ *  a foreign-uid descendant. See {@link procReadFailure} for which failures are
  *  which, and why only a REQUESTED ROOT's unreadable `fd/` is fatal. */
 async function socketInodesOf(
   pid: number,
@@ -609,7 +635,7 @@ async function socketInodesOf(
   try {
     fds = await readdir(`/proc/${pid}/fd`);
   } catch (err) {
-    if (fdListFailure(errnoOf(err), isRequestedRoot) === "skip")
+    if (procReadFailure(errnoOf(err), isRequestedRoot) === "skip")
       return undefined;
     throw new PortScanError(
       "blind",
@@ -628,7 +654,7 @@ async function socketInodesOf(
       // listing above: a process that turned setuid between the readdir and this
       // read is the descendant case arriving one level late, and it must not take
       // the host's whole scan with it.
-      if (fdListFailure(errnoOf(err), isRequestedRoot) === "skip") continue;
+      if (procReadFailure(errnoOf(err), isRequestedRoot) === "skip") continue;
       throw new PortScanError(
         "blind",
         `port scan: cannot read /proc/${pid}/fd/${fd} (${errnoOf(err)})`,
@@ -840,7 +866,7 @@ async function readDarwin(): Promise<HostReading> {
     table,
     // lsof already reported WHICH pid holds each listener, so there is no per-pid
     // read to attempt and no failure to classify: a pid lsof could not see simply
-    // has no rows. (`fdListFailure`'s policy is linux's fd-walk policy — darwin
+    // has no rows. (`procReadFailure`'s policy is linux's fd-walk policy — darwin
     // does no fd walk, which is why the argument goes unread here.)
     listenersOf: (pid) => Promise.resolve(byPid.get(pid) ?? []),
     // `ps -o comm` is macOS's full executable PATH, so its basename is ALREADY the
@@ -868,6 +894,20 @@ async function readDarwin(): Promise<HostReading> {
  *  retry. Fail fast on the latter, exactly as `socketHolders` does: kolu's daemons
  *  run on linux and darwin, and a third platform needs a real reader, not a silent
  *  empty map. */
+/** Can this host be scanned AT ALL? A deployment fact, knowable before any pid is
+ *  requested — which is exactly why it is separate from a scan.
+ *
+ *  `scanTerminalPorts` refuses an unsupported platform, but a per-pass refusal
+ *  cannot be a caller's permanent-stop signal: a sampler whose first read happens
+ *  to have no terminals yet answers `new Map()` without ever reaching the platform
+ *  switch, so the refusal arrives on some later tick — where a poll loop logs and
+ *  holds rather than stopping, and the "said once, then stop" contract silently
+ *  becomes an error every 5 s forever. Asking THIS first makes the check
+ *  independent of whether any terminal exists. */
+export function portScanSupported(): boolean {
+  return process.platform === "linux" || process.platform === "darwin";
+}
+
 export async function scanTerminalPorts(
   rootPids: readonly number[],
 ): Promise<Map<number, PortInfo[]>> {
