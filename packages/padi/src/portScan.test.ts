@@ -18,9 +18,11 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  bindsAny,
   decodeProcAddress,
   fdListFailure,
   isAnyAddress,
+  parseBindAddress,
   parseLsofListeners,
   parseProcNetTcp,
   parseProcStat,
@@ -137,6 +139,51 @@ describe("isAnyAddress", () => {
   });
 });
 
+describe("parseBindAddress / bindsAny", () => {
+  it("reads lsof's `*` as the wildcard it means", () => {
+    expect(parseBindAddress("*")).toBe("any");
+    expect(bindsAny("*")).toBe(true);
+  });
+
+  it("agrees with the /proc path on every wildcard spelling", () => {
+    // The finding this replaces: two predicates, one over bytes and one over
+    // text, that disagreed about `::ffff:0.0.0.0` — so the SAME server on the
+    // SAME port read as reachable on linux and as needing a forward on darwin.
+    for (const spelling of ["0.0.0.0", "::", "::ffff:0.0.0.0", "*"]) {
+      expect(bindsAny(spelling)).toBe(true);
+    }
+    for (const spelling of [
+      "127.0.0.1",
+      "::1",
+      "::ffff:127.0.0.1",
+      "192.168.1.5",
+      "fe80::1%en0",
+    ]) {
+      expect(bindsAny(spelling)).toBe(false);
+    }
+  });
+
+  it("expands `::` elision and a trailing embedded v4 to 16 bytes", () => {
+    expect(parseBindAddress("::1")).toEqual([...new Array(15).fill(0), 1]);
+    expect(parseBindAddress("::ffff:127.0.0.1")).toEqual([
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1,
+    ]);
+    expect(parseBindAddress("fe80::1")).toEqual([
+      0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    ]);
+  });
+
+  it("fails loudly on text that is not an address", () => {
+    // A silent "specific address" reading would render as an inert chip claiming
+    // a forward is needed, with nothing anywhere to say the parse was wrong.
+    expect(() => parseBindAddress("nonsense")).toThrow(PortScanError);
+    expect(() => parseBindAddress("1.2.3")).toThrow(PortScanError);
+    expect(() => parseBindAddress("300.1.1.1")).toThrow(PortScanError);
+    expect(() => parseBindAddress("::1::2")).toThrow(PortScanError);
+    expect(() => parseBindAddress("1:2:3")).toThrow(PortScanError);
+  });
+});
+
 // ── /proc parsing ──────────────────────────────────────────────────────
 
 describe("parseProcNetTcp", () => {
@@ -219,6 +266,21 @@ describe("parseLsofListeners", () => {
       { port: 80, wildcard: true, pid: 1 },
       { port: 81, wildcard: true, pid: 1 },
       { port: 82, wildcard: false, pid: 1 },
+    ]);
+  });
+
+  it("classifies the v4-MAPPED pair exactly as the /proc parser does", () => {
+    // Pinned rather than assumed: nothing says lsof never spells a dual-stack
+    // `0.0.0.0` bind in its v4-mapped form, and the two platforms reading the
+    // same address differently is a chip that offers a forward for a port that
+    // already answers (or withholds one from a port that doesn't).
+    expect(
+      parseLsofListeners(
+        "p1\ncx\nf3\nn[::ffff:0.0.0.0]:80\nf4\nn[::ffff:127.0.0.1]:81\n",
+      ),
+    ).toEqual([
+      { port: 80, wildcard: true, pid: 1 },
+      { port: 81, wildcard: false, pid: 1 },
     ]);
   });
 

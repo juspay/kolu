@@ -211,7 +211,14 @@ export function decodeProcAddress(hex: string): number[] {
  *  The v4-mapped arm is not hypothetical: a Node server that binds `0.0.0.0` on
  *  a dual-stack box is commonly reported in `tcp6` in exactly that form, and
  *  reading it as a specific address would offer a needless forward for a port
- *  that already answers. */
+ *  that already answers.
+ *
+ *  Over BYTES, so this one arm answers for every spelling either platform
+ *  produces — `/proc`'s reversed hex through {@link decodeProcAddress}, `lsof`'s
+ *  text through {@link parseBindAddress}. There is deliberately no second,
+ *  text-shaped predicate: the two used to disagree about exactly the case the
+ *  paragraph above exists for, so darwin classified a reachable v4-mapped
+ *  wildcard as needing a forward. */
 export function isAnyAddress(bytes: readonly number[]): boolean {
   if (bytes.every((b) => b === 0)) return true;
   return (
@@ -221,6 +228,92 @@ export function isAnyAddress(bytes: readonly number[]): boolean {
     bytes[11] === 0xff &&
     bytes.slice(12).every((b) => b === 0)
   );
+}
+
+/** Parse a TEXTUAL bind address into its bytes — or `"any"` for `*`, the literal
+ *  `lsof` writes for a wildcard bind (the one spelling that is not an address at
+ *  all). A v6 zone (`fe80::1%en0`) names an interface, not an address, so it is
+ *  dropped before parsing.
+ *
+ *  Fails LOUDLY on text it cannot read, like every other parse in this module: an
+ *  address silently classified as "specific" is a chip that quietly claims to need
+ *  a forward, which is the failure mode {@link isAnyAddress}'s v4-mapped arm was
+ *  written for. */
+export function parseBindAddress(text: string): number[] | "any" {
+  if (text === "*") return "any";
+  const addr = text.split("%")[0] ?? "";
+  if (addr.includes(":")) return parseV6Address(addr, text);
+  return parseV4Address(addr, text);
+}
+
+/** Whether a TEXTUAL bind address is the ANY address — the one question a parser
+ *  over text (`lsof`) asks, routed through the SAME byte-level decision `/proc`
+ *  uses. */
+export function bindsAny(text: string): boolean {
+  const address = parseBindAddress(text);
+  return address === "any" || isAnyAddress(address);
+}
+
+function parseV4Address(addr: string, text: string): number[] {
+  const parts = addr.split(".");
+  if (parts.length !== 4) {
+    throw new PortScanError(`port scan: "${text}" is not a bind address`);
+  }
+  return parts.map((part) => {
+    const byte = Number.parseInt(part, 10);
+    if (!/^\d{1,3}$/.test(part) || byte > 255) {
+      throw new PortScanError(
+        `port scan: "${text}" is not a bind address (bad IPv4 byte "${part}")`,
+      );
+    }
+    return byte;
+  });
+}
+
+/** Expand an IPv6 text address to its 16 bytes, `::` elision and a trailing
+ *  embedded v4 (`::ffff:127.0.0.1` — the form that makes the wildcard question
+ *  subtle) included. */
+function parseV6Address(addr: string, text: string): number[] {
+  const halves = addr.split("::");
+  if (halves.length > 2) {
+    throw new PortScanError(
+      `port scan: "${text}" is not a bind address (more than one "::")`,
+    );
+  }
+  const bytesOf = (half: string): number[] => {
+    if (half === "") return [];
+    const groups = half.split(":");
+    const bytes: number[] = [];
+    for (const [i, group] of groups.entries()) {
+      if (group.includes(".")) {
+        // An embedded v4 is legal only as the LAST group, and is four bytes wide.
+        if (i !== groups.length - 1) {
+          throw new PortScanError(
+            `port scan: "${text}" is not a bind address (embedded IPv4 out of place)`,
+          );
+        }
+        bytes.push(...parseV4Address(group, text));
+        continue;
+      }
+      if (!/^[0-9A-Fa-f]{1,4}$/.test(group)) {
+        throw new PortScanError(
+          `port scan: "${text}" is not a bind address (bad IPv6 group "${group}")`,
+        );
+      }
+      const word = Number.parseInt(group, 16);
+      bytes.push(word >> 8, word & 0xff);
+    }
+    return bytes;
+  };
+  const head = bytesOf(halves[0] ?? "");
+  const tail = halves.length === 2 ? bytesOf(halves[1] ?? "") : [];
+  const elided = 16 - head.length - tail.length;
+  if (elided < 0 || (halves.length === 1 && elided !== 0)) {
+    throw new PortScanError(
+      `port scan: "${text}" is not a bind address (${head.length + tail.length} bytes)`,
+    );
+  }
+  return [...head, ...new Array<number>(elided).fill(0), ...tail];
 }
 
 /** A `/proc/net/tcp{,6}` LISTEN row, keyed by the socket inode the fd walk joins
@@ -527,11 +620,6 @@ export interface LsofListener extends Listener {
   pid: number;
 }
 
-/** Is an `lsof` address the ANY address — reachable from another machine as-is? */
-function isLsofAnyAddress(host: string): boolean {
-  return host === "*" || host === "::" || host === "0.0.0.0";
-}
-
 /** Parse `lsof -nP -w -iTCP -sTCP:LISTEN -Fpcn` field output.
  *
  *  Field output rather than the human table because it is the format lsof
@@ -581,9 +669,12 @@ export function parseLsofListeners(body: string): LsofListener[] {
         `port scan: "${value}" carries no valid port in an lsof LISTEN row`,
       );
     }
-    // `[::1]` → `::1`; a v4 host and `*` are unbracketed already.
+    // `[::1]` → `::1`; a v4 host and `*` are unbracketed already. The wildcard
+    // judgment is then the platform-independent one (`bindsAny` → bytes →
+    // `isAnyAddress`), so darwin and linux cannot disagree about a spelling —
+    // `::ffff:0.0.0.0` most of all.
     const host = value.slice(0, split).replace(/^\[|\]$/g, "");
-    listeners.push({ port, wildcard: isLsofAnyAddress(host), pid });
+    listeners.push({ port, wildcard: bindsAny(host), pid });
   }
   return listeners;
 }
