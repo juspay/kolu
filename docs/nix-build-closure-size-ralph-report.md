@@ -18,8 +18,8 @@ application behavior.
 |                    | Bytes         | Display size |
 | ------------------ | ------------- | ------------ |
 | **Baseline**       | 1,351,008,904 | 1.3 GiB      |
-| **Final**          | 697,319,744   | 665.0 MiB    |
-| **Improvement**    | 653,689,160   | 48.4%        |
+| **Final**          | 696,462,408   | 664.2 MiB    |
+| **Improvement**    | 654,546,496   | 48.4%        |
 
 ## Baseline Findings
 
@@ -42,12 +42,12 @@ application behavior.
 | 4 | Keep only node-pty's runtime native module; remove node-gyp metadata | 883,921,464 | 760,435,216 | -123,486,248 (-14.0%) | Yes |
 | 5 | Remove remaining compiler, bundler, DOM-test, and dev-runner packages | 760,435,216 | 696,677,968 | -63,757,248 (-8.4%) | Yes |
 | 6 | Remove type-only packages and Vazhi-only Ink dependencies from Kolu's shared tree | 696,677,968 | 686,323,424 | -10,354,544 (-1.5%) | Yes |
-| 7 | Advance nixpkgs to its final x86_64-darwin-supporting revision; keep pnpm 10 and stock cached Node 24.15 | 686,314,112 | 697,319,744 | +11,005,632 (+1.6%) | Yes |
+| 7 | Advance nixpkgs to a Node-24.15 revision compatible with idli and x86_64-darwin; keep pnpm 10 | 686,314,112 | 696,462,408 | +10,148,296 (+1.5%) | Yes |
 
 ## Final Largest Paths
 
 These are individual NAR sizes, not marginal closure costs; dependencies shared
-by several roots are counted once in the 665.0 MiB total.
+by several roots are counted once in the 664.2 MiB total.
 
 | Path | NAR size | Why it remains |
 | ---- | -------- | -------------- |
@@ -94,9 +94,9 @@ by several roots are counted once in the 665.0 MiB total.
 - Generated node-gyp metadata retained Python and node-gyp even though runtime
   only needs `build/Release/pty.node`.
 - The original wrapper graph and nixpkgs' TSX package collectively retained two
-  Node majors. The newest pin that still supports x86_64-darwin builds TSX
-  against Node 22, so Kolu overrides only that input with nixpkgs' stock Node
-  24.15 core. The final closure carries one Node core, and that Node output is
+  Node majors. The advanced pin builds TSX against Node 22, so Kolu overrides
+  only that input with nixpkgs' stock Node 24.15 runtime. The final closure
+  carries one Node core, and that Node output is
   substitutable from `cache.nixos.org`; only the small TSX package is rebuilt.
   The full Node 24 toolset remains because hosted terminals inherit its `npm`,
   `npx`, and `corepack` commands.

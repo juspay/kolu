@@ -46,10 +46,10 @@ let
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
   # environment.
   runtimeNode = pkgs.nodejs;
-  # The newest nixpkgs revision that still supports x86_64-darwin builds tsx
-  # against Node 22. Point only tsx at the stock, cache.nixos.org-substitutable
-  # Node 24 core so the shipped closure carries one Node core.
-  runtimeTsx = pkgs.tsx.override { nodejs-slim_22 = pkgs.nodejs-slim_24; };
+  # This nixpkgs revision builds tsx against Node 22. Point only tsx at the
+  # stock, cache.nixos.org-substitutable Node 24 runtime so the shipped closure
+  # carries one Node core.
+  runtimeTsx = pkgs.tsx.override { nodejs_22 = runtimeNode; };
   runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
 
   # Exact source flake with a minimal remote-agent output surface.
