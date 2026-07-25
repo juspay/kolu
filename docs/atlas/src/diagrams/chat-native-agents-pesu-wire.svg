@@ -31,7 +31,7 @@
   <rect x="40" y="188" width="280" height="168" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
   <text x="58" y="214" font-size="13" font-weight="700" fill="#5b6470" letter-spacing=".07em">PESU — STANDALONE DAEMON</text>
   <text x="58" y="238" font-size="13" fill="#1a1c20">webhook + author gate + binds</text>
-  <text x="58" y="258" font-size="13" fill="#6d4fa3">@kolu/acp — embedded client</text>
+  <text x="58" y="258" font-size="13" fill="#6d4fa3">embedded ACP client</text>
   <text x="58" y="278" font-size="13" fill="#1a1c20">supervision: spawn · respawn ·</text>
   <text x="58" y="298" font-size="13" fill="#1a1c20">cancel-with-grace</text>
   <text x="58" y="318" font-size="13" fill="#8a8272">repo allowlist → worktrees</text>

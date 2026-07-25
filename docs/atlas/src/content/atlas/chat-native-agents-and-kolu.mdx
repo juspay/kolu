@@ -1,5 +1,5 @@
 ---
-title: "Agentic chat in Xyne Spaces: pesu standalone, kolu for the takeover"
+title: "Agentic chat: pesu standalone, kolu for the takeover"
 description: "pesu is a Buzz-shaped daemon — XS webhook in, an embedded ACP client driving a headless agent it spawns as its own child, replies back in the thread. kolu is not its skeleton but its complement: the takeover surface, where a terminal in the thread's worktree plus claude --resume opens the bot's own conversation."
 parents: [feature]
 status: proposed
@@ -15,8 +15,8 @@ import Svg from "../../components/Svg.astro";
 import wire from "../../diagrams/chat-native-agents-pesu-wire.svg?raw";
 
 **pesu stands alone; kolu stands beside it.** DM the bot in Xyne Spaces and a
-single daemon does the whole loop: verified webhook in, an ACP
-`session/prompt` to a headless agent it spawns as its own child over stdio,
+single daemon does the whole loop: verified webhook in, an
+[ACP](https://agentclientprotocol.com) `session/prompt` to a headless agent it spawns as its own child over stdio,
 the reply posted back to the thread. No proxy process, no socket, no tile in
 the runtime path — the shape [buzz](https://github.com/block/buzz) runs in
 production.<Footnote>Grounded 2026-07-25 by reading the buzz source, not its
@@ -41,10 +41,17 @@ does not depend on kolu; kolu completes it.
 | Component | Process | Job |
 | --- | --- | --- |
 | **Xyne Spaces** | XS cloud | Threads, identity, @mention/DM webhooks, flow cards |
-| **pesu** | standalone daemon (`packages/pesu`) | Webhook + author gate + binds; embedded ACP client; adapter supervision; per-thread worktrees |
-| **`@kolu/acp`** | library (`packages/acp`) | Spawn + supervise a stdio ACP adapter, typed client face — no bins, no socket |
-| **ACP adapter** | child of pesu | The headless agent behind standard ACP — `claude-agent-acp`, `codex-acp`; any stdio ACP agent works |
+| **pesu** | standalone daemon (`packages/pesu`) | Chat-frontend plugin (XS first) + author gate + binds; embedded ACP client + adapter supervision; per-thread worktrees |
+| **ACP adapter** | child of pesu | The headless agent behind standard ACP — [`claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), [`codex-acp`](https://www.npmjs.com/package/@agentclientprotocol/codex-acp); any stdio ACP agent works |
 | **kolu** | separate product, same box | The takeover surface — not in the runtime path at all |
+
+**Xyne Spaces is the first chat frontend, not the design.** The chat side of
+pesu is one thin seam — deliver an inbound message; post, update, and
+progress a reply — and XS is its first plugin. A Discord-shaped second
+frontend is architecturally possible from the get-go, because everything
+past that seam (worktrees, the ACP client, supervision, the takeover ack)
+never sees XS. One frontend ships in v1; the seam is the commitment, not a
+second integration.
 
 ACP is still the only protocol on the wire — NDJSON JSON-RPC over the child's
 stdio, exactly as the spec ships it — and driving the agent through it
@@ -73,9 +80,9 @@ file is the same thing at a fraction of the machinery. (Buzz reached the
 same verdict from the other direction: rather than any local viewer it
 encrypts frames onto its own relay and renders them in its chat app — the
 chat surface is the viewer, which for us is the XS thread itself.) The
-supervision core and the real-process test harness built in #1985 carry
-forward as PS0's seed; the socket shape may yet return as the remote-host
-arm, a decision explicitly out of scope here.</Footnote>
+supervision core and the real-process test harness built in #1985 port into
+pesu as part of PS1; the socket shape may yet return as the remote-host arm
+when remote boxes arrive — a distant-future item, not designed here.</Footnote>
 
 Where this deliberately differs from buzz, recorded so the choices are
 conscious: buzz pools adapter processes and multiplexes sessions across them
@@ -94,13 +101,14 @@ no export step, no transcript plumbing:
 - **Every thread binds to a git worktree.** The agent's tools act on real
   files; its work is diffable, testable, committable the moment it lands.
 - **The conversation is an ordinary CLI session.** `claude-agent-acp` is
-  built on the same engine as the `claude` CLI, writes a standard JSONL
+  built on the same engine as the
+  [`claude` CLI](https://claude.com/claude-code), writes a standard JSONL
   transcript into `~/.claude/projects/`, and implements ACP `session/load`
   by passing the ACP session id straight into the engine's `resume` — the
   ACP session id *is* the CLI session id.<Footnote>Facts from the shipped
   adapter and this dev box, 2026-07-25: `claude-agent-acp` depends on
-  `@anthropic-ai/claude-agent-sdk` (it even resolves the bundled `claude`
-  binary at startup), and its `session/load`/`resumeSession` pass
+  [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
+  (it even resolves the bundled `claude` binary at startup), and its `session/load`/`resumeSession` pass
   `params.sessionId` as the SDK's `resume` option (`dist/acp-agent.js`). The
   #1985 smoke sessions sit in `~/.claude/projects/…-packages-acp/*.jsonl` as
   ordinary Claude Code transcripts. `codex-acp` structurally matches: it
@@ -129,63 +137,45 @@ parsing cleverness); no match means the configured default repo.
 
 | Decision | Choice |
 | --- | --- |
-| Library | TypeScript, `@agentclientprotocol/sdk` on its current `agent()`/`client()` model — the deprecated connection classes from the #1985 branch never reach master (supersedes #1989) |
-| Package boundary | `@kolu/acp` is a library only — spawn + supervise + typed client; pesu is its consumer; no bins, no socket |
+| Library | TypeScript, [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk) on its current `agent()`/`client()` model — the deprecated connection classes from the #1985 branch never reach master (supersedes #1989) |
+| Package boundary | **None in v1 — KISS.** The ACP client and supervision are pesu modules, ported with their tests from the closed #1985 branch; extract a package only when a second consumer actually exists |
 | Adapter | pesu config — **any stdio ACP agent**; day one `claude-agent-acp` and `codex-acp`, pinned as npm deps (no global installs) |
 | Workspace | per-thread git worktree, cut from a repo on pesu's env-configured allowlist (`alias → path`); first message may name an allowlisted alias verbatim; no match → default repo |
 | Bind state | `threadId → { cwd, acpSessionId, authorUserId, agent }`, JSON file beside pesu |
 | Session visibility | every ACP frame appended to a per-session log file beside the bind state; no viewer process |
 | Takeover ack | the ack carries the worktree path, the session id, and the exact `claude --resume` line |
-| Permissions | pesu answers `session/request_permission` itself — auto-`allow_once` until PS2 turns interactive forwarding on |
+| Permissions | **Auto-approved, documented.** pesu always answers `session/request_permission` with the `allow_once` option, and the bot's docs state so plainly; interactive approve-from-thread is a *Later* item, gated on verifying XS flow cards can deliver an app's button callbacks at all |
 | Reply shape | Post once, then `updateMessage` ≤1/s as the growing reply; split at XS's 40,000-char cap<Footnote>The XS app API has no delta primitive: `updateMessage` is a full-body replace, and `agentProgress` is ephemeral — a Redis-backed working/done pill with a one-line `toolLabel`, never persisted. The ≤1/s cadence is manners, not a platform limit.</Footnote> |
 
 ## Roadmap — PS
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "PS0 · @kolu/acp becomes a library", m: "seeded from the closed #1985 branch · agent()/client()", h: "#ps0" },
-  { d: 0, g: "○", c: "last", l: "PS1 · the XS round trip + takeover ack", m: "needs PS0 · webhook → worktree → reply · resume line", h: "#ps1" },
-  { d: 0, g: "○", c: "last", l: "PS2 · approve from the thread", m: "needs PS1 · permission → flow card", h: "#ps2" },
-  { d: 0, g: "○", c: "last", l: "PS3 · turn polish", m: "needs PS1 · growing reply · resume across restart", h: "#ps3" },
+  { d: 0, g: "▶", c: "prog", l: "PS1 · the XS round trip + takeover ack", m: "DM → worktree → reply · ack carries the resume line", h: "#ps1" },
+  { d: 0, g: "○", c: "last", l: "PS2 · turn polish", m: "needs PS1 · growing reply · tool labels · resume across restart", h: "#ps2" },
 ];
 
 <PhaseTree title="ROADMAP — pesu standalone, kolu beside it" phases={PT} />
-
-<a id="ps0"></a>
-
-### PS0 — @kolu/acp becomes an embedded client library
-
-<Phase id="PS0" name="library: spawn + supervise + typed client, no bins" status="next" />
-
-The closed <PrLink pr={1985} /> branch is the seed, not the shape. **Keep:**
-the supervision core — process-group spawn and kill, paced respawn, graced
-cancel, bounded handshake — and the fake-adapter fixtures plus the
-real-process vitest suite built around them (the four lifetime bugs review
-caught there are pinned by those tests; that insurance is the most valuable
-artifact the branch produced). **Drop:** `acp-proxy`, `acp-chat`, the unix
-socket, PTY rendering. **Rebuild:** the connection layer on the SDK's
-`agent()`/`client()` handler model, so the deprecated classes and their
-`biome.jsonc` suppression never reach master.
-
-**Done when:**
-
-- The library exposes one session-shaped surface — spawn an adapter by argv
-  in a cwd; prompt; cancel; a frame stream the caller can log; the session
-  id — and pesu-shaped code (a test standing in for it) drives a full turn
-  through it.
-- The ported suite is green driving real spawned processes: crash → respawn
-  → next prompt works; hang → `session/cancel` → grace expiry → respawn; the
-  suite stays parameterized by adapter argv, with the deliberately different
-  second vendor retained.
-- Zero deprecated SDK imports and zero lint suppressions for them.
 
 <a id="ps1"></a>
 
 ### PS1 — the XS round trip + the takeover ack
 
-<Phase id="PS1" name="webhook → worktree → prompt → reply · ack carries the resume line" status="todo" needs={["PS0"]} />
+<Phase id="PS1" name="webhook → worktree → prompt → reply · ack carries the resume line" status="next" />
+
+The user-facing feature is the whole loop: DM the bot, watch the reply land,
+own the takeover line. Under it rides the one internal port: the supervision
+core from the closed <PrLink pr={1985} /> branch — process-group spawn and
+kill, paced respawn, graced cancel, bounded handshake — plus its
+fake-adapter fixtures and real-process vitest suite, moved into pesu as
+modules and rebuilt on the SDK's `agent()`/`client()` handler model, so the
+deprecated connection classes and their `biome.jsonc` suppression never
+reach master. The four lifetime bugs review caught on that branch are pinned
+by those tests; that insurance is the most valuable artifact it produced.
+`acp-proxy`, `acp-chat`, the unix socket, and the PTY rendering are not
+ported.
 
 pesu: signed webhook (`APP_MENTIONED` / `DIRECT_MESSAGE`) → allowlist gate →
-bind the thread → cut the worktree → spawn the adapter through `@kolu/acp` →
+bind the thread → cut the worktree → spawn the adapter →
 `session/prompt` → post the reply. The XS leaf — `webhook.ts` + HMAC tests,
 `xyneApi.ts` + fake-XS tests, fail-fast env config, logging, allowlist,
 `nix run .#pesu` — ports from <PrLink pr={1810} />.
@@ -225,44 +215,23 @@ variables** — never the repo, logs, or an agent transcript.
    posted, nothing created (pinned by a test).
 6. In a channel, `@kolu <ask>` works; a plain message in the same thread
    without the @mention does nothing (the documented apps-platform gap).
+7. Ask for something gated — the run proceeds without pausing
+   (auto-approved `allow_once`), exactly as the bot's docs say it will.
 
 **Done when:** DM → worktree exists → reply lands; a second message
 continues the same session; the ack's resume line provably opens the same
 conversation; a forged signature is rejected; a non-operator gets a visible
-decline, never silence.
+decline, never silence; the ported supervision suite is green inside pesu
+(crash → respawn → next prompt works; hang → cancel → grace → respawn;
+parameterized by adapter argv with the deliberately different second vendor
+retained) with zero deprecated SDK imports and zero lint suppressions for
+them.
 
 <a id="ps2"></a>
 
-### PS2 — approve from the thread
+### PS2 — turn polish
 
-<Phase id="PS2" name="permission request → flow card → ACP response" status="todo" needs={["PS1"]} />
-
-A `session/request_permission` frame becomes a flow-JSON card in the thread
-— one button per option the request carries. The `/flow/action` callback
-answers the ACP request; the card updates to show the decision. The request
-stays open until answered or the turn is cancelled — and a cancel resolves
-the pending request as `cancelled` *first*, the buzz deadlock lesson.
-Auto-answer turns off for bound threads.
-
-<Ps2Mock />
-
-**Test flows (this PR):**
-
-1. Ask for something gated ("push this branch") — the card appears; the
-   agent is visibly paused.
-2. **Allow once** — the run unblocks; the card flips to "allowed by you".
-3. **Reject** — the agent declines and says so in its reply.
-4. Leave the card unanswered and cancel the turn — the request resolves as
-   cancelled; no deadlock, no orphaned card.
-
-**Done when:** an agent hits a gated tool, the card appears in the thread,
-clicking Allow unblocks the run — end to end, with auto-answer off.
-
-<a id="ps3"></a>
-
-### PS3 — turn polish
-
-<Phase id="PS3" name="growing reply · tool labels · resume across restart" status="todo" needs={["PS1"]} />
+<Phase id="PS2" name="growing reply · tool labels · resume across restart" status="todo" needs={["PS1"]} />
 
 The growing reply (`updateMessage` ≤1/s, cap-aware split); `tool_call`
 frames → `agentProgress` labels while the turn runs; `session/load` on pesu
@@ -288,14 +257,21 @@ silently.</Footnote>
 **Done when:** restart pesu mid-conversation; the next DM continues the same
 conversation with prior context, without double-posting earlier replies.
 
-**Later, on demand (small bounded additions, not phases):** per-thread agent
-selection UX (the wire already takes any adapter);
+**Later, on demand (small bounded additions, not phases):**
+**approve from the thread** — a `session/request_permission` becoming a
+button card in the thread is designed only after verifying the XS apps
+platform can deliver an app's button callbacks at all (unconfirmed today;
+until then documented auto-approve is the contract, and a cancel must
+resolve any pending request as `cancelled` first — the buzz deadlock
+lesson); a **second chat frontend** (Discord-shaped) behind the same seam;
+per-thread agent selection UX (the wire already takes any adapter);
 **[goose](https://goose-docs.ai/) as an optional agent** — one config entry,
 no code.<Footnote>Recorded 2026-07-25 from the adapter and goose sources:
 goose's native ACP is strongest on session persistence and cancellable
-permissions — advantages that become observable only once PS2/PS3 land — and
-wins decisively on provider breadth (15+ API/cloud/local model providers),
-at the cost of one more runtime between the thread and the model when a
+permission requests — advantages that become observable only once
+resume-across-restart (PS2) and approve-from-thread land — and wins
+decisively on provider breadth (15+ API/cloud/local model providers), at
+the cost of one more runtime between the thread and the model when a
 claude/codex subscription is already the target.</Footnote>
 
 ## Background
@@ -359,11 +335,12 @@ recover.</Footnote>
 
 ## Out of scope
 
-- **Remote boxes** — everything here is one machine: pesu, the adapters, the
-  worktrees, and kolu side by side. When multi-host is wanted, the remote
-  arm may well turn out to be a proxy-shaped process re-serving ACP from the
-  far host — noted so the option isn't forgotten, deferred so it isn't
-  designed prematurely.
+- **Remote boxes — in scope for the product, distant future for this
+  plan.** Everything here is one machine: pesu, the adapters, the worktrees,
+  and kolu side by side. When multi-host arrives, the remote arm may well
+  turn out to be a proxy-shaped process re-serving ACP from the far host —
+  noted so the option isn't forgotten, deferred so it isn't designed
+  prematurely.
 - **kolu changes** — none at all: no new session kind, no dock/awareness
   work, no viewer. The takeover uses plain terminals kolu already has.
 - **PTY-agent observation** — session watchers and every interactive tile a
@@ -374,10 +351,9 @@ recover.</Footnote>
 ## Done criterion (full tree)
 
 DM the bot → a headless session answers from a per-thread worktree → the
-agent hits a gated tool → you click **Allow** in the thread → the reply
-grows in place → restart pesu and the thread resumes → and at any point,
-open a terminal in that worktree, run the ack's `claude --resume` line, and
-continue the bot's own conversation by hand.
+reply grows in place → restart pesu and the thread resumes → and at any
+point, open a terminal in that worktree, run the ack's `claude --resume`
+line, and continue the bot's own conversation by hand.
 
 export const PsStyles = () => (
   <style>{`
@@ -447,27 +423,6 @@ export const Ps1Mock = () => (
       <div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:40 PM</span><br/>On it — working in <span class="hx-code">~/w/xs-42</span> · takeover: <span class="hx-code">claude --resume 6037158d</span></div>
       <div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:41 PM</span><br/>It's a port collision: two e2e workers bind 5173 when the pool is warm…<span class="hx-cursor">▍</span></div>
       <div class="hx-pill">⚙ working — claude · xs-42</div>
-    </div>
-  </div>
-);
-
-export const Ps2Mock = () => (
-  <div class="hx-frame" role="img" aria-label="The same XS thread showing a permission flow card: claude wants to run git push, with Allow once and Reject buttons; below it, a resolved card state — allowed by Srid.">
-    <div class="hx-bar"># DM — kolu<span class="hx-badge">APP</span></div>
-    <div class="hx-msgs">
-      <div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:44 PM</span>
-        <div class="hx-card">
-          <div class="hx-cardtitle">Permission — claude wants to run</div>
-          <div class="hx-cardbody">git push origin fix/e2e-ports</div>
-          <span class="hx-btn hx-primary">Allow once</span><span class="hx-btn">Reject</span>
-        </div>
-      </div>
-      <div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:45 PM</span>
-        <div class="hx-card">
-          <div class="hx-cardtitle">✓ Allowed once — by Srid</div>
-          <div class="hx-cardbody">git push origin fix/e2e-ports</div>
-        </div>
-      </div>
     </div>
   </div>
 );
