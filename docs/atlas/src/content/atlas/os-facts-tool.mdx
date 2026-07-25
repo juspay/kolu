@@ -1,0 +1,126 @@
+---
+title: osfacts — one standalone tool for every OS process & socket fact
+description: A single versioned Rust binary that answers "what processes and sockets exist, scoped to what I asked about" for both kolu and drishti — replacing five hand-rolled OS readers with one contract.
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-25
+---
+
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+
+**Status: proposed, and deliberately future work.** Nothing here ships in
+<PrLink pr={1982} />. This note exists so the design that PR's measurements converged on
+survives the scratchpads that produced it.
+
+## The problem: five readers, one question
+
+kolu inspects the OS in five places, each with its own hand-rolled reader, its own error
+policy, and its own platform split:
+
+| consumer | asks | reads today |
+|---|---|---|
+| `portScan.ts` | a terminal subtree's processes + listening ports | linux `/proc`; darwin a C libproc helper |
+| `memorySampler.ts` | per-pid RSS | its own `/proc` / libproc path |
+| `socketHolder.ts` | which pids hold a unix socket **path** | `/proc/net/unix`; darwin `lsof` |
+| daemon supervisor | process start time / uptime, "is this pid still ours" | its own reads |
+| **drishti** | process inspection | hand-rolled `lsof` |
+
+Five answers to one question — *what does the OS say about these processes and their
+sockets* — and every one of them is a place a platform quirk can be got wrong
+independently. The week that produced <PrLink pr={1982} /> found four such quirks, and
+each was fixed in exactly one of the five.
+
+## Shape
+
+**One verb, composable facets, first-class scoping.**
+
+```
+osfacts snapshot --roots 4242,4310 --procs --ports
+osfacts snapshot --pids 991 --mem --start-time
+osfacts socket-holders /run/user/1000/padi.sock
+```
+
+- **Scoping is the headline.** `--roots` walks the given pids' subtrees, `--pids` takes
+  an exact set, no flag means host-wide. Cost then tracks the *ask*, not the host — the
+  property no surveyed tool has and the one the measurements say matters most.
+- **Facets** so a consumer pays only for what it reads: `--procs`, `--ports`, `--mem`,
+  `--start-time`. `socket-holders` is a second verb because it answers a different
+  question (a path, not a pid set).
+- **One versioned schema.** TSV on the hot path (`V<TAB>1` first, tagged rows), `--json`
+  for humans and one-offs. Version first so a consumer built against another revision
+  fails loudly instead of parsing a half-understood shape into zero rows.
+- **Raw address bytes, never a `wildcard` boolean.** Consumers keep exactly one
+  classifier. Two predicates that must agree about `::ffff:0.0.0.0` is precisely how they
+  come to disagree.
+- **Cumulative CPU time per row**, so CPU% is a consumer-side diff between two snapshots
+  rather than a sampling delay inside the tool.<Footnote>This is why `procs` costs ~30 ms
+  even at its lowest setting: it sleeps to compute a rate nobody asked it for. A one-shot
+  sampler should never sleep.</Footnote>
+- **A MANDATORY `unreadable` section.** Every pid that could not be inspected is
+  *reported*, with its errno — blindness is output, not absence. The policy of what is
+  fatal stays in the consumer, which is the only layer that knows which pids it asked
+  about. This is the sudo lesson made structural: when an unreadable pid was silently
+  dropped, one `sudo` password prompt emptied the Ports section for every terminal on the
+  host; when it threw indiscriminately, one foreign-uid descendant did the same.
+
+## Internals
+
+One pass per platform, and no more:
+
+- **linux** — `/proc`, scoped by descending `/proc/<pid>/task/<tid>/children` from each
+  root rather than reading the whole pid table. That descent is exactly the
+  `u-port-scan-subtree-descent` opportunity, and the cost accounting says it is worth
+  ~96% of a scoped pass.
+- **darwin** — a single libproc pass (`proc_listpids` → `proc_pidinfo` →
+  `proc_pidfdinfo`), the shape the C helper already proved at ~4 ms of real work.
+
+**Crates only where earned.** The fixed `listeners` for darwin address decoding once
+[the upstream fix](https://github.com/GyulyVGC/listeners/pull/57) merges — and
+**not `sysinfo`**: pairing them enumerates the process list twice, which measured 23 ms
+on darwin and ~100 ms on linux against 10 ms for a single pass. One pass is the design;
+anything that walks the host twice is disqualified by construction.
+
+## The regression suite is this week's scar tissue
+
+Every one of these is a bug that actually happened, so the suite is written from the
+scars rather than from imagination — cargo integration tests, its own CI, both platforms:
+
+- the five bind fixtures (`127.0.0.1`, `0.0.0.0`, `::1`, `::`, `::ffff:127.0.0.1`);
+- **v4-mapped vs v4-compatible** — the upstream crate reported `::ffff:127.0.0.1` as
+  `::127.0.0.1`;
+- **dual-stack flag ordering** — `insi_vflag` sets BOTH bits for `::`, so testing
+  `INI_IPV4` first narrows the wildcard to `0.0.0.0`. Two independent tools and our own C
+  helper each had this;
+- **silent-empty detection** — a mechanism that answers "no ports" successfully is the
+  worst possible failure here, and macOS `netstat` does it intermittently;
+- **the `unreadable` contract** — an uninspectable pid must appear in output.
+
+## Why not an existing tool
+
+Five candidates were measured, not surveyed:
+
+| candidate | disqualifier |
+|---|---|
+| `procs` | **discards the bind address** — loopback and wildcard collapse to one row |
+| `portls` | no PPID, no process table; not in nixpkgs; very young |
+| `osquery` | ~378 ms; 158 MB closure; not packaged for darwin |
+| `rustnet` | interactive capture TUI, needs packet-capture privilege |
+| `portview` | **listener rows only, no process table** — a `shell → npm → node` server cannot be walked back to its terminal, because `npm` holds no listener and never appears. No subtree scoping either: its single-port query is a host-wide scan plus a filter (26.0 ms full vs 25.1 ms scoped) |
+
+`portview` is also the strongest evidence *for* building this: it measures **9.9 ms on
+darwin** against our C helper's 10.6 ms on the same box by the same method, in Rust, in a
+single pass. Single-pass Rust matches C, so the language was never the constraint — the
+double enumeration was.
+
+## Migration order
+
+Darwin C helper → linux TS reader → `memorySampler` → `socketHolder`; drishti wholesale
+once the contract is stable. Each step is a consumer deleting its own OS traversal, and
+each is independently revertible.
+
+**Out of scope, deliberately:** foreground process (a PTY-fd fact — `tcgetpgrp` on the
+pty, so it stays kaval's), anything requiring root, and any daemon/resident mode. This is
+a one-shot sampler; if startup cost ever becomes the problem, the answer is to revisit the
+operational model, not to hide it behind a resident process.

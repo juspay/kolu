@@ -367,6 +367,10 @@ whole-host enumerations. A single-pass Rust binary written against the same libp
 `/proc` calls the C helper already uses should land in the same ~10 ms band, and it
 would carry the cross-platform boundary the C helper cannot.
 
+That design is now written down in its own note — [osfacts](./os-facts-tool) (proposed) —
+which also folds in `memorySampler`, `socketHolder`, the supervisor's start-time reads and
+drishti, since they are all the same question asked five ways.
+
 **What that binary must add over portview**, which is precisely what portview lacks:
 
 1. **A process table**, not just listener rows. portview emits one row per listening

@@ -476,6 +476,9 @@ never the language, and it was not really the crates either — it was composing
 whole-host enumerations. A single-pass Rust binary written against the same libproc /
 <code>/proc</code> calls the C helper already uses should land in the same ~10 ms band, and it
 would carry the cross-platform boundary the C helper cannot.</p>
+<p>That design is now written down in its own note — <a href="./os-facts-tool">osfacts</a> (proposed) —
+which also folds in <code>memorySampler</code>, <code>socketHolder</code>, the supervisor’s start-time reads and
+drishti, since they are all the same question asked five ways.</p>
 <p><strong>What that binary must add over portview</strong>, which is precisely what portview lacks:</p>
 <ol>
 <li><strong>A process table</strong>, not just listener rows. portview emits one row per listening
