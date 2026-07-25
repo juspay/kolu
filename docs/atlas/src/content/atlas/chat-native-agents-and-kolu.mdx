@@ -85,8 +85,8 @@ thread, without opening kolu at all.
 ## Roadmap — HX
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "HX0 · an ACP agent in a tile", m: "@kolu/acp — proxy + companion CLI", h: "#hx0" },
-  { d: 0, g: "○", c: "last", l: "HX1 · the XS round trip", m: "needs HX0 · XS webhook → tile → reply", h: "#hx1" },
+  { d: 0, g: "✓", c: "ship", l: "HX0 · an ACP agent in a tile", m: "@kolu/acp — proxy + companion CLI · #1985", h: "#hx0" },
+  { d: 0, g: "▶", c: "prog", l: "HX1 · the XS round trip", m: "needs HX0 · XS webhook → tile → reply", h: "#hx1" },
   { d: 0, g: "○", c: "last", l: "HX2 · approve from the thread", m: "needs HX1 · permission → flow card", h: "#hx2" },
   { d: 0, g: "○", c: "last", l: "HX3 · turn polish", m: "needs HX1 · growing reply · resume", h: "#hx3" },
 ];
@@ -97,7 +97,22 @@ export const PT = [
 
 ### HX0 — an ACP agent in a tile
 
-<Phase id="HX0" name="@kolu/acp: acp-proxy + acp-chat" status="next" />
+<Phase id="HX0" name="@kolu/acp: acp-proxy + acp-chat" status="shipped" />
+
+Shipped as <PrLink pr={1985} />. Two departures from the sketch below, both
+grounded rather than chosen: the proxy mints its **own** stable session id and
+maps it onto the adapter's, so a respawn never invalidates an id a client is
+holding; and it advertises `loadSession: false` — the adapters offer it, but the
+proxy does not forward it yet, and advertising a capability it would then refuse
+is worse than saying no. Conversation history therefore does not survive a
+respawn until HX3.<Footnote>Two further notes from the build. The pinned
+`@zed-industries/agent-client-protocol` (0.4.5) validates `session/update`
+against the v1 schema and **drops kinds it does not know** — both shipped
+adapters send `usage_update` and `session_info_update`, which never reach
+clients (the library logs them to stderr, so the rendered transcript is
+unaffected). And no idle timeout was built: a turn that goes quiet during a long
+tool run is normal, and a wrong timeout kills real work, so a dead adapter is
+detected by its exit rather than by silence.</Footnote>
 
 The `@kolu/acp` package and its two bins. The adapter to spawn is the proxy's
 argv, so agent-agnosticism is structural, not a feature to add.
@@ -178,7 +193,7 @@ it):
 
 ### HX1 — the XS round trip
 
-<Phase id="HX1" name="XS webhook → create tile → prompt → reply in thread" status="todo" needs={["HX0"]} />
+<Phase id="HX1" name="XS webhook → create tile → prompt → reply in thread" status="next" needs={["HX0"]} />
 
 pesu: signed webhook (`APP_MENTIONED` / `DIRECT_MESSAGE`) → allowlist gate →
 `lifecycle.create` a proxy tile via padi → store the bind → `session/prompt` →
