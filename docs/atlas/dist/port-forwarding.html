@@ -161,9 +161,10 @@ kolu already holds to that host carrying the last leg. And a server that
 bound <code>0.0.0.0</code> on pureintent needs no door at all — the scanner records the
 bind address, so kolu tells these cases apart
 automatically.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Sub-case of case 2: the remote host is the viewer’s
-own machine (zest as a kolu remote host, viewed from zest). Traffic loops
-zest → pureintent → ssh → zest — roundabout but correct, and not worth a
-special case in v1.</span></span></span></p>
+own machine (zest as a kolu remote host, viewed from zest). The plan first
+called the loop “roundabout but correct, not worth a special case”; field use
+proved it baffling, and PRT2 shipped the recognition — see “When the viewer
+IS the host” below.</span></span></span></p>
 <h2 id="one-library-two-apps--and-no-third-daemon">One library, two apps — and no third daemon</h2>
 <p>kaval and padi remain <strong>the only daemons</strong>. The reusable capability is a
 library package, <code>packages/port-forward/</code> (<code>@kolu/port-forward</code>): the forward
@@ -488,103 +489,54 @@ stdout writes and top-level enumeration failures exit non-zero.</li>
 <p>The ~50-line <code>sysinfo</code>+<code>listeners</code> wrapper was built and measured, not assessed on
 paper. It is <strong>not</strong> in this PR, because it did not clear the gate.</p>
 <p><strong>What failed: <code>listeners</code> drops the IPv4-mapping marker on darwin.</strong> Bind
-<code>::ffff:127.0.0.1</code> and ask every instrument about the same live socket — including the
-KERNEL, so this is not one tool’s word against another’s. Identical results from three
-independent binders (node, python3, and a raw C <code>bind()</code>) on zest, macOS 27.0:</p>
-<table>
-<thead>
-<tr>
-<th>instrument</th>
-<th><code>::ffff:127.0.0.1</code></th>
-<th><code>::ffff:0.0.0.0</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>kernel <code>getsockname</code></strong> — the arbiter</td>
-<td><code>00000000000000000000</code><strong><code>ffff</code></strong><code>7f000001</code> → v4-<strong>mapped</strong></td>
-<td>32 zeros</td>
-</tr>
-<tr>
-<td><strong>kernel <code>proc_pidfdinfo</code></strong></td>
-<td><code>vflag=0x01</code> (INI_IPV4 set, INI_IPV6 <strong>clear</strong>) · v4 slot <code>7f000001</code> · v6 slot <code>0000…0000``7f000001</code></td>
-<td>v4 slot <code>00000000</code></td>
-</tr>
-<tr>
-<td><strong>C helper</strong> (ships)</td>
-<td><code>7f000001</code> ✓</td>
-<td><code>00000000</code> ✓</td>
-</tr>
-<tr>
-<td><code>lsof</code></td>
-<td><code>127.0.0.1</code> ✓</td>
-<td><code>*</code> ✓</td>
-</tr>
-<tr>
-<td><code>sysinfo</code>+<code>listeners</code></td>
-<td><code>00000000000000000000</code><strong><code>0000</code></strong><code>7f000001</code> ✗ — i.e. <code>::127.0.0.1</code></td>
-<td>32 zeros</td>
-</tr>
-</tbody>
-</table>
-<p>Those <code>ffff</code> bytes are the mapping marker. Without them the reported address is
-<code>::127.0.0.1</code> — the deprecated IPv4-<strong>compatible</strong> address, which is a <em>different
-address</em> from the IPv4-<strong>mapped</strong> one that was bound. The C helper’s explicit
-<code>insi_vflag &amp; INI_IPV4</code> branch is what the crate is missing, exactly as the research
-predicted was the risk.</p>
-<p><strong>Severity, stated precisely:</strong> no wildcard verdict flips <em>today</em>. A mapped wildcard
-comes out as all-zeros, which <code>isAnyAddress</code> accepts via its all-zeros arm; a mapped
-loopback comes out non-zero and unmarked, which it rejects. So both classify correctly
-by accident. But two things are true and disqualifying: the address a consumer reads
-is <strong>wrong</strong> (PRT2 forwards to addresses, it does not merely classify them), and
-<code>isAnyAddress</code>’s v4-mapped arm — the arm that exists solely for this case — is then
-<strong>never exercised on darwin</strong>, so a future change to it would be untested on the one
-platform that needs it. Gate item 1 asks for exact raw-bind-address parity; this is
-not that.</p>
-<p><strong>What PASSED</strong>, so the follow-up need not re-derive it:</p>
-<ul>
-<li>Linux parity and all five address fixtures: green, including the v4-mapped pair
-(linux reads <code>/proc/net/tcp6</code>, which carries the mapped form literally).</li>
-<li>The crate’s integration tests <strong>run inside the nix sandbox on both platforms</strong> —
-verified, not assumed: loopback binds are permitted by linux’s private netns and by
-darwin’s <code>sandbox-exec</code>, and the darwin failure above was an assertion failure, not
-a bind error. So <code>doCheck = true</code> is viable wiring for the follow-up.</li>
-<li>Latency was never the problem: the wrapper was in the same low-tens range as the C
-helper.</li>
-</ul>
-<p><strong>Three corrections to the research sketch</strong>, found by compiling it:</p>
-<ol>
-<li><code>listeners::get_all()</code> returns <strong>UDP and non-listening sockets too</strong> (<code>Protocol</code> is
-TCP|UDP; <code>SocketState</code> carries the whole TCP state machine). The
-<code>TCP &amp;&amp; Listen</code> filter is load-bearing — without it a UDP port, or an ESTABLISHED
-connection’s local port, is published as a listener.</li>
-<li><code>get_all()</code> returns <code>Box&lt;dyn Error&gt;</code>, not <code>Box&lt;dyn Error + Send + Sync&gt;</code>; the
-sketch’s <code>main</code> signature does not compile.</li>
-<li><code>sysinfo</code> 0.39 requires Rust <strong>1.95</strong> while the pinned nixpkgs ships <strong>1.93</strong>, so
-it pins to 0.37.</li>
-</ol>
+<code>::ffff:127.0.0.1</code> and every instrument — the kernel’s own <code>getsockname</code>
+as arbiter, <code>proc_pidfdinfo</code>, the C helper, <code>lsof</code> — reports the v4-mapped
+address; the crate alone reports <code>::127.0.0.1</code>, the deprecated
+IPv4-<strong>compatible</strong> form, a <em>different address</em> from the one bound. The C
+helper’s explicit <code>insi_vflag &amp; INI_IPV4</code> branch is what the crate is
+missing, exactly as the research predicted.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Measured identically
+from three independent binders (node, python3, a raw C <code>bind()</code>) on zest,
+macOS 27.0. The kernel returns <code>…ffff7f000001</code> (the <code>ffff</code> bytes ARE the
+mapping marker); the crate returns the same bytes with the marker zeroed.
+Severity, stated precisely: no wildcard verdict flips <em>today</em> — a mapped
+wildcard reads all-zeros (accepted), a mapped loopback reads non-zero
+(rejected), so both classify correctly by accident. Disqualifying anyway:
+the address a consumer reads is WRONG (PRT2 forwards to addresses, it does
+not merely classify them), and <code>isAnyAddress</code>’s v4-mapped arm would never be
+exercised on the one platform that needs it. Gate item 1 asks for exact
+raw-bind-address parity; this is not that.</span></span></span></p>
+<p><strong>What passed, and three sketch corrections</strong> — recorded so the follow-up
+need not re-derive them.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Passed: linux parity green on all five
+fixtures (<code>/proc/net/tcp6</code> carries the mapped form literally); the crate’s
+integration tests run inside the nix sandbox on BOTH platforms (verified —
+loopback binds are permitted by linux’s private netns and darwin’s
+<code>sandbox-exec</code>), so <code>doCheck = true</code> is viable; latency was never the
+problem at this stage. Corrections found by compiling: (1)
+<code>listeners::get_all()</code> returns UDP and non-listening sockets too — the
+<code>TCP &amp;&amp; Listen</code> filter is load-bearing; (2) it returns <code>Box&lt;dyn Error&gt;</code>, not
+<code>+ Send + Sync</code>, so the sketch’s <code>main</code> does not compile; (3) <code>sysinfo</code> 0.39
+needs Rust 1.95 vs nixpkgs’ 1.93, so it pins to 0.37.</span></span></span></p>
 <h3 id="round-2-the-crate-bug-is-fixed-in-a-fork-and-the-gate-now-fails-on-latency-only">Round 2: the crate bug is FIXED in a fork, and the gate now fails on LATENCY only</h3>
 <p>The address bug was fixed and the gate re-run with the sound discriminator. Parity now
 passes everywhere; the blocker moved.</p>
 <p><strong>The fix.</strong> <code>listeners</code> is forked to
 <a href="https://github.com/juspay/listeners">juspay/listeners</a>, branch
-<code>fix/darwin-v4-mapped-addresses</code>, rev <code>227440e922f8140f22b5a6966f28b387e3ce6e8a</code>
-(pinned by rev, not branch, so a force-push cannot change what we build). It replaces the
-<code>soi_family</code> branch with an <code>insi_vflag</code> one. The flag ORDER is evidence-driven, and
-two measurements ruled out the simpler patches: a dual-stack <code>::</code> sets <strong>both</strong> flags, so
-preferring v4 would report the wildcard as <code>0.0.0.0</code> and lose its IPv6 reach; and <code>::1</code>’s
-v4 slot holds <code>00000001</code>, which preferring v4 would surface as <code>0.0.0.1</code>. Hence
-<code>INI_IPV6</code> first, <code>INI_IPV4</code> second, family last. A mapped bind now reports
-<code>::ffff:127.0.0.1</code>, matching what the crate’s own Linux path already returns.</p>
-<p>Two regression tests ride with it, negative-checked rather than assumed: the v4-mapped one
-FAILS on the unfixed code and passes after; the dual-stack one passes either way by design,
-because its job is to pin the flag order, which the first test cannot. Full crate suite on
-macOS: 15/16, and the one failure (<code>test_consistency</code>) fails <strong>identically with and without
-the fix</strong> — pre-existing, and diagnosed while we were there: <code>lsof</code> showed several ports on
-that host held by more than one process, so <code>get_process_by_port(port) == a_specific_listener</code>
-is not well-defined. Reported upstream as
-<a href="https://github.com/GyulyVGC/listeners/issues/56">GyulyVGC/listeners#56</a> (bug report only —
-the decision to offer a PR is deliberately deferred).</p>
+<code>fix/darwin-v4-mapped-addresses</code>, pinned by rev. It replaces the
+<code>soi_family</code> branch with an <code>insi_vflag</code> one, testing <code>INI_IPV6</code> first —
+the flag ORDER is evidence-driven, not stylistic.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Two measurements
+ruled out the simpler patches: a dual-stack <code>::</code> sets BOTH flags, so
+preferring v4 would report the wildcard as <code>0.0.0.0</code> and lose its IPv6
+reach; and <code>::1</code>’s v4 slot holds <code>00000001</code>, which preferring v4 would
+surface as <code>0.0.0.1</code>. Hence v6 first, v4 second, family last. Two regression
+tests ride along, negative-checked: the v4-mapped one FAILS on unfixed code;
+the dual-stack one pins the flag order, which the first cannot. The crate’s
+one pre-existing macOS suite failure (<code>test_consistency</code>) fails identically
+with and without the fix — several ports on that host are held by more than
+one process, so <code>get_process_by_port(port) == a_specific_listener</code> is not
+well-defined; reported upstream as
+<a href="https://github.com/GyulyVGC/listeners/issues/56">GyulyVGC/listeners#56</a>.</span></span></span>
+A mapped bind now reports <code>::ffff:127.0.0.1</code>, matching the crate’s own Linux
+path.</p>
 <p><strong>Parity: PASS, on both platforms.</strong> Five fixtures × two binders (node, python3) × both
 platforms, oracles <code>lsof</code> + the C helper on darwin and <code>ss</code> on linux. Compared by the
 CORRECTED discriminator — canonical equivalence, not byte equality: v4-mapped → v4, and any
@@ -697,23 +649,19 @@ address” with “same encoding” and was not a sound discriminator. <strong>T
 address EQUIVALENCE, canonicalising v4-mapped ↔ v4</strong> (<code>::ffff:a.b.c.d</code> ≡ <code>a.b.c.d</code>),
 under which the C helper passes and the crate still fails. Byte-equality is the wrong
 test for a fact the OS is entitled to represent two ways.</p>
-<p><strong>The crate’s root cause is pinned, so the follow-up can file upstream from facts, not
-from a symptom.</strong> <code>listeners</code> 0.6.0 branches on <strong><code>soi_family</code></strong> — AF_INET6 means read
-the 16-byte <code>insi_laddr.ina_6</code> slot — where it must branch on <strong><code>insi_vflag</code></strong>. For a
-v4-mapped bind macOS reports <code>soi_family = AF_INET6</code> but <code>insi_vflag = INI_IPV4</code> (v6
-flag CLEAR), and it stores the address in the 4-byte <code>i46a_addr4</code> slot while the v6
-slot holds 12 zero pad bytes + the v4 address. Read as IPv6 that is <code>::127.0.0.1</code>, the
-deprecated IPv4-<strong>compatible</strong> form — a different address from the IPv4-<strong>mapped</strong> one
-that was bound, which is what <code>getsockname</code> returns. Corroboration that this is the
-branch and not something else: the crate handles a plain <code>0.0.0.0</code> (AF_INET) socket
-correctly at 4 bytes, and its own <code>Debug</code> output names the wrong address outright
-(<code>[::7f00:1]:19701</code>).</p>
-<p>So the fix is one <code>insi_vflag &amp; INI_IPV4</code> check in the crate’s macOS conversion — the
-same branch <code>portScanDarwin.c</code> already carries. Either land it upstream or apply it as a
-darwin post-process in the wrapper, then re-run the gate with the equivalence
-discriminator. If only latency ever fails, profile <code>sysinfo</code>’s second process pass —
-do not turn a one-shot sampler into a resident daemon merely to hide startup cost
-without revisiting the operational model.</p>
+<p><strong>The crate’s root cause is pinned, so the follow-up can file upstream from
+facts, not from a symptom</strong>: <code>listeners</code> 0.6.0 branches on <code>soi_family</code>
+where it must branch on <code>insi_vflag</code> — one check, the same branch
+<code>portScanDarwin.c</code> already carries.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The mechanics: for a v4-mapped
+bind macOS reports <code>soi_family = AF_INET6</code> but <code>insi_vflag = INI_IPV4</code> (v6
+flag CLEAR), storing the address in the 4-byte <code>i46a_addr4</code> slot while the
+v6 slot holds 12 zero pad bytes + the v4 address — read as IPv6 that is
+<code>::127.0.0.1</code>. Corroboration it is this branch and nothing else: the crate
+handles a plain AF_INET socket correctly, and its own <code>Debug</code> output names
+the wrong address outright (<code>[::7f00:1]:19701</code>). And a standing rule for any
+re-run: if only latency ever fails again, profile the second process pass —
+never turn a one-shot sampler into a resident daemon to hide startup cost
+without revisiting the operational model.</span></span></span></p>
 <p><strong>The measurements the decision rests on</strong> — zest (macOS 27.0, ~826–866 processes),
 10-run medians, spawn-to-exit; linux from a ~550-process workstation:</p>
 <table>
@@ -762,16 +710,18 @@ without revisiting the operational model.</p>
 </tr>
 </tbody>
 </table>
-<p>So the old darwin path spent <strong>~143 ms of subprocess</strong> before parsing a byte, for
-facts libproc returns in one call — <code>ps</code> and <code>lsof</code> are themselves libproc clients.
-<code>procs</code> was rejected on <strong>function, not speed</strong>: it sorts and dedups <code>u16</code> ports and
-throws the local IP away, so loopback-only and wildcard — the entire distinction this
-feature renders — collapse into the same row. <code>osquery</code> and <code>rustnet</code> were rejected
-on platform, size, and (for rustnet) its need for packet-capture privileges.</p>
-<p>Re-measured on the shipped derivation: <strong>10.6 ms/run</strong> on a busier zest (866
-processes), with live <code>lsof</code> parity confirmed on all four bind shapes — including the
-dual-stack <code>::</code> socket, where the helper’s <code>INI_IPV4</code> branch yields the 4-byte
-<code>00000000</code> that <code>isAnyAddress</code> reads as reachable, matching lsof’s <code>*:19304</code>.</p>
+<p>So the old darwin path spent <strong>~143 ms of subprocess</strong> before parsing a
+byte, for facts libproc returns in one call; the candidate rejections each
+have one-line grounds and live in <a href="./os-facts-tool.html">osfacts</a>’s
+comparison table.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>ps</code> and <code>lsof</code> are themselves libproc clients.
+<code>procs</code> was rejected on function, not speed — it discards the bind address,
+collapsing loopback-only and wildcard into one row. <code>osquery</code> and <code>rustnet</code>
+fell on operational model, size, and (rustnet) packet-capture privilege.
+Re-measured on the shipped derivation: 10.6 ms/run on a busier zest (866
+processes), with live <code>lsof</code> parity on all four bind shapes including the
+dual-stack <code>::</code> socket, where the helper’s <code>INI_IPV4</code> branch yields the
+4-byte <code>00000000</code> that <code>isAnyAddress</code> reads as reachable, matching lsof’s
+<code>*:19304</code>.</span></span></span></p>
 <p><strong>Attribution is the live ppid subtree — and nothing more.</strong> Backgrounded
 (<code>&amp;</code>) processes, pipelines, and grandchildren all keep the shell as an
 ancestor, so the walk sees them; a <em>true</em> daemon (setsid/double-fork,
