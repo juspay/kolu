@@ -25,7 +25,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it, vi } from "vitest";
-import { scanTerminalPorts } from "./portScan.ts";
+import { scanSubtreePorts } from "./scan.ts";
 
 const children: ChildProcess[] = [];
 
@@ -81,7 +81,7 @@ function listener(
 /** Scan for this process's own subtree — the test process stands in for a
  *  terminal's root shell, which is exactly the relationship padi has to a PTY. */
 async function scanSelf() {
-  const result = await scanTerminalPorts([process.pid]);
+  const result = await scanSubtreePorts([process.pid]);
   const ports = result.get(process.pid);
   if (ports === undefined) {
     throw new Error("the scan returned no sample for the requested root pid");
@@ -140,7 +140,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     // cannot be: `PortInfo` carries `{port, name, wildcard}` and never the
     // address, so both spellings arrive identical at this layer. That is the
     // whole reason the darwin helper's own install check binds a dual-stack
-    // socket and inspects the emitted hex (`packages/padi/native/default.nix`),
+    // socket and inspects the emitted hex (`packages/port-scan/native/default.nix`),
     // where the
     // `insi_vflag` ordering it guards actually lives.
   });
@@ -198,7 +198,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     children.push(stranger);
     await new Promise((done) => setTimeout(done, 200));
 
-    const result = await scanTerminalPorts([child.pid!, stranger.pid!]);
+    const result = await scanSubtreePorts([child.pid!, stranger.pid!]);
     expect(result.get(child.pid!)).toContainEqual(
       expect.objectContaining({ port }),
     );
@@ -220,7 +220,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
       // a real, unfakeable blind spot. Reporting `[]` here would render byte
       // -identically to "this terminal serves nothing"
       // (`caught-error-must-not-collapse-to-empty`).
-      await expect(scanTerminalPorts([1])).rejects.toThrow(
+      await expect(scanSubtreePorts([1])).rejects.toThrow(
         /cannot list \/proc\/1\/fd/,
       );
     },
@@ -230,7 +230,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     // The contract the sampler relies on to tell "serves nothing" from "could not
     // see": every requested pid comes back.
     const dead = 0x7f_ff_ff_ff;
-    const result = await scanTerminalPorts([dead]);
+    const result = await scanSubtreePorts([dead]);
     expect(result.has(dead)).toBe(true);
     expect(result.get(dead)).toEqual([]);
   });

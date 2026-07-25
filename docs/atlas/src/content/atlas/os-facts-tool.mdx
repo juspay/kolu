@@ -21,7 +21,7 @@ policy, and its own platform split:
 
 | consumer | asks | reads today |
 |---|---|---|
-| `portScan.ts` | a terminal subtree's processes + listening ports | linux `/proc`; darwin a C libproc helper |
+| `@kolu/port-scan` | a subtree's processes + listening ports | linux `/proc`; darwin a C libproc helper |
 | `memorySampler.ts` | per-pid RSS | its own `/proc` / libproc path |
 | `socketHolder.ts` | which pids hold a unix socket **path** | `/proc/net/unix`; darwin `lsof` |
 | daemon supervisor | process start time / uptime, "is this pid still ours" | its own reads |

@@ -28,7 +28,7 @@ import {
   partitionSubtrees,
   PortScanError,
   type ProcessRow,
-} from "./portScan.ts";
+} from "./scan.ts";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 

@@ -29,7 +29,7 @@ in
 # with no PATH fallback in the reader.
 #
 # It lives here rather than only in `default.nix` because of a regression CI caught
-# and a linux box never could: `portScan.live.test.ts` runs under bare `vitest`, not
+# and a linux box never could: `scan.live.test.ts` runs under bare `vitest`, not
 # through padi's wrapper, so on darwin every live scan threw
 # "KOLU_PORT_SCAN_HELPER is not set" — 9 tests, all from that one line. The previous
 # `ps`+`lsof` implementation needed no env, so the dependency arrived silently with
@@ -39,5 +39,5 @@ in
 # evaluates to `null` there, so an unconditional attribute would be a broken path.
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
   KOLU_PORT_SCAN_HELPER =
-    "${pkgs.callPackage ../packages/padi/native { }}/bin/kolu-port-scan-darwin";
+    "${pkgs.callPackage ../packages/port-scan/native { }}/bin/kolu-port-scan-darwin";
 }

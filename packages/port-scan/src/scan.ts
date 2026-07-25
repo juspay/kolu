@@ -1,14 +1,18 @@
 /**
- * padi's port sensor — ONE host-wide pass that answers "what is each terminal
- * serving?" by joining the host's listening TCP sockets to each terminal's shell
- * subtree.
+ * ONE host-wide pass that answers "what is each of these process subtrees
+ * serving?" by joining the host's listening TCP sockets to each requested root
+ * pid's descendants.
  *
- * It lives in padi, beside the git sensor and `memorySampler`, because the repo's
- * own taxonomy draws the line there: a fact that needs the PTY itself lives in
- * kaval (foreground needs `tcgetpgrp` on the PTY fd), a fact derived by OS
- * inspection from a snapshot key lives in padi. This scan's only input is each
- * shell's ROOT PID — which padi already holds — so it needs no PTY access and
- * changes no kaval wire contract.
+ * The volatility this package exists to hide is the OS itself: how a kernel will
+ * tell you which processes hold listening sockets. This repo has already varied
+ * along that axis three times on darwin alone — `netstat`, then `ps` + `lsof`,
+ * now a libproc helper — and linux answers by an entirely different mechanism
+ * (`/proc` read directly), in an entirely different byte order. Consumers plug
+ * into `scanSubtreePorts` and never learn which.
+ *
+ * Its only input is a list of ROOT PIDS, so it needs no PTY, no terminal, and no
+ * app identity — see {@link scanSubtreePorts} on why the pid → caller-identity
+ * join deliberately stays outside.
  *
  * ## The discipline (all three are load-bearing, not style)
  *
@@ -17,14 +21,14 @@
  *    pid table. A scanner that keeps fds open to "go faster" is how a port
  *    watcher becomes the thing holding a dead server's socket alive.
  *  - **Repartition from the CURRENT root pids every tick.** The subtree map is
- *    rebuilt from the caller's live target list on every pass, so a terminal
- *    opening, closing, or being re-keyed can never leave a stale subtree behind.
+ *    rebuilt from the caller's live target list on every pass, so a root
+ *    appearing, exiting, or being re-keyed can never leave a stale subtree behind.
  *  - **Attribution is the live ppid subtree, and nothing more.** Backgrounded
- *    (`&`) jobs, pipelines and grandchildren all keep the shell as an ancestor,
+ *    (`&`) jobs, pipelines and grandchildren all keep the root as an ancestor,
  *    so the walk sees them. A TRUE daemon (setsid / double-fork, reparented to
  *    init) has LEFT the subtree and is deliberately invisible here — no
  *    session-id heuristics, no host-wide orphan matching. If you daemonized it,
- *    it is no longer "this terminal's server".
+ *    it is no longer this subtree's server.
  *
  * ## Errors: a blind scan must never look like an empty one
  *
@@ -34,15 +38,17 @@
  * routine descendant of an ordinary shell, and its `/proc/<pid>/fd` is `EACCES`
  * to us. Both are skipped.
  *
- * The one fatal case is an unreadable **requested ROOT** pid — a shell padi
- * spawned itself, so padi's own uid. Unreadable there means we genuinely cannot
- * answer for that terminal, and answering "no ports" would be a lie shaped
- * exactly like the truth. That throws (`caught-error-must-not-collapse-to-empty`).
+ * The one fatal case is an unreadable **requested ROOT** pid. A caller asks about
+ * roots it owns — processes it spawned, so its own uid — and unreadable there
+ * means we genuinely cannot answer for that root, where answering "no ports"
+ * would be a lie shaped exactly like the truth. That throws
+ * (`caught-error-must-not-collapse-to-empty`).
  *
  * Getting that distinction wrong is not a small mistake, and this file had it
- * wrong: every in-subtree `EACCES` threw, so one `sudo` in one terminal emptied
- * the Ports section for **every** terminal on the host — and kept it empty, with
- * an ERROR every 5 s, until the prompt was answered. See {@link procReadFailure}.
+ * wrong: every in-subtree `EACCES` threw, so one `sudo` password prompt in one
+ * terminal emptied kolu's Ports section for **every** terminal on the host — and
+ * kept it empty, with an ERROR every 5 s, until the prompt was answered. See
+ * {@link procReadFailure}.
  *
  * ## Why these two mechanisms
  *
@@ -50,7 +56,7 @@
  * users' pid attribution.
  *
  * On darwin the mechanism is a **libproc helper we build** — see
- * `packages/padi/native/portScanDarwin.c` and its derivation beside it. It replaced
+ * `packages/port-scan/native/portScanDarwin.c` and its derivation beside it. It replaced
  * a `ps` + `lsof` pair, and the numbers are not close. Measured on zest (macOS 27.0,
  * build 26A5388g, ~835 processes, 10-run medians, spawn-to-exit):
  *
@@ -110,13 +116,13 @@
  * from.
  *
  * Non-root visibility is the same as lsof had — own-uid pids only — and sufficient by
- * construction: a terminal's subtree is padi's own uid.
+ * construction: a caller asks about roots it spawned, so the subtree runs as its own uid.
  *
  * ## What a pass actually costs
  *
  * The spike's "linux ~3 ms" was measured on a 30-process box and does not survive
  * a real one: this module's dominant cost is the HOST pid table, which scales with
- * the host's process count and not with how many terminals were asked about. On a
+ * the host's process count and not with how many roots were asked about. On a
  * 515-process box a full pass measured **35-57 ms** — an order of magnitude over
  * the figure the cadence argument was written against.
  *
@@ -146,7 +152,7 @@
  *
  * ## Both platforms are verified against a live OS, not just fixtures
  *
- * `portScan.live.test.ts` spawns real listeners and asks this module about them,
+ * `scan.live.test.ts` spawns real listeners and asks this module about them,
  * on whatever platform it runs. That suite exists because fixtures pin the
  * PARSERS but cannot pin the assumption that the parser is handed the shape it
  * expects — and that gap produced a real bug: this file first looked for a
@@ -172,9 +178,9 @@ import { execFile } from "node:child_process";
 import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { foldPorts } from "@kolu/terminal-vocab/schema";
-import { log } from "./log.ts";
-import type { PortInfo } from "@kolu/terminal-vocab/schema";
+import type { Logger } from "@kolu/log";
+import { foldPorts } from "./ports.ts";
+import type { PortInfo } from "./ports.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -196,7 +202,7 @@ export const PORT_SCAN_COMMAND_TIMEOUT_MS = 5_000;
 const PROC_READ_BATCH = 64;
 
 /** A scan that did not answer — thrown so the caller reports the failure instead
- *  of publishing an empty port list that reads identically to "this terminal serves
+ *  of publishing an empty port list that reads identically to "this subtree serves
  *  nothing".
  *
  *  TAGGED, because two failure axes with OPPOSITE correct responses arrive through
@@ -246,7 +252,7 @@ export interface ProcessRow {
  *  Pure, so the walk is testable without a `/proc`. A pid can land in only one
  *  subtree (a process has one parent chain), and a root absent from the table
  *  yields an empty set — that process really is gone, which reads honestly as "no
- *  ports". Keyed by the ROOT PID, so two terminals rooted at the same pid are one
+ *  ports". Keyed by the ROOT PID, so two callers rooted at the same pid are one
  *  walk rather than two identical ones. */
 export function partitionSubtrees(
   table: readonly ProcessRow[],
@@ -296,7 +302,7 @@ interface Listener {
 // ── What a platform must answer, and the ONE join over it ───────────────
 
 /** What a PLATFORM must be able to answer — and the whole of it. Nothing else
- *  about an OS reaches {@link joinTerminalPorts}, so the platform seam sits at the
+ *  about an OS reaches {@link joinSubtreePorts}, so the platform seam sits at the
  *  READING and the join is written once for both. (It used to be written twice,
  *  which is how the two arms drifted: only one of them resolved a listener-holding
  *  pid's better name.) */
@@ -515,7 +521,7 @@ export function parseProcStat(body: string): ProcessRow {
 /** Every numeric `/proc/<pid>` entry's `{pid, ppid, comm}`.
  *
  *  A pid that vanishes mid-read is dropped (the scan races exit constantly). An
- *  unreadable pid is dropped too UNLESS it is one of `roots` — a terminal we were
+ *  unreadable pid is dropped too UNLESS it is one of `roots` — a root we were
  *  asked about, where blindness must be loud rather than empty. */
 async function linuxProcessTable(
   roots: ReadonlySet<number>,
@@ -560,7 +566,7 @@ async function linuxProcessTable(
 
   // Read in BOUNDED batches rather than one strictly-serial await per pid. This is
   // the pass's dominant cost by an order of magnitude — it scales with the HOST's
-  // process count, not with how many terminals we were asked about — and each
+  // process count, not with how many roots we were asked about — and each
   // `await` was one libuv threadpool round-trip with three of four threads idle.
   // Measured on a 511-process box: 30 ms serial → 11 ms batched.
   //
@@ -594,7 +600,11 @@ async function linuxProcessTable(
  *  the whole table — so this costs nothing on a box serving nothing. The
  *  cmdline→comm order is the same one `socketHolder.ts` reaches for, but it is
  *  RE-DERIVED here, not shared — see {@link socketInodesOf}. */
-async function linuxProcessName(pid: number, comm: string): Promise<string> {
+async function linuxProcessName(
+  pid: number,
+  comm: string,
+  log: Logger | undefined,
+): Promise<string> {
   let cmdline: string;
   try {
     cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8");
@@ -607,11 +617,11 @@ async function linuxProcessName(pid: number, comm: string): Promise<string> {
     //
     // An unexpected errno still falls back rather than throwing, and that is
     // deliberate rather than lazy: `comm` is a REAL value this scan already read,
-    // not a fabrication, and failing the whole terminal's port list over a
+    // not a fabrication, and failing the whole subtree's port list over a
     // cosmetic label would trade a slightly-worse name for no ports at all. What
     // it must not be is SILENT, so it is logged.
     if (procReadFailure(errnoOf(err), false) !== "skip") {
-      log.warn(
+      log?.warn(
         { err, pid },
         "port scan: unexpected /proc/<pid>/cmdline failure — labelling the port from `comm` instead",
       );
@@ -634,20 +644,20 @@ async function linuxProcessName(pid: number, comm: string): Promise<string> {
  *     setuid-root child is routine, not exotic: `sudo` sitting at its password
  *     prompt is root-owned with an unreadable `fd/` (measured), and so is any
  *     `su`/`pkexec`/setuid `ping`. Treating it as blindness took the WHOLE scan
- *     down — one `sudo nixos-rebuild` in one terminal emptied the Ports section
+ *     down — one `sudo nixos-rebuild` in one terminal emptied kolu's Ports section
  *     for **every** terminal on the host and logged an ERROR every 5 s until the
  *     prompt was answered. The header's own reasoning already tolerates "another
  *     user's, unreadable" pids; the oversight was assuming they only appear
  *     OUTSIDE a subtree.
- *   - **A requested ROOT pid** — throw. That pid is a shell padi spawned itself,
- *     so it is padi's own uid; unreadable there means we genuinely cannot answer
- *     for that terminal, and answering "no ports" would be a lie shaped exactly
+ *   - **A requested ROOT pid** — throw. That pid is one the CALLER spawned, so it
+ *     runs as the calling process's own uid; unreadable there means we genuinely
+ *     cannot answer for that root, and "no ports" would be a lie shaped exactly
  *     like the truth.
  *
  *  The cost of skipping, stated: a listener held ONLY by a root-owned descendant
  *  is invisible. That is a real gap, and it is the better half of the trade —
  *  a `sudo` prompt holds no listening socket, while the alternative blinds every
- *  terminal on the box for as long as the prompt is open. */
+ *  subtree on the box for as long as the prompt is open. */
 export function procReadFailure(
   code: string | undefined,
   isRequestedRoot: boolean,
@@ -662,14 +672,14 @@ export function procReadFailure(
  *
  *  ⚠ RE-DERIVED, NOT SHARED. `@kolu/surface-daemon-supervisor`'s
  *  `socketHolder.ts` (`linuxSocketHolders`) walks `/proc/<pid>/fd` for
- *  `socket:[inode]` links too, and padi already depends on that package — so "how
+ *  `socket:[inode]` links too, and kolu's daemon runs both — so "how
  *  does this OS attribute a socket to a process" is encapsulated TWICE in this repo,
  *  and the next `/proc`/`lsof`/macOS change has two edit sites. The copies do NOT
  *  agree: that one blanket-`catch { continue }`s an unreadable `/proc/<pid>/fd` and
  *  collapses an unreadable `/proc` to `[]` (the very
  *  `caught-error-must-not-collapse-to-empty` shape {@link procReadFailure} exists to
  *  forbid), because its question is "who holds THIS socket path" rather than "what
- *  is this terminal serving". Extracting one leaf both plug into — with the
+ *  is this subtree serving". Extracting one leaf both plug into — with the
  *  fd-failure policy INJECTED so each keeps its own — is the real fix, and is a
  *  standing item rather than something this module can do alone.
  *
@@ -688,12 +698,12 @@ async function socketInodesOf(
       return undefined;
     throw new PortScanError(
       "blind",
-      `port scan: cannot list /proc/${pid}/fd for a requested terminal root (${errnoOf(err)})`,
+      `port scan: cannot list /proc/${pid}/fd for a requested root (${errnoOf(err)})`,
       { cause: err },
     );
   }
   // Concurrent, for the same reason the pid table is batched: the fd list is
-  // already in hand and small, and a Node process in a terminal's subtree can hold
+  // already in hand and small, and a Node process inside a scanned subtree can hold
   // a couple of hundred descriptors. Measured over the 30 most fd-heavy pids on a
   // real box (1 823 readlinks): 33 ms serial → 18 ms concurrent.
   //
@@ -727,7 +737,10 @@ async function socketInodesOf(
 
 /** Read the whole linux host once: the pid table, the LISTEN rows indexed by
  *  socket inode, and the two per-pid reads the join asks for. */
-async function readLinux(roots: ReadonlySet<number>): Promise<HostReading> {
+async function readLinux(
+  roots: ReadonlySet<number>,
+  log: Logger | undefined,
+): Promise<HostReading> {
   const [table, v4, v6] = await Promise.all([
     linuxProcessTable(roots),
     readFile("/proc/net/tcp", "utf8"),
@@ -758,7 +771,7 @@ async function readLinux(roots: ReadonlySet<number>): Promise<HostReading> {
     },
     // The second read linux earns — and only for a pid the join has already found
     // to hold a listener, which is a handful rather than the whole table.
-    nameOf: (pid) => linuxProcessName(pid, comm.get(pid) ?? String(pid)),
+    nameOf: (pid) => linuxProcessName(pid, comm.get(pid) ?? String(pid), log),
   };
 }
 
@@ -767,7 +780,7 @@ async function readLinux(roots: ReadonlySet<number>): Promise<HostReading> {
 /** The stdout grammar version this parser understands. The helper prints its own
  *  version as the FIRST line and this refuses anything else — the one shape of
  *  skew that must never degrade quietly, because a helper whose fields moved would
- *  otherwise parse to zero listeners and read as "no terminal is serving
+ *  otherwise parse to zero listeners and read as "nothing here is serving
  *  anything". Bump both together or not at all. */
 const HELPER_FORMAT_VERSION = 1;
 
@@ -813,7 +826,7 @@ export function parseHelperOutput(body: string): HelperReading {
   if (Number(version[1]) !== HELPER_FORMAT_VERSION) {
     throw new PortScanError(
       "blind",
-      `port scan: helper speaks format ${version[1]}, this padi reads ${HELPER_FORMAT_VERSION} — the baked helper and padi are from different builds`,
+      `port scan: helper speaks format ${version[1]}, this reader speaks ${HELPER_FORMAT_VERSION} — the baked helper and this build are from different sources`,
     );
   }
 
@@ -879,20 +892,25 @@ export function parseHelperOutput(body: string): HelperReading {
   return { table, listeners };
 }
 
-/** The baked path to the libproc helper.
+/** The baked path to the libproc helper — `./native`, built by the derivation
+ *  there.
  *
- *  Baked by Nix (`KOLU_PORT_SCAN_HELPER`, set on the padi and kolu wrappers in
- *  `default.nix`), never resolved from `PATH` and with no fallback: a required
- *  value that is absent is a crash, per the repo's fail-fast rule. Reading it
- *  lazily — at scan time rather than module load — keeps importing this module
- *  harmless on a host that will never scan (and keeps the linux path, which needs
- *  no helper, from demanding one). */
+ *  An ENV VAR rather than a resolved path because the binary is a Nix output: the
+ *  consumer's build bakes `KOLU_PORT_SCAN_HELPER` onto whatever wrapper runs the
+ *  scan (in kolu, `koluEnv` puts it on the padi and kolu wrappers AND the dev
+ *  shell). Never resolved from `PATH` and with no fallback — a required value that
+ *  is absent is a crash, per the repo's fail-fast rule; a `PATH` lookup would
+ *  silently find some other program named the same.
+ *
+ *  Read lazily — at scan time rather than module load — so importing this module
+ *  is harmless on a host that will never scan, and the linux path (which needs no
+ *  helper) never demands one. */
 function portScanHelperPath(): string {
   const v = process.env.KOLU_PORT_SCAN_HELPER;
   if (!v) {
     throw new PortScanError(
       "blind",
-      "KOLU_PORT_SCAN_HELPER is not set — run padi through its Nix wrapper or `nix develop`. The darwin port scan has no PATH fallback by design.",
+      "KOLU_PORT_SCAN_HELPER is not set — it must be baked to `@kolu/port-scan`'s `native` derivation output (run under the Nix wrapper that sets it, or `nix develop`). The darwin port scan has no PATH fallback by design.",
     );
   }
   return v;
@@ -903,9 +921,9 @@ function portScanHelperPath(): string {
  *  ONE fork/exec for both tables, where this used to be two (`ps` and `lsof`) plus
  *  two text formats. The helper asks libproc — the same source `ps` and `lsof`
  *  themselves read — so nothing is lost by not shelling out to them; see
- *  `packages/padi/native/portScanDarwin.c` for the syscall-level detail and for
+ *  `packages/port-scan/native/portScanDarwin.c` for the syscall-level detail and for
  *  the non-root visibility caveat (own-uid pids only, which is sufficient because
- *  a terminal's subtree is padi's own uid by construction). */
+ *  a scanned subtree runs as the calling process's own uid by construction). */
 async function readDarwin(): Promise<HostReading> {
   const helper = portScanHelperPath();
   let stdout: string;
@@ -955,13 +973,13 @@ async function readDarwin(): Promise<HostReading> {
 /** Can this host be scanned AT ALL? A deployment fact, knowable before any pid is
  *  requested — which is exactly why it is separate from a scan.
  *
- *  `scanTerminalPorts` refuses an unsupported platform, but a per-pass refusal
+ *  `scanSubtreePorts` refuses an unsupported platform, but a per-pass refusal
  *  cannot be a caller's permanent-stop signal: a sampler whose first read happens
- *  to have no terminals yet answers `new Map()` without ever reaching the platform
+ *  to have no roots yet answers `new Map()` without ever reaching the platform
  *  switch, so the refusal arrives on some later tick — where a poll loop logs and
  *  holds rather than stopping, and the "said once, then stop" contract silently
  *  becomes an error every 5 s forever. Asking THIS first makes the check
- *  independent of whether any terminal exists. */
+ *  independent of whether any root exists. */
 export function portScanSupported(): boolean {
   return process.platform === "linux" || process.platform === "darwin";
 }
@@ -971,35 +989,46 @@ export function portScanSupported(): boolean {
  *  result (with an empty array when its subtree serves nothing), so a caller can
  *  publish the whole set without asking which were covered.
  *
- *  The scan names no TERMINAL. Everything in this module is OS vocabulary — pid
- *  tables, socket inodes, errno policy — and a `TerminalId` here would be the
- *  app's identity threaded through a module that reads nothing and means nothing
- *  by it. The pid → terminal join belongs to the caller (`portSampler.ts`), which
- *  also makes two terminals rooted at the same pid ONE walk instead of two.
+ *  Keyed by PID, and that is the boundary this package is drawn on. Everything in
+ *  this module is OS vocabulary — pid tables, socket inodes, errno policy — and a
+ *  caller's own identity (kolu passes terminal ids; the standalone tool will pass
+ *  none) would be that domain threaded through a module that reads nothing and
+ *  means nothing by it. The pid → caller-identity join belongs to the caller,
+ *  which also makes two consumers rooted at the same pid ONE walk instead of two.
+ *
+ *  `log` is optional per `@kolu/log`'s own guidance for a package with no logger
+ *  of its own to plumb: it is used for exactly one condition — an unexpected
+ *  `/proc` errno while reading a port's LABEL, which falls back to a real-but-worse
+ *  name and must not do so silently. A consumer that passes nothing loses that one
+ *  line and nothing else; no scan RESULT depends on it.
  *
  *  Throws `PortScanError` — `"blind"` for a pass that could not see, and
  *  `"unsupported-platform"` for a host that never can, which the caller must NOT
- *  retry. Fail fast on the latter, exactly as `socketHolders` does: kolu's daemons
- *  run on linux and darwin, and a third platform needs a real reader, not a silent
- *  empty map. */
-export async function scanTerminalPorts(
+ *  retry. Fail fast on the latter rather than answering an empty map: a third
+ *  platform needs a real reader, and "no ports" is the one answer this package may
+ *  never invent. */
+export async function scanSubtreePorts(
   rootPids: readonly number[],
+  opts: { log?: Logger } = {},
 ): Promise<Map<number, PortInfo[]>> {
   // `async` so EVERY failure arrives through one channel. Non-async, the two real
   // arms rejected while the unsupported-platform arm threw synchronously — so the
   // natural shape for a background sampler, `void scan(t).catch(log)`, handled a
-  // blind /proc and an lsof timeout but blew up uncaught on exactly the arm the
+  // blind /proc and a helper timeout but blew up uncaught on exactly the arm the
   // doc advertises as fail-fast.
   if (rootPids.length === 0) return new Map();
   switch (process.platform) {
     case "linux":
-      return joinSubtreePorts(await readLinux(new Set(rootPids)), rootPids);
+      return joinSubtreePorts(
+        await readLinux(new Set(rootPids), opts.log),
+        rootPids,
+      );
     case "darwin":
       return joinSubtreePorts(await readDarwin(), rootPids);
     default:
       throw new PortScanError(
         "unsupported-platform",
-        `port scan: unsupported platform '${process.platform}' — kolu daemons run on linux/darwin only`,
+        `port scan: unsupported platform '${process.platform}' — this reader supports linux and darwin only`,
       );
   }
 }

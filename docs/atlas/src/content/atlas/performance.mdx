@@ -432,7 +432,7 @@ copy of the real reader, 573-process box, 12 runs:
 | fd walk (only the subtree's pids) | 0.31 ms | |
 | join | 0.07 ms | |
 | socket table parse | 0.06 ms | |
-| **total `scanTerminalPorts`** | **13.91 ms** | |
+| **total `scanSubtreePorts`** | **13.91 ms** | |
 
 That settles a claim the module header had been asserting: the dominant cost really is
 the HOST pid table, and it scales with the host rather than with the question. It is also

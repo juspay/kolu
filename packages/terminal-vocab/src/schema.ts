@@ -151,36 +151,31 @@ export const ForegroundSchema = z.object({
 });
 
 // ── Listening TCP ports ───────────────────────────────────────────────
+//
+// The PORT FACTS themselves — `PortInfo`, the fold, the list comparison — live in
+// `@kolu/port-scan/ports`, not here. They are OS vocabulary: nothing in them knows
+// a terminal from an ssh-agent, and the scanner that produces them must not depend
+// on this package to describe its own output. What stays here is the part that IS
+// terminal domain — how a terminal SNAPSHOT carries them (`TerminalPorts`'
+// known/unknown two-way) and what kolu's UI decides from them (`portReach`).
+//
+// Re-exported below rather than left for each consumer to import separately: the
+// client reaches the whole terminal vocabulary through `kolu-common/surface`, and
+// splitting one snapshot field's types across two import sites would buy nothing.
 
-/** One listening TCP port inside a terminal's process subtree — "what is this
- *  terminal serving?".
- *
- *  Three fields, and deliberately not a fourth: the BIND ADDRESS is reduced to
- *  the one bit a consumer acts on (`wildcard`). What a chip has to decide is
- *  "does this already answer on the name in the address bar, or does it need a
- *  forward?", and only the any-address bind answers yes — carrying the raw
- *  address would invite every render site to re-derive that judgment (and to
- *  disagree about `::ffff:0.0.0.0`).
- *
- *  No pid either: a fork-inherited listening socket belongs to several pids at
- *  once, so a pid here would name an arbitrary one of them. Attribution is to
- *  the TERMINAL (the whole subtree), which is the question the Inspector asks. */
-export const PortInfoSchema = z.object({
-  /** The TCP port the socket is listening on. */
-  port: z.number().int().min(1).max(65535),
-  /** The PROGRAM holding the listener (`node`, `workerd`, …), for a glanceable
-   *  "who is this?" beside the number — `argv[0]`'s basename on linux, `ps comm`'s
-   *  basename on darwin. Deliberately not linux's `comm`: that is the THREAD name,
-   *  which Node overwrites, so a plain `node` dev server would read `MainThread`. */
-  name: z.string(),
-  /** True when the socket is bound to the ANY address (`0.0.0.0` / `::`, and the
-   *  v4-mapped `::ffff:0.0.0.0`), so it already answers on every interface of the
-   *  host that owns it — including the name in the viewer's address bar when that
-   *  host is the kolu server. False for a loopback-only (or single-interface)
-   *  bind, which is invisible from another machine and needs a forward. */
-  wildcard: z.boolean(),
-});
-export type PortInfo = z.infer<typeof PortInfoSchema>;
+export {
+  foldPorts,
+  type PortInfo,
+  PortInfoSchema,
+  samePortList,
+} from "@kolu/port-scan/ports";
+// Imported as well as re-exported: `export … from` re-publishes without binding,
+// and the two below are used right here to build `TerminalPortsSchema`.
+import {
+  type PortInfo,
+  PortInfoSchema,
+  samePortList,
+} from "@kolu/port-scan/ports";
 
 /** What a terminal is serving, as an HONEST two-way — not a bare `PortInfo[]` that
  *  conflates "nothing is listening" with "we could not look".
@@ -221,46 +216,6 @@ export function knownPorts(ports: TerminalPorts): readonly PortInfo[] {
   return ports.status === "known" ? ports.list : [];
 }
 
-/** Collapse listening sockets into the one row per PORT that a reader wants —
- *  sorted by port, deduplicated, with `wildcard` folded by OR.
- *
- *  This is part of what `PortInfo` MEANS, which is why it lives in the vocabulary
- *  rather than in either consumer: the same collapse is needed at both ends of the
- *  wire, for the same reason but over different inputs. The scanner folds one
- *  terminal's raw sockets (a fork-inherited listener is held by several pids; a
- *  dual-stack server appears in both socket tables; a server bound to `0.0.0.0`
- *  AND a specific address contributes two rows). A client folds several PANES of
- *  an already-folded set into one tile. Written twice it was the same algebra
- *  twice, one copy tested and one not.
- *
- *  `wildcard` folds with OR rather than first-wins because the question a reader
- *  asks is "is this reachable from another machine as-is?", and one any-address
- *  bind is enough to make the answer yes.
- *
- *  The whole fold is a function of the observed SET, never of the order it was
- *  observed in — that is one property, and BOTH the sort and the name rule serve
- *  it, because {@link portsEqual} reads the array order AND the name. So the name
- *  is the lexicographically smallest of the candidates rather than first-wins:
- *  two programs on one port (`127.0.0.1:8080` and `192.168.1.5:8080` — a
- *  legitimate configuration) would otherwise alternate names with the scanner's
- *  pid-iteration order, which on linux descends from `readdir("/proc")` and is no
- *  stable function of the state, and every flip would publish a "change" through
- *  the fold, the registry, the wire and into a store write, forever. Naming either
- *  program is honest; naming a DIFFERENT one each pass is not. */
-export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
-  const byPort = new Map<number, PortInfo>();
-  for (const row of rows) {
-    const prior = byPort.get(row.port);
-    if (prior === undefined) {
-      byPort.set(row.port, { ...row });
-      continue;
-    }
-    if (row.wildcard) prior.wildcard = true;
-    if (row.name < prior.name) prior.name = row.name;
-  }
-  return [...byPort.values()].sort((a, b) => a.port - b.port);
-}
-
 /** Whether a port answers from the VIEWER as-is, and — when it does not — WHICH
  *  mechanism would make it answer. The indivisible decision behind a port chip,
  *  as a tag rather than a sentence.
@@ -286,9 +241,11 @@ export type PortReach =
  *  the two facts when both hold.
  *
  *  Pure and total over two booleans, so there is no third "unknown" arm for a
- *  render site to get wrong. It lives beside {@link foldPorts} because this is part
- *  of what `PortInfo.wildcard` MEANS, and because PRT2's forward manager needs the
- *  same judgment server-side. */
+ *  render site to get wrong. It lives in kolu's vocabulary rather than beside
+ *  `PortInfo` in `@kolu/port-scan` because `onKoluHost` is the domain: the scanner
+ *  reports a bind, and only kolu knows whose host that bind is on. PRT2's forward
+ *  manager needs the same judgment server-side, which is why it is here and not in
+ *  the component that renders it. */
 export function portReach(opts: {
   wildcard: boolean;
   onKoluHost: boolean;
@@ -298,43 +255,15 @@ export function portReach(opts: {
   return { kind: "direct" };
 }
 
-/** The comparison keys, READ OFF the schema so a new `PortInfo` field is covered
- *  with no second edit here — the `PERSISTED_SNAPSHOT_KEYS` mechanism
- *  (`padi/src/terminalEndpoint/local.ts`), which exists because a hand-listed
- *  field set silently stops seeing the field you just added. Here the cost of that
- *  drift is invisible by construction: `portsEqual` is a DEDUP gate, so a field it
- *  does not compare is a field whose changes are swallowed, with nothing anywhere
- *  to report why the chip never updated. */
-const PORT_INFO_KEYS = Object.keys(PortInfoSchema.shape) as (keyof PortInfo)[];
-
-/** Are two port LISTS the same fact? Split out from {@link portsEqual} because a
- *  consumer that has already collapsed the union — the client's tile fold — needs the
- *  list comparison alone, as a SolidJS memo `equals` gate. Compared over
- *  `PORT_INFO_KEYS` (the schema's own field set) so a field added later cannot be
- *  silently ignored, and order-sensitively, because every producer sorts by port. */
-export function samePortList(
-  a: readonly PortInfo[],
-  b: readonly PortInfo[],
-): boolean {
-  return (
-    a.length === b.length &&
-    a.every((p, i) => {
-      const q = b[i]!;
-      return PORT_INFO_KEYS.every((k) => p[k] === q[k]);
-    })
-  );
-}
-
-/** Are two port samples the same fact? The dedup gate a scanner applies BEFORE a
+/** Are two port SAMPLES the same fact? The dedup gate the sensor applies before a
  *  sample reaches the snapshot: an unchanged scan must emit nothing, or a
  *  seconds-cadence ticker would publish a fresh array — and a fresh reference
  *  through the whole reactive chain — on every pass forever.
  *
- *  Order-sensitive by design: the scanner emits ports sorted, so equal content in
- *  a different order cannot occur and treating it as a change would be honest
- *  anyway. Hand-written rather than `isDeepStrictEqual` so this stays browser-safe
- *  (the vocab is bundled into the client) — but over `PORT_INFO_KEYS`, not a
- *  hand-listed triple, so the field set is the schema's and not a convention. */
+ *  This is the two-way's own comparison, which is why it lives here rather than
+ *  beside {@link samePortList}: the interesting half is the STATUS flip, and
+ *  `status` is a terminal-snapshot concept the port vocabulary has no business
+ *  knowing. The list comparison it delegates to is the port fact. */
 export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
   // A status flip is always a change: "we finally saw" and "we still cannot see"
   // are exactly the transitions a dedup gate must not swallow.
