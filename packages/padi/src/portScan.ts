@@ -170,12 +170,67 @@ export function partitionSubtrees(
 
 // ── Listening sockets, however the platform names them ─────────────────
 
-/** A listening TCP socket as the join needs it: which port, bound how, and the
- *  handle that ties it to a process — the socket INODE on linux (joined through
- *  `/proc/<pid>/fd`), the owning PID on darwin (netstat reports it directly). */
+/** A listening TCP socket as the join needs it: which port, and bound how.
+ *
+ *  The handle that ties a socket to a process is deliberately NOT in this base
+ *  shape, because the two platforms key it differently: linux keys on the socket
+ *  INODE (`ProcListener`, joined through `/proc/<pid>/fd`), darwin on the owning
+ *  PID (`LsofListener`, which lsof reports in its `p` field). Each reader resolves
+ *  its own key and hands the join a plain per-pid list. */
 interface Listener {
   port: number;
   wildcard: boolean;
+}
+
+// ── What a platform must answer, and the ONE join over it ───────────────
+
+/** What a PLATFORM must be able to answer — and the whole of it. Nothing else
+ *  about an OS reaches {@link joinTerminalPorts}, so the platform seam sits at the
+ *  READING and the join is written once for both. (It used to be written twice,
+ *  which is how the two arms drifted: only one of them resolved a listener-holding
+ *  pid's better name.) */
+interface HostReading {
+  /** The host's process table — pid, ppid, own name. */
+  table: readonly ProcessRow[];
+  /** The listening sockets this pid holds, or `undefined` when the pid cannot be
+   *  inspected at all (an exit race, a foreign-uid descendant) — see
+   *  {@link fdListFailure} for which failures are which and why only a requested
+   *  ROOT's is fatal. An inspectable pid holding nothing is an empty list. */
+  listenersOf(
+    pid: number,
+    isRequestedRoot: boolean,
+  ): Promise<readonly Listener[] | undefined>;
+  /** The PROGRAM name to show for a pid — asked only for a pid the join has
+   *  already found to hold a listener, so a platform may pay for it there. */
+  nameOf(pid: number): Promise<string>;
+}
+
+/** Join one host reading to the requested terminals: partition the table into
+ *  subtrees, gather each subtree pid's listeners, name the pids that hold one, and
+ *  collapse per terminal.
+ *
+ *  Platform-free by construction — it can only ask the three questions
+ *  {@link HostReading} declares. */
+async function joinTerminalPorts(
+  reading: HostReading,
+  targets: readonly PortScanTarget[],
+): Promise<Map<TerminalId, PortInfo[]>> {
+  const roots = new Set(targets.map((t) => t.rootPid));
+  const out = new Map<TerminalId, PortInfo[]>();
+  for (const [id, pids] of partitionSubtrees(reading.table, targets)) {
+    const rows: PortInfo[] = [];
+    for (const pid of pids) {
+      const held = await reading.listenersOf(pid, roots.has(pid));
+      if (held === undefined || held.length === 0) continue;
+      const name = await reading.nameOf(pid);
+      // Built field by field, not spread: a reader's own key (the socket inode,
+      // the owning pid) is its business and must not ride out on the wire value.
+      for (const l of held)
+        rows.push({ port: l.port, wildcard: l.wildcard, name });
+    }
+    out.set(id, foldPorts(rows));
+  }
+  return out;
 }
 
 // ── linux: /proc ───────────────────────────────────────────────────────
@@ -539,10 +594,9 @@ async function socketInodesOf(
   return inodes;
 }
 
-async function scanLinux(
-  targets: readonly PortScanTarget[],
-): Promise<Map<TerminalId, PortInfo[]>> {
-  const roots = new Set(targets.map((t) => t.rootPid));
+/** Read the whole linux host once: the pid table, the LISTEN rows indexed by
+ *  socket inode, and the two per-pid reads the join asks for. */
+async function readLinux(roots: ReadonlySet<number>): Promise<HostReading> {
   const [table, v4, v6] = await Promise.all([
     linuxProcessTable(roots),
     readFile("/proc/net/tcp", "utf8"),
@@ -561,29 +615,23 @@ async function scanLinux(
     // twice; keep the first and let `foldPorts` do the port-level collapse.
     if (!listeners.has(l.inode)) listeners.set(l.inode, l);
   }
-  const nameOf = new Map(table.map((row) => [row.pid, row.name]));
-  const subtrees = partitionSubtrees(table, targets);
-  const out = new Map<TerminalId, PortInfo[]>();
-  for (const [id, pids] of subtrees) {
-    const rows: (Listener & { name: string })[] = [];
-    for (const pid of pids) {
-      const inodes = await socketInodesOf(pid, roots.has(pid));
-      if (inodes === undefined) continue;
-      const held = [...inodes]
+  const comm = new Map(table.map((row) => [row.pid, row.name]));
+  return {
+    table,
+    listenersOf: async (pid, isRequestedRoot) => {
+      const inodes = await socketInodesOf(pid, isRequestedRoot);
+      if (inodes === undefined) return undefined;
+      return [...inodes]
         .map((inode) => listeners.get(inode))
         .filter((l): l is ProcListener => l !== undefined);
-      if (held.length === 0) continue;
-      // Only now — for a pid that really holds a listener — is the better name
-      // worth a second read.
-      const name = await linuxProcessName(pid, nameOf.get(pid) ?? String(pid));
-      for (const listener of held) rows.push({ ...listener, name });
-    }
-    out.set(id, foldPorts(rows));
-  }
-  return out;
+    },
+    // The second read linux earns — and only for a pid the join has already found
+    // to hold a listener, which is a handful rather than the whole table.
+    nameOf: (pid) => linuxProcessName(pid, comm.get(pid) ?? String(pid)),
+  };
 }
 
-// ── darwin: ps + netstat ───────────────────────────────────────────────
+// ── darwin: ps + lsof ──────────────────────────────────────────────────
 
 /** Parse `ps -axo pid,ppid,comm` output.
  *
@@ -713,9 +761,9 @@ async function runDarwin(command: string, args: string[]): Promise<string> {
 const DARWIN_PS = "/bin/ps";
 const DARWIN_LSOF = "/usr/sbin/lsof";
 
-async function scanDarwin(
-  targets: readonly PortScanTarget[],
-): Promise<Map<TerminalId, PortInfo[]>> {
+/** Read the whole darwin host once: `ps` for the table, `lsof` for the listeners
+ *  it already attributes to a pid. */
+async function readDarwin(): Promise<HostReading> {
   const [ps, lsof] = await Promise.all([
     runDarwin(DARWIN_PS, ["-axo", "pid,ppid,comm"]),
     // `-n`/`-P` keep it from resolving DNS and port names (both would be slow and
@@ -723,24 +771,25 @@ async function scanDarwin(
     runDarwin(DARWIN_LSOF, ["-nP", "-w", "-iTCP", "-sTCP:LISTEN", "-Fpcn"]),
   ]);
   const table = parsePsTable(ps);
-  const nameOf = new Map(table.map((row) => [row.pid, row.name]));
-  const byPid = new Map<number, Listener[]>();
+  const comm = new Map(table.map((row) => [row.pid, row.name]));
+  const byPid = new Map<number, LsofListener[]>();
   for (const l of parseLsofListeners(lsof)) {
     const held = byPid.get(l.pid);
     if (held === undefined) byPid.set(l.pid, [l]);
     else held.push(l);
   }
-  const out = new Map<TerminalId, PortInfo[]>();
-  for (const [id, pids] of partitionSubtrees(table, targets)) {
-    const rows: (Listener & { name: string })[] = [];
-    for (const pid of pids) {
-      for (const listener of byPid.get(pid) ?? []) {
-        rows.push({ ...listener, name: nameOf.get(pid) ?? String(pid) });
-      }
-    }
-    out.set(id, foldPorts(rows));
-  }
-  return out;
+  return {
+    table,
+    // lsof already reported WHICH pid holds each listener, so there is no per-pid
+    // read to attempt and no failure to classify: a pid lsof could not see simply
+    // has no rows. (`fdListFailure`'s policy is linux's fd-walk policy — darwin
+    // does no fd walk, which is why the argument goes unread here.)
+    listenersOf: (pid) => Promise.resolve(byPid.get(pid) ?? []),
+    // `ps -o comm` is macOS's full executable PATH, so its basename is ALREADY the
+    // good name — darwin needs no second read to earn what linux reads `cmdline`
+    // for (linux's `comm` is the THREAD name, which Node overwrites).
+    nameOf: (pid) => Promise.resolve(comm.get(pid) ?? String(pid)),
+  };
 }
 
 // ── The one entry point ────────────────────────────────────────────────
@@ -764,9 +813,12 @@ export async function scanTerminalPorts(
   if (targets.length === 0) return new Map();
   switch (process.platform) {
     case "linux":
-      return scanLinux(targets);
+      return joinTerminalPorts(
+        await readLinux(new Set(targets.map((t) => t.rootPid))),
+        targets,
+      );
     case "darwin":
-      return scanDarwin(targets);
+      return joinTerminalPorts(await readDarwin(), targets);
     default:
       throw new PortScanError(
         `port scan: unsupported platform '${process.platform}' — kolu daemons run on linux/darwin only`,
