@@ -93,11 +93,25 @@ export const PT = [
 
 <Phase id="HX0" name="@kolu/acp: acp-proxy + acp-chat" status="next" />
 
-The package and its two bins. `acp-proxy` spawns `claude-agent-acp` over
-stdio, serves ACP on the unix socket, and prints every frame human-readably to
-its own stdout — run it in a kolu tile and you watch the session live.
-`acp-chat <socket>` connects as an ACP client, sends your line as
-`session/prompt`, streams the reply — chat with a tile from another terminal.
+The `@kolu/acp` package and its two bins.
+
+**Nothing about the tile is special.** An "ACP tile" is an ordinary kolu
+terminal whose child happens to be `acp-proxy` — kaval sees a process in a
+PTY, padi sees a terminal, and no kolu code changes anywhere. Create it like
+any terminal (`lifecycle.create` with `acp-proxy` as the argv), or just run
+the bin by hand in a shell.
+
+**`acp-proxy` is one session, end to end.** It spawns `claude-agent-acp` over
+stdio, re-serves the same ACP byte protocol on the unix socket for clients,
+and renders every frame human-readably to its own stdout. So the tile *shows*
+the session — messages, tool calls, permission decisions scrolling by — but is
+never the thing you type into; all input arrives as ACP calls on the socket.
+
+**`acp-chat` is the stand-in for pesu** until pesu exists: a REPL that
+connects to a proxy's socket, sends each line as `session/prompt`, and streams
+the reply. It makes this phase usable without XS in the picture while proving
+the exact client path HX1's pesu will reuse — same library, same socket, same
+frames — and it stays useful afterwards as a debugging client.
 
 <Hx0Mock />
 <HxStyles />

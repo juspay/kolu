@@ -181,11 +181,22 @@ thread, without opening kolu at all.</p>
 <a id="hx0"></a>
 <h3 id="hx0--an-acp-agent-in-a-tile">HX0 — an ACP agent in a tile</h3>
 <div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">HX0</span><span style="color:#334155">· @kolu/acp: acp-proxy + acp-chat</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
-<p>The package and its two bins. <code>acp-proxy</code> spawns <code>claude-agent-acp</code> over
-stdio, serves ACP on the unix socket, and prints every frame human-readably to
-its own stdout — run it in a kolu tile and you watch the session live.
-<code>acp-chat &lt;socket&gt;</code> connects as an ACP client, sends your line as
-<code>session/prompt</code>, streams the reply — chat with a tile from another terminal.</p>
+<p>The <code>@kolu/acp</code> package and its two bins.</p>
+<p><strong>Nothing about the tile is special.</strong> An “ACP tile” is an ordinary kolu
+terminal whose child happens to be <code>acp-proxy</code> — kaval sees a process in a
+PTY, padi sees a terminal, and no kolu code changes anywhere. Create it like
+any terminal (<code>lifecycle.create</code> with <code>acp-proxy</code> as the argv), or just run
+the bin by hand in a shell.</p>
+<p><strong><code>acp-proxy</code> is one session, end to end.</strong> It spawns <code>claude-agent-acp</code> over
+stdio, re-serves the same ACP byte protocol on the unix socket for clients,
+and renders every frame human-readably to its own stdout. So the tile <em>shows</em>
+the session — messages, tool calls, permission decisions scrolling by — but is
+never the thing you type into; all input arrives as ACP calls on the socket.</p>
+<p><strong><code>acp-chat</code> is the stand-in for pesu</strong> until pesu exists: a REPL that
+connects to a proxy’s socket, sends each line as <code>session/prompt</code>, and streams
+the reply. It makes this phase usable without XS in the picture while proving
+the exact client path HX1’s pesu will reuse — same library, same socket, same
+frames — and it stays useful afterwards as a debugging client.</p>
 <div class="hx-row" role="img" aria-label="Two terminal panes. Left: a kolu tile running acp-proxy, printing ACP frames — a session/prompt in, agent message chunks, a tool call with completion, turn end. Right: the acp-chat CLI connected to the same socket, showing the human's question and the streamed reply."><div class="hx-term"><div class="hx-tbar">tile e7f2 — acp-proxy · claude<span class="hx-tsub">frames, live</span></div><div class="hx-tbody"><div class="hx-in">▶ session/prompt · &quot;why is the e2e suite flaky?&quot;</div><div class="hx-out">◀ agent_message_chunk · &quot;Looking at the retry logs…&quot;</div><div class="hx-tool">◀ tool_call · bash — grep -r retry test-results/</div><div class="hx-tool">◀ tool_call_update · completed · 0.9s</div><div class="hx-out">◀ agent_message_chunk · &quot;It&#39;s a port collision: two…&quot;</div><div class="hx-ok">● turn end · stopReason: end_turn</div></div></div><div class="hx-term"><div class="hx-tbar">acp-chat<span class="hx-tsub">…/kolu/acp-e7f2.sock</span></div><div class="hx-tbody"><div class="hx-in">&gt; why is the e2e suite flaky?</div><div class="hx-out">claude ▸ Looking at the retry logs…</div><div class="hx-out">claude ▸ It&#39;s a port collision: two workers bind 5173.</div><div class="hx-in">&gt;<span class="hx-cursor">▍</span></div></div></div></div>
 <style>
   .hx-row{display:flex;gap:.8rem;flex-wrap:wrap;margin:1.25rem 0}
