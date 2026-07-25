@@ -10,6 +10,7 @@ updated: 2026-07-24
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
 import Kbd from "../../components/Kbd.astro";
+import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import arch from "../../diagrams/port-forwarding-arch.svg?raw";
 
@@ -257,22 +258,21 @@ daemon the other must talk to.
 What each phase changes **for the user** — the sentence you'd put in a
 release note:
 
-- **PRT0** — you can forward ports by hand, today, kolu or no kolu: run `nix run …#vazhi` in any terminal (a kolu terminal keeps it alive across reloads), type `a host:4123`, and get a live table with a clickable `http://…` link; `q` reaps every forward, guaranteed. Kolu's own UI changes not at all.
+- **PRT0** *(shipped, <PrLink pr={1975} />)* — you can forward ports by hand, today, kolu or no kolu: run `nix run …#vazhi` in any terminal (a kolu terminal keeps it alive across reloads), type `a host:4123`, and get a live table with a clickable `http://…` link; `q` reaps every forward, guaranteed. Kolu's own UI changes not at all.
 - **PRT1** — the Inspector answers "what is this terminal serving?": a live **Ports** section lists every listening port of the session within seconds of it appearing. No forwarding yet — but a port bound to `0.0.0.0` on the kolu server host needs none (it already answers on the name in your address bar), so those chips open in one click; loopback-bound and remote-host ports are listed but wait for PRT2.
 - **PRT2** — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, a **Forwarded Ports** group shows and cancels them (plus a manual ⌘K "Forward a port…"), and forwards clean themselves up when the server dies. This is the headline: *the agent started something → you're looking at it.*
 - **PRT3** *(deferred)* — the page opens inside kolu instead of a browser tab.
 
 | id | ships | needs | proof |
 | --- | --- | --- | --- |
-| PRT0 | `@kolu/port-forward` library + vazhi TUI (own flake.nix) | — | standalone forward on a real remote box, no kolu running |
+| PRT0 ✅ | `@kolu/port-forward` library + vazhi TUI — <PrLink pr={1975} /> | — | standalone forward on a real remote box, no kolu running |
 | PRT1 | padi port sensor · Ports section · direct open | — | e2e: spawned listener's chip appears + opens |
 | PRT2 | kolu embeds the library: lazy forward · Forwarded Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
 | PRT3 | embedded in-kolu preview pane | PRT2 | deferred — not planned yet |
 
-PRT0 and PRT1 are independent and can proceed in parallel; only PRT2 needs
-both.
+PRT0 shipped in <PrLink pr={1975} />; **PRT1 is next**, and PRT2 needs both.
 
-### PRT0 — the library, proven by vazhi (one PR)
+### PRT0 — the library, proven by vazhi (shipped: <PrLink pr={1975} />)
 
 `packages/port-forward/` plus the vazhi TUI with its own `flake.nix` (`nix
 run .#vazhi`). **Done when**, with **no kolu running**: in a terminal, vazhi
@@ -299,11 +299,24 @@ fixture `/proc` trees *and* fixture `netstat -anv -p tcp` output (including
 (`aarch64-darwin`) must be green, not skipped. Loopback-bound chips render
 with a "needs a forward" affordance that activates in PRT2.
 
+Scanner discipline, pinned from the Zed/VS Code comparisons: the pass holds
+**no OS state between ticks** — parse, join, emit the structural `PortInfo`
+snapshot, drop everything else (no retained fds, no process objects, no
+thread enumeration); it **repartitions from the current terminal root pids
+every tick**, so a terminal opening, closing, or being re-keyed never leaves
+a stale subtree; and it is single-flight (the output-nudge and the baseline
+tick share one non-overlapping runner).
+
 ### PRT2 — kolu embeds the library (one PR)
 
 The kolu server embeds `@kolu/port-forward`; forward state becomes a cell on
 kolu's existing surface; chip click → lazy create; tunnel badges; Forwarded
-Ports group; manual forward + ⌘K command; auto-cancel policy. **Done when**,
+Ports group; manual forward + ⌘K command; auto-cancel policy. Two UX details
+adopted from VS Code's Ports view: when an auto-forwarded listener dies and
+later returns, **re-forwarding prefers the local port it had before** (links
+and bookmarks keep working across a dev-server restart), and every
+forwarded-port row carries a **copy-address** affordance beside open and
+cancel. **Done when**,
 verified with the `remote-host-testing` harness against a real remote box
 *and* a viewer on a different machine than the kolu server: clicking a remote
 terminal's chip creates the forward **through the embedded library** (a
