@@ -15,13 +15,38 @@ import {
   foldPorts,
   type PortInfo,
   PortInfoSchema,
+  type PortScope,
   samePortList,
+  widerScope,
 } from "./ports.ts";
 
-const p = (port: number, wildcard = true, name = "node"): PortInfo => ({
+const p = (
+  port: number,
+  scope: PortScope = "any",
+  name = "node",
+): PortInfo => ({
   port,
   name,
-  wildcard,
+  scope,
+});
+
+describe("widerScope", () => {
+  it("ranks any > interface > loopback, in either argument order", () => {
+    // The fold's whole ordering, asserted directly: a total order stated once
+    // here is what makes `foldPorts` independent of the order it observed its
+    // rows in — which is not a nicety, since `samePortList` reads the result and
+    // an order-dependent fold would republish a "change" on every pass forever.
+    const scopes: PortScope[] = ["any", "interface", "loopback"];
+    for (const a of scopes) {
+      for (const b of scopes) {
+        expect(widerScope(a, b)).toBe(widerScope(b, a));
+      }
+    }
+    expect(widerScope("loopback", "interface")).toBe("interface");
+    expect(widerScope("interface", "any")).toBe("any");
+    expect(widerScope("loopback", "any")).toBe("any");
+    expect(widerScope("loopback", "loopback")).toBe("loopback");
+  });
 });
 
 describe("foldPorts", () => {
@@ -31,47 +56,62 @@ describe("foldPorts", () => {
     expect(foldPorts([p(3000), p(3000), p(3000)])).toEqual([p(3000)]);
   });
 
-  it("treats a port reachable on ANY of its binds as reachable", () => {
+  it("folds a port to its WIDEST bind", () => {
     // A server bound to both 127.0.0.1 and 0.0.0.0 contributes two rows for one
     // port. It IS reachable, so offering a forward for it would be wrong — and
     // picking whichever row came first would make the answer depend on fd order.
-    expect(foldPorts([p(5173, false), p(5173, true)])).toEqual([p(5173, true)]);
-    // …and the OR is order-independent, which is the whole point.
-    expect(foldPorts([p(5173, true), p(5173, false)])).toEqual([p(5173, true)]);
+    expect(foldPorts([p(5173, "loopback"), p(5173, "any")])).toEqual([
+      p(5173, "any"),
+    ]);
+    // …and the widening is order-independent, which is the whole point.
+    expect(foldPorts([p(5173, "any"), p(5173, "loopback")])).toEqual([
+      p(5173, "any"),
+    ]);
+    // The three-way's own case: an interface bind is wider than a loopback one
+    // (it answers somewhere off-box) and narrower than the any address.
+    expect(foldPorts([p(4000, "loopback"), p(4000, "interface")])).toEqual([
+      p(4000, "interface"),
+    ]);
+    expect(foldPorts([p(4000, "interface"), p(4000, "any")])).toEqual([
+      p(4000, "any"),
+    ]);
   });
 
   it("keeps a port whose every bind is loopback as needing a forward", () => {
     expect(
-      foldPorts([p(5432, false, "postgres"), p(5432, false, "postgres")]),
-    ).toEqual([p(5432, false, "postgres")]);
+      foldPorts([
+        p(5432, "loopback", "postgres"),
+        p(5432, "loopback", "postgres"),
+      ]),
+    ).toEqual([p(5432, "loopback", "postgres")]);
   });
 
   it("sorts by port, so an unchanged host produces an identical sample", () => {
     // Load-bearing for the churn guard: `samePortList` is order-sensitive, so an
     // unsorted fold would emit a "change" on iteration order alone, forever.
     expect(
-      foldPorts([p(9229), p(3000), p(61922, true, "workerd")]).map(
+      foldPorts([p(9229), p(3000), p(61922, "any", "workerd")]).map(
         (x) => x.port,
       ),
     ).toEqual([3000, 9229, 61922]);
   });
 
   it("does not mutate its input", () => {
-    // The fold copies before OR-ing `wildcard`; folding a caller's live snapshot
+    // The fold copies before widening `scope`; folding a caller's live snapshot
     // must not rewrite it (the client folds arrays that came off a reactive store).
-    const rows = [p(80, false), p(80, true)];
+    const rows = [p(80, "loopback"), p(80, "any")];
     foldPorts(rows);
-    expect(rows[0]).toEqual(p(80, false));
+    expect(rows[0]).toEqual(p(80, "loopback"));
   });
 
   it("folds a TILE's panes as readily as one subtree's sockets", () => {
     // The client's use: several already-folded pane sets flattened into one tile.
     // Same algebra, which is why there is only one implementation.
-    const main = [p(3000, false)];
-    const split = [p(5173, true), p(3000, true)];
+    const main = [p(3000, "loopback")];
+    const split = [p(5173, "any"), p(3000, "any")];
     expect(foldPorts([...main, ...split])).toEqual([
-      p(3000, true),
-      p(5173, true),
+      p(3000, "any"),
+      p(5173, "any"),
     ]);
   });
 
@@ -85,11 +125,11 @@ describe("foldPorts", () => {
     // function of the host's state — on linux it descends from `readdir("/proc")`.
     // A first-wins name would therefore flip between passes, and `samePortList`
     // reads the name, so every flip would republish "a change" forever.
-    const rows = [p(8080, false, "python"), p(8080, false, "node")];
+    const rows = [p(8080, "loopback", "python"), p(8080, "loopback", "node")];
     expect(samePortList(foldPorts(rows), foldPorts([...rows].reverse()))).toBe(
       true,
     );
-    expect(foldPorts(rows)).toEqual([p(8080, false, "node")]);
+    expect(foldPorts(rows)).toEqual([p(8080, "loopback", "node")]);
   });
 });
 
@@ -107,11 +147,11 @@ describe("samePortList", () => {
   it("notices a BIND change on the same port", () => {
     // A dev server restarted with `--host` keeps its number but stops needing a
     // forward. A port-number-only comparison would leave the chip inert forever.
-    expect(samePortList([p(5173, false)], [p(5173, true)])).toBe(false);
+    expect(samePortList([p(5173, "loopback")], [p(5173, "any")])).toBe(false);
   });
 
   it("notices a NAME change on the same port", () => {
-    expect(samePortList([p(3000)], [p(3000, true, "workerd")])).toBe(false);
+    expect(samePortList([p(3000)], [p(3000, "any", "workerd")])).toBe(false);
   });
 
   it("compares EVERY schema field, not a hand-listed subset", () => {
@@ -123,7 +163,7 @@ describe("samePortList", () => {
     const differing: Array<[PortInfo, PortInfo]> = [
       [p(1000), { ...p(1000), port: 1001 }],
       [p(1000), { ...p(1000), name: "other" }],
-      [p(1000), { ...p(1000), wildcard: false }],
+      [p(1000), { ...p(1000), scope: "loopback" }],
     ];
     // Counted against the SCHEMA, not a literal: adding a field to `PortInfo`
     // reds this line until a pair covering it is added, which is the whole point.

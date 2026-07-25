@@ -10,7 +10,7 @@ import { scanSubtreePorts } from "@kolu/port-scan";
 // Keyed by the ROOT PID you asked about. Every requested pid is present, with an
 // empty array when its subtree serves nothing.
 const byRoot = await scanSubtreePorts([4242, 4310]);
-// → Map { 4242 => [{ port: 5173, name: "node", wildcard: false }], 4310 => [] }
+// → Map { 4242 => [{ port: 5173, name: "node", scope: "loopback" }], 4310 => [] }
 ```
 
 Two entry points, because they have different weights:
@@ -18,7 +18,7 @@ Two entry points, because they have different weights:
 | import | what you get | safe in a browser bundle |
 |---|---|---|
 | `@kolu/port-scan` | the reader — `scanSubtreePorts`, `PortScanError`, `portScanSupported` | no (`node:fs`, `node:child_process`) |
-| `@kolu/port-scan/ports` | the vocabulary — `PortInfo`, `foldPorts`, `samePortList` | yes (zod, nothing else) |
+| `@kolu/port-scan/ports` | the vocabulary — `PortInfo`, `PortScope`, `foldPorts`, `samePortList`, `widerScope` | yes (zod, nothing else) |
 
 ## The volatility it hides
 

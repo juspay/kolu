@@ -73,8 +73,8 @@
  * processes), which is the number to beat, not to trust blindly.
  *
  * A maintained tool was researched rather than assumed away: `procs` **discards the
- * bind address** (a hard functional failure here — loopback and wildcard become the
- * same row) and costs ~30 ms; `osquery` is ~378 ms and not packaged for darwin;
+ * bind address** (a hard functional failure here — a loopback and an any-address
+ * bind become the same row) and costs ~30 ms; `osquery` is ~378 ms and not packaged for darwin;
  * `rustnet` needs capture privileges. The decided end state is a small
  * `sysinfo`+`listeners` Rust wrapper shared with drishti, behind a proof gate — the
  * Atlas note records the gate and why this helper ships first.
@@ -169,7 +169,7 @@
  * against `lsof` for all four bind shapes at once — `127.0.0.1`, `0.0.0.0`, `::1`,
  * and a DUAL-STACK `::` socket (`ipv6Only: false`). That last one is the case worth
  * naming: the helper's `insi_vflag & INI_IPV4` branch collapses it to its 4-byte v4
- * form, so `isAnyAddress` calls it reachable and lsof agrees (`*:19304`). A reader
+ * form, so `addressScope` calls it `any` and lsof agrees (`*:19304`). A reader
  * without that branch would report a 16-byte address there and the two would part
  * ways on exactly the case the v4-mapped arm exists for.
  */
@@ -180,7 +180,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { Logger } from "@kolu/log";
 import { foldPorts } from "./ports.ts";
-import type { PortInfo } from "./ports.ts";
+import type { PortInfo, PortScope } from "./ports.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -296,7 +296,7 @@ export function partitionSubtrees(
  *  its own key and hands the join a plain per-pid list. */
 interface Listener {
   port: number;
-  wildcard: boolean;
+  scope: PortScope;
 }
 
 // ── What a platform must answer, and the ONE join over it ───────────────
@@ -338,8 +338,7 @@ async function joinSubtreePorts(
       const name = await reading.nameOf(pid);
       // Built field by field, not spread: a reader's own key (the socket inode,
       // the owning pid) is its business and must not ride out on the wire value.
-      for (const l of held)
-        rows.push({ port: l.port, wildcard: l.wildcard, name });
+      for (const l of held) rows.push({ port: l.port, scope: l.scope, name });
     }
     out.set(rootPid, foldPorts(rows));
   }
@@ -389,8 +388,8 @@ export function decodeProcAddress(hex: string): number[] {
  *  uses. Running helper output through the `/proc` decoder would swap bytes that
  *  need no swapping and turn `127.0.0.1` into `1.0.0.127` — a SPECIFIC address either
  *  way, so it would not throw; it would quietly mis-classify. Two decoders, ONE judge
- *  ({@link isAnyAddress}) keeps the byte-order difference local and the reachability
- *  decision shared. */
+ *  ({@link addressScope}) keeps the byte-order difference local and the
+ *  reachability decision shared. */
 export function decodeNetworkAddress(hex: string): number[] {
   if ((hex.length !== 8 && hex.length !== 32) || !/^[0-9A-Fa-f]+$/.test(hex)) {
     throw new PortScanError(
@@ -405,27 +404,49 @@ export function decodeNetworkAddress(hex: string): number[] {
   return bytes;
 }
 
-/** Is this the ANY address — `0.0.0.0`, `::`, or the v4-mapped `::ffff:0.0.0.0`?
- *  The v4-mapped arm is not hypothetical: a Node server that binds `0.0.0.0` on
- *  a dual-stack box is commonly reported in `tcp6` in exactly that form, and
- *  reading it as a specific address would offer a needless forward for a port
- *  that already answers.
+/** The 4 bytes an IPv6 address carries a v4 address in when it is v4-MAPPED
+ *  (`::ffff:a.b.c.d`), or `undefined` when it is not that shape. A Node server
+ *  that binds `0.0.0.0` on a dual-stack box is commonly reported in `tcp6` in
+ *  exactly this form, so a reader without this arm classifies a reachable
+ *  wildcard as needing a forward. */
+function mappedV4(bytes: readonly number[]): readonly number[] | undefined {
+  if (bytes.length !== 16) return undefined;
+  if (!bytes.slice(0, 10).every((b) => b === 0)) return undefined;
+  if (bytes[10] !== 0xff || bytes[11] !== 0xff) return undefined;
+  return bytes.slice(12);
+}
+
+/** WHERE a socket is bound, as the one classification both platforms share —
+ *  the SINGLE judge behind every reachability decision downstream.
  *
- *  Over BYTES, so this one arm answers for every spelling either platform
- *  produces: `/proc`'s host-order hex on linux and the helper's network-order hex on
- *  darwin. There is deliberately no second, text-shaped predicate — an earlier
- *  revision had one and the two disagreed about exactly the case the paragraph above
- *  exists for, so darwin classified a reachable v4-mapped wildcard as needing a
- *  forward. */
-export function isAnyAddress(bytes: readonly number[]): boolean {
-  if (bytes.every((b) => b === 0)) return true;
-  return (
-    bytes.length === 16 &&
-    bytes.slice(0, 10).every((b) => b === 0) &&
-    bytes[10] === 0xff &&
-    bytes[11] === 0xff &&
-    bytes.slice(12).every((b) => b === 0)
-  );
+ *  Over BYTES, so this one function answers for every spelling either platform
+ *  produces: `/proc`'s host-order hex on linux and the helper's network-order hex
+ *  on darwin. There is deliberately no second, text-shaped predicate — an earlier
+ *  revision had one and the two disagreed about exactly the v4-mapped case, so
+ *  darwin classified a reachable v4-mapped wildcard as needing a forward.
+ *
+ *  The `interface` arm is what PRT2 added, and it is not cosmetic: both forward
+ *  mechanisms dial `127.0.0.1` on the far side, so a port bound to one specific
+ *  non-loopback address is reachable at THAT address and by no door kolu can
+ *  open. Folding it in with loopback — which the old `isAnyAddress` boolean did —
+ *  meant offering a forward that would open successfully and then refuse every
+ *  connection through it. */
+export function addressScope(bytes: readonly number[]): PortScope {
+  // The ANY address in either width, plus `::ffff:0.0.0.0`: all-zero payload.
+  if (bytes.every((b) => b === 0)) return "any";
+  const mapped = mappedV4(bytes);
+  if (mapped?.every((b) => b === 0)) return "any";
+  // Loopback: v4 is the whole `127.0.0.0/8` (a dev server on `127.0.0.53` is
+  // still loopback), v6 is exactly `::1`, and a v4-mapped loopback is judged as
+  // the v4 address it carries.
+  const v4 = bytes.length === 4 ? bytes : mapped;
+  if (v4 !== undefined) return v4[0] === 127 ? "loopback" : "interface";
+  if (bytes.length === 16) {
+    const isV6Loopback =
+      bytes.slice(0, 15).every((b) => b === 0) && bytes[15] === 1;
+    return isV6Loopback ? "loopback" : "interface";
+  }
+  return "interface";
 }
 
 /** A `/proc/net/tcp{,6}` LISTEN row, keyed by the socket inode the fd walk joins
@@ -479,7 +500,7 @@ export function parseProcNetTcp(body: string): ProcListener[] {
     }
     listeners.push({
       port,
-      wildcard: isAnyAddress(decodeProcAddress(local.slice(0, split))),
+      scope: addressScope(decodeProcAddress(local.slice(0, split))),
       inode: cols[9]!,
     });
   }
@@ -806,8 +827,8 @@ export interface HelperReading {
  *  `<name>` is last because it may contain spaces (the helper strips tabs from it,
  *  so arity is fixed). The address is the RAW bind bytes as hex — 8 chars for v4,
  *  32 for v6 — decoded by {@link decodeProcAddress} and judged by
- *  {@link isAnyAddress}, the SAME two functions the linux `/proc` reader uses. That
- *  is the point of moving hex rather than a boolean across this boundary: one
+ *  {@link addressScope}, the SAME two functions the linux `/proc` reader uses. That
+ *  is the point of moving hex rather than a tag across this boundary: one
  *  classifier, so the two platforms cannot come to disagree about
  *  `::ffff:0.0.0.0`.
  *
@@ -879,7 +900,7 @@ export function parseHelperOutput(body: string): HelperReading {
       }
       listeners.push({
         port,
-        wildcard: isAnyAddress(decodeNetworkAddress(f[3]!)),
+        scope: addressScope(decodeNetworkAddress(f[3]!)),
         pid,
       });
       continue;

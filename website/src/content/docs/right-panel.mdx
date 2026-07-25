@@ -40,10 +40,48 @@ something is genuinely listening, and it disappears when that stops.
 
 A port bound to **all interfaces** on the machine running kolu already answers on
 the address you're viewing kolu at, so its chip has an **open** link that opens it
-in a new tab. A port bound only to **loopback** — or one on a remote host — can't
-be reached from your browser as-is; those are listed with a "needs a forward"
-note. Until forwarding lands, reach them with
-[`vazhi`](/vazhi), which opens a tunnel by hand.
+in a new tab.
+
+A port bound only to **loopback** — or one on a remote host — can't be reached
+from your browser as-is, so kolu opens a door for it. Click **forward & open**
+and kolu makes that port answer on the machine serving this page, then opens the
+tab: an `ssh -L` tunnel when the port is on a remote host, a plain TCP relay when
+it's on kolu's own machine and merely on loopback. The chip then carries a
+`⇄ :<port>` badge naming the port it answers on — the number in the URL, so you
+can copy it into a config or another machine's browser.
+
+Doors are opened **lazily**, only for ports you actually click, and they close
+themselves: when the scanner sees a listener die, the door it was holding goes
+with it. Everything also dies with the kolu server, so a restart never leaves an
+orphaned door open.
+
+### Forwarded Ports
+
+Every open door is listed in a **Forwarded Ports** group — `host:port → :port`,
+whether it was opened automatically (by clicking a chip) or by hand, with a
+clickable link, a copy button, and a `⨯` to close it. The same list is in the
+host tab's dropdown, and the tab itself carries a `⇄ n` badge while that host has
+doors open.
+
+To forward a port kolu never saw — one outside any terminal's process tree, or a
+service that was already running — use the command palette: `⌘K` →
+**Forward a port…**, then `host:port` (or just a port for the host you're looking
+at). A forward you ask for by hand stays until you cancel it or its host leaves,
+since there is no listener for kolu to watch on your behalf.
+
+<Aside type="caution" title="A forwarded port is unauthenticated">
+The door kolu opens is plain TCP on every interface of the machine running kolu —
+the same exposure as starting the dev server on `0.0.0.0` yourself. Keep it to a
+network you trust.
+</Aside>
+
+One case has no door at all: a port bound to a **single specific interface** of a
+*remote* machine answers at that address, and neither mechanism can reach it
+(both connect to the far side's loopback). Those rows say "not reachable" rather
+than offering a button that would fail.
+
+[`vazhi`](/vazhi) does the same job as a standalone TUI, for when kolu isn't
+running; the two don't share forwards.
 
 <Aside type="note" title="A daemonized server is not listed">
 A process that fully daemonizes itself (double-fork, reparented away from the

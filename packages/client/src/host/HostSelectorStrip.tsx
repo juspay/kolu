@@ -62,6 +62,7 @@ import { Portal } from "solid-js/web";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
 import { surface } from "../ui/Surface";
+import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, padiMap, setActiveHost } from "../wire";
@@ -130,6 +131,8 @@ const HostChip: Component<{
   // so its key is encoded a single time.
   const encKey = encodeHostKey(props.host);
   const marks = hostMarks(encKey);
+  // How many doors kolu holds open to this host — the `⇄ n` badge below.
+  const forwardCount = () => forwardsForHost(props.host).length;
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -230,6 +233,22 @@ const HostChip: Component<{
             hostLabel={name()}
             sizeClass="ml-0.5 min-w-4 px-1 h-4"
           />
+          {/* `⇄ n` — this host has open forwards. Deliberately NOT an attention
+           *  mark: the two pills above are things asking for your attention, and a
+           *  forward is a standing state you chose. It reads as "kolu is holding
+           *  doors open here", which is glanceable from anywhere without opening
+           *  the dropdown that lists them. Hidden at zero. */}
+          <Show when={forwardCount() > 0}>
+            <span
+              class="ml-0.5 inline-flex h-4 shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-medium tabular-nums bg-accent/15 text-accent"
+              data-testid="host-forward-badge"
+              data-host={encKey}
+              data-count={forwardCount()}
+              title={`${forwardCount()} forwarded port${forwardCount() === 1 ? "" : "s"} on ${name()}`}
+            >
+              ⇄{forwardCount()}
+            </span>
+          </Show>
         </button>
       </div>
       <Show when={diagOpen()}>

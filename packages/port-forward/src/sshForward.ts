@@ -365,13 +365,18 @@ export async function openSshForward(
   remotePort: number,
   report: ForwardReport,
   spawnSsh: SpawnSsh,
+  lastLocalPort: number | undefined,
 ): Promise<OpenedForward> {
-  // The target's own port number first — `pu-dev:4123` answers on
-  // `0.0.0.0:4123` when that number is free here. A taken port makes ssh exit
-  // (that is what `ExitOnForwardFailure` is for), which is exactly the signal
-  // the preference falls back on.
+  // The number this target answered on last time, else the target's own port —
+  // `pu-dev:4123` answers on `0.0.0.0:4123` when that number is free here. The
+  // remembered port wins because it is the more specific promise: if 4123 was
+  // taken at first open and the forward landed on 61003, the links the user has
+  // say 61003, and coming back on 4123 would break exactly what the preference
+  // exists to protect. A taken port makes ssh exit (that is what
+  // `ExitOnForwardFailure` is for), which is the signal the preference falls
+  // back on.
   return await openPreferringPort({
-    preferred: remotePort,
+    preferred: lastLocalPort ?? remotePort,
     open: (localPort) =>
       openSshAttempt({ host, remotePort, localPort, report, spawnSsh }),
   });

@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { FORWARD_REASON, portUrl } from "./PortsSection";
+import { FORWARD_REASON, NO_MECHANISM_REASON, portUrl } from "./PortsSection";
 
 describe("portUrl", () => {
   it("builds the URL from the host it was given, never a literal localhost", () => {
@@ -46,5 +46,26 @@ describe("FORWARD_REASON", () => {
     // each arm names its OWN situation rather than sharing one vague sentence.
     expect(FORWARD_REASON["remote-host"]).toMatch(/remote host/);
     expect(FORWARD_REASON.loopback).toMatch(/loopback/);
+  });
+
+  it("promises a forward rather than a future release", () => {
+    // PRT1's copy said "coming next" because the chips were inert. They are not
+    // any more, and copy that still apologises for a shipped feature is a lie the
+    // regex here exists to catch.
+    for (const reason of Object.values(FORWARD_REASON)) {
+      expect(reason).not.toMatch(/coming/);
+      expect(reason).toMatch(/forward/);
+    }
+  });
+});
+
+describe("NO_MECHANISM_REASON", () => {
+  it("offers nothing, because there is nothing to offer", () => {
+    // The one arm with no action behind it: a port bound to a single interface of
+    // a REMOTE host answers at that address, and both forward mechanisms dial the
+    // far side's loopback. Its sentence must state the situation rather than
+    // promise a door — a row that said "needs a forward" here would invite a click
+    // that opens a listener refusing every connection through it.
+    expect(NO_MECHANISM_REASON["interface-bind"]).toMatch(/no forward/);
   });
 });

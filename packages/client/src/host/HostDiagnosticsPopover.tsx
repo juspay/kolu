@@ -22,6 +22,8 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { hostMarks } from "../attention/attentionMarks";
+import { ForwardRows } from "../forwards/ForwardRows";
+import { forwardsForHost } from "../forwards/useForwards";
 import { formatTimeAgo } from "../terminal/staleness";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -83,6 +85,7 @@ export const HostDiagnosticsPopover: Component<{
   const glance = () => hostGlance(state());
   const marks = hostMarks(encodeHostKey(props.host));
   const isLocal = () => props.host.kind === "local";
+  const forwards = () => forwardsForHost(props.host);
   const [confirmRemove, setConfirmRemove] = createSignal(false);
   // Local: machine hostname when known (same as the tab label); remotes: target.
   const { hostname } = useServerIdentity();
@@ -236,6 +239,19 @@ export const HostDiagnosticsPopover: Component<{
           >
             {lastActivity()}
           </PopoverRow>
+
+          {/* Forwarded ports — the doors kolu holds open to THIS host. Their
+              natural home: a forward is host-scoped (a listener here, pointed at
+              a port there), so the host popover shows all of them while the
+              Inspector shows the same rows narrowed to the active terminal's
+              host. Absent entirely when there are none. */}
+          <Show when={forwards().length > 0}>
+            <div class="my-2 border-t border-edge/60" />
+            <div class="py-0.5 text-[10px] uppercase tracking-wide text-fg-3">
+              forwarded ports
+            </div>
+            <ForwardRows forwards={forwards()} />
+          </Show>
 
           <Show when={!isLocal()}>
             <div class="my-2 border-t border-edge/60" />

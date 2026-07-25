@@ -197,6 +197,18 @@ export function makeForwardManager(opts: {
    *  ever reads or deletes. */
   const opening = new Set<object>();
 
+  /** The local port each target last answered on, kept AFTER the forward leaves
+   *  the map — that is the whole point. A dev server restarts, its port dies,
+   *  the forward is cancelled, and the next open for the same target comes back
+   *  on the number the user's links already carry.
+   *
+   *  It lives here rather than in a consumer because it is a fact of the MAP:
+   *  every consumer would otherwise keep the same table beside the map, and get
+   *  the eviction rules subtly different. Bounded by the number of distinct
+   *  targets a process has ever forwarded — a handful in any real session, and
+   *  one small integer each. */
+  const lastLocalPort = new Map<string, number>();
+
   function lose(
     key: string,
     reason: string,
@@ -346,15 +358,24 @@ export function makeForwardManager(opts: {
     const token = {};
     opening.add(token);
     const flight = (async () => {
-      const opened = await opts.mechanisms.open(target, {
-        // Sanitised HERE, at the seam, not in whichever mechanism happened to
-        // remember: every reason is rendered verbatim by a consumer, and a
-        // mechanism that reads a subprocess's stderr is carrying text the far
-        // end chose. One mechanism's discipline is not a library guarantee.
-        lost: (reason) => lose(key, plainDiagnostic(reason), token, "gone"),
-        fault: (reason) =>
-          lose(key, plainDiagnostic(reason), token, "degraded"),
-      });
+      const opened = await opts.mechanisms.open(
+        target,
+        {
+          // Sanitised HERE, at the seam, not in whichever mechanism happened to
+          // remember: every reason is rendered verbatim by a consumer, and a
+          // mechanism that reads a subprocess's stderr is carrying text the far
+          // end chose. One mechanism's discipline is not a library guarantee.
+          lost: (reason) => lose(key, plainDiagnostic(reason), token, "gone"),
+          fault: (reason) =>
+            lose(key, plainDiagnostic(reason), token, "degraded"),
+        },
+        lastLocalPort.get(key),
+      );
+      // Recorded on the way UP, not on the way down: a forward can leave the map
+      // by a route that runs no teardown of ours (the mechanism reports it lost,
+      // the process is killed), and the number is only useful if it survives
+      // every one of them.
+      lastLocalPort.set(key, opened.localPort);
 
       /** The public record of what just came up. Built on demand rather than
        *  once, because the three ways out of this function below want it at

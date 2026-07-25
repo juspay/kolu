@@ -102,6 +102,13 @@ const WEB_SHELL_FILES = [
   // kolu-cli parse deep-imports it without loading index.ts's runtime graph.
   // Web-shell code (it names how the web face boots), not terminal domain.
   "bootFlags",
+  // PRT2's forward POLICY — auto-vs-manual death, "only a real port observation
+  // may close a door", the host-key ↔ ssh-target mapping — over
+  // `@kolu/port-forward`'s map. Web-shell code by construction: the LISTENERS are
+  // sockets in THIS process on THIS machine, so they belong to the serving shell
+  // and die with it. It runs no terminal domain (it consumes a port READING the
+  // shell hands it), so it is not a @kolu/padi module.
+  "forwards",
   "hostname",
   // W10 host-membership persistence — the pool (the web shell's authority for map
   // membership) is its one writer, so its atomic-JSON load/validate/save leaf lives

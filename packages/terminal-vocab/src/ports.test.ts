@@ -12,15 +12,20 @@ import {
   foldPorts,
   type PortInfo,
   portReach,
+  type PortScope,
   portsEqual,
   type TerminalPorts,
 } from "./schema.ts";
 import { describe, expect, it } from "vitest";
 
-const p = (port: number, wildcard = true, name = "node"): PortInfo => ({
+const p = (
+  port: number,
+  scope: PortScope = "any",
+  name = "node",
+): PortInfo => ({
   port,
   name,
-  wildcard,
+  scope,
 });
 
 /** The known arm, for the equality cases below. */
@@ -42,18 +47,18 @@ describe("portsEqual delegates the LIST comparison", () => {
     expect(portsEqual(known([p(8080)]), known([p(8080), p(9229)]))).toBe(false);
     // A dev server restarted with `--host` keeps its number but stops needing a
     // forward. A port-number-only comparison would leave the chip inert forever.
-    expect(portsEqual(known([p(5173, false)]), known([p(5173, true)]))).toBe(
-      false,
-    );
     expect(
-      portsEqual(known([p(3000)]), known([p(3000, true, "workerd")])),
+      portsEqual(known([p(5173, "loopback")]), known([p(5173, "any")])),
+    ).toBe(false);
+    expect(
+      portsEqual(known([p(3000)]), known([p(3000, "any", "workerd")])),
     ).toBe(false);
   });
 
   it("sees an order-independent fold as unchanged", () => {
     // The two halves meeting: the fold's set-determinism only pays off if this
     // gate reads it. Two programs on one port, observed in either order.
-    const rows = [p(8080, false, "python"), p(8080, false, "node")];
+    const rows = [p(8080, "loopback", "python"), p(8080, "loopback", "node")];
     expect(
       portsEqual(known(foldPorts(rows)), known(foldPorts([...rows].reverse()))),
     ).toBe(true);
@@ -61,25 +66,37 @@ describe("portsEqual delegates the LIST comparison", () => {
 });
 
 describe("portReach", () => {
-  it("is direct only when the port is wildcard-bound AND on the kolu host", () => {
-    expect(portReach({ wildcard: true, onKoluHost: true })).toEqual({
+  it("is direct for an ANY-address port on the kolu host", () => {
+    expect(portReach({ scope: "any", onKoluHost: true })).toEqual({
       kind: "direct",
     });
   });
 
   it("names LOOPBACK for a loopback-bound port on the kolu host", () => {
-    expect(portReach({ wildcard: false, onKoluHost: true })).toEqual({
+    expect(portReach({ scope: "loopback", onKoluHost: true })).toEqual({
       kind: "needs-forward",
       via: "loopback",
     });
   });
 
-  it("names REMOTE HOST even for a wildcard port — the arm e2e cannot reach", () => {
+  it("is direct for an INTERFACE bind on the kolu host — no door exists or is needed", () => {
+    // A port bound to one routable address of the kolu server's OWN host already
+    // answers off-box, and no door could improve on that: the relay dials
+    // `127.0.0.1`, where this listener is not. Offering a forward would open a
+    // listener that refuses every connection through it — which is precisely what
+    // the old `wildcard: false` reading did, since it could not tell this case
+    // from the loopback one above.
+    expect(portReach({ scope: "interface", onKoluHost: true })).toEqual({
+      kind: "direct",
+    });
+  });
+
+  it("names REMOTE HOST even for an ANY-address port — the arm e2e cannot reach", () => {
     // The load-bearing case: a port bound to 0.0.0.0 on a remote ssh host is
     // reachable on THAT machine, and `location.hostname` is not that machine. If
-    // the wildcard arm won here, kolu would offer an open that lands on the kolu
+    // the scope arm won here, kolu would offer an open that lands on the kolu
     // server's own (probably empty) port instead.
-    expect(portReach({ wildcard: true, onKoluHost: false })).toEqual({
+    expect(portReach({ scope: "any", onKoluHost: false })).toEqual({
       kind: "needs-forward",
       via: "remote-host",
     });
@@ -89,9 +106,19 @@ describe("portReach", () => {
     // Both are true for a loopback port on a remote host; the host is the more
     // informative fact, and PRT2 needs a different forward for each case — which
     // is why the answer is a TAG a caller can switch on rather than a sentence.
-    expect(portReach({ wildcard: false, onKoluHost: false })).toEqual({
+    expect(portReach({ scope: "loopback", onKoluHost: false })).toEqual({
       kind: "needs-forward",
       via: "remote-host",
+    });
+  });
+
+  it("says NO MECHANISM for an interface bind on a remote host", () => {
+    // The one combination no door reaches: `ssh -L` connects to the remote's
+    // `127.0.0.1`, and this listener is on a different address of that machine.
+    // Saying so is the honest answer; offering a forward is not.
+    expect(portReach({ scope: "interface", onKoluHost: false })).toEqual({
+      kind: "no-mechanism",
+      via: "interface-bind",
     });
   });
 });

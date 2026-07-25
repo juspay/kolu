@@ -20,6 +20,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { networkInterfaces } from "node:os";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
@@ -78,6 +79,18 @@ function listener(
   });
 }
 
+/** One IPv4 address of a real, non-loopback interface on this box — the only way
+ *  to exhibit an `interface`-scoped bind, since the address has to be one the
+ *  kernel will actually accept a bind on. `undefined` on a box that has none. */
+function routableAddress(): string | undefined {
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const a of addresses ?? []) {
+      if (a.family === "IPv4" && !a.internal) return a.address;
+    }
+  }
+  return undefined;
+}
+
 /** Scan for this process's own subtree — the test process stands in for a
  *  terminal's root shell, which is exactly the relationship padi has to a PTY. */
 async function scanSelf() {
@@ -90,22 +103,41 @@ async function scanSelf() {
 }
 
 describeDaemon(`the port scan on this host (${process.platform})`, () => {
-  it("finds a wildcard-bound listener in its subtree and marks it reachable", async () => {
+  it("finds an any-address listener in its subtree and scopes it `any`", async () => {
     const { port } = await listener("0.0.0.0");
     const ports = await scanSelf();
     expect(ports).toContainEqual(
-      expect.objectContaining({ port, wildcard: true }),
+      expect.objectContaining({ port, scope: "any" }),
     );
   });
 
-  it("finds a loopback-bound listener and marks it as NOT reachable", async () => {
+  it("finds a loopback-bound listener and scopes it `loopback`", async () => {
     // The distinction the whole feature turns on: this one needs a forward, the
-    // one above does not. Getting `wildcard` backwards would offer a link that
+    // one above does not. Getting `scope` backwards would offer a link that
     // resolves to the viewer's own machine.
     const { port } = await listener("127.0.0.1");
     const ports = await scanSelf();
     expect(ports).toContainEqual(
-      expect.objectContaining({ port, wildcard: false }),
+      expect.objectContaining({ port, scope: "loopback" }),
+    );
+  });
+
+  it("scopes a listener bound to ONE routable interface as `interface`", async () => {
+    // The third scope, and the one a boolean could not spell. It matters because
+    // BOTH forward mechanisms dial `127.0.0.1` on the far side: a door opened for
+    // this listener would come up and then refuse every connection through it. So
+    // this must not read as `loopback`, and — since it answers off-box without a
+    // door — it must not read as needing one either.
+    const address = routableAddress();
+    if (address === undefined) {
+      // A box with no non-loopback interface (a sealed sandbox) cannot exhibit
+      // the case. Skipping is honest; asserting something else is not.
+      return;
+    }
+    const { port } = await listener(address);
+    const ports = await scanSelf();
+    expect(ports).toContainEqual(
+      expect.objectContaining({ port, scope: "interface" }),
     );
   });
 
@@ -121,7 +153,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     const { port } = await listener("0.0.0.0", { viaShell: true });
     const ports = await scanSelf();
     expect(ports).toContainEqual(
-      expect.objectContaining({ port, wildcard: true }),
+      expect.objectContaining({ port, scope: "any" }),
     );
   });
 
@@ -132,12 +164,12 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
 
     const ports = await scanSelf();
     expect(ports.filter((p) => p.port === port)).toEqual([
-      { port, name: "node", wildcard: true },
+      { port, name: "node", scope: "any" },
     ]);
 
     // The dual-stack BYTE fidelity — that `::` is read from the v6 slot and not
     // narrowed to `0.0.0.0` — deliberately is NOT asserted here, because it
-    // cannot be: `PortInfo` carries `{port, name, wildcard}` and never the
+    // cannot be: `PortInfo` carries `{port, name, scope}` and never the
     // address, so both spellings arrive identical at this layer. That is the
     // whole reason the darwin helper's own install check binds a dual-stack
     // socket and inspects the emitted hex (`packages/port-scan/native/default.nix`),
@@ -145,7 +177,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     // `insi_vflag` ordering it guards actually lives.
   });
 
-  it("tells the v4-MAPPED loopback from the v4-mapped wildcard", async () => {
+  it("tells the v4-MAPPED loopback from the v4-mapped ANY address", async () => {
     // `::ffff:127.0.0.1` and `::ffff:0.0.0.0` differ in four bytes and mean
     // opposite things, and every classification bug in this area has been one of
     // them read as the other. Live rather than fixture because the two platforms
@@ -157,10 +189,10 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
 
     const ports = await scanSelf();
     expect(ports.find((p) => p.port === mappedLoopback.port)).toEqual(
-      expect.objectContaining({ port: mappedLoopback.port, wildcard: false }),
+      expect.objectContaining({ port: mappedLoopback.port, scope: "loopback" }),
     );
     expect(ports.find((p) => p.port === mappedWildcard.port)).toEqual(
-      expect.objectContaining({ port: mappedWildcard.port, wildcard: true }),
+      expect.objectContaining({ port: mappedWildcard.port, scope: "any" }),
     );
 
     mappedLoopback.child.kill();

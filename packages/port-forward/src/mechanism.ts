@@ -46,5 +46,20 @@ export interface ForwardReport {
 /** How the map opens forwards. One method, dispatching on the target kind, so
  *  the map itself stays a map — and so a test can hand it a fake. */
 export interface ForwardMechanisms {
-  open(target: ForwardTarget, report: ForwardReport): Promise<OpenedForward>;
+  open(
+    target: ForwardTarget,
+    report: ForwardReport,
+    /** The local port THIS target answered on the last time it was open, or
+     *  `undefined` if the map has never opened it. A mechanism prefers it and
+     *  falls back the same way it falls back from any taken number.
+     *
+     *  Required rather than optional: it is not a mode to opt into, it is a fact
+     *  the map holds and every mechanism must be handed, and an optional
+     *  parameter is exactly how a mechanism comes to silently ignore it. The map
+     *  is where it lives because "a target that comes back gets the port it had"
+     *  is a property of the MAP — a consumer that had to remember and re-supply
+     *  it would be re-implementing the map's own bookkeeping, and each consumer
+     *  would get it slightly differently. */
+    lastLocalPort: number | undefined,
+  ): Promise<OpenedForward>;
 }

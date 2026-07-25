@@ -20,6 +20,10 @@ import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
 import {
+  forwardFromPalette,
+  forwardInputError,
+} from "./forwards/forwardFromPalette";
+import {
   ACTIONS,
   type ActionContext,
   actionPaletteCommand,
@@ -265,6 +269,34 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
         ]
       : []),
+
+    // --- Forward a port (any host) ---
+    // For a port the scanner never saw: one outside every terminal's subtree, a
+    // service started before kolu, a daemonized server. Those are exactly the
+    // ports no chip can offer, so the palette is the only way to reach them —
+    // which is why this is a root command rather than an active-terminal one.
+    // `manual`, so nothing but an explicit cancel closes it: kolu has no listener
+    // to watch on the user's behalf here, and reaping on "the scanner does not see
+    // it" would close every one of these the moment it was opened.
+    {
+      kind: "value" as const,
+      name: "Forward a port…",
+      description: "host:port → a door on this machine",
+      section: "hosts" as const,
+      row: { kind: "command" as const },
+      prefill: () => "",
+      placeholder: "host:port (or just a port for this host)",
+      validate: (value) =>
+        forwardInputError(value, deps.hostKeys(), deps.activeHost()),
+      onSubmit: (value) =>
+        forwardFromPalette(value, deps.hostKeys(), deps.activeHost()),
+      children: (): (PaletteLabel | PaletteHint)[] => [
+        {
+          kind: "hint" as const,
+          text: "e.g. pu-dev:5173 — a bare 3000 means the active host",
+        },
+      ],
+    },
 
     // --- Active Terminal (conditional on focus) ---
     ...(deps.activeId() !== null

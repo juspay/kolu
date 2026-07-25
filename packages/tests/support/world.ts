@@ -152,6 +152,10 @@ export class KoluWorld extends World {
    *  HTML preview is clicked — the in-iframe SDK forwards the URL to the
    *  parent, which opens it in a new browser tab (a fresh context page). */
   externalPopup?: Page;
+  /** The URL a port forward answered on — recorded when the forwarded tab loads,
+   *  so the cancel scenario can prove the door is SHUT (from node, against the
+   *  socket) rather than merely unlisted in the UI. */
+  forwardedUrl?: string;
   createdTerminalIds: string[] = [];
   shuffleHistory: string[] = [];
   /** A sub-terminal (split) id captured by the deep-links steps, so a

@@ -15,6 +15,7 @@
 import { connect, type Server, type Socket } from "node:net";
 import { messageOf } from "./diagnostic.ts";
 import type { ForwardReport, OpenedForward } from "./mechanism.ts";
+import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 
 /** The address a `local` target listens on — loopback, by definition of the
  *  problem this solves. */
@@ -25,13 +26,20 @@ const LOOPBACK = "127.0.0.1";
  *  happens to it afterwards — `lost` when it is gone, `fault` when it broke
  *  and could not be cleaned up.
  *
- *  The kernel picks the local port, and unlike the ssh mechanism there is no
- *  "prefer the target's own number" here — that number is the ONE number this
- *  listener may never take. Both ends are on this machine, so binding
- *  `0.0.0.0:<port>` while relaying to `127.0.0.1:<port>` points the relay at
- *  ITSELF: every accepted connection dials back into the listener and accepts
- *  again, forever. Measured before this was closed: one connection opened
- *  ~29,000 file descriptors in 1.5 seconds.
+ *  Unlike the ssh mechanism there is no "prefer the target's own number" here —
+ *  that number is the ONE number this listener may never take. Both ends are on
+ *  this machine, so binding `0.0.0.0:<port>` while relaying to
+ *  `127.0.0.1:<port>` points the relay at ITSELF: every accepted connection
+ *  dials back into the listener and accepts again, forever. Measured before this
+ *  was closed: one connection opened ~29,000 file descriptors in 1.5 seconds.
+ *
+ *  What it DOES prefer is `lastLocalPort` — the number this same target answered
+ *  on the last time it was open — so a dev server that restarts comes back at the
+ *  URL you already have. Without it the kernel picks afresh every time, which for
+ *  a relay is every time full stop (there is no target-number preference to fall
+ *  back on), and a restart silently invalidated every link and bookmark. The
+ *  self-pointing number is refused here rather than trusted not to arrive: the
+ *  map cannot produce it, but the consequence if it ever did is a runaway.
  *
  *  `listen` is the seam the "what happens when the listener fails after it was
  *  up?" tests need, since that failure cannot be provoked through a real socket.
@@ -42,7 +50,35 @@ export function openRelay(opts: {
   port: number;
   report: ForwardReport;
   listen: (onConnection: (socket: Socket) => void) => Server;
+  lastLocalPort: number | undefined;
 }): Promise<OpenedForward> {
+  const { port, lastLocalPort } = opts;
+  if (lastLocalPort === port) {
+    throw new Error(
+      `port-forward: a relay for local port ${port} cannot listen on that same number — it would relay into itself.`,
+    );
+  }
+  // No remembered port: straight to the kernel's choice, which is the relay's
+  // only other option. With one: try it, and fall back the same way the ssh
+  // mechanism does when its preferred number is taken.
+  return lastLocalPort === undefined
+    ? openRelayOn(opts, 0)
+    : openPreferringPort({
+        preferred: lastLocalPort,
+        open: (localPort) => openRelayOn(opts, localPort),
+      });
+}
+
+/** One relay attempt on ONE local port. `0` means "let the kernel choose", which
+ *  is the no-preference path and has no pick-then-bind window at all. */
+function openRelayOn(
+  opts: {
+    port: number;
+    report: ForwardReport;
+    listen: (onConnection: (socket: Socket) => void) => Server;
+  },
+  localPort: number,
+): Promise<OpenedForward> {
   const { port, report } = opts;
   const live = new Set<Socket>();
 
@@ -114,10 +150,20 @@ export function openRelay(opts: {
   };
 
   return new Promise((resolve, reject) => {
-    const onListenError = (err: Error): void => reject(err);
+    // A bind that fails BECAUSE of the number gets the preference's retry; any
+    // other bind failure is about the relay itself and travels straight out. The
+    // kernel's own choice (`0`) can never be "in use", so this only ever fires on
+    // a remembered number that has since been taken.
+    const onListenError = (err: Error): void => {
+      const code = (err as NodeJS.ErrnoException).code;
+      reject(
+        code === "EADDRINUSE" || code === "EACCES"
+          ? new PortUnavailableError(localPort, err.message)
+          : err,
+      );
+    };
     server.once("error", onListenError);
-    // Port 0 asks the kernel to choose, with no pick-then-bind window at all.
-    server.listen({ host: "0.0.0.0", port: 0 }, () => {
+    server.listen({ host: "0.0.0.0", port: localPort }, () => {
       server.removeListener("error", onListenError);
       // Past the bind, a listener error is a LOSS, not a startup failure. Take
       // the relay down FIRST, then say so — once.

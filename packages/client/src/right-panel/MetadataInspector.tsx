@@ -26,6 +26,7 @@ import {
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
+import ForwardedPortsSection from "../forwards/ForwardedPortsSection";
 import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 import PortsSection from "./PortsSection";
@@ -284,6 +285,14 @@ const MetadataInspector: Component<{
           <Show when={props.terminalId}>
             {(id) => <PortsSection terminalId={id()} />}
           </Show>
+
+          {/* Forwarded Ports — the doors kolu is holding open on this HOST. Not
+              gated on the terminal id, and not filtered by it: a forward outlives
+              the tile that opened it (a pane can be closed while its server keeps
+              running) and a ⌘K forward belongs to no tile at all, so the group
+              owns its own host-scoped read. It renders nothing when the host has
+              no forwards, which is the ordinary case. */}
+          <ForwardedPortsSection />
 
           {/* Foreground process */}
           <Show when={activeArm(meta())?.foreground}>

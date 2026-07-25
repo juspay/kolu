@@ -16,7 +16,12 @@ const silent = () => ({ lost: () => {}, fault: () => {} });
  *  `nativeMechanisms` hands it. The cases that inject a fake listener call
  *  `openRelay` directly. */
 const relayTo = (port: number, report: ForwardReport) =>
-  openRelay({ port, report, listen: createNetServer });
+  openRelay({
+    port,
+    report,
+    listen: createNetServer,
+    lastLocalPort: undefined,
+  });
 
 /** A dev server exactly like the ones this exists for: bound to loopback, so
  *  unreachable from any other machine. */
@@ -170,6 +175,7 @@ describe("a relay that fails after it was up", () => {
         server = createNetServer(onConnection);
         return server;
       },
+      lastLocalPort: undefined,
     });
     if (server === undefined) throw new Error("no listener was created");
     return { relay, server };
@@ -261,6 +267,7 @@ describe("a relay that fails after it was up", () => {
         }) as Server["close"];
         return server;
       },
+      lastLocalPort: undefined,
     });
     cleanups.push(async () => {
       refuse = false;
@@ -284,5 +291,64 @@ describe("a relay that fails after it was up", () => {
 
     await relay.close();
     await expect(relay.close()).resolves.toBeUndefined();
+  });
+
+  describe("the remembered local port", () => {
+    it("comes back on the same number after a restart", async () => {
+      // The property links and bookmarks rest on. A relay has no target-number
+      // preference to fall back on (that number is the one it may never take), so
+      // without this every restart moved the door and silently broke every URL
+      // the user had.
+      const origin = await serveOnLoopback("one");
+      cleanups.push(origin.stop);
+      const first = await relayTo(origin.port, silent());
+      const port = first.localPort;
+      await first.close();
+
+      const again = await openRelay({
+        port: origin.port,
+        report: silent(),
+        listen: createNetServer,
+        lastLocalPort: port,
+      });
+      cleanups.push(() => again.close());
+      expect(again.localPort).toBe(port);
+    });
+
+    it("takes a free port when the remembered one is gone", async () => {
+      // A forward is never refused over a busy number — the same rule the ssh
+      // mechanism follows, and the reason there is no knob for either.
+      const origin = await serveOnLoopback("two");
+      cleanups.push(origin.stop);
+      const squatter = await serveOnLoopback("mine");
+      cleanups.push(squatter.stop);
+
+      const relay = await openRelay({
+        port: origin.port,
+        report: silent(),
+        listen: createNetServer,
+        lastLocalPort: squatter.port,
+      });
+      cleanups.push(() => relay.close());
+      expect(relay.localPort).not.toBe(squatter.port);
+      expect(relay.localPort).toBeGreaterThan(0);
+    });
+
+    it("refuses the one number that would point the relay at itself", async () => {
+      // Unreachable through the map (a relay can never have HAD this number), so
+      // this is a guard on the consequence rather than on a live path: binding
+      // `0.0.0.0:<port>` while dialling `127.0.0.1:<port>` opened ~29,000 file
+      // descriptors in 1.5 seconds the one time it happened.
+      const origin = await serveOnLoopback("three");
+      cleanups.push(origin.stop);
+      expect(() =>
+        openRelay({
+          port: origin.port,
+          report: silent(),
+          listen: createNetServer,
+          lastLocalPort: origin.port,
+        }),
+      ).toThrow(/relay into itself/);
+    });
   });
 });

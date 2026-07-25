@@ -41,13 +41,14 @@ which would otherwise have been the SolidJS-shaped choice.
 
 ## What it is for
 
-kolu's Inspector now *lists* what a terminal is serving (the Atlas note's PRT1),
-but it cannot yet make a loopback or remote-host port reachable — that is PRT2,
-not shipped. Until it lands, those ports say "needs a forward" in the Inspector
-and vazhi is how you open one. vazhi also exists for the times kolu isn't around — a bare
-box, an ssh session, a CI host — and to prove that the capability underneath is
-genuinely standalone: **vazhi's only import is
-[`@kolu/port-forward`](../port-forward)**, nothing from kolu.
+kolu's Inspector both lists what a terminal is serving and forwards it on click
+(the Atlas note's PRT1 and PRT2), so vazhi is no longer the only way to open a
+door. What it is for now is the times kolu isn't around — a bare box, an ssh
+session, a CI host — and proving that the capability underneath is genuinely
+standalone: **vazhi's only import is
+[`@kolu/port-forward`](../port-forward)**, nothing from kolu. That second point
+is not decoration; embedding the library in kolu was mechanical precisely because
+vazhi had already proved it stood on its own.
 
 The two are independent apps, not client and server. They never talk, and they
 share nothing — not state, and not ssh connections: every forward owns its own,

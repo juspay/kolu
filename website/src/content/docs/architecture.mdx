@@ -419,7 +419,9 @@ _out_. The map, grouped:
 - **Reachability** — `port-forward` hides ssh forward lifetime and local
   binding: one dedicated ssh connection per forward, so a forwarded port dies
   with the process that opened it rather than outliving it on a shared master.
-  Two independent apps sit on it — `vazhi` today, kolu's Inspector next.
+  Two independent apps sit on it — `vazhi` and kolu's Inspector — with no
+  runtime link between them; each owns its own forwards and neither consults the
+  other.
 - **The framework** — [`surface`](/surface) (typed reactive `Cell` / `Collection`
   / `Stream` / `Event` + SolidJS hooks), `surface-remote` (the ssh mirror),
   `surface-daemon` (the durable-daemon spine), and its supervisor half.

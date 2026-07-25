@@ -15,15 +15,20 @@ function fakeMechanisms(): {
   /** Fire the loss callback of the FIRST forward ever opened — a report that
    *  arrives after that forward has been cancelled and replaced. */
   killFirstOpening: (reason: string) => void;
+  /** The `lastLocalPort` the map handed each `open`, in call order — the map's
+   *  restart-stability bookkeeping, observed at the seam it acts through. */
+  remembered: Array<number | undefined>;
 } {
   const opens: ForwardTarget[] = [];
   const closes: number[] = [];
+  const remembered: Array<number | undefined> = [];
   const losers = new Map<string, (reason: string) => void>();
   const everyOpening: Array<(reason: string) => void> = [];
   let nextPort = 61000;
   return {
     opens,
     closes,
+    remembered,
     killFirstOpening: (reason) => {
       const notify = everyOpening[0];
       if (notify === undefined) throw new Error("nothing was ever opened");
@@ -35,9 +40,13 @@ function fakeMechanisms(): {
       notify(reason);
     },
     mechanisms: {
-      async open(target, report) {
+      async open(target, report, lastLocalPort) {
         opens.push(target);
-        const localPort = nextPort++;
+        remembered.push(lastLocalPort);
+        // A real mechanism PREFERS the remembered number; the fake takes it
+        // outright, so a test can assert the port a re-opened target lands on
+        // rather than only what the map passed down.
+        const localPort = lastLocalPort ?? nextPort++;
         losers.set(targetKey(target), report.lost);
         everyOpening.push(report.lost);
         return {
@@ -215,7 +224,14 @@ describe("the forward map", () => {
     fake.killFromOutside(first.key, "host dropped");
     const second = await forwards.create(PU);
 
-    expect(second.localPort).not.toBe(first.localPort);
+    // A genuinely FRESH open, not the dead forward handed back: two calls to the
+    // mechanism, and a record stamped the second time. Deliberately not "a
+    // different local port" — that was only ever true of the old fake's counter,
+    // and the map now aims for the SAME number on purpose (see the remembered-port
+    // cases below), so asserting difference here would pin the opposite of the
+    // intended behaviour.
+    expect(fake.opens).toEqual([PU, PU]);
+    expect(second).not.toBe(first);
     expect(forwards.list()).toEqual([second]);
   });
 
@@ -366,7 +382,10 @@ describe("the forward map", () => {
     await cancel(forward.key);
     const again = await create(PU);
 
-    expect(again.localPort).not.toBe(forward.localPort);
+    // Both calls really ran (a receiver-dependent one would have thrown), and the
+    // second really re-opened rather than returning the cancelled forward.
+    expect(fake.opens).toEqual([PU, PU]);
+    expect(again).not.toBe(forward);
   });
 
   it("attempts one teardown per forward in a dispose, even when the first fails", async () => {
@@ -571,5 +590,44 @@ describe("the forward map", () => {
     refuse = false;
     await forwards.cancel(forward.key);
     expect(forwards.list()).toEqual([]);
+  });
+});
+
+describe("the local port a target comes back on", () => {
+  it("is remembered across a cancel, so a restarted server keeps its URL", async () => {
+    const fake = fakeMechanisms();
+    const forwards = makeForwardManager({ ...fake, onLost: () => {} });
+
+    const first = await forwards.create(PU);
+    await forwards.cancel(first.key);
+    const again = await forwards.create(PU);
+
+    expect(fake.remembered).toEqual([undefined, first.localPort]);
+    expect(again.localPort).toBe(first.localPort);
+  });
+
+  it("is remembered across a LOSS, which runs no teardown of ours", async () => {
+    // The route that matters most in production — the dev server died, so its
+    // ssh child died with it — and the one a "record it when we close it"
+    // bookkeeping would miss entirely.
+    const fake = fakeMechanisms();
+    const forwards = makeForwardManager({ ...fake, onLost: () => {} });
+
+    const first = await forwards.create(PU);
+    fake.killFromOutside(first.key, "the connection dropped");
+    expect(forwards.list()).toEqual([]);
+
+    const again = await forwards.create(PU);
+    expect(again.localPort).toBe(first.localPort);
+  });
+
+  it("is per TARGET, never shared between two of them", async () => {
+    const fake = fakeMechanisms();
+    const forwards = makeForwardManager({ ...fake, onLost: () => {} });
+
+    const pu = await forwards.create(PU);
+    const zest = await forwards.create(ZEST);
+    expect(fake.remembered).toEqual([undefined, undefined]);
+    expect(zest.localPort).not.toBe(pu.localPort);
   });
 });

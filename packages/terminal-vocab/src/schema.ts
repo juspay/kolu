@@ -167,13 +167,18 @@ export {
   foldPorts,
   type PortInfo,
   PortInfoSchema,
+  type PortScope,
+  PortScopeSchema,
   samePortList,
+  widerScope,
 } from "@kolu/port-scan/ports";
 // Imported as well as re-exported: `export … from` re-publishes without binding,
-// and the two below are used right here to build `TerminalPortsSchema`.
+// and the three below are used right here to build `TerminalPortsSchema` and
+// `portReach`.
 import {
   type PortInfo,
   PortInfoSchema,
+  type PortScope,
   samePortList,
 } from "@kolu/port-scan/ports";
 
@@ -220,38 +225,62 @@ export function knownPorts(ports: TerminalPorts): readonly PortInfo[] {
  *  mechanism would make it answer. The indivisible decision behind a port chip,
  *  as a tag rather than a sentence.
  *
- *  Three outcomes, because PRT2 must act on each differently: open the URL
+ *  Four outcomes, because PRT2 must act on each differently: open the URL
  *  directly · relay the port on the kolu host (a loopback bind, invisible from any
- *  other machine) · `ssh -L` through the remote host that owns it. A `string | null`
- *  reason collapsed all of that into prose, so "openable" was spelled as the
- *  ABSENCE of a sentence, a render site could only discriminate by matching English,
- *  and rewording the copy meant editing the decision. */
+ *  other machine) · `ssh -L` through the remote host that owns it · or say plainly
+ *  that no door exists. A `string | null` reason collapsed all of that into prose,
+ *  so "openable" was spelled as the ABSENCE of a sentence, a render site could only
+ *  discriminate by matching English, and rewording the copy meant editing the
+ *  decision. */
 export type PortReach =
   | { kind: "direct" }
-  | { kind: "needs-forward"; via: "loopback" | "remote-host" };
+  | { kind: "needs-forward"; via: "loopback" | "remote-host" }
+  /** Bound to ONE specific non-loopback address on a host that is not the kolu
+   *  server's. It answers at that address, and no door kolu can open reaches it:
+   *  both forward mechanisms connect to `127.0.0.1` on the far side, where
+   *  nothing is listening. Offering a forward here produces a listener that comes
+   *  up and then refuses every connection through it. */
+  | { kind: "no-mechanism"; via: "interface-bind" };
 
-/** The ONE openability decision, for both ends of the wire: a port answers on the
- *  name in the viewer's address bar iff it is any-address-bound AND its terminal is
- *  on the kolu server's own host.
+/** The ONE openability decision, for both ends of the wire — the join of a bind
+ *  OBSERVATION (which the scanner makes, knowing nothing about kolu) with WHOSE
+ *  HOST that bind is on (which only kolu knows).
  *
- *  The REMOTE-HOST arm wins, and that precedence is load-bearing: a wildcard bind
- *  on a remote ssh host is reachable from THAT machine, and `location.hostname` is
- *  not that machine — reading the wildcard first would offer an open that lands on
- *  the kolu server's own (probably empty) port. It is also the more informative of
- *  the two facts when both hold.
+ *  The four arms follow from what the two forward mechanisms actually dial, not
+ *  from a taxonomy:
  *
- *  Pure and total over two booleans, so there is no third "unknown" arm for a
- *  render site to get wrong. It lives in kolu's vocabulary rather than beside
+ *   - not on the kolu host, `any` or `loopback` → `ssh -L` to the far side's
+ *     `127.0.0.1`, where both of those binds answer.
+ *   - not on the kolu host, `interface` → nothing to dial. `ssh -L` would reach
+ *     the remote's loopback, which that listener is not on.
+ *   - on the kolu host, `loopback` → the in-process relay, which dials
+ *     `127.0.0.1` here.
+ *   - on the kolu host, `any` or `interface` → no door at all: the listener is on
+ *     an address of the very host whose name is in the viewer's address bar.
+ *
+ *  The REMOTE-HOST precedence is load-bearing: an any-address bind on a remote ssh
+ *  host is reachable from THAT machine, and `location.hostname` is not that
+ *  machine — reading the scope first would offer an open that lands on the kolu
+ *  server's own (probably empty) port.
+ *
+ *  Pure and total over a three-way and a boolean, so there is no "unknown" arm for
+ *  a render site to get wrong. It lives in kolu's vocabulary rather than beside
  *  `PortInfo` in `@kolu/port-scan` because `onKoluHost` is the domain: the scanner
  *  reports a bind, and only kolu knows whose host that bind is on. PRT2's forward
  *  manager needs the same judgment server-side, which is why it is here and not in
  *  the component that renders it. */
 export function portReach(opts: {
-  wildcard: boolean;
+  scope: PortScope;
   onKoluHost: boolean;
 }): PortReach {
-  if (!opts.onKoluHost) return { kind: "needs-forward", via: "remote-host" };
-  if (!opts.wildcard) return { kind: "needs-forward", via: "loopback" };
+  if (!opts.onKoluHost) {
+    return opts.scope === "interface"
+      ? { kind: "no-mechanism", via: "interface-bind" }
+      : { kind: "needs-forward", via: "remote-host" };
+  }
+  if (opts.scope === "loopback") {
+    return { kind: "needs-forward", via: "loopback" };
+  }
   return { kind: "direct" };
 }
 

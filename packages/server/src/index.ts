@@ -15,6 +15,7 @@ import {
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import {
+  activePadiTerminal,
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
@@ -48,6 +49,7 @@ import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import { createKoluForwards, type HostPorts } from "./forwards.ts";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
@@ -659,6 +661,102 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       boundHost: null,
     });
 
+  // ── Port forwards (PRT2) ────────────────────────────────────────────────
+  //
+  // kolu-server EMBEDS `@kolu/port-forward`: the doors are listeners in THIS
+  // process, so they die with it — which is the property the whole design was
+  // chosen for, and the reason there is no forwarding daemon to supervise. A
+  // deploy restarts kolu, the kernel closes every listener, and the restarted
+  // Inspector's empty list is the truth rather than an orphaned lie.
+
+  /** The ports currently listening on `host`, as its port scanner sees them —
+   *  the evidence the auto-cancel rule needs, and the ONLY thing that may close
+   *  an `auto` door.
+   *
+   *  Read off the host's re-serve MIRROR (the same store the browser reads), so a
+   *  remote host costs no ssh round trip here: the mirror already holds its
+   *  terminals. `"unknown"` whenever nothing can be positively observed — the host
+   *  has no session, the mirror yields no frame, or every terminal's own `ports`
+   *  is `unknown` — because "we could not look" must never read as "nothing is
+   *  listening". A terminal that HAS been scanned and serves nothing contributes an
+   *  honest empty set, which is what lets a dead port actually be reaped.
+   *
+   *  The union across a host's terminals, not per-terminal, and deliberately: a
+   *  forward outlives the tile that opened it (a pane can be closed while the
+   *  server keeps running), so the question is "is this port still listening on
+   *  this machine?", not "is it still in that terminal's subtree?". */
+  async function readHostPorts(host: HostKey): Promise<HostPorts> {
+    const session = pool.getSession(encodeHostKey(host));
+    if (session === undefined) return "unknown";
+    const client = surfaceClientRef(
+      reServeFor(host, session).surface,
+      reServeFor(host, session).router as Parameters<
+        typeof surfaceClientRef
+      >[1],
+    );
+    const ctl = new AbortController();
+    try {
+      const keys = await firstFrameOrUndefined(
+        await client.surface.terminals.keys({}, { signal: ctl.signal }),
+      );
+      if (keys === undefined) return "unknown";
+      const ports = new Set<number>();
+      let sawAnything = false;
+      for (const id of keys) {
+        const record = await firstFrameOrUndefined(
+          await client.surface.terminals.get(
+            { key: id },
+            { signal: ctl.signal },
+          ),
+        );
+        const arm = activePadiTerminal(record);
+        if (arm === undefined || arm.ports.status !== "known") continue;
+        // One KNOWN sample is enough to make this whole reading an observation:
+        // the remaining terminals being unscanned cannot resurrect a port, and
+        // requiring every terminal to be known would mean a single wedged pane
+        // kept every dead forward alive forever.
+        sawAnything = true;
+        for (const p of arm.ports.list) ports.add(p.port);
+      }
+      return sawAnything ? ports : "unknown";
+    } catch (err) {
+      // A read that FAILED is not evidence a port died. Report the honest
+      // `unknown` — never an empty set, which would reap every auto forward on
+      // the host — and let the caller log it.
+      log.error({ err, host: encodeHostKey(host) }, "host port read failed");
+      return "unknown";
+    } finally {
+      ctl.abort();
+    }
+  }
+
+  /** The forward map + kolu's policy over it. `onChange` is the cell's fused
+   *  change EDGE — a bare tick that makes the poll re-read at once — so an act
+   *  reaches the wire without waiting out the reap interval. Nothing here holds a
+   *  copy of the list: the cell's read is its only reader. */
+  const forwardListeners = new Set<() => void>();
+  const forwards = createKoluForwards({
+    readHostPorts,
+    log,
+    onChange: () => {
+      for (const tick of forwardListeners) tick();
+    },
+  });
+
+  // A host leaving the pool takes its doors with it — a forward to a machine kolu
+  // no longer has is a door to nowhere, and that holds for `manual` forwards too
+  // (the one thing besides an explicit cancel that may close one). This is pool
+  // MEMBERSHIP, not link liveness: a flapping ssh connection must not reap
+  // anything, and it does not need to — a remote forward's ssh child dies with its
+  // own connection and the map hears about it through `onLost`.
+  pool.subscribe(() => {
+    for (const forward of forwards.list()) {
+      if (!pool.has(encodeHostKey(forward.host))) {
+        void forwards.hostDeparted(forward.host);
+      }
+    }
+  });
+
   // Serve kolu-server's own surface. SR8.c: `implementKoluSurface` builds EVERY member from
   // these plain domain deps — index.ts imports no reactor primitive, and no member is
   // ctx-written (the reactor graph is each one's writer). The `onState` dep projects each
@@ -694,6 +792,23 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           padiStartedAt: padiStartedAt(),
         }),
       ),
+    forwards: {
+      // Reconcile, then report — one read, so the list that reaches the wire has
+      // already had its dead doors closed. TOTAL by construction: `reapDeadAuto`
+      // logs and continues past every failure (a host it cannot read keeps its
+      // forwards), and `list()` reads an in-memory map, so a poll seed here
+      // cannot throw and take the runtime's `done` with it.
+      read: async () => {
+        await forwards.reapDeadAuto();
+        return forwards.list();
+      },
+      onChange: (tick) => {
+        forwardListeners.add(tick);
+        return () => forwardListeners.delete(tick);
+      },
+      create: (input) => forwards.create(input),
+      cancel: (key) => forwards.cancel(key),
+    },
   });
 
   // Splice the map's INNER surface object under the `padi` key beside kolu-server's own

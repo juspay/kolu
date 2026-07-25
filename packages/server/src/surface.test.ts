@@ -38,10 +38,14 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // — a #1034 honesty leg, server-authored, NOT a terminal member),
     // `processStartedAt` (the server + padi boot times the rail renders as uptime),
     // `daemonInventory` (the read-only host-daemon enumeration the Kaval/Padi
-    // dialogs list — presentation/diagnostic data, NOT a terminal member).
+    // dialogs list — presentation/diagnostic data, NOT a terminal member), and
+    // `forwards` (PRT2's open port forwards — listeners in the kolu-server
+    // PROCESS, so a fact about this server rather than about any host's
+    // terminals, even when the far end of one is a remote host's port).
     // No collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "daemonInventory",
+      "forwards",
       "padiLink",
       "preferences",
       "processMemory",
@@ -52,6 +56,21 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(spec.cells?.terminalList).toBeUndefined();
     expect(spec.collections).toBeUndefined();
     expect(spec.events).toBeUndefined();
+  });
+
+  it("koluSurface's only procedures are the two that move the forward map", () => {
+    // koluSurface had NO procedures before PRT2 — every mutation the client made
+    // rode padi's per-host surface. These two are here rather than there because
+    // they act on kolu-SERVER's own machine: the listener a forward opens is a
+    // socket in this process, and no host is asked for permission to open it.
+    const spec = surfaces.kolu.spec as {
+      procedures?: Record<string, Record<string, unknown>>;
+    };
+    expect(Object.keys(spec.procedures ?? {})).toEqual(["forwards"]);
+    expect(Object.keys(spec.procedures?.forwards ?? {}).sort()).toEqual([
+      "cancel",
+      "create",
+    ]);
   });
 });
 

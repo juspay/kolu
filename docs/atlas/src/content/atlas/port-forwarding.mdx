@@ -4,7 +4,7 @@ description: A shared @kolu/port-forward library, the standalone vazhi TUI that 
 parents: [feature]
 status: accepted
 maturity: seedling
-updated: 2026-07-24
+updated: 2026-07-25
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -156,19 +156,27 @@ model inside the library. And the **`ForwardManager` API is the PRT2
 contract**: `create` (idempotent by target) · `cancel` · `list` · `dispose` ·
 `onLost` is exactly what kolu's Inspector will wire against, so the mechanism
 could be replaced under it — as it just was — without either app noticing.
-Mechanism in the library, policy in the consumers.<Footnote>One shape question
-PRT2 should settle rather than inherit: `list()` is pull-only, so a consumer
-keeps its own mirror and re-reads after every create/cancel/loss (vazhi does,
-in four places). If the Inspector wants the same, the map should hand out a
-subscription instead — an additive change to the same contract, decided once
-there are two consumers to design it against rather than one. A second shape
-question PRT2 should settle: `create` rejects with the mechanism's own message,
-so "the local port was taken", "the host is unreachable", "no ssh on PATH" and
-"the tunnel never came up" are one untyped `Error` above the map. vazhi only
-prints it; the Inspector will want to branch on it (retry, pick another port,
-mark the host down), so the map should reject with a single tagged error
-carrying a `kind` — additive to the same contract, decided once there are two
-consumers to design it against.</Footnote>
+Mechanism in the library, policy in the consumers.<Footnote>**Two shape questions
+PRT2 was to settle, and both settled as NO CHANGE — recorded because "we looked
+and the second consumer wanted the same thing" is a different fact from "nobody
+got round to it".** (1) `list()` stays pull-only. The prediction was that a second
+consumer would want a subscription; kolu instead does exactly what vazhi does —
+re-read the map after every act — and it does so because the surface CELL it feeds
+is itself a re-read on a change edge. Two independent consumers converging on
+pull is evidence the pull shape is right, not that the subscription is overdue.
+(2) `create` still rejects with the mechanism's own message. The prediction was
+that the Inspector would branch on a `kind` (retry, pick another port, mark the
+host down); it branches on none of them, because the map ALREADY handles the only
+recoverable case — a taken local port falls back to a free one inside
+`openPreferringPort`, so it never reaches a consumer as an error. What is left is
+genuinely terminal (no ssh, host unreachable, tunnel never came up) and its one
+honest treatment is to show the user what happened. A tag with no reader would be
+speculative structure.<br /><br />**One thing DID change**, and it went the other
+way — into the library rather than into a consumer: a target that comes back gets
+the local port it had before. That is what makes a link survive a dev-server
+restart, and it belongs to the MAP because it is bookkeeping the map already
+holds. Left to consumers, kolu and vazhi would each have kept the same table
+beside the same map and got its eviction rules subtly different.</Footnote>
 
 Two consumers, no runtime link between them — the drishti pattern proper
 (shared libraries, independent apps):
@@ -556,18 +564,18 @@ release note:
 
 - **PRT0** *(shipped, <PrLink pr={1975} />)* — you can forward ports by hand, today, kolu or no kolu: run `nix run …#vazhi` in any terminal (a kolu terminal keeps it alive across reloads), type `a host:4123`, and get a live table with a clickable `http://…` link; `q` reaps every forward, guaranteed. Kolu's own UI changes not at all.
 - **PRT1** *(shipped, <PrLink pr={1982} />)* — the Inspector answers "what is this terminal serving?": a live **Ports** section lists every listening port of the session within seconds of it appearing. No forwarding yet — but a port bound to `0.0.0.0` on the kolu server host needs none (it already answers on the name in your address bar), so those chips open in one click; loopback-bound and remote-host ports are listed but wait for PRT2.
-- **PRT2** — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, a **Forwarded Ports** group shows and cancels them (plus a manual ⌘K "Forward a port…"), and forwards clean themselves up when the server dies. This is the headline: *the agent started something → you're looking at it.*
+- **PRT2** *(shipped, <PrLink pr={1991} />)* — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, a **Forwarded Ports** group shows and cancels them (plus a manual ⌘K "Forward a port…"), and forwards clean themselves up when the server dies. This is the headline: *the agent started something → you're looking at it.*
 - **PRT3** *(deferred)* — the page opens inside kolu instead of a browser tab.
 
 | id | ships | needs | proof |
 | --- | --- | --- | --- |
 | PRT0 ✅ | `@kolu/port-forward` library + vazhi TUI — <PrLink pr={1975} /> | — | standalone forward on a real remote box, no kolu running |
 | PRT1 ✅ | padi port sensor · Ports section · direct open — <PrLink pr={1982} /> | — | e2e: spawned listener's chip appears + opens |
-| PRT2 | kolu embeds the library: lazy forward · Forwarded Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
+| PRT2 ✅ | kolu embeds the library — <PrLink pr={1991} />: lazy forward · Forwarded Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
 | PRT3 | embedded in-kolu preview pane | PRT2 | deferred — not planned yet |
 
 PRT0 shipped in <PrLink pr={1975} /> and PRT1 in <PrLink pr={1982} />;
-**PRT2 is next** — both of its prerequisites are in.
+PRT2 shipped in <PrLink pr={1991} />; **PRT3 is the only phase left**, and it is deferred by design.
 
 ### PRT0 — the library, proven by vazhi (shipped: <PrLink pr={1975} />)
 
@@ -596,7 +604,7 @@ real path (padi scan → snapshot → surface → reconcile
 store), which no client-side mock can satisfy. Parser unit tests run on
 fixture `/proc` trees *and* fixture `lsof` field output; the darwin gate
 (`aarch64-darwin`) must be green, not skipped. Loopback-bound chips render
-with a "needs a forward" affordance that activates in PRT2.
+with a "needs a forward" affordance; PRT2 made it live.
 
 **Fixtures are not enough, and this phase proved it twice.** A fixture pins the
 parser; it cannot pin the assumption that the parser is handed the shape it
@@ -614,7 +622,7 @@ every tick**, so a terminal opening, closing, or being re-keyed never leaves
 a stale subtree; and it is single-flight (the output-nudge and the baseline
 tick share one non-overlapping runner).
 
-### PRT2 — kolu embeds the library (one PR)
+### PRT2 — kolu embeds the library (shipped: <PrLink pr={1991} />)
 
 <Prt2Mockup />
 
@@ -633,19 +641,45 @@ What ships, at a glance — detail lives in the footnotes:
   caption="One click, both mechanisms. A loopback port on the kolu host gets an in-process relay (case 1); a port on a remote host gets a dedicated ssh -L child whose death is the forward's death (case 2). The browser only ever opens the name already in its address bar. Auto-cancel rides PRT1's scanner; a killed kolu server takes every door with it, kernel-guaranteed."
 />
 
-**A shape question PRT1's review raised and deliberately left to PRT2:** whether
-`PortInfo` should carry `wildcard: boolean` or a three-way
-`scope: "any" | "loopback" | "interface"`. The structural lens's case is sound —
-`wildcard` is one observation (*what address did it bind?*) doing duty as a
-judgment (*is it reachable from here?*), and the judgment is not even a function
-of that field alone: the client must join it with the terminal's HOST to decide
-whether a chip opens. PRT1 kept the boolean because its two live symptoms —
-two platform classifiers that disagreed, and the reachability verb returned as
-prose — are fixed independently, and because **PRT2 is where the second consumer
-appears.** Choosing relay-vs-`ssh -L` needs the host, which `wildcard` never
-carried either, so PRT2 reshapes this surface regardless — and it can then design
-the tag against two real consumers instead of one. Same discipline as the
-`list()`/`subscribe()` and tagged-error questions above. **A second question of the same shape was RAISED AND SETTLED IN PRT1**, not deferred: whether a terminal that has never been successfully scanned is distinguishable on the wire from one that serves nothing. It was first argued as unreachable and the peer review refuted that with three surviving routes — a first-pass `lsof` timeout on darwin, a transient `/proc/net/tcp` read failure on linux, and (widened by PRT1&rsquo;s own fix) any unexpected `/proc` errno — none of which needs the terminal&rsquo;s own shell to be unreadable. So `ports` is a discriminated `known` / `unknown` two-way, the same honest shape `ProcessRss` already uses, and holding a last-good sample now covers only what it can actually cover.<Footnote>PRT1 also left a
+### The deferred shape question, settled: `wildcard` became `scope`
+
+PRT1's review left one question open for exactly this phase — whether `PortInfo`
+should carry `wildcard: boolean` or a three-way
+`scope: "any" | "loopback" | "interface"` — on the grounds that PRT2 is where the
+second consumer appears and the tag could then be designed against two real
+readers instead of one. It appeared, and **the boolean was wrong for a reason no
+amount of structural argument had reached: it is not a distinction the
+MECHANISMS can act on.**
+
+Both of PRT0's doors connect to **`127.0.0.1` on the far side** — the relay dials
+this machine's loopback, the `ssh -L` child dials the remote's. So the boolean's
+`false` arm covered two cases with *opposite* correct handling: a loopback bind
+(exactly what a door reaches) and a bind to one specific interface such as
+`192.168.1.5` (which answers at that address, and which no door can reach at
+all). Under `wildcard: boolean` the second case rendered as "needs a forward",
+the click would open a listener successfully, and every connection through it
+would be refused. A boolean cannot spell the difference, so PRT2 ships the
+three-way and `portReach` grows a fourth, honest arm — `no-mechanism` — that
+offers nothing because there is nothing to offer.<Footnote>The reshape is one
+classifier, not a schema patch: `isAnyAddress` became `addressScope`, still the
+SINGLE judge both platforms reach through their own decoder, so the two cannot
+come to disagree about `::ffff:0.0.0.0` — the property PRT1 paid for twice. The
+fold widens rather than ORs (`any` > `interface` > `loopback`), which keeps it
+order-independent, which is what keeps a 5-second scanner from republishing a
+"change" forever. Cost, stated: padi's surface goes 4.2 → 4.3 and a straddling
+padi is drained by the existing convergence machinery before either parser meets
+the other's frame — the same rule 4.1 and 4.2 already rest on, so the reshape
+needs no compatibility arm and deliberately has none. Verified against the real
+OS, not just fixtures: the live suite binds a real routable interface address and
+asserts it classifies as `interface`.</Footnote>
+
+The structural lens's original case stands too, and is worth recording as
+*separate*: `scope` is still an OBSERVATION, not a verdict. Whether a port answers
+for a given viewer needs the HOST as well, which no field of `PortInfo` ever
+carried — so the judgment stays `portReach(scope, onKoluHost)` in kolu's own
+vocabulary, where both ends of the wire read the one copy.
+
+**A second question of the same shape was RAISED AND SETTLED IN PRT1**, not deferred: whether a terminal that has never been successfully scanned is distinguishable on the wire from one that serves nothing. It was first argued as unreachable and the peer review refuted that with three surviving routes — a first-pass `lsof` timeout on darwin, a transient `/proc/net/tcp` read failure on linux, and (widened by PRT1&rsquo;s own fix) any unexpected `/proc` errno — none of which needs the terminal&rsquo;s own shell to be unreadable. So `ports` is a discriminated `known` / `unknown` two-way, the same honest shape `ProcessRss` already uses, and holding a last-good sample now covers only what it can actually cover.<Footnote>PRT1 also left a
 second, smaller judgment on the table: kaval's one host-global `activity` edge now
 has three independent `resubscribeStream` consumers (the finish fold, the live
 dots, the port-scan nudge). They are not three copies of one shape — the live-dots
@@ -674,11 +708,22 @@ connections at once** — the old shared-master design would have orphaned them
 on each release while the restarted Inspector showed an empty list. Evidence
 video of the click-to-page flow.
 
+**What the automated suite actually covers, and what it deliberately does not.**
+The e2e scenarios drive the **relay** case end to end — a real loopback listener
+in a real PTY, a real click, and the listener's own body arriving in the opened
+tab through a port it never bound — plus the cancel twin, which proves the door
+is *shut* by dialling the recorded URL from node rather than by watching a row
+disappear. The **`ssh -L` case is not simulated**: it needs a second machine, and
+a loopback ssh hop standing in for one would exercise a different code path from
+the one it claimed to cover, so it stays with the `remote-host-testing` harness
+above. Stated rather than left implicit, because "the port forwarding suite is
+green" would otherwise read as covering both mechanisms.
+
 ### PRT3 — embedded preview (deferred)
 
 Open the forwarded page inside kolu — a browser pane in the Code tab, in the
 spirit of the Codex desktop app — instead of a new tab. Explicitly out of
-scope until PRT2 ships<Footnote>A cross-origin iframe surface for arbitrary
+scope until PRT2 shipped<Footnote>A cross-origin iframe surface for arbitrary
 dev servers is a genuinely bigger build, and any server sending
 `X-Frame-Options: DENY` / `frame-ancestors` refuses framing — the new-tab
 path must remain the fallback regardless.</Footnote>; no design here yet —
