@@ -34,6 +34,20 @@ export function formatUptime(ms: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
+/** How long until `formatUptime(ms)` would return a DIFFERENT string — the only
+ *  moment a caller redrawing an uptime has anything new to show.
+ *
+ *  It lives next to `formatUptime` because it is a fact about that ladder: the
+ *  finest unit the text ever moves in is seconds below a minute, minutes up to a
+ *  day (the `Xh Ym` branch still carries minutes), and hours beyond that. A
+ *  caller ticking faster than this renders a frame identical to the last one;
+ *  ticking on a fixed coarse period instead would drift, because each forward's
+ *  boundaries are aligned to ITS creation, not to a shared clock. */
+export function nextUptimeChange(ms: number): number {
+  const step = ms < 60_000 ? 1_000 : ms < 86_400_000 ? 60_000 : 3_600_000;
+  return (Math.floor(ms / step) + 1) * step - ms;
+}
+
 /** The URL a forward answers on. The host is THIS machine's name — never
  *  "localhost", which in a link means the machine of whoever is reading it. */
 export function forwardUrl(hostname: string, localPort: number): string {

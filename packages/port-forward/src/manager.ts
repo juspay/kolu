@@ -21,7 +21,7 @@
  */
 
 import type { ForwardMechanisms, OpenedForward } from "./mechanism.ts";
-import { plainDiagnostic } from "./diagnostic.ts";
+import { messageOf, plainDiagnostic } from "./diagnostic.ts";
 import { assertTarget, type ForwardTarget, targetKey } from "./target.ts";
 
 /** A live forward, as callers see it. */
@@ -150,6 +150,25 @@ export function makeForwardManager(opts: {
   onLost: (loss: ForwardLoss) => void;
 }): ForwardManager {
   const slots = new Map<string, Slot>();
+
+  /** Tell the consumer, from the ONE place every loss and fault passes through.
+   *
+   *  A consumer that throws must not be able to take the map's bookkeeping with
+   *  it: both callers are mid-transition (a slot has just been deleted, or a
+   *  flight is about to be fulfilled), and an exception escaping from here would
+   *  abandon that work half-done — a forward deleted from the map with its ssh
+   *  child never reaped. So the throw is contained, and then re-raised on its own
+   *  turn: it is the consumer's defect, it must still be LOUD (the host's own
+   *  handler decides what to do with it), and by then this map is consistent. */
+  function announce(loss: ForwardLoss): void {
+    try {
+      opts.onLost(loss);
+    } catch (err) {
+      queueMicrotask(() => {
+        throw err;
+      });
+    }
+  }
   /** Set by `dispose`. A forward that was still opening when the map was
    *  disposed must not quietly become a live listener nobody is tracking —
    *  the whole point of dispose is that nothing survives it. */
@@ -208,7 +227,7 @@ export function makeForwardManager(opts: {
     // A fault KEEPS the slot: the listener may still be reachable and must
     // stay visible and retryable. Only a loss removes it.
     if (kind === "gone") slots.delete(key);
-    opts.onLost({ forward: slot.forward, reason, kind });
+    announce({ forward: slot.forward, reason, kind });
   }
 
   /** Take ONE slot down, whoever asked. The single place a forward moves
@@ -337,6 +356,17 @@ export function makeForwardManager(opts: {
           lose(key, plainDiagnostic(reason), token, "degraded"),
       });
 
+      /** The public record of what just came up. Built on demand rather than
+       *  once, because the three ways out of this function below want it at
+       *  three different moments and `createdAt` should say when the forward
+       *  entered the map, not when its opening began. */
+      const record = (): Forward => ({
+        key,
+        target,
+        localPort: opened.localPort,
+        createdAt: Date.now(),
+      });
+
       // The mechanism may have called this listener DEAD before its own
       // `open()` resolved. Consult that first — before the disposed branch —
       // and clear the record on every path out, so a failed post-dispose close
@@ -387,12 +417,7 @@ export function makeForwardManager(opts: {
         // Still out there. It must be OWNED either way, but a dispose must
         // also LEARN that its teardown did not happen — a fulfilled flight
         // would let it report success over a listener it never closed.
-        const forward: Forward = {
-          key,
-          target,
-          localPort: opened.localPort,
-          createdAt: Date.now(),
-        };
+        const forward = record();
         slots.set(key, { state: "open", forward, opened, token });
         if (disposed) {
           throw new SurvivedTeardownError(
@@ -400,19 +425,14 @@ export function makeForwardManager(opts: {
             early.reason,
           );
         }
-        opts.onLost({ forward, reason: early.reason, kind: "degraded" });
+        announce({ forward, reason: early.reason, kind: "degraded" });
         return forward;
       }
       if (disposed) {
         // The map was torn down while this one was still opening. It exists
         // now, so it has to be closed now — otherwise `dispose` would have
         // returned while a listener it never saw was still coming up.
-        const forward: Forward = {
-          key,
-          target,
-          localPort: opened.localPort,
-          createdAt: Date.now(),
-        };
+        const forward = record();
         try {
           await opened.close();
         } catch (err) {
@@ -422,20 +442,15 @@ export function makeForwardManager(opts: {
           // dispose counts.
           slots.set(key, { state: "open", forward, opened, token });
           throw new SurvivedTeardownError(
-            `port-forward: the forward to ${key} could not be torn down — ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+            `port-forward: the forward to ${key} could not be torn down — ${messageOf(
+              err,
+            )}`,
             err,
           );
         }
         throw new DisposedMidOpenError();
       }
-      const forward: Forward = {
-        key,
-        target,
-        localPort: opened.localPort,
-        createdAt: Date.now(),
-      };
+      const forward = record();
       slots.set(key, { state: "open", forward, opened, token });
       return forward;
     })();
@@ -541,8 +556,17 @@ export function makeForwardManager(opts: {
       // Then the slots this pass owns, each through the ONE transition — so a
       // slot a concurrent `cancel` is closing is JOINED (and its real failure
       // observed) rather than closed twice.
-      for (const key of mine) {
-        const failure = await closeSlot(key);
+      //
+      // All at once, because each teardown's cost is mostly WAITING: a mechanism
+      // that ignores the polite signal is given a grace period before the hard
+      // one, so closing in sequence would add those waits up — twenty stuck ssh
+      // children would hold quit for forty seconds instead of two. `closeSlot`
+      // reports failures rather than throwing, so no attempt can cut the others
+      // short, and `Promise.all` keeps the results in `mine`'s order, which
+      // keeps the AggregateError deterministic.
+      for (const failure of await Promise.all(
+        mine.map((key) => closeSlot(key)),
+      )) {
         if (failure !== undefined) failures.push(failure);
       }
       if (failures.length > 0) {

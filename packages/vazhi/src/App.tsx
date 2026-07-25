@@ -22,14 +22,16 @@ import {
 } from "@kolu/port-forward";
 import { Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { forwardUrl, messageOf, readPromptInput } from "./format.ts";
+import {
+  forwardUrl,
+  messageOf,
+  nextUptimeChange,
+  readPromptInput,
+} from "./format.ts";
 import { type Mode, Screen, type Status } from "./Screen.tsx";
 
 /** The ways something outside asks this process to stop. */
 const STOP_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
-
-/** How often the uptime column moves and the list is re-read. */
-const TICK_MS = 1000;
 
 export function App({
   hostname,
@@ -50,6 +52,13 @@ export function App({
    *  moves under the highlight (a forward dies, another is cancelled), and a
    *  stored index would quietly come to mean a different row. */
   const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined);
+  /** The selected ROW — the list's own answer to whether that key still names
+   *  anything. A forward can leave the table without anyone pressing a key (it
+   *  was lost, or a cancel took it), and a key kept as truth on its own would
+   *  then have `x` report "no forwards to cancel" while other forwards sat there
+   *  live. Deriving it means every removal path is covered by construction
+   *  rather than each one remembering to clear the selection. */
+  const selected = rows.find((row) => row.key === selectedKey);
   const [mode, setMode] = useState<Mode>({ kind: "table" });
   const [status, setStatus] = useState<Status | undefined>(undefined);
   const [now, setNow] = useState(() => Date.now());
@@ -95,13 +104,28 @@ export function App({
   });
   const forwards = managerRef.current;
 
+  /** Redraw exactly when a row's uptime text changes, and never otherwise.
+   *
+   *  A 1s interval spent ~6-9ms of CPU per second building a frame Ink then
+   *  discarded as unchanged: past a minute old, 59 of every 60 ticks rendered
+   *  identical text. So the wait is the SOONEST moment any visible uptime moves,
+   *  and with no rows there is no clock on screen and no timer at all. Nothing
+   *  else needs the tick — every mutation calls `sync` itself. */
   useEffect(() => {
-    const timer = setInterval(() => {
+    if (rows.length === 0) return;
+    // Measured from `now` — the frame on screen — because that is what this
+    // wait is relative to: the next redraw is due when the oldest thing the
+    // LAST one drew stops being true. Each tick re-anchors `now` to the real
+    // clock, so a late timer shortens the following wait instead of drifting.
+    const delay = Math.min(
+      ...rows.map((row) => nextUptimeChange(now - row.createdAt)),
+    );
+    const timer = setTimeout(() => {
       setNow(Date.now());
       sync();
-    }, TICK_MS);
-    return () => clearInterval(timer);
-  }, [sync]);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [rows, now, sync]);
 
   /** Every forward this process opened goes down with it. A teardown that
    *  refuses is carried out through Ink's exit so the process ends non-zero —
@@ -146,11 +170,18 @@ export function App({
   };
 
   const cancelSelected = async (): Promise<void> => {
-    // The row under the `›`, taken from the list the user is looking at — not
-    // from a fresh read that may already have moved.
-    const forward = rows.find((row) => row.key === selectedKey);
+    const forward = selected;
     if (forward === undefined) {
-      setStatus({ kind: "info", text: "no forwards to cancel." });
+      // Two different situations, and saying the wrong one sends the user
+      // looking for a problem that isn't there: an empty table has nothing to
+      // cancel, while a full one just has nothing picked yet.
+      setStatus({
+        kind: "info",
+        text:
+          rows.length === 0
+            ? "no forwards to cancel."
+            : "nothing selected — j/k to pick a row.",
+      });
       return;
     }
     setStatus({
@@ -159,6 +190,9 @@ export function App({
     });
     try {
       await forwards.cancel(forward.key);
+      // Move the highlight off the row that just left, so the next `x` acts on
+      // the row the user can see it on rather than on nothing.
+      setSelectedKey(step(1));
       setStatus({
         kind: "info",
         text: `cancelled ${formatTarget(forward.target)}.`,
@@ -239,7 +273,7 @@ export function App({
       hostname={hostname}
       mode={mode}
       now={now}
-      selectedKey={selectedKey}
+      selectedKey={selected?.key}
       size={size}
       status={status}
       onInputChange={(input) => {

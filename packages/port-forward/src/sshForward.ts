@@ -215,14 +215,28 @@ export function openSshAttempt(opts: {
   let sawReady = false;
   child.stdout.on("data", (chunk: Buffer) => {
     const seen = stdout + chunk.toString();
-    if (seen.includes(READY_TOKEN)) sawReady = true;
+    // Only until it is latched: the answer cannot change back, so scanning past
+    // that point is work whose result is already known.
+    if (!sawReady && seen.includes(READY_TOKEN)) sawReady = true;
     stdout = seen.slice(-DIAGNOSTIC_TAIL_BYTES);
   });
+  /** What a newly-seen bind failure MEANS — filled in by the attempt below,
+   *  because the answer depends on how far it has got. stdout and stderr are
+   *  separate pipes and the order their chunks reach this process is the
+   *  kernel's to choose, so a bind failure can perfectly well arrive after the
+   *  ready token it contradicts; without this, that one was latched into a
+   *  boolean nothing ever read again. */
+  let onBindFailure: () => void = () => {};
   child.stderr.on("data", (chunk: Buffer) => {
     // Scan the JOIN of the retained tail and the new chunk, so a line split
     // across two chunks is still seen, then truncate for diagnostics only.
     const seen = stderr + chunk.toString();
-    if (reportsBindFailure(seen)) sawBindFailure = true;
+    if (!sawBindFailure && reportsBindFailure(seen)) {
+      sawBindFailure = true;
+      stderr = seen.slice(-DIAGNOSTIC_TAIL_BYTES);
+      onBindFailure();
+      return;
+    }
     stderr = seen.slice(-DIAGNOSTIC_TAIL_BYTES);
   });
 
@@ -299,6 +313,20 @@ export function openSshAttempt(opts: {
       if (phase === "up")
         report.lost(`the ssh connection to ${host} ended${detail()}`);
     });
+
+    // Before readiness the stdout handler below decides what a bind failure
+    // means (take another port). Once we have called the forward UP, the same
+    // line says ssh bound only part of the port — half a listener, which is
+    // exactly the "still there but not healthy" case the fault channel carries.
+    // Reported, never latched and dropped: it arrives late only because the two
+    // pipes race, and the row would otherwise claim to be fine.
+    onBindFailure = () => {
+      if (phase === "up") {
+        report.fault(
+          `ssh bound only part of local port ${localPort}${detail()}`,
+        );
+      }
+    };
 
     child.stdout.on("data", () => {
       if (phase !== "opening" || !sawReady) return;
