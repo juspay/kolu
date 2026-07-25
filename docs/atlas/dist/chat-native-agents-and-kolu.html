@@ -1,12 +1,22 @@
-<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chat threads as terminals, over ACP · the kolu Atlas</title><meta name="description" content="One XS thread ↔ one kolu terminal running an ACP proxy: pesu speaks the Agent Client Protocol to a headless agent in a tile — structured turns, live tool labels, permissions you answer from the thread."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Chat threads as terminals, over ACP · the kolu Atlas"><meta property="og:description" content="One XS thread ↔ one kolu terminal running an ACP proxy: pesu speaks the Agent Client Protocol to a headless agent in a tile — structured turns, live tool labels, permissions you answer from the thread."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-24T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Chat threads as terminals, over ACP · the kolu Atlas"><meta name="twitter:description" content="One XS thread ↔ one kolu terminal running an ACP proxy: pesu speaks the Agent Client Protocol to a headless agent in a tile — structured turns, live tool labels, permissions you answer from the thread."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Chat threads as terminals, over ACP</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-24T00:00:00.000Z">JUL 24, 2026</time></div><p class="note-sub">One XS thread ↔ one kolu terminal running an ACP proxy: pesu speaks the Agent Client Protocol to a headless agent in a tile — structured turns, live tool labels, permissions you answer from the thread.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-wire" data-astro-cid-rda6bqd5>The wire</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#decisions" data-astro-cid-rda6bqd5>Decisions</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#roadmap--hx" data-astro-cid-rda6bqd5>Roadmap — HX</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#hx0--an-acp-agent-in-a-tile" data-astro-cid-rda6bqd5>HX0 — an ACP agent in a tile</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#hx1--the-xs-round-trip" data-astro-cid-rda6bqd5>HX1 — the XS round trip</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#hx2--approve-from-the-thread" data-astro-cid-rda6bqd5>HX2 — approve from the thread</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#hx3--turn-polish" data-astro-cid-rda6bqd5>HX3 — turn polish</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#background" data-astro-cid-rda6bqd5>Background</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-xs-apps-platform-as-grounded" data-astro-cid-rda6bqd5>The XS apps platform, as grounded</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#out-of-scope" data-astro-cid-rda6bqd5>Out of scope</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#done-criterion-full-tree" data-astro-cid-rda6bqd5>Done criterion (full tree)</a></li></ul></nav></header><div class="prose"><p><strong>One conversation ↔ one kolu terminal</strong> — but the terminal runs an <strong>ACP
-proxy</strong>, not an interactive TUI. DM the bot in Xyne Spaces; pesu creates a tile
-whose process speaks the <a href="https://agentclientprotocol.com">Agent Client Protocol</a>
-to a headless agent behind it. Your message is a <code>session/prompt</code>; replies and
-tool calls stream back as <code>session/update</code> frames; permission requests arrive
-as <em>data</em> you can answer from the thread. The tile stays an ordinary kolu
-terminal: the proxy renders the frame stream in its PTY, so clicking through
-from XS gives full depth.</p>
-<figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 340" font-family="ui-sans-serif,system-ui,sans-serif">
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agentic chat in Xyne Spaces: pesu standalone, kolu for the takeover · the kolu Atlas</title><meta name="description" content="pesu is a Buzz-shaped daemon — XS webhook in, an embedded ACP client driving a headless agent it spawns as its own child, replies back in the thread. kolu is not its skeleton but its complement: the takeover surface, where a terminal in the thread's worktree plus claude --resume opens the bot's own conversation."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Agentic chat in Xyne Spaces: pesu standalone, kolu for the takeover · the kolu Atlas"><meta property="og:description" content="pesu is a Buzz-shaped daemon — XS webhook in, an embedded ACP client driving a headless agent it spawns as its own child, replies back in the thread. kolu is not its skeleton but its complement: the takeover surface, where a terminal in the thread's worktree plus claude --resume opens the bot's own conversation."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-25T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Agentic chat in Xyne Spaces: pesu standalone, kolu for the takeover · the kolu Atlas"><meta name="twitter:description" content="pesu is a Buzz-shaped daemon — XS webhook in, an embedded ACP client driving a headless agent it spawns as its own child, replies back in the thread. kolu is not its skeleton but its complement: the takeover surface, where a terminal in the thread's worktree plus claude --resume opens the bot's own conversation."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Agentic chat in Xyne Spaces: pesu standalone, kolu for the takeover</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-25T00:00:00.000Z">JUL 25, 2026</time></div><p class="note-sub">pesu is a Buzz-shaped daemon — XS webhook in, an embedded ACP client driving a headless agent it spawns as its own child, replies back in the thread. kolu is not its skeleton but its complement: the takeover surface, where a terminal in the thread&#39;s worktree plus claude --resume opens the bot&#39;s own conversation.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-shape--one-daemon-buzz-grounded" data-astro-cid-rda6bqd5>The shape — one daemon, Buzz-grounded</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-takeover--what-kolu-distinctly-adds" data-astro-cid-rda6bqd5>The takeover — what kolu distinctly adds</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#decisions" data-astro-cid-rda6bqd5>Decisions</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#roadmap--ps" data-astro-cid-rda6bqd5>Roadmap — PS</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#ps0--koluacp-becomes-an-embedded-client-library" data-astro-cid-rda6bqd5>PS0 — @kolu/acp becomes an embedded client library</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#ps1--the-xs-round-trip--the-takeover-ack" data-astro-cid-rda6bqd5>PS1 — the XS round trip + the takeover ack</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#ps2--approve-from-the-thread" data-astro-cid-rda6bqd5>PS2 — approve from the thread</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#ps3--turn-polish" data-astro-cid-rda6bqd5>PS3 — turn polish</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#background" data-astro-cid-rda6bqd5>Background</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-xs-apps-platform-as-grounded" data-astro-cid-rda6bqd5>The XS apps platform, as grounded</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#out-of-scope" data-astro-cid-rda6bqd5>Out of scope</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#done-criterion-full-tree" data-astro-cid-rda6bqd5>Done criterion (full tree)</a></li></ul></nav></header><div class="prose"><p><strong>pesu stands alone; kolu stands beside it.</strong> DM the bot in Xyne Spaces and a
+single daemon does the whole loop: verified webhook in, an ACP
+<code>session/prompt</code> to a headless agent it spawns as its own child over stdio,
+the reply posted back to the thread. No proxy process, no socket, no tile in
+the runtime path — the shape <a href="https://github.com/block/buzz">buzz</a> runs in
+production.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Grounded 2026-07-25 by reading the buzz source, not its
+docs: <code>buzz-acp</code> is simultaneously chat consumer, ACP client, process
+supervisor, and session pool; it owns each adapter’s stdin/stdout directly
+(<code>crates/buzz-acp/src/acp.rs</code>) and re-serves ACP on nothing — its observer
+module advertises publishing telemetry “without exposing a local HTTP port”
+(<code>crates/buzz-acp/src/observer.rs</code>).</span></span></span></p>
+<p>What kolu contributes is deliberately <em>outside</em> that loop: <strong>the takeover.</strong>
+The agent’s work is real files in a real git worktree, and its conversation
+is an ordinary session in the CLI’s own store — so when chat stops being
+enough, you open a kolu terminal in that worktree, run
+<code>claude --resume &lt;session-id&gt;</code>, and you are inside the bot’s own
+conversation: interactive, full history, all its file state around you. pesu
+does not depend on kolu; kolu completes it.</p>
+<figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 730" font-family="ui-sans-serif,system-ui,sans-serif">
   <defs>
     <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#3a6ea5"/>
@@ -17,63 +27,84 @@ from XS gives full depth.</p>
     <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#6d4fa3"/>
     </marker>
+    <marker id="arrN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8a8272"/>
+    </marker>
   </defs>
 
   <!-- ══════════ Xyne Spaces ══════════ -->
-  <rect x="20" y="90" width="170" height="120" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
-  <text x="38" y="114" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">XYNE SPACES</text>
-  <text x="38" y="136" font-size="12" fill="#1a1c20">your chat threads</text>
-  <text x="38" y="156" font-size="12" fill="#1a1c20">app API · flow cards</text>
-  <text x="38" y="176" font-size="12" fill="#8a8272">identity · delivery</text>
+  <rect x="40" y="20" width="280" height="104" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="58" y="46" font-size="13" font-weight="700" fill="#5b6470" letter-spacing=".07em">XYNE SPACES</text>
+  <text x="58" y="70" font-size="13" fill="#1a1c20">your chat threads</text>
+  <text x="58" y="90" font-size="13" fill="#1a1c20">app API · flow cards</text>
+  <text x="58" y="110" font-size="13" fill="#8a8272">identity · delivery</text>
+
+  <!-- XS ⇄ pesu (blue: XS app API) -->
+  <line x1="120" y1="124" x2="120" y2="188" stroke="#3a6ea5" stroke-width="2" marker-end="url(#arrB)"/>
+  <text x="24" y="160" font-size="12" fill="#3a6ea5">webhook · HMAC</text>
+  <line x1="240" y1="188" x2="240" y2="124" stroke="#3a6ea5" stroke-width="2" marker-end="url(#arrB)"/>
+  <text x="252" y="160" font-size="12" fill="#3a6ea5">replies · progress · cards</text>
 
   <!-- ══════════ pesu ══════════ -->
-  <rect x="260" y="90" width="170" height="120" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
-  <text x="278" y="114" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">PESU — DAEMON</text>
-  <text x="278" y="136" font-size="12" fill="#1a1c20">webhook + binds</text>
-  <text x="278" y="156" font-size="12" fill="#1a1c20">ACP client (official lib)</text>
-  <text x="278" y="176" font-size="12" font-family="ui-monospace,monospace" fill="#8a8272">thread ↔ terminal</text>
+  <rect x="40" y="188" width="280" height="168" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="58" y="214" font-size="13" font-weight="700" fill="#5b6470" letter-spacing=".07em">PESU — STANDALONE DAEMON</text>
+  <text x="58" y="238" font-size="13" fill="#1a1c20">webhook + author gate + binds</text>
+  <text x="58" y="258" font-size="13" fill="#6d4fa3">@kolu/acp — embedded client</text>
+  <text x="58" y="278" font-size="13" fill="#1a1c20">supervision: spawn · respawn ·</text>
+  <text x="58" y="298" font-size="13" fill="#1a1c20">cancel-with-grace</text>
+  <text x="58" y="318" font-size="13" fill="#8a8272">repo allowlist → worktrees</text>
+  <text x="58" y="338" font-size="13" fill="#8a8272">frames → session log file</text>
 
-  <!-- ══════════ kolu terminal boundary ══════════ -->
-  <rect x="500" y="50" width="480" height="220" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
-  <text x="518" y="76" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">KOLU TERMINAL — KAVAL PTY TILE</text>
+  <!-- pesu → adapter (purple: ACP) -->
+  <line x1="180" y1="356" x2="180" y2="420" stroke="#6d4fa3" stroke-width="2" marker-end="url(#arrP)"/>
+  <text x="192" y="382" font-size="12" fill="#6d4fa3">ACP · NDJSON over stdio</text>
+  <text x="192" y="400" font-size="12" fill="#8a8272">no socket anywhere</text>
 
-  <rect x="520" y="100" width="190" height="110" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
-  <text x="536" y="124" font-size="12" font-weight="700" fill="#6d4fa3">@kolu/acp · acp-proxy</text>
-  <text x="536" y="146" font-size="12" fill="#1a1c20">serves ACP on a socket</text>
-  <text x="536" y="166" font-size="12" fill="#1a1c20">spawn · respawn · cancel</text>
-  <text x="536" y="186" font-size="12" fill="#8a8272">renders frames in the PTY</text>
+  <!-- ══════════ adapter ══════════ -->
+  <rect x="40" y="420" width="280" height="104" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="58" y="446" font-size="13" font-weight="700" fill="#5b6470" letter-spacing=".07em">ACP ADAPTER — CHILD OF PESU</text>
+  <text x="58" y="470" font-size="13" fill="#1a1c20">claude-agent-acp · codex-acp</text>
+  <text x="58" y="490" font-size="13" fill="#1a1c20">any stdio ACP agent</text>
+  <text x="58" y="510" font-size="13" fill="#8a8272">the headless session</text>
 
-  <rect x="760" y="100" width="200" height="110" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
-  <text x="776" y="124" font-size="12" font-weight="700" fill="#1a1c20">ACP adapter</text>
-  <text x="776" y="146" font-size="12" fill="#1a1c20">claude-agent-acp ·</text>
-  <text x="776" y="166" font-size="12" fill="#1a1c20">codex-acp — any stdio</text>
-  <text x="776" y="186" font-size="12" font-family="ui-monospace,monospace" fill="#8a8272">headless — no TUI</text>
+  <!-- ══════════ kolu — the takeover ══════════ -->
+  <rect x="370" y="252" width="240" height="188" rx="12" fill="#f4faf4" stroke="#bcd9bc"/>
+  <text x="388" y="278" font-size="13" font-weight="700" fill="#1b7a3a" letter-spacing=".07em">KOLU — THE TAKEOVER</text>
+  <text x="388" y="302" font-size="13" fill="#1a1c20">not in the runtime path</text>
+  <text x="388" y="322" font-size="13" fill="#1a1c20">open a terminal in the</text>
+  <text x="388" y="342" font-size="13" fill="#1a1c20">thread's worktree, then</text>
+  <text x="388" y="368" font-size="12.5" font-family="ui-monospace,monospace" fill="#1b7a3a">claude --resume &lt;id&gt;</text>
+  <text x="388" y="394" font-size="13" fill="#8a8272">same files, same</text>
+  <text x="388" y="414" font-size="13" fill="#8a8272">conversation, interactive</text>
 
-  <text x="520" y="250" font-size="12" fill="#8a8272">the tile is the depth view — messages, tool calls, permission decisions scroll by</text>
+  <!-- adapter → workspace / store -->
+  <line x1="120" y1="524" x2="120" y2="600" stroke="#8a8272" stroke-width="1.6" marker-end="url(#arrN)"/>
+  <text x="24" y="560" font-size="12" fill="#8a8272">tools act on</text>
+  <text x="24" y="576" font-size="12" fill="#8a8272">the files</text>
+  <line x1="280" y1="524" x2="420" y2="600" stroke="#8a8272" stroke-width="1.6" marker-end="url(#arrN)"/>
+  <text x="290" y="566" font-size="12" fill="#8a8272">writes the transcript</text>
 
-  <!-- ══════════ arrows ══════════ -->
-  <!-- XS → pesu webhook -->
-  <line x1="190" y1="120" x2="260" y2="120" stroke="#3a6ea5" stroke-width="2" marker-end="url(#arrB)"/>
-  <text x="196" y="110" font-size="11" fill="#3a6ea5">webhook · HMAC</text>
-  <!-- pesu → XS replies -->
-  <line x1="260" y1="180" x2="190" y2="180" stroke="#3a6ea5" stroke-width="2" marker-end="url(#arrB)"/>
-  <text x="120" y="230" font-size="11" fill="#3a6ea5">postMessage · updateMessage</text>
-  <text x="120" y="246" font-size="11" fill="#3a6ea5">agentProgress · flow cards</text>
+  <!-- ══════════ workspace ══════════ -->
+  <rect x="40" y="600" width="280" height="104" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="58" y="626" font-size="13" font-weight="700" fill="#5b6470" letter-spacing=".07em">WORKSPACE</text>
+  <text x="58" y="650" font-size="13" fill="#1a1c20">git worktree per thread</text>
+  <text x="58" y="670" font-size="13" fill="#8a8272">code — or knowledge notes</text>
 
-  <!-- pesu → proxy ACP socket -->
-  <line x1="430" y1="150" x2="520" y2="150" stroke="#6d4fa3" stroke-width="2" marker-start="url(#arrP)" marker-end="url(#arrP)"/>
-  <text x="436" y="140" font-size="11" font-weight="700" fill="#6d4fa3">ACP · unix socket</text>
+  <!-- ══════════ session store ══════════ -->
+  <rect x="350" y="600" width="260" height="104" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="368" y="626" font-size="13" font-weight="700" fill="#5b6470" letter-spacing=".07em">SESSION STORE</text>
+  <text x="368" y="650" font-size="12" font-family="ui-monospace,monospace" fill="#1a1c20">~/.claude/projects/*.jsonl</text>
+  <text x="368" y="672" font-size="13" fill="#8a8272">the store the claude CLI reads</text>
 
-  <!-- proxy → adapter ACP stdio -->
-  <line x1="710" y1="150" x2="760" y2="150" stroke="#6d4fa3" stroke-width="2" marker-start="url(#arrP)" marker-end="url(#arrP)"/>
-  <text x="702" y="140" font-size="11" font-weight="700" fill="#6d4fa3">ACP · stdio</text>
-
-  <!-- pesu → padi lifecycle.create -->
-  <path d="M 345 90 C 345 20, 740 10, 740 50" fill="none" stroke="#1b7a3a" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrG)"/>
-  <text x="470" y="26" font-size="11" fill="#1b7a3a">padi lifecycle.create — the tile is an ordinary terminal</text>
+  <!-- kolu → workspace / store (green dashed: the takeover) -->
+  <line x1="420" y1="440" x2="300" y2="600" stroke="#1b7a3a" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#arrG)"/>
+  <text x="306" y="586" font-size="12" fill="#1b7a3a">same worktree</text>
+  <line x1="520" y1="440" x2="490" y2="600" stroke="#1b7a3a" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#arrG)"/>
+  <text x="512" y="530" font-size="12" fill="#1b7a3a">resume the</text>
+  <text x="512" y="546" font-size="12" fill="#1b7a3a">session</text>
 </svg>
-<figcaption data-astro-cid-6cvztg6h>The wire. Blue: XS app API (HMAC webhook in; postMessage/agentProgress/flow cards out). Purple: ACP on both sides of the proxy — the same NDJSON JSON-RPC over a unix socket, then over stdio. Green dashed: pesu creates the tile like any terminal.</figcaption></figure>
-<h2 id="the-wire">The wire</h2>
+<figcaption data-astro-cid-6cvztg6h>The wire. Blue: XS app API (HMAC webhook in; postMessage/agentProgress/flow cards out). Purple: ACP as NDJSON over the child&#39;s stdio — the only protocol, no socket. Grey: the adapter acts on the worktree and writes an ordinary CLI transcript. Green dashed: the takeover — kolu is not in the runtime path; a terminal in the same worktree plus claude --resume reaches the same files and the same conversation.</figcaption></figure>
+<h2 id="the-shape--one-daemon-buzz-grounded">The shape — one daemon, Buzz-grounded</h2>
 <table>
 <thead>
 <tr>
@@ -90,58 +121,119 @@ from XS gives full depth.</p>
 </tr>
 <tr>
 <td><strong>pesu</strong></td>
-<td>daemon beside kolu (<code>packages/pesu</code>)</td>
-<td>Webhook + author gate + binds; ACP client</td>
+<td>standalone daemon (<code>packages/pesu</code>)</td>
+<td>Webhook + author gate + binds; embedded ACP client; adapter supervision; per-thread worktrees</td>
 </tr>
 <tr>
-<td><strong><code>acp-proxy</code></strong></td>
-<td>child of kaval, in a PTY tile (<code>@kolu/acp</code>)</td>
-<td>Spawns the adapter; serves ACP on a unix socket; renders frames in the PTY</td>
+<td><strong><code>@kolu/acp</code></strong></td>
+<td>library (<code>packages/acp</code>)</td>
+<td>Spawn + supervise a stdio ACP adapter, typed client face — no bins, no socket</td>
 </tr>
 <tr>
 <td><strong>ACP adapter</strong></td>
-<td>child of the proxy</td>
+<td>child of pesu</td>
 <td>The headless agent behind standard ACP — <code>claude-agent-acp</code>, <code>codex-acp</code>; any stdio ACP agent works</td>
 </tr>
 <tr>
-<td><strong>padi / kaval</strong></td>
-<td>per-host daemons</td>
-<td><code>lifecycle.create</code> / PTYs — unchanged; the tile is an ordinary terminal</td>
+<td><strong>kolu</strong></td>
+<td>separate product, same box</td>
+<td>The takeover surface — not in the runtime path at all</td>
 </tr>
 </tbody>
 </table>
-<p>ACP is the boundary <strong>on both sides</strong> of the proxy — pesu speaks it over the
-socket, the adapter speaks it over stdio — so there is no invented protocol
-anywhere on the wire.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>ACP is NDJSON JSON-RPC 2.0; the spec’s usual
-transport is the agent’s stdio, and the proxy re-serves the identical byte
-protocol on a unix socket. The proxy adds only what a harness must own:
-spawn/respawn, cancel-with-grace, idle timeouts, logging.</span></span></span> The proxy
-is the volatility receptacle — process lifecycle, transport, per-vendor quirks
-live there and nowhere else — which is what makes it a <code>@kolu/*</code> package rather
-than pesu internals. Note the coupling runs one way only: <code>acp-proxy</code> imports
-nothing from kaval, padi, or <code>@kolu/surface</code> — both of its faces are standard
-ACP — and kolu never learns about it either. Running it in a tile is a
-deployment choice (that’s what puts the session on the canvas); the same
-binary runs identically under tmux or systemd, and the package (<code>packages/acp</code>
-in this repo) could move out to its own repo later as a file move, not
-surgery.</p>
-<p>Driving the agent through ACP instead of typing into its TUI deletes the whole
-observation problem for the bot path: no bracketed-paste races, no
-screen-settle detection, no turn-end heuristics, no transcript-file watching —
-<code>session/prompt</code> returns when the turn ends, and everything in between is a
-typed frame.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Buzz (github.com/block/buzz) runs this exact stack in
-production — its harness spawns <code>claude-agent-acp</code> and consumes the same
-frames. Its scar tissue is our checklist: some agents keep streaming after
-<code>session/cancel</code>, so cancel gets a grace window then a respawn; idle timeouts
-must reset on <em>any</em> stdout byte because agents go silent during tool
-execution; an in-flight permission request must be answered <code>cancelled</code> before
-cancelling the turn or the agent deadlocks. Buzz’s client itself is hand-rolled
-and welded to its Nostr relay — a reference to read, not a dependency to
-take.</span></span></span></p>
-<p>What the PTY path could never offer, this one gets for free: tool-call frames
-become live <code>agentProgress</code> labels in the thread, and permission requests
-become flow-JSON cards with buttons — approve a gated tool right from the
-thread, without opening kolu at all.</p>
+<p>ACP is still the only protocol on the wire — NDJSON JSON-RPC over the child’s
+stdio, exactly as the spec ships it — and driving the agent through it
+deletes the whole observation problem the PTY path had: no bracketed-paste
+races, no screen-settle detection, no turn-end heuristics. <code>session/prompt</code>
+returns when the turn ends, and everything in between is a typed
+frame.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Buzz’s production scar tissue stays our checklist: some
+agents keep streaming after <code>session/cancel</code>, so cancel gets a grace window
+then a respawn; an in-flight permission request must be answered <code>cancelled</code>
+before cancelling the turn or the agent deadlocks; the adapter is spawned as
+a process-group leader and killed as a group so its tool children are reaped.
+Buzz’s numbers for the same choices: five-second cancel grace, respawn
+backoff 1s→30s with jitter, a 3-crashes-in-60s circuit breaker
+(<code>crates/buzz-acp/src/lib.rs</code>, <code>pool.rs</code>).</span></span></span></p>
+<p>Session visibility is a log, and is priced like one: pesu appends every ACP
+frame to a per-session log file beside its bind state. The thread is the
+product view; the log file is the gore view for debugging. There is no
+viewer process, because a viewer is not worth a process.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An earlier
+revision of this note ran the adapter behind an <code>acp-proxy</code> in a kolu tile —
+“chat threads as terminals” — with the tile as the observability story. It
+shipped as <a href="https://github.com/juspay/kolu/pull/1985" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1985</a>, then was closed unmerged: with a headless
+adapter the tile can never be more than a read-only rendering of the same
+<code>session/update</code> stream pesu already consumes — a log viewer — and a log
+file is the same thing at a fraction of the machinery. (Buzz reached the
+same verdict from the other direction: rather than any local viewer it
+encrypts frames onto its own relay and renders them in its chat app — the
+chat surface is the viewer, which for us is the XS thread itself.) The
+supervision core and the real-process test harness built in #1985 carry
+forward as PS0’s seed; the socket shape may yet return as the remote-host
+arm, a decision explicitly out of scope here.</span></span></span></p>
+<p>Where this deliberately differs from buzz, recorded so the choices are
+conscious: buzz pools adapter processes and multiplexes sessions across them
+with <em>preferred, not absolute</em> affinity — a busy pool can silently start a
+fresh session for a channel, forking its history
+(<code>crates/buzz-acp/src/pool.rs</code>) — and its replies are not the turn’s output
+at all: the model is instructed to post by running a <code>buzz messages send</code>
+CLI. pesu keeps one adapter process per thread and posts the turn’s own
+result; both simplifications fall out of not pooling.</p>
+<h2 id="the-takeover--what-kolu-distinctly-adds">The takeover — what kolu distinctly adds</h2>
+<p>The handoff medium is the filesystem plus the session store — no protocol,
+no export step, no transcript plumbing:</p>
+<ul>
+<li><strong>Every thread binds to a git worktree.</strong> The agent’s tools act on real
+files; its work is diffable, testable, committable the moment it lands.</li>
+<li><strong>The conversation is an ordinary CLI session.</strong> <code>claude-agent-acp</code> is
+built on the same engine as the <code>claude</code> CLI, writes a standard JSONL
+transcript into <code>~/.claude/projects/</code>, and implements ACP <code>session/load</code>
+by passing the ACP session id straight into the engine’s <code>resume</code> — the
+ACP session id <em>is</em> the CLI session id.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Facts from the shipped
+adapter and this dev box, 2026-07-25: <code>claude-agent-acp</code> depends on
+<code>@anthropic-ai/claude-agent-sdk</code> (it even resolves the bundled <code>claude</code>
+binary at startup), and its <code>session/load</code>/<code>resumeSession</code> pass
+<code>params.sessionId</code> as the SDK’s <code>resume</code> option (<code>dist/acp-agent.js</code>). The
+#1985 smoke sessions sit in <code>~/.claude/projects/…-packages-acp/*.jsonl</code> as
+ordinary Claude Code transcripts. <code>codex-acp</code> structurally matches: it
+advertises <code>loadSession: true</code> and maps the ACP session id onto Codex’s
+native <code>threadId</code> — the id <code>codex resume</code> takes — read from its shipped
+bundle but not yet exercised end-to-end, so PS1 proves it once before the
+ack claims it for codex threads.</span></span></span></li>
+<li><strong>So the takeover is two commands, not a feature:</strong> open a terminal in the
+worktree; <code>claude --resume &lt;session-id&gt;</code>. pesu’s ack posts both, verbatim.</li>
+</ul>
+<div class="hx-row" role="img" aria-label="Two panes. Left: the XS thread where pesu's ack names the worktree and the exact claude --resume command. Right: a kolu terminal in that worktree where the resume command has opened the bot's conversation interactively."><div class="hx-frame" style="flex:1;min-width:17rem;margin:0"><div class="hx-bar"># DM — kolu<span class="hx-badge">APP</span></div><div class="hx-msgs"><div class="hx-msg"><span class="hx-name hx-human">Srid</span><span class="hx-time">8:40 PM</span><br/>why is the e2e suite flaky?</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:40 PM</span><br/>On it — working in <span class="hx-code">~/w/xs-42</span><br/>takeover: <span class="hx-code">claude --resume 6037158d</span></div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:41 PM</span><br/>It&#39;s a port collision: two e2e workers bind 5173…</div></div></div><div class="hx-term"><div class="hx-tbar">kolu terminal<span class="hx-tsub">~/w/xs-42</span></div><div class="hx-tbody"><div class="hx-in">$ claude --resume 6037158d</div><div class="hx-dim">— resumed · 6 turns of history —</div><div class="hx-out">● It&#39;s a port collision: two e2e workers bind 5173…</div><div class="hx-in">&gt; show me the failing lease logic<span class="hx-cursor">▍</span></div></div></div></div>
+<style>
+  .hx-row{display:flex;gap:.8rem;flex-wrap:wrap;margin:1.25rem 0}
+  .hx-term{flex:1;min-width:17rem;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;background:#0e1014;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+  .hx-tbar{display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;background:#161a20;border-bottom:1px solid #2a2e37;font:600 .62rem/1 ui-sans-serif,system-ui;color:#c7ccd6}
+  .hx-tsub{margin-left:auto;font-weight:400;color:#5b626d}
+  .hx-tbody{padding:.55rem .7rem;font:.64rem/1.7 ui-monospace,Menlo,monospace}
+  .hx-in{color:#6ea8e0}.hx-out{color:#c7ccd6}.hx-dim{color:#5b626d}.hx-ok{color:#6cc070}
+  .hx-frame{max-width:30rem;margin:1.25rem 0;border:1px solid #e6e2d6;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.06);font-family:ui-sans-serif,system-ui,sans-serif}
+  .hx-bar{display:flex;align-items:center;gap:.5rem;padding:.55rem .8rem;background:#FBF1DC;border-bottom:1px solid #ecd9b0;font:700 .72rem/1 ui-sans-serif,system-ui,sans-serif;color:#92400E}
+  .hx-badge{margin-left:auto;font:700 .52rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.09em;color:#B45309;border:1px solid #e0c690;border-radius:5px;padding:.22rem .38rem}
+  .hx-msgs{padding:.6rem .8rem;display:flex;flex-direction:column;gap:.55rem}
+  .hx-msg{font:.72rem/1.5 ui-sans-serif,system-ui,sans-serif;color:#1a1c20}
+  .hx-name{font-weight:700;margin-right:.3rem}.hx-app{color:#0f6b8a}.hx-human{color:#5b3fa3}
+  .hx-time{font:.58rem/1 ui-sans-serif,system-ui,sans-serif;color:#9a9482;margin-left:.35rem}
+  .hx-code{font:.62rem/1.6 ui-monospace,Menlo,monospace;background:#f4efe2;border:1px solid #e6dcc2;border-radius:6px;padding:.1rem .35rem}
+  .hx-cursor{display:inline-block;width:.45em;background:#0f6b8a;color:#0f6b8a;animation:none}
+  .hx-pill{display:inline-flex;align-items:center;gap:.35rem;font:.6rem/1 ui-sans-serif,system-ui,sans-serif;color:#6b6455;background:#f4efe2;border:1px solid #e6dcc2;border-radius:999px;padding:.28rem .55rem;width:fit-content}
+  .hx-card{border:1px solid #e0c690;border-radius:9px;background:#FffBF0;padding:.55rem .7rem;max-width:24rem}
+  .hx-cardtitle{font:700 .66rem/1.4 ui-sans-serif,system-ui,sans-serif;color:#92400E}
+  .hx-cardbody{font:.66rem/1.5 ui-monospace,Menlo,monospace;color:#1a1c20;margin:.3rem 0 .5rem}
+  .hx-btn{display:inline-block;font:700 .62rem/1 ui-sans-serif,system-ui,sans-serif;border-radius:7px;padding:.4rem .7rem;margin-right:.4rem;border:1px solid #cbbf9d;color:#5b5443;background:#fff}
+  .hx-btn.hx-primary{background:#166534;border-color:#166534;color:#fff}
+  </style>
+<p><strong>Not only code.</strong> A thread can just as well bind to a knowledge repo:</p>
+<div class="hx-frame" role="img" aria-label="An XS channel thread: Srid asks pesu to work off the srid/my-notebook repo and explain a position to John; pesu replies grounded in the notes and commits a markdown note capturing the discussion."><div class="hx-bar"># platform-design<span class="hx-badge">APP</span></div><div class="hx-msgs"><div class="hx-msg"><span class="hx-name hx-human">Srid</span><span class="hx-time">2:11 PM</span><br/>@kolu work off srid/my-notebook — explain to @john why foo beats qux here, based on context X</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">2:11 PM</span><br/>Working in <span class="hx-code">~/w/xs-77</span> (srid/my-notebook)</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">2:12 PM</span><br/>@john — short version: foo keeps X&#39;s invariant where qux trades it away; the notes in <span class="hx-code">decisions/context-x.md</span> pin why that invariant is the constraint…</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">2:14 PM</span><br/>Captured the thread&#39;s conclusion → committed <span class="hx-code">notes/foo-vs-qux.md</span></div></div></div>
+<p>The agent participates in a discussion among humans, grounded in the repo’s
+notes, and captures the outcome as markdown commits. The takeover is
+identical — a terminal and a git repo — because the mechanics never cared
+what the files were. Repo selection is deliberately dumb: the first message
+may name an alias from pesu’s configured allowlist (exact token match, no
+parsing cleverness); no match means the configured default repo.</p>
 <h2 id="decisions">Decisions</h2>
 <table>
 <thead>
@@ -152,218 +244,155 @@ thread, without opening kolu at all.</p>
 </thead>
 <tbody>
 <tr>
-<td>Language + library</td>
-<td>TypeScript, official <code>@zed-industries/agent-client-protocol</code> (client <em>and</em> proxy-server side) — pesu and the workspace are TS</td>
+<td>Library</td>
+<td>TypeScript, <code>@agentclientprotocol/sdk</code> on its current <code>agent()</code>/<code>client()</code> model — the deprecated connection classes from the #1985 branch never reach master (supersedes #1989)</td>
 </tr>
 <tr>
 <td>Package boundary</td>
-<td><code>@kolu/acp</code> workspace package, bins <code>acp-proxy</code> + <code>acp-chat</code>; pesu is a consumer</td>
+<td><code>@kolu/acp</code> is a library only — spawn + supervise + typed client; pesu is its consumer; no bins, no socket</td>
 </tr>
 <tr>
-<td>Socket</td>
-<td><code>$XDG_RUNTIME_DIR/kolu/acp-&lt;terminalId&gt;.sock</code>, mode 0600, one session per proxy</td>
+<td>Adapter</td>
+<td>pesu config — <strong>any stdio ACP agent</strong>; day one <code>claude-agent-acp</code> and <code>codex-acp</code>, pinned as npm deps (no global installs)</td>
 </tr>
 <tr>
-<td>Agents</td>
-<td><strong>Any stdio ACP agent</strong> — the adapter command is the proxy’s argv (<code>acp-proxy -- claude-agent-acp</code>), nothing agent-specific in the code. Day one: <code>claude-agent-acp</code> and <code>codex-acp</code>, pinned as npm deps of <code>@kolu/acp</code> (no global installs); pesu’s default agent is env config, per-thread selection is later UX</td>
-</tr>
-<tr>
-<td>Permissions</td>
-<td>Until HX2 the proxy auto-answers with the <code>allow_once</code> option; HX2 turns that off for bound threads and forwards the request</td>
+<td>Workspace</td>
+<td>per-thread git worktree, cut from a repo on pesu’s env-configured allowlist (<code>alias → path</code>); first message may name an allowlisted alias verbatim; no match → default repo</td>
 </tr>
 <tr>
 <td>Bind state</td>
-<td><code>threadId → { terminalId, socketPath, acpSessionId, authorUserId }</code>, JSON file beside pesu</td>
+<td><code>threadId → { cwd, acpSessionId, authorUserId, agent }</code>, JSON file beside pesu</td>
+</tr>
+<tr>
+<td>Session visibility</td>
+<td>every ACP frame appended to a per-session log file beside the bind state; no viewer process</td>
+</tr>
+<tr>
+<td>Takeover ack</td>
+<td>the ack carries the worktree path, the session id, and the exact <code>claude --resume</code> line</td>
+</tr>
+<tr>
+<td>Permissions</td>
+<td>pesu answers <code>session/request_permission</code> itself — auto-<code>allow_once</code> until PS2 turns interactive forwarding on</td>
 </tr>
 <tr>
 <td>Reply shape</td>
-<td>Post once, then <code>updateMessage</code> ≤1/s as the growing reply; split at XS’s 40,000-char message cap<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The XS app API has no delta primitive: <code>updateMessage</code> is a full-body replace, and <code>agentProgress</code> is ephemeral — a Redis-backed working/done pill with a one-line <code>toolLabel</code>, never persisted. The ≤1/s cadence is manners, not a platform limit — XS configures no rate limit on the app API routes.</span></span></span></td>
+<td>Post once, then <code>updateMessage</code> ≤1/s as the growing reply; split at XS’s 40,000-char cap<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The XS app API has no delta primitive: <code>updateMessage</code> is a full-body replace, and <code>agentProgress</code> is ephemeral — a Redis-backed working/done pill with a one-line <code>toolLabel</code>, never persisted. The ≤1/s cadence is manners, not a platform limit.</span></span></span></td>
 </tr>
 </tbody>
 </table>
-<h2 id="roadmap--hx">Roadmap — HX</h2>
+<h2 id="roadmap--ps">Roadmap — PS</h2>
 
-<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">ROADMAP — ACP tiles, then the XS bridge</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">HX0 · an ACP agent in a tile</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#hx0" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">@kolu/acp — proxy + companion CLI</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">HX1 · the XS round trip</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#hx1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs HX0 · XS webhook → tile → reply</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">HX2 · approve from the thread</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#hx2" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs HX1 · permission → flow card</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">HX3 · turn polish</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#hx3" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs HX1 · growing reply · resume</a></span></div></div>
-<a id="hx0"></a>
-<h3 id="hx0--an-acp-agent-in-a-tile">HX0 — an ACP agent in a tile</h3>
-<div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">HX0</span><span style="color:#334155">· @kolu/acp: acp-proxy + acp-chat</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
-<p>The <code>@kolu/acp</code> package and its two bins. The adapter to spawn is the proxy’s
-argv, so agent-agnosticism is structural, not a feature to add.</p>
-<p><strong>Nothing about the tile is special.</strong> An “ACP tile” is an ordinary kolu
-terminal whose child happens to be <code>acp-proxy</code> — kaval sees a process in a
-PTY, padi sees a terminal, and no kolu code changes anywhere. Create it like
-any terminal (<code>lifecycle.create</code> with <code>acp-proxy</code> as the argv), or just run
-the bin by hand in a shell.</p>
-<p><strong><code>acp-proxy</code> is one session, end to end.</strong> It spawns <code>claude-agent-acp</code> over
-stdio, re-serves the same ACP byte protocol on the unix socket for clients,
-and renders every frame human-readably to its own stdout. So the tile <em>shows</em>
-the session — messages, tool calls, permission decisions scrolling by — but is
-never the thing you type into; all input arrives as ACP calls on the socket.</p>
-<p><strong><code>acp-chat</code> is the stand-in for pesu</strong> until pesu exists: a REPL that
-connects to a proxy’s socket, sends each line as <code>session/prompt</code>, and streams
-the reply. It makes this phase usable without XS in the picture while proving
-the exact client path HX1’s pesu will reuse — same library, same socket, same
-frames — and it stays useful afterwards as a debugging client.</p>
-<div class="hx-row" role="img" aria-label="Two terminal panes. Left: a kolu tile running acp-proxy, printing ACP frames — a session/prompt in, agent message chunks, a tool call with completion, turn end. Right: the acp-chat CLI connected to the same socket, showing the human's question and the streamed reply."><div class="hx-term"><div class="hx-tbar">tile e7f2 — acp-proxy · claude<span class="hx-tsub">frames, live</span></div><div class="hx-tbody"><div class="hx-in">▶ session/prompt · &quot;why is the e2e suite flaky?&quot;</div><div class="hx-out">◀ agent_message_chunk · &quot;Looking at the retry logs…&quot;</div><div class="hx-tool">◀ tool_call · bash — grep -r retry test-results/</div><div class="hx-tool">◀ tool_call_update · completed · 0.9s</div><div class="hx-out">◀ agent_message_chunk · &quot;It&#39;s a port collision: two…&quot;</div><div class="hx-ok">● turn end · stopReason: end_turn</div></div></div><div class="hx-term"><div class="hx-tbar">acp-chat<span class="hx-tsub">…/kolu/acp-e7f2.sock</span></div><div class="hx-tbody"><div class="hx-in">&gt; why is the e2e suite flaky?</div><div class="hx-out">claude ▸ Looking at the retry logs…</div><div class="hx-out">claude ▸ It&#39;s a port collision: two workers bind 5173.</div><div class="hx-in">&gt;<span class="hx-cursor">▍</span></div></div></div></div>
-<style>
-  .hx-row{display:flex;gap:.8rem;flex-wrap:wrap;margin:1.25rem 0}
-  .hx-term{flex:1;min-width:17rem;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;background:#0e1014;box-shadow:0 4px 16px rgba(0,0,0,.3)}
-  .hx-tbar{display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;background:#161a20;border-bottom:1px solid #2a2e37;font:600 .62rem/1 ui-sans-serif,system-ui;color:#c7ccd6}
-  .hx-tsub{margin-left:auto;font-weight:400;color:#5b626d}
-  .hx-tbody{padding:.55rem .7rem;font:.64rem/1.7 ui-monospace,Menlo,monospace}
-  .hx-in{color:#6ea8e0}.hx-out{color:#c7ccd6}.hx-tool{color:#a78bfa}.hx-dim{color:#5b626d}.hx-ok{color:#6cc070}
-  .hx-frame{max-width:30rem;margin:1.25rem 0;border:1px solid #e6e2d6;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.06);font-family:ui-sans-serif,system-ui,sans-serif}
-  .hx-bar{display:flex;align-items:center;gap:.5rem;padding:.55rem .8rem;background:#FBF1DC;border-bottom:1px solid #ecd9b0;font:700 .72rem/1 ui-sans-serif,system-ui,sans-serif;color:#92400E}
-  .hx-badge{margin-left:auto;font:700 .52rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.09em;color:#B45309;border:1px solid #e0c690;border-radius:5px;padding:.22rem .38rem}
-  .hx-msgs{padding:.6rem .8rem;display:flex;flex-direction:column;gap:.55rem}
-  .hx-msg{font:.72rem/1.5 ui-sans-serif,system-ui,sans-serif;color:#1a1c20}
-  .hx-name{font-weight:700;margin-right:.3rem}.hx-app{color:#0f6b8a}.hx-human{color:#5b3fa3}
-  .hx-time{font:.58rem/1 ui-sans-serif,system-ui,sans-serif;color:#9a9482;margin-left:.35rem}
-  .hx-link{color:#0f6b8a;text-decoration:underline}
-  .hx-cursor{display:inline-block;width:.45em;background:#0f6b8a;color:#0f6b8a;animation:none}
-  .hx-pill{display:inline-flex;align-items:center;gap:.35rem;font:.6rem/1 ui-sans-serif,system-ui,sans-serif;color:#6b6455;background:#f4efe2;border:1px solid #e6dcc2;border-radius:999px;padding:.28rem .55rem;width:fit-content}
-  .hx-card{border:1px solid #e0c690;border-radius:9px;background:#FffBF0;padding:.55rem .7rem;max-width:24rem}
-  .hx-cardtitle{font:700 .66rem/1.4 ui-sans-serif,system-ui,sans-serif;color:#92400E}
-  .hx-cardbody{font:.66rem/1.5 ui-monospace,Menlo,monospace;color:#1a1c20;margin:.3rem 0 .5rem}
-  .hx-btn{display:inline-block;font:700 .62rem/1 ui-sans-serif,system-ui,sans-serif;border-radius:7px;padding:.4rem .7rem;margin-right:.4rem;border:1px solid #cbbf9d;color:#5b5443;background:#fff}
-  .hx-btn.hx-primary{background:#166534;border-color:#166534;color:#fff}
-  .hx-sys{font:.6rem/1.4 ui-sans-serif,system-ui,sans-serif;color:#9a9482;text-align:center;padding:.1rem 0}
-  </style>
-<p><strong>Test flows (this PR):</strong></p>
-<ol>
-<li>Create a kolu terminal running <code>acp-proxy</code> (or run it by hand in any
-shell) — it prints the socket path and the spawned adapter, then idles.</li>
-<li>From another terminal, <code>acp-chat &lt;socket&gt;</code>; ask a question — the reply
-streams in the REPL while the tile scrolls the same turn as frames.</li>
-<li>Ask something that needs a tool (“what does <code>git status</code> say here?”) —
-watch <code>tool_call</code> / <code>tool_call_update</code> frames appear in the tile, with the
-auto-answered permission line between them.</li>
-<li><code>Ctrl+C</code> in <code>acp-chat</code> mid-turn — the tile shows <code>session/cancel</code> and the
-turn stops (or the grace window expires and the adapter respawns).</li>
-<li><code>kill</code> the adapter’s PID mid-turn — the proxy respawns it; your next
-prompt works.</li>
-</ol>
-<p><strong>Verification, autonomous (how the implementing agent proves this without a
-human):</strong></p>
+<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">ROADMAP — pesu standalone, kolu beside it</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">PS0 · @kolu/acp becomes a library</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#ps0" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">seeded from the closed #1985 branch · agent()/client()</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PS1 · the XS round trip + takeover ack</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#ps1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs PS0 · webhook → worktree → reply · resume line</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PS2 · approve from the thread</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#ps2" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs PS1 · permission → flow card</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PS3 · turn polish</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#ps3" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs PS1 · growing reply · resume across restart</a></span></div></div>
+<a id="ps0"></a>
+<h3 id="ps0--koluacp-becomes-an-embedded-client-library">PS0 — @kolu/acp becomes an embedded client library</h3>
+<div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">PS0</span><span style="color:#334155">· library: spawn + supervise + typed client, no bins</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
+<p>The closed <a href="https://github.com/juspay/kolu/pull/1985" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1985</a> branch is the seed, not the shape. <strong>Keep:</strong>
+the supervision core — process-group spawn and kill, paced respawn, graced
+cancel, bounded handshake — and the fake-adapter fixtures plus the
+real-process vitest suite built around them (the four lifetime bugs review
+caught there are pinned by those tests; that insurance is the most valuable
+artifact the branch produced). <strong>Drop:</strong> <code>acp-proxy</code>, <code>acp-chat</code>, the unix
+socket, PTY rendering. <strong>Rebuild:</strong> the connection layer on the SDK’s
+<code>agent()</code>/<code>client()</code> handler model, so the deprecated classes and their
+<code>biome.jsonc</code> suppression never reach master.</p>
+<p><strong>Done when:</strong></p>
 <ul>
-<li><strong>The fake adapter is the test double</strong> — <code>packages/acp/test/fake-adapter.ts</code>,
-a scripted stdio ACP agent (the fake-XS trick, applied to the other side):
-it answers <code>initialize</code> / <code>session/new</code>, and on <code>session/prompt</code> replays
-canned <code>session/update</code> frames — message chunks, a <code>tool_call</code> +
-<code>tool_call_update</code>, a permission request. The prompt text is the directive:
-<code>crash</code> exits mid-turn, <code>hang</code> streams then never finishes (the cancel
-case), anything else echoes. Deterministic, offline, no auth, no tokens.</li>
-<li><strong>One vitest per done-criterion</strong>, all driving the real bins (spawned
-processes, real socket — not in-process shims): round trip through the
-official client; proxy stdout captured and asserted to contain only
-frame-derived rendering; <code>crash</code> → respawn → next prompt succeeds; <code>hang</code> →
-<code>session/cancel</code> → grace expiry → respawn. The suite takes the adapter argv
-as a parameter, which is also how the second-adapter criterion is met
-structurally. This suite runs in CI (<code>just ci</code>) — it needs no agent
-credentials.</li>
-<li><strong>Real-adapter smoke, run locally before the PR is declared done</strong>:
-<code>acp-chat</code> against <code>claude-agent-acp</code> and <code>codex-acp</code> with a one-line
-prompt (“reply with exactly: pong”). Both adapters inherit the dev box’s
-existing <code>claude</code> / <code>codex</code> logins — no interactive auth step. Capture the
-tile + REPL side by side as the PR’s <code>## Evidence</code>.</li>
+<li>The library exposes one session-shaped surface — spawn an adapter by argv
+in a cwd; prompt; cancel; a frame stream the caller can log; the session
+id — and pesu-shaped code (a test standing in for it) drives a full turn
+through it.</li>
+<li>The ported suite is green driving real spawned processes: crash → respawn
+→ next prompt works; hang → <code>session/cancel</code> → grace expiry → respawn; the
+suite stays parameterized by adapter argv, with the deliberately different
+second vendor retained.</li>
+<li>Zero deprecated SDK imports and zero lint suppressions for them.</li>
 </ul>
-<p><strong>Done when</strong> (the phase exists to prove the socket path, so the criteria pin
-it):</p>
-<ul>
-<li>A prompt travels <code>acp-chat → socket → proxy → adapter</code> through the official
-client library on both hops; the reply streams back the same way.</li>
-<li>The tile’s transcript is rendered <strong>from <code>session/update</code> frames only</strong> —
-the proxy never reads <code>~/.claude/projects</code> or any session file.</li>
-<li>Kill the adapter process mid-turn: the proxy respawns it and the next prompt
-works.</li>
-<li><code>session/cancel</code> is exercised, including the grace-then-respawn fallback.</li>
-<li>The same flows pass against a <strong>second adapter</strong> (<code>codex-acp</code>) changing
-only the proxy’s argv — proving nothing in the package is claude-shaped.</li>
-</ul>
-<a id="hx1"></a>
-<h3 id="hx1--the-xs-round-trip">HX1 — the XS round trip</h3>
-<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">HX1</span><span style="color:#334155">· XS webhook → create tile → prompt → reply in thread</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> HX0</span></div></div>
+<a id="ps1"></a>
+<h3 id="ps1--the-xs-round-trip--the-takeover-ack">PS1 — the XS round trip + the takeover ack</h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">PS1</span><span style="color:#334155">· webhook → worktree → prompt → reply · ack carries the resume line</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> PS0</span></div></div>
 <p>pesu: signed webhook (<code>APP_MENTIONED</code> / <code>DIRECT_MESSAGE</code>) → allowlist gate →
-<code>lifecycle.create</code> a proxy tile via padi → store the bind → <code>session/prompt</code> →
-post the final assistant text to the thread. Later messages in the thread
-resolve the bind and prompt the same session. The XS leaf — <code>webhook.ts</code> +
-HMAC tests, <code>xyneApi.ts</code> + fake-XS tests, fail-fast env config, logging,
-allowlist, <code>nix run .#pesu</code> — ports from <a href="https://github.com/juspay/kolu/pull/1810" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1810</a>.</p>
-<p>The thread’s ceremony-free home is a <strong>DM</strong> (every message is delivered); in a
-channel each message must @mention the app — the apps platform has no
-follow-the-thread.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Follow-the-thread (replying in a bot’s thread
-without re-mentioning) exists only in XS’s separate bot-catalog system, not
-for installed apps. Two recorded options if the per-message @mention grates:
-an XS-side feature request for app thread-follow, or a pesu-side poller over
-one dedicated channel’s <code>channelHistory</code> — not built until wanted.</span></span></span>
-pesu answers the webhook 200 immediately and works async — delivery is
-fire-and-forget, so a slow handler loses events. Deployment shape: pesu binds
-<code>127.0.0.1</code> as a systemd user service fronted by <strong>Tailscale Funnel</strong> for the
-stable public webhook URL; secrets reach it <strong>only as environment variables</strong>
-— never the repo, logs, or an agent transcript.</p>
-<div class="hx-frame" role="img" aria-label="An XS direct-message thread with the kolu app. Srid asks a question; the app acks with a deep link to the created terminal; the reply streams in with a working pill."><div class="hx-bar"># DM — kolu<span class="hx-badge">APP</span></div><div class="hx-msgs"><div class="hx-msg"><span class="hx-name hx-human">Srid</span><span class="hx-time">8:40 PM</span><br/>why is the e2e suite flaky?</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:40 PM</span><br/>On it — terminal <a class="hx-link">e7f2 · open in kolu →</a></div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:41 PM</span><br/>It&#39;s a port collision: two e2e workers bind 5173 when the pool is warm…<span class="hx-cursor">▍</span></div><div class="hx-pill">⚙ working — claude · tile e7f2</div></div></div>
+bind the thread → cut the worktree → spawn the adapter through <code>@kolu/acp</code> →
+<code>session/prompt</code> → post the reply. The XS leaf — <code>webhook.ts</code> + HMAC tests,
+<code>xyneApi.ts</code> + fake-XS tests, fail-fast env config, logging, allowlist,
+<code>nix run .#pesu</code> — ports from <a href="https://github.com/juspay/kolu/pull/1810" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1810</a>.</p>
+<p>The ack is where the takeover lands: worktree path, session id, and the
+literal <code>claude --resume &lt;id&gt;</code> line. For codex threads the ack includes a
+resume line only after the <code>threadId</code> mapping is verified against the real
+<code>codex</code> CLI once (see the takeover footnote) — an unverified resume line is
+worse than none.</p>
+<p>The thread’s ceremony-free home is a <strong>DM</strong> (every message is delivered); in
+a channel each message must @mention the app — the apps platform has no
+follow-the-thread.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Follow-the-thread exists only in XS’s separate
+bot-catalog system, not for installed apps. Two recorded options if the
+per-message @mention grates: an XS-side feature request, or a pesu-side
+poller over one dedicated channel’s <code>channelHistory</code> — not built until
+wanted.</span></span></span> pesu answers the webhook 200 immediately and works async
+— delivery is fire-and-forget, so a slow handler loses events. Deployment
+shape: systemd user service on <code>127.0.0.1</code>, fronted by <strong>Tailscale Funnel</strong>
+for the stable public webhook URL; secrets reach it <strong>only as environment
+variables</strong> — never the repo, logs, or an agent transcript.</p>
+<div class="hx-frame" role="img" aria-label="An XS direct-message thread with the kolu app. Srid asks a question; the app acks with the worktree path and resume line; the reply streams in with a working pill."><div class="hx-bar"># DM — kolu<span class="hx-badge">APP</span></div><div class="hx-msgs"><div class="hx-msg"><span class="hx-name hx-human">Srid</span><span class="hx-time">8:40 PM</span><br/>why is the e2e suite flaky?</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:40 PM</span><br/>On it — working in <span class="hx-code">~/w/xs-42</span> · takeover: <span class="hx-code">claude --resume 6037158d</span></div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:41 PM</span><br/>It&#39;s a port collision: two e2e workers bind 5173 when the pool is warm…<span class="hx-cursor">▍</span></div><div class="hx-pill">⚙ working — claude · xs-42</div></div></div>
 <p><strong>Test flows (this PR):</strong></p>
 <ol>
-<li>DM the bot a question — ack arrives, a new tile appears on the kolu
-canvas, the reply lands in the thread.</li>
-<li>Send a follow-up in the same DM — <strong>no new terminal</strong>; the same session
-answers with the earlier context.</li>
-<li>Keep the tile open in kolu while asking a third question — watch the turn
-scroll by as frames while the thread gets the reply.</li>
-<li>Have someone not on the allowlist DM the bot — they get the one-line
-decline; no terminal is created.</li>
+<li>DM the bot a question — the ack arrives with the worktree path and resume
+line; the reply lands in the thread.</li>
+<li>Send a follow-up in the same DM — <strong>no new session</strong>; the same
+conversation answers with the earlier context.</li>
+<li>Run the ack’s <code>claude --resume</code> line in a terminal in that worktree — the
+bot’s conversation opens interactively with full history (captured once
+as PR evidence).</li>
+<li>Have someone not on the allowlist DM the bot — one-line decline; nothing
+spawned.</li>
 <li><code>curl</code> the webhook with a bad <code>X-Xyne-Signature</code> — rejected, nothing
-posted, nothing created.</li>
+posted, nothing created (pinned by a test).</li>
 <li>In a channel, <code>@kolu &lt;ask&gt;</code> works; a plain message in the same thread
 without the @mention does nothing (the documented apps-platform gap).</li>
 </ol>
-<p><strong>Done when:</strong> DM the bot → tile exists on the host → reply lands in
-the thread; a second message continues the same session; opening the tile
-shows the live frame log; a forged-signature request is rejected (pinned by a
-test); a non-operator gets a one-line visible decline, never silence.</p>
-<a id="hx2"></a>
-<h3 id="hx2--approve-from-the-thread">HX2 — approve from the thread</h3>
-<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">HX2</span><span style="color:#334155">· permission request → flow card → ACP response</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> HX1</span></div></div>
-<p>A <code>session/request_permission</code> frame becomes a flow-JSON card in the thread —
-one button per option the request carries. The <code>/flow/action</code> callback answers
-the ACP request; the card updates to show the decision. The request stays open
-until answered or the turn is cancelled. Proxy-side auto-answer is switched
-off for bound threads.</p>
+<p><strong>Done when:</strong> DM → worktree exists → reply lands; a second message
+continues the same session; the ack’s resume line provably opens the same
+conversation; a forged signature is rejected; a non-operator gets a visible
+decline, never silence.</p>
+<a id="ps2"></a>
+<h3 id="ps2--approve-from-the-thread">PS2 — approve from the thread</h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">PS2</span><span style="color:#334155">· permission request → flow card → ACP response</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> PS1</span></div></div>
+<p>A <code>session/request_permission</code> frame becomes a flow-JSON card in the thread
+— one button per option the request carries. The <code>/flow/action</code> callback
+answers the ACP request; the card updates to show the decision. The request
+stays open until answered or the turn is cancelled — and a cancel resolves
+the pending request as <code>cancelled</code> <em>first</em>, the buzz deadlock lesson.
+Auto-answer turns off for bound threads.</p>
 <div class="hx-frame" role="img" aria-label="The same XS thread showing a permission flow card: claude wants to run git push, with Allow once and Reject buttons; below it, a resolved card state — allowed by Srid."><div class="hx-bar"># DM — kolu<span class="hx-badge">APP</span></div><div class="hx-msgs"><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:44 PM</span><div class="hx-card"><div class="hx-cardtitle">Permission — claude wants to run</div><div class="hx-cardbody">git push origin fix/e2e-ports</div><span class="hx-btn hx-primary">Allow once</span><span class="hx-btn">Reject</span></div></div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">8:45 PM</span><div class="hx-card"><div class="hx-cardtitle">✓ Allowed once — by Srid</div><div class="hx-cardbody">git push origin fix/e2e-ports</div></div></div></div></div>
 <p><strong>Test flows (this PR):</strong></p>
 <ol>
-<li>Ask the bot for something gated (“push this branch”) — the permission card
-appears in the thread and the tile shows the pending request; the agent is
-visibly paused.</li>
-<li>Click <strong>Allow once</strong> — the run unblocks; the card flips to the resolved
-“allowed by you” state.</li>
-<li>Repeat and click <strong>Reject</strong> — the agent declines and says so in its reply.</li>
-<li>Leave a card unanswered and cancel the turn — the request resolves as
+<li>Ask for something gated (“push this branch”) — the card appears; the
+agent is visibly paused.</li>
+<li><strong>Allow once</strong> — the run unblocks; the card flips to “allowed by you”.</li>
+<li><strong>Reject</strong> — the agent declines and says so in its reply.</li>
+<li>Leave the card unanswered and cancel the turn — the request resolves as
 cancelled; no deadlock, no orphaned card.</li>
 </ol>
 <p><strong>Done when:</strong> an agent hits a gated tool, the card appears in the thread,
 clicking Allow unblocks the run — end to end, with auto-answer off.</p>
-<a id="hx3"></a>
-<h3 id="hx3--turn-polish">HX3 — turn polish</h3>
-<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">HX3</span><span style="color:#334155">· growing reply · tool labels · deep link · resume</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> HX1</span></div></div>
-<p>The growing reply (<code>updateMessage</code> ≤1/s, cap-aware split); <code>tool_call</code> frames
-→ <code>agentProgress</code> labels while the turn runs; deep link to the tile in the
-ack; <code>acpSessionId</code> in the bind so a pesu restart resumes the conversation via
-<code>session/load</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>claude-agent-acp</code> and <code>codex-acp</code> advertise
-<code>loadSession</code>; resume replays the session’s history as the same
-<code>session/update</code> stream, so the proxy’s tile rendering and pesu’s cursor logic
-need no special path. For an adapter that doesn’t advertise it, pesu starts a
-fresh session and says so in the thread — visibly, never silently.</span></span></span></p>
-<div class="hx-frame" role="img" aria-label="The XS thread during turn polish: a live tool label pill, one growing reply that updates in place, and a system line showing pesu restarted and resumed the session via session/load."><div class="hx-bar"># DM — kolu<span class="hx-badge">APP</span></div><div class="hx-msgs"><div class="hx-pill">⚙ Running: bash — pnpm vitest run e2e/ports…</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">edited · updates ≤1/s</span><br/>Fixed the pool to lease disjoint port ranges; re-running the suite to confirm…<span class="hx-cursor">▍</span></div><div class="hx-sys">— pesu restarted · session resumed via session/load —</div><div class="hx-msg"><span class="hx-name hx-human">Srid</span><span class="hx-time">9:02 PM</span><br/>and the darwin lane?</div><div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">9:02 PM</span><br/>Same fix covers it — the lease is platform-agnostic. Suite is green on both.</div></div></div>
+<a id="ps3"></a>
+<h3 id="ps3--turn-polish">PS3 — turn polish</h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">PS3</span><span style="color:#334155">· growing reply · tool labels · resume across restart</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> PS1</span></div></div>
+<p>The growing reply (<code>updateMessage</code> ≤1/s, cap-aware split); <code>tool_call</code>
+frames → <code>agentProgress</code> labels while the turn runs; <code>session/load</code> on pesu
+restart, so the daemon holds no conversation state beyond its bind
+file.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Both pinned adapters advertise <code>loadSession</code>; resume replays
+the session’s history as the same <code>session/update</code> stream, so pesu’s cursor
+logic needs no special path. For an adapter that doesn’t advertise it, pesu
+starts a fresh session and says so in the thread — visibly, never
+silently.</span></span></span></p>
 <p><strong>Test flows (this PR):</strong></p>
 <ol>
-<li>Ask for a long task — <strong>one</strong> message grows in place (edited ≤1/s) instead
-of a stream of separate messages.</li>
-<li>Watch the progress pill change labels as the agent moves between tools;
-it clears when the turn ends.</li>
-<li>Click the deep link in the ack — kolu opens focused on that tile.</li>
+<li>A long task — <strong>one</strong> message grows in place instead of a stream of
+separate messages.</li>
+<li>The progress pill changes labels as the agent moves between tools; it
+clears when the turn ends.</li>
 <li><code>systemctl --user restart pesu</code> mid-conversation, then send the next DM —
-the conversation continues with prior context and no earlier reply is
+the conversation continues with prior context; no earlier reply is
 double-posted.</li>
 <li>Provoke a reply longer than 40,000 chars — it splits into consecutive
 messages instead of failing.</li>
@@ -371,43 +400,46 @@ messages instead of failing.</li>
 <p><strong>Done when:</strong> restart pesu mid-conversation; the next DM continues the same
 conversation with prior context, without double-posting earlier replies.</p>
 <p><strong>Later, on demand (small bounded additions, not phases):</strong> per-thread agent
-selection UX in pesu (the wire already takes any adapter); a small integration
-so proxy tiles light up dock state / awareness from the proxy’s own stream.</p>
+selection UX (the wire already takes any adapter);
+<strong><a href="https://goose-docs.ai/">goose</a> as an optional agent</strong> — one config entry,
+no code.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Recorded 2026-07-25 from the adapter and goose sources:
+goose’s native ACP is strongest on session persistence and cancellable
+permissions — advantages that become observable only once PS2/PS3 land — and
+wins decisively on provider breadth (15+ API/cloud/local model providers),
+at the cost of one more runtime between the thread and the model when a
+claude/codex subscription is already the target.</span></span></span></p>
 <h2 id="background">Background</h2>
 <p><strong>Why chat at all.</strong> Anthropic shipped <a href="https://www.anthropic.com/news/introducing-claude-tag">Claude Tag</a>
 — one shared Claude per channel, pursuing tasks “over hours or days” — and
 <a href="https://x.com/karpathy/status/2069547676849557725">Karpathy called the shape</a>
-“the 3rd major redesign of LLM UIUX”: the agent as a persistent coworker that
-lives where the team already works.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The proof-point Anthropic leads
-with is blunt: <em>“65% of our product team’s code is created by our internal
-version.”</em> The human’s job shifts from driving keystrokes to managing
-agents.</span></span></span> In that world chat owns the breadth and the terminal owns
-the depth — which is this note’s spine: the XS thread is the conversation, the
-kolu tile is the live process you can step into.</p>
-<p><strong>Why kolu stays the substrate.</strong> kolu runs claude or codex under any
-chat app, on infrastructure you control — the model swappable, the shell and
-files real, the host yours. Claude Tag is one vendor’s model with the shell
-and files hidden in a cloud sandbox you don’t own; that difference is the
-moat, and the ACP wire preserves it (any adapter, any chat front
-end).<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Marc Andreessen, <a href="https://www.youtube.com/watch?v=knx2wrILP1M">on what agent research converged
-on</a>: <em>“an agent is … a language
-model, and above that a bash shell … and then a file system, and the state is
-stored in files”</em> — and <em>“your agent is now actually independent of the model
-… you can swap out a different LLM underneath.”</em> That is the architecture
-here, line for line; the headless session still acts through a real shell on
-files you own.</span></span></span><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An earlier revision of this note designed
-the bridge as a <em>mirror of the coordinator</em> — observe flowing out raw, act
-flowing in through one orchestrator terminal, with a fleet status board and a
-campaign feed as phases. Thread-per-agent over ACP supersedes it; fleet-level
-chat (board, feed) is <a href="campaign-surface.html">campaign surface</a>
-territory.</span></span></span></p>
+“the 3rd major redesign of LLM UIUX”: the agent as a persistent coworker
+that lives where the team already works.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The proof-point Anthropic
+leads with is blunt: <em>“65% of our product team’s code is created by our
+internal version.”</em> The human’s job shifts from driving keystrokes to
+managing agents.</span></span></span> Buzz is the same thesis as a product — chat
+where agents are coworkers in channels — and XS-plus-pesu is that exact
+shape on infrastructure you own.</p>
+<p><strong>What the moat actually is.</strong> The properties that distinguish this from
+Claude Tag — the shell and files real, the host yours, the model swappable
+(the adapter is config) — are properties of <em>self-hosting pesu</em>, and they
+hold with no kolu anywhere in sight.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Marc Andreessen, <a href="https://www.youtube.com/watch?v=knx2wrILP1M">on what
+agent research converged on</a>:
+<em>“an agent is … a language model, and above that a bash shell … and then a
+file system, and the state is stored in files”</em> — and <em>“your agent is now
+actually independent of the model … you can swap out a different LLM
+underneath.”</em> That is this architecture, line for line.</span></span></span> kolu’s
+distinct contribution is the takeover: because the agent’s state is files in
+a worktree and a session in the CLI’s own store, the product where you
+already live in terminals is one <code>cd</code> and one <code>--resume</code> from continuing the
+bot’s work by hand. Chat owns the breadth; kolu owns the moment delegation
+stops being enough.</p>
 <h3 id="the-xs-apps-platform-as-grounded">The XS apps platform, as grounded</h3>
-<p>The contract HX1 builds against — read from the xyne-spaces source
+<p>The contract PS1 builds against — read from the xyne-spaces source
 (2026-07-13), not its docs, because XS has <strong>three separate integration
-systems</strong> that are easy to conflate: the <em>bot catalog</em> (backend-native bots),
-<em>incoming webhooks</em> (URL-embedded-secret message drops), and the <strong>apps
-platform</strong> — installed apps with a webhook URL, a bearer token, and a signing
-secret. pesu is an installed app; only the third system applies.</p>
+systems</strong> that are easy to conflate: the <em>bot catalog</em> (backend-native
+bots), <em>incoming webhooks</em> (URL-embedded-secret message drops), and the
+<strong>apps platform</strong> — installed apps with a webhook URL, a bearer token, and a
+signing secret. pesu is an installed app; only the third system applies.</p>
 <table>
 <thead>
 <tr>
@@ -435,28 +467,35 @@ HMAC-SHA256 of the raw body with the app’s signing secret; no timestamp or
 replay scheme, so verification is a constant-time compare and replay is an
 accepted, recorded risk. The bearer token is a JWT signed HS256 <em>with that
 same secret</em>, no expiry — it lives until regenerated.</p>
-<p><strong>The app API</strong> (<code>/api/apps</code>, bearer): <code>chat/postMessage</code> (text, markdown, or
-structured content; <code>conversationId</code> targets a thread) · <code>chat/updateMessage</code>
-· <code>chat/agentProgress</code> · <code>chat/channelHistory</code> / <code>chat/conversationReplies</code>
-(catch-up after downtime) · <code>channel/openDm</code> · <code>user/info</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>No
-webhook payload carries a sender email (the DM payload omits even the display
-name) — pesu resolves people through <code>user/info</code> and caches them. Event
-delivery is fire-and-forget with no retries: a delivery missed while pesu is
-down is lost; the read APIs recover.</span></span></span></p>
+<p><strong>The app API</strong> (<code>/api/apps</code>, bearer): <code>chat/postMessage</code> (text, markdown,
+or structured content; <code>conversationId</code> targets a thread) ·
+<code>chat/updateMessage</code> · <code>chat/agentProgress</code> · <code>chat/channelHistory</code> /
+<code>chat/conversationReplies</code> (catch-up after downtime) · <code>channel/openDm</code> ·
+<code>user/info</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>No webhook payload carries a sender email (the DM
+payload omits even the display name) — pesu resolves people through
+<code>user/info</code> and caches them. Event delivery is fire-and-forget with no
+retries: a delivery missed while pesu is down is lost; the read APIs
+recover.</span></span></span></p>
 <h2 id="out-of-scope">Out of scope</h2>
 <ul>
-<li><strong>PTY-agent observation</strong> — session watchers, transcript export, and every
-interactive tile a human drives stay exactly as they are; this note adds a
-kind of <em>process to run in a tile</em>, not a change to kolu.</li>
-<li><strong>kolu entity-model changes</strong> — no new session kind, no dock/awareness work
-in the phase tree (see <em>Later</em>).</li>
-<li><strong>Bot secrets in a web UI</strong> — pesu config is env/systemd beside the daemon.</li>
+<li><strong>Remote boxes</strong> — everything here is one machine: pesu, the adapters, the
+worktrees, and kolu side by side. When multi-host is wanted, the remote
+arm may well turn out to be a proxy-shaped process re-serving ACP from the
+far host — noted so the option isn’t forgotten, deferred so it isn’t
+designed prematurely.</li>
+<li><strong>kolu changes</strong> — none at all: no new session kind, no dock/awareness
+work, no viewer. The takeover uses plain terminals kolu already has.</li>
+<li><strong>PTY-agent observation</strong> — session watchers and every interactive tile a
+human drives stay exactly as they are.</li>
+<li><strong>Bot secrets in a web UI</strong> — pesu config is env/systemd beside the
+daemon.</li>
 </ul>
 <h2 id="done-criterion-full-tree">Done criterion (full tree)</h2>
-<p>DM the bot → a tile with a headless agent exists → replies stream into the
-thread → the agent hits a gated tool → you click <strong>Allow</strong> in the thread → the
-run finishes and the reply grows in place → restart pesu and the thread
-resumes → at any point, click through and watch the session in the tile.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./agent-client-protocol.html" data-astro-cid-aziudkuj>The Agent Client Protocol</a></li><li data-astro-cid-aziudkuj><a href="./campaign-surface.html" data-astro-cid-aziudkuj>The campaign surface — plain-file knowledge, an observed board, a graph of terminal-actors</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+<p>DM the bot → a headless session answers from a per-thread worktree → the
+agent hits a gated tool → you click <strong>Allow</strong> in the thread → the reply
+grows in place → restart pesu and the thread resumes → and at any point,
+open a terminal in that worktree, run the ack’s <code>claude --resume</code> line, and
+continue the bot’s own conversation by hand.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./agent-client-protocol.html" data-astro-cid-aziudkuj>The Agent Client Protocol</a></li><li data-astro-cid-aziudkuj><a href="./campaign-surface.html" data-astro-cid-aziudkuj>The campaign surface — plain-file knowledge, an observed board, a graph of terminal-actors</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(
       document.querySelectorAll(".fn[data-fn]"),
