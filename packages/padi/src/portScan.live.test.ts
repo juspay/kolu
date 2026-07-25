@@ -182,9 +182,10 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
 
   // Gated twice, and both gates are the POINT rather than a convenience:
   //  - LINUX, because the blindness is a property of the `/proc/<pid>/fd` join.
-  //    On darwin `netstat` reports every owner's pid regardless of user, so there
-  //    is no per-pid permission wall to hit; running a linux assertion on macOS is
-  //    the mistake that reddened the first darwin run of the port-forward suite.
+  //    Darwin does no fd walk at all — `lsof` reports the owning pid with the
+  //    listener — so there is no per-pid permission wall to hit there; running a
+  //    linux assertion on macOS is the mistake that reddened the first darwin run
+  //    of the port-forward suite.
   //  - NON-ROOT, because root can read every `/proc/<pid>/fd`, so the blind spot
   //    this provokes simply does not exist for it.
   it.skipIf(process.platform !== "linux" || process.getuid?.() === 0)(
