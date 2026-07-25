@@ -581,6 +581,18 @@ let
     entry = "packages/padi-tui/src/main.ts";
   };
 
+  # vazhi — the standalone port-forward TUI over `@kolu/port-forward` (Atlas:
+  # port-forwarding). Its derivation lives next to its source (it has its OWN
+  # flake.nix for a later move to its own repo, and that flake wants one
+  # definition, not a copy of this one); the root composer just threads the
+  # shared `src` + `pnpmDeps` in and re-exports it so `nix run .#vazhi` works
+  # from the repo root. It stays in THIS flake — unlike the examples, vazhi is
+  # a Kolu app, one of the two consumers `@kolu/port-forward` exists for.
+  # Unlike kaval-tui / padi-tui it does NOT wrap the full `kolu` build: vazhi
+  # imports one dependency-free library, so the vite bundle and the node-pty
+  # rebuild would be pure cost.
+  vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
+
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
   # package. Reuses this build's `src` + `pnpmDeps` — every package with a
   # typecheck script is in the `src` fileset above (see its INVARIANT
@@ -592,5 +604,5 @@ let
   };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi;
 }

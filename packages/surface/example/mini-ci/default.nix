@@ -24,7 +24,7 @@
   agentFlakeRefEnv,
 }:
 let
-  base = import ../base.nix { inherit pkgs src pnpmDeps; };
+  base = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
   entry = "${base}/packages/surface/example/mini-ci/src";
 
   # The runner spawns the pipeline's CI tasks (`pnpm --filter …`) and shell

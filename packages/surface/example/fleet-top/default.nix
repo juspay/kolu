@@ -12,9 +12,10 @@
 # server + Vite client from source via `pnpm run dev`.
 { pkgs, src, pnpmDeps }:
 let
-  # Shared "workspace tree + pnpm install, tsx-runnable" base (../base.nix),
-  # the same one remote-process-monitor and mini-ci build against.
-  surfaceExampleBase = import ../base.nix { inherit pkgs src pnpmDeps; };
+  # Shared "workspace tree + pnpm install, tsx-runnable" base
+  # (../../../../nix/workspace-tree.nix), the same one remote-process-monitor,
+  # mini-ci and vazhi build against.
+  workspaceTree = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
 
   fleetTopAgent = pkgs.runCommand "fleet-top-agent"
     {
@@ -23,7 +24,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/fleet-top-agent \
-      --add-flags "${surfaceExampleBase}/packages/surface/example/fleet-top/part-3/src/agent/main.ts" \
+      --add-flags "${workspaceTree}/packages/surface/example/fleet-top/part-3/src/agent/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
   '';
 in

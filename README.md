@@ -58,6 +58,8 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
   bring other machines onto the same canvas.
 - **[Deployment](https://kolu.dev/deployment)** — keep kolu running as a
   home-manager service on Linux or macOS.
+- **[vazhi](https://kolu.dev/vazhi)** — a standalone TUI that makes a port on
+  another machine answer where your browser can reach it.
 
 The complete feature guides and command reference live at
 **[kolu.dev](https://kolu.dev)**. This README is the map.
