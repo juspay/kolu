@@ -32,7 +32,7 @@ from XS gives full depth.
 | **Xyne Spaces** | XS cloud | Threads, identity, @mention/DM webhooks, flow cards |
 | **pesu** | daemon beside kolu (`packages/pesu`) | Webhook + author gate + binds; ACP client |
 | **`acp-proxy`** | child of kaval, in a PTY tile (`@kolu/acp`) | Spawns the adapter; serves ACP on a unix socket; renders frames in the PTY |
-| **ACP adapter** | child of the proxy | The headless agent behind standard ACP — `claude-agent-acp`, `codex-acp`, `goose acp`, any stdio ACP agent |
+| **ACP adapter** | child of the proxy | The headless agent behind standard ACP — `claude-agent-acp`, `codex-acp`; any stdio ACP agent works |
 | **padi / kaval** | per-host daemons | `lifecycle.create` / PTYs — unchanged; the tile is an ordinary terminal |
 
 ACP is the boundary **on both sides** of the proxy — pesu speaks it over the
@@ -77,7 +77,7 @@ thread, without opening kolu at all.
 | Language + library | TypeScript, official `@zed-industries/agent-client-protocol` (client *and* proxy-server side) — pesu and the workspace are TS |
 | Package boundary | `@kolu/acp` workspace package, bins `acp-proxy` + `acp-chat`; pesu is a consumer |
 | Socket | `$XDG_RUNTIME_DIR/kolu/acp-<terminalId>.sock`, mode 0600, one session per proxy |
-| Agents | **Any stdio ACP agent** — the adapter command is the proxy's argv (`acp-proxy -- claude-agent-acp`), nothing agent-specific in the code. Day one: `claude-agent-acp`, `codex-acp`, `goose acp`; pesu's default agent is env config, per-thread selection is later UX |
+| Agents | **Any stdio ACP agent** — the adapter command is the proxy's argv (`acp-proxy -- claude-agent-acp`), nothing agent-specific in the code. Day one: `claude-agent-acp` and `codex-acp`, pinned as npm deps of `@kolu/acp` (no global installs); pesu's default agent is env config, per-thread selection is later UX |
 | Permissions | Until HX2 the proxy auto-answers with the `allow_once` option; HX2 turns that off for bound threads and forwards the request |
 | Bind state | `threadId → { terminalId, socketPath, acpSessionId, authorUserId }`, JSON file beside pesu |
 | Reply shape | Post once, then `updateMessage` ≤1/s as the growing reply; split at XS's 40,000-char message cap<Footnote>The XS app API has no delta primitive: `updateMessage` is a full-body replace, and `agentProgress` is ephemeral — a Redis-backed working/done pill with a one-line `toolLabel`, never persisted. The ≤1/s cadence is manners, not a platform limit — XS configures no rate limit on the app API routes.</Footnote> |
@@ -137,6 +137,30 @@ frames — and it stays useful afterwards as a debugging client.
 5. `kill` the adapter's PID mid-turn — the proxy respawns it; your next
    prompt works.
 
+**Verification, autonomous (how the implementing agent proves this without a
+human):**
+
+- **The fake adapter is the test double** — `packages/acp/test/fake-adapter.ts`,
+  a scripted stdio ACP agent (the fake-XS trick, applied to the other side):
+  it answers `initialize` / `session/new`, and on `session/prompt` replays
+  canned `session/update` frames — message chunks, a `tool_call` +
+  `tool_call_update`, a permission request. The prompt text is the directive:
+  `crash` exits mid-turn, `hang` streams then never finishes (the cancel
+  case), anything else echoes. Deterministic, offline, no auth, no tokens.
+- **One vitest per done-criterion**, all driving the real bins (spawned
+  processes, real socket — not in-process shims): round trip through the
+  official client; proxy stdout captured and asserted to contain only
+  frame-derived rendering; `crash` → respawn → next prompt succeeds; `hang` →
+  `session/cancel` → grace expiry → respawn. The suite takes the adapter argv
+  as a parameter, which is also how the second-adapter criterion is met
+  structurally. This suite runs in CI (`just ci`) — it needs no agent
+  credentials.
+- **Real-adapter smoke, run locally before the PR is declared done**:
+  `acp-chat` against `claude-agent-acp` and `codex-acp` with a one-line
+  prompt ("reply with exactly: pong"). Both adapters inherit the dev box's
+  existing `claude` / `codex` logins — no interactive auth step. Capture the
+  tile + REPL side by side as the PR's `## Evidence`.
+
 **Done when** (the phase exists to prove the socket path, so the criteria pin
 it):
 
@@ -147,9 +171,8 @@ it):
 - Kill the adapter process mid-turn: the proxy respawns it and the next prompt
   works.
 - `session/cancel` is exercised, including the grace-then-respawn fallback.
-- The same flows pass against a **second adapter** (`codex-acp` or
-  `goose acp`) changing only the proxy's argv — proving nothing in the
-  package is claude-shaped.
+- The same flows pass against a **second adapter** (`codex-acp`) changing
+  only the proxy's argv — proving nothing in the package is claude-shaped.
 
 <a id="hx1"></a>
 
@@ -277,7 +300,7 @@ agents.</Footnote> In that world chat owns the breadth and the terminal owns
 the depth — which is this note's spine: the XS thread is the conversation, the
 kolu tile is the live process you can step into.
 
-**Why kolu stays the substrate.** kolu runs claude, codex, or goose under any
+**Why kolu stays the substrate.** kolu runs claude or codex under any
 chat app, on infrastructure you control — the model swappable, the shell and
 files real, the host yours. Claude Tag is one vendor's model with the shell
 and files hidden in a cloud sandbox you don't own; that difference is the

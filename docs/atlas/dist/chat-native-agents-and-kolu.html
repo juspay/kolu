@@ -46,7 +46,7 @@ from XS gives full depth.</p>
   <rect x="760" y="100" width="200" height="110" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
   <text x="776" y="124" font-size="12" font-weight="700" fill="#1a1c20">ACP adapter</text>
   <text x="776" y="146" font-size="12" fill="#1a1c20">claude-agent-acp ·</text>
-  <text x="776" y="166" font-size="12" fill="#1a1c20">codex-acp · goose …</text>
+  <text x="776" y="166" font-size="12" fill="#1a1c20">codex-acp — any stdio</text>
   <text x="776" y="186" font-size="12" font-family="ui-monospace,monospace" fill="#8a8272">headless — no TUI</text>
 
   <text x="520" y="250" font-size="12" fill="#8a8272">the tile is the depth view — messages, tool calls, permission decisions scroll by</text>
@@ -101,7 +101,7 @@ from XS gives full depth.</p>
 <tr>
 <td><strong>ACP adapter</strong></td>
 <td>child of the proxy</td>
-<td>The headless agent behind standard ACP — <code>claude-agent-acp</code>, <code>codex-acp</code>, <code>goose acp</code>, any stdio ACP agent</td>
+<td>The headless agent behind standard ACP — <code>claude-agent-acp</code>, <code>codex-acp</code>; any stdio ACP agent works</td>
 </tr>
 <tr>
 <td><strong>padi / kaval</strong></td>
@@ -165,7 +165,7 @@ thread, without opening kolu at all.</p>
 </tr>
 <tr>
 <td>Agents</td>
-<td><strong>Any stdio ACP agent</strong> — the adapter command is the proxy’s argv (<code>acp-proxy -- claude-agent-acp</code>), nothing agent-specific in the code. Day one: <code>claude-agent-acp</code>, <code>codex-acp</code>, <code>goose acp</code>; pesu’s default agent is env config, per-thread selection is later UX</td>
+<td><strong>Any stdio ACP agent</strong> — the adapter command is the proxy’s argv (<code>acp-proxy -- claude-agent-acp</code>), nothing agent-specific in the code. Day one: <code>claude-agent-acp</code> and <code>codex-acp</code>, pinned as npm deps of <code>@kolu/acp</code> (no global installs); pesu’s default agent is env config, per-thread selection is later UX</td>
 </tr>
 <tr>
 <td>Permissions</td>
@@ -243,6 +243,30 @@ turn stops (or the grace window expires and the adapter respawns).</li>
 <li><code>kill</code> the adapter’s PID mid-turn — the proxy respawns it; your next
 prompt works.</li>
 </ol>
+<p><strong>Verification, autonomous (how the implementing agent proves this without a
+human):</strong></p>
+<ul>
+<li><strong>The fake adapter is the test double</strong> — <code>packages/acp/test/fake-adapter.ts</code>,
+a scripted stdio ACP agent (the fake-XS trick, applied to the other side):
+it answers <code>initialize</code> / <code>session/new</code>, and on <code>session/prompt</code> replays
+canned <code>session/update</code> frames — message chunks, a <code>tool_call</code> +
+<code>tool_call_update</code>, a permission request. The prompt text is the directive:
+<code>crash</code> exits mid-turn, <code>hang</code> streams then never finishes (the cancel
+case), anything else echoes. Deterministic, offline, no auth, no tokens.</li>
+<li><strong>One vitest per done-criterion</strong>, all driving the real bins (spawned
+processes, real socket — not in-process shims): round trip through the
+official client; proxy stdout captured and asserted to contain only
+frame-derived rendering; <code>crash</code> → respawn → next prompt succeeds; <code>hang</code> →
+<code>session/cancel</code> → grace expiry → respawn. The suite takes the adapter argv
+as a parameter, which is also how the second-adapter criterion is met
+structurally. This suite runs in CI (<code>just ci</code>) — it needs no agent
+credentials.</li>
+<li><strong>Real-adapter smoke, run locally before the PR is declared done</strong>:
+<code>acp-chat</code> against <code>claude-agent-acp</code> and <code>codex-acp</code> with a one-line
+prompt (“reply with exactly: pong”). Both adapters inherit the dev box’s
+existing <code>claude</code> / <code>codex</code> logins — no interactive auth step. Capture the
+tile + REPL side by side as the PR’s <code>## Evidence</code>.</li>
+</ul>
 <p><strong>Done when</strong> (the phase exists to prove the socket path, so the criteria pin
 it):</p>
 <ul>
@@ -253,9 +277,8 @@ the proxy never reads <code>~/.claude/projects</code> or any session file.</li>
 <li>Kill the adapter process mid-turn: the proxy respawns it and the next prompt
 works.</li>
 <li><code>session/cancel</code> is exercised, including the grace-then-respawn fallback.</li>
-<li>The same flows pass against a <strong>second adapter</strong> (<code>codex-acp</code> or
-<code>goose acp</code>) changing only the proxy’s argv — proving nothing in the
-package is claude-shaped.</li>
+<li>The same flows pass against a <strong>second adapter</strong> (<code>codex-acp</code>) changing
+only the proxy’s argv — proving nothing in the package is claude-shaped.</li>
 </ul>
 <a id="hx1"></a>
 <h3 id="hx1--the-xs-round-trip">HX1 — the XS round trip</h3>
@@ -361,7 +384,7 @@ version.”</em> The human’s job shifts from driving keystrokes to managing
 agents.</span></span></span> In that world chat owns the breadth and the terminal owns
 the depth — which is this note’s spine: the XS thread is the conversation, the
 kolu tile is the live process you can step into.</p>
-<p><strong>Why kolu stays the substrate.</strong> kolu runs claude, codex, or goose under any
+<p><strong>Why kolu stays the substrate.</strong> kolu runs claude or codex under any
 chat app, on infrastructure you control — the model swappable, the shell and
 files real, the host yours. Claude Tag is one vendor’s model with the shell
 and files hidden in a cloud sandbox you don’t own; that difference is the
