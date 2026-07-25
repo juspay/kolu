@@ -1,6 +1,6 @@
 ---
 title: "Agentic chat: pesu standalone, kolu for the takeover"
-description: "pesu is a git-first, Buzz-shaped daemon: every conversation lives under a git repo that is also its memory — conclusions leave a thread only as commits, markdown or code. XS webhook in, an embedded ACP client driving a headless agent child, replies back in the thread; kolu is the takeover surface, where a terminal in the thread's worktree plus claude --resume opens the bot's own conversation."
+description: "pesu is a git-first, Buzz-shaped daemon: every conversation lives under a git repo that is also its memory — a knowledge base conversations draw on as context and grow through user-authorized commits, markdown or code. XS webhook in, an embedded ACP client driving a headless agent child, replies back in the thread; kolu is the takeover surface, where a terminal in the thread's worktree plus claude --resume opens the bot's own conversation."
 parents: [feature]
 status: proposed
 maturity: seedling
@@ -28,9 +28,10 @@ module advertises publishing telemetry "without exposing a local HTTP port"
 
 One choice is central and distinguishing: **pesu is git-first.** Every
 conversation lives under a git repo — always — and the repo is the bot's
-memory: what a thread concludes gets committed, as markdown notes or as
-code. Coding is the natural extension of that, not the founding case,
-because software projects are already git repos.
+memory: a knowledge base the conversation draws on as context, and grows
+only through commits you authorize from the thread. Coding is the natural
+extension of that, not the founding case, because software projects are
+already git repos.
 
 What kolu contributes is deliberately *outside* that loop: **the takeover.**
 The agent's work is real files in a real git worktree, and its conversation
@@ -105,11 +106,13 @@ result; both simplifications fall out of not pooling.
 mode.** A thread that names no repo binds the configured default; the repo
 is not a feature pesu offers but the ground it stands on, and it is the
 identity choice that distinguishes pesu from other chat-agent systems: the
-repo is the bot's **memory**. What a thread concludes must leave it as
-commits — markdown notes for a discussion, code for a task — so knowledge
-accumulates as history you can diff, grep, review, and clone, and the next
-thread over the same repo starts from everything the last one
-committed.<Footnote>Contrast the systems around it: Claude Tag's agent state
+repo is the bot's **memory** — precisely, a **knowledge base, never a
+transcript**. Conversations themselves are not committed; they *draw on*
+the repo as context, and what a thread concludes can *grow* it — markdown
+notes for a discussion, code for a task — only when the user authorizes the
+change, right from the thread. Knowledge accumulates as history you can
+diff, grep, review, and clone, and the next conversation over the same repo
+starts from everything already committed.<Footnote>Contrast the systems around it: Claude Tag's agent state
 lives in a cloud sandbox you don't own; buzz's durable trace is events on
 its relay. pesu's durable state is a git repo on your machine — the same
 artifact your team already knows how to share, review, and back
@@ -126,9 +129,9 @@ read-only beside it as context layers.
 
 A discussion thread is the plainest case: `@kolu work off srid/my-notebook —
 explain to @john why foo beats qux, based on context X`. The agent argues
-from the repo's notes and commits the thread's conclusion back as markdown —
-humans talk, the repo remembers. **Coding is the natural extension, not a
-separate mode**: software projects are already git repos, so "fix the flaky
+from the repo's notes; when someone says "record that", it commits the
+conclusion back as markdown — humans talk, humans approve, the repo
+remembers. **Coding is the natural extension, not a separate mode**: software projects are already git repos, so "fix the flaky
 e2e suite" is just another repo-bound thread whose commits happen to be
 code. Repo selection is deliberately dumb: the first message may name one
 or more aliases from pesu's configured allowlist (exact token match, no
@@ -175,7 +178,7 @@ and a git repo — because the mechanics never cared what the files were.
 | Adapter | pesu config — **any stdio ACP agent**; day one `claude-agent-acp` and `codex-acp`, pinned as npm deps (no global installs) |
 | Workspace | **every thread binds a repo — no repo-less mode.** A per-thread git worktree, cut from a repo on pesu's env-configured allowlist (`alias → path`); the first message may name allowlisted aliases verbatim; no match → default repo |
 | Knowledge stack | a conversation may name **several** repos — the first is the workspace, where commits land; the rest are checked out read-only beside it as context layers |
-| Memory | **the repo is the memory.** Durable conclusions leave a thread only as commits (markdown or code), steered by pesu's base prompt; pesu itself persists nothing but the bind file |
+| Memory | **the repo is the memory — a knowledge base, never a transcript.** Conversations are not committed; they draw on the repo as context, and grow it only through user-authorized commits (markdown or code) proposed from the thread. pesu itself persists nothing but the bind file |
 | Bind state | `threadId → { cwd, acpSessionId, authorUserId, agent }`, JSON file beside pesu |
 | Session visibility | every ACP frame appended to a per-session log file beside the bind state; no viewer process |
 | Takeover ack | the ack carries the worktree path, the session id, and the exact `claude --resume` line |
@@ -253,8 +256,8 @@ variables** — never the repo, logs, or an agent transcript.
 7. Ask for something gated — the run proceeds without pausing
    (auto-approved `allow_once`), exactly as the bot's docs say it will.
 8. Start a thread over a notes repo, stacking a second repo — the reply
-   argues from both; the conclusion lands as a markdown commit in the
-   workspace (the git-first loop, end to end).
+   argues from both; on your go-ahead in the thread, the conclusion lands
+   as a markdown commit in the workspace (the git-first loop, end to end).
 
 **Done when:** DM → worktree exists → reply lands; a second message
 continues the same session; the ack's resume line provably opens the same
@@ -442,13 +445,14 @@ export const PsTakeoverMock = () => (
 );
 
 export const PsNotebookMock = () => (
-  <div class="hx-frame" role="img" aria-label="An XS channel thread: Srid asks pesu to work off the srid/my-notebook repo and explain a position to John; pesu replies grounded in the notes and commits a markdown note capturing the discussion.">
+  <div class="hx-frame" role="img" aria-label="An XS channel thread: Srid asks pesu to work off the srid/my-notebook repo and explain a position to John; pesu replies grounded in the notes, Srid says to record the conclusion, and pesu commits a markdown note.">
     <div class="hx-bar"># platform-design<span class="hx-badge">APP</span></div>
     <div class="hx-msgs">
       <div class="hx-msg"><span class="hx-name hx-human">Srid</span><span class="hx-time">2:11 PM</span><br/>@kolu work off srid/my-notebook — explain to @john why foo beats qux here, based on context X</div>
       <div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">2:11 PM</span><br/>Working in <span class="hx-code">~/w/xs-77</span> (srid/my-notebook)</div>
       <div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">2:12 PM</span><br/>@john — short version: foo keeps X's invariant where qux trades it away; the notes in <span class="hx-code">decisions/context-x.md</span> pin why that invariant is the constraint…</div>
-      <div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">2:14 PM</span><br/>Captured the thread's conclusion → committed <span class="hx-code">notes/foo-vs-qux.md</span></div>
+      <div class="hx-msg"><span class="hx-name hx-human">Srid</span><span class="hx-time">2:14 PM</span><br/>good — record that</div>
+      <div class="hx-msg"><span class="hx-name hx-app">kolu</span><span class="hx-time">2:14 PM</span><br/>Committed <span class="hx-code">notes/foo-vs-qux.md</span></div>
     </div>
   </div>
 );
