@@ -20,6 +20,7 @@
  * Deterministic, offline, no credentials.
  */
 
+import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -47,6 +48,12 @@ const DIE_WHEN_READY = process.argv.includes("--die-when-ready");
  *  every generation after it. The replacement dying mid-handshake is the case
  *  a respawn guard can silently swallow, leaving no adapter and no report. */
 const DIE_ON_RESPAWN = process.argv.includes("--die-on-respawn");
+/** Close the ACP stream but keep running — a live process with a dead
+ *  transport, which no `exit` or `error` event would ever report. */
+const DROP_STREAM = process.argv.includes("--drop-stream");
+/** Leave a long-lived child in this process's group, then exit — the tool or
+ *  MCP server an adapter is expected to take with it. */
+const LEAK_CHILD = process.argv.includes("--leak-child");
 const SESSION_ID = "fake-session-1";
 
 /**
@@ -107,6 +114,18 @@ class FakeAgent implements Agent {
   }
 
   async newSession(): Promise<NewSessionResponse> {
+    if (LEAK_CHILD) {
+      // A descendant in the adapter's process group, whose pid is left where
+      // the test can find it. It must not survive its parent.
+      const runtimeDir = process.env.XDG_RUNTIME_DIR ?? "/tmp";
+      const child = spawn("sleep", ["300"], { stdio: "ignore" });
+      writeFileSync(join(runtimeDir, "leaked-child-pid"), String(child.pid));
+      setTimeout(() => process.exit(4), 50);
+    }
+    if (DROP_STREAM) {
+      // Answer, then drop the protocol stream while staying alive.
+      setTimeout(() => process.stdout.end(), 50);
+    }
     if (DIE_ON_RESPAWN) {
       // Serve once, then go — so there IS a respawn, whose replacement then
       // dies in its handshake. That second death is the one under test.

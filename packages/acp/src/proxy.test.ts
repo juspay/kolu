@@ -19,7 +19,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -29,7 +29,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import type { PromptResponse } from "@zed-industries/agent-client-protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CANCEL_GRACE_MS } from "./adapter.ts";
 import { connectToProxy } from "./connect.ts";
 
@@ -465,6 +465,65 @@ describeDaemon("acp-proxy, end to end over a real socket", () => {
     ];
     expect(attempts.map((m) => Number(m[1]))).toEqual(
       attempts.map((_m, i) => i + 1),
+    );
+  });
+
+  it("fails a turn that was still running when the client closed", async () => {
+    // Closing locally ends the transport just as surely as the proxy dying, and
+    // the ACP library settles nothing on either. A client that suppressed its
+    // own close from that accounting left the caller awaiting a turn that could
+    // never finish.
+    const proxy = await startProxy([]);
+    const client = await connectToProxy(proxy.socketPath);
+
+    const turn = client.prompt("hang");
+    const failed = expect(turn).rejects.toThrow(/closed/);
+    await proxy.waitFor(
+      (out) => out.includes("streaming, then silence"),
+      "the turn to start",
+    );
+    client.close();
+
+    await failed;
+  });
+
+  it("takes the adapter's whole process tree with it when it dies", async () => {
+    // An adapter runs its tools and MCP servers as its own children. Reaping
+    // only the leader leaves them behind, and a proxy that respawns on every
+    // crash would leak one tree per generation.
+    const proxy = await startProxy(["--leak-child"]);
+    await proxy.waitFor(
+      () => proxy.readyCount() >= 2,
+      "the adapter to die and be replaced",
+    );
+
+    const pidFile = join(dirname(proxy.socketPath), "..", "leaked-child-pid");
+    const leaked = Number(readFileSync(pidFile, "utf8"));
+    expect(leaked).toBeGreaterThan(0);
+
+    await vi.waitFor(
+      () => {
+        // `kill -0` throws ESRCH once the process is gone.
+        expect(() => process.kill(leaked, 0)).toThrow();
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+  });
+
+  it("treats a lost ACP stream as a dead adapter, even while the process lives", async () => {
+    // The library ends its receive loop on EOF and keeps its pending requests
+    // forever, so an adapter that closes fd 1 but keeps running is invisible to
+    // both `exit` and `error`: the generation would stay current with turns
+    // that can never settle.
+    const proxy = await startProxy(["--drop-stream"]);
+
+    await proxy.waitFor(
+      (out) => out.includes("closed its ACP stream"),
+      "the transport loss to be noticed",
+    );
+    await proxy.waitFor(
+      () => proxy.readyCount() >= 2,
+      "the adapter to be replaced",
     );
   });
 

@@ -70,10 +70,13 @@ export async function connectToProxy(socketPath: string): Promise<ProxyClient> {
   });
   gone.catch(() => {});
   socket.once("close", () => {
-    if (!leaving) {
-      markClosed();
-      died(new Error("the proxy closed the connection"));
-    }
+    // The rejection is unconditional: the transport is gone either way, and the
+    // library will not settle the requests riding on it. `leaving` decides only
+    // whether this counts as the PROXY going away — a caller that closed the
+    // client itself is not told its own shutdown was a disconnection, but its
+    // in-flight and queued turns must still be told they will never finish.
+    died(new Error("the connection to the proxy is closed"));
+    if (!leaving) markClosed();
   });
   const untilGone = async <T>(work: Promise<T>): Promise<T> =>
     await Promise.race([work, gone]);

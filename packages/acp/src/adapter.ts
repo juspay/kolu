@@ -320,6 +320,32 @@ export class AdapterSession {
       this.#onExit(generation, code, signal),
     );
 
+    // A process can lose its ACP stream without losing its life — an adapter
+    // that closes fd 1 and keeps running. The library ends its receive loop on
+    // EOF and keeps its pending requests forever, so nothing else would ever
+    // notice: the generation would stay "current" with a turn that can never
+    // settle. Losing the transport IS losing the generation.
+    //
+    // The delay disambiguates the ordering rather than adding tolerance: an
+    // ordinary exit closes these streams too, and `exit` may arrive just after
+    // `close`. Letting the real cause win first keeps the transcript honest;
+    // `#onExit` is once-only, so whichever gets there first is the whole story.
+    const transportLost = () => {
+      setTimeout(() => {
+        if (generation.ended) return;
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        this.#onExit(
+          generation,
+          null,
+          null,
+          new Error("the adapter closed its ACP stream while still running"),
+        );
+      }, 250);
+    };
+    stdout.once("end", transportLost);
+    stdout.once("close", transportLost);
+    stdin.once("error", transportLost);
+
     this.#emit({
       kind: "adapterSpawned",
       command: this.#spec.command,
@@ -434,6 +460,10 @@ export class AdapterSession {
           reason: `the adapter exited (${signal ? `signal ${signal}` : `code ${code}`})`,
         }),
     );
+    // The leader is gone but its group is not: an adapter runs its tools and
+    // MCP servers as its own children, and they outlive it. Without this, every
+    // crash-and-respawn cycle leaks one process tree.
+    this.#killGroup(generation.child, "SIGKILL");
     // Stop the orphaned receive loop rather than let it drain to EOF.
     generation.child.stdout?.destroy();
 
