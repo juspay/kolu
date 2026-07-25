@@ -492,14 +492,18 @@ export function adoptedSnapshot(
   liveEntry: PtyHostListEntry,
 ): TerminalSnapshot {
   return {
+    // Everything not saved starts at ITS SEED, from the one home for that set
+    // (`seedSnapshot`) rather than hand-spelled here: the live agent resets, the
+    // foreground resets before the live read below overrides it, and so do the
+    // ports — nothing about a port survived the restart in the saved record, and
+    // the host-wide scan re-derives the real set within a tick of the sensor layer
+    // starting. A SEVENTH snapshot field then lands in `seedSnapshot` alone.
+    ...seedSnapshot(liveEntry.cwd),
     ...PersistedSnapshotSchema.parse(record),
+    // The two DELIBERATE overrides: the live daemon snapshot is the authority for
+    // both (see above), so they win over the saved projection.
     cwd: liveEntry.cwd,
-    agent: null,
     foreground: liveForeground(liveEntry),
-    // A LIVE field like the agent, so it resets: nothing about a port survived
-    // the restart in the saved record, and the host-wide scan re-derives the real
-    // set within a tick of the sensor layer starting.
-    ports: [],
   };
 }
 
@@ -1499,13 +1503,13 @@ function seedHandlelessTerminal<Saved extends { id: string }>(
   // cwd / branch / pr off it. The agent the terminal will resume rides the authored
   // record built by `toEntry`. The observation rides the entry's `snapshot` field (no
   // separate store), then fans out.
+  const persisted = PersistedSnapshotSchema.parse(parsed);
   const snapshot: TerminalSnapshot = {
-    ...PersistedSnapshotSchema.parse(parsed),
-    agent: null,
-    foreground: null,
-    // Live, like the agent and the foreground — a cold-restored terminal has no
-    // process yet, so it can be serving nothing by construction.
-    ports: [],
+    // The live fields (agent, foreground, ports) come from the ONE home for the
+    // snapshot-default set rather than being re-spelled here: a cold-restored
+    // terminal has no process yet, so it can be serving nothing by construction.
+    ...seedSnapshot(persisted.cwd),
+    ...persisted,
   };
   registerAndInstall(id, toEntry(parsed, { info: { id, pid: 0 }, snapshot }));
   return true;
