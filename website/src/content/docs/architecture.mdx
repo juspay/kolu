@@ -420,6 +420,14 @@ _out_. The map, grouped:
   binding: one dedicated ssh connection per forward, so a forwarded port dies
   with the process that opened it rather than outliving it on a shared master.
   Two independent apps sit on it — `vazhi` today, kolu's Inspector next.
+- **Headless agents** — `acp` hides an ACP adapter's process lifecycle: it
+  spawns a headless coding agent (`claude-agent-acp`, `codex-acp`, any stdio
+  [ACP](https://agentclientprotocol.com) agent) over stdio, re-serves the same
+  protocol on a unix socket, and owns the harness duties — respawn on crash,
+  cancel with a grace window, permission answering. Both of its faces are
+  standard ACP, so it depends on no kolu daemon and kolu never learns about it;
+  running `acp-proxy` in a tile is a deployment choice, not a coupling.
+  `acp-chat` is its REPL client.
 - **The framework** — [`surface`](/surface) (typed reactive `Cell` / `Collection`
   / `Stream` / `Event` + SolidJS hooks), `surface-remote` (the ssh mirror),
   `surface-daemon` (the durable-daemon spine), and its supervisor half.

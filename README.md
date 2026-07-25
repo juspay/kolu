@@ -60,6 +60,8 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
   home-manager service on Linux or macOS.
 - **[vazhi](https://kolu.dev/vazhi)** — a standalone TUI that makes a port on
   another machine answer where your browser can reach it.
+- **[ACP agents](https://kolu.dev/acp)** — run a headless coding agent in a tile
+  and drive it over a protocol instead of screen-scraping its TUI.
 
 The complete feature guides and command reference live at
 **[kolu.dev](https://kolu.dev)**. This README is the map.

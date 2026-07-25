@@ -1,0 +1,88 @@
+---
+title: ACP agents
+description: "Run a headless coding agent in a kolu tile and drive it over the Agent Client Protocol — structured turns instead of screen-scraping a TUI."
+order: 96
+section: Command Line
+---
+
+import Aside from "../../components/docs/Aside.astro";
+
+Driving a coding agent by typing into its TUI means watching a screen and
+guessing: has the turn ended, was that keystroke swallowed, did the tool finish?
+The [Agent Client Protocol](https://agentclientprotocol.com) (ACP) removes the
+guessing. A prompt is a request that **returns when the turn ends**, and
+everything in between — message text, tool calls, permission requests — arrives
+as a typed frame.
+
+**`acp-proxy`** runs a headless agent behind that protocol and re-serves it on a
+unix socket, so a program can drive the agent while you watch the very same
+session scroll past in a terminal. **`acp-chat`** is the client you talk to it
+with.
+
+## Try it
+
+Two terminals. In the first, harness an agent:
+
+```sh
+nix run github:juspay/kolu#acp-proxy -- --id demo -- claude-agent-acp
+```
+
+It prints the socket it is listening on and then idles. In the second, talk to
+it:
+
+```sh
+nix run github:juspay/kolu#acp-chat -- "$XDG_RUNTIME_DIR/kolu/acp-demo.sock"
+> why is the e2e suite flaky?
+agent ▸ It's a port collision: two workers bind 5173.
+```
+
+The first terminal shows the same turn as protocol frames — which is the point
+of running it in a kolu tile: the conversation happens over the socket, and the
+tile is where you go to watch it happen.
+
+```
+▶ session/prompt · "why is the e2e suite flaky?"
+◀ agent_message_chunk · It's a port collision: two workers bind 5173.
+◀ tool_call · execute — grep -r retry test-results/
+◀ session/request_permission · grep … → auto-answered Allow once
+◀ tool_call_update · completed
+● turn end · stopReason: end_turn
+```
+
+<Aside kind="note" title="The tile is not an input">
+Nothing is typed into the proxy's terminal. All input arrives as ACP calls on
+the socket, which is what makes the session drivable by a program and watchable
+by a person at the same time. Several clients can attach at once and all see the
+same turn.
+</Aside>
+
+## Any agent
+
+The adapter is whatever you put after `--`, so no agent is privileged:
+
+```sh
+acp-proxy --id a -- claude-agent-acp   # Claude Code, headless
+acp-proxy --id b -- codex-acp          # Codex
+```
+
+Both adapters ship with the package — no global install — and both use the login
+the host already has. Any other stdio ACP agent on your `PATH` works the same
+way.
+
+## What the harness handles
+
+An agent process can die mid-turn, ignore a cancellation, or block waiting for
+permission. The proxy absorbs all three so a client sees one durable session:
+
+- **A dead adapter is replaced.** The turn it was running fails loudly; your next
+  prompt works. Conversation history does not survive the restart.
+- **A cancel always ends the turn.** It is forwarded first; an agent that keeps
+  going anyway is replaced after a short grace window rather than left running.
+- **Permissions are answered "allow once"** for now, and the decision is shown in
+  the transcript. Answering them yourself is the next step for this feature.
+
+<Aside kind="note" title="Where this is heading">
+`acp-proxy` is the foundation for driving a kolu agent from a chat thread — one
+conversation to one tile, with permission prompts you answer from chat. Today it
+stands on its own as a way to run and script a headless agent.
+</Aside>

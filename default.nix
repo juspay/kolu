@@ -593,6 +593,15 @@ let
   # rebuild would be pure cost.
   vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
 
+  # @kolu/acp — an ACP agent in a tile (Atlas: chat-native-agents-and-kolu).
+  # Two bins off one derivation set: the proxy that harnesses an adapter, and
+  # the REPL client that drives it. Like vazhi it does NOT wrap the full `kolu`
+  # build — the package imports the ACP library and node builtins, so the vite
+  # bundle and the node-pty rebuild would be pure cost. Nothing in it depends
+  # on kaval, padi or @kolu/surface: both of its faces are standard ACP.
+  acp = import ./packages/acp { inherit pkgs src pnpmDeps; };
+  inherit (acp) acp-proxy acp-chat;
+
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
   # package. Reuses this build's `src` + `pnpmDeps` — every package with a
   # typecheck script is in the `src` fileset above (see its INVARIANT
@@ -604,5 +613,5 @@ let
   };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi;
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi acp-proxy acp-chat;
 }
