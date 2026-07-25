@@ -531,18 +531,19 @@ What each phase changes **for the user** — the sentence you'd put in a
 release note:
 
 - **PRT0** *(shipped, <PrLink pr={1975} />)* — you can forward ports by hand, today, kolu or no kolu: run `nix run …#vazhi` in any terminal (a kolu terminal keeps it alive across reloads), type `a host:4123`, and get a live table with a clickable `http://…` link; `q` reaps every forward, guaranteed. Kolu's own UI changes not at all.
-- **PRT1** — the Inspector answers "what is this terminal serving?": a live **Ports** section lists every listening port of the session within seconds of it appearing. No forwarding yet — but a port bound to `0.0.0.0` on the kolu server host needs none (it already answers on the name in your address bar), so those chips open in one click; loopback-bound and remote-host ports are listed but wait for PRT2.
+- **PRT1** *(shipped, <PrLink pr={1982} />)* — the Inspector answers "what is this terminal serving?": a live **Ports** section lists every listening port of the session within seconds of it appearing. No forwarding yet — but a port bound to `0.0.0.0` on the kolu server host needs none (it already answers on the name in your address bar), so those chips open in one click; loopback-bound and remote-host ports are listed but wait for PRT2.
 - **PRT2** — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, a **Forwarded Ports** group shows and cancels them (plus a manual ⌘K "Forward a port…"), and forwards clean themselves up when the server dies. This is the headline: *the agent started something → you're looking at it.*
 - **PRT3** *(deferred)* — the page opens inside kolu instead of a browser tab.
 
 | id | ships | needs | proof |
 | --- | --- | --- | --- |
 | PRT0 ✅ | `@kolu/port-forward` library + vazhi TUI — <PrLink pr={1975} /> | — | standalone forward on a real remote box, no kolu running |
-| PRT1 | padi port sensor · Ports section · direct open | — | e2e: spawned listener's chip appears + opens |
+| PRT1 ✅ | padi port sensor · Ports section · direct open — <PrLink pr={1982} /> | — | e2e: spawned listener's chip appears + opens |
 | PRT2 | kolu embeds the library: lazy forward · Forwarded Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
 | PRT3 | embedded in-kolu preview pane | PRT2 | deferred — not planned yet |
 
-PRT0 shipped in <PrLink pr={1975} />; **PRT1 is next**, and PRT2 needs both.
+PRT0 shipped in <PrLink pr={1975} /> and PRT1 in <PrLink pr={1982} />;
+**PRT2 is next** — both of its prerequisites are in.
 
 ### PRT0 — the library, proven by vazhi (shipped: <PrLink pr={1975} />)
 
@@ -557,7 +558,7 @@ proof that makes PRT2's embed mechanical — and `kill -9` on vazhi leaves
 **no port answering**, checked immediately rather than after any timer, which
 is the property the per-forward connection exists to give.
 
-### PRT1 — detection + Ports section (one PR)
+### PRT1 — detection + Ports section (shipped: <PrLink pr={1982} />)
 
 Scanner, `ports` schema field, sensor fold, the Inspector section, direct-open
 chips, the tip. **Done when** an e2e scenario runs
