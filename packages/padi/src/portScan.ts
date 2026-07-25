@@ -537,10 +537,17 @@ async function linuxProcessTable(
    *  root and letting the pass publish a confidently PARTIAL answer. That is a
    *  caught error collapsing to missing state, which is the one thing this module
    *  is built not to do; only the exit race and the deliberate foreign-uid case
-   *  are skippable. */
+   *  are skippable.
+   *
+   *  The `try` wraps ONLY the read, not the parse below it: `parseProcStat` throws
+   *  its own specific `PortScanError` (naming exactly which row/field was
+   *  unreadable), and a parse failure has no errno, so folding it into this catch
+   *  would route it through `procReadFailure(undefined, …)` and rethrow a generic
+   *  "cannot read" message that buries the parser's real diagnostic in `.cause`. */
   const readRow = async (pid: string): Promise<ProcessRow | undefined> => {
+    let raw: string;
     try {
-      return parseProcStat(await readFile(`/proc/${pid}/stat`, "utf8"));
+      raw = await readFile(`/proc/${pid}/stat`, "utf8");
     } catch (err) {
       if (procReadFailure(errnoOf(err), roots.has(Number(pid))) === "skip") {
         return undefined;
@@ -551,6 +558,7 @@ async function linuxProcessTable(
         { cause: err },
       );
     }
+    return parseProcStat(raw);
   };
 
   // Read in BOUNDED batches rather than one strictly-serial await per pid. This is
