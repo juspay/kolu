@@ -113,7 +113,7 @@ const elapsed = () =>
 describe("ConnectCanvas elapsed timer (#1962)", () => {
   it("ticks every second with ZERO incoming log frames", async () => {
     h.setInfo({
-      phase: "building",
+      phase: "provisioning",
       log: [{ source: "local", line: "6 paths done · 84 B of 84 B" }],
       sinceMs: 3_000,
       campaignEpoch: 1,
@@ -140,7 +140,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     // the createEffect without a new server duration — the freeze that wiped
     // wall-clock extension by re-baselining `at` every time.
     h.setInfo({
-      phase: "copying",
+      phase: "provisioning",
       log: [{ source: "local", line: "copying 6 paths…" }],
       sinceMs: 3_000,
       campaignEpoch: 1,
@@ -156,7 +156,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
 
     // Same sinceMs, new object identity — effect re-runs, must NOT reset.
     h.setInfo({
-      phase: "copying",
+      phase: "provisioning",
       log: [{ source: "local", line: "copying path '/nix/store/…-pkg'…" }],
       sinceMs: 3_000,
       campaignEpoch: 1,
@@ -169,8 +169,8 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
 
   it("re-baselines when the server sinceMs advances (stays honest to the session clock)", async () => {
     h.setInfo({
-      phase: "building",
-      log: [{ source: "local", line: "building" }],
+      phase: "provisioning",
+      log: [{ source: "local", line: "provisioning" }],
       sinceMs: 3_000,
       campaignEpoch: 1,
     });
@@ -183,8 +183,8 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
 
     // Server frame with a larger sinceMs (e.g. after a quiet period) — re-anchor.
     h.setInfo({
-      phase: "building",
-      log: [{ source: "local", line: "building" }],
+      phase: "provisioning",
+      log: [{ source: "local", line: "provisioning" }],
       sinceMs: 40_000,
       campaignEpoch: 1,
     });
@@ -214,7 +214,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     // both episodes often open at sinceMs: 0 — must not keep host A's wall baseline.
     h.host = { kind: "remote", target: "zest" };
     h.setInfo({
-      phase: "building",
+      phase: "provisioning",
       log: [{ source: "local", line: "building on zest" }],
       sinceMs: 0,
       campaignEpoch: 1,
@@ -229,7 +229,7 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
 
     h.host = { kind: "remote", target: "other" };
     h.setInfo({
-      phase: "building",
+      phase: "provisioning",
       log: [{ source: "local", line: "building on other" }],
       sinceMs: 0,
       campaignEpoch: 1,
@@ -247,8 +247,8 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     // recheck() bumps campaignEpoch; first frame of the new campaign is also sinceMs: 0.
     h.host = { kind: "remote", target: "zest" };
     h.setInfo({
-      phase: "building",
-      log: [{ source: "local", line: "building" }],
+      phase: "provisioning",
+      log: [{ source: "local", line: "provisioning" }],
       sinceMs: 0,
       campaignEpoch: 1,
     });

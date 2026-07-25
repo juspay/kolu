@@ -4,6 +4,7 @@ import type { TerminalMetadata } from "@kolu/padi/surface";
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
+import { ACTIONS } from "../input/actions";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import LiveActivityDot from "./LiveActivityDot";
@@ -79,7 +80,7 @@ const SubPanelTabBar: Component<{
         type="button"
         class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
         onClick={props.onCreate}
-        title="Split terminal"
+        title={ACTIONS.createSubTerminal.label}
       >
         +
       </button>

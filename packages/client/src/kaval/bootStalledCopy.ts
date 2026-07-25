@@ -18,6 +18,7 @@
  *  rather than pretending a long, still-running campaign failed the instant the ceiling passed. */
 
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
+import { match } from "ts-pattern";
 import type { ClientStalledLeg } from "./canvasModeResolver";
 
 /** A card's copy — a short title and a plain-language body. Both non-empty
@@ -80,7 +81,7 @@ export function bootStalledCopy(leg: ClientStalledLeg): BootStalledCopy {
 }
 
 /** The live connect-phase DETAIL line for the CONNECTOR card, rendered beside its static body so
- *  a wedged-but-retrying remote campaign names WHERE it is (checking / copying / building /
+ *  a wedged-but-retrying remote campaign names WHERE it is (checking / provisioning /
  *  connecting) rather than a bare title. Lives HERE (this is the card's copy authority — the
  *  module doc's own claim) rather than inline in `BootStalledCanvas`, so all of the card's
  *  plain-language copy has one home and one test. Total over {@link ConnectPhase} PLUS `undefined`
@@ -89,16 +90,13 @@ export function bootStalledCopy(leg: ClientStalledLeg): BootStalledCopy {
 export function bootStalledPhaseDetail(
   phase: ConnectPhase | undefined,
 ): string | undefined {
-  switch (phase) {
-    case "probing":
-      return "Still checking whether this host already has the agent…";
-    case "copying":
-      return "Still copying the recipe to the host…";
-    case "building":
-      return "Still building on the host…";
-    case "connecting":
-      return "Still connecting to the host's agent…";
-    case undefined:
-      return undefined;
-  }
+  return match(phase)
+    .with(
+      "probing",
+      () => "Still checking whether this host already has the agent…",
+    )
+    .with("provisioning", () => "Still provisioning the agent on the host…")
+    .with("connecting", () => "Still connecting to the host's agent…")
+    .with(undefined, () => undefined)
+    .exhaustive();
 }

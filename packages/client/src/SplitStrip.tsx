@@ -28,7 +28,7 @@ const SplitStrip: Component<SplitStripProps> = (props) => {
       aria-label={
         isCollapsed()
           ? `${count()} split terminal${count() > 1 ? "s" : ""} (Ctrl+\`)`
-          : "Split terminal"
+          : ACTIONS.createSubTerminal.label
       }
       onClick={props.onClick}
     >

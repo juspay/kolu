@@ -14,7 +14,7 @@
  * to time out.
  *
  * Mocks `node:child_process` + `nixCopy` (same approach as
- * `reconnect-spin.test.ts`) so no real ssh / `nix copy` runs.
+ * `reconnect-spin.test.ts`) so no real ssh / remote-store Nix command runs.
  */
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -25,7 +25,7 @@ import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import {
   type DownSessionState,
   makeSession,
@@ -128,14 +128,18 @@ describe("HostSession child-exit classification", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 10,
       label: "testhost",
     });
     session.pin().catch(() => {});
 
-    // 5 attempts of copying→connecting→exit 127→backoff (10/20/40/80ms).
+    // The mocked provisioner returns without invoking the real phase callback, so this
+    // observes 5 attempts of probing→connecting→exit 127→backoff (10/20/40/80ms).
     await vi.advanceTimersByTimeAsync(3000);
     expect(session.currentState().phase).toBe("failed");
     expect(down(session.currentState()).cause).toBe("remote");
@@ -173,7 +177,10 @@ describe("HostSession.recheck", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 50,
       label: "testhost",
@@ -211,7 +218,10 @@ describe("HostSession.recheck", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       reconnectDelayMs: 50,
       label: "testhost",
@@ -245,7 +255,10 @@ describe("HostSession.recheck", () => {
         host: "testhost",
         binary: "agent",
         localEnv: {},
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+        resolveDrvPath: () =>
+          Promise.resolve(
+            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+          ),
       }),
       label: "testhost",
     });

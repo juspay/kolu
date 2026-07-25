@@ -177,7 +177,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
     // The adopt branch used to route through `markConnected`, whose `connecting`-only
     // guard SILENTLY no-ops from any other state. A connector that returned a live link
     // WITHOUT first calling `ctx.connecting()` (a contract breach) then stranded the
-    // proven-live link in `copying`/`disconnected` forever. The fix enters `connected`
+    // proven-live link in `probing`/`disconnected` forever. The fix enters `connected`
     // DIRECTLY on adopt, so a proven link always transitions (and the breach is logged).
     const connectOnce = (_ctx: ConnectContext): Promise<Connection<unknown>> =>
       // Deliberately does NOT call ctx.connecting() — the contract breach under test.
@@ -202,7 +202,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
 
     await session.pin();
     // The proven-live link reaches connected despite the skipped ctx.connecting() —
-    // before the fix it stayed stuck at the initial "copying".
+    // before the fix it stayed stuck at the initial "probing".
     expect(states).toContain("connected");
     expect(session.currentClient()).not.toBeNull();
 

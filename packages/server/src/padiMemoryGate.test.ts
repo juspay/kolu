@@ -21,7 +21,7 @@ import { padiMemoryReadable } from "./padiMemoryGate.ts";
 /** A minimal valid `SessionState` for any phase. Typed at the REMOTE arm `SshProv`
  *  (`SessionState<SshProv>` — a closed 7-phase union), which is assignable to the gate's
  *  `SessionState<string>` param, so the fixture also covers the provisioning phases
- *  (`probing`/`copying`/`building`) a `PadiSession<SshProv>` passes in. `.exhaustive()` over
+ *  (`probing`/`provisioning`) a `PadiSession<SshProv>` passes in. `.exhaustive()` over
  *  the closed union means a new phase forces this fixture to compile-fail until handled. */
 const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
   match<typeof phase, SessionState<SshProv>>(phase)
@@ -50,7 +50,7 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
     }))
     // The up-but-not-connected arms (local `connecting` + the remote provisioning phases)
     // share one shape — collapsed with a multi-pattern `.with`.
-    .with("connecting", "probing", "copying", "building", (p) => ({
+    .with("connecting", "probing", "provisioning", (p) => ({
       phase: p,
       log: [],
       sinceMs: 0,
@@ -80,8 +80,7 @@ describe("padiMemoryReadable — the memory-rail liveness policy (LIVE-FIX)", ()
     for (const phase of [
       "connecting",
       "probing",
-      "copying",
-      "building",
+      "provisioning",
       "disconnected",
       "failed",
     ] as const) {

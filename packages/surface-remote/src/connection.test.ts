@@ -27,7 +27,7 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
   it("mirrors the session sum: up phases carry only `log` + `sinceMs` (connected also `clockOffset`), down phases require error+cause", () => {
     // UP arms except `connected` (incl. the ssh connector's `probing` opening phase)
     // — parse with only `log` + `sinceMs`, no error fields.
-    for (const phase of ["probing", "copying", "building", "connecting"]) {
+    for (const phase of ["probing", "provisioning", "connecting"]) {
       expect(
         ConnectionInfoSchema.parse({
           phase,

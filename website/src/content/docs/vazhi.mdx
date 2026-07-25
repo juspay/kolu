@@ -1,0 +1,77 @@
+---
+title: Vazhi
+description: "vazhi — a standalone TUI that makes a port on another machine answer where your browser can reach it: add a forward, click the URL, quit and it's gone."
+order: 94
+section: Command Line
+---
+
+import Aside from "../../components/docs/Aside.astro";
+
+An agent starts a dev server on `127.0.0.1:5173` — on a box across the room, or
+on the machine kolu itself runs on. Either way it is invisible from the laptop
+you are looking at, because loopback never leaves a machine. **vazhi** (Tamil:
+*way, passage*) makes it answer somewhere you can reach.
+
+```bash
+nix run github:juspay/kolu#vazhi
+```
+
+```
+vazhi · 1 forward · answering on pureintent
+
+ › pu-dev:5173  →  http://pureintent:5173  up 12m
+
+
+a add · x cancel · ↑/↓ move · q quit
+```
+
+That row says: whatever listens on pu-dev's own `127.0.0.1:5173` now answers at
+`http://pureintent:5173` — a port on **this** machine, bound on every interface,
+so any browser on your network can open it. The URL is a real terminal
+hyperlink: **click it**.
+
+## The whole interface
+
+| key | |
+| --- | --- |
+| `a` | add a forward — type `host:port` (or `:port` for a loopback server on this machine) |
+| `x` | cancel the selected forward |
+| `↑` / `↓` | move the selection |
+| `q` | quit — every forward vazhi opened goes down with it |
+
+`host` is any ssh destination: a hostname, a `user@box`, or an alias from your
+`~/.ssh/config`. There are no subcommands and no config file.
+
+## The port you get
+
+The local port **is** the remote port whenever that number is free here, so the
+URL is predictable — `pu-dev:4123` answers on `4123`. When the number is already
+taken, the kernel picks one and the row shows which; a forward is never refused
+just because its number is busy.
+
+## Lifetime — it dies when vazhi dies
+
+Each forward is its own ssh connection, held open by vazhi's own process. Quit
+it, crash it, `kill -9` it, or lose power to the machine: the connection goes
+with the process and the port stops answering **at once**. Nothing is left
+mapped, and a restarted vazhi shows an empty list because there is nothing to
+show.
+
+<Aside type="caution" title="A forwarded port is open to your network">
+  The listener is unauthenticated raw TCP on every interface of the machine
+  running vazhi — the same exposure as starting the dev server on `0.0.0.0`
+  yourself. Whoever can reach that machine can reach the forwarded service. Use
+  it on a network you trust (a tailnet, a LAN you control), not on a public box.
+</Aside>
+
+ssh runs non-interactively (`BatchMode=yes`), so `ssh <host>` must already work
+without a prompt — a host that would ask for a password fails fast instead of
+hanging behind the TUI.
+
+## Where it fits
+
+vazhi is a standalone app: it drives no daemon and kolu never consults it. It
+exists for the times kolu isn't around — a bare box, an ssh session, a CI host —
+and it shares its whole mechanism with kolu itself through the
+`@kolu/port-forward` library. Run it *inside* a kolu terminal and
+[kaval](/kaval)'s persistence keeps it alive across browser reloads for free.

@@ -135,7 +135,7 @@
   <a xlink:href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/lens-debate/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="50" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="68" y="660">/lens-debate</text>
-    <text class="skilln" x="68" y="678">boundaries ⇄ simplicity</text>
+    <text class="skilln" x="68" y="678">boundaries ∥ simplicity</text>
   </a>
   <path class="serial" d="M250,664 L320,664" marker-end="url(#arrowSerial)"/>
   <a xlink:href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/agent-debate/SKILL.md" target="_blank" rel="noopener">

@@ -1093,7 +1093,7 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
 
   it("drops the fine `connection` word on a NON-connected arm when the link is dead (subsumes the old connectionFloor)", () => {
     // The fine per-entry connection word (the connect overlay's narration) is floored by the
-    // SAME liveness decision as the dot: a `warming` arm frozen at `building`/`copying` over a
+    // SAME liveness decision as the dot: a `warming` arm frozen at `provisioning` over a
     // dead link keeps narrating a build that is no longer live, so the word is dropped to
     // undefined — the one floor every consumer inherits, replacing the client's separate
     // `floorConnectionInfo`. A live link is a no-op and carries the word through.
@@ -1102,7 +1102,7 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
         {
           kind: "warming",
           membershipId: testMembershipId("m1"),
-          connection: { phase: "building" },
+          connection: { phase: "provisioning" },
         },
         false,
       ),
@@ -1115,14 +1115,14 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
         {
           kind: "warming",
           membershipId: testMembershipId("m1"),
-          connection: { phase: "building" },
+          connection: { phase: "provisioning" },
         },
         true,
       ),
     ).toEqual({
       kind: "warming",
       membershipId: testMembershipId("m1"),
-      connection: { phase: "building" },
+      connection: { phase: "provisioning" },
     });
   });
 

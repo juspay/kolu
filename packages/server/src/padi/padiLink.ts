@@ -28,7 +28,7 @@ type SessionPhase = ConnectionInfo["phase"];
 /** Collapse the bound padi session's `phase` onto the three-state `padiLink` the
  *  client folds:
  *    - `connected`                          → `connected`  (bound to a live padi);
- *    - `connecting` / `probing` / `copying` / `building` → `connecting` (the binding
+ *    - `connecting` / `probing` / `provisioning` → `connecting` (the binding
  *                                              is (re)establishing / provisioning);
  *    - `disconnected` / `failed`            → `degraded`   (the binding dropped; the
  *                                              loop re-dials).
@@ -37,13 +37,7 @@ type SessionPhase = ConnectionInfo["phase"];
 export function mapConnectionToPadiLink(phase: SessionPhase): PadiLink {
   return match(phase)
     .with("connected", () => "connected" as const)
-    .with(
-      "connecting",
-      "probing",
-      "copying",
-      "building",
-      () => "connecting" as const,
-    )
+    .with("connecting", "probing", "provisioning", () => "connecting" as const)
     .with("disconnected", "failed", () => "degraded" as const)
     .exhaustive();
 }

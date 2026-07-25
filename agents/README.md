@@ -20,7 +20,7 @@ Repo-agnostic skills that don't depend on kolu internals:
 | Skill                | What it does                                                            |
 | -------------------- | ---------------------------------------------------------------------- |
 | `be` / `be-review`   | Take a task end-to-end with a serial AI review gauntlet                 |
-| `lens-debate`        | Structural-review debate between the lowy and hickey lenses             |
+| `lens-debate`        | Parallel lowy + hickey structural review, merged by one reconcile pass  |
 | `agent-debate`       | Claude/Codex/Grok peer debate to consensus (review or freeform answer)  |
 | `perfection-review`  | Adversarial "ideal-bar" review, fanned out via Workflow                 |
 | `architecture-first-principles` | The state-and-time lens — 5 grounded CS principles (values, pure core, one-authority/clock, illegal-states-unrepresentable, end-to-end) |

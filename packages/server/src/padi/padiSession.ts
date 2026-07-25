@@ -84,21 +84,21 @@ export function padiFailureOf(
 /** A bound padi, LOCAL or REMOTE — a daemon session over the padi surface, its
  *  convergence descriptor being padi's app-specific {@link PadiConvergence}.
  *
- *  Parameterized by `Prov`, mirroring `@kolu/surface-remote`'s own copying-
+ *  Parameterized by `Prov`, mirroring `@kolu/surface-remote`'s own provisioning-
  *  unrepresentable split (juspay/kolu#1716) one layer up: `DaemonSession` itself
  *  always extends the FULL-union `Session<Client>` (it is not generic over the
  *  provisioning phase), so a padi session built over the local arm's narrowed
  *  `Session<_, never>` base was silently WIDENED back to the full union the moment
  *  it became a `PadiSession` — the type claimed a local padi session's `onState`
- *  could report `"copying"`, even though the local endpoint connector (no
- *  nix-copy, the daemon is already here) can never produce it. `PadiSession<Prov>`
+ *  could report `"provisioning"`, even though the local endpoint connector (the
+ *  daemon is already here) can never produce it. `PadiSession<Prov>`
  *  intersects the daemon's supervision members onto the `Prov`-NARROWED base
  *  `Session<PadiSurfaceClient, Prov>`'s `onState` (and its synchronous twin
  *  `currentState`, which returns the same `SessionState<Prov>` frame) instead of
  *  `DaemonSession`'s own (always-full) ones — so `PadiSession<never>` (the local arm,
- *  see `padiBinding.ts`) makes `"copying"`/`"building"` a compile error here too, the
+ *  see `padiBinding.ts`) makes `"provisioning"` a compile error here too, the
  *  LAST consumer in this split's chain. The remote ssh arm keeps the default (the
- *  ssh connector's `SshProv` = `"copying" | "building"`); the heterogeneous
+ *  ssh connector's `SshProv` = `"probing" | "provisioning"`); the heterogeneous
  *  local+remote pool (`index.ts`'s `buildRemotePool<PadiSession, …>`) still needs
  *  the common, un-parameterized `PadiSession` as its slot type — a local session
  *  widening into that slot is the same deliberate, structural widening
@@ -132,9 +132,9 @@ export const PADI_PRESERVATION = { children: "survive" } as const;
  *  survives THROUGH this function instead of being discarded at the one place
  *  both arms funnel through: the local arm (`padiBinding.ts`) passes a
  *  `Session<_, never>` base and gets back a `PadiSession<never>` (still unable to
- *  report `"copying"`/`"building"`); the remote ssh arm (`remotePadiBinding.ts`)
+ *  report `"provisioning"`); the remote ssh arm (`remotePadiBinding.ts`)
  *  passes a `Session<_, SshProv>` and gets back the default `PadiSession` (admits
- *  `"copying"`/`"building"`, its actual provisioning phases). */
+ *  `"probing"`/`"provisioning"`, its actual provisioning phases). */
 export function asPadiSession<Prov extends string = SshProv>(
   base: Session<PadiSurfaceClient, Prov>,
   members: {

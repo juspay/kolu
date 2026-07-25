@@ -13,8 +13,7 @@ describe("mapConnectionToPadiLink — bound padi session phase → koluSurface p
   it("maps a (re)establishing binding to `connecting` (initial dial + the reconnect tail)", () => {
     expect(mapConnectionToPadiLink("connecting")).toBe("connecting");
     expect(mapConnectionToPadiLink("probing")).toBe("connecting");
-    expect(mapConnectionToPadiLink("copying")).toBe("connecting");
-    expect(mapConnectionToPadiLink("building")).toBe("connecting");
+    expect(mapConnectionToPadiLink("provisioning")).toBe("connecting");
   });
 
   it("maps a dropped binding to `degraded` — the drain window and a failed dial alike", () => {
@@ -29,8 +28,7 @@ describe("mapConnectionToPadiLink — bound padi session phase → koluSurface p
   it("is total over every session phase (a new phase is a compile error, not a silent gap)", () => {
     const all: SessionPhase[] = [
       "probing",
-      "copying",
-      "building",
+      "provisioning",
       "connecting",
       "connected",
       "disconnected",

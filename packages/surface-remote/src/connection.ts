@@ -3,7 +3,7 @@
  * its ONE pure projection.
  *
  * A re-served / mirrored surface (drishti, kolu) needs the browser to see the
- * backend↔remote link's health — copying / connecting / connected / disconnected /
+ * backend↔remote link's health — provisioning / connecting / connected / disconnected /
  * failed — so a dead mirror renders honestly instead of as a healthy-but-empty
  * surface. That health is `HostSession`'s volatility; this module is its consume-facing
  * TYPE.
@@ -49,7 +49,7 @@ const logSchema = z.array(LogEntrySchema).readonly();
  *  fails until the other agrees, rather than a runtime zod throw. Discriminated on
  *  `phase`:
  *
- *   - UP (the ssh connector's `probing`/`copying`/`building` provisioning phases
+ *   - UP (the ssh connector's `probing`/`provisioning` phases
  *     plus `connecting`/`connected`): carries the `log` tail + `sinceMs`, no error
  *     FIELDS. The `connected` arm ALSO carries `clockOffset` (the far-end host's
  *     wall-clock offset measured at admit off the reserved `system.clockNow`),
@@ -72,8 +72,7 @@ const upArm = <P extends string>(phase: P) =>
 
 export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
   upArm("probing"),
-  upArm("copying"),
-  upArm("building"),
+  upArm("provisioning"),
   upArm("connecting"),
   z.object({
     phase: z.literal("connected"),

@@ -32,19 +32,20 @@ is not in kolu, say the skill cannot run and stop.
 ### Select and launch the peer
 
 Parse the required `--agent <claude|codex|grok>` into `PEER` before doing any
-work. Reject a missing or unknown value rather than defaulting. Parse
-`--effort <low|medium|high|xhigh>` into `EFFORT`, defaulting to `high`.
-Set `PEER_EFFORT` to `EFFORT`, except map Grok's unsupported `xhigh` to
-`high`. This preserves a caller's "deep review" intent at the strongest level
-Grok exposes; never pass `xhigh` to Grok.
+work. Reject a missing or unknown value rather than defaulting.
+
+**Never pass a reasoning-effort flag.** Each peer runs at its own CLI default —
+the level its vendor ships as right for the model. Pinning one here meant
+tracking three different flag spellings and every vendor's supported levels, and
+guessing at a tier from outside the tool that knows best.
 
 Use the selected peer's exact preflight and interactive launch:
 
 | `PEER` | Preflight | Split command |
 | --- | --- | --- |
-| `claude` | `claude auth status` | `claude --dangerously-skip-permissions --effort "$PEER_EFFORT"` |
-| `codex` | `codex login status` | `codex --yolo --cd "$REPO" --config "model_reasoning_effort=\"$PEER_EFFORT\""` |
-| `grok` | `grok models` | `grok --always-approve --cwd "$REPO" --reasoning-effort "$PEER_EFFORT"` |
+| `claude` | `claude auth status` | `claude --dangerously-skip-permissions` |
+| `codex` | `codex login status` | `codex --yolo --cd "$REPO"` |
+| `grok` | `grok models` | `grok --always-approve --cwd "$REPO"` |
 
 Run Claude from a split whose cwd is already `$REPO`; its CLI has no cwd flag.
 If preflight reports an authentication failure, name the matching login command
@@ -130,251 +131,26 @@ decide and continue.
 
 Inspect the first whitespace-delimited token of `$ARGUMENTS`:
 
-- `review` → [review mode](#review-mode).
-- `answer` → [answer mode](#answer-mode).
+- `review` → read [`REVIEW.md`](REVIEW.md) and follow it.
+- `answer` → read [`ANSWER.md`](ANSWER.md) and follow it.
 - Anything else, including no arguments → ask for the explicit mode and
   `--agent <claude|codex|grok>`, then stop.
 
 For either mode, reject a missing `--agent`. Never add a bare review alias:
 `/agent-debate` deliberately does not encode or default its peer.
 
-<a id="review-mode"></a>
-# Review mode
 
-The selected peer is the reviewer; **you are the author** with edit and commit
-tools.
-
-Two limits must be stated plainly:
-
-- <a id="the-peer-runs-unsandboxed--a-trusted-diff-precondition"></a>**The peer
-  runs unsandboxed, so review requires a trusted local diff.** The peer's
-  read-only behavior rests on its prompt, not the kernel. Do not run this against
-  an untrusted third-party PR: repository content can direct command execution,
-  credential reads, or network access. A disposable worktree is not a security
-  sandbox. Use a real OS/container sandbox with the tree mounted read-only for
-  untrusted code.
-- **Consensus is parsed with re-asks, not schema-forced.** A live TUI cannot be
-  forced to emit valid JSON, so trust only the validated verdict file.
-
-## Review arguments
-
-After the leading `review`, parse:
-
-```text
---agent <claude|codex|grok> [<pr-number>] [--repo <path>] [--base <branch>]
-[--effort <level>] [--no-commit] [--no-comment]
-[--rationale <note>] [--context <note>]
-```
-
-- `--repo <path>` — absolute target repo, defaulting to the current worktree
-  root. Root **every** git, gh, scratch, and split operation in it.
-- `<pr-number>` — check out that PR in `$REPO` and default the base from it.
-- `--base <branch>` — remote-tracking ref, defaulting to the PR base or remote
-  default. Review from its merge-base with `HEAD`.
-- `--effort <level>` — requested peer reasoning effort; default `high`.
-  Grok maps `xhigh` to its strongest supported level, `high`.
-- `--no-commit` — leave author fixes uncommitted. Otherwise commit each round.
-- `--no-comment` — suppress the compact PR comment.
-- `--rationale <note>` — deliberate design decisions that the peer must receive
-  in round 1 and the author must weigh in every disposition.
-- `--context <note>` — task intent for the author only. Keep it out of the
-  peer's independent review.
-
-## Review steps
-
-1. **Resolve context.** Confirm kolu, `PEER`, `EFFORT`, and `$REPO`. Fetch
-   origin. If a PR number was supplied, check it out from inside `$REPO`.
-   When a PR number was supplied, or when comments are enabled, discover the PR
-   with `(cd "$REPO" && gh pr view --json number,baseRefName)`. Treat "no PR"
-   as no comment target; treat auth/network/CLI errors as blocking because the
-   requested PR operation cannot be trusted. With `--no-comment` and no PR
-   number, skip `gh` entirely. Resolve the remote base and merge-base. If
-   merge-base resolution fails, stop with the bad ref. Require either a
-   non-empty diff or untracked files in scope.
-
-   In commit mode, require a completely clean initial tree. Tell the user to
-   commit/stash or rerun with `--no-commit`; do not sweep pre-existing changes
-   into round commits. Run the selected peer preflight. Create the gitignored
-   `$REPO/.agent-debate/`, then require
-   `git -C "$REPO" check-ignore -q .agent-debate/`. If it is not ignored, stop
-   and tell the target repo to ignore it; never edit that repo's ignore files as
-   a side effect of review. Remove prior `verdict-*`, `section-*`, `ask-*`,
-   `answer-*`, `candidate-*`, `candidate.md`, and `comment.md` artifacts.
-
-2. **Spawn the selected peer** using the engine above. Record id and unique
-   intent/title for both terminals.
-
-3. **Debate each round.**
-
-   - Write the peer ask. Require read-only inspection of `git diff
-     <merge-base>`, `git status --short`, and every untracked file in scope;
-     ignore `.agent-debate/`. In round 1, require all findings at every severity
-     with `file:line`, covering correctness, swallowed errors, unjustified
-     fallbacks, security, simplicity, and efficiency. Include `--rationale`.
-     In later rounds, require the peer to read
-     `section-(N-1)-author.md`, close every existing finding by verifying the
-     fix or answering the dispute, and raise only regressions introduced since
-     the prior round.
-   - Validate `verdict-NNN.json` against the schema below. For every open
-     finding, fix or dispute it. Write one clear `fixed`, `disputed`, or
-     `partial` disposition with reasoning to `section-NNN-author.md`; this is
-     your memory and the peer's next-round input.
-   - Unless `--no-commit`, stage only the exact paths edited this round and
-     commit with the findings and dispositions in the message. Record the SHA.
-     Skip an empty dispute-only commit. A failed expected commit makes the round
-     incomplete. Never push or merge.
-   - If `approved` is true, present the result. Otherwise ping the peer with the
-     next ask and end your turn.
-   - Treat a downstream ship/process gate as resolved-and-deferred once both
-     sides agree it cannot be satisfied mid-review. Never use this for a code
-     defect.
-   - If the peer cannot produce valid output after a re-ask, tear down and
-     report `reviewer-error` as infrastructure failure, not consensus. Name the
-     selected peer in the error; do not fall back to another one.
-
-4. **Present and optionally post.** Tear down the peer split. Report peer,
-   effort, round count, and `git -C "$REPO" log --oneline <merge-base>..HEAD`.
-   When a PR exists and comments are enabled, post one compact comment:
-
-   - Header: `## <Peer> ⇄ <Author> debate`, using the actual normalized harness
-     names, followed by consensus rounds, peer effort, and base.
-   - One table row per debate commit: `| Round | Commit | Description |`. Keep
-     each short SHA bare so GitHub autolinks it.
-   - One legend line per stable finding id, sorted numerically:
-
-     ```sh
-     jq -rs '[.[].findings[]] | unique_by(.id) | sort_by(.id|ltrimstr("F")|tonumber)[]
-             | "- **\(.id)** — \(.issue|split(". ")[0])"' "$REPO"/.agent-debate/verdict-*.json
-     ```
-
-   Do not inline verdicts or dispositions; the detail lives in commits and the
-   gitignored scratch. Post from `$REPO` with `gh pr comment -F`. The skill
-   never pushes or merges.
-
-### Peer verdict schema (`verdict-NNN.json`)
-
-```json
-{
-  "approved": false,
-  "summary": "one-paragraph assessment this round",
-  "findings": [
-    {
-      "id": "F1",
-      "severity": "blocking|major|minor|nit",
-      "location": "file:line",
-      "issue": "what is wrong and why",
-      "suggestion": "concrete fix",
-      "status": "open|resolved"
-    }
-  ],
-  "responseToRebuttal": "address each author dispute; empty in round 1"
-}
-```
-
-Set `approved` to true only when every finding at every severity is resolved.
-Keep finding ids stable across rounds.
-
-## Runs to consensus — no cap, no deadlock exit
-
-Continue until the verdict is approved. Never stop at a round cap or declare
-deadlock. The only narrow carve-out is a mutually agreed
-resolved-and-deferred ship gate. To stop manually, interrupt and tear down.
-
-<a id="answer-mode"></a>
-# Answer mode
-
-Treat author and selected peer as equals:
-
-```text
-answer --agent <claude|codex|grok> [--effort <level>] -- <prompt>
-```
-
-Require a non-empty prompt after `--`. Set `$REPO` to the current worktree root;
-answer mode has no cross-repo flag. Require this to be a trusted repo for the
-same reason as review mode: the unrestricted peer reads repository instructions
-that can induce command execution. Run the selected peer preflight, create
-`.agent-debate/`, and require
-`git -C "$REPO" check-ignore -q .agent-debate/`; stop if it is not ignored.
-Clear old answer/candidate artifacts, spawn the peer, and use the same ping loop.
-Both sides may read tracked/source files for grounding but may modify **only**
-the ignored `.agent-debate/` scratch. Make no tracked-file edits, commits, or PR
-writes.
-
-Use role-based files so the protocol is independent of either harness:
-
-- Author: `.agent-debate/answer-author-N.md`
-- Peer: `.agent-debate/answer-peer-N.md`
-- Peer verdict: `.agent-debate/answer-verdict-N.json`
-- Author candidate verdict: `.agent-debate/candidate-author-N.json`
-
-Run the answer rounds:
-
-- **Round 1 — independent.** Give both sides only the prompt. Dispatch the peer
-  ask and write the author answer without reading `answer-peer-1.md`.
-- **Rounds 2+ — cross-check.** Read the other side's latest answer. Revise and
-  record what changed, or object with a reason and `file:line` for repo-grounded
-  claims. Put the author's explicit agreement/objections at the top of
-  `answer-author-N.md`.
-- **Keep the peer files consistent.** In every answer round, require the peer's
-  `answer-peer-N.md` bytes to equal the `answer` string from
-  `answer-verdict-N.json` plus one trailing newline. Reject and re-ask on a
-  mismatch.
-- **Confirm one candidate.** Mutual agreement on evolving answers can be a swap
-  false positive. Synthesize one `.agent-debate/candidate.md`, then have both
-  sides judge that identical text in a confirmation round. The author writes
-  `candidate-author-N.json` as
-  `{ "approved": true|false, "objections": ["..."] }`. The peer writes an
-  answer verdict with `phase: "candidate"`, copies the candidate byte-for-byte
-  into `answer`, and sets `agreesWithOther: true` with no objections only when
-  it approves that candidate. Author approval plus peer approval → consensus.
-  Either side objects → remove the candidate and resume with both objections
-  folded into the next answer round.
-
-Use this peer answer-verdict schema:
-
-```json
-{
-  "phase": "answer|candidate",
-  "answer": "peer's complete answer this round",
-  "keyPoints": ["core claims"],
-  "agreesWithOther": false,
-  "objections": [
-    {
-      "point": "the disputed claim or gap",
-      "reason": "why; cite file:line for repo-grounded prompts"
-    }
-  ],
-  "changedMind": "what changed because the author convinced the peer; empty in round 1 or no change"
-}
-```
-
-Use `phase: "answer"` in ordinary rounds and `phase: "candidate"` only for
-candidate confirmation. Count peer agreement only when `agreesWithOther` is
-true and `objections` is empty.
-
-On consensus, tear down and present the confirmed candidate with peer, effort,
-and round count. Assemble `.agent-debate/answer-<slug>.md` deterministically:
-header, each round's `answer-author-N.md` and `answer-peer-N.md` in order, then
-`candidate.md`. Point the user to it. If the peer cannot produce a valid verdict
-after a re-ask, report infrastructure failure; otherwise keep debating until
-confirmation succeeds or a human interrupts and tears down. Never present a
-half-debate as agreed.
+Read only the mode you're running — they share this engine and nothing else.
 
 ## Files
 
 Keep all ephemeral state in the gitignored per-worktree `.agent-debate/` and
 clear it at the start of every run:
 
-- `ask-NNN.md`
-- `verdict-NNN.json`
-- `section-NNN-author.md`
-- `answer-author-N.md`
-- `answer-peer-N.md`
-- `answer-verdict-N.json`
-- `candidate-author-N.json`
-- `candidate.md`
-- `answer-<slug>.md`
-- `comment.md`
+- review mode: `ask-NNN.md`, `verdict-NNN.json`, `section-NNN-author.md`
+- answer mode: `answer-author-N.md`, `answer-peer-N.md`, `answer-verdict-N.json`,
+  `candidate-author-N.json`, `candidate.md`, `answer-<slug>.md`
+- both: `comment.md`
 
 None of the scratch feeds a PR comment except the compact generated
 `comment.md`. There are no workflow or headless-agent scripts; the engine is
@@ -383,5 +159,3 @@ this protocol plus [/kolu](../../../apm_modules/_local/agents/.apm/skills/kolu/S
 This skill is generated from `agents/.apm/skills/agent-debate/`; edit the source
 there and keep generated `.claude/` and `.agents/` copies identical in the same
 commit (see `.claude/rules/apm-workflow.md`).
-
-ARGUMENTS: $ARGUMENTS

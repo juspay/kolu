@@ -10,7 +10,7 @@
       "command": ".claude/skills/odu-mcp/bin/serve",
       "args": [],
       "env": {
-        "ODU_FLAKE": ".#odu"
+        "ODU_FLAKE": "./ci#odu"
       }
     },
     "kolu": {

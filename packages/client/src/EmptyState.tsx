@@ -19,9 +19,15 @@ import WelcomeMoments from "./WelcomeMoments";
 const chrome = surface();
 
 const features = [
-  { label: "New terminal", shortcut: advertisedNewTerminalKey },
-  { label: "New terminal menu", shortcut: ACTIONS.newTerminalMenu.keybind },
-  { label: "Search everything", shortcut: ACTIONS.commandPalette.keybind },
+  { label: ACTIONS.createTerminal.label, shortcut: advertisedNewTerminalKey },
+  {
+    label: ACTIONS.newTerminalMenu.label,
+    shortcut: ACTIONS.newTerminalMenu.keybind,
+  },
+  {
+    label: ACTIONS.commandPalette.label,
+    shortcut: ACTIONS.commandPalette.keybind,
+  },
   { label: "Cycle terminals", shortcut: ACTIONS.cycleTerminalMru.keybind },
 ];
 
@@ -279,7 +285,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               class="mb-5 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 active:brightness-95 transition-all"
               onClick={() => props.onCreate?.()}
             >
-              New terminal
+              {ACTIONS.createTerminal.label}
             </button>
           </Show>
           {/* Shortcut list — only where the welcome moments aren't shown (mobile).

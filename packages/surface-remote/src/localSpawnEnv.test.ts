@@ -10,13 +10,13 @@
  * the LOCAL ssh client, which legitimately needs `SSH_AUTH_SOCK` / `~/.ssh`).
  *
  * Mocks `node:child_process` + `nixCopy` (same approach as `liveness.test.ts`) so no
- * real ssh / `nix copy` runs; the connector is driven once with a no-op context.
+ * real ssh / remote-store Nix command runs; the connector is driven once with a no-op context.
  */
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { provisionAgent } from "./nixCopy";
+import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import type { ConnectContext } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
 
@@ -75,7 +75,8 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
     const connector = sshConnector({
       host: "localhost",
       binary: "agent",
-      resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+      resolveDrvPath: () =>
+        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
       localEnv,
     });
     await connector(noopCtx);
@@ -89,7 +90,8 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
     const connector = sshConnector({
       host: "bob.example",
       binary: "agent",
-      resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+      resolveDrvPath: () =>
+        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
       localEnv: { HOME: "/home/x", PATH: "/usr/bin" },
     });
     await connector(noopCtx);

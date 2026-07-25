@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
 /**
- * GUARD TEST (C7): `default.nix`'s workspace-typecheck `src` fileset is a MANUALLY
+ * GUARD TEST (C7): `nix/workspace.nix`'s `src` fileset is a MANUALLY
  * maintained `lib.fileset.unions` — a package omitted there is silently type-checked
  * against a source tree that lacks it, which is invisible to `just check` (full working
  * tree) and only reds a real `nix build`. The `@kolu/surface-map` package hit exactly
@@ -9,10 +9,10 @@
  * ("surface-remote can't resolve @kolu/surface-map"). This pins the fileset's own stated
  * invariant so a future package can't repeat the omission. (juspay/kolu#1716-adjacent.)
  *
- * Runs in the unit suite (full checkout — `default.nix` is present), not the nix
- * type-gate: it READS `default.nix` at runtime and asserts membership; it doesn't need
+ * Runs in the unit suite (full checkout — `nix/workspace.nix` is present), not the nix
+ * type-gate: it READS `workspace.nix` at runtime and asserts membership; it doesn't need
  * nix. Nested workspace members ride their TOP-LEVEL package dir (the fileset lists whole
- * `./packages/<name>` dirs), so a top-level check is exactly the fileset's granularity.
+ * `../packages/<name>` dirs), so a top-level check is exactly the fileset's granularity.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -32,10 +32,13 @@ function repoRoot(): string {
   );
 }
 
-describe("default.nix typecheck `src` fileset — every workspace package with a typecheck script is included", () => {
+describe("workspace.nix `src` fileset — every workspace package with a typecheck script is included", () => {
   it("no top-level packages/* with a `typecheck` script is omitted (the surface-map miss)", () => {
     const root = repoRoot();
-    const defaultNix = readFileSync(join(root, "default.nix"), "utf8");
+    const workspaceNix = readFileSync(
+      join(root, "nix", "workspace.nix"),
+      "utf8",
+    );
     const pkgsDir = join(root, "packages");
 
     const missing: string[] = [];
@@ -49,9 +52,9 @@ describe("default.nix typecheck `src` fileset — every workspace package with a
       } catch {
         // Not a readable package.json — skip (not a workspace member dir).
       }
-      // A top-level package that declares `typecheck` MUST appear as `./packages/<name>`
+      // A top-level package that declares `typecheck` MUST appear as `../packages/<name>`
       // in the fileset, or nix type-checks against a source tree missing it.
-      if (hasTypecheck && !defaultNix.includes(`./packages/${name}`)) {
+      if (hasTypecheck && !workspaceNix.includes(`../packages/${name}`)) {
         missing.push(name);
       }
     }

@@ -8,7 +8,7 @@
  * by PID, user, or command substring.
  *
  * SR9: this example teaches re-serve mechanics + process monitoring, not connection
- * PRESENTATION. Per-host connection state (the copying/building/connecting phase + log
+ * PRESENTATION. Per-host connection state (the probing/provisioning/connecting phase + log
  * tail) is a host-map concept — it rides a `@kolu/surface-map` host map's `entries`
  * channel as its fine `connection` payload (see `@kolu/surface-remote`'s `serveHostMap`),
  * not a per-re-serve `connection` cell. So the health dot + connecting overlay here are
@@ -310,8 +310,8 @@ function ConnectingOverlay(props: { error?: string }) {
     <div class="px-4 py-12 text-center text-gray-600 dark:text-gray-400">
       <div class="mb-2 text-lg">{msg()}</div>
       <div class="text-xs">
-        First connect provisions the agent closure via <code>nix copy</code>.
-        Subsequent connects reuse it.
+        First connect provisions and roots the agent closure with Nix.
+        Subsequent connects reuse the rooted result.
       </div>
     </div>
   );

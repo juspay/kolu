@@ -43,8 +43,8 @@ import type { BootTag, CeilingClass } from "./canvasModeResolver";
 export const LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS = 30_000;
 
 /** The FULL, all-FINITE ceiling table (#1763 R4). Every cell is bounded — an unbounded cell
- *  would recreate the no-escape class inside the fix (a link-live frozen `building` would
- *  never escape). A remote's ssh dial + nix copy + build legitimately outlasts the local
+ *  would recreate the no-escape class inside the fix (a link-live frozen `provisioning` would
+ *  never escape). A remote's ssh provisioning legitimately outlasts the local
  *  ceiling, so provisioning gets a generous minutes-scale cell; a remote handshake
  *  (probing/connecting/pre-frame) a shorter but still finite one. */
 export const CEILING_MS: Record<CeilingClass, number> = {
@@ -54,7 +54,7 @@ export const CEILING_MS: Record<CeilingClass, number> = {
 };
 
 /** The CAMPAIGN backstop ceiling (#1908 R8a) — a SECOND, class-BLIND cell above the per-class
- *  table. PR1's D1 retry cycle can flap a warming host's phase (probing→copying→building→retry)
+ *  table. PR1's D1 retry cycle can flap a warming host's phase (probing→provisioning→retry)
  *  fast enough that the class anchor above re-zeros on every class change and so NEVER trips —
  *  the escape card would never fire for a persistently-wedged host. This bound is anchored ONCE
  *  per connector campaign (the `provisioning` leg — the whole warming-remote coming-up campaign)

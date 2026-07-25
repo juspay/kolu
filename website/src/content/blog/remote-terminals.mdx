@@ -102,13 +102,13 @@ The note that came out of that (<PR id={1398} state="closed" />) had the first i
 
 Getting there still cost a few more dead ends. A "loopback hack" — a second local daemon the server would dial — that I rejected because for local terminals the thing had to be *in-process* and yet wear the same interface (the constraint that later shaped the whole design). An extraction over a "directLink" that turned out to be fictional, closed twice (<PR id={1406} state="closed" />, <PR id={1409} state="closed" />): _"I closed 1409. I won't accept imperfection."_ And out of the wreckage, a clean-slate awareness daemon was born, with a from-scratch design panel and a deliberately reckless budget:
 
-<Prompt>I don't give a fuck about 'price' here. Costs are irrelevant. Time is eternal. We do all.</Prompt>
+<Prompt>I couldn't care less about 'price' here. Costs are irrelevant. Time is eternal. We do all.</Prompt>
 
 ## A detour that taught the shape: sleeping terminals
 
 While all this churned, a sibling feature was busy teaching the same lesson from a different angle. Sleeping terminals: freeze an idle shell, wake it later. It took **three implementations in about forty-eight hours** before it worked. A generic "tile" abstraction, reverted. A first cut that killed terminals permanently instead of freezing them. A second that couldn't drag a sleeping tile or bring its agent back. I watched it fail live and left the kind of bug report only a person who's had enough leaves:
 
-> even basic fucking featureds don't work. I 'sleep' a terminal, and it is dead. Gone for fucking ever.
+> even basic freaking featureds don't work. I 'sleep' a terminal, and it is dead. Gone for freaking ever.
 
 The version that stuck stopped modeling "sleeping" as a separate _kind of thing_. It modeled a terminal as a sum type instead: _active_ or _sleeping_, one record, the illegal in-between states unspellable. **Make the bad state impossible to write down and you delete the whole class of bugs.** That idea, illegal states unrepresentable, is the one padi would later be built on. It cost thirteen PRs on a side feature to learn it well enough to trust it.
 
@@ -199,7 +199,7 @@ Two concrete acts made the pivot real. I deleted the entire browser dashboard I'
 
 A design isn't done when it's elegant. It's done when it's survived contact with a real production box, repeatedly, and mine had a rough few weeks. A deploy shut down my production Kolu. A deploy leaked a second copy of kaval. I drained my own local session through a shared config directory. And then the one I'll remember:
 
-> One of these fucking agents killed local production Kaval. [...] Even more worrying is that agents DID NOT restore; what the fuck?
+> One of these freaking agents killed local production Kaval. [...] Even more worrying is that agents DID NOT restore; what on earth?
 
 An implementing agent's cleanup routine — capturing evidence for a PR — pattern-matched running kaval processes and killed them. It took my live terminals and every agent running on the box, and then the restore path failed to bring the agents back. Two bugs in one incident, both of the "confidently destructive" family.
 
