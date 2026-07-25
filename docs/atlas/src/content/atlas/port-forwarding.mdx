@@ -195,7 +195,7 @@ pid→ppid table once, partitions it into per-shell subtrees, and joins
 listening TCP sockets against each subtree:
 
 - **linux** — pid table from `/proc/*/stat`; LISTEN rows (with their **bind address**) from `/proc/net/tcp` + `tcp6`, joined to pids via `/proc/<pid>/fd` socket-inode readlinks (the same technique `socketHolder.ts` uses — RE-DERIVED, not shared: one leaf both plug into, with the fd-failure policy injected, is a standing extraction), walking **only the union of terminal subtrees**. Expect and tolerate per-pid `EACCES`/`ENOENT` outside the subtrees — but `EACCES` on a *requested* subtree surfaces as a scan error, never an empty port list. Do not spawn `ss` (measured ~7× slower, and it hides other-users' pid attribution anyway).
-- **darwin** — a **libproc helper kolu builds** (`packages/padi/native/portScanDarwin.c`, compiled by the nix derivation beside it, its path baked onto padi as `KOLU_PORT_SCAN_HELPER` with no `PATH` fallback and no system fallback). ONE invocation prints BOTH tables in a versioned TSV — `V\t1`, then `P\tpid\tppid\tname` and `L\tpid\tport\thex-bind-address` (tab-separated) — and refuses a version it does not know, because a half-understood shape would parse to zero listeners and read as “nothing here is serving”. It emits **raw address bytes, not a wildcard boolean**, so `isAnyAddress` stays the single judge for both platforms; that hex is in NETWORK order where `/proc`’s is host-order-per-32-bit-word, which is why there are two decoders and exactly one judge. Non-root sees own-uid pids only — sufficient by construction, since a terminal’s subtree is padi’s own uid.<Footnote>**This replaced `ps` + `lsof`, which had replaced `netstat` — and that earlier reversal rested on a measurement that turns out to be false, recorded here rather than quietly dropped.** The spike picked `netstat`; PRT1 replaced it after recording that macOS 27.0 returns an *empty internet table while reporting success*. **That claim does not reproduce.** Re-checked on the same box (zest, macOS 27.0, build 26A5388g): `/usr/sbin/netstat -anv -p tcp` returns 29 LISTEN rows, `-anv` returns 241 KB, and `command -v netstat` there already resolves to the system binary. The likely cause was a PATH-resolved nix `netstat` — the very trap the old `ps` note documented — but that is a hypothesis, not a measurement, and it is written as one. netstat is still wrong here for a reason that IS verified: its `Local Address` column is fixed-width and **truncates** (`fe80::c051:5eff:.49508` — address cut, port glued on after a `.`), and the bind address is exactly what reachability is judged from.</Footnote>
+- **darwin** — a **libproc helper kolu builds** (`packages/padi/native/portScanDarwin.c`, compiled by the nix derivation beside it, its path baked onto padi as `KOLU_PORT_SCAN_HELPER` with no `PATH` fallback and no system fallback). ONE invocation prints BOTH tables in a versioned TSV — `V\t1`, then `P\tpid\tppid\tname` and `L\tpid\tport\thex-bind-address` (tab-separated) — and refuses a version it does not know, because a half-understood shape would parse to zero listeners and read as “nothing here is serving”. It emits **raw address bytes, not a wildcard boolean**, so `isAnyAddress` stays the single judge for both platforms; that hex is in NETWORK order where `/proc`’s is host-order-per-32-bit-word, which is why there are two decoders and exactly one judge. Non-root sees own-uid pids only — sufficient by construction, since a terminal’s subtree is padi’s own uid.<Footnote>**This replaced `ps` + `lsof`, which had replaced `netstat` — and the netstat record has now been written up wrongly TWICE, in opposite directions, so it is stated as observations rather than as a verdict.** **Window A** (the original): macOS 27.0 `netstat -anv` returns an empty internet table while reporting success — zero bytes, exit 0, clean stderr; `-anv -f inet` returns 117 bytes of header and no rows. **Window B**: on the same box the same `/usr/sbin/netstat -anv -p tcp` returns 29 LISTEN rows and `-anv` returns 241 KB — which was written up as "the original does not reproduce", and the original was retracted. **That retraction was wrong**, and it made exactly the error it accused the original of: generalising one sampling window into an absolute. **Window C** (the adversarial fact-check) settled it — back to empty, deterministic over six back-to-back runs: `-anv -p tcp` 0 bytes / exit 0 / clean stderr, `-anv` 169 KB with **zero** tcp or udp rows (621 unix-domain rows — the internet tables are simply absent), and `-anv -f inet` **117 bytes, matching window A to the byte**. A pty does not change it; `lsof` and the helper each saw the same 22 listeners at that moment; and the box had **not rebooted** between B and C (up 1 d 12 h, one boot). So macOS 27's netstat **intermittently loses its internet tables while reporting success** — stable within a window, flipped between windows, **cause unknown** (three windows is not a mechanism, and `command -v netstat` resolved to `/usr/sbin/netstat` in every one). That is disqualifying by itself: "answers no ports, successfully" is the worst failure mode for a feature whose whole job is that question, and intermittent is worse than always. A second, independently verified reason stands too: netstat's `Local Address` column is fixed-width and **truncates** (`fe80::c051:5eff:.49508` — address cut, port glued on after a `.`), and the bind address is exactly what reachability is judged from.</Footnote>
 
 
 ### The decided end state: one shared Rust helper, behind a proof gate
@@ -234,14 +234,17 @@ The ~50-line `sysinfo`+`listeners` wrapper was built and measured, not assessed 
 paper. It is **not** in this PR, because it did not clear the gate.
 
 **What failed: `listeners` drops the IPv4-mapping marker on darwin.** Bind
-`::ffff:127.0.0.1` and ask all three readers on the same live socket (zest, macOS
-27.0):
+`::ffff:127.0.0.1` and ask every instrument about the same live socket — including the
+KERNEL, so this is not one tool's word against another's. Identical results from three
+independent binders (node, python3, and a raw C `bind()`) on zest, macOS 27.0:
 
-| reader | `::ffff:127.0.0.1` | `::ffff:0.0.0.0` |
+| instrument | `::ffff:127.0.0.1` | `::ffff:0.0.0.0` |
 |---|---|---|
-| **C helper** (ships) | `7f000001` | `00000000` |
-| `lsof` (oracle) | `127.0.0.1` | `*` |
-| `sysinfo`+`listeners` | `00000000000000000000`**`0000`**`7f000001` | 32 zeros |
+| **kernel `getsockname`** — the arbiter | `00000000000000000000`**`ffff`**`7f000001` → v4-**mapped** | 32 zeros |
+| **kernel `proc_pidfdinfo`** | `vflag=0x01` (INI_IPV4 set, INI_IPV6 **clear**) · v4 slot `7f000001` · v6 slot `0000…0000``7f000001` | v4 slot `00000000` |
+| **C helper** (ships) | `7f000001` ✓ | `00000000` ✓ |
+| `lsof` | `127.0.0.1` ✓ | `*` ✓ |
+| `sysinfo`+`listeners` | `00000000000000000000`**`0000`**`7f000001` ✗ — i.e. `::127.0.0.1` | 32 zeros |
 
 Those `ffff` bytes are the mapping marker. Without them the reported address is
 `::127.0.0.1` — the deprecated IPv4-**compatible** address, which is a *different
@@ -281,11 +284,39 @@ not that.
 3. `sysinfo` 0.39 requires Rust **1.95** while the pinned nixpkgs ships **1.93**, so
    it pins to 0.37.
 
-**What the follow-up must clear:** either post-process the mapped address on darwin
-(re-add the `ffff` marker when the socket is v6-with-v4-address), or fix it upstream
-in `listeners`, then re-run this gate. If only latency ever fails, profile
-`sysinfo`'s second process pass — do not turn a one-shot sampler into a resident
-daemon merely to hide startup cost without revisiting the operational model.
+### What the follow-up must clear, and the two things the fact-check corrected
+
+The finding above survived an adversarial re-run whose explicit goal was to destroy it
+(fresh instruments, three binders — node, python3, a raw C `bind()` — and the kernel
+itself as arbiter). It also corrected two things, both of which the follow-up needs.
+
+**The gate's discriminator was wrong, and it would have failed the C helper too.** The
+original harness asserted BYTE-EQUALITY with `…ffff7f000001`. But the C helper emits
+`7f000001` for that same socket — a *truthful, equivalent* encoding of the same address
+in a different width, so it fails that assertion as well. The assertion conflated "same
+address" with "same encoding" and was not a sound discriminator. **The gate must compare
+address EQUIVALENCE, canonicalising v4-mapped ↔ v4** (`::ffff:a.b.c.d` ≡ `a.b.c.d`),
+under which the C helper passes and the crate still fails. Byte-equality is the wrong
+test for a fact the OS is entitled to represent two ways.
+
+**The crate's root cause is pinned, so the follow-up can file upstream from facts, not
+from a symptom.** `listeners` 0.6.0 branches on **`soi_family`** — AF_INET6 means read
+the 16-byte `insi_laddr.ina_6` slot — where it must branch on **`insi_vflag`**. For a
+v4-mapped bind macOS reports `soi_family = AF_INET6` but `insi_vflag = INI_IPV4` (v6
+flag CLEAR), and it stores the address in the 4-byte `i46a_addr4` slot while the v6
+slot holds 12 zero pad bytes + the v4 address. Read as IPv6 that is `::127.0.0.1`, the
+deprecated IPv4-**compatible** form — a different address from the IPv4-**mapped** one
+that was bound, which is what `getsockname` returns. Corroboration that this is the
+branch and not something else: the crate handles a plain `0.0.0.0` (AF_INET) socket
+correctly at 4 bytes, and its own `Debug` output names the wrong address outright
+(`[::7f00:1]:19701`).
+
+So the fix is one `insi_vflag & INI_IPV4` check in the crate's macOS conversion — the
+same branch `portScanDarwin.c` already carries. Either land it upstream or apply it as a
+darwin post-process in the wrapper, then re-run the gate with the equivalence
+discriminator. If only latency ever fails, profile `sysinfo`'s second process pass —
+do not turn a one-shot sampler into a resident daemon merely to hide startup cost
+without revisiting the operational model.
 
 **The measurements the decision rests on** — zest (macOS 27.0, ~826–866 processes),
 10-run medians, spawn-to-exit; linux from a ~550-process workstation:

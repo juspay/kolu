@@ -73,20 +73,41 @@
  * `sysinfo`+`listeners` Rust wrapper shared with drishti, behind a proof gate — the
  * Atlas note records the gate and why this helper ships first.
  *
- * ### Retracted: the netstat blindness claim
+ * ### netstat: intermittently blind, which took two wrong write-ups to pin down
  *
- * An earlier revision recorded, as a MEASURED FACT, that macOS 27.0 `netstat -anv`
- * returns an empty internet table while reporting success. That does not reproduce.
- * Re-checked on the same box (zest, 27.0, build 26A5388g): `/usr/sbin/netstat -anv -p
- * tcp` returns 29 LISTEN rows, `-anv` returns 241 KB, and `command -v netstat` there
- * already resolves to the system binary. The likely cause is a PATH-resolved nix
- * netstat — the exact trap this file documents for `ps` — but that is a hypothesis,
- * written as one. A false measurement must not stay enshrined as a reason.
+ * The record here has been wrong in BOTH directions, so it is written as what was
+ * actually observed rather than as a verdict.
  *
- * netstat would be wrong here anyway, for a reason that IS verified: its
- * `Local Address` column is fixed-width and TRUNCATES (`fe80::c051:5eff:.49508` —
- * address cut, port glued on after a `.`), and the bind address is precisely what
- * reachability is judged from.
+ * **Window A** (the original): macOS 27.0 `netstat -anv` returns an EMPTY internet
+ * table while reporting success — zero bytes, exit 0, nothing on stderr;
+ * `netstat -anv -f inet` returns 117 bytes of header and no rows.
+ *
+ * **Window B**: on the same box, the same `/usr/sbin/netstat -anv -p tcp` returns 29
+ * LISTEN rows and `-anv` returns 241 KB. This was written up as "the original does not
+ * reproduce" and the original was retracted. **That retraction was wrong** — it
+ * generalised one sampling window into an absolute, which is the same error it accused
+ * the original of.
+ *
+ * **Window C** (the fact-check that settled it): back to empty. Deterministic over six
+ * back-to-back runs — `-anv -p tcp` 0 bytes / exit 0 / clean stderr, `-anv` 169 KB
+ * containing ZERO tcp or udp rows (621 unix-domain rows; the internet tables are simply
+ * absent), `-anv -f inet` **117 bytes**, matching window A to the byte. A pty does not
+ * change it. At that same moment `lsof` and this module's helper each saw the same 22
+ * listeners, and the box had NOT rebooted between B and C (up 1 d 12 h, one boot).
+ *
+ * So: macOS 27's netstat intermittently loses its internet tables while reporting
+ * success — stable within a window, flipped between windows, **cause unknown**. Three
+ * windows is not a mechanism, and no PATH confusion explains it (`command -v netstat`
+ * resolved to `/usr/sbin/netstat` in every window).
+ *
+ * That is disqualifying on its own: a mechanism whose failure mode is "answers no ports,
+ * successfully" is the worst possible one for a feature whose entire job is that
+ * question, and it would fail INTERMITTENTLY, which is worse than failing always.
+ *
+ * A second, independently verified reason not to use it: netstat's `Local Address`
+ * column is fixed-width and TRUNCATES (`fe80::c051:5eff:.49508` — address cut, port
+ * glued on after a `.`), and the bind address is precisely what reachability is judged
+ * from.
  *
  * Non-root visibility is the same as lsof had — own-uid pids only — and sufficient by
  * construction: a terminal's subtree is padi's own uid.
@@ -131,8 +152,12 @@
  * expects — and that gap produced a real bug: this file first looked for a
  * `netstat` header column called `pid`, and macOS calls it **`process:pid`** (value
  * `node:53082`), so every darwin scan threw while every fixture test stayed green.
- * Found by running it on a Mac, not by reading it. The same suite is what SHOULD
- * have caught the retracted netstat-blindness claim above at the time.
+ * Found by running it on a Mac, not by reading it.
+ *
+ * The netstat section above is the other half of that lesson, in reverse: a single
+ * clean sampling window was written up as a refutation, and a later window put the
+ * original observation back. An intermittent OS-level failure cannot be settled by
+ * one re-run in either direction.
  *
  * The helper was proved the same way before it shipped: built on zest and checked
  * against `lsof` for all four bind shapes at once — `127.0.0.1`, `0.0.0.0`, `::1`,
