@@ -26,9 +26,12 @@
  *  wildcard port is overwhelmingly http, and guessing https from a port number
  *  would produce a broken tab more often than a working one. */
 
-import type { PortInfo } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { activeArm } from "@kolu/padi/surface";
+import type { PortInfo, TerminalId } from "kolu-common/surface";
+import { type Component, For, Show, createMemo } from "solid-js";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OpenIcon } from "../ui/Icons";
+import Section from "../ui/Section";
 import { activeHost } from "../wire";
 
 /** The URL a wildcard-bound port answers on: the host the page was served from,
@@ -55,74 +58,119 @@ export function needsForwardReason(opts: {
   return null;
 }
 
-const PortsSection: Component<{ ports: readonly PortInfo[] }> = (props) => {
+/** Every port the TILE is serving — its main pane's and each split's, merged and
+ *  re-sorted.
+ *
+ *  A tile is one thing to the user and several PTYs to the daemon. The scanner
+ *  attributes a port to the pane whose subtree holds it, which is correct and
+ *  unavoidable (each pane is its own process tree) — but "run the dev server in
+ *  the split, read the Inspector on the main pane, see nothing" is then the
+ *  DEFAULT experience, because a split is exactly where a long-running server
+ *  goes. Observed on a real deployment before this was fixed.
+ *
+ *  So the section reads the tile, the same unit `KavalAttachSection` already
+ *  documents as "the main terminal AND each split". Ports are merged rather than
+ *  grouped per pane: which pane a listener happens to live in is an implementation
+ *  detail of how the user split their tile, not something they asked about.
+ *
+ *  Merging keeps `wildcard` true if ANY pane reports the port as such, for the
+ *  same reason the scanner's own fold does: one reachable bind makes it
+ *  reachable. */
+export function mergeTilePorts(panes: readonly (readonly PortInfo[])[]) {
+  const byPort = new Map<number, PortInfo>();
+  for (const ports of panes) {
+    for (const port of ports) {
+      const prior = byPort.get(port.port);
+      if (prior === undefined) byPort.set(port.port, { ...port });
+      else if (port.wildcard) prior.wildcard = true;
+    }
+  }
+  return [...byPort.values()].sort((a, b) => a.port - b.port);
+}
+
+const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
+  const store = useTerminalStore();
   // Is the terminal being inspected on the machine serving this page? The
   // Inspector always shows the ACTIVE host's terminal, and `{ kind: "local" }` is
   // exactly "the padi on the kolu server's own host" — so this is the whole
   // question, read off the key rather than compared against a hostname string.
   const onKoluHost = () => activeHost().kind === "local";
+  // The tile root plus its splits, exactly as the Attach section enumerates them:
+  // `terminalId` is the active TILE (never a split), so its sub-terminals are its
+  // panes.
+  const ports = createMemo(() =>
+    mergeTilePorts(
+      [props.terminalId, ...store.getSubTerminalIds(props.terminalId)].map(
+        (id) => activeArm(store.getMetadata(id))?.ports ?? [],
+      ),
+    ),
+  );
   return (
-    <div class="flex flex-col gap-1" data-testid="inspector-ports">
-      <For each={props.ports}>
-        {(port) => {
-          const reason = () =>
-            needsForwardReason({
-              wildcard: port.wildcard,
-              onKoluHost: onKoluHost(),
-            });
-          return (
-            <div class="flex items-baseline gap-2 text-[11px] leading-snug">
-              <span class="font-mono text-fg font-semibold tabular-nums">
-                {port.port}
-              </span>
-              <span class="font-mono text-fg-3/80 truncate min-w-0">
-                {port.name}
-              </span>
-              <span class="ml-auto shrink-0">
-                <Show
-                  when={reason() === null}
-                  fallback={
-                    // Inert on purpose — see the module header. `title` carries the
-                    // same sentence for the truncated layout, and the cursor stays
-                    // default so it never reads as a dead button.
-                    <span
-                      class="text-fg-3/50 text-[10px] italic"
-                      data-testid="inspector-port-needs-forward"
-                      data-port={port.port}
-                      title={reason() ?? undefined}
+    <Show when={ports().length > 0}>
+      <Section title="Ports">
+        <div class="flex flex-col gap-1" data-testid="inspector-ports">
+          <For each={ports()}>
+            {(port) => {
+              const reason = () =>
+                needsForwardReason({
+                  wildcard: port.wildcard,
+                  onKoluHost: onKoluHost(),
+                });
+              return (
+                <div class="flex items-baseline gap-2 text-[11px] leading-snug">
+                  <span class="font-mono text-fg font-semibold tabular-nums">
+                    {port.port}
+                  </span>
+                  <span class="font-mono text-fg-3/80 truncate min-w-0">
+                    {port.name}
+                  </span>
+                  <span class="ml-auto shrink-0">
+                    <Show
+                      when={reason() === null}
+                      fallback={
+                        // Inert on purpose — see the module header. `title` carries the
+                        // same sentence for the truncated layout, and the cursor stays
+                        // default so it never reads as a dead button.
+                        <span
+                          class="text-fg-3/50 text-[10px] italic"
+                          data-testid="inspector-port-needs-forward"
+                          data-port={port.port}
+                          title={reason() ?? undefined}
+                        >
+                          needs a forward
+                        </span>
+                      }
                     >
-                      needs a forward
-                    </span>
-                  }
-                >
-                  {/* `window.open` with `noopener,noreferrer`, the same
-                   *  external-open idiom the Code tab's preview uses — one way to
-                   *  leave kolu for an http(s) URL, so the flags can't drift
-                   *  between two hand-written call sites. */}
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-1 text-accent hover:underline cursor-pointer"
-                    data-testid="inspector-port-open"
-                    data-port={port.port}
-                    title={portUrl(window.location.hostname, port.port)}
-                    onClick={() =>
-                      window.open(
-                        portUrl(window.location.hostname, port.port),
-                        "_blank",
-                        "noopener,noreferrer",
-                      )
-                    }
-                  >
-                    <OpenIcon class="w-3 h-3" />
-                    open
-                  </button>
-                </Show>
-              </span>
-            </div>
-          );
-        }}
-      </For>
-    </div>
+                      {/* `window.open` with `noopener,noreferrer`, the same
+                       *  external-open idiom the Code tab's preview uses — one way to
+                       *  leave kolu for an http(s) URL, so the flags can't drift
+                       *  between two hand-written call sites. */}
+                      <button
+                        type="button"
+                        class="inline-flex items-center gap-1 text-accent hover:underline cursor-pointer"
+                        data-testid="inspector-port-open"
+                        data-port={port.port}
+                        title={portUrl(window.location.hostname, port.port)}
+                        onClick={() =>
+                          window.open(
+                            portUrl(window.location.hostname, port.port),
+                            "_blank",
+                            "noopener,noreferrer",
+                          )
+                        }
+                      >
+                        <OpenIcon class="w-3 h-3" />
+                        open
+                      </button>
+                    </Show>
+                  </span>
+                </div>
+              );
+            }}
+          </For>
+        </div>
+      </Section>
+    </Show>
   );
 };
 

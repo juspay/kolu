@@ -265,20 +265,15 @@ const MetadataInspector: Component<{
             )}
           </Show>
 
-          {/* Ports — what this terminal is SERVING. Gated on the active arm (a
-              sleeping terminal released its PTY, so its subtree and every
-              listener in it are gone) and on there being at least one, so a
-              terminal serving nothing shows no empty block. `PortsSection` owns
-              which chips are openable — that answer needs the active HOST, not
-              just the metadata. */}
-          <Show when={activeArm(meta())?.ports}>
-            {(ports) => (
-              <Show when={ports().length > 0}>
-                <Section title="Ports">
-                  <PortsSection ports={ports()} />
-                </Section>
-              </Show>
-            )}
+          {/* Ports — what this TILE is serving, its splits included (a dev server
+              usually runs in a split, so a main-pane-only reading shows nothing
+              in the common case). Gated on the active arm: a sleeping terminal
+              released its PTY, so its subtree and every listener in it are gone.
+              `PortsSection` owns the rest — which panes to read, which chips are
+              openable (that needs the active HOST, not just this metadata), and
+              rendering nothing at all when the tile serves nothing. */}
+          <Show when={activeArm(meta()) && props.terminalId}>
+            {(id) => <PortsSection terminalId={id()} />}
           </Show>
 
           {/* Foreground process */}

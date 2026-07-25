@@ -43,6 +43,20 @@ When(
   },
 );
 
+When(
+  "I start a listener on port {int} in the split terminal",
+  async function (this: KoluWorld, port: number) {
+    // A split is its own PTY with its own process subtree, so its ports are
+    // attributed to IT, not to the tile's main pane. Typing here rather than
+    // through `terminalRun` (which deliberately excludes `[data-sub-terminal]`)
+    // is the whole point of the scenario.
+    await this.focusForTyping("[data-sub-terminal]");
+    await this.page.keyboard.type(listenerCommand(port, "0.0.0.0"));
+    await this.page.keyboard.press("Enter");
+    await this.waitForFrame();
+  },
+);
+
 When("I stop the listener", async function (this: KoluWorld) {
   await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
   await this.page.keyboard.press("Control+c");

@@ -36,6 +36,21 @@ Feature: Ports section (PRT1)
     Then the inspector should show port 8124 as needing a forward
     And there should be no page errors
 
+  Scenario: A dev server in a SPLIT shows up on the tile
+    # The case that made the feature invisible on a real deployment: people run
+    # dev servers in a split. Each pane is its own PTY with its own process
+    # subtree, so the scanner attributes the port to the SPLIT — and a section
+    # that read only the main pane showed nothing at all, which is the common
+    # case rather than an edge one. The Inspector reads the whole tile, exactly
+    # as the Attach section already does.
+    When I create a sub-terminal via command palette
+    And I start a listener on port 8126 in the split terminal
+    And I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show an openable port chip for 8126
+    And there should be no page errors
+
   Scenario: A port leaves the section when its server dies
     # The baseline tick's other job — port DEATH, which PRT2's auto-cancel rides
     # on. Ctrl+C ends the listener; the next scan re-samples the whole set, so
