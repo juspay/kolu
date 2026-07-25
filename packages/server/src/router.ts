@@ -49,10 +49,17 @@ export interface BuildAppRouterDeps {
    *  forwards to that host's `padiSession.renew()` — the binder-owned drain →
    *  re-dial → re-realise pipeline. Throws for an unknown host. */
   renewHostDaemon: (host: HostKey) => Promise<void>;
-  /** WHICH pool host the connection at `viewerAddress` is sitting at, or `null`
-   *  when none is or kolu cannot tell. `null` is the answer for every uncertain
-   *  case — it leaves the port chip's forward exactly as it was. */
-  viewerHost: (viewerAddress: string | undefined) => Promise<HostKey | null>;
+  /** WHICH pool host this connection is sitting at, or `null` when none is or
+   *  kolu cannot tell. `null` is the answer for every uncertain case — it leaves
+   *  the port chip's forward exactly as it was.
+   *
+   *  Takes BOTH the direct peer and the forwarded header because behind a
+   *  reverse proxy they name different machines, and only the implementation
+   *  (which knows this host's own addresses) can decide which to believe. */
+  viewerHost: (connection: {
+    peerAddress: string | undefined;
+    forwardedFor: string | undefined;
+  }) => Promise<HostKey | null>;
 }
 
 /** Assemble the full host router from the surface router + the raw RPCs.
@@ -100,15 +107,29 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
       }),
     },
     hosts: {
-      // WHICH host the caller is sitting at, if any. Reads the peer address off
-      // THIS call's context (kolu-server populates it at both the HTTP and ws
-      // entry points), so the answer is genuinely per-viewer — which a surface
-      // cell, being broadcast, could not be.
-      viewer: t.hosts.viewer.handler(async ({ context }) => ({
-        host: await deps.viewerHost(
-          (context as { viewerAddress?: string }).viewerAddress,
-        ),
-      })),
+      // WHICH host the caller is sitting at, if any. Reads THIS call's context
+      // (kolu-server populates it at both the HTTP and ws entry points), so the
+      // answer is genuinely per-viewer — which a surface cell, being broadcast,
+      // could not be.
+      //
+      // BOTH facts are passed on, and that is the field fix: behind a reverse
+      // proxy the TCP peer is the proxy, and the viewer's own address is in the
+      // forwarded header. Reading only the peer is why this never fired once on
+      // the real deployment. Which of the two to BELIEVE is a judgment with a
+      // security gate on it, so it lives in `viewerHost.ts` rather than here —
+      // this handler stays a pass-through.
+      viewer: t.hosts.viewer.handler(async ({ context }) => {
+        const req = context as {
+          viewerAddress?: string;
+          forwardedFor?: string;
+        };
+        return {
+          host: await deps.viewerHost({
+            peerAddress: req.viewerAddress,
+            forwardedFor: req.forwardedFor,
+          }),
+        };
+      }),
       // Runtime pool membership — the selector strip's add/remove. The handler
       // forwards to the pool; `index.ts` owns the fail-loud unremovable-default guard
       // (a `remove` of LOCAL_HOST / the boot default throws `UnremovableHostError`,

@@ -781,6 +781,30 @@ alias-named hosts, where it simply never fires. Recorded as a limit rather than
 hidden, because the alternative was to add a padi surface field inside an
 incident fix.</Footnote>
 
+**The first cut of it never fired once, and the reason is worth keeping.** It
+compared the connection's TCP peer — and kolu's real deployment is reached
+through `tailscale serve`, which terminates TLS and dials the backend from the
+host's OWN tailnet address. So the only established connection to kolu had peer
+`100.122.32.106`: *pureintent itself*. The viewer's address never appeared as a
+TCP peer at all; it was in an `X-Forwarded-For` header nothing read. The
+comparison had been right the whole time and the observation feeding it belonged
+to the proxy.
+
+So the address is now taken from the forwarded header **when, and only when, the
+direct peer is a trusted local hop** — loopback, or one of this host's own
+addresses, which is exactly what a local reverse proxy looks like. Three
+properties make that safe to state as a rule rather than a setting: a header
+arriving on an untrusted connection is ignored **entirely** (anyone who can reach
+kolu directly can invent one, and honouring it would let a stranger be handed a
+`localhost` link for any host's ports); the **last** entry wins rather than the
+first, because each proxy *appends* the address it received from while the
+leftmost entry is whatever the client typed; and there is no trusted-proxy list
+to configure, because the trust condition is a fact about the connection rather
+than a knob.<Footnote>A deployment shape that hides the viewer more thoroughly —
+a proxy on a different machine, or one that strips the header — lands on the same
+no-match side as before, which keeps the forward that works. The mechanism is
+allowed to not fire; it is not allowed to be wrong.</Footnote>
+
 **What the automated suite actually covers, and what it deliberately does not.**
 The e2e scenarios drive the **relay** case end to end — a real loopback listener
 in a real PTY, a real click, and the listener's own body arriving in the opened

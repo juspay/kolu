@@ -68,6 +68,94 @@ export function viewerIsOnHost(opts: {
   return opts.hostAddresses.some((a) => normalizeAddress(a) === viewer);
 }
 
+/** The loopback addresses, in the spellings {@link normalizeAddress} produces. */
+const LOOPBACK = new Set(["127.0.0.1", "::1"]);
+
+/** Is the machine at the other end of this connection a hop we may believe about
+ *  somebody ELSE's address?
+ *
+ *  Trusted means the connection came from this machine: loopback, or one of the
+ *  server host's own addresses. That second arm is not a generosity — it is the
+ *  measured shape of the deployment. `tailscale serve` terminates TLS and dials
+ *  the backend from the HOST'S OWN tailnet address, so the proxy hop is
+ *  indistinguishable from the machine itself, and on production the only
+ *  established connection to kolu had peer `100.122.32.106` — pureintent.
+ *
+ *  A fact about the connection, deliberately, and not a setting. There is no
+ *  "trusted proxies" list to configure and get wrong: either the connection came
+ *  from this machine or it did not. */
+export function isTrustedLocalPeer(
+  peerAddress: string | undefined,
+  hostAddresses: readonly string[],
+): boolean {
+  if (peerAddress === undefined || peerAddress === "") return false;
+  const peer = normalizeAddress(peerAddress);
+  if (LOOPBACK.has(peer)) return true;
+  // A v4 loopback is the whole `127.0.0.0/8`, same as the port scanner reads it.
+  if (peer.startsWith("127.")) return true;
+  return hostAddresses.some((a) => normalizeAddress(a) === peer);
+}
+
+/** WHOSE address to judge the viewer by — the direct peer, or the client a
+ *  trusted proxy vouched for.
+ *
+ *  This exists because the first cut of the feature never fired once in the
+ *  field. It compared the TCP peer, and behind `tailscale serve` the TCP peer is
+ *  the kolu host itself; the viewer's real address was sitting unread in a
+ *  header the whole time. The comparison was right, the observation was the
+ *  proxy's.
+ *
+ *  The trust gate is the security of the whole thing, so it is stated as an
+ *  order rather than a preference:
+ *
+ *   1. No connection → no answer.
+ *   2. Peer NOT trusted → the peer, and the header is ignored ENTIRELY. Anyone
+ *      who can reach kolu directly can send any header they like, and honouring
+ *      it would let a stranger claim to be sitting at any host in the fleet.
+ *   3. Peer trusted → the LAST entry of the forwarded header, which is the hop
+ *      that proxy actually received from. Not the first: a client can pre-set
+ *      `X-Forwarded-For`, and each proxy APPENDS, so the leftmost entry is
+ *      whatever the client typed and the rightmost is what the trusted hop
+ *      vouched for.
+ *   4. Trusted peer, no usable header → the peer. Not a proxy at all, just
+ *      somebody browsing on the kolu host, and the peer is the honest answer. */
+export function effectiveViewerAddress(opts: {
+  peerAddress: string | undefined;
+  /** The raw `X-Forwarded-For`, if the request carried one. */
+  forwardedFor: string | undefined;
+  /** This server host's own addresses. */
+  hostAddresses: readonly string[];
+}): string | undefined {
+  if (opts.peerAddress === undefined || opts.peerAddress === "") {
+    return undefined;
+  }
+  if (!isTrustedLocalPeer(opts.peerAddress, opts.hostAddresses)) {
+    return opts.peerAddress;
+  }
+  const vouched = (opts.forwardedFor ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "")
+    .at(-1);
+  return vouched ?? opts.peerAddress;
+}
+
+/** The `X-Forwarded-For` value as ONE string, from either shape a node request
+ *  can hand over.
+ *
+ *  Node gives a repeated header as an ARRAY, and a proxy chain legitimately
+ *  produces one — so the halves are re-joined in arrival order, which keeps the
+ *  "last entry is the closest hop" rule true across both spellings. An absent
+ *  header stays `undefined` rather than becoming `""`: "no proxy said anything"
+ *  and "a proxy said nothing usable" are different facts, and only the first
+ *  means there was no proxy. */
+export function forwardedForOf(
+  header: string | readonly string[] | null | undefined,
+): string | undefined {
+  if (header === null || header === undefined) return undefined;
+  return Array.isArray(header) ? header.join(",") : (header as string);
+}
+
 /** The hostname half of an ssh destination — `user@box` → `box`, `box` → `box`.
  *
  *  Only the hostname is resolvable, and only what a resolver can take is worth

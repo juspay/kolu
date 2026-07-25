@@ -49,8 +49,14 @@ import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { lookup } from "node:dns/promises";
+import { networkInterfaces } from "node:os";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
-import { sshTargetHostname, viewerIsOnHost } from "./viewerHost.ts";
+import {
+  effectiveViewerAddress,
+  forwardedForOf,
+  sshTargetHostname,
+  viewerIsOnHost,
+} from "./viewerHost.ts";
 import { type PortFamily, preferredFamily } from "@kolu/port-scan/ports";
 import { createKoluForwards, type HostPorts } from "./forwards.ts";
 import {
@@ -785,6 +791,18 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
    *  `~/.ssh/config` alias naming no real host is entirely ordinary), a viewer
    *  behind a NAT or a proxy, a connection with no peer address. That direction
    *  is the design — see `viewerHost.ts`. */
+  /** Every address THIS machine answers on — what makes a connection from a
+   *  local reverse proxy recognisable as a local hop.
+   *
+   *  Re-read per call rather than cached: an interface can come and go (a
+   *  tailnet link, a VPN, a docker bridge), and the read is a cheap in-process
+   *  syscall. A cached list that missed a new interface would silently stop
+   *  trusting the proxy that arrived with it. */
+  const ownAddresses = (): string[] =>
+    Object.values(networkInterfaces())
+      .flatMap((addresses) => addresses ?? [])
+      .map((a) => a.address);
+
   const hostAddressCache = new Map<string, readonly string[]>();
   async function addressesOf(hostname: string): Promise<readonly string[]> {
     const hit = hostAddressCache.get(hostname);
@@ -802,9 +820,19 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     return found;
   }
 
-  async function viewerHost(
-    viewerAddress: string | undefined,
-  ): Promise<HostKey | null> {
+  async function viewerHost(connection: {
+    peerAddress: string | undefined;
+    forwardedFor: string | undefined;
+  }): Promise<HostKey | null> {
+    // WHOSE address to judge by. Behind a reverse proxy the TCP peer is the
+    // proxy — measured on production, `tailscale serve` dials the backend from
+    // this host's OWN tailnet address — so the viewer's address only exists in
+    // the forwarded header, and only a trusted peer may vouch for it.
+    const viewerAddress = effectiveViewerAddress({
+      peerAddress: connection.peerAddress,
+      forwardedFor: connection.forwardedFor,
+      hostAddresses: ownAddresses(),
+    });
     if (viewerAddress === undefined) return null;
     for (const encoded of pool.hosts()) {
       const host = decodeHostKey(encoded);
@@ -961,12 +989,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     if (rejected) return rejected;
     const { matched, response } = await rpcHandler.handle(c.req.raw, {
       prefix: "/rpc",
-      // Same per-caller fact as the websocket path below. `c.env` carries node's
-      // own request, which is where the peer address lives; a missing one is an
-      // honest `undefined` and answers `null`, never a guess.
+      // Same per-caller facts as the websocket path below. `c.env` carries
+      // node's own request, which is where the peer address lives; a missing one
+      // is an honest `undefined` and answers `null`, never a guess. The
+      // forwarded header rides along because behind a reverse proxy the peer is
+      // the PROXY — `viewerHost` gates which of the two to believe.
       context: {
         viewerAddress: (c.env as { incoming?: IncomingMessage } | undefined)
           ?.incoming?.socket.remoteAddress,
+        forwardedFor: forwardedForOf(c.req.raw.headers.get("x-forwarded-for")),
       },
     });
     if (matched) return response;
@@ -1254,11 +1285,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // stale tab is closed and never dispatched or enrolled.
     acceptor.accept(ws, url, () => {
       connLog.info({ total: wss.clients.size }, "connected");
-      // The viewer's peer address rides the CONTEXT, so `hosts.viewer` can
+      // The viewer's connection facts ride the CONTEXT, so `hosts.viewer` can
       // answer per caller — which is the only shape that fits, since the answer
       // differs by connection and a surface cell is broadcast to all of them.
+      // BOTH the direct peer and the forwarded header, because behind a reverse
+      // proxy they name different machines; `viewerHost` gates which to believe.
       wsRpcHandler.upgrade(ws, {
-        context: { viewerAddress: req.socket.remoteAddress },
+        context: {
+          viewerAddress: req.socket.remoteAddress,
+          forwardedFor: forwardedForOf(req.headers["x-forwarded-for"]),
+        },
       });
       ws.on("close", (code, reason) => {
         const reasonStr = reason.toString();
