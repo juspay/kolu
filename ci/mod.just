@@ -215,16 +215,16 @@ surface-example-build: install
 surface-app-example-build: install
     {{ nix_shell }} pnpm --filter @kolu/surface-app-example build:client
 
-fmt: install
+# Biome 2.4.15's jemalloc-backed process crashed nondeterministically while
+# idli's Home Manager VM fan-out was active (SIGSEGV/SIGABRT). Both commands
+# that invoke it run after that existing critical path drains.
+fmt: install home-manager
     {{ nix_shell }} just _fmt-check
 
 # Biome lint — recommended preset with each deliberately-advisory rule
 # explicitly off (with a reason) in biome.jsonc. `--error-on-warnings` makes
 # the gate fail on *any* warning, not just errors, so warning-severity lint
-# debt can no longer accrue invisibly on master (#1362). Biome 2.4.15's
-# jemalloc-backed process crashed nondeterministically while idli's Home Manager
-# VM fan-out was active (SIGSEGV/SIGABRT); run the one-second lint after that
-# existing critical path drains.
+# debt can no longer accrue invisibly on master (#1362).
 biome: install home-manager
     {{ nix_shell }} biome lint --error-on-warnings .
 
