@@ -52,30 +52,54 @@ const PROC_NET_TCP6 = `  sl  local_address                         remote_addres
    2: 0000000000000000FFFF000000000000:1F92 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 5557 1 0000000000000000 100 0 0 10 0
 `;
 
-/** macOS `netstat -anv -p tcp`, the layout the spike measured. */
+/** `netstat -anv -p tcp` **captured verbatim from macOS 26.4** (sincereintent,
+ *  2026-07-24), trimmed to the interesting rows. Two things here were guesses in
+ *  an earlier cut of this file, and both were wrong:
+ *
+ *   - the owner column is headed **`process:pid`**, not `pid`, and its value is
+ *     `node:53082` — a parser looking for a bare `pid` header token threw on every
+ *     real scan;
+ *   - `tcp46` rows are not hypothetical (two of them on an ordinary desktop).
+ *
+ *  Kept as REAL output rather than a tidied-up approximation, because every field
+ *  this parser gets right it gets right against this exact shape. */
 const NETSTAT_TCP = `Active Internet connections (including servers)
-Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)     rxbytes txbytes rhiwat shiwat pid   epid state    options
-tcp4       0      0  *.8080                 *.*                    LISTEN      0       0      131072 131072  4242     0 0x0000   0x0000
-tcp6       0      0  ::1.5001               *.*                    LISTEN      0       0      131072 131072  4243     0 0x0000   0x0000
-tcp46      0      0  *.3000                 *.*                    LISTEN      0       0      131072 131072  4244     0 0x0000   0x0000
-tcp4       0      0  127.0.0.1.5432         *.*                    LISTEN      0       0      131072 131072  4245     0 0x0000   0x0000
-tcp4       0      0  192.168.1.5.61234      93.184.216.34.443      ESTABLISHED 0       0      131072 131072  4246     0 0x0000   0x0000
+Proto Recv-Q Send-Q  Local Address                                 Foreign Address                               (state)          rxbytes      txbytes  rhiwat  shiwat          process:pid    state  options           gencnt    flags   flags1 usecnt rtncnt fltrs
+tcp4       0    168  100.71.48.2.22         100.78.88.70.33556     ESTABLISHED         8452         4310  131072  131396     sshd-session:4976   00182 0000000c 000000001b0838b0 00000080 01000800      2      0 000000
+tcp4       0      0  127.0.0.1.51836        *.*                    LISTEN                 0            0  131072  131072             node:53082  00100 00000106 000000001afbe209 00000001 00000800      1      0 000000
+tcp46      0      0  *.3283                 *.*                    LISTEN                 0            0  131072  131072         ARDAgent:1039   00000 00000202 0000000000001319 00000040 00000800      2      0 000000
+tcp6       0      0  *.49615                *.*                    LISTEN                 0            0  131072  131072 io.tailscale.ipn:1232   00180 00000006 0000000000001ed8 00000000 00000800      1      0 000000
+tcp6       0      0  *.88                   *.*                    LISTEN                 0            0  131072  131072              kdc:910    00180 00000006 0000000000000da5 00000001 00000800      1      0 000000
 `;
 
-/** The SAME facts under a different verbose column set — fewer columns before
- *  `pid`, which is exactly what a macOS version bump changes. A parser that
- *  hardcoded the pid's position would read `131072` as a pid here and attribute
- *  every port to nobody, silently. */
-const NETSTAT_TCP_OTHER_COLUMNS = `Active Internet connections (including servers)
+/** A netstat that prints a BARE numeric `pid` column instead of `process:pid` —
+ *  the older spelling, read by the same parser off what the header says. Also a
+ *  different column count before it, which is what a version bump changes: a parser
+ *  that hardcoded the pid's position would read `131072` as a pid here and
+ *  attribute every port to nobody, silently. */
+const NETSTAT_TCP_BARE_PID = `Active Internet connections (including servers)
 Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)    rhiwat shiwat pid   epid
 tcp4       0      0  *.8080                 *.*                    LISTEN     131072 131072  4242     0
 `;
 
+/** A LISTEN row whose owner NAME contains a space — the case that shifts every
+ *  field after it, and the reason the `name:pid` owner is found by searching for
+ *  the colon-bearing token rather than by counting columns. */
+const NETSTAT_TCP_SPACED_OWNER = `Active Internet connections (including servers)
+Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)    rxbytes txbytes rhiwat shiwat          process:pid    state
+tcp4       0      0  *.7777                 *.*                    LISTEN     0       0      131072 131072   Software Update:4321   00100
+`;
+
+/** `ps -axo pid,ppid,comm` from the same macOS 26.4 box. The last two rows are
+ *  real: `comm` is a full PATH that really does contain spaces, which is why the
+ *  name is the line's untouched remainder and only then a basename. */
 const PS_TABLE = `  PID  PPID COMM
     1     0 /sbin/launchd
- 4200  1    /bin/zsh
- 4242  4200 /nix/store/abc123-nodejs-22.14.0/bin/node
- 4243  4242 /Applications/Some App.app/Contents/MacOS/helper tool
+  581     1 /usr/libexec/logd
+ 4200     1 /bin/zsh
+ 4242  4200 /Users/srid/.nix-profile/bin/node
+ 4243  4242 /System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated
+ 4244  4242 Core Audio Driver (ParrotAudioPlugin.driver)
 `;
 
 // ── Address decoding ───────────────────────────────────────────────────
@@ -185,11 +209,18 @@ describe("parsePsTable", () => {
   it("reads pid/ppid and reduces comm to a basename", () => {
     expect(parsePsTable(PS_TABLE)).toEqual([
       { pid: 1, ppid: 0, name: "launchd" },
+      { pid: 581, ppid: 1, name: "logd" },
       { pid: 4200, ppid: 1, name: "zsh" },
       { pid: 4242, ppid: 4200, name: "node" },
-      // macOS `comm` is a full path that may contain spaces — it is the row's
-      // untouched remainder, so the basename keeps the space.
-      { pid: 4243, ppid: 4242, name: "helper tool" },
+      // A real path with a space in it — the basename is past the space.
+      { pid: 4243, ppid: 4242, name: "softwareupdated" },
+      // And a real `comm` that is not a path at all, so the whole remainder is
+      // the name (spaces and parentheses included).
+      {
+        pid: 4244,
+        ppid: 4242,
+        name: "Core Audio Driver (ParrotAudioPlugin.driver)",
+      },
     ]);
   });
 
@@ -199,21 +230,46 @@ describe("parsePsTable", () => {
 });
 
 describe("parseNetstatTcp", () => {
-  it("takes LISTEN rows across tcp4/tcp6/tcp46 with their pid", () => {
+  it("reads REAL macOS 26.4 output: LISTEN rows across tcp4/tcp6/tcp46, owner `process:pid`", () => {
     expect(parseNetstatTcp(NETSTAT_TCP)).toEqual([
-      { port: 8080, wildcard: true, pid: 4242 },
-      // `::1.5001` — the port is after the FINAL dot, and a v6 loopback is not a
-      // wildcard however many colons it has.
-      { port: 5001, wildcard: false, pid: 4243 },
+      // A loopback-bound node dev server — the case that needs a forward.
+      { port: 51836, wildcard: false, pid: 53082 },
       // tcp46 is a dual-stack socket, not an unknown protocol to skip.
-      { port: 3000, wildcard: true, pid: 4244 },
-      { port: 5432, wildcard: false, pid: 4245 },
+      { port: 3283, wildcard: true, pid: 1039 },
+      // A name with dots in it (`io.tailscale.ipn:1232`) — the pid is after the
+      // LAST colon, not the first.
+      { port: 49615, wildcard: true, pid: 1232 },
+      { port: 88, wildcard: true, pid: 910 },
+    ]);
+    // …and the ESTABLISHED ssh connection this session arrived over is not a
+    // listener, so it contributes nothing.
+    expect(parseNetstatTcp(NETSTAT_TCP)).toHaveLength(4);
+  });
+
+  it("reads a BARE numeric pid column too, off what the header says", () => {
+    expect(parseNetstatTcp(NETSTAT_TCP_BARE_PID)).toEqual([
+      { port: 8080, wildcard: true, pid: 4242 },
     ]);
   });
 
-  it("locates the pid column by NAME, so a different verbose layout still reads", () => {
-    expect(parseNetstatTcp(NETSTAT_TCP_OTHER_COLUMNS)).toEqual([
-      { port: 8080, wildcard: true, pid: 4242 },
+  it("finds the owner pid even when the process NAME contains a space", () => {
+    // A space shifts every field after it, so the owner cannot be found by
+    // counting columns.
+    expect(parseNetstatTcp(NETSTAT_TCP_SPACED_OWNER)).toEqual([
+      { port: 7777, wildcard: true, pid: 4321 },
+    ]);
+  });
+
+  it("reads a v6 loopback as a specific address, not a wildcard", () => {
+    const v6Loopback = `Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)    process:pid
+tcp6       0      0  ::1.5001               *.*                    LISTEN     node:4243
+tcp6       0      0  fe80::1%lo0.5002       *.*                    LISTEN     node:4244
+`;
+    // The port is after the FINAL dot, and a colon-rich host is not a wildcard
+    // however many colons it has.
+    expect(parseNetstatTcp(v6Loopback)).toEqual([
+      { port: 5001, wildcard: false, pid: 4243 },
+      { port: 5002, wildcard: false, pid: 4244 },
     ]);
   });
 

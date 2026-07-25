@@ -38,11 +38,22 @@
  * ## Why these two mechanisms
  *
  * Measured on real hosts (2026-07-24, 10 runs each, non-root): the whole linux
- * pass is ~3.0 ms; the macOS pair ~17 ms. `ss` is ~7× slower than reading
- * `/proc` directly AND hides other users' pid attribution; `lsof` is ~11×
- * slower than `netstat` on macOS and LESS complete (non-root lsof shows only
- * your own processes' listeners, while netstat reports the pid regardless of
- * owner). Neither loser is kept as a fallback — there is one path per platform.
+ * pass is ~3.0 ms; the macOS pair ~17 ms (re-measured end-to-end through this
+ * module on macOS 26.4: 21 ms). `ss` is ~7× slower than reading `/proc` directly
+ * AND hides other users' pid attribution; `lsof` is ~11× slower than `netstat` on
+ * macOS and LESS complete (non-root lsof shows only your own processes'
+ * listeners, while netstat reports the pid regardless of owner). Neither loser is
+ * kept as a fallback — there is one path per platform.
+ *
+ * ## Both platforms are verified against a live OS, not just fixtures
+ *
+ * `portScan.live.test.ts` spawns real listeners and asks this module about them,
+ * on whatever platform it runs. That suite exists because fixtures pin the
+ * PARSERS but cannot pin the assumption that the parser is handed the shape it
+ * expects — and that gap produced a real bug: this file first looked for a
+ * `netstat` header column called `pid`, and macOS 26.4 calls it **`process:pid`**
+ * (value `node:53082`), so every darwin scan threw while every fixture test
+ * stayed green. Found by running it on a Mac, not by reading it.
  */
 
 import { execFile } from "node:child_process";
@@ -496,14 +507,49 @@ export interface NetstatListener extends Listener {
  *  logical port that `foldPorts` collapses with its sibling rows. */
 const NETSTAT_TCP_PROTOCOLS = new Set(["tcp4", "tcp6", "tcp46"]);
 
+/** The row field the connection STATE sits in: `Proto Recv-Q Send-Q <local>
+ *  <foreign> <state>`. The only positionally safe stretch of a netstat row —
+ *  addresses never contain spaces — and the anchor everything after it is found
+ *  relative to. */
+const NETSTAT_STATE_FIELD = 5;
+
+/** Find the OWNER pid in a LISTEN row's fields.
+ *
+ *  macOS 26.4 spells this column `process:pid` in the header and `node:53082` in
+ *  the row (verified on real hardware — an earlier cut of this parser looked for a
+ *  bare `pid` header token and would have thrown on EVERY real scan). Older
+ *  netstats print a bare numeric `pid` column instead, so both forms are read, and
+ *  which one is expected comes from what the header actually says rather than from
+ *  a guess at the value.
+ *
+ *  The `name:pid` form is located by SEARCHING for the colon-bearing token rather
+ *  than by column arithmetic, because a process name may contain a space and would
+ *  shift every field after it. That search is unambiguous: no other verbose column
+ *  contains a colon (state/options/gencnt/flags are bare hex), and the two address
+ *  columns — the only other colon-bearing fields, for IPv6 — sit BEFORE the state
+ *  anchor the search starts from. */
+function netstatOwnerPid(
+  cols: readonly string[],
+  form: "name:pid" | "bare",
+  bareField: number,
+): number | undefined {
+  if (form === "bare") {
+    const pid = Number.parseInt(cols[bareField] ?? "", 10);
+    return Number.isInteger(pid) ? pid : undefined;
+  }
+  for (let i = NETSTAT_STATE_FIELD + 1; i < cols.length; i++) {
+    const owner = /^(.*):(\d+)$/.exec(cols[i]!);
+    if (owner !== null) return Number(owner[2]);
+  }
+  return undefined;
+}
+
 /** Parse the LISTEN rows out of `netstat -anv -p tcp`.
  *
- *  The column layout is read from the HEADER rather than hardcoded, because only
- *  the first six row fields are positionally safe (`Proto Recv-Q Send-Q
- *  <local> <foreign> <state>` — addresses never contain spaces). Everything after
- *  the state is anchored on the header's `(state)` token, so `pid` is located by
- *  NAME and a netstat that reorders or renames its verbose columns fails loudly
- *  instead of silently reading a byte count as a pid.
+ *  The column layout is read from the HEADER rather than hardcoded: the owner
+ *  column is located by NAME, so a netstat that renames or reorders its verbose
+ *  columns fails loudly instead of silently reading a byte count as a pid. (It has
+ *  already renamed it once — see {@link netstatOwnerPid}.)
  *
  *  Addresses are `HOST.PORT` with the port after the FINAL dot (so `127.0.0.1.8080`
  *  and `::1.8080` both parse), and the wildcard bind is spelled `*.PORT`. */
@@ -519,16 +565,20 @@ export function parseNetstatTcp(body: string): NetstatListener[] {
   }
   const headerCols = lines[headerIdx]!.trim().split(/\s+/);
   const stateCol = headerCols.indexOf("(state)");
-  const pidCol = headerCols.indexOf("pid");
-  if (pidCol === -1 || pidCol < stateCol) {
+  // `process:pid` (macOS 26.4) or a bare `pid` (older) — the two spellings of the
+  // one column `-v` adds. Anything else means the owner is not being reported, and
+  // a scan that cannot attribute a listener to a process is useless, not degraded.
+  const ownerCol = headerCols.findIndex(
+    (c) => c === "pid" || c.endsWith(":pid"),
+  );
+  if (ownerCol === -1 || ownerCol < stateCol) {
     throw new PortScanError(
-      "port scan: `netstat -anv -p tcp` header carries no `pid` column after `(state)` — was -v dropped?",
+      `port scan: \`netstat -anv -p tcp\` header carries no pid column after \`(state)\` — was -v dropped? header: ${lines[headerIdx]!.trim()}`,
     );
   }
-  // Row field 5 IS the state (proto, recv-q, send-q, local, foreign, state), so
-  // every header token past `(state)` maps to a row field at the same offset.
-  const STATE_FIELD = 5;
-  const pidField = STATE_FIELD + (pidCol - stateCol);
+  const form = headerCols[ownerCol] === "pid" ? "bare" : "name:pid";
+  // Every header token past `(state)` maps to a row field at the same offset.
+  const bareField = NETSTAT_STATE_FIELD + (ownerCol - stateCol);
   const listeners: NetstatListener[] = [];
   for (const line of lines.slice(headerIdx + 1)) {
     if (line.trim() === "") continue;
@@ -540,9 +590,9 @@ export function parseNetstatTcp(body: string): NetstatListener[] {
         `port scan: unexpected protocol in \`netstat -p tcp\` row: ${line.trim()}`,
       );
     }
-    if (cols[STATE_FIELD] !== "LISTEN") continue;
-    const pid = Number.parseInt(cols[pidField] ?? "", 10);
-    if (!Number.isInteger(pid)) {
+    if (cols[NETSTAT_STATE_FIELD] !== "LISTEN") continue;
+    const pid = netstatOwnerPid(cols, form, bareField);
+    if (pid === undefined) {
       throw new PortScanError(
         `port scan: no pid in \`netstat\` LISTEN row: ${line.trim()}`,
       );
