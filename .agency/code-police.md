@@ -255,6 +255,20 @@ Bad: `const text = await page.evaluate(() => navigator.clipboard.readText()); as
 Good: `await page.waitForFunction((exp) => navigator.clipboard.readText().then(t => t.includes(exp)), expected, { timeout: POLL_TIMEOUT });`
 _Rationale_: A bare `page.evaluate()` + `assert` is a race condition — the async operation (clipboard write, SolidJS reactivity flush, DOM update) may not have completed by the time the read fires. This passes on fast machines (x86_64-linux) and fails on slower ones (aarch64-darwin). The fix was applied in commit `36c82cd` for command palette tests; this rule prevents the pattern from recurring.
 
+### no-vacuous-assertion
+
+An assertion, wait, or guard must be able to **fail**. Before trusting a new one, run it against a **deliberately broken subject**, watch it go red, then restore — a test whose subject cannot vary is worse than no test, because it is cited as proof forever after. Four shapes, all shipped in one PR ([#1982](https://github.com/juspay/kolu/pull/1982); its own `fix(debate)` round-3 message records "three vacuous tests of mine have now been caught in this review, all the same shape — an assertion whose subject could not vary"):
+
+- **The subject is unreachable** — the test exercises a `?? []` default that no production path can produce.
+- **The fake hands back its own mutable state** — a stub `targets()` returning the *same* array on every call lets a mid-pass mutation rewrite what the earlier read captured, so the assertion compares a value with itself. Return a fresh copy, as production does.
+- **Nothing produces the observed quantity** — a counter with no producer, or a timer count read *after* settling, by which point the mutant has already returned to the baseline. Assert on a value the fix actually moves, at a moment it is still distinguishable.
+- **Injecting the input bypasses the guard under test** — an `opts.scan === undefined && !supported()` exemption existed so tests could inject a scan, with the effect that the refusal could never be observed. When a test hook is *why* the assertion is vacuous, delete the hook, not the test.
+
+Bad: `it("refuses on an unsupported platform", () => { expect(mgr.scans).toBe(0); })` — `scans` has no producer, so it passes against every mutant
+Good: attach a real counting scan through the real (unexempted) code path, then confirm the test **fails** against the exact mutant you fear — "log once, then fall through and arm anyway"
+
+_Rationale_: All four were written, reviewed, and believed. Three were caught only because a peer reviewer re-derived the subject from the code; the fourth was an e2e wait that passed unconditionally, escaped every local run, and surfaced 25 s later in CI as "the Ports section showed `[]`" — misattributing an environment failure to the product's sensor. Running a new assertion against a broken subject once costs seconds; the alternative is a green suite that proves nothing. Two companions: `no-overloaded-null` (a diagnostic that collapses absent / empty / genuine-read into one value sends the reader to the wrong layer, which is exactly how that CI red was misread), and `.claude/rules/e2e-testing.md` for the PTY-specific trap where the shell's **echo** of a typed command satisfies the very wait meant to observe the process it starts.
+
 ### watcher-lifecycle-logs
 
 Every long-lived `fs.watch` (or analogous subscription — refcounted singleton, DB WAL watcher, per-session JSONL tail) must emit `info`-level logs at install and retire, formatted exactly:

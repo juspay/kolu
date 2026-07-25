@@ -1,8 +1,14 @@
 ---
 paths:
-  - "packages/tests/features/**"
+  - "packages/tests/**"
 ---
 
 ## E2E Tests
 
 - **Use semantic selectors**: Never match on CSS classes (`class*="bg-..."`) in test selectors — classes are styling concerns and break when visual design changes. Use `data-testid`, `data-active`, or other semantic `data-*` attributes instead.
+
+- **A step that starts a process must prove the process started.** Typing a command into a PTY and waiting a frame is not an arrangement — it is an unconditional pass. Wait for a marker the *process itself* prints once it is up (e.g. from a `listen` callback), and on timeout quote the terminal's own last lines. Otherwise every environmental way the start can fail — `EADDRINUSE` from a leftover process, a missing tool, a shell still initializing — surfaces much later as a missing UI value and reads as a broken product. In [#1982](https://github.com/juspay/kolu/pull/1982) that cost a CI cycle: the listener never started and the failure said "the Ports section showed `[]`", pointing at the port sensor.
+
+- **A marker you wait for must not appear literally in the command you type.** The shell **echoes** the command line, so a `waitForBufferContains("kolu-e2e-listening")` matches the echo *before* the process runs — the same #1982 guard passed against `/nonexistent/node`. Build the marker at runtime (`"kolu-e2e" + "-listening"`) so only the process's own output can satisfy it, and prove it: point the step at a broken binary and confirm it now fails **at the start step**, quoting the shell's own error. Any new wait/guard gets that negative test before you trust it (see `.agency/code-police.md` → `no-vacuous-assertion`).
+
+- **Never depend on a tool being on the PTY's PATH.** Run it by absolute path — `process.execPath` for node. A bare `node` resolves on every dev box and can fail *only* on a host where node lives solely in the dev shell, so the difference presents as a phantom product bug on one machine. Whether the shell resolves `node` is a different question from the one the scenario is asking.

@@ -75,10 +75,22 @@ After the leading `review`, parse:
      `section-(N-1)-author.md`, close every existing finding by verifying the
      fix or answering the dispute, and raise only regressions introduced since
      the prior round.
-   - Validate `verdict-NNN.json` against the schema below. For every open
-     finding, fix or dispute it. Write one clear `fixed`, `disputed`, or
-     `partial` disposition with reasoning to `section-NNN-author.md`; this is
-     your memory and the peer's next-round input.
+   - Validate `verdict-NNN.json` against the schema below. Then disposition
+     **every** open finding in **this** round, before you ping the peer — fix or
+     dispute each one. Carrying untouched findings forward turns an N-finding
+     review into N round-trips: one run took 12 rounds fixing one or two
+     findings at a time until the human asked why they weren't being addressed
+     together. Batching dispositions is not the same as parallelizing the
+     gauntlet; the round is the unit of serialization, not the finding.
+   - **Dispute from the code, not from your mental model.** Before writing
+     `disputed`, re-derive the claim against the actual files. A dispute that
+     argues a path is unreachable, when the reviewer can then name three
+     surviving routes — one of them *widened* by your own earlier fix in this
+     same debate — costs a whole extra round and spends the reviewer's trust. If
+     re-deriving is more work than fixing, fix.
+   - Write one clear `fixed`, `disputed`, or `partial` disposition with reasoning
+     for each to `section-NNN-author.md`; this is your memory and the peer's
+     next-round input.
    - Unless `--no-commit`, stage only the exact paths edited this round and
      commit with the findings and dispositions in the message. Record the SHA.
      Skip an empty dispute-only commit. A failed expected commit makes the round
