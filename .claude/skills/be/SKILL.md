@@ -1,6 +1,6 @@
 ---
 name: be
-description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a serial AI review gauntlet (lens debate (lowy ⇄ hickey) → agent debate → simplify → code-police, each editing the branch in turn) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
+description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a serial AI review gauntlet (lens review (lowy ∥ hickey) → agent debate → simplify → code-police, each editing the branch in turn) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
 argument-hint: "[--skip-gauntlet] <issue-url | prompt>"
 ---
 
@@ -10,8 +10,7 @@ Take a task to a shipped, reviewed PR. Unlike `/do` (autonomous start to finish)
 
 **Autonomy doesn't inherit — propagate it to every subagent you delegate to.** When you hand work to a fresh subagent (a §2 package build, a §5 "finish the ship" CI+gate+cleanup pass), its prompt must say *execute now; do not wait for confirmation, do not ask me to "say go"* — a subagent starts without your interview's "no stopping between steps" contract, so a prompt that merely lays out a plan gets a plan **back** (zero tool uses) instead of done work, and you're the one who has to type "go." Bake the directive into the delegation, and if a subagent still returns a plan-and-waits with no tool uses, resume it with "execute now" rather than surfacing the stall to the user.
 
-Requires a runtime that can invoke the named skills and the Workflow-backed
-lens review.
+Requires a runtime that can invoke the named skills and spawn parallel subagents.
 
 ## Arguments
 
@@ -71,26 +70,17 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 **not** run `/be-review`, do not run individual reviewers, do not post gauntlet
 PR comments. Note the skip in the Done report. Continue to §5.
 
-Otherwise run **`/be-review`** (Skill tool) — it runs four reviewers **serially**,
-each the sole editor while it runs: `/lens-debate` applying the agreed fixes, then
-`/agent-debate` (its per-round commits are the debate), then `/simplify`, then
-code-police. Each step reads a clean tree (the previous step has committed) and
-applies its own fixes directly — no snapshot, no apply pass. be-review pushes once
-at the end and *then* posts the PR comments (lens, agent-debate, and a code-police
-summary), so no comment advertises a local-only commit.
+Otherwise run **`/be-review`** (Skill tool) — it runs its reviewers **serially**,
+each the sole editor while it runs. It owns the order, the tracks, and the
+push-then-comment discipline; don't restate them here.
 
-**Unless `--skip-gauntlet` was passed, this phase is non-negotiable.** The
-Workflow-backed lens step runs off-context and notifies you when it settles;
-`/agent-debate` runs inline against a live split peer, while later passes follow
-their own skill contracts. Context or budget concern is **never** grounds to
-skip a reviewer, run fewer than all four, or
-substitute a hand-rolled review for the real gauntlet — that excuse doesn't
-survive ten seconds of scrutiny, and dropping a step you were told to run is the
-single worst gauntlet failure. `/be`'s autonomy means *don't ask permission for
-each step*, NOT *decide which steps matter*. The only sanctioned skip is the
-explicit `--skip-gauntlet` flag above. If a mandatory step is genuinely
-infeasible, **STOP and ask the user** at that moment — never silently substitute
-and disclose it later in the wrap-up.
+**Unless `--skip-gauntlet` was passed, this phase is non-negotiable.** Context or
+budget concern is **never** grounds to skip a reviewer, run fewer than the full
+set, or substitute a hand-rolled review for the real gauntlet. `/be`'s autonomy
+means *don't ask permission for each step*, NOT *decide which steps matter*. The
+only sanctioned skip is the explicit `--skip-gauntlet` flag above. If a mandatory
+step is genuinely infeasible, **STOP and ask the user** at that moment — never
+silently substitute and disclose it later in the wrap-up.
 
 - Pass the interview's explicit **`--agent`** selection, `base`, the change **`rationale`** (so the lenses don't flag deliberate
   decisions), and **`context`** — the task intent and key decisions you hold from
@@ -168,7 +158,8 @@ merge only when `git merge-base --is-ancestor origin/<default> HEAD` is already 
 
 ## Done
 
-Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied,
+Report the PR URL, the gauntlet outcome (the lens fixes applied and anything the
+lenses handed back for your judgment,
 the selected agent-debate peer and its consensus or reviewer-error, police
 findings actioned — **or** that `--skip-gauntlet` was used and §4 was skipped),
 and CI status. Never merge — the human reviews the commits and merges when satisfied.

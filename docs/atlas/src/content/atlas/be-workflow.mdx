@@ -4,7 +4,7 @@ description: How kolu takes a task to a shipped, reviewed PR — one interview u
 parents: [reference, llm-autonomy]
 status: implemented
 maturity: budding
-updated: 2026-07-23
+updated: 2026-07-24
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -21,6 +21,8 @@ export const SKILL_URL = {
   "dev-server": "https://github.com/juspay/kolu/blob/master/.apm/skills/dev-server/SKILL.md",
   "be-review": "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/be-review/SKILL.md",
   "lens-debate": "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/lens-debate/SKILL.md",
+  "architecture-first-principles":
+    "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/architecture-first-principles/SKILL.md",
   "agent-debate": "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/agent-debate/SKILL.md",
   evidence: "https://github.com/juspay/kolu/blob/master/.apm/skills/evidence/SKILL.md",
   "self-improve": "https://github.com/juspay/kolu/blob/master/.apm/skills/self-improve/SKILL.md",
@@ -66,7 +68,8 @@ Two things actually do:
   That's the reason `/be` exists as its own skill. A dynamic workflow is a script
   Claude Code's runtime executes to orchestrate many subagents at scale. `/do` is
   harness-agnostic; `/be` combines that Workflow-backed
-  <Skill name="lens-debate" /> with a live split-terminal
+  <Skill name="architecture-first-principles" /> fan-out with parallel-subagent
+  lens review (<Skill name="lens-debate" />) and a live split-terminal
   <Skill name="agent-debate" /> whose peer is explicitly selected from Claude,
   Codex, or Grok.
 - **It opens with a short interview.** Before any work, `/be` asks a single
@@ -137,12 +140,14 @@ separate apply pass.
 
 1. <Skill name="lens-debate" /> — two structural lenses,
    [lowy](https://kolu.dev/blog/hickey-lowy) (volatility-based boundaries) and
-   [hickey](https://kolu.dev/blog/hickey-lowy) (structural simplicity), review
-   independently; the reviews are then reconciled (findings both lenses raised
-   with compatible conclusions — and unopposed solo findings — settle with zero
-   debate turns) and only genuinely contested findings are cross-examined to
-   consensus, in parallel per-file threads, before the agreed fixes are applied.
-   Both lenses — and why kolu reviews with them — are explained in the blog post
+   [hickey](https://kolu.dev/blog/hickey-lowy) (structural simplicity), run as two
+   independent subagents in parallel; one reconcile-and-apply pass then merges
+   their findings and commits the fixes. Debate is only an escalation valve —
+   bounded, and pulled just for findings where the two lenses directly contradict
+   each other, with a discriminating experiment preferred over argument. Calls
+   that are genuinely judgment (product scope, naming, boundary taste) go to the
+   human instead of being argued to a synthetic consensus. Both lenses — and why
+   kolu reviews with them — are explained in the blog post
    [Hickey & Lowy](https://kolu.dev/blog/hickey-lowy).
 2. <Skill name="agent-debate" /> — the selected Claude, Codex, or Grok peer
    reviews the current author agent's diff to consensus, with each author round
