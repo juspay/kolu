@@ -37,13 +37,26 @@
  *
  * ## Why these two mechanisms
  *
- * Measured on real hosts (2026-07-24, 10 runs each, non-root): the whole linux
- * pass is ~3.0 ms; the macOS pair ~17 ms (re-measured end-to-end through this
- * module on macOS 26.4: 21 ms). `ss` is ~7× slower than reading `/proc` directly
- * AND hides other users' pid attribution; `lsof` is ~11× slower than `netstat` on
- * macOS and LESS complete (non-root lsof shows only your own processes'
- * listeners, while netstat reports the pid regardless of owner). Neither loser is
- * kept as a fallback — there is one path per platform.
+ * On linux, `/proc` is read directly: `ss` measured ~7× slower AND hides other
+ * users' pid attribution.
+ *
+ * On darwin the mechanism is **`lsof`**, and this REVERSES the plan's original
+ * choice of `netstat`. The plan measured netstat as ~11× faster and "more
+ * complete", and both claims were true of the box it was measured on — but on
+ * **macOS 27.0** `netstat -anv` returns an EMPTY internet table to this process
+ * while reporting success: zero bytes, exit 0, nothing on stderr. Not a parse
+ * failure, not an argument problem (the same binary, absolute path, through a
+ * shell, all empty; `netstat -anv -f inet` returns 117 bytes of nothing) — the
+ * table simply is not visible to us there, and it IS visible to lsof in the very
+ * same process. A mechanism that silently answers "no ports" is the worst
+ * possible one for this feature, so it is gone rather than kept as a fallback.
+ *
+ * The "less complete" half of the old comparison costs us nothing: non-root lsof
+ * reports only the invoking user's processes, and a terminal's subtree is padi's
+ * OWN user by construction — every port we could ever attribute is one lsof shows.
+ *
+ * Measured end-to-end through this module: linux ~3 ms; macOS 26.4 lsof 17 ms,
+ * macOS 27.0 lsof 93 ms (a busier box).
  *
  * ## Both platforms are verified against a live OS, not just fixtures
  *
@@ -72,10 +85,10 @@ export interface PortScanTarget {
   rootPid: number;
 }
 
-/** How long a darwin `ps` / `netstat` may run before it is killed. macOS ships no
+/** How long a darwin `ps` / `lsof` may run before it is killed. macOS ships no
  *  GNU `timeout`, so the timer is Node's (`execFile`'s own `timeout`, which sends
- *  the kill signal) — a hung `netstat` must not wedge the sampler's single-flight
- *  slot forever. Generous against the measured ~17 ms so a loaded box is not
+ *  the kill signal) — a hung helper must not wedge the sampler's single-flight
+ *  slot forever. Generous against the measured 17-93 ms so a loaded box is not
  *  mistaken for a hang. */
 export const PORT_SCAN_COMMAND_TIMEOUT_MS = 5_000;
 
@@ -498,136 +511,95 @@ export function parsePsTable(body: string): ProcessRow[] {
   return rows;
 }
 
-/** A darwin listener, keyed by the pid netstat reports for it. */
-export interface NetstatListener extends Listener {
+/** A darwin listener, keyed by the pid `lsof` reports for it. */
+export interface LsofListener extends Listener {
   pid: number;
 }
 
-/** The protocols a LISTEN row may carry — `tcp46` is a dual-stack socket, one
- *  logical port that `foldPorts` collapses with its sibling rows. */
-const NETSTAT_TCP_PROTOCOLS = new Set(["tcp4", "tcp6", "tcp46"]);
-
-/** The row field the connection STATE sits in: `Proto Recv-Q Send-Q <local>
- *  <foreign> <state>`. The only positionally safe stretch of a netstat row —
- *  addresses never contain spaces — and the anchor everything after it is found
- *  relative to. */
-const NETSTAT_STATE_FIELD = 5;
-
-/** Find the OWNER pid in a LISTEN row's fields.
- *
- *  macOS 26.4 spells this column `process:pid` in the header and `node:53082` in
- *  the row (verified on real hardware — an earlier cut of this parser looked for a
- *  bare `pid` header token and would have thrown on EVERY real scan). Older
- *  netstats print a bare numeric `pid` column instead, so both forms are read, and
- *  which one is expected comes from what the header actually says rather than from
- *  a guess at the value.
- *
- *  The `name:pid` form is located by SEARCHING for the colon-bearing token rather
- *  than by column arithmetic, because a process name may contain a space and would
- *  shift every field after it. That search is unambiguous: no other verbose column
- *  contains a colon (state/options/gencnt/flags are bare hex), and the two address
- *  columns — the only other colon-bearing fields, for IPv6 — sit BEFORE the state
- *  anchor the search starts from. */
-function netstatOwnerPid(
-  cols: readonly string[],
-  form: "name:pid" | "bare",
-  bareField: number,
-): number | undefined {
-  if (form === "bare") {
-    const pid = Number.parseInt(cols[bareField] ?? "", 10);
-    return Number.isInteger(pid) ? pid : undefined;
-  }
-  for (let i = NETSTAT_STATE_FIELD + 1; i < cols.length; i++) {
-    const owner = /^(.*):(\d+)$/.exec(cols[i]!);
-    if (owner !== null) return Number(owner[2]);
-  }
-  return undefined;
+/** Is an `lsof` address the ANY address — reachable from another machine as-is? */
+function isLsofAnyAddress(host: string): boolean {
+  return host === "*" || host === "::" || host === "0.0.0.0";
 }
 
-/** Parse the LISTEN rows out of `netstat -anv -p tcp`.
+/** Parse `lsof -nP -w -iTCP -sTCP:LISTEN -Fpcn` field output.
  *
- *  The column layout is read from the HEADER rather than hardcoded: the owner
- *  column is located by NAME, so a netstat that renames or reorders its verbose
- *  columns fails loudly instead of silently reading a byte count as a pid. (It has
- *  already renamed it once — see {@link netstatOwnerPid}.)
+ *  Field output rather than the human table because it is the format lsof
+ *  documents as machine-readable: one field per line, tagged by its first
+ *  character, so nothing depends on column widths or on a process name that
+ *  contains a space. `p` opens a process set, `f` opens a file within it, `n` is
+ *  the address:
  *
- *  Addresses are `HOST.PORT` with the port after the FINAL dot (so `127.0.0.1.8080`
- *  and `::1.8080` both parse), and the wildcard bind is spelled `*.PORT`. */
-export function parseNetstatTcp(body: string): NetstatListener[] {
-  const lines = body.split("\n");
-  const headerIdx = lines.findIndex(
-    (l) => /\bProto\b/.test(l) && /\(state\)/.test(l),
-  );
-  if (headerIdx === -1) {
-    throw new PortScanError(
-      "port scan: `netstat -anv -p tcp` output had no `Proto … (state)` header",
-    );
-  }
-  const headerCols = lines[headerIdx]!.trim().split(/\s+/);
-  const stateCol = headerCols.indexOf("(state)");
-  // `process:pid` (macOS 26.4) or a bare `pid` (older) — the two spellings of the
-  // one column `-v` adds. Anything else means the owner is not being reported, and
-  // a scan that cannot attribute a listener to a process is useless, not degraded.
-  const ownerCol = headerCols.findIndex(
-    (c) => c === "pid" || c.endsWith(":pid"),
-  );
-  if (ownerCol === -1 || ownerCol < stateCol) {
-    throw new PortScanError(
-      `port scan: \`netstat -anv -p tcp\` header carries no pid column after \`(state)\` — was -v dropped? header: ${lines[headerIdx]!.trim()}`,
-    );
-  }
-  const form = headerCols[ownerCol] === "pid" ? "bare" : "name:pid";
-  // Every header token past `(state)` maps to a row field at the same offset.
-  const bareField = NETSTAT_STATE_FIELD + (ownerCol - stateCol);
-  const listeners: NetstatListener[] = [];
-  for (const line of lines.slice(headerIdx + 1)) {
-    if (line.trim() === "") continue;
-    const cols = line.trim().split(/\s+/);
-    if (!NETSTAT_TCP_PROTOCOLS.has(cols[0] ?? "")) {
-      // `-p tcp` emits nothing else; a udp/unix row would mean the filter was
-      // lost, and reading its columns with this layout would be nonsense.
-      throw new PortScanError(
-        `port scan: unexpected protocol in \`netstat -p tcp\` row: ${line.trim()}`,
-      );
+ *      p27688 · c.emanote-wrapped · f57 · n127.0.0.1:5566 · f60 · n*:8079
+ *
+ *  `-sTCP:LISTEN` means every `n` here is already a listener, so there is no state
+ *  column to filter on. Addresses are `HOST:PORT` with the port after the LAST
+ *  colon — IPv6 hosts are bracketed (`[::1]:5173`), which is what makes that
+ *  unambiguous. */
+export function parseLsofListeners(body: string): LsofListener[] {
+  const listeners: LsofListener[] = [];
+  let pid: number | undefined;
+  for (const line of body.split("\n")) {
+    if (line === "") continue;
+    const tag = line[0];
+    const value = line.slice(1);
+    if (tag === "p") {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed)) {
+        throw new PortScanError(
+          `port scan: unreadable lsof pid field: ${line}`,
+        );
+      }
+      pid = parsed;
+      continue;
     }
-    if (cols[NETSTAT_STATE_FIELD] !== "LISTEN") continue;
-    const pid = netstatOwnerPid(cols, form, bareField);
+    if (tag !== "n") continue;
     if (pid === undefined) {
       throw new PortScanError(
-        `port scan: no pid in \`netstat\` LISTEN row: ${line.trim()}`,
+        `port scan: lsof reported an address before any process: ${line}`,
       );
     }
-    const local = cols[3]!;
-    const split = local.lastIndexOf(".");
+    const split = value.lastIndexOf(":");
     if (split === -1) {
       throw new PortScanError(
-        `port scan: "${local}" is not a netstat local address (expected HOST.PORT)`,
+        `port scan: "${value}" is not an lsof listening address (expected HOST:PORT)`,
       );
     }
-    const port = Number.parseInt(local.slice(split + 1), 10);
+    const port = Number.parseInt(value.slice(split + 1), 10);
     if (!Number.isInteger(port) || port <= 0 || port > 65535) {
       throw new PortScanError(
-        `port scan: "${local}" carries no valid port in a netstat LISTEN row`,
+        `port scan: "${value}" carries no valid port in an lsof LISTEN row`,
       );
     }
-    // `*` is the any-address bind. A v4-mapped specific address (`::ffff:10.0.0.2`)
-    // is a specific address and stays non-wildcard; `::ffff:0.0.0.0` never appears
-    // here, because netstat spells the any-address bind `*`.
-    listeners.push({ port, wildcard: local.slice(0, split) === "*", pid });
+    // `[::1]` → `::1`; a v4 host and `*` are unbracketed already.
+    const host = value.slice(0, split).replace(/^\[|\]$/g, "");
+    listeners.push({ port, wildcard: isLsofAnyAddress(host), pid });
   }
   return listeners;
 }
 
+/** Run a darwin helper by ABSOLUTE path.
+ *
+ *  The path is absolute on purpose. kolu's macOS users run nix, and a
+ *  nix-provided `ps` on `PATH` is procps — whose `-o comm` is a truncated name,
+ *  not the executable path this parser reads. Resolving these through `PATH` makes
+ *  the scan's correctness depend on the user's profile; naming the system binary
+ *  makes it depend on macOS. */
 async function runDarwin(command: string, args: string[]): Promise<string> {
   try {
     const { stdout } = await execFileAsync(command, args, {
       timeout: PORT_SCAN_COMMAND_TIMEOUT_MS,
-      // A 400-process box's netstat is a few tens of KB; this is headroom, and a
-      // genuine overflow must fail rather than truncate into a short port list.
+      // A 1000-process box's `ps` is ~110 KB; this is headroom, and a genuine
+      // overflow must fail rather than truncate into a short port list.
       maxBuffer: 8 * 1024 * 1024,
     });
     return stdout;
   } catch (err) {
+    // lsof exits 1 when it found nothing — a box serving no ports at all. That is
+    // an ANSWER, not a failure, and it is distinguishable: lsof writes nothing to
+    // either stream. A code-1 exit that DID say something is a real error and
+    // falls through to the throw.
+    const e = err as { code?: unknown; stdout?: string; stderr?: string };
+    if (e.code === 1 && e.stdout === "" && e.stderr === "") return "";
     throw new PortScanError(
       `port scan: \`${command} ${args.join(" ")}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
       { cause: err },
@@ -635,17 +607,23 @@ async function runDarwin(command: string, args: string[]): Promise<string> {
   }
 }
 
+/** macOS's own `ps` and `lsof` — see {@link runDarwin} for why these are absolute. */
+const DARWIN_PS = "/bin/ps";
+const DARWIN_LSOF = "/usr/sbin/lsof";
+
 async function scanDarwin(
   targets: readonly PortScanTarget[],
 ): Promise<Map<TerminalId, PortInfo[]>> {
-  const [ps, netstat] = await Promise.all([
-    runDarwin("ps", ["-axo", "pid,ppid,comm"]),
-    runDarwin("netstat", ["-anv", "-p", "tcp"]),
+  const [ps, lsof] = await Promise.all([
+    runDarwin(DARWIN_PS, ["-axo", "pid,ppid,comm"]),
+    // `-n`/`-P` keep it from resolving DNS and port names (both would be slow and
+    // neither is wanted); `-w` suppresses warnings so stderr means something.
+    runDarwin(DARWIN_LSOF, ["-nP", "-w", "-iTCP", "-sTCP:LISTEN", "-Fpcn"]),
   ]);
   const table = parsePsTable(ps);
   const nameOf = new Map(table.map((row) => [row.pid, row.name]));
   const byPid = new Map<number, Listener[]>();
-  for (const l of parseNetstatTcp(netstat)) {
+  for (const l of parseLsofListeners(lsof)) {
     const held = byPid.get(l.pid);
     if (held === undefined) byPid.set(l.pid, [l]);
     else held.push(l);

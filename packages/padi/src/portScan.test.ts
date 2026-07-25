@@ -12,8 +12,8 @@
  *  - a dual-stack server appears twice (`tcp`+`tcp6`, or `tcp46`) for one port;
  *  - a fork-inherited socket maps one inode to several pids;
  *  - `/proc/<pid>/stat`'s `comm` can contain spaces AND parentheses;
- *  - macOS `netstat` verbose columns are not a fixed layout, so `pid` must be
- *    located by NAME.
+ *  - macOS `lsof` field output is tagged per line, so a process name with a
+ *    space in it cannot shift a column.
  */
 
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ import {
   decodeProcAddress,
   foldPorts,
   isAnyAddress,
-  parseNetstatTcp,
+  parseLsofListeners,
   parseProcNetTcp,
   parseProcStat,
   parsePsTable,
@@ -52,42 +52,30 @@ const PROC_NET_TCP6 = `  sl  local_address                         remote_addres
    2: 0000000000000000FFFF000000000000:1F92 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 5557 1 0000000000000000 100 0 0 10 0
 `;
 
-/** `netstat -anv -p tcp` **captured verbatim from macOS 26.4** (sincereintent,
- *  2026-07-24), trimmed to the interesting rows. Two things here were guesses in
- *  an earlier cut of this file, and both were wrong:
+/** `lsof -nP -w -iTCP -sTCP:LISTEN -Fpcn` **captured verbatim from macOS 27.0**
+ *  (zest) and 26.4 (sincereintent), stitched into one body.
  *
- *   - the owner column is headed **`process:pid`**, not `pid`, and its value is
- *     `node:53082` — a parser looking for a bare `pid` header token threw on every
- *     real scan;
- *   - `tcp46` rows are not hypothetical (two of them on an ordinary desktop).
- *
- *  Kept as REAL output rather than a tidied-up approximation, because every field
- *  this parser gets right it gets right against this exact shape. */
-const NETSTAT_TCP = `Active Internet connections (including servers)
-Proto Recv-Q Send-Q  Local Address                                 Foreign Address                               (state)          rxbytes      txbytes  rhiwat  shiwat          process:pid    state  options           gencnt    flags   flags1 usecnt rtncnt fltrs
-tcp4       0    168  100.71.48.2.22         100.78.88.70.33556     ESTABLISHED         8452         4310  131072  131396     sshd-session:4976   00182 0000000c 000000001b0838b0 00000080 01000800      2      0 000000
-tcp4       0      0  127.0.0.1.51836        *.*                    LISTEN                 0            0  131072  131072             node:53082  00100 00000106 000000001afbe209 00000001 00000800      1      0 000000
-tcp46      0      0  *.3283                 *.*                    LISTEN                 0            0  131072  131072         ARDAgent:1039   00000 00000202 0000000000001319 00000040 00000800      2      0 000000
-tcp6       0      0  *.49615                *.*                    LISTEN                 0            0  131072  131072 io.tailscale.ipn:1232   00180 00000006 0000000000001ed8 00000000 00000800      1      0 000000
-tcp6       0      0  *.88                   *.*                    LISTEN                 0            0  131072  131072              kdc:910    00180 00000006 0000000000000da5 00000001 00000800      1      0 000000
-`;
-
-/** A netstat that prints a BARE numeric `pid` column instead of `process:pid` —
- *  the older spelling, read by the same parser off what the header says. Also a
- *  different column count before it, which is what a version bump changes: a parser
- *  that hardcoded the pid's position would read `131072` as a pid here and
- *  attribute every port to nobody, silently. */
-const NETSTAT_TCP_BARE_PID = `Active Internet connections (including servers)
-Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)    rhiwat shiwat pid   epid
-tcp4       0      0  *.8080                 *.*                    LISTEN     131072 131072  4242     0
-`;
-
-/** A LISTEN row whose owner NAME contains a space — the case that shifts every
- *  field after it, and the reason the `name:pid` owner is found by searching for
- *  the colon-bearing token rather than by counting columns. */
-const NETSTAT_TCP_SPACED_OWNER = `Active Internet connections (including servers)
-Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)    rxbytes txbytes rhiwat shiwat          process:pid    state
-tcp4       0      0  *.7777                 *.*                    LISTEN     0       0      131072 131072   Software Update:4321   00100
+ *  lsof replaced `netstat` here because on macOS 27.0 netstat returns an EMPTY
+ *  internet table to a padi process while reporting success — see the module
+ *  header. This shape is what the scan actually reads now. */
+const LSOF_LISTEN = `p757
+cControlCenter
+f9
+n*:7000
+f10
+n*:7000
+p27688
+c.emanote-wrapped
+f57
+n127.0.0.1:5566
+f60
+n*:8079
+p53082
+cnode
+f18
+n[::1]:5173
+f21
+n[::]:8080
 `;
 
 /** `ps -axo pid,ppid,comm` from the same macOS 26.4 box. The last two rows are
@@ -205,6 +193,52 @@ describe("parseProcStat", () => {
 
 // ── darwin parsing ─────────────────────────────────────────────────────
 
+describe("parseLsofListeners", () => {
+  it("reads REAL macOS lsof field output: pid, port, and how it is bound", () => {
+    expect(parseLsofListeners(LSOF_LISTEN)).toEqual([
+      // Two fds on one wildcard port — a dual-stack listener, folded later.
+      { port: 7000, wildcard: true, pid: 757 },
+      { port: 7000, wildcard: true, pid: 757 },
+      // The case from the field report: a loopback dev server (needs a forward)
+      // beside a wildcard one (does not), in the SAME process.
+      { port: 5566, wildcard: false, pid: 27688 },
+      { port: 8079, wildcard: true, pid: 27688 },
+      // Bracketed IPv6: the port is after the LAST colon, which is what brackets
+      // make unambiguous.
+      { port: 5173, wildcard: false, pid: 53082 },
+      { port: 8080, wildcard: true, pid: 53082 },
+    ]);
+  });
+
+  it("treats `::` and `0.0.0.0` as reachable, and a specific address as not", () => {
+    expect(
+      parseLsofListeners(
+        "p1\ncx\nf3\nn0.0.0.0:80\nf4\nn[::]:81\nf5\nn10.0.0.2:82\n",
+      ),
+    ).toEqual([
+      { port: 80, wildcard: true, pid: 1 },
+      { port: 81, wildcard: true, pid: 1 },
+      { port: 82, wildcard: false, pid: 1 },
+    ]);
+  });
+
+  it("is empty for an empty body — lsof's honest 'nothing is listening'", () => {
+    expect(parseLsofListeners("")).toEqual([]);
+  });
+
+  it("fails loudly on an address with no port", () => {
+    expect(() => parseLsofListeners("p1\ncx\nf3\nnnonsense\n")).toThrow(
+      PortScanError,
+    );
+  });
+
+  it("fails loudly on an address that arrives before any process", () => {
+    // Field output is positional by construction; an `n` with no `p` above it
+    // means we are not reading what we think we are.
+    expect(() => parseLsofListeners("f3\nn*:80\n")).toThrow(PortScanError);
+  });
+});
+
 describe("parsePsTable", () => {
   it("reads pid/ppid and reduces comm to a basename", () => {
     expect(parsePsTable(PS_TABLE)).toEqual([
@@ -226,66 +260,6 @@ describe("parsePsTable", () => {
 
   it("fails loudly on a table with no header", () => {
     expect(() => parsePsTable("4242 4200 node\n")).toThrow(PortScanError);
-  });
-});
-
-describe("parseNetstatTcp", () => {
-  it("reads REAL macOS 26.4 output: LISTEN rows across tcp4/tcp6/tcp46, owner `process:pid`", () => {
-    expect(parseNetstatTcp(NETSTAT_TCP)).toEqual([
-      // A loopback-bound node dev server — the case that needs a forward.
-      { port: 51836, wildcard: false, pid: 53082 },
-      // tcp46 is a dual-stack socket, not an unknown protocol to skip.
-      { port: 3283, wildcard: true, pid: 1039 },
-      // A name with dots in it (`io.tailscale.ipn:1232`) — the pid is after the
-      // LAST colon, not the first.
-      { port: 49615, wildcard: true, pid: 1232 },
-      { port: 88, wildcard: true, pid: 910 },
-    ]);
-    // …and the ESTABLISHED ssh connection this session arrived over is not a
-    // listener, so it contributes nothing.
-    expect(parseNetstatTcp(NETSTAT_TCP)).toHaveLength(4);
-  });
-
-  it("reads a BARE numeric pid column too, off what the header says", () => {
-    expect(parseNetstatTcp(NETSTAT_TCP_BARE_PID)).toEqual([
-      { port: 8080, wildcard: true, pid: 4242 },
-    ]);
-  });
-
-  it("finds the owner pid even when the process NAME contains a space", () => {
-    // A space shifts every field after it, so the owner cannot be found by
-    // counting columns.
-    expect(parseNetstatTcp(NETSTAT_TCP_SPACED_OWNER)).toEqual([
-      { port: 7777, wildcard: true, pid: 4321 },
-    ]);
-  });
-
-  it("reads a v6 loopback as a specific address, not a wildcard", () => {
-    const v6Loopback = `Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)    process:pid
-tcp6       0      0  ::1.5001               *.*                    LISTEN     node:4243
-tcp6       0      0  fe80::1%lo0.5002       *.*                    LISTEN     node:4244
-`;
-    // The port is after the FINAL dot, and a colon-rich host is not a wildcard
-    // however many colons it has.
-    expect(parseNetstatTcp(v6Loopback)).toEqual([
-      { port: 5001, wildcard: false, pid: 4243 },
-      { port: 5002, wildcard: false, pid: 4244 },
-    ]);
-  });
-
-  it("fails loudly when the pid column is absent (a netstat run without -v)", () => {
-    const noVerbose = `Active Internet connections (including servers)
-Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)
-tcp4       0      0  *.8080                 *.*                    LISTEN
-`;
-    expect(() => parseNetstatTcp(noVerbose)).toThrow(PortScanError);
-  });
-
-  it("fails loudly on a non-tcp row rather than misreading its columns", () => {
-    const mixed = `Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)    pid
-udp4       0      0  *.5353                 *.*                               4242
-`;
-    expect(() => parseNetstatTcp(mixed)).toThrow(PortScanError);
   });
 });
 
