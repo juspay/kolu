@@ -43,9 +43,17 @@ import Section from "../ui/Section";
 
 /** The URL a wildcard-bound port answers on: the host the page was served from,
  *  which IS the kolu server's host. Exported for the unit test — the whole point of
- *  this function is the hostname it does NOT use. */
+ *  this function is the hostname it does NOT use.
+ *
+ *  An IPv6 literal is RE-BRACKETED. `location.hostname` strips the brackets the URL
+ *  form requires, so a kolu reached over IPv6 (a tailnet `fd7a:…` address is the
+ *  ordinary case, not an exotic one) yielded `http://fd7a::2:8123` — where the
+ *  parser reads the last `:8123` as part of the address and the URL is simply
+ *  malformed. Detected by the colon: a registered hostname or an IPv4 literal can
+ *  never contain one, so this needs no address parsing. */
 export function portUrl(hostname: string, port: number): string {
-  return `http://${hostname}:${port}`;
+  const host = hostname.includes(":") ? `[${hostname}]` : hostname;
+  return `http://${host}:${port}`;
 }
 
 /** The words for each reason a chip is not openable — a table over

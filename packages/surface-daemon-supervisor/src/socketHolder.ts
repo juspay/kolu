@@ -185,7 +185,10 @@ async function darwinSocketHolders(
     ({ stdout: out } = await execFileP(
       DARWIN_LSOF,
       ["-w", "-n", "-P", "-F", "pcn", "--", socketPath],
-      { encoding: "utf8", timeout: LSOF_TIMEOUT_MS },
+      // `killSignal` is explicit because the comment above promises a SIGKILL and
+      // `execFile`'s default is SIGTERM — which a wedged lsof (the only case this
+      // timer exists for) is entitled to ignore, making the timeout advisory.
+      { encoding: "utf8", timeout: LSOF_TIMEOUT_MS, killSignal: "SIGKILL" },
     ));
   } catch {
     // Non-zero exit is lsof's normal "nothing matched" signal (or lsof absent, or

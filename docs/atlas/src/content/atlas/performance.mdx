@@ -395,6 +395,28 @@ consider `vitest --shard` for the slowest packages (`git/index.test.ts`).
 
 - <span id="u-server-vitest" />**Server unit tests run single-file** — `packages/server/package.json` forces `vitest --fileParallelism=false` because all 16 server test files share one `KOLU_STATE_DIR` (keyed off the shell PID `$$`, resolved once so every worker inherits the same path), and a module-level `Conf` singleton would collide across parallel forks. Key the state dir per `VITEST_WORKER_ID` (each fork a private dir) and drop the flag to run the files across cores — a *within-package* U win distinct from the cross-package item above (that fans out whole packages; this unblocks the slowest one). *New this pass; bounded by whether server is the unit-lane long pole (`git` is named the slowest).* <Pill variant="lo">low</Pill>
 
+<Finding sev="low" id="b-port-scan-duty-cycle" title="The port scan's nudge floor is duty-cycle bounded, so a slow platform cannot become a hot loop">
+**Banked** in <PrLink pr={1982} />. The sampler's nudge floor used to be a fixed
+1 s, which quietly makes per-pass cost a property of the PLATFORM rather than of the
+pass: the darwin path measured **93 ms** on a busy Mac, and 93 ms every second is
+**~9% of a core** for as long as any terminal streams output. Since kaval throttles
+its activity edge to one per PTY per 200 ms, a single streaming agent delivers ~5
+edges/s, so the floor — not the 5 s baseline — is the real period. That is the whole
+duty cycle, paid for the life of the daemon.
+
+The floor is now `clamp(lastPassMs * 20, 1 s, 5 s)` (`nudgeFloorMs`), measured
+around the whole pass in a `finally` so a pass that FAILED — a 5 s helper timeout is
+the most expensive pass there is — still pays for its own cost. Effect: **≤5% of one
+core by construction, on any platform**, with no knob and no platform switch. Linux
+(14-18 ms) and a quiet Mac (17 ms) sit at the 1 s minimum and never engage the bound;
+50 ms is the largest pass that still fits under it.
+
+Why bound rather than only optimise: a bound holds for costs nobody has measured yet.
+The darwin mechanism itself is under active review — a hand-rolled libproc helper vs
+adopting a maintained tool through nix — and whichever wins, the duty cycle is
+already capped.
+</Finding>
+
 <Finding sev="medium" id="u-port-scan-subtree-descent" title="Scan a terminal's subtree, not the whole host process table">
 padi's port sensor reads **every** `/proc/<pid>/stat` on the host to build a
 pid→ppid table, because procfs has no children index — except it does:

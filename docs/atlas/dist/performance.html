@@ -337,6 +337,21 @@ consider <code>vitest --shard</code> for the slowest packages (<code>git/index.t
 <ul>
 <li><span id="u-server-vitest"></span><strong>Server unit tests run single-file</strong> — <code>packages/server/package.json</code> forces <code>vitest --fileParallelism=false</code> because all 16 server test files share one <code>KOLU_STATE_DIR</code> (keyed off the shell PID <code>$$</code>, resolved once so every worker inherits the same path), and a module-level <code>Conf</code> singleton would collide across parallel forks. Key the state dir per <code>VITEST_WORKER_ID</code> (each fork a private dir) and drop the flag to run the files across cores — a <em>within-package</em> U win distinct from the cross-package item above (that fans out whole packages; this unblocks the slowest one). <em>New this pass; bounded by whether server is the unit-lane long pole (<code>git</code> is named the slowest).</em> <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>low</span></li>
 </ul>
+<article class="finding finding-low" id="b-port-scan-duty-cycle" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-low" data-astro-cid-adrh2cs3>Low</span> The port scan&#39;s nudge floor is duty-cycle bounded, so a slow platform cannot become a hot loop</h3><div class="finding-body" data-astro-cid-adrh2cs3><p><strong>Banked</strong> in <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>. The sampler’s nudge floor used to be a fixed
+1 s, which quietly makes per-pass cost a property of the PLATFORM rather than of the
+pass: the darwin path measured <strong>93 ms</strong> on a busy Mac, and 93 ms every second is
+<strong>~9% of a core</strong> for as long as any terminal streams output. Since kaval throttles
+its activity edge to one per PTY per 200 ms, a single streaming agent delivers ~5
+edges/s, so the floor — not the 5 s baseline — is the real period. That is the whole
+duty cycle, paid for the life of the daemon.</p><p>The floor is now <code>clamp(lastPassMs * 20, 1 s, 5 s)</code> (<code>nudgeFloorMs</code>), measured
+around the whole pass in a <code>finally</code> so a pass that FAILED — a 5 s helper timeout is
+the most expensive pass there is — still pays for its own cost. Effect: <strong>≤5% of one
+core by construction, on any platform</strong>, with no knob and no platform switch. Linux
+(14-18 ms) and a quiet Mac (17 ms) sit at the 1 s minimum and never engage the bound;
+50 ms is the largest pass that still fits under it.</p><p>Why bound rather than only optimise: a bound holds for costs nobody has measured yet.
+The darwin mechanism itself is under active review — a hand-rolled libproc helper vs
+adopting a maintained tool through nix — and whichever wins, the duty cycle is
+already capped.</p></div></article>
 <article class="finding finding-medium" id="u-port-scan-subtree-descent" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-medium" data-astro-cid-adrh2cs3>Medium</span> Scan a terminal&#39;s subtree, not the whole host process table</h3><div class="finding-body" data-astro-cid-adrh2cs3><p>padi’s port sensor reads <strong>every</strong> <code>/proc/&lt;pid&gt;/stat</code> on the host to build a
 pid→ppid table, because procfs has no children index — except it does:
 <code>/proc/&lt;pid&gt;/task/&lt;tid&gt;/children</code>. So the pass costs what the HOST costs

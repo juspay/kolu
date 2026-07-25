@@ -49,16 +49,30 @@
  * On linux, `/proc` is read directly: `ss` measured ~7× slower AND hides other
  * users' pid attribution.
  *
- * On darwin the mechanism is **`lsof`**, and this REVERSES the plan's original
- * choice of `netstat`. The plan measured netstat as ~11× faster and "more
- * complete", and both claims were true of the box it was measured on — but on
- * **macOS 27.0** `netstat -anv` returns an EMPTY internet table to this process
- * while reporting success: zero bytes, exit 0, nothing on stderr. Not a parse
- * failure, not an argument problem (the same binary, absolute path, through a
- * shell, all empty; `netstat -anv -f inet` returns 117 bytes of nothing) — the
- * table simply is not visible to us there, and it IS visible to lsof in the very
- * same process. A mechanism that silently answers "no ports" is the worst
- * possible one for this feature, so it is gone rather than kept as a fallback.
+ * On darwin the mechanism is **`lsof`**, reversing the plan's original choice of
+ * `netstat` — but NOT for the reason this header used to give, which was wrong and
+ * is retracted here rather than quietly edited.
+ *
+ * **Retracted:** an earlier revision recorded, as a measured fact, that on macOS
+ * 27.0 `netstat -anv` returns an EMPTY internet table while reporting success. That
+ * does not reproduce. Re-checked on the same box (zest, macOS 27.0, build
+ * 26A5388g): `/usr/sbin/netstat -anv -p tcp` returns 29 LISTEN rows and `-anv`
+ * returns 241 KB, and `command -v netstat` there already resolves to
+ * `/usr/sbin/netstat`. The most likely explanation for the original reading is that
+ * it ran a PATH-resolved non-system `netstat` from inside a nix shell — the exact
+ * trap this header documents two paragraphs down for `ps` — but that is a
+ * hypothesis, not a measurement, and it is written as one. A false measurement must
+ * not stay enshrined as the reason for anything.
+ *
+ * **The real reason lsof wins here** is its OUTPUT, not its visibility. `netstat`'s
+ * `Local Address` column is fixed-width and TRUNCATES: on zest a v6 listener prints
+ * as `fe80::c051:5eff:.49508`, with the address cut and the port glued on after a
+ * `.`. The bind address is precisely what this module judges reachability from, so a
+ * column that silently truncates it is unusable for the one question being asked.
+ * `lsof -F` is a documented machine-readable format with one tagged field per line,
+ * so nothing depends on column widths at all. (netstat's owner column is spelled
+ * `process:pid` — `remoted:401` — on both 26.4 and 27.0, so that part of the old
+ * record stands.)
  *
  * The "less complete" half of the old comparison costs us nothing: non-root lsof
  * reports only the invoking user's processes, and a terminal's subtree is padi's
@@ -97,9 +111,10 @@
  * on whatever platform it runs. That suite exists because fixtures pin the
  * PARSERS but cannot pin the assumption that the parser is handed the shape it
  * expects — and that gap produced a real bug: this file first looked for a
- * `netstat` header column called `pid`, and macOS 26.4 calls it **`process:pid`**
- * (value `node:53082`), so every darwin scan threw while every fixture test
- * stayed green. Found by running it on a Mac, not by reading it.
+ * `netstat` header column called `pid`, and macOS calls it **`process:pid`** (value
+ * `node:53082`), so every darwin scan threw while every fixture test stayed green.
+ * Found by running it on a Mac, not by reading it. The same suite is what SHOULD
+ * have caught the retracted netstat-blindness claim above at the time.
  */
 
 import { execFile } from "node:child_process";
@@ -832,6 +847,12 @@ async function runDarwin(command: string, args: string[]): Promise<string> {
   try {
     const { stdout } = await execFileAsync(command, args, {
       timeout: PORT_SCAN_COMMAND_TIMEOUT_MS,
+      // SIGKILL, not execFile's default SIGTERM. The point of the timer is a helper
+      // that is WEDGED — on a contended mount, in uninterruptible I/O — and such a
+      // process is exactly the one entitled to ignore SIGTERM. A polite signal would
+      // make the timeout advisory and leave the sampler's single-flight slot held by
+      // a process that will not die, which is the failure this timer exists to stop.
+      killSignal: "SIGKILL",
       // A 1000-process box's `ps` is ~110 KB; this is headroom, and a genuine
       // overflow must fail rather than truncate into a short port list.
       maxBuffer: 8 * 1024 * 1024,

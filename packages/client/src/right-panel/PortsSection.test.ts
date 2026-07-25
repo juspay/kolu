@@ -26,6 +26,18 @@ describe("portUrl", () => {
     // A guess would produce a broken tab more often than a working one.
     expect(portUrl("box", 443)).toBe("http://box:443");
   });
+
+  it("re-brackets an IPv6 literal, which location.hostname hands over bare", () => {
+    // `location.hostname` strips the brackets the URL form requires, so without
+    // this a kolu reached over IPv6 built `http://fd7a::2:8123` — the parser reads
+    // the trailing `:8123` as part of the address and the URL is malformed. A
+    // tailnet address is the ordinary way kolu is reached, not an exotic case.
+    expect(portUrl("fd7a:1:2::2", 8123)).toBe("http://[fd7a:1:2::2]:8123");
+    expect(portUrl("::1", 5173)).toBe("http://[::1]:5173");
+    // A registered name and an IPv4 literal can never contain a colon, so they are
+    // left exactly as they were.
+    expect(portUrl("192.168.1.10", 5173)).toBe("http://192.168.1.10:5173");
+  });
 });
 
 describe("FORWARD_REASON", () => {

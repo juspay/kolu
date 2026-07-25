@@ -14,6 +14,7 @@ import pino, { type Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPortSampler,
+  nudgeFloorMs,
   PORT_SCAN_INTERVAL_MS,
   type PortScanTarget,
 } from "./portSampler.ts";
@@ -120,6 +121,40 @@ function platformLog(errors: string[]): Logger {
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
+
+describe("the nudge floor is duty-cycle bounded", () => {
+  it("leaves a fast pass at the 1 s minimum", () => {
+    // The platforms that matter today. If this ever stops holding, the bound has
+    // started taxing the common case, which it must not.
+    expect(nudgeFloorMs(0)).toBe(1_000); // no measurement yet
+    expect(nudgeFloorMs(3)).toBe(1_000); // the spike's linux figure
+    expect(nudgeFloorMs(18)).toBe(1_000); // linux, batched, on a 515-process box
+    expect(nudgeFloorMs(17)).toBe(1_000); // a quiet Mac
+    // 50 ms is the largest pass that still fits under the minimum: 50 * 20 = 1000.
+    expect(nudgeFloorMs(50)).toBe(1_000);
+  });
+
+  it("stretches a SLOW pass so it cannot exceed ~5% of a core", () => {
+    // The measured busy-Mac pass. At the old fixed 1 s floor this was ~9% of a core
+    // for as long as any terminal streamed output; the bound is what makes that
+    // impossible without naming a platform.
+    expect(nudgeFloorMs(93)).toBe(1_860);
+    expect(93 / nudgeFloorMs(93)).toBeLessThanOrEqual(0.05);
+    // And an arbitrary slow pass, to show the ratio is the invariant rather than
+    // these particular numbers.
+    for (const ms of [60, 120, 200, 249]) {
+      expect(ms / nudgeFloorMs(ms)).toBeLessThanOrEqual(0.05);
+    }
+  });
+
+  it("saturates rather than growing without limit", () => {
+    // Past 5 s the nudge would stop being a nudge, and the 5 s BASELINE is still
+    // running underneath — so a pathological pass must not push the floor past it.
+    expect(nudgeFloorMs(250)).toBe(5_000); // exactly at the cap
+    expect(nudgeFloorMs(5_000)).toBe(5_000); // a pass as slow as the baseline
+    expect(nudgeFloorMs(60_000)).toBe(5_000); // absurd, still bounded
+  });
+});
 
 describe("the port sampler's cadence", () => {
   it("scans at T+0 and publishes each target's set", async () => {
