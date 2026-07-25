@@ -266,13 +266,14 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Ports — what this TILE is serving, its splits included (a dev server
-              usually runs in a split, so a main-pane-only reading shows nothing
-              in the common case). Gated on the active arm: a sleeping terminal
-              released its PTY, so its subtree and every listener in it are gone.
-              `PortsSection` owns the rest — which panes to read, which chips are
-              openable (that needs the active HOST, not just this metadata), and
+              usually runs in a split, so a main-pane-only reading shows nothing in
+              the common case). Gated on the id alone, which is the only thing the
+              child needs: `PortsSection` owns which panes to read AND which of them
+              are awake — and the per-PANE arm read is the correct one, since a tile
+              can be active while a pane is asleep. It also owns which chips are
+              openable (that needs the active HOST, not just this metadata) and
               rendering nothing at all when the tile serves nothing. */}
-          <Show when={activeArm(meta()) && props.terminalId}>
+          <Show when={props.terminalId}>
             {(id) => <PortsSection terminalId={id()} />}
           </Show>
 
