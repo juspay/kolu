@@ -19,7 +19,7 @@ import Conf from "conf";
 import { confStore } from "@kolu/surface/server";
 import type { CellStore } from "@kolu/surface/server";
 import type { PairedDaemon } from "./pairedDaemon.ts";
-import type { ActivityFeed, SavedSession } from "./vocab.ts";
+import type { ActivityFeed, SavedSession } from "../vocab.ts";
 
 /** padi's on-disk shape — the three keys padi owns under its state-root, plus the
  *  one-shot import marker. */

@@ -16,7 +16,7 @@ import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
-} from "./stateRoot.ts";
+} from "../stateRoot.ts";
 
 const log = {
   debug() {},

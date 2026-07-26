@@ -16,7 +16,7 @@ import {
   CONTROL_CORE_VERSION,
   PADI_SURFACE_VERSION,
   type padiControlSurface,
-} from "./surface.ts";
+} from "../surface.ts";
 
 type ControlCoreDeps = ImplementSurfaceDeps<typeof padiControlSurface.spec>;
 

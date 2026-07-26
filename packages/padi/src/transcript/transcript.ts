@@ -19,8 +19,8 @@ import { loadGrokTranscript } from "kolu-grok";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { log } from "./log.ts";
-import { requireActiveTerminal } from "./terminal-registry.ts";
+import { log } from "../log.ts";
+import { requireActiveTerminal } from "../terminal-registry.ts";
 import type {
   ExportTranscriptHtmlInput,
   ExportTranscriptHtmlOutput,

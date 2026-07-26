@@ -36,7 +36,7 @@ of record (<PrLink pr={1944} />). **EF1 shipped** (<PrLink pr={1945} />); **EF2 
 
 | Symptom | Cause |
 | --- | --- |
-| Premature “finished” | `finishedIds` = raw agent `waiting` <Cite file="packages/padi/src/urgency.ts" /> |
+| Premature “finished” | `finishedIds` = raw agent `waiting` <Cite file="packages/padi/src/activity/urgency.ts" /> |
 | Visit finished tile → re-chime | First #1938 design made finish byte-reactive; client resize mute did not travel to padi taps |
 | Sticky “all terminals live” | #1938 Phase D stored a Solid **reconcile proxy** as `prev`; removals never applied |
 
@@ -57,7 +57,7 @@ compares two hosts' clocks). Never ship kaval absolute timestamps for finish.
 
 ### Two windows, one tracker type (EF1 + EF2)
 
-EF1 extracted <Cite file="packages/padi/src/terminalActivityTracker.ts" /> and
+EF1 extracted <Cite file="packages/padi/src/activity/terminalActivityTracker.ts" /> and
 wired it for live-dots. Its header already reserves **`isLive` / `forget`** for
 the finish consumer. **EF2 does not re-derive stamps + a hand deadline** — it
 builds a **second** `createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)` instance.
@@ -255,11 +255,11 @@ product corrected to sticky-per-episode after field flap:
 
 | Piece | What |
 | --- | --- |
-| Tracker | `createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)` (~5s) — second instance of the EF1 leaf <Cite file="packages/padi/src/terminalActivityTracker.ts" /> via <Cite file="packages/padi/src/finishQuiet.ts" /> |
+| Tracker | `createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)` (~5s) — second instance of the EF1 leaf <Cite file="packages/padi/src/activity/terminalActivityTracker.ts" /> via <Cite file="packages/padi/src/activity/finishQuiet.ts" /> |
 | Feed | `noteOutput` on enter-waiting (`awaiting`→`waiting`, re-entry); every kaval edge (pre-finish debounce); **resubscribe restamp** of not-yet-sticky waiting ids |
 | Boot | already-waiting on first sync → **sticky finished immediately** (discovery) |
 | Evict | `forget` + sticky-clear on leave-waiting / leave-pool |
-| Fold | `finishedIds` = active waiting ∧ `isEpisodeFinished(id)` (sticky memoize) — <Cite file="packages/padi/src/urgency.ts" />; asking ungated |
+| Fold | `finishedIds` = active waiting ∧ `isEpisodeFinished(id)` (sticky memoize) — <Cite file="packages/padi/src/activity/urgency.ts" />; asking ungated |
 | Graph | Daemon-lifetime standing kaval `resubscribeStream` + reactor push source on `onChange`; dual-edge `derived.cell` in <Cite file="packages/padi/src/servePadi.ts" /> |
 | Product | **Sticky-per-episode** — once quiet-crossed, stay finished until leave waiting |
 

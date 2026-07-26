@@ -8,8 +8,8 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFinishQuiet, waitingIdsOf } from "./finishQuiet.ts";
-import type { PadiTerminal } from "./surface.ts";
-import { composeTerminalMetadata, LOCAL_LOCATION } from "./vocab.ts";
+import type { PadiTerminal } from "../surface.ts";
+import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
 
 const QUIET = 100;
 const A = "fin-a" as TerminalId;

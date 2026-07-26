@@ -23,7 +23,7 @@
 
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiTerminal, PadiUrgency } from "./surface.ts";
+import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 
 /** Fold the composed `terminals` collection into the urgency projection — the
  *  ids of terminals whose agent is awaiting the user (`awaiting_user`), and of

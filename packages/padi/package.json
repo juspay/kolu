@@ -8,18 +8,18 @@
   "main": "./src/surface.ts",
   "types": "./src/surface.ts",
   "bin": {
-    "padi": "./src/bin.ts"
+    "padi": "./src/daemonBoot/bin.ts"
   },
   "exports": {
     "./surface": "./src/surface.ts",
     "./assembly": "./src/assembly.ts",
     "./dial": "./src/dial.ts",
-    "./daemonMain": "./src/daemonMain.ts",
+    "./daemonMain": "./src/daemonBoot/daemonMain.ts",
     "./stateRoot": "./src/stateRoot.ts",
-    "./buildId": "./src/buildId.ts",
+    "./buildId": "./src/daemonBoot/buildId.ts",
     "./endpoint": "./src/endpoint.ts",
     "./log": "./src/log.ts",
-    "./transcript": "./src/transcriptSchema.ts",
+    "./transcript": "./src/transcript/transcriptSchema.ts",
     "./upload": "./src/upload.ts"
   },
   "scripts": {
