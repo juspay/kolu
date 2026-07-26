@@ -56,6 +56,27 @@ export const Prt2Mockup = () => (
   </div>
 );
 
+export const Prt3Mockup = () => (
+  <div style="font-family:ui-sans-serif,system-ui;max-width:26rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)">
+    <div style="display:flex;gap:.3rem;padding:.5rem .8rem 0;border-bottom:1px solid #232834;font:.72rem/1.6 ui-monospace,monospace;color:#5b6470">
+      <span style="padding:.15rem .6rem">Code</span><span style="padding:.15rem .6rem">Inspector</span><span style="padding:.15rem .6rem;background:#1d2331;border-radius:6px 6px 0 0;color:#d6dae2;font-weight:700">Preview</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:.45rem;padding:.45rem .8rem;border-bottom:1px solid #232834;font:.7rem/1.4 ui-monospace,monospace">
+      <span style="background:rgba(14,117,105,.18);color:#5eead4;border-radius:4px;padding:.08rem .4rem">⇄ :5173</span>
+      <span style="flex:1;background:#0e1116;border:1px solid #232834;border-radius:6px;padding:.2rem .5rem;color:#a9b0be;white-space:nowrap;overflow:hidden">http://pureintent:5173/</span>
+      <span style="color:#5b6470">⟳ ↗</span>
+    </div>
+    <div style="display:grid;place-items:center;height:6.5rem;color:#8b93a3;font:.75rem/1.6 ui-sans-serif">
+      <div style="text-align:center"><div style="font-size:1.4rem">⚡</div>the dev server, inline beside its terminal</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .8rem;border-top:1px solid #232834;font:.68rem/1.5 ui-monospace,monospace;background:#0e1116">
+      <span style="background:rgba(163,88,42,.2);color:#d8925f;border-radius:4px;padding:.06rem .4rem">⇄ closed</span>
+      <span style="color:#8b93a3">the door closed behind this page</span>
+      <span style="margin-left:auto;color:#5eead4">⇄ re-forward &amp; reload</span>
+    </div>
+  </div>
+);
+
 Agents constantly start dev servers, and the URL scrolls away into the
 scrollback. This feature answers the one question kolu can't answer today —
 **where is the thing the agent just ran?** — with exactly one concept:
@@ -584,10 +605,11 @@ release note:
 | PRT0 ✅ | `@kolu/port-forward` library + vazhi TUI — <PrLink pr={1975} /> | — | standalone forward on a real remote box, no kolu running |
 | PRT1 ✅ | padi port sensor · Ports section · direct open — <PrLink pr={1982} /> | — | e2e: spawned listener's chip appears + opens |
 | PRT2 ✅ | kolu embeds the library — <PrLink pr={1991} />: lazy forward · merged Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
-| PRT3 | embedded in-kolu preview pane | PRT2 | deferred — not planned yet |
+| PRT3 | the Preview tab — right-panel, forward-backed, MCP verbs | PRT2 | design seeded (<PrLink pr={111} /> prior art) — build follows osfacts |
 
 PRT0 shipped in <PrLink pr={1975} /> and PRT1 in <PrLink pr={1982} />;
-PRT2 shipped in <PrLink pr={1991} />; **PRT3 is the only phase left**, and it is deferred by design.
+PRT2 shipped in <PrLink pr={1991} />; **PRT3 is the only phase left** — its
+design is seeded below, and its build waits its turn behind osfacts.
 
 ### PRT0 — the library, proven by vazhi (shipped: <PrLink pr={1975} />)
 
@@ -828,15 +850,80 @@ the one it claimed to cover, so it stays with the `remote-host-testing` harness
 above. Stated rather than left implicit, because "the port forwarding suite is
 green" would otherwise read as covering both mechanisms.
 
-### PRT3 — embedded preview (deferred)
+### PRT3 — the Preview tab (design seeded; build follows osfacts)
 
-Open the forwarded page inside kolu — a browser pane in the Code tab, in the
-spirit of the Codex desktop app — instead of a new tab. Explicitly out of
-scope until PRT2 shipped<Footnote>A cross-origin iframe surface for arbitrary
-dev servers is a genuinely bigger build, and any server sending
-`X-Frame-Options: DENY` / `frame-ancestors` refuses framing — the new-tab
-path must remain the fallback regardless.</Footnote>; no design here yet —
-when it matures this section is rewritten, not layered.
+<Prt3Mockup />
+
+The forwarded page opens **inside kolu**: a third right-panel tab — Code ·
+Inspector · **Preview** — beside the terminal whose server it shows. Not a
+canvas tile.<Footnote>A tile makes the preview a peer of terminals and
+inherits questions it cannot answer well — docking, persistence, a tile with
+no PTY behind it. The side-by-side feel is already kolu's grammar:
+terminal-left, panel-right. A pop-out-to-split can come later; it is
+additive, not structural.</Footnote> With PRT2 shipped, this is the arc's
+last piece: **detect the port, open the door, show the page** — one feature,
+finished.
+
+- **Entry.** Chip click → forward → Preview opens on the forwarded URL.
+  Modifier-click keeps today's new tab; <Kbd keys="⌘+K" /> gains "Preview a
+  port…". The `⇄` pill in the Preview header mirrors the chip's forward
+  state.
+- **Prior art: <PrLink pr={111} /> built most of this once** — and PRT2 is
+  what completes it.<Footnote>That closed PR's own body warned that headless
+  deployments needed dev servers bound to `0.0.0.0` "since the iframe runs in
+  the user's browser" — the exact limitation forwards erase. Salvage
+  inventory: the per-terminal URL/open store, the draft-vs-applied URL-bar
+  pattern, the cross-origin refresh trick (re-assign `iframe.src`;
+  `contentWindow.location.reload()` is blocked cross-origin, and every
+  forwarded page IS cross-origin), and the `web-view.feature` e2e skeleton.</Footnote>
+- **Two honest failure states, designed in.** Auto-cancel reaches the
+  preview: a closed door renders "the door closed behind this page" with a
+  one-click re-forward — never a spinner over a dead socket. Framing refusal
+  (`X-Frame-Options` / `frame-ancestors`) cannot be reliably detected
+  cross-origin, so the empty-frame state *hints* at the cause and the
+  `↗ open in tab` escape is permanent chrome, not a fallback
+  screen.<Footnote>Carried from the original deferral note: an arbitrary
+  dev-server iframe is a genuinely bigger build than a chip link, and
+  frame-refusing servers keep the new-tab path load-bearing forever.</Footnote>
+- **Preview state graduates to per-terminal SERVER state** (the dock-state
+  pattern), reversing <PrLink pr={111} />'s deliberate client-side
+  choice.<Footnote>The reversal is earned, not aesthetic: #111 kept URL/open
+  in localStorage because no server-side reader existed. The MCP verbs below
+  are that reader — a real second consumer, arrived rather than predicted,
+  which is the same lesson this track has now hit from both directions. It
+  also buys multi-viewer agreement for free, since the surface broadcasts
+  it.</Footnote>
+- **Agents reach it through kolu MCP as verbs over DOORS, not a browser**:
+  `preview_open` / `preview_close` taking `(terminal, port, path)` — **never
+  a raw URL** — plus preview state readable off the surface like every other
+  fact.<Footnote>The no-raw-URLs invariant is both safety and honesty: an
+  agent (or whatever prompt-injected it) cannot steer the human's viewport
+  beyond ports kolu itself holds doors to, and the feature stays what it is —
+  a dev-server preview, not Chrome-in-a-tab. Reading or driving the PAGE
+  (DOM, clicks, screenshots) is deliberately refused: that is a browser
+  runtime's job, and agents already have one — chrome-devtools MCP pointed at
+  the forwarded URL, which PRT2 made reachable from the kolu host where the
+  agent's browser runs.</Footnote>
+- **The field's convergence says this is one feature.** Claude Code's desktop
+  app ships a Browser pane where the agent starts the dev server, opens it,
+  screenshots and inspects to verify its own work; Codex's desktop app ships
+  a *shared* browser where the human annotates an element and the comment —
+  screenshot and element context attached — lands in the agent's
+  prompt.<Footnote>Sources: [Claude Code desktop
+  docs](https://code.claude.com/docs/en/desktop) (Browser pane, `autoVerify`,
+  server dropdown), [Codex browser
+  docs](https://developers.openai.com/codex/app/browser) (shared view,
+  element annotation). Kolu's differentiators are structural: doors work
+  across a fleet of machines (neither competitor's preview does remote
+  hosts), and kolu's agents are whatever runs in a terminal, not one vendor's.
+  The Codex move worth stealing later — annotate an element in the Preview,
+  and the comment lands as prompt text in the tile's own agent via the input
+  path kaval already owns — is named here but deliberately not planned.</Footnote>
+
+Design seeded is not build-ready: the implementation plan (component
+inventory, the MCP contract, done-criteria that can only be met through the
+real seams) lands when PRT3 is scheduled — after osfacts — and rewrites this
+section, per the note's own rule.
 
 ## What this track sent upstream
 
