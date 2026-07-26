@@ -257,6 +257,7 @@ pub fn snapshot(scope: &Scope, want_procs: bool, want_ports: bool) -> Snapshot {
 fn subtree(roots: &[u32], all: &[u32], snap: &mut Snapshot) -> HashSet<u32> {
     let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
     let mut readable = HashSet::new();
+    let listed: HashSet<u32> = all.iter().copied().collect();
     for &pid in all {
         if let Ok((ppid, _)) = read_bsd(pid) {
             children.entry(ppid).or_default().push(pid);
@@ -267,9 +268,29 @@ fn subtree(roots: &[u32], all: &[u32], snap: &mut Snapshot) -> HashSet<u32> {
     let mut queue = Vec::new();
     for &r in roots {
         if !readable.contains(&r) {
+            // Do NOT invent ESRCH: port-scan treats ESRCH/ENOENT as a dead
+            // root (empty ports), but a live unreadable root (launchd EPERM)
+            // must stay a permission U so the blind throw fires. Re-probe for
+            // the real errno when the pid is still in the table.
+            let err = if listed.contains(&r) {
+                match read_bsd(r) {
+                    Err(e) => e,
+                    Ok((ppid, _)) => {
+                        // Race: became readable between the scan and now.
+                        children.entry(ppid).or_default();
+                        readable.insert(r);
+                        if out.insert(r) {
+                            queue.push(r);
+                        }
+                        continue;
+                    }
+                }
+            } else {
+                libc::ESRCH
+            };
             snap.unreadable.push(Unreadable {
                 pid: r,
-                errno: errno_name(libc::ESRCH),
+                errno: errno_name(err),
             });
             continue;
         }
