@@ -50,7 +50,11 @@ import {
 // The honest three-way process-RSS union — composed below into `ProcessMemorySchema`.
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
-import { type ProcessRss, ProcessRssSchema } from "@kolu/terminal-vocab/schema";
+import {
+  type ProcessRss,
+  ProcessRssSchema,
+  TcpPortSchema,
+} from "@kolu/terminal-vocab/schema";
 // The host key, from its own padi-LESS module — the forward vocabulary below is
 // keyed by it, so a row can be filtered to a terminal's host without parsing an
 // ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
@@ -125,6 +129,7 @@ export {
   type TerminalPorts,
   portReach,
   samePortList,
+  TcpPortSchema,
   PrResultSchema,
   PrUnavailableSourceSchema,
   prUnavailableReason,
@@ -508,10 +513,10 @@ export const KoluForwardSchema = z.object({
    *  row can be filtered to the active terminal's host without parsing. */
   host: HostKeySchema,
   /** The port on `host` that the forward points at. */
-  remotePort: z.number().int().min(1).max(65535),
+  remotePort: TcpPortSchema,
   /** The port it answers on, on every interface of the KOLU SERVER's host —
    *  the number that goes in the URL. */
-  localPort: z.number().int().min(1).max(65535),
+  localPort: TcpPortSchema,
   origin: ForwardOriginSchema,
   /** Epoch ms when the listener came up — what an "up 12m" column renders. */
   createdAt: z.number(),
@@ -531,7 +536,7 @@ export type Forwards = z.infer<typeof ForwardsSchema>;
  *  without being asked. */
 export const ForwardCreateInputSchema = z.object({
   host: HostKeySchema,
-  port: z.number().int().min(1).max(65535),
+  port: TcpPortSchema,
   origin: ForwardOriginSchema,
 });
 export type ForwardCreateInput = z.infer<typeof ForwardCreateInputSchema>;

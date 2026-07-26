@@ -13,6 +13,17 @@
 
 import { z } from "zod";
 
+/** What a TCP port IS — the one range every schema and every hand-check in the
+ *  repo means by "a port".
+ *
+ *  Port 0 is the kernel's "any", never a server you can point at, so the floor is
+ *  1 rather than 0. Declared here because this is the OS-vocabulary leaf that
+ *  already owns what a port is, and because the rule was being spelled
+ *  independently at eight sites that had already drifted (`port <= 0` in one,
+ *  `port < 1` in another, `.min(1)` in a third). A range restated is a range that
+ *  will disagree with itself. */
+export const TcpPortSchema = z.number().int().min(1).max(65535);
+
 /** WHERE a listening socket is bound, reduced to the three cases that take
  *  genuinely different action — never to a boolean.
  *
@@ -110,7 +121,7 @@ export function widerScope(a: PortScope, b: PortScope): PortScope {
  *  the SUBTREE, which is the question a caller asks. */
 export const PortInfoSchema = z.object({
   /** The TCP port the socket is listening on. */
-  port: z.number().int().min(1).max(65535),
+  port: TcpPortSchema,
   /** The PROGRAM holding the listener (`node`, `workerd`, …), for a glanceable
    *  "who is this?" beside the number — `argv[0]`'s basename on linux, the
    *  executable path's basename on darwin. Deliberately not linux's `comm`: that

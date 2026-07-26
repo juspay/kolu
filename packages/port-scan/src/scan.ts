@@ -179,7 +179,7 @@ import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Logger } from "@kolu/log";
-import { foldPorts } from "./ports.ts";
+import { foldPorts, TcpPortSchema } from "./ports.ts";
 import type { PortFamily, PortInfo, PortScope } from "./ports.ts";
 
 const execFileAsync = promisify(execFile);
@@ -520,7 +520,7 @@ export function parseProcNetTcp(body: string): ProcListener[] {
       );
     }
     const port = Number.parseInt(local.slice(split + 1), 16);
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    if (!TcpPortSchema.safeParse(port).success) {
       throw new PortScanError(
         "blind",
         `port scan: "${local}" carries no valid port in a /proc/net/tcp row`,
@@ -920,7 +920,7 @@ export function parseHelperOutput(body: string): HelperReading {
           `port scan: helper listener row has a non-numeric pid: ${line}`,
         );
       }
-      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      if (!TcpPortSchema.safeParse(port).success) {
         throw new PortScanError(
           "blind",
           `port scan: helper listener row carries no valid port: ${line}`,

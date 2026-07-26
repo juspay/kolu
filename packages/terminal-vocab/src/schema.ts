@@ -170,6 +170,7 @@ export {
   type PortScope,
   PortScopeSchema,
   samePortList,
+  TcpPortSchema,
   widerScope,
 } from "@kolu/port-scan/ports";
 // Imported as well as re-exported: `export … from` re-publishes without binding,
