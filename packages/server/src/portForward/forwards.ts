@@ -37,6 +37,7 @@ import {
   targetKey,
 } from "@kolu/port-forward";
 import { match } from "ts-pattern";
+import type { HostPorts } from "./hostPorts.ts";
 import type { Logger } from "@kolu/log";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type {
@@ -67,22 +68,6 @@ export const REAP_READ_DEADLINE_MS = 10_000;
  *  this has a correct answer waiting — `unknown` → the assumed family — so a
  *  tight budget degrades to the documented assumption instead of to a wait. */
 export const CREATE_READ_DEADLINE_MS = 1_000;
-
-/** What a host's listening ports look like to this module — each port mapped to
- *  the IP family it is bound on.
- *
- *  `"unknown"` is not "none" and the distinction is the whole of the auto-cancel
- *  rule: it means no terminal on that host has ever been scanned successfully, or
- *  every scan we have is blind. A map — even an empty one — is an OBSERVATION,
- *  and only an observation may close a door.
- *
- *  It carries the FAMILY and not just the port numbers because the same reading
- *  answers both of this module's questions: which doors to close, and — for a
- *  door about to be opened — which loopback to dial. Deriving the family here
- *  rather than accepting it from the client is deliberate: the client's copy can
- *  be a scan or two stale, and a stale family opens a door onto an address with
- *  nothing behind it. */
-export type HostPorts = ReadonlyMap<number, PortFamily> | "unknown";
 
 export interface KoluForwards {
   /** Subscribe to the map's change EDGE — someone opened or cancelled a door, a
@@ -241,10 +226,10 @@ export function createKoluForwards(deps: {
           { err, host: encodeHostKey(input.host) },
           "could not read a host's ports while opening a forward — dialling the assumed loopback",
         );
-        return "unknown" as const;
+        return { status: "unknown" } as const;
       });
-    if (seen === "unknown") return ASSUMED_LOOPBACK;
-    const family = seen.get(input.port);
+    if (seen.status !== "known") return ASSUMED_LOOPBACK;
+    const family = seen.ports.get(input.port);
     return family === undefined ? ASSUMED_LOOPBACK : loopbackOf(family);
   };
 
@@ -313,7 +298,7 @@ export function createKoluForwards(deps: {
             { err, host: enc },
             "could not read a host's ports for forward auto-cancel — its forwards are left standing",
           );
-          ports.set(enc, "unknown");
+          ports.set(enc, { status: "unknown" });
         }
       }
 
@@ -334,9 +319,13 @@ export function createKoluForwards(deps: {
         const host = hostOf(forward.target);
         const seen = ports.get(encodeHostKey(host));
         // `unknown` — including the failed read above — is not a death. Only a
-        // real observation that does NOT contain this port closes the door.
-        if (seen === undefined || seen === "unknown") continue;
-        if (seen.has(forward.target.port)) continue;
+        // real observation that does NOT contain this port closes the door. One
+        // spelling, because the tag carries the whole question: a missing entry
+        // is unreachable anyway (the map is built from the same host set it is
+        // read with), and defensive code for an unrepresentable state was the
+        // tell that the representation was not carrying the rule.
+        if (seen?.status !== "known") continue;
+        if (seen.ports.has(forward.target.port)) continue;
         deps.log.info(
           { key: forward.key, port: forward.target.port },
           "auto forward's listener is gone — cancelling it",

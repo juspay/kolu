@@ -132,7 +132,7 @@ export function isTrustedLocalPeer(
  *      vouched for.
  *   4. Trusted peer, no usable header → the peer. Not a proxy at all, just
  *      somebody browsing on the kolu host, and the peer is the honest answer. */
-export function effectiveViewerAddress(opts: {
+function effectiveViewerAddress(opts: {
   peerAddress: string | undefined;
   /** The raw `X-Forwarded-For`, if the request carried one. */
   forwardedFor: string | undefined;
@@ -162,20 +162,37 @@ export function effectiveViewerAddress(opts: {
  *  header stays `undefined` rather than becoming `""`: "no proxy said anything"
  *  and "a proxy said nothing usable" are different facts, and only the first
  *  means there was no proxy. */
-export function forwardedForOf(
+function forwardedForOf(
   header: string | readonly string[] | null | undefined,
 ): string | undefined {
   if (header === null || header === undefined) return undefined;
   return Array.isArray(header) ? header.join(",") : (header as string);
 }
 
-/** The hostname half of an ssh destination — `user@box` → `box`, `box` → `box`.
+/** WHOSE address to judge a connection by — the trust gate, WHOLE.
  *
- *  Only the hostname is resolvable, and only what a resolver can take is worth
- *  handing one. A destination this cannot reduce to a plausible hostname (an
- *  `~/.ssh/config` alias that names no real host) simply fails to resolve later,
- *  which lands on the safe no-match side. */
-export function sshTargetHostname(target: string): string {
-  const at = target.lastIndexOf("@");
-  return at === -1 ? target : target.slice(at + 1);
+ *  This is the entry point, and the two functions above are its internals. The
+ *  part of this module that was actually hard is the ORDER in
+ *  `effectiveViewerAddress`'s doc — which observation may be believed, and when
+ *  — and a package that exported the steps and left the consumer to compose them
+ *  would be shipping the wires while keeping the socket to itself: every
+ *  consumer would re-read that prose and one of them would eventually get the
+ *  order wrong, which is a security decision.
+ *
+ *  The header is taken in EITHER shape a node request hands over (a string, or
+ *  the array node produces for a repeated header), so a consumer never has to
+ *  normalise it first — that normalisation was the one piece kolu was importing
+ *  separately, at two entry points, on its way to this same call. */
+export function viewerAddressOf(conn: {
+  peerAddress: string | undefined;
+  /** The raw `X-Forwarded-For`, however the request carried it. */
+  forwardedFor: string | readonly string[] | null | undefined;
+  /** This server host's own addresses. */
+  hostAddresses: readonly string[];
+}): string | undefined {
+  return effectiveViewerAddress({
+    peerAddress: conn.peerAddress,
+    forwardedFor: forwardedForOf(conn.forwardedFor),
+    hostAddresses: conn.hostAddresses,
+  });
 }

@@ -101,7 +101,7 @@ const WEB_SHELL_FILES = [
   // over `@kolu/port-forward`'s map (auto-vs-manual death, "only a real port
   // observation may close a door"), the port READING the reaper acts on, and the
   // per-viewer identity RESOLVER (its pure decision table graduated to
-  // `@kolu/surface/viewerIdentity` — proxy topology is not a kolu concern). All
+  // `@kolu/surface/viewer-identity` — proxy topology is not a kolu concern). All
   // web-shell code by construction — the LISTENERS are sockets in THIS process on
   // THIS machine, and the identity fact is a property of a connection only the
   // serving process can see. None of it runs terminal domain.

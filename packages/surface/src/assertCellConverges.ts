@@ -50,7 +50,7 @@ export async function assertCellConverges<T>(opts: {
   // on it and write dead code, and lets a test assert `{ loop: undefined }` and
   // believe it checked something.
   let loop: Error | undefined;
-  __setLoopReporterForTests((err) => {
+  const restoreReporter = __setLoopReporterForTests((err) => {
     loop ??= err;
   });
   const poll = opts.build(() => {
@@ -81,6 +81,8 @@ export async function assertCellConverges<T>(opts: {
     return { reads };
   } finally {
     stop();
-    __setLoopReporterForTests(null);
+    // RESTORE, never null: two convergence assertions in one process nest
+    // legitimately, and the first to finish would otherwise disarm the second.
+    restoreReporter();
   }
 }

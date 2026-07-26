@@ -20,7 +20,38 @@ import {
 } from "@kolu/surface/first-frame";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { type PortFamily, preferredFamily } from "kolu-common/surface";
-import type { HostPorts } from "./forwards.ts";
+
+/** What a host's listening ports look like to the forward subsystem — each port
+ *  mapped to the IP family it is bound on, or the honest "we could not look".
+ *
+ *  A DISCRIMINATED UNION rather than a sentinel beside a map, matching the shape
+ *  `TerminalPorts` sets one package over for this very two-way: it is the same
+ *  fact, derived from that one, for the same rule. The tag is what makes
+ *  `for (const [p, f] of hostPorts)` a compile error instead of a runtime one,
+ *  and what removes the second spelling of "we could not look" that had already
+ *  appeared beside it (`seen === undefined || seen === "unknown"`).
+ *
+ *  `unknown` is not "none", and that distinction is the whole of the auto-cancel
+ *  rule: it means no terminal on that host has ever been scanned successfully,
+ *  or every scan we have is blind. A map — even an empty one — is an
+ *  OBSERVATION, and only an observation may close a door.
+ *
+ *  It carries the FAMILY and not just the port numbers because the same reading
+ *  answers both questions the policy has: which doors to close, and — for a door
+ *  about to be opened — which loopback to dial. Deriving the family here rather
+ *  than accepting it from the client is deliberate: the client's copy can be a
+ *  scan or two stale, and a stale family opens a door onto an address with
+ *  nothing behind it.
+ *
+ *  Declared HERE, in the module that produces every value of it and is named
+ *  after it, rather than in the policy module that only ever takes it as a
+ *  parameter. */
+export type HostPorts =
+  | {
+      readonly status: "known";
+      readonly ports: ReadonlyMap<number, PortFamily>;
+    }
+  | { readonly status: "unknown" };
 
 /** A host's `terminals` collection, as this reader uses it. Loosely typed at
  *  this ONE seam for the reason `reServeSurface`'s own `surfaceMember` is: the
@@ -72,13 +103,13 @@ export function makeHostPortsReader(deps: {
     deadlineMs: number,
   ): Promise<HostPorts> {
     const terminals = deps.terminalsOf(host);
-    if (terminals === null) return "unknown";
+    if (terminals === null) return { status: "unknown" };
     const ctl = new AbortController();
     try {
       const keys = await firstFrameOrUndefined(
         await terminals.keys({}, { signal: ctl.signal }),
       );
-      if (keys === undefined) return "unknown";
+      if (keys === undefined) return { status: "unknown" };
       const ports = new Map<number, PortFamily>();
       let sawAnything = false;
       // All at once, because the reads are independent and each is already
@@ -138,7 +169,7 @@ export function makeHostPortsReader(deps: {
           );
         }
       }
-      return sawAnything ? ports : "unknown";
+      return sawAnything ? { status: "known", ports } : { status: "unknown" };
     } catch (err) {
       // A read that FAILED is not evidence a port died. Report the honest
       // `unknown` — never an empty map, which would reap every auto forward on
@@ -147,7 +178,7 @@ export function makeHostPortsReader(deps: {
         { err, host: encodeHostKey(host) },
         "host port read failed",
       );
-      return "unknown";
+      return { status: "unknown" };
     } finally {
       ctl.abort();
     }

@@ -1,6 +1,6 @@
 /**
  * "Which of kolu's hosts is this browser sitting at?" — the resolver that joins
- * the pure decision table in `@kolu/surface/viewerIdentity` to the two facts only
+ * the pure decision table in `@kolu/surface/viewer-identity` to the two facts only
  * the running server has: its own interface addresses, and what each ssh
  * destination resolves to.
  *
@@ -13,19 +13,22 @@
 import { lookup } from "node:dns/promises";
 import { networkInterfaces } from "node:os";
 import { decodeHostKey, type HostKey } from "kolu-common/hostKey";
-import {
-  effectiveViewerAddress,
-  sshTargetHostname,
-  viewerIsOnHost,
-} from "@kolu/surface/viewerIdentity";
+import { viewerAddressOf, viewerIsOnHost } from "@kolu/surface/viewer-identity";
 
-/** Every address THIS machine answers on — what makes a connection from a local
- *  reverse proxy recognisable as a local hop.
+/** The hostname half of an ssh destination — `user@box` → `box`, `box` → `box`.
  *
- *  Re-read per call rather than cached: an interface can come and go (a tailnet
- *  link, a VPN, a docker bridge), and the read is a cheap in-process syscall. A
- *  cached list that missed a new interface would silently stop trusting the
- *  proxy that arrived with it. */
+ *  ssh syntax is KOLU's vocabulary, not the surface framework's: that package
+ *  hides transport and proxy topology, and a function that parses an ssh
+ *  destination inside it is the same kind of leak as a terminal type would be.
+ *  Only the hostname is resolvable, and only what a resolver can take is worth
+ *  handing one. A destination this cannot reduce to a plausible hostname (an
+ *  `~/.ssh/config` alias that names no real host) simply fails to resolve later,
+ *  which lands on the safe no-match side. */
+export function sshTargetHostname(target: string): string {
+  const at = target.lastIndexOf("@");
+  return at === -1 ? target : target.slice(at + 1);
+}
+
 /** Did the lookup fail because the answer is "not now" rather than "not a
  *  name"? Only the latter is a fact worth caching for the process's life.
  *  `EAI_AGAIN` is the resolver saying it could not reach a server, and the
@@ -41,6 +44,13 @@ function isTransientLookupFailure(err: unknown): boolean {
   );
 }
 
+/** Every address THIS machine answers on — what makes a connection from a local
+ *  reverse proxy recognisable as a local hop.
+ *
+ *  Re-read per call rather than cached: an interface can come and go (a tailnet
+ *  link, a VPN, a docker bridge), and the read is a cheap in-process syscall. A
+ *  cached list that missed a new interface would silently stop trusting the
+ *  proxy that arrived with it. */
 export function ownAddresses(): string[] {
   return Object.values(networkInterfaces())
     .flatMap((addresses) => addresses ?? [])
@@ -57,7 +67,9 @@ export function makeViewerHostResolver(deps: {
   own?: () => readonly string[];
 }): (connection: {
   peerAddress: string | undefined;
-  forwardedFor: string | undefined;
+  /** The raw `X-Forwarded-For`, in whichever shape the request carried it —
+   *  `viewerAddressOf` takes both, so no entry point has to normalise first. */
+  forwardedFor: string | readonly string[] | null | undefined;
 }) => Promise<HostKey | null> {
   const own = deps.own ?? ownAddresses;
   /** Cached for the process's life, keyed by hostname. It is a DNS answer about
@@ -95,7 +107,7 @@ export function makeViewerHostResolver(deps: {
     // proxy — measured on production, `tailscale serve` dials the backend from
     // this host's OWN tailnet address — so the viewer's address only exists in
     // the forwarded header, and only a trusted peer may vouch for it.
-    const viewerAddress = effectiveViewerAddress({
+    const viewerAddress = viewerAddressOf({
       peerAddress: connection.peerAddress,
       forwardedFor: connection.forwardedFor,
       hostAddresses: own(),

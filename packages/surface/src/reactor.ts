@@ -337,11 +337,27 @@ const SELF_CAUSED_STREAK = 3;
  *  emptiness on. Production leaves it null and the guard throws. */
 let testLoopReporter: ((err: Error) => void) | null = null;
 
-/** TEST-ONLY — see {@link testLoopReporter}. Pass `null` to restore throwing. */
+/** TEST-ONLY — see {@link testLoopReporter}. Returns the RESTORE for whatever
+ *  was installed before.
+ *
+ *  A restore rather than a "pass null to reset", because `null` was doing two
+ *  jobs — "no reporter installed" and "put it back the way it was" — and the
+ *  second is a claim the caller cannot make: nesting is legitimate (two
+ *  convergence assertions in one process, a helper called from a test that
+ *  installed its own), and a caller that nulled on the way out would disarm a
+ *  reporter it never installed. The inner one finishing would then send the
+ *  outer's loop report down the production path — `queueMicrotask(() => throw)`,
+ *  surfacing as an unhandled rejection attributed to the wrong test, which is
+ *  the hardest possible way to debug the guard that exists to make freezes
+ *  debuggable. */
 export function __setLoopReporterForTests(
   fn: ((err: Error) => void) | null,
-): void {
+): () => void {
+  const prior = testLoopReporter;
   testLoopReporter = fn;
+  return () => {
+    testLoopReporter = prior;
+  };
 }
 
 /** Say it, loudly. Default is a throw on its own turn — an unbounded cycle must

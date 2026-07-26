@@ -14,6 +14,9 @@
  * of saying "connected" — rather than as a fact of its own.
  */
 
+import type { ForwardOrigin } from "kolu-common/surface";
+import { match } from "ts-pattern";
+
 /** The pill that carries an address — teal on a teal wash, both themes. */
 export const FORWARD_PILL =
   "rounded bg-teal-500/10 px-1 font-mono text-teal-700 dark:bg-teal-400/15 dark:text-teal-300";
@@ -30,7 +33,9 @@ export const FORWARD_PILL =
  *  the WEIGHT was. One pixel, tight against the pip, quiet. */
 export const FORWARD_RING = "ring-1 ring-teal-500/70 dark:ring-teal-300/60";
 
-/** How a forward's ORIGIN reads, and what the tooltip explains.
+/** How a forward's ORIGIN reads, and what the tooltip explains. Typed by the
+ *  wire's own `ForwardOrigin` and exhaustive over it, so a third arm is a
+ *  compile error here rather than silently the `pinned` copy.
  *
  *  `manual` displays as **"pinned"** — the wire field keeps its name, this is
  *  display vocabulary only. "Manual" describes how it was created, which the user
@@ -38,12 +43,16 @@ export const FORWARD_RING = "ring-1 ring-teal-500/70 dark:ring-teal-300/60";
  *  actually need to predict — that it stays until they say otherwise. And "auto"
  *  survived review only because it earns a tooltip: it was jargon with no
  *  explanation anywhere on the surface. */
-export function originWord(origin: "auto" | "manual"): string {
-  return origin === "auto" ? "auto" : "pinned";
+export function originWord(origin: ForwardOrigin): string {
+  return match(origin)
+    .with("auto", () => "auto")
+    .with("manual", () => "pinned")
+    .exhaustive();
 }
 
-export function originTooltip(origin: "auto" | "manual"): string {
-  return origin === "auto"
-    ? "closes itself when the server stops"
-    : "opened by hand — stays until you cancel it";
+export function originTooltip(origin: ForwardOrigin): string {
+  return match(origin)
+    .with("auto", () => "closes itself when the server stops")
+    .with("manual", () => "opened by hand — stays until you cancel it")
+    .exhaustive();
 }

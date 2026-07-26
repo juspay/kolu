@@ -43,7 +43,7 @@ import { __setLoopReporterForTests } from "./reactor";
 async function connect<T>(poll: ReturnType<typeof source<T>>) {
   const seen: T[] = [];
   const loops: Error[] = [];
-  __setLoopReporterForTests((err) => loops.push(err));
+  const restoreReporter = __setLoopReporterForTests((err) => loops.push(err));
   const stop = await (
     poll as { connectPoll: (set: (v: T) => void) => Promise<() => void> }
   ).connectPoll((v) => seen.push(v));
@@ -52,7 +52,7 @@ async function connect<T>(poll: ReturnType<typeof source<T>>) {
     loops,
     stop: () => {
       stop?.();
-      __setLoopReporterForTests(null);
+      restoreReporter();
     },
   };
 }

@@ -17,7 +17,10 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { makeViewerHostResolver } from "./resolveViewerHost.ts";
+import {
+  makeViewerHostResolver,
+  sshTargetHostname,
+} from "./resolveViewerHost.ts";
 
 const OWN = ["100.64.0.1"];
 const ZEST_ADDR = "100.64.0.9";
@@ -86,5 +89,19 @@ describe("makeViewerHostResolver — what a failed lookup may cache", () => {
     expect(await viewerHost(fromZest)).toBeNull();
     expect(await viewerHost(fromZest)).toBeNull();
     expect(resolve).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sshTargetHostname", () => {
+  // The ssh vocabulary is kolu's, not the surface framework's: `@kolu/surface`
+  // hides transport and proxy topology, and an ssh-destination parser inside it
+  // is the same kind of leak a terminal type would be.
+  it("drops the user, which no resolver takes", () => {
+    expect(sshTargetHostname("srid@zest")).toBe("zest");
+    expect(sshTargetHostname("zest")).toBe("zest");
+  });
+
+  it("splits on the LAST @, so a user containing one cannot eat the host", () => {
+    expect(sshTargetHostname("srid@example.com@zest")).toBe("zest");
   });
 });

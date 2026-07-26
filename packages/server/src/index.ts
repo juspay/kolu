@@ -48,7 +48,6 @@ import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
-import { forwardedForOf } from "@kolu/surface/viewerIdentity";
 import { createKoluForwards } from "./portForward/forwards.ts";
 import {
   makeHostPortsReader,
@@ -710,22 +709,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     }
   });
 
-  /** Which pool host the browser at `viewerAddress` is sitting at, or `null`.
-   *
-   *  The addresses come from resolving each REMOTE host's ssh destination. Only
-   *  remote hosts are asked about: kolu's LOCAL host is the machine serving the
-   *  page, so a port there is already handled by the direct-open arm and needs no
-   *  identity check at all.
-   *
-   *  Resolution is cached for the process's life, keyed by the hostname. It is a
-   *  DNS answer about a machine in the user's own fleet, re-read only across a
-   *  restart — and the cost of it being stale is that a chip offers the forward
-   *  that already works, which is the same thing every other uncertain case does.
-   *
-   *  Every failure lands on `null`: a destination DNS cannot resolve (an
-   *  `~/.ssh/config` alias naming no real host is entirely ordinary), a viewer
-   *  behind a NAT or a proxy, a connection with no peer address. That direction
-   *  is the design — see `viewerHost.ts`. */
   /** "Which of kolu's hosts is this browser at?" — resolver in `portForward/`;
    *  this supplies the pool membership it walks. */
   const viewerHost = makeViewerHostResolver({ hosts: () => pool.hosts() });
@@ -879,7 +862,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       context: {
         viewerAddress: (c.env as { incoming?: IncomingMessage } | undefined)
           ?.incoming?.socket.remoteAddress,
-        forwardedFor: forwardedForOf(c.req.raw.headers.get("x-forwarded-for")),
+        forwardedFor: c.req.raw.headers.get("x-forwarded-for"),
       },
     });
     if (matched) return response;
@@ -1175,7 +1158,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       wsRpcHandler.upgrade(ws, {
         context: {
           viewerAddress: req.socket.remoteAddress,
-          forwardedFor: forwardedForOf(req.headers["x-forwarded-for"]),
+          forwardedFor: req.headers["x-forwarded-for"],
         },
       });
       ws.on("close", (code, reason) => {

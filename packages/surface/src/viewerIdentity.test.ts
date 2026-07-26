@@ -12,11 +12,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  effectiveViewerAddress,
-  forwardedForOf,
   isTrustedLocalPeer,
   normalizeAddress,
-  sshTargetHostname,
+  viewerAddressOf,
   viewerIsOnHost,
 } from "./viewerIdentity";
 
@@ -108,17 +106,6 @@ describe("viewerIsOnHost", () => {
   });
 });
 
-describe("sshTargetHostname", () => {
-  it("drops the user, which no resolver takes", () => {
-    expect(sshTargetHostname("srid@zest")).toBe("zest");
-    expect(sshTargetHostname("zest")).toBe("zest");
-  });
-
-  it("splits on the LAST @, so a user containing one cannot eat the host", () => {
-    expect(sshTargetHostname("srid@example.com@zest")).toBe("zest");
-  });
-});
-
 // ── Behind a proxy: whose address is the TCP peer, really? ──────────────
 //
 // Measured on production (pureintent), and the reason the first cut of this
@@ -160,13 +147,13 @@ describe("isTrustedLocalPeer", () => {
   });
 });
 
-describe("effectiveViewerAddress", () => {
+describe("viewerAddressOf", () => {
   it("reads the forwarded client through a trusted proxy — THE FIELD CASE", () => {
     // The exact production topology. Without this the comparison ran against
     // `100.122.32.106` (pureintent) and could never match zest, so the feature
     // never fired once on the real deployment.
     expect(
-      effectiveViewerAddress({
+      viewerAddressOf({
         peerAddress: HOST_OWN,
         forwardedFor: ZEST,
         hostAddresses: OWN_ADDRESSES,
@@ -179,7 +166,7 @@ describe("effectiveViewerAddress", () => {
     // it would let a stranger claim to be sitting at any host in the fleet and be
     // handed a `localhost` link for its ports. The direct peer stands instead.
     expect(
-      effectiveViewerAddress({
+      viewerAddressOf({
         peerAddress: "10.0.0.9",
         forwardedFor: ZEST,
         hostAddresses: OWN_ADDRESSES,
@@ -192,7 +179,7 @@ describe("effectiveViewerAddress", () => {
     // actually received from. So the rightmost entry is the one the trusted hop
     // vouched for, and the leftmost is whatever the client typed.
     expect(
-      effectiveViewerAddress({
+      viewerAddressOf({
         peerAddress: HOST_OWN,
         forwardedFor: `evil-claim, ${ZEST}`,
         hostAddresses: OWN_ADDRESSES,
@@ -205,7 +192,7 @@ describe("effectiveViewerAddress", () => {
     // the honest answer, and it simply will not match any REMOTE host, which is
     // the behaviour that was already correct.
     expect(
-      effectiveViewerAddress({
+      viewerAddressOf({
         peerAddress: "127.0.0.1",
         forwardedFor: undefined,
         hostAddresses: OWN_ADDRESSES,
@@ -217,7 +204,7 @@ describe("effectiveViewerAddress", () => {
     // A malformed header must not produce an empty "address" that then compares
     // equal to something; it lands on the direct peer like any other non-answer.
     expect(
-      effectiveViewerAddress({
+      viewerAddressOf({
         peerAddress: HOST_OWN,
         forwardedFor: " , ,",
         hostAddresses: OWN_ADDRESSES,
@@ -227,7 +214,7 @@ describe("effectiveViewerAddress", () => {
 
   it("stays undefined when there is no connection to speak of", () => {
     expect(
-      effectiveViewerAddress({
+      viewerAddressOf({
         peerAddress: undefined,
         forwardedFor: ZEST,
         hostAddresses: OWN_ADDRESSES,
@@ -241,7 +228,7 @@ describe("effectiveViewerAddress", () => {
     const zestAddresses = [ZEST];
     expect(
       viewerIsOnHost({
-        viewerAddress: effectiveViewerAddress({
+        viewerAddress: viewerAddressOf({
           peerAddress: HOST_OWN,
           forwardedFor: ZEST,
           hostAddresses: OWN_ADDRESSES,
@@ -251,7 +238,7 @@ describe("effectiveViewerAddress", () => {
     ).toBe(true);
     expect(
       viewerIsOnHost({
-        viewerAddress: effectiveViewerAddress({
+        viewerAddress: viewerAddressOf({
           peerAddress: "10.0.0.9",
           forwardedFor: ZEST,
           hostAddresses: OWN_ADDRESSES,
@@ -262,32 +249,45 @@ describe("effectiveViewerAddress", () => {
   });
 });
 
-describe("forwardedForOf", () => {
-  it("passes a single header through", () => {
-    expect(forwardedForOf("100.90.229.113")).toBe("100.90.229.113");
+describe("the forwarded header, in either shape a node request carries it", () => {
+  it("takes a single header", () => {
+    expect(
+      viewerAddressOf({
+        peerAddress: HOST_OWN,
+        forwardedFor: "100.90.229.113",
+        hostAddresses: OWN_ADDRESSES,
+      }),
+    ).toBe("100.90.229.113");
   });
 
-  it("re-joins a REPEATED header in arrival order", () => {
+  it("reads a REPEATED header in arrival order", () => {
     // Node hands a repeated header over as an array, and a proxy chain
-    // legitimately produces one. Joining in order is what keeps "the last entry
-    // is the closest hop" true whichever shape it arrived in — reversing or
-    // picking the first would silently invert the trust rule.
-    expect(forwardedForOf(["evil-claim", "100.90.229.113"])).toBe(
-      "evil-claim,100.90.229.113",
-    );
+    // legitimately produces one. Reading it in order is what keeps "the last
+    // entry is the closest hop" true whichever shape it arrived in — reversing
+    // or picking the first would silently invert the trust rule. The consumer
+    // does not join it first: that normalisation is inside the gate, so no
+    // entry point can get it wrong on its way here.
     expect(
-      effectiveViewerAddress({
+      viewerAddressOf({
         peerAddress: HOST_OWN,
-        forwardedFor: forwardedForOf(["evil-claim", ZEST]),
+        forwardedFor: ["evil-claim", ZEST],
         hostAddresses: OWN_ADDRESSES,
       }),
     ).toBe(ZEST);
   });
 
-  it("keeps an absent header absent rather than empty", () => {
+  it("falls to the peer when no proxy said anything", () => {
     // "No proxy said anything" and "a proxy said nothing usable" are different
-    // facts; only the first means there was no proxy in the path.
-    expect(forwardedForOf(undefined)).toBeUndefined();
-    expect(forwardedForOf(null)).toBeUndefined();
+    // facts, and both land on the peer — which is the honest answer for
+    // somebody browsing on the kolu host itself.
+    for (const forwardedFor of [undefined, null, ""]) {
+      expect(
+        viewerAddressOf({
+          peerAddress: HOST_OWN,
+          forwardedFor,
+          hostAddresses: OWN_ADDRESSES,
+        }),
+      ).toBe(HOST_OWN);
+    }
   });
 });

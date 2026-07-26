@@ -18,14 +18,14 @@ import type { HostKey } from "kolu-common/hostKey";
 import type { ForwardOrigin, Forwards } from "kolu-common/surface";
 import pino from "pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { assertCellConverges } from "@kolu/surface/assertCellConverges";
+import { assertCellConverges } from "@kolu/surface/assert-cell-converges";
 import { everyMsOr, source } from "@kolu/surface/reactor";
 import {
   CREATE_READ_DEADLINE_MS,
   createKoluForwards,
-  type HostPorts,
   REAP_READ_DEADLINE_MS,
 } from "./forwards.ts";
+import type { HostPorts } from "./hostPorts.ts";
 
 const log = pino({ level: "silent" });
 
@@ -35,8 +35,10 @@ const log = pino({ level: "silent" });
  *  auto-cancel rule reads port NUMBERS, and which loopback a port is on is the
  *  library's concern once a door is opened. The one case that does care (a
  *  create picking its dial) states its own families inline. */
-const listening = (ports: number[]): HostPorts =>
-  new Map(ports.map((port) => [port, "v4" as const]));
+const listening = (ports: number[]): HostPorts => ({
+  status: "known",
+  ports: new Map(ports.map((port) => [port, "v4" as const])),
+});
 
 const LOCAL: HostKey = { kind: "local" };
 const PU: HostKey = { kind: "remote", target: "pu-dev" };
@@ -79,7 +81,9 @@ function harness(
   const published: Array<ReturnType<typeof forwards.list>> = [];
   const readHostPorts = vi.fn(
     async (host: HostKey, _deadlineMs: number): Promise<HostPorts> =>
-      ports.get(host.kind === "local" ? "local" : host.target) ?? "unknown",
+      ports.get(host.kind === "local" ? "local" : host.target) ?? {
+        status: "unknown",
+      },
   );
   // The change edge, redirectable: most cases only want to COUNT announcements,
   // while the wiring cases below need to route them into a real re-read (which
@@ -196,7 +200,9 @@ describe("the auto-cancel rule", () => {
     // The rule the whole `known`/`unknown` two-way exists for. "We could not
     // look" is not "nothing is listening"; treating it as one would tear down a
     // working forward every time a host hiccuped.
-    const ports = new Map<string, HostPorts>([["pu-dev", "unknown"]]);
+    const ports = new Map<string, HostPorts>([
+      ["pu-dev", { status: "unknown" }],
+    ]);
     const h = harness(ports);
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
 
@@ -527,7 +533,9 @@ describe("the cell wiring — reconcile-on-a-fused-cadence", () => {
       // …and the pin lands while it is reading, exactly as a real click would.
       await promote?.();
       return (
-        ports.get(host.kind === "local" ? "local" : host.target) ?? "unknown"
+        ports.get(host.kind === "local" ? "local" : host.target) ?? {
+          status: "unknown",
+        }
       );
     });
     promote = async () => {

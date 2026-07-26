@@ -17,7 +17,11 @@
 
 import type { Logger } from "@kolu/log";
 import { describe, expect, it, vi } from "vitest";
-import { makeHostPortsReader, type TerminalsFace } from "./hostPorts.ts";
+import {
+  type HostPorts,
+  makeHostPortsReader,
+  type TerminalsFace,
+} from "./hostPorts.ts";
 
 const host = { kind: "local" } as const;
 
@@ -25,6 +29,12 @@ const host = { kind: "local" } as const;
  *  the deadline itself — the one that IS (a member whose `get` never yields)
  *  is bounded by MEMBERSHIP, which is the point of that reader. */
 const TEST_DEADLINE_MS = 10_000;
+
+/** The observed map, or a failure naming the arm that came back instead. */
+function knownOf(ports: HostPorts): ReadonlyMap<number, string> {
+  if (ports.status !== "known") throw new Error("expected an observation");
+  return ports.ports;
+}
 
 const log = {
   error: vi.fn(),
@@ -94,15 +104,17 @@ describe("makeHostPortsReader", () => {
     // `alive` was observed and serves 5173; `gone` contributes nothing. The
     // reading is an observation either way — which is what lets a dead port be
     // reaped rather than kept alive by one vanished pane.
-    expect(ports).not.toBe("unknown");
-    expect([...(ports as ReadonlyMap<number, string>)]).toEqual([[5173, "v4"]]);
+    expect(ports.status).toBe("known");
+    expect([...knownOf(ports)]).toEqual([[5173, "v4"]]);
   }, 10_000);
 
   it("reports `unknown` rather than an empty map when the host has no session", async () => {
     // "We could not look" must never read as "nothing is listening" — an empty
     // map here would reap every auto door on the host.
     const read = makeHostPortsReader({ terminalsOf: () => null, log });
-    await expect(read(host, TEST_DEADLINE_MS)).resolves.toBe("unknown");
+    await expect(read(host, TEST_DEADLINE_MS)).resolves.toEqual({
+      status: "unknown",
+    });
   });
 
   it("reports `unknown` when no terminal has ever been scanned", async () => {
@@ -112,7 +124,9 @@ describe("makeHostPortsReader", () => {
         stream([{ state: "active", ports: { status: "unknown" } }]),
     };
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
-    await expect(read(host, TEST_DEADLINE_MS)).resolves.toBe("unknown");
+    await expect(read(host, TEST_DEADLINE_MS)).resolves.toEqual({
+      status: "unknown",
+    });
   });
 
   it("folds the family across terminals sharing a port — v4 wins", async () => {
@@ -128,7 +142,7 @@ describe("makeHostPortsReader", () => {
     };
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
     const ports = await read(host, TEST_DEADLINE_MS);
-    expect([...(ports as ReadonlyMap<number, string>)]).toEqual([[3000, "v4"]]);
+    expect([...knownOf(ports)]).toEqual([[3000, "v4"]]);
   });
 });
 
@@ -155,7 +169,9 @@ describe("the cost of a host is ONE slow read, not one per terminal", () => {
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
 
     const began = Date.now();
-    await expect(read(host, TEST_DEADLINE_MS)).resolves.toBe("unknown");
+    await expect(read(host, TEST_DEADLINE_MS)).resolves.toEqual({
+      status: "unknown",
+    });
     expect(Date.now() - began).toBeLessThan(QUIET_MS * 2);
   });
 });
