@@ -113,11 +113,13 @@ worth keeping readable.
 
 ## Status
 
-OSF1 is in: `snapshot --roots|--pids --procs --ports` on linux and darwin,
-versioned TSV + `--json`, the mandatory `unreadable` section, and the
-scar-tissue suite. Facets beyond that (`--mem`, `--start-time`,
-`socket-holders`) and the kolu consumer migration are later phases. osfacts
-incubates in the kolu monorepo (this directory is the whole future repo) and
-moves out the day a second external consumer takes the dependency. Every
-claim and number above has its measurement in the plan of record:
+OSF1 and OSF2 are in: the binary (`snapshot --roots|--pids --procs --ports`
+on both platforms, versioned TSV + `--json`, mandatory `unreadable`, scar-
+tissue suite) and kolu's port sensor, which now spawns the baked store path
+(`KOLU_OSFACTS_BIN`) and has deleted its C helper and TypeScript `/proc`
+readers. Facets beyond that (`--mem`, `--start-time`, `socket-holders`) and
+further consumer migrations are later phases. osfacts incubates in the kolu
+monorepo (this directory is the whole future repo) and moves out the day a
+second external consumer takes the dependency. Every claim and number above
+has its measurement in the plan of record:
 [os-facts-tool](https://kolu.dev/atlas/os-facts-tool.html).

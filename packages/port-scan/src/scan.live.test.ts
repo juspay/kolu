@@ -16,7 +16,10 @@
  * daemons, but the gate is about forking, not about lifetime.
  *
  * Verified by hand on both platforms before being written: x86_64-linux and
- * macOS 26.4 (aarch64-darwin, 21 ms per full scan).
+ * macOS 26.4 (aarch64-darwin, 21 ms per full scan). OSF2 swaps the mechanism
+ * (osfacts binary) but not the answers — this suite is the proof.
+ *
+ * Requires `KOLU_OSFACTS_BIN` (baked by `koluEnv` / `nix develop`).
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -201,7 +204,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     // cannot be: `PortInfo` carries `{port, name, scope}` and never the
     // address, so both spellings arrive identical at this layer. That is the
     // whole reason the darwin helper's own install check binds a dual-stack
-    // socket and inspects the emitted hex (`packages/port-scan/native/default.nix`),
+    // socket and inspects the emitted hex (osfacts dual-stack decode),
     // where the
     // `insi_vflag` ordering it guards actually lives.
   });
@@ -266,23 +269,18 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     expect(result.get(stranger.pid!)).toEqual([]);
   });
 
-  // Gated twice, and both gates are the POINT rather than a convenience:
-  //  - LINUX, because the blindness is a property of the `/proc/<pid>/fd` join.
-  //    Darwin does no fd walk at all — `lsof` reports the owning pid with the
-  //    listener — so there is no per-pid permission wall to hit there; running a
-  //    linux assertion on macOS is the mistake that reddened the first darwin run
-  //    of the port-forward suite.
-  //  - NON-ROOT, because root can read every `/proc/<pid>/fd`, so the blind spot
-  //    this provokes simply does not exist for it.
-  it.skipIf(process.platform !== "linux" || process.getuid?.() === 0)(
+  // Gated NON-ROOT: root can inspect pid 1, so the blind spot does not exist
+  // for it. Both platforms: osfacts returns U for launchd / init when the
+  // caller cannot inspect it.
+  it.skipIf(process.getuid?.() === 0)(
     "THROWS rather than reporting no ports when it cannot see a requested subtree",
     async () => {
-      // pid 1 is root-owned, so `/proc/1/fd` is unreadable as a normal user —
+      // pid 1 is unreadable as a normal user (linux EACCES / darwin EPERM) —
       // a real, unfakeable blind spot. Reporting `[]` here would render byte
       // -identically to "this terminal serves nothing"
       // (`caught-error-must-not-collapse-to-empty`).
       await expect(scanSubtreePorts([1])).rejects.toThrow(
-        /cannot list \/proc\/1\/fd/,
+        /cannot inspect requested root pid 1/,
       );
     },
   );

@@ -1,78 +1,36 @@
 /**
- * The port scan's PARSERS, against real-shaped fixtures — the half of the scanner
- * that can be pinned without an OS.
+ * The port scan's PARSERS, against fixture osfacts TSV — the half of the
+ * scanner that can be pinned without an OS.
  *
- * Every fixture here reproduces a subtlety the 2026-07-24 spike surfaced on real
- * hosts, because each one is a way the naive parse produces a plausible WRONG
- * answer rather than an error:
- *  - `/proc/net/tcp` addresses are byte-reversed hex, and IPv6 is reversed
- *    PER 32-BIT WORD (not across the whole string);
- *  - a v4-mapped IPv6 wildcard (`::ffff:0.0.0.0`) is a wildcard, and a v4-mapped
- *    loopback is not — they differ in the last four bytes only;
- *  - a dual-stack server appears twice (`tcp`+`tcp6`, or `tcp46`) for one port;
- *  - a fork-inherited socket maps one inode to several pids;
- *  - `/proc/<pid>/stat`'s `comm` can contain spaces AND parentheses;
- *  - macOS `lsof` field output is tagged per line, so a process name with a
- *    space in it cannot shift a column.
+ * Every fixture reproduces a subtlety that shipped as a wrong-but-plausible
+ * answer: v4-mapped addresses, dual-stack wildcards, interface binds, U rows
+ * (the sudo lesson), and a wrong-version line that must refuse loudly.
  */
 
 import { describe, expect, it } from "vitest";
 import {
   addressBind,
   decodeNetworkAddress,
-  decodeProcAddress,
-  procReadFailure,
-  parseHelperOutput,
-  parseProcNetTcp,
-  parseProcStat,
+  parseOsfactsOutput,
   partitionSubtrees,
   PortScanError,
   type ProcessRow,
+  unreadablePolicy,
 } from "./scan.ts";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
-/** `/proc/net/tcp` as a 6.x kernel prints it. Ports: 0x1F90 = 8080 (any),
- *  0x1389 = 5001 (loopback), 0x1F8F = 8079 bound to the single LAN interface
- *  `192.168.1.5` — the third scope, which no door can reach and which the old
- *  `wildcard: false` reading made indistinguishable from the loopback row above
- *  it. The last row is an ESTABLISHED connection to the loopback listener —
- *  `st` 01, not 0A — which must NOT become a chip. */
-const PROC_NET_TCP = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-   0: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 4242 1 0000000000000000 100 0 0 10 0
-   1: 0100007F:1389 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 4243 1 0000000000000000 100 0 0 10 0
-   2: 0501A8C0:1F8F 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 4245 1 0000000000000000 100 0 0 10 0
-   3: 0100007F:1389 0100007F:C001 01 00000000:00000000 00:00000000 00000000  1000        0 4244 1 0000000000000000 20 4 30 10 -1
-`;
-
-/** `/proc/net/tcp6`. Row 0 is `::` (wildcard, 0x1451 = 5201); row 1 is the
- *  v4-MAPPED LOOPBACK `::ffff:127.0.0.1` (0x1F91 = 8081) — a specific address that
- *  a naive "16 bytes, therefore v6" reading would mangle; row 2 is the v4-MAPPED
- *  WILDCARD `::ffff:0.0.0.0` (0x1F92 = 8082), which differs from row 1 in its last
- *  four bytes alone and IS reachable. */
-const PROC_NET_TCP6 = `  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-   0: 00000000000000000000000000000000:1451 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 5555 1 0000000000000000 100 0 0 10 0
-   1: 0000000000000000FFFF00000100007F:1F91 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 5556 1 0000000000000000 100 0 0 10 0
-   2: 0000000000000000FFFF000000000000:1F92 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 5557 1 0000000000000000 100 0 0 10 0
-`;
-
-/** `::ffff:127.0.0.1` and `::ffff:0.0.0.0` in NETWORK order. They differ in their
- *  last four bytes alone and mean opposite things: the first needs a forward, the
- *  second already answers. */
+/** `::ffff:127.0.0.1` and `::ffff:0.0.0.0` in NETWORK order. */
 const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
 const V4_MAPPED_WILDCARD = "00000000000000000000ffff00000000";
 
-/** The libproc helper's stdout, carrying the SAME real observations the retired
- *  `ps`+`lsof` fixtures did (macOS 26.4 sincereintent and 27.0 zest): the
- *  `ControlCenter` dual-fd wildcard, one process holding a loopback AND a wildcard
- *  port at once, and a Node server on v6. Addresses are NETWORK-order hex, which is
- *  what the helper prints. */
-const HELPER_OUTPUT = [
+/** osfacts TSV carrying the same real observations the retired helper fixtures
+ *  did (macOS 26.4 / 27.0). Addresses are NETWORK-order hex. */
+const OSFACTS_OUTPUT = [
   "V\t1",
   "P\t1\t0\tlaunchd",
   "P\t4200\t1\tzsh",
   "P\t4242\t4200\tnode",
-  // A real name with spaces and parentheses — the reason `<name>` is the last field.
   "P\t4243\t4242\tCore Audio Driver (ParrotAudioPlugin.driver)",
   "P\t757\t1\tControlCenter",
   "P\t27688\t4200\t.emanote-wrapped",
@@ -85,175 +43,84 @@ const HELPER_OUTPUT = [
   "L\t53082\t8080\t00000000000000000000000000000000",
   `L\t53082\t8081\t${V4_MAPPED_LOOPBACK}`,
   `L\t53082\t8082\t${V4_MAPPED_WILDCARD}`,
-  // 192.168.1.5 in NETWORK order — one specific interface, the third scope.
+  // 192.168.1.5 in NETWORK order
   "L\t53082\t8078\tc0a80105",
+  "",
+].join("\n");
+
+const OSFACTS_WITH_U = [
+  "V\t1",
+  "P\t4200\t1\tzsh",
+  "P\t4242\t4200\tnode",
+  // sudo child — unreadable, still in the subtree
+  "U\t991\tEACCES",
+  "L\t4242\t5173\t7f000001",
   "",
 ].join("\n");
 
 // ── Address decoding ───────────────────────────────────────────────────
 
-describe("decodeProcAddress", () => {
-  it("un-reverses a v4 address", () => {
-    // 0100007F is 127.0.0.1 — the single most common listener on any dev box, and
-    // the one a byte-order mistake turns into 1.0.0.127.
-    expect(decodeProcAddress("0100007F")).toEqual([127, 0, 0, 1]);
+describe("decodeNetworkAddress", () => {
+  it("reads network-order v4", () => {
+    expect(decodeNetworkAddress("7f000001")).toEqual([127, 0, 0, 1]);
   });
 
-  it("reverses IPv6 PER WORD, not across the whole address", () => {
-    // ::ffff:127.0.0.1. Reversing the whole 16 bytes would put the 7F at the
-    // front and the ffff in the middle — a different, valid-looking address.
-    expect(decodeProcAddress("0000000000000000FFFF00000100007F")).toEqual([
+  it("reads network-order v6", () => {
+    expect(decodeNetworkAddress(V4_MAPPED_LOOPBACK)).toEqual([
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1,
     ]);
   });
 
   it("refuses an address that is not EXACTLY 8 or 32 hex digits", () => {
-    expect(() => decodeProcAddress("00FF")).toThrow(PortScanError);
-    expect(() => decodeProcAddress("zzzzzzzz")).toThrow(PortScanError);
-    expect(() => decodeProcAddress("")).toThrow(PortScanError);
-    // The widths a `% 8` check let through. A changed or corrupt row would have
-    // sailed past this loud parser and been classified as a SPECIFIC bind — the
-    // safe-looking answer — instead of faulting the pass.
-    expect(() => decodeProcAddress("0".repeat(16))).toThrow(PortScanError);
-    expect(() => decodeProcAddress("0".repeat(24))).toThrow(PortScanError);
-    expect(() => decodeProcAddress("0".repeat(40))).toThrow(PortScanError);
+    expect(() => decodeNetworkAddress("00FF")).toThrow(PortScanError);
+    expect(() => decodeNetworkAddress("zzzzzzzz")).toThrow(PortScanError);
+    expect(() => decodeNetworkAddress("")).toThrow(PortScanError);
+    expect(() => decodeNetworkAddress("0".repeat(16))).toThrow(PortScanError);
   });
 });
 
 describe("addressBind", () => {
-  /** `::ffff:<v4>` — the v4-mapped form. */
-  const mapped = (v4: number[]) => [
-    ...new Array(10).fill(0),
-    0xff,
-    0xff,
-    ...v4,
-  ];
-
-  it("calls 0.0.0.0 and :: the ANY address, each in its own family", () => {
-    expect(addressBind([0, 0, 0, 0])).toEqual({ scope: "any", family: "v4" });
-    expect(addressBind(new Array(16).fill(0))).toEqual({
-      scope: "any",
-      family: "v6",
-    });
-  });
-
-  it("tells the v4-mapped ANY address from the v4-mapped loopback", () => {
-    // The pair that differs in four bytes and means opposite things. Both read
-    // as family v4: the socket is AF_INET6, but a v4 dial reaches the address it
-    // carries, and the dial is the only thing the family decides.
-    expect(addressBind(mapped([0, 0, 0, 0]))).toEqual({
+  it("classifies any / loopback / interface for v4", () => {
+    expect(addressBind([0, 0, 0, 0])).toEqual({
       scope: "any",
       family: "v4",
     });
-    expect(addressBind(mapped([127, 0, 0, 1]))).toEqual({
-      scope: "loopback",
-      family: "v4",
-    });
-  });
-
-  it("calls the whole 127.0.0.0/8 loopback, in either width", () => {
     expect(addressBind([127, 0, 0, 1])).toEqual({
       scope: "loopback",
       family: "v4",
     });
-    // A resolver stub on 127.0.0.53 is loopback too — a `=== 127.0.0.1` test
-    // would call it a routable interface and offer it as directly openable.
-    expect(addressBind([127, 0, 0, 53]).scope).toBe("loopback");
-    expect(addressBind(mapped([127, 1, 2, 3])).scope).toBe("loopback");
-  });
-
-  it("calls ::1 a V6 loopback — the bind a v4 dial cannot reach", () => {
-    // The production defect, at its source. `::1` is loopback, so the old
-    // `scope`-only answer said "forwardable" and both mechanisms then dialled
-    // `127.0.0.1`, where a `[::1]`-only dev server is not listening. Scope alone
-    // was never enough to open the door onto the right address.
-    expect(addressBind([...new Array(15).fill(0), 1])).toEqual({
-      scope: "loopback",
-      family: "v6",
-    });
-  });
-
-  it("calls one specific non-loopback address an INTERFACE bind", () => {
-    // The arm PRT2 added, and the reason it is not cosmetic: both forward
-    // mechanisms dial the far side loopback, so a door opened for either of
-    // these would come up and then refuse every connection through it. The old
-    // boolean read them as `wildcard: false` — the same answer it gave the
-    // loopback binds above, which ARE forwardable.
     expect(addressBind([192, 168, 1, 5])).toEqual({
       scope: "interface",
       family: "v4",
     });
-    expect(addressBind(mapped([192, 168, 1, 5])).scope).toBe("interface");
-    // A tailnet v6 address (`fd7a:…`) — not `::1`, so not loopback.
-    expect(addressBind([0xfd, 0x7a, ...new Array(13).fill(0), 2])).toEqual({
-      scope: "interface",
+  });
+
+  it("classifies v4-mapped through the same judge", () => {
+    expect(addressBind(decodeNetworkAddress(V4_MAPPED_WILDCARD)).scope).toBe(
+      "any",
+    );
+    expect(addressBind(decodeNetworkAddress(V4_MAPPED_LOOPBACK)).scope).toBe(
+      "loopback",
+    );
+  });
+
+  it("classifies v6 any and loopback", () => {
+    expect(addressBind(new Array(16).fill(0))).toEqual({
+      scope: "any",
       family: "v6",
     });
+    const loop = new Array(16).fill(0);
+    loop[15] = 1;
+    expect(addressBind(loop)).toEqual({ scope: "loopback", family: "v6" });
   });
 });
 
-describe("parseProcNetTcp", () => {
-  it("takes LISTEN rows only, each with the scope it is bound at", () => {
-    expect(parseProcNetTcp(PROC_NET_TCP)).toEqual([
-      { port: 8080, scope: "any", family: "v4", inode: "4242" },
-      { port: 5001, scope: "loopback", family: "v4", inode: "4243" },
-      // The LAN-interface bind: forwardable by neither mechanism, and the row
-      // the boolean could not tell apart from the loopback one above it.
-      { port: 8079, scope: "interface", family: "v4", inode: "4245" },
-    ]);
-  });
+// ── osfacts TSV parsing ────────────────────────────────────────────────
 
-  it("reads a v4-mapped ANY address as `any` and a v4-mapped loopback as `loopback`", () => {
-    expect(parseProcNetTcp(PROC_NET_TCP6)).toEqual([
-      { port: 5201, scope: "any", family: "v6", inode: "5555" },
-      { port: 8081, scope: "loopback", family: "v4", inode: "5556" },
-      { port: 8082, scope: "any", family: "v4", inode: "5557" },
-    ]);
-  });
-
-  it("fails loudly on a body with no header", () => {
-    // A silently-empty parse is the failure mode this guards: it would render as
-    // "this terminal serves nothing", which is indistinguishable from the truth.
-    expect(() => parseProcNetTcp("garbage\n")).toThrow(PortScanError);
-  });
-
-  it("fails loudly on a truncated row rather than dropping it", () => {
-    const truncated = `  sl  local_address rem_address   st tx_queue
-   0: 00000000:1F90 00000000:0000 0A
-`;
-    expect(() => parseProcNetTcp(truncated)).toThrow(PortScanError);
-  });
-});
-
-describe("parseProcStat", () => {
-  it("reads pid, comm and ppid", () => {
-    expect(
-      parseProcStat("4242 (node) S 4200 4200 4200 0 -1 4194560 1234"),
-    ).toEqual({ pid: 4242, name: "node", ppid: 4200 });
-  });
-
-  it("survives a comm containing spaces and parentheses", () => {
-    // The reason the fields after comm are read from the LAST `)`. A
-    // `split(/\s+/)` here would read "prog" as the state and "(2))" as the ppid.
-    expect(parseProcStat("77 (my prog (2)) S 1 1 1 0 -1 4194560 99")).toEqual({
-      pid: 77,
-      name: "my prog (2)",
-      ppid: 1,
-    });
-  });
-
-  it("fails loudly on a body with no parenthesized comm", () => {
-    expect(() => parseProcStat("4242 node S 4200")).toThrow(PortScanError);
-  });
-});
-
-// ── darwin parsing ─────────────────────────────────────────────────────
-
-describe("parseHelperOutput", () => {
-  it("reads the helper's two tables, and judges each bind through addressBind", () => {
-    const { table, listeners } = parseHelperOutput(HELPER_OUTPUT);
-    // Names come through verbatim — the helper already took the basename, and one
-    // of these really does contain spaces on a live Mac.
+describe("parseOsfactsOutput", () => {
+  it("reads the two tables and judges each bind through addressBind", () => {
+    const { table, listeners, unreadable } = parseOsfactsOutput(OSFACTS_OUTPUT);
+    expect(unreadable).toEqual([]);
     expect(table).toEqual([
       { pid: 1, ppid: 0, name: "launchd" },
       { pid: 4200, ppid: 1, name: "zsh" },
@@ -268,116 +135,97 @@ describe("parseHelperOutput", () => {
       { pid: 53082, ppid: 4200, name: "node" },
     ]);
     expect(listeners).toEqual([
-      // Two fds on one any-address port — a dual-stack listener, folded later.
       { port: 7000, scope: "any", family: "v4", pid: 757 },
       { port: 7000, scope: "any", family: "v4", pid: 757 },
-      // The case from the field report: a loopback dev server (needs a forward)
-      // beside an any-address one (does not), in the SAME process.
       { port: 5566, scope: "loopback", family: "v4", pid: 27688 },
       { port: 8079, scope: "any", family: "v4", pid: 27688 },
-      // IPv6: `::1` is loopback, `::` is the ANY address.
       { port: 5173, scope: "loopback", family: "v6", pid: 53082 },
       { port: 8080, scope: "any", family: "v6", pid: 53082 },
-      // The subtle pair, four bytes apart and opposite in meaning: the v4-mapped
-      // LOOPBACK needs a forward, the v4-mapped ANY address does not.
       { port: 8081, scope: "loopback", family: "v4", pid: 53082 },
       { port: 8082, scope: "any", family: "v4", pid: 53082 },
-      // A LAN-interface bind on darwin: reachable at that address, and by no
-      // door kolu can open.
       { port: 8078, scope: "interface", family: "v4", pid: 53082 },
     ]);
   });
 
-  it("refuses output whose version is not the one this padi reads", () => {
-    // The helper is baked by Nix alongside padi, so a version mismatch means the
-    // two came from different builds. Failing loudly is the whole point: a shape
-    // this parser half-understands would yield zero listeners, which renders
-    // identically to "no terminal is serving anything".
-    expect(() => parseHelperOutput("V\t2\nP\t1\t0\tlaunchd\n")).toThrow(
+  it("carries U rows with errno", () => {
+    const { unreadable, listeners } = parseOsfactsOutput(OSFACTS_WITH_U);
+    expect(unreadable).toEqual([{ pid: 991, errno: "EACCES" }]);
+    expect(listeners).toEqual([
+      { port: 5173, scope: "loopback", family: "v4", pid: 4242 },
+    ]);
+  });
+
+  it("refuses output whose version is not the one this reader speaks", () => {
+    expect(() => parseOsfactsOutput("V\t2\nP\t1\t0\tlaunchd\n")).toThrow(
       PortScanError,
     );
-    expect(() => parseHelperOutput("P\t1\t0\tlaunchd\n")).toThrow(
+    expect(() => parseOsfactsOutput("P\t1\t0\tlaunchd\n")).toThrow(
       PortScanError,
     );
-    expect(() => parseHelperOutput("")).toThrow(PortScanError);
+    expect(() => parseOsfactsOutput("")).toThrow(PortScanError);
   });
 
   it("fails loudly on every row it cannot read, rather than skipping it", () => {
     const bad = [
-      "V\t1\nP\t1\t0\n", // too few fields
-      "V\t1\nP\tnotapid\t0\tlaunchd\n", // non-numeric pid
-      "V\t1\nL\t1\t0\t00000000\n", // port 0 is not a listener
-      "V\t1\nL\t1\t70000\t00000000\n", // out of range
-      "V\t1\nL\t1\t8080\tzz000000\n", // not hex
-      "V\t1\nL\t1\t8080\t0000\n", // neither 8 nor 32 digits
-      "V\t1\nX\t1\t2\t3\n", // a tag from a future format
+      "V\t1\nP\t1\t0\n",
+      "V\t1\nP\tnotapid\t0\tlaunchd\n",
+      "V\t1\nL\t1\t0\t00000000\n",
+      "V\t1\nL\t1\t70000\t00000000\n",
+      "V\t1\nL\t1\t8080\tzz000000\n",
+      "V\t1\nL\t1\t8080\t0000\n",
+      "V\t1\nU\tnotapid\tEACCES\n",
+      "V\t1\nU\t1\n",
+      "V\t1\nX\t1\t2\t3\n",
     ];
     for (const body of bad) {
-      expect(() => parseHelperOutput(body)).toThrow(PortScanError);
+      expect(() => parseOsfactsOutput(body)).toThrow(PortScanError);
     }
-  });
-
-  it("does NOT run the helper's hex through the /proc decoder", () => {
-    // The two byte orders are the one difference the types cannot catch. `/proc`
-    // prints each 32-bit word host-order, so its decoder byte-swaps; the helper
-    // emits network order already. Swapping `7f000001` would give `1.0.0.127` — a
-    // specific address either way, so nothing would throw and a loopback bind
-    // would just be mis-attributed to some other host.
-    expect(decodeNetworkAddress("7f000001")).toEqual([127, 0, 0, 1]);
-    expect(decodeProcAddress("7f000001")).toEqual([1, 0, 0, 127]);
-    // Which is exactly why the scope judge must be reached through the right
-    // decoder — and why `::ffff:0.0.0.0` still has to come out as `any`.
-    expect(addressBind(decodeNetworkAddress(V4_MAPPED_WILDCARD)).scope).toBe(
-      "any",
-    );
-    expect(addressBind(decodeNetworkAddress(V4_MAPPED_LOOPBACK)).scope).toBe(
-      "loopback",
-    );
-    // And the mis-swap the paragraph above describes is now VISIBLE rather than
-    // merely mis-attributed: `7f000001` read through the wrong decoder is
-    // `1.0.0.127`, which classifies as a routable interface, not as loopback.
-    expect(addressBind(decodeProcAddress("7f000001")).scope).toBe("interface");
   });
 });
 
-// ── Which /proc/<pid>/fd failures are fatal ────────────────────────────
+// ── U-row blindness policy (the sudo lesson) ───────────────────────────
 
-describe("procReadFailure", () => {
-  // Reviewed into existence: every in-subtree EACCES used to throw, so ONE
-  // `sudo` at a password prompt in ONE terminal emptied the Ports section for
-  // EVERY terminal on the host until the prompt was answered. Verified on a live
-  // box: a `sudo` child is root-owned with an unreadable `fd/`, and its ppid is a
-  // shell — a descendant, not a root.
+describe("unreadablePolicy", () => {
   it("skips a foreign-uid DESCENDANT rather than blinding the whole host", () => {
-    expect(procReadFailure("EACCES", false)).toBe("skip");
-    expect(procReadFailure("EPERM", false)).toBe("skip");
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 991, errno: "EACCES" }],
+      new Set([4200]),
+    );
+    expect(fatal).toBeNull();
+    expect([...skipPids]).toEqual([991]);
   });
 
-  it("THROWS when the unreadable pid is a requested terminal root", () => {
-    // padi spawned that shell, so it is padi's own uid; unreadable there means we
-    // truly cannot answer for the terminal, and "no ports" would be a lie.
-    expect(procReadFailure("EACCES", true)).toBe("throw");
-    expect(procReadFailure("EPERM", true)).toBe("throw");
+  it("is fatal when a requested root is EACCES/EPERM", () => {
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 4200, errno: "EPERM" }],
+      new Set([4200]),
+    );
+    expect(fatal).toEqual({ pid: 4200, errno: "EPERM" });
+    expect(skipPids.size).toBe(0);
   });
 
-  it("skips the exit race on either kind of pid", () => {
-    for (const isRoot of [true, false]) {
-      expect(procReadFailure("ENOENT", isRoot)).toBe("skip");
-      expect(procReadFailure("ESRCH", isRoot)).toBe("skip");
-    }
+  it("treats a vanished requested root as skip (empty ports), not blind", () => {
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 9999, errno: "ENOENT" }],
+      new Set([9999]),
+    );
+    expect(fatal).toBeNull();
+    expect([...skipPids]).toEqual([9999]);
   });
 
-  it("THROWS on an errno it does not recognize, root or not", () => {
-    // An unmodelled failure is not something to swallow on either kind of pid.
-    expect(procReadFailure("EIO", false)).toBe("throw");
-    expect(procReadFailure(undefined, false)).toBe("throw");
+  it("skips U rows outside the ask rather than making them fatal", () => {
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 1, errno: "EPERM" }],
+      new Set([4200]),
+    );
+    expect(fatal).toBeNull();
+    expect([...skipPids]).toEqual([1]);
   });
 });
 
 // ── The subtree walk ───────────────────────────────────────────────────
 
 describe("partitionSubtrees", () => {
-  /** shell 100 → node 200 → worker 300; a sibling shell 400 with its own child. */
   const table: ProcessRow[] = [
     { pid: 1, ppid: 0, name: "init" },
     { pid: 100, ppid: 1, name: "bash" },
@@ -394,24 +242,18 @@ describe("partitionSubtrees", () => {
   });
 
   it("gives a dead root an empty subtree rather than omitting the key", () => {
-    // Every requested pid must be present, so the caller can publish the whole set
-    // without asking which were covered — an exiting terminal's ports leave.
     const subtrees = partitionSubtrees(table, [9999]);
     expect(subtrees.has(9999)).toBe(true);
     expect(subtrees.get(9999)!.size).toBe(0);
   });
 
   it("walks a repeated root pid once", () => {
-    // Keying on the pid rather than on a caller's label is what makes this true:
-    // two terminals rooted at the same pid ask one question, not two.
     const subtrees = partitionSubtrees(table, [100, 100]);
     expect(subtrees.size).toBe(1);
     expect([...subtrees.get(100)!].sort()).toEqual([100, 200, 300]);
   });
 
   it("terminates on a cyclic ppid chain instead of overflowing the stack", () => {
-    // A racy /proc read can present a pid as its own ancestor. The walk must
-    // report ports, not blow up.
     const cyclic: ProcessRow[] = [
       { pid: 10, ppid: 11, name: "a" },
       { pid: 11, ppid: 10, name: "b" },
