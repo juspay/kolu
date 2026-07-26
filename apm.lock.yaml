@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-25T12:57:40.838031+00:00'
+generated_at: '2026-07-26T01:50:32.141861+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -145,7 +145,7 @@ dependencies:
 - repo_url: juspay/odu
   name: odu
   host: github.com
-  resolved_commit: 04373fc31777555073ec8b6c3052bd67fd46b9c6
+  resolved_commit: 677507d76a71d5f88967ffceb69d7d59379464da
   version: 1.0.0
   package_type: apm_package
   deployed_files:
@@ -160,13 +160,13 @@ dependencies:
   - .claude/skills/odu-mcp/bin/serve
   - .claude/skills/odu/SKILL.md
   deployed_file_hashes:
-    .agents/skills/odu-mcp/SKILL.md: sha256:429d55a46af84fb231b47fc95fd65706ea2282ed05b5dc59d2acacba0a3c8765
+    .agents/skills/odu-mcp/SKILL.md: sha256:23caaeb1a648a1cf7fd18fa025e18cca231f3f7cf0205714b5b8af9a43065c11
     .agents/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
-    .agents/skills/odu/SKILL.md: sha256:494f485abc756acfe504200c64b51605a1535edb266a75b1d47be853d61854a0
-    .claude/skills/odu-mcp/SKILL.md: sha256:429d55a46af84fb231b47fc95fd65706ea2282ed05b5dc59d2acacba0a3c8765
+    .agents/skills/odu/SKILL.md: sha256:7fab2d6c20f311549f2cd4b018383cf3317e860ed936f59eea1cad899f10bc50
+    .claude/skills/odu-mcp/SKILL.md: sha256:23caaeb1a648a1cf7fd18fa025e18cca231f3f7cf0205714b5b8af9a43065c11
     .claude/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
-    .claude/skills/odu/SKILL.md: sha256:494f485abc756acfe504200c64b51605a1535edb266a75b1d47be853d61854a0
-  content_hash: sha256:3aa5ce95fc838f61b544a1f1533f2206bf2d1983ff73ce8d2a73eb904707b09a
+    .claude/skills/odu/SKILL.md: sha256:7fab2d6c20f311549f2cd4b018383cf3317e860ed936f59eea1cad899f10bc50
+  content_hash: sha256:1f178beb2276b91db22cbe6829c47dd65f3c5687dd3ce729d05b91df66449178
 - repo_url: juspay/project-unknown
   name: project-unknown
   host: github.com
@@ -1453,7 +1453,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:429d55a46af84fb231b47fc95fd65706ea2282ed05b5dc59d2acacba0a3c8765
+  content_hash: sha256:23caaeb1a648a1cf7fd18fa025e18cca231f3f7cf0205714b5b8af9a43065c11
 - kind: project-relative
   target: claude
   value: .claude/skills/odu-mcp/bin/serve
@@ -1471,7 +1471,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:494f485abc756acfe504200c64b51605a1535edb266a75b1d47be853d61854a0
+  content_hash: sha256:7fab2d6c20f311549f2cd4b018383cf3317e860ed936f59eea1cad899f10bc50
 - kind: project-relative
   target: claude
   value: .claude/skills/parcel
@@ -2236,7 +2236,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:429d55a46af84fb231b47fc95fd65706ea2282ed05b5dc59d2acacba0a3c8765
+  content_hash: sha256:23caaeb1a648a1cf7fd18fa025e18cca231f3f7cf0205714b5b8af9a43065c11
 - kind: project-relative
   target: codex
   value: .agents/skills/odu-mcp/bin/serve
@@ -2254,7 +2254,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:494f485abc756acfe504200c64b51605a1535edb266a75b1d47be853d61854a0
+  content_hash: sha256:7fab2d6c20f311549f2cd4b018383cf3317e860ed936f59eea1cad899f10bc50
 - kind: project-relative
   target: codex
   value: .agents/skills/perfection-review
