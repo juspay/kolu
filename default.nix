@@ -271,6 +271,22 @@ let
     ];
   };
 
+  # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
+  # package. Reuses this build's `src` + `pnpmDeps` — every package with a
+  # typecheck script is in the `src` fileset above (see its INVARIANT
+  # comment), so this checks exactly what `pnpm typecheck` does.
+  #
+  # This is NOT a side check: `kolu` (and therefore every wrapper that
+  # embeds `${kolu}/…` — koluBin, padi, kaval, the TUIs) depends on it, so
+  # `nix build .#default` / `.#padi` fails on a type or module-graph error
+  # before a store path is handed to deploy. flake.nix still also exposes it
+  # as `checks.*.typecheck` for a standalone proof; CI inherits the gate via
+  # the ordinary package build.
+  typecheck = import ./nix/pnpm-typecheck.nix {
+    inherit pkgs src pnpmDeps version;
+    pname = "kolu-typecheck";
+  };
+
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
     inherit version src;
@@ -309,13 +325,14 @@ let
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
     } // koluEnv;
 
-    # NOTE: this does NOT typecheck. The client is bundled by Vite (per-file
-    # transpile) and the server runs under tsx at runtime, so a green
-    # `nix build .#default` is not a type-proof (juspay/kolu#1049). The type
-    # gate is the separate `typecheck` derivation below, exposed as a flake
-    # check and built by CI's `nix` node.
+    # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
+    # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green
+    # store path can boot-loop on a missing export (juspay/kolu#1049 class).
+    # `${typecheck}` forces the gate before any vite/node-gyp work; the empty
+    # path is the success token from pnpm-typecheck.nix.
     buildPhase = ''
       runHook preBuild
+      test -e ${typecheck}
       pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
       node-gyp rebuild
       popd
@@ -673,16 +690,6 @@ let
   # later move to its own repo, and that flake wants one definition, not a
   # copy of this one. Both paths import ./osfacts/default.nix.
   osfacts = import ./osfacts { inherit pkgs; };
-
-  # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
-  # package. Reuses this build's `src` + `pnpmDeps` — every package with a
-  # typecheck script is in the `src` fileset above (see its INVARIANT
-  # comment), so this checks exactly what `pnpm typecheck` does. flake.nix
-  # strips this from `packages` and routes it to `checks`.
-  typecheck = import ./nix/pnpm-typecheck.nix {
-    inherit pkgs src pnpmDeps version;
-    pname = "kolu-typecheck";
-  };
 in
 {
   inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
