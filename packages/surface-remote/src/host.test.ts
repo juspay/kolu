@@ -14,8 +14,10 @@ import { __resetControlMemo } from "./controlMaster";
 import {
   buildAgentCommand,
   buildSshProbeCommand,
+  looksLikeNetworkError,
   NIX_SSHOPTS,
   nixSshOpts,
+  sshRefusalOf,
 } from "./host";
 
 // Every spawned-ssh builder now appends the P2.8 ControlMaster opts, which
@@ -261,6 +263,57 @@ describe("buildAgentCommand", () => {
         localEnv: undefined as unknown as Record<string, string>,
       }),
     ).not.toThrow();
+  });
+});
+
+describe("sshRefusalOf", () => {
+  it("classifies the credential refusals BatchMode turns into an instant exit", () => {
+    // With `BatchMode=yes` ssh DECLINES to prompt rather than asking, so a
+    // password-only host produces this line and exits — the fact that must
+    // become a terminal verdict instead of an eternal reconnect.
+    expect(
+      sshRefusalOf(
+        "srid@petit: Permission denied (publickey,password,keyboard-interactive).",
+      ),
+    ).toBe("auth-refused");
+    // A host whose MaxAuthTries is spent by the agent's keys refuses the same
+    // way, with different words.
+    expect(
+      sshRefusalOf(
+        "Received disconnect from 10.0.0.4 port 22:2: Too many authentication failures",
+      ),
+    ).toBe("auth-refused");
+  });
+
+  it("classifies an unverified host key — one line covers unknown AND changed keys", () => {
+    // Both the never-seen host and the REMOTE HOST IDENTIFICATION HAS CHANGED
+    // warning end on this same final line, so one pattern classifies both.
+    expect(sshRefusalOf("Host key verification failed.")).toBe(
+      "host-key-unverified",
+    );
+  });
+
+  it("does NOT classify a remote command's own permission error", () => {
+    // ssh forwards the REMOTE command's stderr on the same stream, so a bare
+    // "Permission denied" is not ours to claim: only ssh's own auth message
+    // carries the parenthesised method list. Misclassifying here would strand a
+    // reachable host on a terminal card for a transient remote-side error.
+    expect(
+      sshRefusalOf("nix-instantiate: /nix/var/nix/db: Permission denied"),
+    ).toBeNull();
+  });
+
+  it("leaves transport failures to looksLikeNetworkError", () => {
+    // The sibling classifier owns "the host is unreachable" (retry forever);
+    // this one owns "the host answered and refused us" (terminal). A transport
+    // line must never take the terminal path.
+    for (const line of [
+      "ssh: connect to host petit port 22: Connection refused",
+      "ssh: Could not resolve hostname petit: Name or service not known",
+    ]) {
+      expect(sshRefusalOf(line)).toBeNull();
+      expect(looksLikeNetworkError(line)).toBe(true);
+    }
   });
 });
 

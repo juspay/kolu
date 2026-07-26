@@ -59,6 +59,40 @@ export const HOST_DOWN_COPY = {
       "completed, so its state is unsettled and can't be trusted. Retry from the " +
       "host, or switch back to your local host while it recovers.",
   },
+  // The two ssh refusals: kolu is strictly non-interactive over ssh, so a
+  // gate only a typed answer could pass (a password, a trust prompt) is a
+  // terminal, operator-actionable fault — named here with its actual remedy,
+  // never left masquerading as a generic reachability problem.
+  "auth-required": {
+    title: "This host needs passwordless ssh",
+    body:
+      "The host refused kolu's ssh sign-in, and kolu connects " +
+      "non-interactively — it can never type a password. Set up key-based " +
+      "access (for example with ssh-copy-id), confirm plain ssh connects " +
+      "without prompting, then reconnect.",
+  },
+  "host-key-unverified": {
+    title: "This host isn't trusted yet",
+    body:
+      "ssh doesn't recognize this host's identity key, and kolu never " +
+      "answers the trust prompt itself. Run ssh to this host once in a " +
+      "terminal to review and accept its key — or resolve a changed-key " +
+      "warning — then reconnect.",
+  },
+  // ssh worked; the host just has no Nix to provision padi with. A distinct
+  // prerequisite from the two above, with a distinct fix — and the "installed
+  // but not on the non-interactive PATH" case is named, because it is the more
+  // common one and looks identical to "not installed" from here.
+  "nix-unavailable": {
+    title: "This host has no Nix that kolu can run",
+    body:
+      "kolu reached the host over ssh, but its shell couldn't run " +
+      "nix-instantiate — kolu builds padi with the host's own Nix, so it has " +
+      "nothing to install from. Either Nix isn't installed there, or it isn't " +
+      "on the PATH of a non-interactive ssh session, which is common for a " +
+      "single-user install. Check with ssh <host> nix-instantiate --version, " +
+      "and install it from https://nixos.asia/en/install if it's missing.",
+  },
   "link-failed": {
     title: "Can't reach this host",
     body:

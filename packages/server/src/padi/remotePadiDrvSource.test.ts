@@ -43,6 +43,16 @@ vi.mock("@kolu/surface-remote", async (importOriginal) => {
 
 import { ensureRemotePadiBinding } from "./remotePadiBinding.ts";
 
+/** The `onState` callbacks the arm registered, so a test can push a later frame
+ *  (a terminal give-up) at the binder the way the real session would. */
+const stateHooks: ((s: unknown) => void)[] = [];
+
+/** Push a state frame at every live binder — the fake transport's stand-in for
+ *  the session loop reporting a phase change. */
+function pushState(state: unknown): void {
+  for (const cb of stateHooks) cb(state);
+}
+
 /** A minimal `Session` stand-in — the arm calls `onState` (snapshot-then-delta) at
  *  construction and spreads the rest through `asPadiSession`. Seed `onState` with a
  *  benign "connecting" frame; stub the remaining role methods as no-ops. */
@@ -53,6 +63,7 @@ function fakeSession() {
         phase: "connecting",
         log: [],
       });
+      stateHooks.push(cb);
       return () => {};
     },
     currentClient: () => null,
@@ -75,7 +86,13 @@ const resolverContext: ResolveDrvPathContext = {
   resolveAgentDrv: vi.fn(),
 };
 
-function seedAndCaptureResolver(): SshConnectorOptions["resolveDrvPath"] {
+/** Seed a binding and keep it LIVE, handing back both the captured resolver thunk
+ *  and the session — so an arm can fault the resolver and then read the domain
+ *  cause the binder publishes (`entryFailedDetail`). */
+function seedLiveBinding(): {
+  binding: ReturnType<typeof ensureRemotePadiBinding>;
+  resolve: SshConnectorOptions["resolveDrvPath"];
+} {
   let captured: SshConnectorOptions["resolveDrvPath"] | undefined;
   h.sshConnector.mockImplementation(
     (opts: { resolveDrvPath: SshConnectorOptions["resolveDrvPath"] }) => {
@@ -89,14 +106,20 @@ function seedAndCaptureResolver(): SshConnectorOptions["resolveDrvPath"] {
   const binding = ensureRemotePadiBinding({ host: "nix@prod" });
   expect(binding).toBeDefined(); // ← boot survives: the seed call did not throw (F6)
   expect(h.sshConnector).toHaveBeenCalledTimes(1);
-  binding.destroy();
   if (captured === undefined)
     throw new Error("resolver thunk was not captured");
-  return captured;
+  return { binding, resolve: captured };
+}
+
+function seedAndCaptureResolver(): SshConnectorOptions["resolveDrvPath"] {
+  const { binding, resolve } = seedLiveBinding();
+  binding.destroy();
+  return resolve;
 }
 
 describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
   beforeEach(() => {
+    stateHooks.length = 0;
     h.sshConnector.mockReset();
     h.makeSession.mockReset();
     h.resolveBakedAgentDrv.mockReset();
@@ -168,6 +191,79 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
     await expect(resolve(resolverContext)).rejects.not.toBeInstanceOf(
       ResolveDrvError,
     );
+  });
+
+  /** An ssh gate kolu can never pass non-interactively (a credential, a host-key
+   *  trust decision) arrives from the framework already TERMINAL; the binder's job
+   *  is to name it in padi's own vocabulary so the host-down card can state the
+   *  operator's actual remedy. */
+  describe.each([
+    {
+      what: "a credential refusal",
+      kind: "auth-refused" as const,
+      message: "petit: ssh refused our credentials",
+      cause: "auth-required",
+    },
+    {
+      what: "an unverified host key",
+      kind: "host-key-unverified" as const,
+      message: "petit: ssh does not trust this host's identity key",
+      cause: "host-key-unverified",
+    },
+    {
+      what: "a host with no runnable Nix",
+      kind: "nix-unavailable" as const,
+      message: "petit: could not run `nix-instantiate`",
+      cause: "nix-unavailable",
+    },
+  ])("(f) $what", ({ kind, message, cause }) => {
+    const refusal = () =>
+      new ResolveDrvError(message, {
+        kind,
+        failureCause: "remote",
+        terminal: true,
+      });
+
+    it("keeps the framework's terminal verdict and names padi's domain cause", async () => {
+      h.resolveBakedAgentDrv.mockRejectedValue(refusal());
+      const { binding, resolve } = seedLiveBinding();
+      await expect(resolve(resolverContext)).rejects.toMatchObject({
+        // The binder ENRICHES; it never reclassifies retry policy. A refusal
+        // that came back retryable would resume the eternal reconnect this
+        // whole path exists to end.
+        resolution: { kind, failureCause: "remote", terminal: true },
+      });
+      expect(binding.entryFailedDetail()).toEqual({ cause });
+      binding.destroy();
+    });
+
+    it("outranks the generic link-failed banner a terminal give-up raises", async () => {
+      // The session's terminal give-up sets `convergence = link-failed`, whose
+      // card says only "can't reach this host". The dial's own finding is the
+      // finer, actionable truth, so it must win — otherwise the remedy the
+      // operator needs is masked by a reachability message.
+      h.resolveBakedAgentDrv.mockRejectedValue(refusal());
+      const { binding, resolve } = seedLiveBinding();
+      await expect(resolve(resolverContext)).rejects.toBeInstanceOf(
+        ResolveDrvError,
+      );
+      pushState({ phase: "failed", error: message, log: [] });
+      expect(binding.entryFailedDetail()).toEqual({ cause });
+      binding.destroy();
+    });
+
+    it("clears on a dial that resolves — never a stale cause outliving recovery", async () => {
+      h.resolveBakedAgentDrv.mockRejectedValueOnce(refusal());
+      const { binding, resolve } = seedLiveBinding();
+      await expect(resolve(resolverContext)).rejects.toBeInstanceOf(
+        ResolveDrvError,
+      );
+      expect(binding.entryFailedDetail()).toEqual({ cause });
+      // The operator fixed it: the next dial's resolution succeeds.
+      await expect(resolve(resolverContext)).resolves.toBeDefined();
+      expect(binding.entryFailedDetail()).toBeNull();
+      binding.destroy();
+    });
   });
 
   it("(e) preserves a connector-owned exhausted network verdict", async () => {
