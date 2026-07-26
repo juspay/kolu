@@ -357,13 +357,31 @@ let
       local pty
       pty=$(echo node-pty@*/node_modules/node-pty)
       local ptyInstance="''${pty%/node_modules/node-pty}"
-      # node-pty only needs its compiled addon at runtime. Preserve that file
-      # while removing node-gyp inputs, including node-addon-api at both places
-      # where pnpm's package-instance layout links it.
-      cp --preserve=mode "$pty/build/Release/pty.node" "$NIX_BUILD_TOP/pty.node"
+      # node-pty loads a fixed set of artifacts out of build/Release at
+      # runtime. Preserve exactly those and drop the rest of the node-gyp
+      # output, along with node-addon-api at both places where pnpm's
+      # package-instance layout links it.
+      #
+      # The set is PLATFORM-SPECIFIC, and getting it wrong fails asymmetrically:
+      # darwin's binding.gyp carries a second `OS=="mac"` target, `spawn-helper`,
+      # which lib/unixTerminal.js exec's for every fork. Pruning it leaves the
+      # addon loadable and the daemon healthy while no hosted terminal can spawn
+      # at all — invisible on linux, which never builds that target. #1988
+      # pruned it and reddened ci::smoke@aarch64-darwin only.
+      local ptyRuntime=(pty.node ${
+        pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "spawn-helper"
+      })
+      mkdir -p "$NIX_BUILD_TOP/pty-runtime"
+      # cp fails the build if an expected artifact is missing, so a node-pty
+      # bump that renames one surfaces here rather than at a user's terminal.
+      for artifact in "''${ptyRuntime[@]}"; do
+        cp --preserve=mode "$pty/build/Release/$artifact" "$NIX_BUILD_TOP/pty-runtime/$artifact"
+      done
       rm -rf "$pty/build"
       mkdir -p "$pty/build/Release"
-      cp --preserve=mode "$NIX_BUILD_TOP/pty.node" "$pty/build/Release/pty.node"
+      for artifact in "''${ptyRuntime[@]}"; do
+        cp --preserve=mode "$NIX_BUILD_TOP/pty-runtime/$artifact" "$pty/build/Release/$artifact"
+      done
       rm -rf $pty/prebuilds $pty/third_party $pty/deps $pty/src $pty/scripts \
              "$ptyInstance"/node-addon-api@* "$ptyInstance/node_modules/node-addon-api"
       popd
