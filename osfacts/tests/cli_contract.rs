@@ -96,7 +96,9 @@ fn fixture_v4_mapped_loopback() {
         addr == v4 || addr == mapped,
         "expected {v4} or {mapped}, got {addr}"
     );
-    insta::assert_snapshot!("fixture_v4_mapped_loopback", redact_tsv(&h.tsv));
+    // No insta here: linux /proc and darwin libproc may emit either the
+    // 4-byte v4 form or the 16-byte mapped form for the same bind — both
+    // are correct; the assertions above pin the scar (not IPv4-compatible).
 }
 
 // ── silent-empty / version / json ───────────────────────────────────────
