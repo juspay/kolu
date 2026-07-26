@@ -357,13 +357,29 @@ let
       local pty
       pty=$(echo node-pty@*/node_modules/node-pty)
       local ptyInstance="''${pty%/node_modules/node-pty}"
-      # node-pty only needs its compiled addon at runtime. Preserve that file
-      # while removing node-gyp inputs, including node-addon-api at both places
-      # where pnpm's package-instance layout links it.
+      # node-pty needs its compiled addon at runtime — and on DARWIN it needs a
+      # second artefact beside it: `spawn-helper`, an executable that
+      # `binding.gyp` builds under `['OS=="mac"', …]` only.
+      # `lib/unixTerminal.js` resolves it as `native.dir + '/spawn-helper'` and
+      # passes the path into EVERY `pty.fork()`, so without it no PTY starts at
+      # all: padi comes up, a terminal create logs nothing, and every hosted
+      # terminal hangs until its caller times out.
+      #
+      # It is copied conditionally because linux genuinely has no such file —
+      # which is exactly why pruning it went unnoticed: linux CI cannot see this,
+      # and the change that introduced the prune (#1988) merged with no darwin
+      # lane at all. Preserve both, then remove the node-gyp inputs, including
+      # node-addon-api at both places pnpm's package-instance layout links it.
       cp --preserve=mode "$pty/build/Release/pty.node" "$NIX_BUILD_TOP/pty.node"
+      if [ -e "$pty/build/Release/spawn-helper" ]; then
+        cp --preserve=mode "$pty/build/Release/spawn-helper" "$NIX_BUILD_TOP/spawn-helper"
+      fi
       rm -rf "$pty/build"
       mkdir -p "$pty/build/Release"
       cp --preserve=mode "$NIX_BUILD_TOP/pty.node" "$pty/build/Release/pty.node"
+      if [ -e "$NIX_BUILD_TOP/spawn-helper" ]; then
+        cp --preserve=mode "$NIX_BUILD_TOP/spawn-helper" "$pty/build/Release/spawn-helper"
+      fi
       rm -rf $pty/prebuilds $pty/third_party $pty/deps $pty/src $pty/scripts \
              "$ptyInstance"/node-addon-api@* "$ptyInstance/node_modules/node-addon-api"
       popd
