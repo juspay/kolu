@@ -34,6 +34,7 @@
 import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
+  type PreviewLocation,
   type RightPanelPerTerminalState,
   type RightPanelTab,
   rightPanelView,
@@ -350,6 +351,38 @@ export function useRightPanel() {
     /** Switch to Inspector. `codeMode` is preserved so toggling back to Code
      *  restores the user's last sub-mode. */
     showInspector: () => mutateActive({ activeTab: "inspector" }),
+    /** Switch to the Preview tab (location unchanged — open via openPreview). */
+    showPreview: () => mutateActive({ activeTab: "preview" }),
+    /** Server-authored preview location for the active terminal. */
+    preview: (): PreviewLocation | null => activeState().preview ?? null,
+    /** Apply a location the server just accepted (own RPC or stream). Does
+     *  not re-report — preview is not on setRightPanel. */
+    applyPreview: (id: TerminalId, location: PreviewLocation | null) => {
+      ensureState(id);
+      setPerTerminal(id, {
+        preview: location,
+        ...(location !== null
+          ? { activeTab: "preview" as const, collapsed: false }
+          : {}),
+      });
+    },
+    /** Open or navigate Preview via the server procedure (validates path+port). */
+    openPreview: (id: TerminalId, port: number, path = "/") =>
+      activePadiRpc.chrome.previewOpen({ id, port, path }).then((location) => {
+        ensureState(id);
+        setPerTerminal(id, {
+          preview: location,
+          activeTab: "preview",
+          collapsed: false,
+        });
+        return location;
+      }),
+    /** Clear the Preview location on the server and locally. */
+    closePreview: (id: TerminalId) =>
+      activePadiRpc.chrome.previewClose({ id }).then(() => {
+        ensureState(id);
+        setPerTerminal(id, { preview: null });
+      }),
     /** Switch to Code tab. When `mode` is omitted, the persisted `codeMode`
      *  is used — this is the round-trip case (Inspector→Code restores the
      *  last view). Pass `mode` explicitly to override. */

@@ -35,23 +35,19 @@ export const PortRow: Component<{
   serving?: { name: string; jump: () => void };
   /** Open the door. Resolves with the local port it answers on. */
   onForward: () => Promise<number>;
+  /** Default click: open the Preview tab (after forwarding if needed). */
+  onPreview: () => Promise<void>;
 }> = (props) => {
   const [opening, setOpening] = createSignal(false);
   const forward = () => props.row.forward;
 
-  /** Open the door, then the page. The window is opened SYNCHRONOUSLY inside the
-   *  click — before the await — because a popup blocker judges a `window.open`
-   *  by whether it descends from a user gesture, and one issued after an await
-   *  does not. So the tab is claimed first and pointed at the URL once the door
-   *  is up; a failure closes it again rather than leaving a blank tab behind.
+  /** Modifier-click: open a browser tab (today's path). Plain click → Preview.
    *
-   *  Deliberately NOT `"noopener"` in the feature string, and the `opener = null`
-   *  below is why: `window.open` with `noopener` returns **null** by spec, so
-   *  there would be no handle to navigate once the forward is up — the flag and
-   *  this flow are mutually exclusive. Severing `opener` on the blank tab (while
-   *  it is still same-origin `about:blank`, the one moment this is possible)
-   *  reaches the same posture the anchor path gets from `rel="noopener"`. */
-  const openThroughForward = async (): Promise<void> => {
+   *  The window is opened SYNCHRONOUSLY inside the click — before the await —
+   *  because a popup blocker judges a `window.open` by whether it descends
+   *  from a user gesture. Deliberately NOT `"noopener"` in the feature string
+   *  (`opener = null` instead): `noopener` returns null by spec. */
+  const openThroughForwardInTab = async (): Promise<void> => {
     if (opening()) return;
     setOpening(true);
     const tab = window.open("", "_blank");
@@ -74,6 +70,34 @@ export const PortRow: Component<{
     } finally {
       setOpening(false);
     }
+  };
+
+  const openInPreview = async (): Promise<void> => {
+    if (opening()) return;
+    setOpening(true);
+    try {
+      if (props.action.kind === "forward" && props.openAt === undefined) {
+        await props.onForward();
+      }
+      await props.onPreview();
+    } catch (err) {
+      toast.error(
+        `Could not preview port ${props.row.port}: ${(err as Error).message}`,
+      );
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  const onOpenClick = (e: MouseEvent) => {
+    // Modifier keeps today's new-tab path; plain click → Preview (PRT3).
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+      e.preventDefault();
+      void openThroughForwardInTab();
+      return;
+    }
+    e.preventDefault();
+    void openInPreview();
   };
 
   return (
@@ -152,11 +176,15 @@ export const PortRow: Component<{
                 data-testid="inspector-port-forward-open"
                 data-port={props.row.port}
                 disabled={opening()}
-                title={props.forwardReason}
-                onClick={() => void openThroughForward()}
+                title={
+                  props.forwardReason
+                    ? `${props.forwardReason} · ⌘-click for a new tab`
+                    : "Open in Preview · ⌘-click for a new tab"
+                }
+                onClick={onOpenClick}
               >
                 <OpenIcon class="h-3 w-3" />
-                {opening() ? "opening…" : "forward & open"}
+                {opening() ? "opening…" : "forward & preview"}
               </button>
             }
           >
@@ -168,9 +196,11 @@ export const PortRow: Component<{
                 class="inline-flex items-center gap-1 text-accent hover:underline"
                 data-testid="inspector-port-open"
                 data-port={props.row.port}
+                title="Open in Preview · ⌘-click for a new tab"
+                onClick={onOpenClick}
               >
                 <OpenIcon class="h-3 w-3" />
-                open
+                {opening() ? "opening…" : "preview"}
               </a>
             )}
           </Show>

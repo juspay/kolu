@@ -15,10 +15,15 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { knownPorts, type TerminalId } from "@kolu/terminal-vocab/schema";
+import { ORPCError } from "@orpc/server";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
-import { getTerminal, terminalEntries } from "./terminal-registry.ts";
+import {
+  getTerminal,
+  listTerminals,
+  terminalEntries,
+} from "./terminal-registry.ts";
 import {
   beginSleepLocal,
   releaseSleptLocalPty,
@@ -35,7 +40,12 @@ import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
 // `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
 // to preserve the metadata→local order the TDZ note above depends on.
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-import type { RightPanelPerTerminalState } from "./chromeVocab.ts";
+import {
+  DEFAULT_RIGHT_PANEL_PER_TERMINAL,
+  type PreviewLocation,
+  type RightPanelPerTerminalState,
+} from "./chromeVocab.ts";
+import { assertPreviewTarget } from "./previewTarget.ts";
 import {
   composeTerminalMetadata,
   type CreateTerminalInput,
@@ -242,25 +252,98 @@ export function setSubPanelState(
   });
 }
 
-/** Store a terminal's right-panel per-terminal state (client-reported).
- *  Publishes via metadata so other clients (and the same client after a
- *  refresh) pick up the change from the same channel as every other
- *  client-owned metadata field.
- *
- *  Equality-gated like `setSubPanelState` — the client RPCs this on
- *  every file-tree click and tab-toggle, so without a guard each
- *  interaction would fan a full per-key metadata publish. Deep-compares
- *  `selectedFileByMode` since the user clicks files often. */
+/** Client-authored right-panel posture (collapsed / tab / code mode / files).
+ *  The input deliberately omits `preview` — that field is server-authored by
+ *  {@link previewOpen} / {@link previewClose}. This writer PRESERVES the
+ *  existing preview so a tab toggle cannot clobber an MCP navigate. */
 export function setRightPanelState(
   id: TerminalId,
-  state: RightPanelPerTerminalState,
+  state: Omit<RightPanelPerTerminalState, "preview">,
 ): void {
   const entry = getTerminal(id);
   if (!entry) return;
   const cur = entry.meta.rightPanel;
-  if (cur && rightPanelStateEqual(cur, state)) return;
+  const next: RightPanelPerTerminalState = {
+    ...state,
+    preview: cur?.preview ?? null,
+  };
+  if (cur && rightPanelStateEqual(cur, next)) return;
   updateClientMetadata(entry, id, (m) => {
-    m.rightPanel = state;
+    m.rightPanel = next;
+  });
+}
+
+/** Host-wide scanned listening ports — union across every active terminal's
+ *  known sample. One fact ("what listens on this host"), derived next to the
+ *  registry that owns the samples — not recomputed in the UI. */
+export function collectHostScannedPorts(): Set<number> {
+  const ports = new Set<number>();
+  for (const t of listTerminals()) {
+    const entry = getTerminal(t.id);
+    if (!entry || entry.meta.state !== "active") continue;
+    for (const p of knownPorts(entry.snapshot.ports)) {
+      ports.add(p.port);
+    }
+  }
+  return ports;
+}
+
+/** Open or navigate the Preview tab. `doorPorts` is the live-forward remote
+ *  set for this host when the caller can see it (kolu-server composition);
+ *  padi's own serve path passes an empty set — doors live on the app
+ *  surface, and chip-driven previews are already in the scan set.
+ *
+ *  Validates via {@link assertPreviewTarget}, writes `preview`, switches
+ *  `activeTab` to `"preview"`, uncollapses. A repeat call NAVIGATES. */
+export function previewOpen(
+  id: TerminalId,
+  input: { port: number; path: string },
+  allow: {
+    scannedPorts: ReadonlySet<number>;
+    doorPorts: ReadonlySet<number>;
+  } = { scannedPorts: collectHostScannedPorts(), doorPorts: new Set() },
+): PreviewLocation {
+  const entry = getTerminal(id);
+  if (!entry) {
+    throw new ORPCError("NOT_FOUND", {
+      message: `terminal ${id} not found`,
+    });
+  }
+  const cur = entry.meta.rightPanel;
+  const location = assertPreviewTarget({
+    port: input.port,
+    path: input.path,
+    scannedPorts: allow.scannedPorts,
+    doorPorts: allow.doorPorts,
+    currentPort: cur?.preview?.port ?? null,
+  });
+  const next: RightPanelPerTerminalState = {
+    ...(cur ?? DEFAULT_RIGHT_PANEL_PER_TERMINAL),
+    collapsed: false,
+    activeTab: "preview",
+    preview: location,
+  };
+  if (cur && rightPanelStateEqual(cur, next)) return location;
+  updateClientMetadata(entry, id, (m) => {
+    m.rightPanel = next;
+  });
+  return location;
+}
+
+/** Clear the Preview location. Leaves `activeTab` on `"preview"` so the empty
+ *  frame / door-closed chrome still shows; the client may switch tabs after. */
+export function previewClose(id: TerminalId): void {
+  const entry = getTerminal(id);
+  if (!entry) {
+    throw new ORPCError("NOT_FOUND", {
+      message: `terminal ${id} not found`,
+    });
+  }
+  const cur = entry.meta.rightPanel;
+  if (!cur || cur.preview === null) return;
+  const next: RightPanelPerTerminalState = { ...cur, preview: null };
+  updateClientMetadata(entry, id, (m) => {
+    m.rightPanel = next;
   });
 }
 
@@ -270,6 +353,8 @@ function rightPanelStateEqual(
 ): boolean {
   if (a.collapsed !== b.collapsed) return false;
   if (a.activeTab !== b.activeTab || a.codeMode !== b.codeMode) return false;
+  if ((a.preview?.port ?? null) !== (b.preview?.port ?? null)) return false;
+  if ((a.preview?.path ?? null) !== (b.preview?.path ?? null)) return false;
   const am = a.selectedFileByMode;
   const bm = b.selectedFileByMode;
   if (am === bm) return true;

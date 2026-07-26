@@ -42,4 +42,22 @@ describe("RightPanelPerTerminalStateSchema — collapsed is backward-compatible"
   it("the shipped per-terminal default reads as open", () => {
     expect(DEFAULT_RIGHT_PANEL_PER_TERMINAL.collapsed).toBe(false);
   });
+
+  it("parses a pre-PRT3 record (no preview) as preview: null", () => {
+    const parsed = RightPanelPerTerminalStateSchema.parse({
+      activeTab: "code",
+      codeMode: "browse",
+    });
+    expect(parsed.preview).toBeNull();
+  });
+
+  it("accepts activeTab: preview with a location", () => {
+    const parsed = RightPanelPerTerminalStateSchema.parse({
+      activeTab: "preview",
+      codeMode: "browse",
+      preview: { port: 5173, path: "/app" },
+    });
+    expect(parsed.activeTab).toBe("preview");
+    expect(parsed.preview).toEqual({ port: 5173, path: "/app" });
+  });
 });

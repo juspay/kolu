@@ -77,6 +77,7 @@ const sentinel: SavedActiveTerminal = {
   rightPanel: {
     collapsed: true,
     activeTab: "code",
+    preview: null,
     codeMode: "branch",
     selectedFileByMode: { local: "a.ts", branch: "b.ts", browse: "c.ts" },
   },

@@ -21,6 +21,7 @@ import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
+import PreviewTab from "./PreviewTab";
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -30,11 +31,16 @@ import { useRightPanel } from "./useRightPanel";
  *  via `match(kind).exhaustive()`, which also fails-compile on a missing
  *  variant — so adding a new kind is a three-place change that the
  *  compiler enforces end-to-end. */
-const TAB_KINDS: readonly RightPanelTabKind[] = ["code", "inspector"] as const;
+const TAB_KINDS: readonly RightPanelTabKind[] = [
+  "code",
+  "inspector",
+  "preview",
+] as const;
 
 const TAB_LABEL: Record<RightPanelTabKind, string> = {
   inspector: "Inspector",
   code: "Code",
+  preview: "Preview",
 };
 
 const RightPanel: Component<{
@@ -50,7 +56,18 @@ const RightPanel: Component<{
   const rightPanel = useRightPanel();
 
   const showKind = (kind: RightPanelTabKind) =>
-    kind === "inspector" ? rightPanel.showInspector() : rightPanel.showCode();
+    match(kind)
+      .with("inspector", () => rightPanel.showInspector())
+      .with("code", () => rightPanel.showCode())
+      .with("preview", () => rightPanel.showPreview())
+      .exhaustive();
+
+  /** Server-authored preview, with local optimistic fill after our own open. */
+  const previewLocation = () => {
+    const fromMeta = props.meta?.rightPanel?.preview ?? null;
+    const fromLocal = rightPanel.preview();
+    return fromMeta ?? fromLocal;
+  };
 
   return (
     <div
@@ -137,6 +154,12 @@ const RightPanel: Component<{
                   ))
                   .with("code", () => (
                     <CodeTab terminalId={props.terminalId} meta={props.meta} />
+                  ))
+                  .with("preview", () => (
+                    <PreviewTab
+                      terminalId={props.terminalId}
+                      location={previewLocation()}
+                    />
                   ))
                   .exhaustive()}
               </div>

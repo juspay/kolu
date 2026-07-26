@@ -352,18 +352,84 @@ const FORWARD_TIMEOUT = 15_000;
 When(
   "I click forward-and-open for port {int}",
   async function (this: KoluWorld, port: number) {
+    // PRT2 path: modifier-click keeps a browser tab (plain click is Preview).
     const button = this.page.locator(
       `[data-testid="inspector-port-forward-open"][data-port="${port}"]`,
     );
     await button.waitFor({ state: "visible", timeout: PORT_SCAN_TIMEOUT });
-    // The tab is claimed inside the click (before the forward is awaited), so the
-    // popup event fires immediately and its URL is set once the door is up. Arm
-    // the wait BEFORE clicking or the event is already gone.
     const popup = this.context.waitForEvent("page", {
       timeout: FORWARD_TIMEOUT,
     });
-    await button.click();
+    const mod = process.platform === "darwin" ? "Meta" : "Control";
+    await button.click({ modifiers: [mod] });
     this.externalPopup = await popup;
+  },
+);
+
+When(
+  "I click to preview port {int}",
+  async function (this: KoluWorld, port: number) {
+    // Prefer the forward button; fall back to the direct-open chip.
+    const forwardBtn = this.page.locator(
+      `[data-testid="inspector-port-forward-open"][data-port="${port}"]`,
+    );
+    const openLink = this.page.locator(
+      `[data-testid="inspector-port-open"][data-port="${port}"]`,
+    );
+    if (await forwardBtn.isVisible().catch(() => false)) {
+      await forwardBtn.click();
+    } else {
+      await openLink.waitFor({ state: "visible", timeout: PORT_SCAN_TIMEOUT });
+      await openLink.click();
+    }
+  },
+);
+
+Then(
+  "the preview iframe should load the listener's page",
+  async function (this: KoluWorld) {
+    const iframe = this.page.frameLocator('[data-testid="preview-iframe"]');
+    await pollFor({
+      observe: async () => {
+        try {
+          return await iframe.locator("body").innerText();
+        } catch {
+          return "";
+        }
+      },
+      isDone: (body) => body.includes("ok"),
+      timeoutMs: FORWARD_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `Preview iframe never showed the listener's body within ${elapsedMs}ms — ` +
+            `got ${JSON.stringify(last)}`,
+        ),
+    });
+    // The frame src must be the page host on a door port, not the server's bind.
+    const src = await this.page
+      .locator('[data-testid="preview-iframe"]')
+      .getAttribute("src");
+    assert.ok(src, "preview iframe has no src");
+    const url = new URL(src);
+    const hostname = await this.page.evaluate(() => window.location.hostname);
+    assert.strictEqual(url.hostname, hostname.replace(/^\[|\]$/g, ""));
+    this.forwardedUrl = src;
+  },
+);
+
+Then(
+  "the preview tab should show the door closed",
+  async function (this: KoluWorld) {
+    const el = this.page.locator('[data-testid="preview-door-closed"]');
+    await el.waitFor({ state: "visible", timeout: FORWARD_TIMEOUT });
+  },
+);
+
+Then(
+  "the preview empty state should be visible",
+  async function (this: KoluWorld) {
+    const el = this.page.locator('[data-testid="preview-empty"]');
+    await el.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 

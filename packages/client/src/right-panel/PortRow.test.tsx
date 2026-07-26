@@ -54,6 +54,7 @@ function mountOrphan(serving?: { name: string; jump: () => void }) {
         forwardReason={undefined}
         serving={serving}
         onForward={() => Promise.resolve(61003)}
+        onPreview={() => Promise.resolve()}
       />
     ),
     host,

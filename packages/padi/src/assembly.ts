@@ -134,9 +134,12 @@ export {
 export { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 export { saveTerminalFile } from "./terminalScratch.ts";
 export {
+  collectHostScannedPorts,
   createTerminal,
   killAllTerminals,
   killTerminal,
+  previewClose,
+  previewOpen,
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,

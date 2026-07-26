@@ -57,6 +57,11 @@ export const KOLU_MCP_EXPOSE = {
   "lifecycle.create": { tool: { mutates: true } },
   /** Kill one terminal by id. */
   "lifecycle.kill": { tool: { mutates: true } },
+  /** Open or navigate the Preview tab on a terminal — `(id, port, path)`, never
+   *  a raw URL. A repeat call navigates. Thin over `chrome.previewOpen`. */
+  "chrome.previewOpen": { tool: { mutates: true } },
+  /** Clear the Preview location. Thin over `chrome.previewClose`. */
+  "chrome.previewClose": { tool: { mutates: true } },
 } as const satisfies ExposeMap<PadiSurfaceSpec>;
 
 /** The NAMED denials — every member deliberately refused in v1, with the

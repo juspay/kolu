@@ -88,6 +88,8 @@ import {
   createTerminal,
   killAllTerminals,
   killTerminal,
+  previewClose,
+  previewOpen,
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
@@ -534,6 +536,20 @@ export function buildPadiSurfaceDeps(deps: {
           requireMutableTerminal(input.id);
           const { id: _id, ...state } = input;
           setRightPanelState(input.id, state);
+        },
+        previewOpen: ({ input }) => {
+          requireMutableTerminal(input.id);
+          // Scanned ports only here: live doors sit on kolu-server's app
+          // surface, not on this host daemon. Chip-driven opens are already
+          // in the scan set; path+query is the hard no-raw-URLs gate.
+          return previewOpen(input.id, {
+            port: input.port,
+            path: input.path ?? "/",
+          });
+        },
+        previewClose: ({ input }) => {
+          requireMutableTerminal(input.id);
+          previewClose(input.id);
         },
       },
 

@@ -53,9 +53,11 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import Section from "../ui/Section";
 import { activeHost } from "../wire";
 import { PortRow } from "./PortRow";
+import { useRightPanel } from "./useRightPanel";
 
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const store = useTerminalStore();
+  const rightPanel = useRightPanel();
   // "Is the inspected terminal on the machine serving this page?" has a named home
   // in the host layer (`isActiveHostLocal`), and reading it from there matters more
   // here than in a cosmetic caller: `portReach`s remote-host arm decides whether
@@ -204,6 +206,14 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                       origin: "auto",
                     });
                     return created.localPort;
+                  }}
+                  onPreview={async () => {
+                    rightPanel.reveal();
+                    await rightPanel.openPreview(
+                      props.terminalId,
+                      row.port,
+                      "/",
+                    );
                   }}
                 />
               );

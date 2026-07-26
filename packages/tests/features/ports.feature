@@ -42,21 +42,29 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     Then the inspector should show port 8124 as needing a forward
     And there should be no page errors
 
-  Scenario: Clicking a loopback port forwards it and loads the page
-    # PRT2's headline, on the one mechanism this harness can exercise for real:
-    # the relay. A loopback listener is invisible from any other machine, so the
-    # click has to open a door on 0.0.0.0 before there is anything to point a tab
-    # at — and the proof is the listener's OWN body arriving in that tab, through
-    # a port that is not the one the server bound.
+  Scenario: Clicking a loopback port opens Preview through the relay door
+    # PRT3's headline: plain click → forward → Preview tab, and the proof is the
+    # listener's OWN body inside the iframe (through a door port it never bound).
     When I start a listener on port 8127 bound to loopback only
     And I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     Then the inspector should show port 8127 as needing a forward
-    When I click forward-and-open for port 8127
-    Then the forwarded tab should load the listener's page
+    When I click to preview port 8127
+    Then the preview iframe should load the listener's page
     And the inspector should show a forward badge for port 8127
     And the ports section should show port 8127 as forwarded
+    And there should be no page errors
+
+  Scenario: Modifier-click still opens a browser tab through the door
+    # PRT2 path kept load-bearing for frame-refusing servers.
+    When I start a listener on port 8126 bound to loopback only
+    And I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show port 8126 as needing a forward
+    When I click forward-and-open for port 8126
+    Then the forwarded tab should load the listener's page
     And there should be no page errors
 
   Scenario: A dev server on the v6 loopback forwards to the v6 loopback
@@ -74,8 +82,8 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     Then the inspector should show port 8129 as needing a forward
-    When I click forward-and-open for port 8129
-    Then the forwarded tab should load the listener's page
+    When I click to preview port 8129
+    Then the preview iframe should load the listener's page
     And there should be no page errors
 
   Scenario: Cancelling a forward severs it
@@ -83,12 +91,14 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     And I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
-    And I click forward-and-open for port 8128
-    Then the forwarded tab should load the listener's page
+    And I click to preview port 8128
+    Then the preview iframe should load the listener's page
     When I cancel the forward for port 8128
     Then the ports section should no longer show port 8128 as forwarded
     # The door is really shut, not just unlisted — the whole reason cancel exists.
     And the forwarded port should refuse connections
+    # Door-closed chrome is unit-covered (previewFrameTarget); on this harness the
+    # browser sits on the same host so viewer-loopback may still reach the port.
     And there should be no page errors
 
   Scenario: A dev server in a SPLIT shows up on the tile

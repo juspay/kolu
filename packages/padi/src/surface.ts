@@ -84,6 +84,7 @@ import {
 } from "./transcript/transcriptSchema.ts";
 import {
   CanvasLayoutSchema,
+  PreviewLocationSchema,
   RightPanelPerTerminalStateSchema,
 } from "./chromeVocab.ts";
 import {
@@ -254,8 +255,18 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  other shape, and the reshape needs no compatibility arm — which is the point:
  *  a `wildcard`-or-`scope` union in the schema would be a permanent fallback path
  *  bought to smooth over a window the convergence machinery already closes. The
- *  reshape itself is in `@kolu/terminal-vocab` ports vocabulary, with the reason. */
-export const PADI_SURFACE_VERSION = "4.3";
+ *  reshape itself is in `@kolu/terminal-vocab` ports vocabulary, with the reason.
+ *
+ *  4.4 (additive · minor): PRT3 Preview tab — `RightPanelTabKind` gains
+ *  `"preview"`, `RightPanelPerTerminalState` gains a server-authored
+ *  `preview: { port, path } | null` (default null; omitted from
+ *  `chrome.setRightPanel` so a client whole-record write cannot clobber an
+ *  MCP navigate), and `chrome.previewOpen` / `chrome.previewClose` procedures
+ *  write it. Additive procedures + an optional field with a schema default that
+ *  does NOT ride the client whole-record write path → minor, same doctrine as
+ *  4.1/4.2. The version gate drains a straddling padi before an old parser
+ *  meets `activeTab: "preview"`. */
+export const PADI_SURFACE_VERSION = "4.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -631,8 +642,30 @@ export const PadiSetSubPanelInputSchema = z.object({
   panelSize: z.number(),
 });
 
+/** `chrome.setRightPanel` — client-authored panel posture. Deliberately omits
+ *  `preview`: that field is server-authored by `previewOpen` / `previewClose`
+ *  only, so a tab toggle / file pick cannot clobber an MCP navigate (and an
+ *  older client that never heard of `preview` cannot default-null it away). */
 export const PadiSetRightPanelInputSchema =
-  RightPanelPerTerminalStateSchema.extend({ id: TerminalIdSchema });
+  RightPanelPerTerminalStateSchema.omit({ preview: true }).extend({
+    id: TerminalIdSchema,
+  });
+
+/** `chrome.previewOpen` — open or navigate the Preview tab on a terminal.
+ *  A repeat call with a new path NAVIGATES. Never a raw URL: `path` is
+ *  path+query only; the port must be a scanned port or live door on the host. */
+export const PadiPreviewOpenInputSchema = z.object({
+  id: TerminalIdSchema,
+  port: z.number().int(),
+  /** Path+query only (e.g. `/` or `/app?x=1`). Schemes / hosts / `//` refuse. */
+  path: z.string().default("/"),
+});
+export const PadiPreviewOpenOutputSchema = PreviewLocationSchema;
+
+/** `chrome.previewClose` — clear the Preview location and leave the tab. */
+export const PadiPreviewCloseInputSchema = z.object({
+  id: TerminalIdSchema,
+});
 
 export const PadiScreenTextInputSchema = z.object({
   id: TerminalIdSchema,
@@ -978,6 +1011,13 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       setCanvasLayout: { input: PadiSetCanvasLayoutInputSchema },
       setSubPanel: { input: PadiSetSubPanelInputSchema },
       setRightPanel: { input: PadiSetRightPanelInputSchema },
+      /** Open or navigate the Preview tab — server-authored `preview` field. */
+      previewOpen: {
+        input: PadiPreviewOpenInputSchema,
+        output: PadiPreviewOpenOutputSchema,
+      },
+      /** Clear the Preview location (and leave the Preview tab). */
+      previewClose: { input: PadiPreviewCloseInputSchema },
     },
     /** Screen reads — the serialized screen + a scrollback text slice. */
     screen: {

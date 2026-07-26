@@ -23,6 +23,8 @@ import {
   forwardFromPalette,
   forwardInputError,
 } from "./forwards/forwardFromPalette";
+import { previewFromPalette } from "./forwards/previewFromPalette";
+import { useRightPanel } from "./right-panel/useRightPanel";
 import {
   ACTIONS,
   type ActionContext,
@@ -294,6 +296,31 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         {
           kind: "hint" as const,
           text: "e.g. pu-dev:5173 — a bare 3000 means the active host",
+        },
+      ],
+    },
+    {
+      kind: "value" as const,
+      name: "Preview a port…",
+      description: "open a port in the Preview tab",
+      section: "hosts" as const,
+      row: { kind: "command" as const },
+      prefill: () => "",
+      placeholder: "host:port (or just a port for this host)",
+      validate: (value) =>
+        forwardInputError(value, deps.hostKeys(), deps.activeHost()),
+      onSubmit: (value) => {
+        const rp = useRightPanel();
+        previewFromPalette(value, deps.hostKeys(), deps.activeHost(), {
+          terminalId: deps.activeId(),
+          openPreview: (id, port, path) => rp.openPreview(id, port, path),
+          reveal: () => rp.reveal(),
+        });
+      },
+      children: (): (PaletteLabel | PaletteHint)[] => [
+        {
+          kind: "hint" as const,
+          text: "opens the Preview tab after ensuring a door — ⌘-click a chip for a browser tab",
         },
       ],
     },

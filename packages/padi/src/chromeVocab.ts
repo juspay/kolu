@@ -14,6 +14,7 @@
  * so the client imports it via `@kolu/padi/surface`.
  */
 
+import { TcpPortSchema } from "@kolu/terminal-vocab/schema";
 import { z } from "zod";
 
 export const CanvasLayoutSchema = z.object({
@@ -32,7 +33,27 @@ export const SubPanelStateSchema = z.object({
 export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 
 /** Which tab is currently displayed in the right panel. */
-export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
+export const RightPanelTabKindSchema = z.enum(["inspector", "code", "preview"]);
+
+/** The page the Preview tab is showing — a door-backed (or direct) port on
+ *  this terminal's host, plus a path+query. Never a raw URL; schemes and hosts
+ *  are refused at `previewOpen`. Server-authored (PRT3): only `previewOpen` /
+ *  `previewClose` write this field; `setRightPanel` preserves it. */
+export const PreviewLocationSchema = z.object({
+  port: TcpPortSchema,
+  /** Path+query only, rooted (e.g. `/` or `/app?x=1`). */
+  path: z.string(),
+});
+export type PreviewLocation = z.infer<typeof PreviewLocationSchema>;
+
+/** Two preview locations name the same page — same port + path. The trail's
+ *  `isSameEntry`: reload refreshes in place instead of deepening history. */
+export function samePreviewLocation(
+  a: PreviewLocation,
+  b: PreviewLocation,
+): boolean {
+  return a.port === b.port && a.path === b.path;
+}
 
 /** Per-terminal right-panel state — whether the panel is showing, which
  *  tab is open, which sub-mode the Code tab is in, and which file the user
@@ -49,6 +70,12 @@ export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
  *  `selectedFileByMode` is per-mode so flipping between local↔branch↔browse
  *  within a single terminal keeps each mode's last-viewed file, mirroring
  *  the prior `(repo, mode)`-keyed localStorage slot behaviour.
+ *
+ *  `preview` is the PRT3 Preview-tab location — server-authored via
+ *  `chrome.previewOpen` / `previewClose`, not via `setRightPanel` (that
+ *  whole-record client write preserves the existing preview so a tab toggle
+ *  cannot clobber an MCP navigate). `.default(null)` keeps pre-PRT3 session
+ *  records parseable with no migration.
  *
  *  Storage is flat (`collapsed` + `activeTab` + `codeMode` as parallel
  *  fields) so Solid's shallow-merge `setStore` is correct. Consumption of the
@@ -74,6 +101,8 @@ export const RightPanelPerTerminalStateSchema = z.object({
       browse: z.string().optional(),
     })
     .optional(),
+  /** Preview-tab location, or null when no page is open. Server-authored. */
+  preview: PreviewLocationSchema.nullable().default(null),
 });
 
 export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
@@ -89,7 +118,8 @@ export type RightPanelPerTerminalState = z.infer<
  *  matches on `activeTab` and reads `codeMode` separately. */
 export type RightPanelTab =
   | { kind: "inspector" }
-  | { kind: "code"; mode: CodeTabView };
+  | { kind: "code"; mode: CodeTabView }
+  | { kind: "preview" };
 
 /** User-facing name of a Code-tab view — the single source for the words the
  *  mode picker renders as a chip label and the file-tree right-click menu
@@ -123,6 +153,7 @@ export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
   collapsed: false,
   activeTab: "code",
   codeMode: "browse",
+  preview: null,
 };
 
 /** Project the flat `RightPanelPerTerminalState` shape onto its DU view.
@@ -132,7 +163,7 @@ export function rightPanelView(p: {
   activeTab: RightPanelTabKind;
   codeMode: CodeTabView;
 }): RightPanelTab {
-  return p.activeTab === "inspector"
-    ? { kind: "inspector" }
-    : { kind: "code", mode: p.codeMode };
+  if (p.activeTab === "inspector") return { kind: "inspector" };
+  if (p.activeTab === "preview") return { kind: "preview" };
+  return { kind: "code", mode: p.codeMode };
 }

@@ -24,7 +24,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 4.2, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 4.4, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -51,7 +51,9 @@ describe("padiSurface contract", () => {
     // `scope` (PRT2) — a RESHAPED field rather than an additive one, still a
     // minor because the version gate drains a straddling padi in BOTH
     // directions before either parser meets the other's frame. See surface.ts.
-    expect(PADI_SURFACE_VERSION).toBe("4.3");
+    // 4.4 (minor): PRT3 Preview tab — `activeTab: "preview"`, server-authored
+    // `preview` field (omitted from setRightPanel), previewOpen/previewClose.
+    expect(PADI_SURFACE_VERSION).toBe("4.4");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
@@ -125,6 +127,8 @@ describe("padiSurface contract", () => {
       "setCanvasLayout",
       "setSubPanel",
       "setRightPanel",
+      "previewOpen",
+      "previewClose",
     ]);
     expect(Object.keys(procs.screen ?? {})).toEqual([
       "state",
