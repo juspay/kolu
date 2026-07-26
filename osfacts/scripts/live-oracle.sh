@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Lane 2 entry point — live-host oracle. Part of the CI DAG (`ci::osfacts-live`).
+# Lane 2 entry point — live-host oracle. In the full `/ci` run DAG
+# (`ci::osfacts-live`, after `ci::osfacts` / `nix`) on both platforms; never a
+# merge-required status (odu has no soft-fail node).
 #
 # Builds (or reuses) the nix-packaged osfacts, then runs the cucumber scenarios
 # against a real, noisy host. Diffs answers against `ss` (linux) or `lsof`
-# (darwin). Exit non-zero on structural disagreement after one re-sample.
+# (darwin). Exit non-zero on structural disagreement after one re-sample —
+# honest red for the attended run, no exit-0 wrapper.
 #
 # Usage (from repo root or osfacts/):
 #   ./osfacts/scripts/live-oracle.sh

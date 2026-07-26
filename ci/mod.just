@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -242,17 +242,24 @@ atlas-sync:
 # osfacts hermetic gate (lane 1). `nix build .#osfacts` runs cargo-nextest in
 # checkPhase (process-per-test, per-test timeouts). Depends on `nix` so the
 # root flake-build has already warmed the store; this node is the explicit,
-# named status for the binary + scar-tissue suite on both platforms.
+# named status for the binary + scar-tissue suite on both platforms — and the
+# merge-required half of the osfacts pair (see osfacts-live).
 osfacts: nix
     nix build .#osfacts --no-link -L
     # Subflake path must build the same derivation (vazhi pattern).
     bash ci/flake-build --kinds packages ./osfacts
 
-# osfacts live-host oracle (lane 2). Explicit CI recipe, NOT in the default
-# DAG and never a merge gate — a live host can go red without anyone having
-# broken the tool. Diffs the nix-built binary against the host's own tools
-# (`ss` / `lsof`). Run on demand: `just ci::osfacts-live`, or
-# `odu run --root ci::osfacts-live` on both platforms.
+# osfacts live-host oracle (lane 2). In the default run DAG on both platforms
+# (after `osfacts` → after `nix`, so the built binary is already in the store).
+# Diffs that binary against the host's own tools (`ss` / `lsof`) on a real,
+# noisy box — the class of test that can catch OS regressions hermetic
+# fixtures cannot. Exit non-zero is honest: a red fails the `/ci` run (no
+# exit-0 shim). odu has no informational/soft-fail node kind, so this leaf
+# also posts `ci::osfacts-live@…` statuses; it must NOT be absorbed into
+# GitHub `required_status_checks` — branch protection stays hermetic-only
+# (`ci::osfacts@…`). Do not re-run bare `odu protect` (non-dry-run) without
+# excluding these contexts until odu gains a soft-fail kind. Darwin rides
+# odu's platform targeting (rasam in the aarch64-darwin pool).
 [linux]
 [macos]
 osfacts-live: osfacts
@@ -275,6 +282,12 @@ attach:
 # single-platform subset (see the ci skill's green-gate). Extra args pass
 # straight through to odu, so `just ci::protect --dry-run` prints the contexts
 # without touching the PR.
+#
+# Caveat — osfacts-live: odu has no soft-fail node, so dry-run lists
+# `ci::osfacts-live@…` with every other leaf. Those contexts post and may red
+# a full `/ci` run, but must stay out of GitHub `required_status_checks`
+# (hermetic-only merge gate). Filter them out before any non-dry-run protect
+# PATCH, or leave branch protection alone until odu gains a soft-fail kind.
 protect *args:
     nix run ./ci#odu -- protect --platform x86_64-linux --platform aarch64-darwin {{ args }}
 

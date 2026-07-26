@@ -114,10 +114,12 @@ listeners, no kernel surprise. The live lane's whole job is the real world —
 other users' ports, platform oracles, whatever the box happens to be running —
 so folding it into the sandbox would delete the thing it is for.
 
-It never gates a merge. A live host can go red without anyone having broken
-osfacts (noise, privilege, a service that appeared between samples). The
-hermetic lane is the one that blames you; this one informs. Run it on demand
-when you care what the OS is doing today.
+It never gates a merge: branch protection stays on the hermetic lane only. It
+does run on every full `/ci` (both platforms, after the hermetic `osfacts` /
+`nix` build so the binary is already in the store), and a red fails that run
+honestly — no exit-0 shim. A live host can go red without anyone having broken
+osfacts (noise, privilege, a service that appeared between samples); that is
+why merge stays hermetic while the attended `/ci` run may still go red.
 
 The second lane's scenarios are Gherkin (`cucumber`), the same idiom as
 kolu's own e2e: "Given a shell running a loopback server, When I snapshot
