@@ -12,7 +12,7 @@
 
 ## Test command
 
-Invoke the `/test` skill. It selects relevant `.feature` files from the git diff and runs `just test-quick`.
+Invoke the `/test` skill. It owns **both** lanes: the unit lane (`just test-unit`, or a `--filter`ed `test:unit` / `vitest run` narrowed to the packages the diff touches) and the e2e lane (relevant `.feature` files selected from the git diff, run via `just test-quick`). Its "Unit lane" table is the source of truth for the vitest invocations — read it instead of grepping the `justfile` or a `package.json` for them.
 
 ## CI command
 
