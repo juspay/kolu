@@ -801,133 +801,103 @@ above. Stated rather than left implicit, because “the port forwarding suite is
 green” would otherwise read as covering both mechanisms.</p>
 <h3 id="prt3--the-preview-tab-build-ready-implementing-in-">PRT3 — the Preview tab (build-ready; implementing in <a href="https://github.com/juspay/kolu/pull/1999" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1999</a>)</h3>
 <div style="font-family:ui-sans-serif,system-ui;max-width:26rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)"><div style="display:flex;gap:.3rem;padding:.5rem .8rem 0;border-bottom:1px solid #232834;font:.72rem/1.6 ui-monospace,monospace;color:#5b6470"><span style="padding:.15rem .6rem">Code</span><span style="padding:.15rem .6rem">Inspector</span><span style="padding:.15rem .6rem;background:#1d2331;border-radius:6px 6px 0 0;color:#d6dae2;font-weight:700">Preview</span></div><div style="display:flex;align-items:center;gap:.45rem;padding:.45rem .8rem;border-bottom:1px solid #232834;font:.7rem/1.4 ui-monospace,monospace"><span style="background:rgba(14,117,105,.18);color:#5eead4;border-radius:4px;padding:.08rem .4rem">⇄ :5173</span><span style="flex:1;background:#0e1116;border:1px solid #232834;border-radius:6px;padding:.2rem .5rem;color:#a9b0be;white-space:nowrap;overflow:hidden">http://pureintent:5173/</span><span style="color:#5b6470">⟳ ↗</span></div><div style="display:grid;place-items:center;height:6.5rem;color:#8b93a3;font:.75rem/1.6 ui-sans-serif"><div style="text-align:center"><div style="font-size:1.4rem">⚡</div>the dev server, inline beside its terminal</div></div><div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .8rem;border-top:1px solid #232834;font:.68rem/1.5 ui-monospace,monospace;background:#0e1116"><span style="background:rgba(163,88,42,.2);color:#d8925f;border-radius:4px;padding:.06rem .4rem">⇄ closed</span><span style="color:#8b93a3">the door closed behind this page</span><span style="margin-left:auto;color:#5eead4">⇄ re-forward &amp; reload</span></div></div>
-<p>The forwarded page opens <strong>inside kolu</strong>: a third right-panel tab — Code ·
-Inspector · <strong>Preview</strong> — beside the terminal whose server it shows. Not a
-canvas tile.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A tile makes the preview a peer of terminals and
+<p>The forwarded page opens <strong>inside kolu</strong> — a third right-panel tab, Code ·
+Inspector · <strong>Preview</strong>, beside the terminal whose server it shows — closing
+the arc: detect the port, open the door, show the page.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A right-panel
+tab, not a canvas tile: a tile makes the preview a peer of terminals and
 inherits questions it cannot answer well — docking, persistence, a tile with
-no PTY behind it. The side-by-side feel is already kolu’s grammar:
-terminal-left, panel-right. A pop-out-to-split can come later; it is
-additive, not structural.</span></span></span> With PRT2 shipped, this is the arc’s
-last piece: <strong>detect the port, open the door, show the page</strong> — one feature,
-finished.</p>
+no PTY behind it. Terminal-left, panel-right is already kolu’s grammar, and
+per-terminal ownership falls out of the panel’s own semantics.
+Pop-out-to-split can come later; it is additive, not structural.</span></span></span></p>
 <ul>
-<li><strong>Entry.</strong> Chip click → forward → Preview opens on the forwarded URL.
-Modifier-click keeps today’s new tab; <span class="kbd-chord" data-astro-cid-7vv3zwgx><kbd class="kbd" data-astro-cid-7vv3zwgx>⌘</kbd><span class="kbd-plus" data-astro-cid-7vv3zwgx>+</span><kbd class="kbd" data-astro-cid-7vv3zwgx>K</kbd></span> gains “Preview a
-port…”. The <code>⇄</code> pill in the Preview header mirrors the chip’s forward
-state.</li>
-<li><strong>Prior art: <a href="https://github.com/juspay/kolu/pull/111" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#111</a> built most of this once</strong> — and PRT2 is
-what completes it.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>That closed PR’s own body warned that headless
-deployments needed dev servers bound to <code>0.0.0.0</code> “since the iframe runs in
-the user’s browser” — the exact limitation forwards erase. Salvage
-inventory: the per-terminal URL/open store, the draft-vs-applied URL-bar
-pattern, the cross-origin refresh trick (re-assign <code>iframe.src</code>;
+<li><strong>Entry.</strong> Chip click → forward → Preview. Modifier-click keeps today’s new
+tab; <span class="kbd-chord" data-astro-cid-7vv3zwgx><kbd class="kbd" data-astro-cid-7vv3zwgx>⌘</kbd><span class="kbd-plus" data-astro-cid-7vv3zwgx>+</span><kbd class="kbd" data-astro-cid-7vv3zwgx>K</kbd></span> gains “Preview a port…”.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The <code>⇄</code> pill in
+the Preview header mirrors the chip’s forward state, and the feature ships
+a discoverability tip.</span></span></span></li>
+<li><strong>Prior art: <a href="https://github.com/juspay/kolu/pull/111" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#111</a> built most of this once</strong> — and PRT2’s
+doors are what complete it.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>That closed PR’s own body warned that
+headless deployments needed dev servers bound to <code>0.0.0.0</code> “since the
+iframe runs in the user’s browser” — the exact limitation forwards erase.
+Salvage inventory: the per-terminal URL/open store, the draft-vs-applied
+URL-bar pattern, the cross-origin refresh trick (re-assign <code>iframe.src</code>;
 <code>contentWindow.location.reload()</code> is blocked cross-origin, and every
-forwarded page IS cross-origin), and the <code>web-view.feature</code> e2e skeleton.</span></span></span></li>
-<li><strong>Two honest failure states, designed in.</strong> Auto-cancel reaches the
-preview: a closed door renders “the door closed behind this page” with a
-one-click re-forward — never a spinner over a dead socket. Framing refusal
-(<code>X-Frame-Options</code> / <code>frame-ancestors</code>) cannot be reliably detected
-cross-origin, so the empty-frame state <em>hints</em> at the cause and the
-<code>↗ open in tab</code> escape is permanent chrome, not a fallback
-screen.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Carried from the original deferral note: an arbitrary
-dev-server iframe is a genuinely bigger build than a chip link, and
-frame-refusing servers keep the new-tab path load-bearing forever.</span></span></span></li>
-<li><strong>Preview state graduates to per-terminal SERVER state</strong> (the dock-state
-pattern), reversing <a href="https://github.com/juspay/kolu/pull/111" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#111</a>’s deliberate client-side
-choice.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The reversal is earned, not aesthetic: #111 kept URL/open
-in localStorage because no server-side reader existed. The MCP verbs below
-are that reader — a real second consumer, arrived rather than predicted,
-which is the same lesson this track has now hit from both directions. It
-also buys multi-viewer agreement for free, since the surface broadcasts
-it.</span></span></span></li>
-<li><strong>Agents reach it through kolu MCP as verbs over DOORS, not a browser</strong>:
-<code>preview_open</code> / <code>preview_close</code> taking <code>(terminal, port, path)</code> — <strong>never
-a raw URL</strong> — plus preview state readable off the surface like every other
-fact. <code>preview_open</code> is idempotent-with-navigation: calling it again for
-the same <code>(terminal, port)</code> with a new <code>path</code> NAVIGATES the existing pane
-(“now look at <code>/checkout?coupon=X</code>”) rather than opening a second one.
-Navigation is write-only, stated honestly: kolu can set the frame’s
-location but cross-origin rules keep it from reading where the user has
-since clicked to, so readable state is the last path kolu set, never
-“where the frame is now”.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The no-raw-URLs invariant is both safety and honesty: an
-agent (or whatever prompt-injected it) cannot steer the human’s viewport
-beyond ports kolu itself holds doors to, and the feature stays what it is —
-a dev-server preview, not Chrome-in-a-tab. Reading or driving the PAGE
-(DOM, clicks, screenshots) is deliberately refused: that is a browser
-runtime’s job, and agents already have one — chrome-devtools MCP pointed at
-the forwarded URL, which PRT2 made reachable from the kolu host where the
-agent’s browser runs.</span></span></span></li>
-<li><strong>The field’s convergence says this is one feature.</strong> Claude Code’s desktop
-app ships a Browser pane where the agent starts the dev server, opens it,
-screenshots and inspects to verify its own work; Codex’s desktop app ships
-a <em>shared</em> browser where the human annotates an element and the comment —
-screenshot and element context attached — lands in the agent’s
-prompt.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Sources: <a href="https://code.claude.com/docs/en/desktop">Claude Code desktop
+forwarded page IS cross-origin), and the <code>web-view.feature</code> e2e
+skeleton.</span></span></span></li>
+<li><strong>Two honest failure states.</strong> A dead door says so, with a one-click
+re-forward; framing refusal gets a static hint and a permanent <code>↗</code> — never
+a detection claim.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Auto-cancel reaches the preview: the closed
+door renders “the door closed behind this page” fed by the same forwards
+store, never a spinner over a dead socket. <code>X-Frame-Options</code> /
+<code>frame-ancestors</code> cannot be reliably detected cross-origin, so no code
+anywhere claims to; frame-refusing servers keep the new-tab path
+load-bearing forever.</span></span></span></li>
+<li><strong>Preview state is per-terminal SERVER state</strong> (the dock-state pattern),
+reversing <a href="https://github.com/juspay/kolu/pull/111" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#111</a>’s client-side choice.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The reversal
+is earned, not aesthetic: #111 kept URL/open in localStorage because no
+server-side reader existed. The MCP verbs are that reader — a real second
+consumer, arrived rather than predicted — and the surface broadcast buys
+multi-viewer agreement for free.</span></span></span></li>
+<li><strong>Agents get verbs over DOORS, not a browser</strong>: <code>preview_open</code> /
+<code>preview_close</code> over <code>(terminal, port, path)</code> — never a raw URL — and a
+repeat <code>preview_open</code> NAVIGATES the pane.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The no-raw-URLs
+invariant is enforced server-side: the port must be a live door or a
+scanned port on that terminal’s host, and <code>path</code> is path+query only —
+schemes, hosts, and protocol-relative <code>//</code> refuse loudly. Navigation is
+write-only, stated honestly: kolu sets the frame’s location but cross-origin
+rules keep it from reading where the user clicked to since, so readable
+state is the last path kolu set. Reading or driving the PAGE (DOM, clicks,
+screenshots) is deliberately refused — that is a browser runtime’s job, and
+agents already have one: chrome-devtools MCP pointed at the forwarded
+URL.</span></span></span></li>
+<li><strong>Back/forward ships too, via <code>@kolu/solid-browser</code></strong> — this pane is the
+second host that package’s contract was built for.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>createBrowser</code>
+with <code>L = { port, path }</code> and <code>isSameEntry</code> over both fields (reload
+refreshes in place instead of deepening history); X1/X2 mouse buttons via
+the same <code>attachBackForwardMouse</code> the Code tab uses. The trail is
+per-viewer client state over the server-shared current page: ◀/▶ act by
+issuing <code>previewOpen</code>, so viewers converge while each keeps their own
+trail — the same honesty level as the URL bar. The package’s other exports
+stay out on measured inapplicability: <code>pathFromPreviewPathname</code> requires
+the framed document to REPORT its pathname (Code-tab previews carry a
+kolu-injected reporter because kolu serves them; a dev server’s pages carry
+none), and link resolution is the dev server’s own business.</span></span></span></li>
+<li><strong>The field agrees this is one feature.</strong> Claude Code desktop ships an
+agent-driven Browser pane; Codex desktop ships a shared, annotatable
+one.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Sources: <a href="https://code.claude.com/docs/en/desktop">Claude Code desktop
 docs</a> (Browser pane, <code>autoVerify</code>,
 server dropdown), <a href="https://developers.openai.com/codex/app/browser">Codex browser
 docs</a> (shared view,
-element annotation). Kolu’s differentiators are structural: doors work
-across a fleet of machines (neither competitor’s preview does remote
-hosts), and kolu’s agents are whatever runs in a terminal, not one vendor’s.
-The Codex move worth stealing later — annotate an element in the Preview,
-and the comment lands as prompt text in the tile’s own agent via the input
-path kaval already owns — is named here but deliberately not planned.</span></span></span></li>
+element annotation). Kolu’s structural differentiators: doors work across a
+fleet (neither competitor previews remote hosts), and kolu’s agents are
+whatever runs in a terminal. The Codex move worth stealing later —
+annotate an element, the comment lands as prompt text in the tile’s own
+agent — is named here but deliberately not planned.</span></span></span></li>
 </ul>
 <h4 id="the-build-pinned">The build, pinned</h4>
-<p><strong>Server.</strong> Preview state is per-terminal server chrome, exactly the
-dock-state pattern: a <code>preview: { port, path } | null</code> field on the chrome
-seam that already syncs the right panel, whose <code>activeTab</code> union grows a
-<code>&quot;preview&quot;</code> arm. Two procedures, <code>previewOpen</code> / <code>previewClose</code>, and the MCP
-verbs are thin over them. <strong>The no-raw-URLs invariant is enforced
-server-side, not by client politeness</strong>: <code>previewOpen</code> accepts <code>(terminal, port, path)</code> where the port must be a live forward or a scanned port of that
-terminal’s host, and <code>path</code> is path+query only — anything carrying a scheme,
-host, or protocol-relative <code>//</code> is rejected loudly.</p>
-<p><strong>Client.</strong> A <code>Preview</code> tab joins Code · Inspector in the right panel:
-header (the <code>⇄</code> pill joined from the existing forwards store · URL bar with
-<a href="https://github.com/juspay/kolu/pull/111" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#111</a>’s draft-vs-applied pattern · <code>⟳</code> via <code>iframe.src</code>
-re-assign · permanent <code>↗ open in tab</code>), the frame, and the door-closed state
-fed by the same forwards store (port death → “the door closed behind this
-page” + one-click re-forward through the chip’s existing flow). <strong>No framing
-detection exists anywhere</strong>: the empty-frame backdrop carries a static hint,
-nothing more. Chip click’s default becomes forward-then-preview;
-modifier-click keeps today’s new tab; <span class="kbd-chord" data-astro-cid-7vv3zwgx><kbd class="kbd" data-astro-cid-7vv3zwgx>⌘</kbd><span class="kbd-plus" data-astro-cid-7vv3zwgx>+</span><kbd class="kbd" data-astro-cid-7vv3zwgx>K</kbd></span> gains “Preview a
-port…” plus a discoverability tip. And <strong>◀/▶ back/forward ships in this PR,
-via <code>@kolu/solid-browser</code>’s <code>createBrowser</code></strong> — the pane is the second host
-that package’s contract was built for (<code>L</code> = <code>{ port, path }</code>, <code>isSameEntry</code>
-over both fields so a reload refreshes in place instead of deepening
-history), with the X1/X2 mouse buttons through the same
-<code>attachBackForwardMouse</code> the Code tab uses. The trail is per-viewer client
-state over the server-shared current page: ◀/▶ act by issuing <code>previewOpen</code>,
-so viewers converge on the same page while each keeps their own trail — the
-same honesty level as the URL bar, which likewise shows only what kolu
-set.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The package’s other exports stay out on measured
-inapplicability, not deferral: <code>pathFromPreviewPathname</code> requires the framed
-document to REPORT its pathname to the parent — Code-tab previews carry a
-kolu-injected reporter because kolu serves them; a dev server’s pages carry
-no reporter, so there is nothing to invert. Link resolution
-(<code>resolveLinkHref</code>) is the dev server’s own business.</span></span></span></p>
-<p><strong>Done-criteria — each can only be met through the real seam it exists to
-prove:</strong></p>
-<ol>
-<li>e2e (extends <code>ports.feature</code>, resurrects the <a href="https://github.com/juspay/kolu/pull/111" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#111</a>
-<code>web-view.feature</code> skeleton): a loopback listener in a real PTY → chip
-click → the Preview tab’s <strong>frame content</strong> (asserted through the frame
-handle, not the URL bar) arrives through the relay door; kill the server
-→ the door-closed state renders with its re-forward affordance.</li>
-<li>The MCP path proven end-to-end: a scenario drives <code>preview_open</code> through
-the MCP seam and asserts the pane opens — and a second call with a new
-<code>path</code> <strong>navigates</strong> the same pane.</li>
-<li>Rejection tests server-side: a raw URL, a scheme-carrying path, and a
-port belonging to no door or scan on that host each refuse loudly.</li>
-<li>Unit: path validation, the chrome-state fold, the header’s forward-state
-join, and the trail semantics (◀ reissues <code>previewOpen</code> for the prior
-location; reload refreshes in place; a server-pushed navigation from
-another viewer or MCP records onto this viewer’s trail). Red-first
-throughout, per the standing rule.</li>
-</ol>
-<p>Out of scope, unchanged: pop-out-to-split, element-annotation-to-agent, any
-page reading or driving (chrome-devtools MCP owns that, over the doors PRT2
-already opened).</p>
+<ul>
+<li><strong>Server</strong>: a <code>preview: { port, path } | null</code> field on the per-terminal
+chrome seam (whose <code>activeTab</code> union grows <code>&quot;preview&quot;</code>), procedures
+<code>previewOpen</code> / <code>previewClose</code>, MCP verbs thin over them, validation
+server-side.</li>
+<li><strong>Client</strong>: the tab = header (<code>⇄</code> pill · URL bar · <code>⟳</code> · <code>↗</code>) + frame +
+door-closed state, wired to the existing forwards store.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>URL bar
+uses #111’s draft-vs-applied pattern; <code>⟳</code> is the <code>iframe.src</code> re-assign;
+the empty-frame backdrop carries the static framing hint.</span></span></span></li>
+<li><strong>Done-criteria, each provable only through its real seam</strong>: frame
+<em>content</em> through the relay door in e2e, plus the door-closed state on
+server death; <code>preview_open</code> driven through the MCP seam, including
+navigate-on-repeat; loud server-side rejections; unit coverage of the
+validation, folds, and trail semantics. Red-first
+throughout.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>e2e extends <code>ports.feature</code> and resurrects #111’s
+<code>web-view.feature</code> skeleton, asserting through the frame handle rather than
+the URL bar. Rejection cases: a raw URL, a scheme-carrying path, a port
+with no door or scan on that host. Trail cases: ◀ reissues <code>previewOpen</code>
+for the prior location; reload refreshes in place; a server-pushed
+navigation from another viewer or MCP records onto this viewer’s
+trail.</span></span></span></li>
+<li><strong>Out of scope, unchanged</strong>: pop-out split, element-annotation-to-agent,
+any page reading or driving.</li>
+</ul>
 <h2 id="what-this-track-sent-upstream">What this track sent upstream</h2>
 <p>PRT2’s incident drove four dispatches into <code>@kolu/surface</code>; <strong>three shipped,
 one was withdrawn</strong> when verification refuted its premise. Shipped: the

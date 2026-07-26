@@ -548,137 +548,102 @@ green" would otherwise read as covering both mechanisms.
 
 <Prt3Mockup />
 
-The forwarded page opens **inside kolu**: a third right-panel tab — Code ·
-Inspector · **Preview** — beside the terminal whose server it shows. Not a
-canvas tile.<Footnote>A tile makes the preview a peer of terminals and
+The forwarded page opens **inside kolu** — a third right-panel tab, Code ·
+Inspector · **Preview**, beside the terminal whose server it shows — closing
+the arc: detect the port, open the door, show the page.<Footnote>A right-panel
+tab, not a canvas tile: a tile makes the preview a peer of terminals and
 inherits questions it cannot answer well — docking, persistence, a tile with
-no PTY behind it. The side-by-side feel is already kolu's grammar:
-terminal-left, panel-right. A pop-out-to-split can come later; it is
-additive, not structural.</Footnote> With PRT2 shipped, this is the arc's
-last piece: **detect the port, open the door, show the page** — one feature,
-finished.
+no PTY behind it. Terminal-left, panel-right is already kolu's grammar, and
+per-terminal ownership falls out of the panel's own semantics.
+Pop-out-to-split can come later; it is additive, not structural.</Footnote>
 
-- **Entry.** Chip click → forward → Preview opens on the forwarded URL.
-  Modifier-click keeps today's new tab; <Kbd keys="⌘+K" /> gains "Preview a
-  port…". The `⇄` pill in the Preview header mirrors the chip's forward
-  state.
-- **Prior art: <PrLink pr={111} /> built most of this once** — and PRT2 is
-  what completes it.<Footnote>That closed PR's own body warned that headless
-  deployments needed dev servers bound to `0.0.0.0` "since the iframe runs in
-  the user's browser" — the exact limitation forwards erase. Salvage
-  inventory: the per-terminal URL/open store, the draft-vs-applied URL-bar
-  pattern, the cross-origin refresh trick (re-assign `iframe.src`;
+- **Entry.** Chip click → forward → Preview. Modifier-click keeps today's new
+  tab; <Kbd keys="⌘+K" /> gains "Preview a port…".<Footnote>The `⇄` pill in
+  the Preview header mirrors the chip's forward state, and the feature ships
+  a discoverability tip.</Footnote>
+- **Prior art: <PrLink pr={111} /> built most of this once** — and PRT2's
+  doors are what complete it.<Footnote>That closed PR's own body warned that
+  headless deployments needed dev servers bound to `0.0.0.0` "since the
+  iframe runs in the user's browser" — the exact limitation forwards erase.
+  Salvage inventory: the per-terminal URL/open store, the draft-vs-applied
+  URL-bar pattern, the cross-origin refresh trick (re-assign `iframe.src`;
   `contentWindow.location.reload()` is blocked cross-origin, and every
-  forwarded page IS cross-origin), and the `web-view.feature` e2e skeleton.</Footnote>
-- **Two honest failure states, designed in.** Auto-cancel reaches the
-  preview: a closed door renders "the door closed behind this page" with a
-  one-click re-forward — never a spinner over a dead socket. Framing refusal
-  (`X-Frame-Options` / `frame-ancestors`) cannot be reliably detected
-  cross-origin, so the empty-frame state *hints* at the cause and the
-  `↗ open in tab` escape is permanent chrome, not a fallback
-  screen.<Footnote>Carried from the original deferral note: an arbitrary
-  dev-server iframe is a genuinely bigger build than a chip link, and
-  frame-refusing servers keep the new-tab path load-bearing forever.</Footnote>
-- **Preview state graduates to per-terminal SERVER state** (the dock-state
-  pattern), reversing <PrLink pr={111} />'s deliberate client-side
-  choice.<Footnote>The reversal is earned, not aesthetic: #111 kept URL/open
-  in localStorage because no server-side reader existed. The MCP verbs below
-  are that reader — a real second consumer, arrived rather than predicted,
-  which is the same lesson this track has now hit from both directions. It
-  also buys multi-viewer agreement for free, since the surface broadcasts
-  it.</Footnote>
-- **Agents reach it through kolu MCP as verbs over DOORS, not a browser**:
-  `preview_open` / `preview_close` taking `(terminal, port, path)` — **never
-  a raw URL** — plus preview state readable off the surface like every other
-  fact. `preview_open` is idempotent-with-navigation: calling it again for
-  the same `(terminal, port)` with a new `path` NAVIGATES the existing pane
-  ("now look at `/checkout?coupon=X`") rather than opening a second one.
-  Navigation is write-only, stated honestly: kolu can set the frame's
-  location but cross-origin rules keep it from reading where the user has
-  since clicked to, so readable state is the last path kolu set, never
-  "where the frame is now".<Footnote>The no-raw-URLs invariant is both safety and honesty: an
-  agent (or whatever prompt-injected it) cannot steer the human's viewport
-  beyond ports kolu itself holds doors to, and the feature stays what it is —
-  a dev-server preview, not Chrome-in-a-tab. Reading or driving the PAGE
-  (DOM, clicks, screenshots) is deliberately refused: that is a browser
-  runtime's job, and agents already have one — chrome-devtools MCP pointed at
-  the forwarded URL, which PRT2 made reachable from the kolu host where the
-  agent's browser runs.</Footnote>
-- **The field's convergence says this is one feature.** Claude Code's desktop
-  app ships a Browser pane where the agent starts the dev server, opens it,
-  screenshots and inspects to verify its own work; Codex's desktop app ships
-  a *shared* browser where the human annotates an element and the comment —
-  screenshot and element context attached — lands in the agent's
-  prompt.<Footnote>Sources: [Claude Code desktop
+  forwarded page IS cross-origin), and the `web-view.feature` e2e
+  skeleton.</Footnote>
+- **Two honest failure states.** A dead door says so, with a one-click
+  re-forward; framing refusal gets a static hint and a permanent `↗` — never
+  a detection claim.<Footnote>Auto-cancel reaches the preview: the closed
+  door renders "the door closed behind this page" fed by the same forwards
+  store, never a spinner over a dead socket. `X-Frame-Options` /
+  `frame-ancestors` cannot be reliably detected cross-origin, so no code
+  anywhere claims to; frame-refusing servers keep the new-tab path
+  load-bearing forever.</Footnote>
+- **Preview state is per-terminal SERVER state** (the dock-state pattern),
+  reversing <PrLink pr={111} />'s client-side choice.<Footnote>The reversal
+  is earned, not aesthetic: #111 kept URL/open in localStorage because no
+  server-side reader existed. The MCP verbs are that reader — a real second
+  consumer, arrived rather than predicted — and the surface broadcast buys
+  multi-viewer agreement for free.</Footnote>
+- **Agents get verbs over DOORS, not a browser**: `preview_open` /
+  `preview_close` over `(terminal, port, path)` — never a raw URL — and a
+  repeat `preview_open` NAVIGATES the pane.<Footnote>The no-raw-URLs
+  invariant is enforced server-side: the port must be a live door or a
+  scanned port on that terminal's host, and `path` is path+query only —
+  schemes, hosts, and protocol-relative `//` refuse loudly. Navigation is
+  write-only, stated honestly: kolu sets the frame's location but cross-origin
+  rules keep it from reading where the user clicked to since, so readable
+  state is the last path kolu set. Reading or driving the PAGE (DOM, clicks,
+  screenshots) is deliberately refused — that is a browser runtime's job, and
+  agents already have one: chrome-devtools MCP pointed at the forwarded
+  URL.</Footnote>
+- **Back/forward ships too, via `@kolu/solid-browser`** — this pane is the
+  second host that package's contract was built for.<Footnote>`createBrowser`
+  with `L = { port, path }` and `isSameEntry` over both fields (reload
+  refreshes in place instead of deepening history); X1/X2 mouse buttons via
+  the same `attachBackForwardMouse` the Code tab uses. The trail is
+  per-viewer client state over the server-shared current page: ◀/▶ act by
+  issuing `previewOpen`, so viewers converge while each keeps their own
+  trail — the same honesty level as the URL bar. The package's other exports
+  stay out on measured inapplicability: `pathFromPreviewPathname` requires
+  the framed document to REPORT its pathname (Code-tab previews carry a
+  kolu-injected reporter because kolu serves them; a dev server's pages carry
+  none), and link resolution is the dev server's own business.</Footnote>
+- **The field agrees this is one feature.** Claude Code desktop ships an
+  agent-driven Browser pane; Codex desktop ships a shared, annotatable
+  one.<Footnote>Sources: [Claude Code desktop
   docs](https://code.claude.com/docs/en/desktop) (Browser pane, `autoVerify`,
   server dropdown), [Codex browser
   docs](https://developers.openai.com/codex/app/browser) (shared view,
-  element annotation). Kolu's differentiators are structural: doors work
-  across a fleet of machines (neither competitor's preview does remote
-  hosts), and kolu's agents are whatever runs in a terminal, not one vendor's.
-  The Codex move worth stealing later — annotate an element in the Preview,
-  and the comment lands as prompt text in the tile's own agent via the input
-  path kaval already owns — is named here but deliberately not planned.</Footnote>
+  element annotation). Kolu's structural differentiators: doors work across a
+  fleet (neither competitor previews remote hosts), and kolu's agents are
+  whatever runs in a terminal. The Codex move worth stealing later —
+  annotate an element, the comment lands as prompt text in the tile's own
+  agent — is named here but deliberately not planned.</Footnote>
 
 #### The build, pinned
 
-**Server.** Preview state is per-terminal server chrome, exactly the
-dock-state pattern: a `preview: { port, path } | null` field on the chrome
-seam that already syncs the right panel, whose `activeTab` union grows a
-`"preview"` arm. Two procedures, `previewOpen` / `previewClose`, and the MCP
-verbs are thin over them. **The no-raw-URLs invariant is enforced
-server-side, not by client politeness**: `previewOpen` accepts `(terminal,
-port, path)` where the port must be a live forward or a scanned port of that
-terminal's host, and `path` is path+query only — anything carrying a scheme,
-host, or protocol-relative `//` is rejected loudly.
-
-**Client.** A `Preview` tab joins Code · Inspector in the right panel:
-header (the `⇄` pill joined from the existing forwards store · URL bar with
-<PrLink pr={111} />'s draft-vs-applied pattern · `⟳` via `iframe.src`
-re-assign · permanent `↗ open in tab`), the frame, and the door-closed state
-fed by the same forwards store (port death → "the door closed behind this
-page" + one-click re-forward through the chip's existing flow). **No framing
-detection exists anywhere**: the empty-frame backdrop carries a static hint,
-nothing more. Chip click's default becomes forward-then-preview;
-modifier-click keeps today's new tab; <Kbd keys="⌘+K" /> gains "Preview a
-port…" plus a discoverability tip. And **◀/▶ back/forward ships in this PR,
-via `@kolu/solid-browser`'s `createBrowser`** — the pane is the second host
-that package's contract was built for (`L` = `{ port, path }`, `isSameEntry`
-over both fields so a reload refreshes in place instead of deepening
-history), with the X1/X2 mouse buttons through the same
-`attachBackForwardMouse` the Code tab uses. The trail is per-viewer client
-state over the server-shared current page: ◀/▶ act by issuing `previewOpen`,
-so viewers converge on the same page while each keeps their own trail — the
-same honesty level as the URL bar, which likewise shows only what kolu
-set.<Footnote>The package's other exports stay out on measured
-inapplicability, not deferral: `pathFromPreviewPathname` requires the framed
-document to REPORT its pathname to the parent — Code-tab previews carry a
-kolu-injected reporter because kolu serves them; a dev server's pages carry
-no reporter, so there is nothing to invert. Link resolution
-(`resolveLinkHref`) is the dev server's own business.</Footnote>
-
-**Done-criteria — each can only be met through the real seam it exists to
-prove:**
-
-1. e2e (extends `ports.feature`, resurrects the <PrLink pr={111} />
-   `web-view.feature` skeleton): a loopback listener in a real PTY → chip
-   click → the Preview tab's **frame content** (asserted through the frame
-   handle, not the URL bar) arrives through the relay door; kill the server
-   → the door-closed state renders with its re-forward affordance.
-2. The MCP path proven end-to-end: a scenario drives `preview_open` through
-   the MCP seam and asserts the pane opens — and a second call with a new
-   `path` **navigates** the same pane.
-3. Rejection tests server-side: a raw URL, a scheme-carrying path, and a
-   port belonging to no door or scan on that host each refuse loudly.
-4. Unit: path validation, the chrome-state fold, the header's forward-state
-   join, and the trail semantics (◀ reissues `previewOpen` for the prior
-   location; reload refreshes in place; a server-pushed navigation from
-   another viewer or MCP records onto this viewer's trail). Red-first
-   throughout, per the standing rule.
-
-Out of scope, unchanged: pop-out-to-split, element-annotation-to-agent, any
-page reading or driving (chrome-devtools MCP owns that, over the doors PRT2
-already opened).
+- **Server**: a `preview: { port, path } | null` field on the per-terminal
+  chrome seam (whose `activeTab` union grows `"preview"`), procedures
+  `previewOpen` / `previewClose`, MCP verbs thin over them, validation
+  server-side.
+- **Client**: the tab = header (`⇄` pill · URL bar · `⟳` · `↗`) + frame +
+  door-closed state, wired to the existing forwards store.<Footnote>URL bar
+  uses #111's draft-vs-applied pattern; `⟳` is the `iframe.src` re-assign;
+  the empty-frame backdrop carries the static framing hint.</Footnote>
+- **Done-criteria, each provable only through its real seam**: frame
+  *content* through the relay door in e2e, plus the door-closed state on
+  server death; `preview_open` driven through the MCP seam, including
+  navigate-on-repeat; loud server-side rejections; unit coverage of the
+  validation, folds, and trail semantics. Red-first
+  throughout.<Footnote>e2e extends `ports.feature` and resurrects #111's
+  `web-view.feature` skeleton, asserting through the frame handle rather than
+  the URL bar. Rejection cases: a raw URL, a scheme-carrying path, a port
+  with no door or scan on that host. Trail cases: ◀ reissues `previewOpen`
+  for the prior location; reload refreshes in place; a server-pushed
+  navigation from another viewer or MCP records onto this viewer's
+  trail.</Footnote>
+- **Out of scope, unchanged**: pop-out split, element-annotation-to-agent,
+  any page reading or driving.
 
 ## What this track sent upstream
 
