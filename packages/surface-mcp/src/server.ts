@@ -727,8 +727,10 @@ async function readFirstFrameSnapshot(
  *  resolve an absent key against. The read is bounded by this deadline so an
  *  absent key on such a collection is a prompt, explicit not-present (logged),
  *  never the indefinite hang the held-open `get` would otherwise cause. A
- *  keys-bearing collection is bounded by its `keys`-absence watch and never
- *  reaches this. */
+ *  keys-bearing collection is normally bounded by its `keys`-absence watch, which
+ *  answers sooner and more precisely — but it is bounded by this too, since the
+ *  framework races both and a member whose item stream goes quiet would otherwise
+ *  have no bound at all. */
 const KEYSLESS_ITEM_READ_DEADLINE_MS = 5_000;
 
 /** One-shot read of a collection-item URI. The item `get` HOLDS OPEN for a
@@ -785,11 +787,14 @@ async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
     signal,
   );
   if (!frame.present && frame.reason === "deadline") {
-    // A keys-less collection gave no membership signal, so the read fell to its
-    // deadline: this not-present is UNCERTAIN (the item may exist but never opened
-    // a snapshot in time). Surface it loudly rather than degrading silently.
+    // The read ran out of time. Either the collection has no membership signal
+    // to resolve against, or it has one that kept saying "still a member" while
+    // the item stream said nothing — the framework races BOTH bounds, so a
+    // deadline no longer implies keys-lessness and this must not claim it does.
+    // Either way the not-present is UNCERTAIN (the item may exist but never
+    // opened a snapshot in time), so surface it loudly rather than degrade.
     console.error(
-      `surface-mcp: ${uri} — collection "${item.key}" exposes no \`keys\` verb, so an absent item can't be confirmed; the read hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline and reports not-present`,
+      `surface-mcp: ${uri} — the read of "${item.key}" hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
     );
   }
   return frame.present

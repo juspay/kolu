@@ -374,6 +374,86 @@ describe("a host leaving", () => {
     expect(h.fake.closed).toEqual([]);
   });
 
+  it("reports a host whose ONLY door is still opening", async () => {
+    // The production discovery path, which the first fix missed. Boot watches
+    // the pool and asks "which hosts do we hold doors to?" — and it asked
+    // `list()`, which is open slots only. A host whose single door is still in
+    // flight therefore looked like a host with no doors at all, so
+    // `hostDeparted` was never called for it and the enumeration fix inside it
+    // never got a chance to run. The hole the fix was for stayed open, one
+    // level up.
+    let land: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      land = resolve;
+    });
+    const fake = fakeMechanisms();
+    const slowOpen: ForwardMechanisms = {
+      async open(target) {
+        await held;
+        return fake.mechanisms.open(target);
+      },
+    };
+    const h = harness(new Map(), {
+      onMechanisms: { ...fake, mechanisms: slowOpen },
+    });
+
+    const inFlight = h.forwards.create({
+      host: PU,
+      port: 5173,
+      origin: "auto",
+    });
+    // Let the scan read settle so the map is genuinely holding an OPENING slot.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(h.forwards.list()).toEqual([]);
+    expect(h.forwards.heldHosts()).toEqual([PU]);
+
+    land?.();
+    await inFlight;
+  });
+
+  it("tears down an OPENING door when hostDeparted reaches it", async () => {
+    // The enumeration path on its own. The sibling test above asserts the
+    // membership REFUSAL, which fires first and so never exercises this — grok
+    // called that out, correctly. Here the host stays a member, so nothing is
+    // refused and the only thing that can close the door is `hostDeparted`
+    // finding it through `targets()` while it is still in flight.
+    let land: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      land = resolve;
+    });
+    const fake = fakeMechanisms();
+    const slowOpen: ForwardMechanisms = {
+      async open(target) {
+        await held;
+        return fake.mechanisms.open(target);
+      },
+    };
+    const h = harness(new Map(), {
+      onMechanisms: { ...fake, mechanisms: slowOpen },
+    });
+
+    const inFlight = h.forwards.create({
+      host: PU,
+      port: 5173,
+      origin: "auto",
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.forwards.heldHosts()).toEqual([PU]);
+
+    const departed = h.forwards.hostDeparted(PU);
+    land?.();
+    await inFlight.catch(() => {});
+    await departed;
+
+    // The flight landed and the door was taken straight back down: nothing
+    // listed, and the mechanism's listener was actually closed rather than
+    // leaked.
+    expect(h.forwards.list()).toEqual([]);
+    expect(h.forwards.heldHosts()).toEqual([]);
+    expect(fake.closed).toEqual([5173]);
+  });
+
   it("touches nothing when the departed host had none", async () => {
     const h = harness();
     await h.forwards.create({ host: PU, port: 5173, origin: "auto" });

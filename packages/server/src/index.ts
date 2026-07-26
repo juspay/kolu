@@ -710,12 +710,13 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // three doors on one machine started three concurrent `hostDeparted` runs
     // over the same keys, and the losers logged a cancel failure for every key
     // the winner had already taken down — noise shaped exactly like a fault.
-    const departed = new Map<string, HostKey>();
-    for (const forward of forwards.list()) {
-      const enc = encodeHostKey(forward.host);
-      if (!pool.has(enc)) departed.set(enc, forward.host);
+    // `heldHosts`, not `list`: a host whose only door is still OPENING holds
+    // no listable forward yet, so walking the list made it look like a host with
+    // no doors and `hostDeparted` was never called for it — leaving the very
+    // in-flight door that function now knows how to cancel.
+    for (const host of forwards.heldHosts()) {
+      if (!pool.has(encodeHostKey(host))) void forwards.hostDeparted(host);
     }
-    for (const host of departed.values()) void forwards.hostDeparted(host);
   });
 
   /** "Which of kolu's hosts is this browser at?" — resolver in `portForward/`;

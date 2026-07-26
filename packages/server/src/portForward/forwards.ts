@@ -103,6 +103,15 @@ export interface KoluForwards {
   reconcile(): Promise<Forwards>;
   /** A host left the pool — take ITS forwards down, both origins. A door to a
    *  machine kolu no longer has is a door to nowhere. */
+  /** Every host kolu currently holds a door to, INCLUDING one whose only door
+   *  is still opening.
+   *
+   *  `list()` cannot answer this — it reports open slots only — and the caller
+   *  that needs it is the pool watcher, whose whole job is to notice a host
+   *  leaving. Asking `list()` there meant a host whose single door was still in
+   *  flight looked like a host with no doors, so `hostDeparted` was never called
+   *  for it: the door landed live for a machine kolu no longer has. */
+  heldHosts(): readonly HostKey[];
   hostDeparted(host: HostKey): Promise<void>;
   /** Close everything. */
   dispose(): Promise<void>;
@@ -359,6 +368,15 @@ export function createKoluForwards(deps: {
       // Reported by RETURNING, never by announcing. Announcing here is what
       // triggered the read this runs inside — see `reconcile` on the interface.
       return list();
+    },
+
+    heldHosts() {
+      const byKey = new Map<string, HostKey>();
+      for (const target of manager.targets()) {
+        const host = hostOf(target);
+        byKey.set(encodeHostKey(host), host);
+      }
+      return [...byKey.values()];
     },
 
     async hostDeparted(host) {

@@ -49,8 +49,12 @@ export async function firstFrameOrThrow<T>(
 
 /** The outcome of a bounded one-shot collection-item read: the item's current
  *  value, or a typed absence carrying WHY it is absent — `"absent"` (membership
- *  confirmed it is not/no-longer a member) or `"deadline"` (a keys-less collection
- *  gave no membership signal, so the read was bounded by a hard deadline). A typed
+ *  confirmed it is not/no-longer a member) or `"deadline"` (the read ran out of
+ *  time: either the collection has no membership signal to resolve against, or it
+ *  has one that kept saying "still a member" while the item stream said nothing).
+ *  The two are NOT interchangeable: `"absent"` is a fact about the item, while
+ *  `"deadline"` is a fact about the READ, so a caller reaping on absence must
+ *  treat only the first as evidence. A typed
  *  sum so "present with value `undefined`" and "absent" can never collapse to one
  *  nullable hole, and so a caller can LOG the uncertain `"deadline"` case distinctly
  *  rather than silently degrade it. */
@@ -64,19 +68,24 @@ export type CollectionItemFrame<T> =
  *  not-yet-present key — THIS is the safe reader for that case, and it lives in
  *  the framework beside the footgun it guards so no consumer re-derives it.
  *
- *  Race the item `get`'s first frame against ONE of two absence bounds:
+ *  Race the item `get`'s first frame against BOTH absence bounds — always both,
+ *  never one or the other. They answer different questions and neither subsumes
+ *  the other, and wiring them as EITHER/OR left a gap exactly between them: a
+ *  keys-bearing collection had no deadline at all, so a key that STAYS a member
+ *  while its item stream says nothing matched no bound and the read never
+ *  resolved — the very hang this function exists to make unspellable.
  *
- *   - **`openKeys` given** (the collection exposes a `keys` verb): a LIVE `keys`
- *     subscription that reports absence — a `keys` frame that OMITS the key (absent
- *     at the snapshot, OR removed at any later instant, which also closes the
- *     DELETE-RACE a one-time check-then-`get` would leave open) resolves
- *     `{ present: false, reason: "absent" }`; a PRESENT key yields its `get`
- *     snapshot immediately and wins.
- *   - **`openKeys === null`** (a keys-LESS collection — no membership signal
- *     exists): the `get` cannot be resolved against membership, so the read is
- *     bounded by a hard `deadlineMs` timeout that resolves
- *     `{ present: false, reason: "deadline" }`. This is the EXPLICIT, typed,
- *     caller-loggable bound for that case — never a silent hang, never a silent
+ *   - **membership** (when `openKeys` is given): a LIVE `keys` subscription that
+ *     reports absence — a `keys` frame that OMITS the key (absent at the
+ *     snapshot, OR removed at any later instant, which also closes the DELETE-RACE
+ *     a one-time check-then-`get` would leave open) resolves
+ *     `{ present: false, reason: "absent" }`. Precise and immediate, and the only
+ *     bound that can say something true about the ITEM. A keys-LESS collection
+ *     (`openKeys === null`) has no such signal at all.
+ *   - **the deadline** (always): a hard `deadlineMs` timeout resolving
+ *     `{ present: false, reason: "deadline" }`. The backstop, and the only thing
+ *     standing between a quiet producer and an unbounded read. This is the
+ *     EXPLICIT, typed, caller-loggable bound — never a silent hang, never a silent
  *     fall-back to the `firstFrameOrThrow(get)` footgun.
  *
  *  Whichever settles first aborts the other via a local `AbortController` chained
