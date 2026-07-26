@@ -13,6 +13,7 @@
  * cancel it. Refusing loudly beats opening a door that appears in no list.
  */
 
+import { splitHostPort } from "@kolu/port-forward/target";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { toast } from "solid-sonner";
 import { createForward } from "./useForwards";
@@ -24,9 +25,11 @@ export type ForwardInput =
 
 /** Parse `host:port` / `port` against the hosts kolu actually has.
  *
- *  Split on the LAST colon so an IPv6-looking host cannot swallow its own port —
- *  though a bracketed literal is rejected below anyway, since a kolu host key is
- *  an ssh destination and ssh takes a bare address. */
+ *  The TOKENIZING is `@kolu/port-forward`'s `splitHostPort` — the same one
+ *  `parseTarget` runs, so "what a human types as host:port" has one reader and
+ *  the last-colon rule is not restated here. What stays is kolu's POLICY, which
+ *  genuinely differs from vazhi's: an unnamed host means the host you are looking
+ *  at (which may be remote), and a named one must be in kolu's pool. */
 export function parseForwardInput(
   raw: string,
   hosts: readonly HostKey[],
@@ -35,17 +38,18 @@ export function parseForwardInput(
   const text = raw.trim();
   if (text === "") return { ok: false, message: "Type a port, or host:port." };
 
-  const colon = text.lastIndexOf(":");
-  const portText = colon === -1 ? text : text.slice(colon + 1);
-  const hostText = colon === -1 ? "" : text.slice(0, colon);
-
-  if (!/^\d+$/.test(portText)) {
-    return { ok: false, message: `"${text}" has no port number.` };
+  const split = splitHostPort(text);
+  if (!split.ok) {
+    return {
+      ok: false,
+      message:
+        split.reason === "not-a-tcp-port"
+          ? `${split.port} is not a TCP port (1–65535).`
+          : `"${text}" has no port number.`,
+    };
   }
-  const port = Number(portText);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return { ok: false, message: `${port} is not a TCP port (1–65535).` };
-  }
+  const { port } = split;
+  const hostText = split.host ?? "";
 
   // No host named: the one you are looking at. That is the common case (a port
   // on the machine whose terminals are on screen) and saves typing its name.

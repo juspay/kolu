@@ -153,6 +153,40 @@ export function assertTarget(target: ForwardTarget): void {
   if (target.kind === "remote") assertHost(target.host);
 }
 
+/** The two halves of the one text form both apps accept, with the port already
+ *  validated — the TOKENIZER under {@link parseTarget}, published on its own
+ *  because kolu's command palette parses the same text against a different
+ *  policy and was writing a second copy of this.
+ *
+ *  `host` is `undefined` when the text names no machine at all (a bare `5173`)
+ *  and `""` for the `:5173` spelling, because those are different inputs and the
+ *  two apps disagree about them: vazhi rejects the first and reads the second as
+ *  its local relay, kolu reads both as the host you are looking at. The same is
+ *  true of the SENTENCE each shows a user, so a failure comes back as a reason
+ *  rather than as prose and the caller writes the copy. */
+export type HostPortSplit =
+  | { ok: true; host: string | undefined; port: number }
+  | { ok: false; reason: "no-port" }
+  | { ok: false; reason: "not-a-tcp-port"; port: number };
+
+export function splitHostPort(text: string): HostPortSplit {
+  const trimmed = text.trim();
+  // The LAST colon, so a colon-bearing ssh destination (`user@box:2222`) cannot
+  // swallow its own port.
+  const colon = trimmed.lastIndexOf(":");
+  const portText = colon === -1 ? trimmed : trimmed.slice(colon + 1);
+  if (!/^\d+$/.test(portText)) return { ok: false, reason: "no-port" };
+  const port = Number(portText);
+  if (port < MIN_PORT || port > MAX_PORT) {
+    return { ok: false, reason: "not-a-tcp-port", port };
+  }
+  return {
+    ok: true,
+    host: colon === -1 ? undefined : trimmed.slice(0, colon),
+    port,
+  };
+}
+
 /** Parse the one text form both apps accept — `host:port` for a remote target,
  *  `localhost:port` / `127.0.0.1:port` / bare `:port` for a local one. Throws
  *  with the offending text on anything else: this is user input arriving from
@@ -170,22 +204,23 @@ export function assertTarget(target: ForwardTarget): void {
  *  syntax that ssh does not take, so they fail loudly here rather than reaching
  *  an ssh argv that cannot use them. */
 export function parseTarget(text: string): ForwardTarget {
-  const trimmed = text.trim();
-  const colon = trimmed.lastIndexOf(":");
-  if (colon === -1) {
+  const split = splitHostPort(text);
+  if (!split.ok) {
+    throw new Error(
+      split.reason === "not-a-tcp-port"
+        ? `port-forward: the port in "${text}" must be an integer between ${MIN_PORT} and ${MAX_PORT}, got ${split.port}.`
+        : `port-forward: "${text}" has no port — write host:port (e.g. pu-dev:5173) or :port for a local one.`,
+    );
+  }
+  if (split.host === undefined) {
+    // A bare number names no machine at all. vazhi's `:port` spelling is how a
+    // user says "this one", and it is deliberately explicit — a target is a
+    // (machine, port) pair and half of one is not a target.
     throw new Error(
       `port-forward: "${text}" is not a target — write host:port (e.g. pu-dev:5173) or :port for a local one.`,
     );
   }
-  const host = trimmed.slice(0, colon);
-  const portText = trimmed.slice(colon + 1);
-  if (!/^\d+$/.test(portText)) {
-    throw new Error(
-      `port-forward: "${text}" has no port — write host:port (e.g. pu-dev:5173).`,
-    );
-  }
-  const port = Number(portText);
-  assertPort(port, `the port in "${text}"`);
+  const { host, port } = split;
   // Every spelling of "this machine" — the same set `@kolu/common`'s
   // `LOOPBACK_SELF_SPELLINGS` documents as canonical (restated, not imported:
   // this package stays dependency-free). Without `::1`, `::1:5173` parsed as an

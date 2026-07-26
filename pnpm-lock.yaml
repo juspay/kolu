@@ -83,6 +83,9 @@ importers:
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
+      '@kolu/port-forward':
+        specifier: workspace:*
+        version: link:../port-forward
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
