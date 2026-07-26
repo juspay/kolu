@@ -102,8 +102,15 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "right-panel",
   },
   {
-    id: "amb-inspector-attach",
-    text: "The Inspector tab's Attach section copies `kaval-tui attach`, `snapshot`, and `send` commands for the main terminal and each split, plus a kaval-tui/padi-tui reference — drive (and even prompt) any pane from any shell",
+    // Replaces the per-card copy (same id kept the old text; new id so users
+    // who saw the six-box description get the picker-widget one).
+    id: "amb-inspector-attach-picker",
+    text: "The Inspector's Attach section is a picker: choose a pane and a verb (attach / snapshot / send) to copy the one `kaval-tui` command — drive (and even prompt) any pane from any shell",
+    doc: "right-panel",
+  },
+  {
+    id: "amb-inspector-status",
+    text: "The Inspector leads with the agent's status card — state, task, and context size at a glance; green CI folds into a rollup chip and the check list auto-expands only when something fails or is still running",
     doc: "right-panel",
   },
   {

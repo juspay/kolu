@@ -6,34 +6,29 @@
 import { AWAITING_LINGER_CLASS } from "@kolu/solid-statepip/pipVariant";
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { agentNames, stateLabels } from "../ui/agentDisplay";
+import {
+  type AgentStateTone,
+  agentNames,
+  formatContextTokens,
+  stateLabels,
+  stateTones,
+} from "../ui/agentDisplay";
 import { useDuration } from "./staleness";
 
-/** Busy = actively working (thinking or running tools). Alert = needs user input
- *  — same violet family as the dock StatePip. Post-turn `waiting` lingers via
- *  `AWAITING_LINGER_CLASS` (same token as pip awaiting paint); genuine
- *  `awaiting_user` is full strength. */
-const BUSY_COLOR = "text-busy";
+/** Tone → text colour (the WHICH-bucket fact lives in `stateTones`). Busy =
+ *  actively working. Alert = needs user input — same violet family as the dock
+ *  StatePip; post-turn `waiting` lingers via `AWAITING_LINGER_CLASS` (same
+ *  token as pip awaiting paint), genuine `awaiting_user` is full strength. */
+const toneColor: Record<AgentStateTone, string> = {
+  busy: "text-busy",
+  "alert-linger": AWAITING_LINGER_CLASS,
+  alert: "text-alert",
+};
 
 /** State → text colour. Keyed on state, not kind — all agents currently share
  *  the same paint per state. Motion is the StatePip's job, not this cluster. */
-const stateColor: Record<AgentInfo["state"], string> = {
-  thinking: BUSY_COLOR,
-  tool_use: BUSY_COLOR,
-  // Linger violet — same token as StatePip awaiting paint.
-  waiting: AWAITING_LINGER_CLASS,
-  // Full violet — blocked on you (needs-you).
-  awaiting_user: "text-alert",
-  // Busy, not awaiting: background work uses busy, not the needs-user alert.
-  running_background: BUSY_COLOR,
-};
-
-/** "47392" → "47K", "1183456" → "1.2M". Single call site; no helper module
- *  needed. `maximumFractionDigits: 1` keeps "1.2M" but avoids "47.0K". */
-const tokenFormat = new Intl.NumberFormat("en", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
+const stateColor = (state: AgentInfo["state"]): string =>
+  toneColor[stateTones[state]];
 
 /** Tooltip body for the token badge. Includes the model when known so
  *  hover reveals both "how much" and "on what" — useful when the user
@@ -46,7 +41,7 @@ function contextTokensTooltip(tokens: number, model: string | null): string {
 }
 
 const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
-  const color = () => stateColor[props.agent.state];
+  const color = () => stateColor(props.agent.state);
   const name = () => agentNames[props.agent.kind];
   const label = () => stateLabels[props.agent.state];
   // Live elapsed-since formatter for the running-for badge; ticks every second
@@ -84,7 +79,7 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
             class="tabular-nums text-fg-3"
             title={contextTokensTooltip(box().value, props.agent.model)}
           >
-            {tokenFormat.format(box().value)}
+            {formatContextTokens(box().value)}
           </span>
         )}
       </Show>

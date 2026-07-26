@@ -16,16 +16,44 @@ Every tile has a **right panel** with two tabs: an **Inspector** and a
 [**Code**](/code-tab) tab. The Inspector is where you read a terminal's context
 and act on it without leaving the canvas.
 
+## What it shows, in order of urgency
+
+The Inspector is ordered by how much a fact wants your attention, not by how the
+data is grouped internally.
+
+**The agent's state leads.** When a terminal is running an agent, the panel opens
+with its status: the agent's name, what it's working on, and a state chip in the
+colour that state wears everywhere else in kolu — violet when it's your turn,
+rust while it's working. A quiet line underneath carries the model, how long it
+has been running, task progress, and how much context it has used. You read "does
+this need me?" off the colour before reading a word.
+
+**What you're working on comes next**, as a row of chips: the branch (with a
+worktree glyph when it is one), the repo, the pull request, and a single chip
+rolling up CI — `✓ 9 passed` when everything passed. Below them the PR title
+and the working directory.
+
+**Detail folds away until it's interesting.** The per-check list, the repo's root
+and worktree paths, and the terminal-CLI reference all sit behind expandable
+summaries. The CI list is the clearest case: nine passing checks stay folded
+behind their rollup, but a check that **fails or is still running expands the
+list on its own, with the exceptions sorted to the top** — you never open a list
+to find good news, and never miss bad news because it was folded away.
+
+Whatever is left — the foreground process, the terminal's colour theme — sits in
+one quiet line at the very bottom.
+
 ## Compose a prompt
 
-The Inspector opens with a **Compose** box — a multiline textarea over a **Send**
-button. Write a prompt in peace, editing it before it ever reaches the terminal,
-then **Send** it (or <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd>) straight into the
-active terminal's input line. It's the in-app twin of
-[`kaval-tui send`](/kaval): it **inserts, it doesn't submit** — the text lands in
-the agent's input box for you to review and press Enter yourself, dodging the
-same paste race the CLI is careful about. Each terminal keeps its own draft in
-your browser, so a half-written prompt survives switching tiles or reloading.
+Above all of it is the **Compose** box, a single line at rest that grows into a
+multiline textarea with a **Send** button when you click into it. Write a prompt
+in peace, editing it before it ever reaches the terminal, then **Send** it (or
+<kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd>) straight into the active terminal's input
+line. It's the in-app twin of [`kaval-tui send`](/kaval): it **inserts, it
+doesn't submit** — the text lands in the agent's input box for you to review and
+press Enter yourself, dodging the same paste race the CLI is careful about. Each
+terminal keeps its own draft in your browser, so a half-written prompt survives
+switching tiles or reloading.
 
 ## Ports the terminal is serving
 
@@ -68,13 +96,22 @@ that point it isn't "this terminal's server" any more.
 
 ## The terminal CLI, documented in place
 
-The Inspector documents the whole shell-facing CLI for the terminal you're
-looking at: an **attach**, **snapshot**, and **send** command card per pane and
-split (each split is its own PTY with its own id), a compact reference for the
-rest of [`kaval-tui`](/kaval) (list · create · kill) and its awareness sibling
-[`padi-tui`](/padi) (status · watch · wait), and a **Drive one agent from
-another** callout that spells out the send → wait → snapshot loop. Copy any
-command and paste it into a shell to reach that exact terminal.
+An **Attach** section — folded until you open it, since reaching a terminal from
+a shell is something you do occasionally rather than watch — documents the whole
+shell-facing CLI for the terminal you're looking at.
+
+Every command that targets a terminal has the same shape, so the section is
+built that way: pick a **pane** (the main one, or any split — each split is its
+own PTY with its own id) and a **verb** (**attach** to take the session over,
+**snapshot** to dump its scrollback, **send** to type a prompt into it), and one
+ready-to-copy command line appears for that combination, already pinned to this
+kolu's daemon. The pane's id sits beside the pickers, copyable on its own.
+
+Underneath it, a **Drive one agent from another** callout spells out the send →
+wait → snapshot loop, and a folded reference covers the rest of
+[`kaval-tui`](/kaval) (list · create · kill), its awareness sibling
+[`padi-tui`](/padi) (status · watch · wait), and the `--socket` argument that
+points those id-less commands at this server.
 
 ## It follows the terminal
 
@@ -89,6 +126,6 @@ Code-tab tree/content split stay global.
 
 <CardGrid>
   <LinkCard title="The Code Tab" href="/code-tab" description="the file browser and diff viewer in the other tab" />
-  <LinkCard title="Kaval" href="/kaval" description="the CLI the Compose box and command cards mirror" />
+  <LinkCard title="Kaval" href="/kaval" description="the CLI the Compose box and Attach commands mirror" />
   <LinkCard title="Keyboard Shortcuts" href="/keyboard-shortcuts" description="toggle the panel, and the rest of the chords" />
 </CardGrid>

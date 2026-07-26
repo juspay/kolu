@@ -86,7 +86,15 @@ export const PortRow: Component<{
       data-origin={forward()?.origin}
       data-orphan={props.row.kind === "orphan" ? "" : undefined}
     >
-      <span class="shrink-0 font-mono tabular-nums text-fg">
+      {/* The subject wears a chip: the number carries the weight, and an open
+       *  door tints it accent so "already reachable" reads before the text. */}
+      <span
+        class="shrink-0 rounded px-1.5 font-mono text-[11px] font-semibold tabular-nums"
+        classList={{
+          "bg-accent/10 text-fg": forward() !== undefined,
+          "bg-surface-2/70 text-fg": forward() === undefined,
+        }}
+      >
         {props.row.port}
       </span>
       {/* What is behind the number — and, in the trailing group, the way to it.
