@@ -99,11 +99,17 @@ wait_for_padi_ready() {
 
 probe_terminal_node_tools() {
     local logfile=$1 proc=$2
-    local socket output="$tmp/terminal-node-tools"
+    local socket spawned="$tmp/terminal-spawned" output="$tmp/terminal-node-tools"
     socket=$(find "$runtime" -name padi.sock -type s -print -quit)
+    # Two markers, not one. `spawned` is written before anything can fail, so it
+    # separates the two ways this probe can time out: padi accepting `create`
+    # but never spawning a PTY, versus a PTY that runs but has lost the Node
+    # toolset. Collapsing them into one "could not run the packaged Node
+    # toolset" message sent an investigation after a PATH bug when the real
+    # regression was #1988 pruning node-pty's darwin spawn-helper.
     "$PADI_TUI" create --socket "$socket" -- /bin/sh -c \
-        'for tool in node npm npx corepack; do command -v "$tool" || exit 1; done; printf ok >"$1"' \
-        _ "$output" >/dev/null
+        'printf spawned >"$1"; for tool in node npm npx corepack; do command -v "$tool" || exit 1; done; printf ok >"$2"' \
+        _ "$spawned" "$output" >/dev/null
 
     local deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
     while kill -0 "$proc" 2>/dev/null; do
@@ -112,7 +118,11 @@ probe_terminal_node_tools() {
             return 0
         fi
         if (( SECONDS >= deadline )); then
-            echo "hosted terminal could not run the packaged Node toolset" >&2
+            if [[ -s "$spawned" ]]; then
+                echo "hosted terminal ran, but node, npm, npx, or corepack is missing from its PATH" >&2
+            else
+                echo "hosted terminal never spawned: padi accepted the create but no PTY ran /bin/sh — check node-pty's build/Release artifacts for this platform" >&2
+            fi
             cat "$logfile" >&2
             return 1
         fi
