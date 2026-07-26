@@ -125,10 +125,15 @@ One pass per platform, and no more:
   `proc_pidfdinfo`), the shape the C helper already proved at ~4 ms of real
   work.
 
-**Crates only where earned.** The fixed `listeners` for darwin address decoding
-once [the upstream fix](https://github.com/GyulyVGC/listeners/pull/57) merges —
-and **not `sysinfo`**: pairing them walks the host twice, which is disqualified
-by construction.
+**Crates only where earned — and `listeners` did not earn a dependency.** Its
+*enumeration* shape is the disqualified one (it maps socket inodes by walking
+every process's fds, host-wide — the exact cost `--roots` exists to avoid);
+the only part of it osfacts needs is the ~50-line darwin address decode
+[we fixed](https://github.com/GyulyVGC/listeners/pull/57), which is **vendored
+into osfacts** with the scar-tissue fixtures riding it, credited, and checked
+against the fork as an oracle in CI. **Not `sysinfo`** either: pairing crates
+that each enumerate walks the host twice, disqualified by construction. The
+full stack proposal lives in the Implementation section.
 
 ### The regression suite is scar tissue
 
@@ -232,3 +237,34 @@ one repo until the churn settles.
   the day drishti — a separate repository — takes the dependency, osfacts
   graduates to its own repo. The directory moves wholesale, the subflake
   becomes *the* flake, and the contract does not change.
+
+### Language & stack
+
+**Rust** — settled by measurement, not preference: single-pass Rust matches C
+on the hot path (portview's 9.9 ms vs the C helper's 10.6 ms, same box, same
+method), and the language buys the cargo test harness the scar-tissue suite
+needs, one codebase for both platforms, and a static binary Nix packages
+trivially. The toolchain is the npins-pinned nixpkgs Rust (1.93 today), so
+every crate below must build there — the constraint that already vetoed
+`sysinfo` 0.39.
+
+The dependency bar is the repo's own: a crate is taken where it removes a
+defect class, never for convenience. Four runtime deps, two dev deps, and a
+deliberate not-chosen list longer than both:
+
+| layer | choice | why — and why not the obvious alternative |
+| --- | --- | --- |
+| darwin process + socket read | **`libc` + hand-declared libproc FFI** (`proc_listpids` · `proc_pidinfo` · `proc_pidfdinfo`) | the exact calls `portScanDarwin.c` proved at ~4 ms; the `libproc` wrapper crate adds a layer over the same three calls without owning the decode subtleties that actually bite |
+| darwin address decode | **vendored** ~50-line `insi_vflag` routine (our [upstream-merged fix](https://github.com/GyulyVGC/listeners/pull/57)), fixtures riding it | `listeners` as a dependency re-imports the disqualified host-wide fd walk; the decode is the only part that earned its keep. Upstream now carries our regression tests, so CI pins upstream as an **oracle** and drift is detectable<Footnote>The juspay/listeners fork's job is done: the fix merged upstream 2026-07-25 (`226273e5`), unreleased as of v0.6.0. Until a release ships, the oracle pins the upstream merge rev; after it, the crates.io release — and the fork is archived.</Footnote> |
+| linux read | **`std` only** (`/proc` via `std::fs`) | the `procfs` crate parses whole tables host-wide — the shape `--roots` exists to avoid; our subtree descent is ~a page of code |
+| CLI | **`lexopt`** | a fixed, tiny flag surface needs an args loop, not a framework; `clap` is a derive machine + help engine for a tool whose `--help` is ten lines. `lexopt` is ~0-dep and builds on 1.93 |
+| `--json` | **`serde` + `serde_json`** | the serializer-defect class we hunted in `procs`/`portview` (escaping, field drift) is exactly what derive eliminates; the schema structs are the one place `deny_unknown_fields`-style strictness lives |
+| TSV hot path | **hand-written** | tab-join over the same schema structs; a dependency here would be decoration |
+| errors | **`std` error enums, no `anyhow`** | a tool whose contract REQUIRES structured blindness (`unreadable` with errnos) must never bubble an opaque box to the caller; every failure is either a row in `unreadable` or a non-zero exit with a versioned message |
+| async runtime | **none** | a one-shot sampler has no concurrency to schedule; `tokio` would be startup cost buying nothing |
+| tests (dev-deps) | **`assert_cmd` + `predicates`** | the contract is the BINARY's stdout, so the suite spawns the real binary and asserts the real TSV/JSON — `std::net::TcpListener` binds all five address fixtures natively, no fixture crate needed |
+
+The whole runtime dependency tree is four crates deep (`libc`, `lexopt`,
+`serde`, `serde_json`), which is itself a design goal: every dependency is a
+place a platform quirk can arrive with an update, and this tool exists because
+five hand-rolled readers each got one quirk wrong.
