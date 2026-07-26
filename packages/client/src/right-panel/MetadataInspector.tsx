@@ -20,7 +20,7 @@
  *    sorted first; an all-green list collapses to a rollup chip). */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
-import { type PrInfo, prValue } from "anyforge/schemas";
+import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
 import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import ChecksIndicator from "../terminal/ChecksIndicator";
@@ -35,55 +35,58 @@ import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 import PortsSection from "./PortsSection";
 
-/** Per-outcome tally of a PR's check runs. */
-type CheckCounts = { fail: number; pending: number; pass: number };
+/** Triage order — the sequence a reader wants: what's broken, what's still
+ *  moving, what's done. ONE ordered list serves both the check list's sort and
+ *  the summary line's word order, so "exceptions first" is stated once. */
+const TRIAGE: readonly CheckStatus[] = ["fail", "pending", "pass"];
 
-const countChecks = (runs: PrInfo["checkRuns"]): CheckCounts => {
-  const counts: CheckCounts = { fail: 0, pending: 0, pass: 0 };
+/** How each outcome reads in a count ("1 failed"), and the glyph + Chip tone
+ *  the rollup wears. Keyed by the outcome, so a new `CheckStatus` member is one
+ *  entry here rather than a new arm in three separate conditionals. */
+const OUTCOME: Record<
+  CheckStatus,
+  { word: string; glyph: string; tone: "ok" | "warning" | "danger" }
+> = {
+  fail: { word: "failed", glyph: "✕", tone: "danger" },
+  pending: { word: "running", glyph: "●", tone: "warning" },
+  pass: { word: "passed", glyph: "✓", tone: "ok" },
+};
+
+/** Per-outcome tally of a PR's check runs — the counts, and ONLY the counts.
+ *  The combined verdict is deliberately NOT derived here: the server already
+ *  folds it (`foldCheckOutcomes` → `PrInfo.checks`), and re-folding the list
+ *  client-side would install a second judge of "is CI red?" that can disagree
+ *  with the one the tile title and dock pip read. */
+const countChecks = (
+  runs: PrInfo["checkRuns"],
+): Record<CheckStatus, number> => {
+  const counts: Record<CheckStatus, number> = { fail: 0, pending: 0, pass: 0 };
   for (const run of runs) counts[run.outcome] += 1;
   return counts;
 };
 
-/** Exceptions first: fail, then pending, then pass — the order a reader
- *  triages in, so an auto-expanded list leads with what expanded it. */
-const OUTCOME_RANK = { fail: 0, pending: 1, pass: 2 } as const;
-
-/** The CI rollup chip's text + tone, from the per-check tally (falling back to
- *  the combined `checks` status when the server sent no per-check entries). */
+/** The rollup chip: the SERVER's verdict picks the glyph, word, and tone; the
+ *  local tally only supplies the number. With no per-check entries (an older
+ *  payload) there is no number to state, so the chip names the verdict alone. */
 const ciRollup = (
-  checks: NonNullable<PrInfo["checks"]>,
-  counts: CheckCounts,
-  total: number,
+  checks: CheckStatus,
+  counts: Record<CheckStatus, number>,
 ): { label: string; tone: "ok" | "warning" | "danger" } => {
-  if (total === 0) {
-    return checks === "pass"
-      ? { label: "✓ CI", tone: "ok" }
-      : checks === "pending"
-        ? { label: "● CI running", tone: "warning" }
-        : { label: "✕ CI failed", tone: "danger" };
-  }
-  if (counts.fail > 0)
-    return { label: `✕ ${counts.fail} failed`, tone: "danger" };
-  if (counts.pending > 0)
-    return { label: `● ${counts.pending} running`, tone: "warning" };
-  return { label: `✓ ${total}/${total} checks`, tone: "ok" };
+  const { word, glyph, tone } = OUTCOME[checks];
+  const n = counts[checks];
+  return {
+    label: n === 0 ? `${glyph} CI ${word}` : `${glyph} ${n} ${word}`,
+    tone,
+  };
 };
 
-/** The check-list disclosure's summary line — the rollup in words. */
-const checksSummary = (counts: CheckCounts, total: number): string => {
-  if (counts.fail > 0) {
-    const rest = [
-      counts.pending > 0 ? `${counts.pending} running` : null,
-      `${counts.pass} passed`,
-    ]
-      .filter((s) => s !== null)
-      .join(" · ");
-    return `${counts.fail} failed · ${rest}`;
-  }
-  if (counts.pending > 0)
-    return `${counts.pending} running · ${counts.pass} passed`;
-  return `All ${total} checks passed`;
-};
+/** The disclosure's summary line — "1 failed · 2 running · 6 passed", the
+ *  non-empty buckets in triage order. No verdict branching: the order carries
+ *  it, and the chip above already states it. */
+const checksSummary = (counts: Record<CheckStatus, number>): string =>
+  TRIAGE.filter((o) => counts[o] > 0)
+    .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
+    .join(" · ");
 
 /** The "Work" cluster — what you're working ON, told once: branch/repo/PR/CI
  *  as a chip row, the PR title, the working directory, and the deep detail
@@ -104,10 +107,17 @@ const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
   const counts = createMemo(() => countChecks(pr()?.checkRuns ?? []));
   const sortedRuns = createMemo(() =>
     [...(pr()?.checkRuns ?? [])].sort(
-      (a, b) => OUTCOME_RANK[a.outcome] - OUTCOME_RANK[b.outcome],
+      (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
     ),
   );
-  const hasException = () => counts().fail > 0 || counts().pending > 0;
+  /** Anything but a clean pass is an exception, and an exception opens the list
+   *  on its own. Read off the server's fold — the same verdict the chip wears.
+   *  `null` is "no checks configured", which is not an exception (and renders no
+   *  list at all), so it is folded in with "no PR" rather than read as not-pass. */
+  const hasException = () => {
+    const verdict = pr()?.checks ?? null;
+    return verdict !== null && verdict !== "pass";
+  };
   return (
     <Section title="Work" accent="border-accent">
       <div class="space-y-1.5">
@@ -153,8 +163,7 @@ const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
                 </a>
                 <Show when={p().checks}>
                   {(checks) => {
-                    const rollup = () =>
-                      ciRollup(checks(), counts(), sortedRuns().length);
+                    const rollup = () => ciRollup(checks(), counts());
                     return (
                       <Chip tone={rollup().tone} data-testid="inspector-ci">
                         {rollup().label}
@@ -189,7 +198,7 @@ const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
           {(p) => (
             <Show when={p().checkRuns.length > 0}>
               <Disclosure
-                summary={checksSummary(counts(), sortedRuns().length)}
+                summary={checksSummary(counts())}
                 open={hasException()}
               >
                 <ul

@@ -26,18 +26,20 @@ import {
   stateTones,
 } from "../ui/agentDisplay";
 
-/** Tone → chip + left-rail paint. The linger bucket (post-turn `waiting`)
- *  keeps the violet family at reduced strength, mirroring
- *  `AWAITING_LINGER_CLASS` in the header cluster. */
-const toneChip: Record<AgentStateTone, string> = {
-  busy: "bg-busy/15 text-busy",
-  alert: "bg-alert/15 text-alert",
-  "alert-linger": "bg-alert/10 text-alert/70",
-};
-const toneRail: Record<AgentStateTone, string> = {
-  busy: "border-busy",
-  alert: "border-alert",
-  "alert-linger": "border-alert/50",
+/** Tone → the card's two paints, one entry per tone so a new bucket is a single
+ *  edit here. The linger bucket (post-turn `waiting`) keeps the violet family at
+ *  reduced strength, mirroring `AWAITING_LINGER_CLASS` in the header cluster. */
+const TONE: Record<
+  AgentStateTone,
+  { chip: string; rail: string; pulse: boolean }
+> = {
+  busy: { chip: "bg-busy/15 text-busy", rail: "border-busy", pulse: true },
+  alert: { chip: "bg-alert/15 text-alert", rail: "border-alert", pulse: false },
+  "alert-linger": {
+    chip: "bg-alert/10 text-alert/70",
+    rail: "border-alert/50",
+    pulse: false,
+  },
 };
 
 /** Same compact notation the header AgentIndicator uses ("488,292" → "488K"). */
@@ -47,11 +49,11 @@ const tokenFormat = new Intl.NumberFormat("en", {
 });
 
 const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
-  const tone = () => stateTones[props.agent.state];
+  const tone = () => TONE[stateTones[props.agent.state]];
   const runningFor = useDuration();
   return (
     <div
-      class={`border-b border-edge border-l-2 px-3 py-3 ${toneRail[tone()]}`}
+      class={`border-b border-edge border-l-2 px-3 py-3 ${tone().rail}`}
       data-testid="inspector-agent-card"
       data-agent-state={props.agent.state}
     >
@@ -64,12 +66,12 @@ const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
           {agentNames[props.agent.kind] ?? props.agent.kind}
         </span>
         <span
-          class={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${toneChip[tone()]}`}
+          class={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${tone().chip}`}
         >
           <span
             class="h-1.5 w-1.5 rounded-full bg-current"
             classList={{
-              "animate-pulse motion-reduce:animate-none": tone() === "busy",
+              "animate-pulse motion-reduce:animate-none": tone().pulse,
             }}
           />
           {stateLabels[props.agent.state] ?? props.agent.state}
