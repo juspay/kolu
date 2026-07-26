@@ -101,15 +101,13 @@ One optional host-wide empty-table pin exists only inside the nix
 sandbox (`NIX_BUILD_TOP` set) and runs alone under nextest so sibling
 binds cannot race it.
 
-The second lane asks "did the OS break osfacts?" and never gates anything.
-Nightly, it runs the nix-built binary on a real, noisy host and diffs its
-answers against tools that don't share its code: `ss` on linux, `lsof` and
-the upstream `listeners` crate on darwin. This is the only kind of test
-that could have caught macOS 27's netstat going intermittently blind while
-reporting success — inside a sandbox we control, our fixtures and our
-reader would just keep agreeing with each other. A live host owes you
-noise, so this lane informs instead of blocking. A gate that flakes
-teaches people to ignore it.
+The second lane asks "did the OS break osfacts?" — `ci::osfacts-live` in the
+CI DAG on both platforms. It runs the nix-built binary on a real, noisy host
+and diffs its answers against tools that don't share its code: `ss` on linux,
+`lsof` and the upstream `listeners` crate on darwin. This is the only kind of
+test that could have caught macOS 27's netstat going intermittently blind
+while reporting success — inside a sandbox we control, our fixtures and our
+reader would just keep agreeing with each other.
 
 The second lane's scenarios are Gherkin (`cucumber`), the same idiom as
 kolu's own e2e: "Given a shell running a loopback server, When I snapshot

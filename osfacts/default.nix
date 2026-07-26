@@ -9,8 +9,8 @@
 #
 # checkPhase runs the hermetic gate (lane 1) under cargo-nextest — process-
 # per-test isolation and per-test timeouts. Lane 2 (live-host oracle) is
-# deliberately outside this phase: it is nightly, non-gating, and needs a
-# real host; see scripts/live-oracle.sh and `just ci::osfacts-live`.
+# outside this phase (needs a real host, not the build sandbox); it is
+# `ci::osfacts-live` in the CI DAG — see scripts/live-oracle.sh.
 { pkgs }:
 pkgs.rustPlatform.buildRustPackage {
   pname = "osfacts";
