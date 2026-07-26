@@ -153,10 +153,8 @@ export function forwardSpec(opts: {
   remotePort: number;
   loopback: LoopbackFamily;
 }): string {
-  const far =
-    opts.loopback === "v6"
-      ? `[${LOOPBACK_ADDRESS.v6}]`
-      : LOOPBACK_ADDRESS[opts.loopback];
+  const address = LOOPBACK_ADDRESS[opts.loopback];
+  const far = opts.loopback === "v6" ? `[${address}]` : address;
   return `*:${opts.localPort}:${far}:${opts.remotePort}`;
 }
 
@@ -382,14 +380,16 @@ export function openSshAttempt(opts: {
 
 /** Open one forward on its own ssh connection — the `remote` generator behind
  *  `ForwardMechanisms`, peer to `openRelay`. */
-export async function openSshForward(
-  host: string,
-  remotePort: number,
-  report: ForwardReport,
-  spawnSsh: SpawnSsh,
-  lastLocalPort: number | undefined,
-  loopback: LoopbackFamily,
-): Promise<OpenedForward> {
+export async function openSshForward(opts: {
+  host: string;
+  remotePort: number;
+  report: ForwardReport;
+  spawnSsh: SpawnSsh;
+  lastLocalPort: number | undefined;
+  /** WHICH loopback the far end is on. Required — see {@link LoopbackFamily}. */
+  loopback: LoopbackFamily;
+}): Promise<OpenedForward> {
+  const { host, remotePort, report, spawnSsh, lastLocalPort, loopback } = opts;
   // The number this target answered on last time, else the target's own port —
   // `pu-dev:4123` answers on `0.0.0.0:4123` when that number is free here. The
   // remembered port wins because it is the more specific promise: if 4123 was

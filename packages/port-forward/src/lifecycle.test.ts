@@ -58,7 +58,7 @@ function scripted(script: {
   let refusals = script.refuseCloses ?? 0;
   let closes = 0;
   const mechanisms: ForwardMechanisms = {
-    open: async (_target, report) => {
+    open: async ({ report }) => {
       script.onOpen?.(report);
       if (script.deferOpen === true && !opensFlowing) {
         await new Promise<void>((resolve) => {

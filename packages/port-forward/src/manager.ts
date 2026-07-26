@@ -358,9 +358,9 @@ export function makeForwardManager(opts: {
     const token = {};
     opening.add(token);
     const flight = (async () => {
-      const opened = await opts.mechanisms.open(
+      const opened = await opts.mechanisms.open({
         target,
-        {
+        report: {
           // Sanitised HERE, at the seam, not in whichever mechanism happened to
           // remember: every reason is rendered verbatim by a consumer, and a
           // mechanism that reads a subprocess's stderr is carrying text the far
@@ -369,8 +369,8 @@ export function makeForwardManager(opts: {
           fault: (reason) =>
             lose(key, plainDiagnostic(reason), token, "degraded"),
         },
-        lastLocalPort.get(key),
-      );
+        lastLocalPort: lastLocalPort.get(key),
+      });
       // Recorded on the way UP, not on the way down: a forward can leave the map
       // by a route that runs no teardown of ours (the mechanism reports it lost,
       // the process is killed), and the number is only useful if it survives

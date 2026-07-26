@@ -13,7 +13,7 @@ import { openSshForward, spawnSshChild } from "./sshForward.ts";
 
 export function nativeMechanisms(): ForwardMechanisms {
   return {
-    open(target, report, lastLocalPort) {
+    open({ target, report, lastLocalPort }) {
       return target.kind === "local"
         ? openRelay({
             port: target.port,
@@ -22,14 +22,14 @@ export function nativeMechanisms(): ForwardMechanisms {
             lastLocalPort,
             loopback: target.loopback,
           })
-        : openSshForward(
-            target.host,
-            target.port,
+        : openSshForward({
+            host: target.host,
+            remotePort: target.port,
             report,
-            spawnSshChild,
+            spawnSsh: spawnSshChild,
             lastLocalPort,
-            target.loopback,
-          );
+            loopback: target.loopback,
+          });
     },
   };
 }

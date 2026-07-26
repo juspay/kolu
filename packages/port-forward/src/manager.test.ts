@@ -40,7 +40,7 @@ function fakeMechanisms(): {
       notify(reason);
     },
     mechanisms: {
-      async open(target, report, lastLocalPort) {
+      async open({ target, report, lastLocalPort }) {
         opens.push(target);
         remembered.push(lastLocalPort);
         // A real mechanism PREFERS the remembered number; the fake takes it
@@ -472,7 +472,7 @@ describe("the forward map", () => {
     // The loss can land before `open()` resolves. Publishing it would put a
     // corpse in the map.
     const early: ForwardMechanisms = {
-      open: async (_target, report) => {
+      open: async ({ report }) => {
         report.lost("the ssh connection ended before it was up");
         return { localPort: 4123, close: async () => {} };
       },
@@ -492,7 +492,7 @@ describe("the forward map", () => {
     // listener the mechanism had definitively reported gone.
     let arrive: (() => void) | undefined;
     const doomed: ForwardMechanisms = {
-      open: async (_target, report) => {
+      open: async ({ report }) => {
         report.lost("the ssh connection ended before it was up");
         await new Promise<void>((resolve) => {
           arrive = resolve;
@@ -527,7 +527,7 @@ describe("the forward map", () => {
     const reports: ForwardLoss[] = [];
     let fault: ((reason: string) => void) | undefined;
     const flaky: ForwardMechanisms = {
-      open: async (_target, report) => {
+      open: async ({ report }) => {
         fault = report.fault;
         return { localPort: 4123, close: async () => {} };
       },
@@ -561,7 +561,7 @@ describe("the forward map", () => {
     const closed: number[] = [];
     let port = 100;
     const flaky: ForwardMechanisms = {
-      open: async (target) => {
+      open: async ({ target }) => {
         const localPort = port++;
         return {
           localPort,

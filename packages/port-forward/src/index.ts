@@ -57,6 +57,7 @@ export type {
   ForwardMechanisms,
   ForwardReport,
   OpenedForward,
+  OpenRequest,
 } from "./mechanism.ts";
 
 /** Open a forward map backed by the real mechanisms — ssh for remote targets,

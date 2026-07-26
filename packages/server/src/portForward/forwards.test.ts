@@ -53,7 +53,7 @@ function fakeMechanisms(): {
       refuse = yes;
     },
     mechanisms: {
-      async open(target) {
+      async open({ target }) {
         return {
           localPort: target.port,
           close: async () => {
