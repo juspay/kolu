@@ -35,7 +35,7 @@
  * for it.
  */
 
-import type { Logger } from "./log.ts";
+import type { Logger } from "../log.ts";
 
 /** The greppable marker every backstop-caught float carries. Grep CI logs /
  *  the rolled padi log for this to enumerate every unidentified float the

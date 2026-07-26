@@ -35,7 +35,7 @@ import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { ZodType } from "zod";
-import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
+import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
   PtySpawnOpts,
   TerminalAttachment,

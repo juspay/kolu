@@ -27,7 +27,7 @@
 import type { PtyHostListEntry } from "kaval";
 import { z } from "zod";
 import { requirePadiLastPairedDaemonStore } from "./confStores.ts";
-import type { SavedSession } from "./vocab.ts";
+import type { SavedSession } from "../vocab.ts";
 
 /** The persisted identity of the kaval kolu-server last CONVERGED onto as its
  *  survivor. `startedAt` is the per-process boot timestamp the next boot compares

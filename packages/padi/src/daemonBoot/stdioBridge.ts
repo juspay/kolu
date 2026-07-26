@@ -34,7 +34,7 @@ import {
   padiSocketPath,
   padiStderrLogPath,
   resolvePadiStateRoot,
-} from "./stateRoot.ts";
+} from "../stateRoot.ts";
 
 export interface RunPadiStdioBridgeOptions {
   /** The value of `--state-root`, threaded straight from `bin.ts`'s argv parse,

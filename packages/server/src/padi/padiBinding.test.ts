@@ -903,7 +903,7 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
 describe("resolvePadiLaunch — the from-source entrypoint (KOLU_PADI_BIN unset) resolves to a REAL file", () => {
   const stateRoot = "/state/root";
 
-  it("points at packages/padi/src/bin.ts, an existing file — not a phantom under packages/server/ (L27 move must not skew the ../.. hop)", () => {
+  it("points at packages/padi/src/daemonBoot/bin.ts, an existing file — not a phantom under packages/server/ (L27 move must not skew the ../.. hop)", () => {
     const prev = process.env.KOLU_PADI_BIN;
     delete process.env.KOLU_PADI_BIN;
     try {
@@ -921,7 +921,7 @@ describe("resolvePadiLaunch — the from-source entrypoint (KOLU_PADI_BIN unset)
       const binTs = args[importIdx + 2];
       if (binTs === undefined)
         throw new Error("expected --import to be followed by a bin.ts path");
-      expect(binTs.endsWith("packages/padi/src/bin.ts")).toBe(true);
+      expect(binTs.endsWith("packages/padi/src/daemonBoot/bin.ts")).toBe(true);
       expect(existsSync(binTs)).toBe(true);
     } finally {
       if (prev === undefined) delete process.env.KOLU_PADI_BIN;

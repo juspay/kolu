@@ -27,26 +27,26 @@ import {
   saveSession,
   setSavedSession,
 } from "./session.ts";
-import { getActiveTerminal, getTerminal } from "./terminal-registry.ts";
+import { getActiveTerminal, getTerminal } from "../terminal-registry.ts";
 import {
   discardAllLocalParked,
   discardLocalParked,
   seedParkedTerminal,
   seedSleepingTerminal,
   TerminalSpawnRacedError,
-} from "./terminalEndpoint/local.ts";
+} from "../terminalEndpoint/local.ts";
 import {
   restoreActiveTerminalId,
   restoreSpawn,
   setTerminalParent,
   snapshotSession,
-} from "./terminals.ts";
+} from "../terminals.ts";
 import type {
   SavedActiveTerminal,
   SavedSession,
   SavedTerminal,
-} from "./vocab.ts";
-import { backfillSavedSession, SavedSessionSchema } from "./vocab.ts";
+} from "../vocab.ts";
+import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
 
 /** Re-spawn one saved ACTIVE record as a FRESH live terminal, forwarding its
  *  restore-relevant chrome + the saved recency, and (opt-in) resuming its agent.

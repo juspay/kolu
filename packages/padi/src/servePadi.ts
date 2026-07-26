@@ -31,15 +31,15 @@ import {
 import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { isFileGoneError, worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
-import { cancelPendingAutosave } from "./autosaveGate.ts";
+import { cancelPendingAutosave } from "./session/autosaveGate.ts";
 import {
   requirePadiActivityFeedStore,
   requirePadiSessionStore,
-} from "./confStores.ts";
+} from "./session/confStores.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
-import { createFinishQuiet, type FinishQuiet } from "./finishQuiet.ts";
-import { createLiveActivitySource } from "./liveActivity.ts";
+import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
+import { createLiveActivitySource } from "./activity/liveActivity.ts";
 import { readPreview } from "./preview.ts";
 import {
   onDaemonStatusChange,
@@ -51,7 +51,7 @@ import {
   forfeitSession,
   importSession,
   restoreSession,
-} from "./sessionRestore.ts";
+} from "./session/sessionRestore.ts";
 import {
   DEFAULT_PADI_VERSION,
   PADI_SURFACE_VERSION,
@@ -97,7 +97,7 @@ import {
   setTerminalTheme,
   sleepTerminal,
 } from "./terminals.ts";
-import { exportTranscriptHtml } from "./transcript.ts";
+import { exportTranscriptHtml } from "./transcript/transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no

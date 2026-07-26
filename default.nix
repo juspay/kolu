@@ -156,9 +156,9 @@ let
   # per-host terminal-workspace daemon; `PADI_BUILD_ID` (baked below) hashes the
   # source closure that runs IN padi's process, so it flips iff a restart would
   # load different daemon code. Scoped EMPIRICALLY to padi's reachable closure
-  # from its two entry roots — `bin.ts` (the process) and `assembly.ts` (the
+  # from its two entry roots — `daemonBoot/bin.ts` (the process) and `assembly.ts` (the
   # library barrel kolu-server still imports) — enumerated and asserted equal to
-  # this fileset by `packages/padi/src/buildId.closure.test.ts`. Keep the two in
+  # this fileset by `packages/padi/src/daemonBoot/buildId.closure.test.ts`. Keep the two in
   # lockstep: the test mirrors this fileFilter and these two per-root exclusions
   # exactly, so nix and the guard can never drift on what "the closure" is.
   #
@@ -179,8 +179,8 @@ let
     (pkgDir + "/package.json")
   ];
   # padi's baked identity — the twin of kaval's, one layer up. Its behavioralFileset is
-  # padi's reachable closure from its two entry roots (`bin.ts` · `assembly.ts`),
-  # enumerated + asserted equal by `packages/padi/src/buildId.closure.test.ts` (keep the
+  # padi's reachable closure from its two entry roots (`daemonBoot/bin.ts` · `assembly.ts`),
+  # enumerated + asserted equal by `packages/padi/src/daemonBoot/buildId.closure.test.ts` (keep the
   # two in lockstep). Unlike kaval, padi's key STAYS full-closure (incl. the surface-daemon
   # spine + supervisor): padi's staleness response is a CHEAP auto-drain, so over-firing is
   # harmless — only kaval's human-nudge currency needs a behavioral slice (see
@@ -194,15 +194,15 @@ let
     inherit commitHash;
     override = padiBuildIdOverride;
     behavioralFileset = pkgs.lib.fileset.unions [
-      # padi itself — both entry roots (bin.ts · assembly.ts) live here. MINUS
+      # padi itself — both entry roots (daemonBoot/bin.ts · assembly.ts) live here. MINUS
       # `dial.ts` (`@kolu/padi/dial`, W2.3): the CLIENT dial kit runs in a padi
       # CLIENT (padi-tui, the kolu-server binder), NEVER in padi's daemon process,
       # so it belongs to those consumers' code — not padi's staleKey (a dial-only
-      # change must not flip what a padi restart would load). NOTE `stdioBridge.ts`
-      # (`padi --stdio`, W3.1) is NOT excluded: `bin.ts` imports it at top level, so
+      # change must not flip what a padi restart would load). NOTE `daemonBoot/stdioBridge.ts`
+      # (`padi --stdio`, W3.1) is NOT excluded: `daemonBoot/bin.ts` imports it at top level, so
       # the daemon process loads the module even when it dispatches to `runPadiDaemon`
       # — it is genuinely part of what a restart loads (the padi closure test walks
-      # `bin.ts` and reaches it, so `reached` == `hashed` requires it INSIDE the set).
+      # `daemonBoot/bin.ts` and reaches it, so `reached` == `hashed` requires it INSIDE the set).
       (pkgs.lib.fileset.unions [
         (pkgs.lib.fileset.difference
           (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/padi/src)
@@ -612,7 +612,7 @@ let
     mkdir -p $out/bin
     makeWrapper ${runtimeNode}/bin/node $out/bin/padi \
       --add-flags "--import ${runtimeTsxLoader}" \
-      --add-flags "${kolu}/packages/padi/src/bin.ts" \
+      --add-flags "${kolu}/packages/padi/src/daemonBoot/bin.ts" \
       ${padiIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       ${kavalIdentity.bakeArgs} \

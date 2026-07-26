@@ -18,7 +18,7 @@
 
 import type { CellStore } from "@kolu/surface/server";
 import type { PairedDaemon } from "./pairedDaemon.ts";
-import type { ActivityFeed, SavedSession } from "./vocab.ts";
+import type { ActivityFeed, SavedSession } from "../vocab.ts";
 
 /** The injected `session` conf store, or `undefined` until boot sets it. */
 let sessionStore: CellStore<SavedSession | null> | undefined;

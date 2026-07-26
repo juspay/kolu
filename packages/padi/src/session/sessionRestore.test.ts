@@ -22,12 +22,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { setDaemonProcessId } from "./koluRoot.ts";
+import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
-} from "./padiSurfaceCtx.ts";
+} from "../padiSurfaceCtx.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import {
   persistSettledRestoreSnapshot,
@@ -41,18 +41,18 @@ import {
   registerTerminal,
   terminalEntries,
   unregisterTerminal,
-} from "./terminal-registry.ts";
+} from "../terminal-registry.ts";
 import {
   seedParkedTerminal,
   TerminalSpawnRacedError,
-} from "./terminalEndpoint/local.ts";
-import { setTerminalTheme } from "./terminals.ts";
+} from "../terminalEndpoint/local.ts";
+import { setTerminalTheme } from "../terminals.ts";
 import {
   LOCAL_LOCATION,
   type SavedActiveTerminal,
   type SavedSession,
   type SavedTerminal,
-} from "./vocab.ts";
+} from "../vocab.ts";
 
 // Restore drives the discard path (`cleanupTerminalScratch`), which reads the
 // per-instance scratch root. Boot injects the server id before any of this runs;

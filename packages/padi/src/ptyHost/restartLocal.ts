@@ -37,9 +37,9 @@ import {
   cancelPendingAutosave,
   freezeAutosave,
   unfreezeAutosave,
-} from "../autosaveGate.ts";
+} from "../session/autosaveGate.ts";
 import { log } from "../log.ts";
-import { setSavedSessionFromSnapshot } from "../session.ts";
+import { setSavedSessionFromSnapshot } from "../session/session.ts";
 import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { killAllTerminals, snapshotSession } from "../terminals.ts";
 import { restartLocalEndpoint } from "./index.ts";

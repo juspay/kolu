@@ -81,7 +81,7 @@ import { z } from "zod";
 import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
-} from "./transcriptSchema.ts";
+} from "./transcript/transcriptSchema.ts";
 import {
   CanvasLayoutSchema,
   RightPanelPerTerminalStateSchema,

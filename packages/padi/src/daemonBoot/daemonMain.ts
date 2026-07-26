@@ -37,49 +37,55 @@ import {
 } from "@kolu/surface/server";
 import type { Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
-import { initAutosaveGate } from "./autosaveGate.ts";
+import { initAutosaveGate } from "../session/autosaveGate.ts";
 import { currentPadiBuildId, currentPadiCommitHash } from "./buildId.ts";
 import {
   setPadiActivityFeedStore,
   setPadiLastPairedDaemonStore,
   setPadiSessionStore,
-} from "./confStores.ts";
+} from "../session/confStores.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
-import { importLegacyConfigOnce } from "./importLegacy.ts";
+import { importLegacyConfigOnce } from "../session/importLegacy.ts";
 import {
   ensureKoluRoot,
   setDaemonProcessId,
   shutdownCleanup,
-} from "./koluRoot.ts";
-import { configureDaemonLog, log as padiLog } from "./log.ts";
-import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
+} from "../koluRoot.ts";
+import { configureDaemonLog, log as padiLog } from "../log.ts";
+import { setPadiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
   publishDaemonStatus,
   setPadiServeSocketPath,
-} from "./ptyHost/daemonStatus.ts";
-import { ensureLocalEndpoint, setSpawnServerVersion } from "./ptyHost/index.ts";
-import { publisher } from "./publisher.ts";
-import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { saveSession, setSavedSessionFromSnapshot } from "./session.ts";
+} from "../ptyHost/daemonStatus.ts";
+import {
+  ensureLocalEndpoint,
+  setSpawnServerVersion,
+} from "../ptyHost/index.ts";
+import { publisher } from "../publisher.ts";
+import { buildPadiSurfaceDeps } from "../servePadi.ts";
+import {
+  saveSession,
+  setSavedSessionFromSnapshot,
+} from "../session/session.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
   resolvePadiStateRoot,
   writeStateRootManifest,
-} from "./stateRoot.ts";
-import { openPadiStateStores } from "./stateStore.ts";
-import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "./surface.ts";
-import { hasParkedTerminals } from "./terminal-registry.ts";
-import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
+} from "../stateRoot.ts";
+import { openPadiStateStores } from "../session/stateStore.ts";
+import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "../surface.ts";
+import { hasParkedTerminals } from "../terminal-registry.ts";
+import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile.ts";
 import {
   adoptSurvivingSession,
   parkSavedSession,
-} from "./terminalEndpoint/reattach.ts";
-import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-import { snapshotSession } from "./terminals.ts";
-import { LOCAL_LOCATION } from "./vocab.ts";
+} from "../terminalEndpoint/reattach.ts";
+import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
+import { snapshotSession } from "../terminals.ts";
+import { LOCAL_LOCATION } from "../vocab.ts";
 
 export interface PadiDaemonOptions {
   /** The state-root to anchor to — padi's identity. Resolved via

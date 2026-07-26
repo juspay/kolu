@@ -40,11 +40,15 @@ import {
   getLastPairedDaemon,
   isReplacedDaemon,
   recordPairedDaemon,
-} from "../pairedDaemon.ts";
+} from "../session/pairedDaemon.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";
-import { reconcile } from "../reconcile.ts";
-import { clearSavedSession, getSavedSession, saveSession } from "../session.ts";
+import { reconcile } from "../session/reconcile.ts";
+import {
+  clearSavedSession,
+  getSavedSession,
+  saveSession,
+} from "../session/session.ts";
 import { getTerminal } from "../terminal-registry.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";

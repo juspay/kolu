@@ -58,7 +58,7 @@ import { mountStreamRetry } from "./connect.ts";
 import { guardedMcpConnect } from "./mcp.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-const PADI_BIN = resolve(SRC, "../../padi/src/bin.ts");
+const PADI_BIN = resolve(SRC, "../../padi/src/daemonBoot/bin.ts");
 const KOLU_MAIN = resolve(SRC, "main.ts");
 const TSX_LOADER = pathToFileURL(
   createRequire(import.meta.url).resolve("tsx"),

@@ -9,7 +9,7 @@
  * the key.
  *
  * padi has TWO entry roots that both count toward "what a restart would load":
- * the **process** (`bin.ts` → `daemonMain.ts`) and the **library barrel**
+ * the **process** (`daemonBoot/bin.ts` → `daemonBoot/daemonMain.ts`) and the **library barrel**
  * (`assembly.ts`, the single seam kolu-server still imports). The union of their
  * closures must equal the nix-hashed set.
  *
@@ -29,12 +29,15 @@ import { fileURLToPath } from "node:url";
 import { parse } from "@babel/parser";
 import { describe, expect, it } from "vitest";
 
-const SRC = dirname(fileURLToPath(import.meta.url)); // packages/padi/src
+const SRC = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // packages/padi/src
 const PKGS = resolve(SRC, "../.."); // packages/
 
 // The two entry roots — the process and the library barrel. Their union is "all
 // the code a padi restart would load".
-const ENTRIES = [resolve(SRC, "bin.ts"), resolve(SRC, "assembly.ts")];
+const ENTRIES = [
+  resolve(SRC, "daemonBoot/bin.ts"),
+  resolve(SRC, "assembly.ts"),
+];
 
 // The hashed roots: every workspace package whose `src` runs IN padi's process.
 // name -> package dir (relative to `packages/`). MIRRORS default.nix's `padiSrc`
