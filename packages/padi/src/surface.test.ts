@@ -47,7 +47,11 @@ describe("padiSurface contract", () => {
     // ports padi's port sensor attributes to each terminal (PRT1). A new required
     // field on an emitted value, so the same rule applies: the emitted SHAPE
     // changed, therefore the version says so.
-    expect(PADI_SURFACE_VERSION).toBe("4.2");
+    // 4.3 (minor): `PortInfo` traded `wildcard: boolean` for the three-way
+    // `scope` (PRT2) — a RESHAPED field rather than an additive one, still a
+    // minor because the version gate drains a straddling padi in BOTH
+    // directions before either parser meets the other's frame. See surface.ts.
+    expect(PADI_SURFACE_VERSION).toBe("4.3");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,

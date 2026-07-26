@@ -12,6 +12,7 @@
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   PortInfo,
+  PortScope,
   TerminalEvent,
   TerminalId,
   TerminalPorts,
@@ -27,10 +28,15 @@ import {
 
 const silent = pino({ level: "silent" });
 
-const p = (port: number, wildcard = true): PortInfo => ({
+const p = (
+  port: number,
+  scope: PortScope = "any",
+  family: "v4" | "v6" = "v4",
+): PortInfo => ({
   port,
   name: "node",
-  wildcard,
+  scope,
+  family,
 });
 
 // The consume loop delivers each publish on a microtask, so a macrotask hop drains
@@ -139,16 +145,16 @@ describe("the port sensor", () => {
     // A dev server restarted with `--host` keeps its number but stops needing a
     // forward. A port-number-only comparison would leave the chip inert forever.
     const h = harness();
-    await h.scan([p(5173, false)]);
-    await h.scan([p(5173, true)]);
+    await h.scan([p(5173, "loopback")]);
+    await h.scan([p(5173, "any")]);
     expect(h.emitted).toHaveLength(2);
     h.stop();
   });
 
   it("emits when only the process NAME changes", async () => {
     const h = harness();
-    await h.scan([{ port: 3000, name: "node", wildcard: true }]);
-    await h.scan([{ port: 3000, name: "workerd", wildcard: true }]);
+    await h.scan([{ port: 3000, name: "node", scope: "any", family: "v4" }]);
+    await h.scan([{ port: 3000, name: "workerd", scope: "any", family: "v4" }]);
     expect(h.emitted).toHaveLength(2);
     h.stop();
   });

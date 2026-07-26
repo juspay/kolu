@@ -44,6 +44,7 @@ import {
   type ReadonlySignal,
   signal,
 } from "@preact/signals-core";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { SiblingRead, SurfaceSpec } from "./define";
 import {
   DERIVED_CELL_BRAND,
@@ -156,6 +157,20 @@ export interface PollSourceOptions<T> {
   /** Install the tick cadence: called once after the seed lands, handed a `tick`
    *  that triggers a guarded re-read. Return an uninstall fn (or nothing). */
   install: (tick: () => void) => SourceCleanup;
+  /** What to call this source in a loop-guard error. Diagnostics only — it
+   *  changes no behaviour, and it is what turns a freeze into a message naming
+   *  the cell rather than a stack in framework code.
+   *
+   *  REQUIRED, and that is the whole of it. The guard exists because a
+   *  self-caused poll loop froze a production server, and an unnamed crash
+   *  reports the class of defect without saying which cell. "Name your poll
+   *  sources" as a convention is a rule held by memory: the next fused cell is
+   *  added by someone who has not read this comment, and the guard then fires
+   *  anonymously on exactly the source nobody expected to loop. A required
+   *  field is a compile error, which is what "no anonymous poll source" has to
+   *  be. (The member key would be the ideal author of it, but it is bound at a
+   *  seam this closure is already built by the time the walk reaches.) */
+  label: string;
 }
 
 /** Whether a graph node is a POLL source (so `derived.cell` wires its async
@@ -291,6 +306,79 @@ export function source<T>(
  *  `unref`'d so a live sampler is not a reason to keep the event loop alive, and
  *  the returned cleanup clears it. This is the one home for the unref'd-interval
  *  hygiene every interval-driven poll source would otherwise re-spell. */
+/** The async context a poll read runs inside, carrying that poll's own identity.
+ *
+ *  This is the whole mechanism of the loop guard, and it replaced a timing
+ *  heuristic that was refuted in both directions. `AsyncLocalStorage` propagates
+ *  across `await`s and promise continuations, so anything the read causes —
+ *  synchronously on its stack, or in the continuations it schedules — observes
+ *  this store. A timer callback, an I/O completion, or another cell's microtask
+ *  burst does NOT: it carries whatever context it was scheduled in.
+ *
+ *  So "was this tick caused by the read it is about to re-trigger?" stops being a
+ *  guess about elapsed milliseconds and becomes a fact about causation. */
+const READ_CONTEXT = new AsyncLocalStorage<object>();
+
+/** How many consecutive SELF-CAUSED ticks make it a loop rather than a
+ *  coincidence. Three, because a read may legitimately cause one edge in passing
+ *  (it wrote something another part of the system watches), while a true cycle
+ *  produces them without bound and reaches three immediately. Deliberately a
+ *  constant and not an option: a threshold a consumer can raise is a threshold
+ *  that gets raised to silence the crash it exists to cause. */
+const SELF_CAUSED_STREAK = 3;
+
+/** TEST-ONLY. Where a loop report goes instead of being thrown.
+ *
+ *  Not a consumer knob and deliberately not a `PollSourceOptions` field: there is
+ *  no per-source setting that can silence this crash. It exists because
+ *  `assertCellConverges` (surface's authoring-time convergence helper) has to be
+ *  able to OBSERVE a loop without taking the test process down with it, and
+ *  because the tests that prove the guard does not fire need something to assert
+ *  emptiness on. Production leaves it null and the guard throws. */
+let testLoopReporter: ((err: Error) => void) | null = null;
+
+/** TEST-ONLY — see {@link testLoopReporter}. Returns the RESTORE for whatever
+ *  was installed before.
+ *
+ *  A restore rather than a "pass null to reset", because `null` was doing two
+ *  jobs — "no reporter installed" and "put it back the way it was" — and the
+ *  second is a claim the caller cannot make: nesting is legitimate (two
+ *  convergence assertions in one process, a helper called from a test that
+ *  installed its own), and a caller that nulled on the way out would disarm a
+ *  reporter it never installed. The inner one finishing would then send the
+ *  outer's loop report down the production path — `queueMicrotask(() => throw)`,
+ *  surfacing as an unhandled rejection attributed to the wrong test, which is
+ *  the hardest possible way to debug the guard that exists to make freezes
+ *  debuggable. */
+export function __setLoopReporterForTests(
+  fn: ((err: Error) => void) | null,
+): () => void {
+  const prior = testLoopReporter;
+  testLoopReporter = fn;
+  return () => {
+    testLoopReporter = prior;
+  };
+}
+
+/** Say it, loudly. Default is a throw on its own turn — an unbounded cycle must
+ *  be a crash with a stack, not a process that stops answering. */
+function reportSelfCausedLoop(label: string): void {
+  const err = new Error(
+    `surface reactor: the poll source "${label}" is re-reading itself — ${SELF_CAUSED_STREAK} ` +
+      "consecutive re-reads were triggered by a change edge fired from inside this source's OWN read " +
+      "(same async context), which is an unbounded cycle (it froze a production server: HTTP dead, " +
+      "SIGTERM ignored). Report the reconciled value by RETURNING it — the poll publishes what the " +
+      "read returns.",
+  );
+  if (testLoopReporter !== null) {
+    testLoopReporter(err);
+    return;
+  }
+  queueMicrotask(() => {
+    throw err;
+  });
+}
+
 export function everyMs(ms: number): (tick: () => void) => SourceCleanup {
   return (tick) => {
     const iv = setInterval(tick, ms);
@@ -347,9 +435,34 @@ export function everyMsOr(
  *  source it has no per-occurrence `subscribe` (a poll level has no per-emission
  *  meaning — it is sampled), so it is not a `scan` input; it is published
  *  directly as a cell (or a collection). */
-function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
+function pollSource<T>({
+  read,
+  install,
+  label,
+}: PollSourceOptions<T>): PollSource<T> {
   const level = signal<T | undefined>(undefined);
   let inFlight = false;
+  // ── The self-caused-tick loop guard ──────────────────────────────────
+  //
+  // A poll on a FUSED cadence (`everyMsOr`) re-reads on an edge as well as a
+  // clock. A read that ANNOUNCES on that same edge closes a circle the reactor
+  // will execute forever — read → announce → tick → read — and the failure mode
+  // is a whole-process freeze that outranks SIGTERM. It happened in production.
+  //
+  // The question is CAUSATION, and it is asked directly rather than inferred:
+  // every read runs inside {@link READ_CONTEXT} carrying this source's own
+  // token, so a tick that fires while that store is visible was caused by this
+  // read — on its stack or in a continuation it scheduled. A timer, an I/O
+  // completion, another cell's microtask burst: different context, never counted.
+  //
+  // The first version of this guard asked about TIMING and value-equality
+  // instead, and was refuted both ways: a healthy poll slower than its interval
+  // crashed (every coalesced trailing read looked "immediate"), while measuring
+  // laps instead would have missed the real freeze (a self-loop's lap is just its
+  // read duration). Timing is a proxy for causation; this is causation.
+  const identity = {};
+  let selfCausedStreak = 0;
+  let looped = false;
   // A tick that arrived while a read was in flight LATCHES here instead of being
   // dropped — the non-overlap guard coalesces a burst, but a trailing read after
   // the current one lands so a genuine change edge (a `install` force-resample) is
@@ -379,14 +492,43 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
   // guard but NON-fatal here. Without it a publisher throw would become an UNHANDLED
   // rejection, since nothing awaits this chain.
   const tickRead = (set: (next: T) => void): void => {
-    if (disposed) return;
+    if (disposed || looped) return;
+    // Was this tick caused by THIS source's own read? Asked at the moment the
+    // tick arrives, because that is when its async context is the caller's.
+    // Note it is asked BEFORE the coalescing return: a self-caused tick that
+    // lands mid-read is exactly the cycle's signature, and the trailing read it
+    // schedules is the next lap.
+    if (READ_CONTEXT.getStore() === identity) {
+      selfCausedStreak += 1;
+      if (selfCausedStreak >= SELF_CAUSED_STREAK) {
+        looped = true;
+        reportSelfCausedLoop(label);
+        return;
+      }
+    } else {
+      // Any tick the world caused resets the run: a cycle is CONSECUTIVE
+      // self-causation, and a source that also receives real edges is alive.
+      selfCausedStreak = 0;
+    }
+    runRead(set);
+  };
+
+  /** Do the read. Separate from {@link tickRead} because the COALESCED trailing
+   *  read is dispatched from our own `.finally` — it is the continuation of a
+   *  tick already accounted for, not a new one, and running it through the
+   *  accounting would reset the self-caused run on every lap (which is exactly
+   *  what a cycle does, so the guard would never fire). */
+  const runRead = (set: (next: T) => void): void => {
+    if (disposed || looped) return;
     if (inFlight) {
       dirty = true; // coalesce; a trailing read runs when the current one finishes
       return;
     }
     inFlight = true;
     Promise.resolve()
-      .then(() => read(connSignal))
+      // Inside the source's own context, so anything this read causes — now or
+      // in a continuation — is attributable to it.
+      .then(() => READ_CONTEXT.run(identity, () => read(connSignal)))
       .then((v) => {
         if (disposed) return;
         level.value = v;
@@ -407,7 +549,7 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
         // so a change is never lost to the non-overlap guard.
         if (dirty && !disposed) {
           dirty = false;
-          tickRead(set);
+          runRead(set);
         }
       });
   };
@@ -464,7 +606,7 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
         // then serves its spec DEFAULT for the process's life — no retry. Keep a poll
         // `read` TOTAL (catch transient errors → best-effort/last value); reserve a throw
         // for a DETERMINISTIC boot defect that genuinely SHOULD be fatal.
-        const seed = await read(signal);
+        const seed = await READ_CONTEXT.run(identity, () => read(signal));
         inFlight = false;
         // Disposed mid-seed (the runtime closed before the first read landed): tear the
         // cadence down and publish nothing — hand back a no-op disposer.

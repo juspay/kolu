@@ -73,8 +73,8 @@
  * processes), which is the number to beat, not to trust blindly.
  *
  * A maintained tool was researched rather than assumed away: `procs` **discards the
- * bind address** (a hard functional failure here — loopback and wildcard become the
- * same row) and costs ~30 ms; `osquery` is ~378 ms and not packaged for darwin;
+ * bind address** (a hard functional failure here — a loopback and an any-address
+ * bind become the same row) and costs ~30 ms; `osquery` is ~378 ms and not packaged for darwin;
  * `rustnet` needs capture privileges. The decided end state is a small
  * `sysinfo`+`listeners` Rust wrapper shared with drishti, behind a proof gate — the
  * Atlas note records the gate and why this helper ships first.
@@ -169,7 +169,7 @@
  * against `lsof` for all four bind shapes at once — `127.0.0.1`, `0.0.0.0`, `::1`,
  * and a DUAL-STACK `::` socket (`ipv6Only: false`). That last one is the case worth
  * naming: the helper's `insi_vflag & INI_IPV4` branch collapses it to its 4-byte v4
- * form, so `isAnyAddress` calls it reachable and lsof agrees (`*:19304`). A reader
+ * form, so `addressBind` calls it `any` and lsof agrees (`*:19304`). A reader
  * without that branch would report a 16-byte address there and the two would part
  * ways on exactly the case the v4-mapped arm exists for.
  */
@@ -179,8 +179,8 @@ import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Logger } from "@kolu/log";
-import { foldPorts } from "./ports.ts";
-import type { PortInfo } from "./ports.ts";
+import { foldPorts, isTcpPort } from "./ports.ts";
+import type { PortFamily, PortInfo, PortScope } from "./ports.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -296,7 +296,8 @@ export function partitionSubtrees(
  *  its own key and hands the join a plain per-pid list. */
 interface Listener {
   port: number;
-  wildcard: boolean;
+  scope: PortScope;
+  family: PortFamily;
 }
 
 // ── What a platform must answer, and the ONE join over it ───────────────
@@ -339,7 +340,7 @@ async function joinSubtreePorts(
       // Built field by field, not spread: a reader's own key (the socket inode,
       // the owning pid) is its business and must not ride out on the wire value.
       for (const l of held)
-        rows.push({ port: l.port, wildcard: l.wildcard, name });
+        rows.push({ port: l.port, scope: l.scope, family: l.family, name });
     }
     out.set(rootPid, foldPorts(rows));
   }
@@ -389,8 +390,8 @@ export function decodeProcAddress(hex: string): number[] {
  *  uses. Running helper output through the `/proc` decoder would swap bytes that
  *  need no swapping and turn `127.0.0.1` into `1.0.0.127` — a SPECIFIC address either
  *  way, so it would not throw; it would quietly mis-classify. Two decoders, ONE judge
- *  ({@link isAnyAddress}) keeps the byte-order difference local and the reachability
- *  decision shared. */
+ *  ({@link addressBind}) keeps the byte-order difference local and the
+ *  reachability decision shared. */
 export function decodeNetworkAddress(hex: string): number[] {
   if ((hex.length !== 8 && hex.length !== 32) || !/^[0-9A-Fa-f]+$/.test(hex)) {
     throw new PortScanError(
@@ -405,26 +406,79 @@ export function decodeNetworkAddress(hex: string): number[] {
   return bytes;
 }
 
-/** Is this the ANY address — `0.0.0.0`, `::`, or the v4-mapped `::ffff:0.0.0.0`?
- *  The v4-mapped arm is not hypothetical: a Node server that binds `0.0.0.0` on
- *  a dual-stack box is commonly reported in `tcp6` in exactly that form, and
- *  reading it as a specific address would offer a needless forward for a port
- *  that already answers.
+/** The 4 bytes an IPv6 address carries a v4 address in when it is v4-MAPPED
+ *  (`::ffff:a.b.c.d`), or `undefined` when it is not that shape. A Node server
+ *  that binds `0.0.0.0` on a dual-stack box is commonly reported in `tcp6` in
+ *  exactly this form, so a reader without this arm classifies a reachable
+ *  wildcard as needing a forward. */
+function mappedV4(bytes: readonly number[]): readonly number[] | undefined {
+  if (bytes.length !== 16) return undefined;
+  if (!bytes.slice(0, 10).every((b) => b === 0)) return undefined;
+  if (bytes[10] !== 0xff || bytes[11] !== 0xff) return undefined;
+  return bytes.slice(12);
+}
+
+/** WHERE a socket is bound, as the one classification both platforms share —
+ *  the SINGLE judge behind every reachability decision downstream.
  *
- *  Over BYTES, so this one arm answers for every spelling either platform
- *  produces: `/proc`'s host-order hex on linux and the helper's network-order hex on
- *  darwin. There is deliberately no second, text-shaped predicate — an earlier
- *  revision had one and the two disagreed about exactly the case the paragraph above
- *  exists for, so darwin classified a reachable v4-mapped wildcard as needing a
- *  forward. */
-export function isAnyAddress(bytes: readonly number[]): boolean {
-  if (bytes.every((b) => b === 0)) return true;
-  return (
-    bytes.length === 16 &&
-    bytes.slice(0, 10).every((b) => b === 0) &&
-    bytes[10] === 0xff &&
-    bytes[11] === 0xff &&
-    bytes.slice(12).every((b) => b === 0)
+ *  Over BYTES, so this one function answers for every spelling either platform
+ *  produces: `/proc`'s host-order hex on linux and the helper's network-order hex
+ *  on darwin. There is deliberately no second, text-shaped predicate — an earlier
+ *  revision had one and the two disagreed about exactly the v4-mapped case, so
+ *  darwin classified a reachable v4-mapped wildcard as needing a forward.
+ *
+ *  It answers BOTH questions a forward needs, and they are different questions:
+ *  `scope` decides whether a door is needed at all, `family` decides what that
+ *  door dials. Both were learned the hard way, one per shipped defect:
+ *
+ *   - The `interface` arm replaced a `wildcard: boolean` that folded "bound to
+ *     `192.168.1.5`" in with "bound to `127.0.0.1`". They want opposite handling:
+ *     both mechanisms dial the far side's loopback, so an interface bind is
+ *     reachable at THAT address and by no door kolu can open.
+ *   - `family` exists because the first cut of `scope` folded `127.0.0.1` and
+ *     `::1` into one `loopback`, and BOTH mechanisms then dialled v4. A dev
+ *     server on `[::1]:5173` got a tunnel that came up perfectly and served
+ *     nothing — the door was open onto an address with no listener behind it.
+ *
+ *  Both defects have the same shape, which is why they are called out together:
+ *  a fact the OS gave us was collapsed below what the consumer needed, and the
+ *  collapse was invisible until something dialled the answer. */
+export function addressBind(bytes: readonly number[]): {
+  scope: PortScope;
+  family: PortFamily;
+} {
+  // A v4-MAPPED address (`::ffff:a.b.c.d`) is judged as the v4 address it
+  // carries, in BOTH answers: the socket is AF_INET6, but a v4 dial reaches it,
+  // and the dial is what the family exists to decide.
+  const mapped = mappedV4(bytes);
+  const v4 = bytes.length === 4 ? bytes : mapped;
+  if (v4 !== undefined) {
+    // `0.0.0.0` / the mapped wildcard · the whole `127.0.0.0/8` (a resolver stub
+    // on `127.0.0.53` is loopback too) · anything else is one real interface.
+    const scope = v4.every((b) => b === 0)
+      ? "any"
+      : v4[0] === 127
+        ? "loopback"
+        : "interface";
+    return { scope, family: "v4" };
+  }
+  if (bytes.length === 16) {
+    if (bytes.every((b) => b === 0)) return { scope: "any", family: "v6" };
+    const isV6Loopback =
+      bytes.slice(0, 15).every((b) => b === 0) && bytes[15] === 1;
+    return {
+      scope: isV6Loopback ? "loopback" : "interface",
+      family: "v6",
+    };
+  }
+  // A width neither decoder produces — they refuse anything but 4 or 16 bytes.
+  // It THROWS rather than answering: this is the single judge behind every
+  // reachability decision downstream, and inventing a bind observation for an
+  // impossible input is a fabricated fact wearing the shape of a measurement.
+  // The house rule is the same one the blind-scan arm follows — crash loudly
+  // rather than degrade into a plausible-looking answer nothing can check.
+  throw new Error(
+    `port-scan: a bind address of ${bytes.length} bytes is neither v4 nor v6 — the decoders cannot produce this.`,
   );
 }
 
@@ -471,7 +525,7 @@ export function parseProcNetTcp(body: string): ProcListener[] {
       );
     }
     const port = Number.parseInt(local.slice(split + 1), 16);
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    if (!isTcpPort(port)) {
       throw new PortScanError(
         "blind",
         `port scan: "${local}" carries no valid port in a /proc/net/tcp row`,
@@ -479,7 +533,7 @@ export function parseProcNetTcp(body: string): ProcListener[] {
     }
     listeners.push({
       port,
-      wildcard: isAnyAddress(decodeProcAddress(local.slice(0, split))),
+      ...addressBind(decodeProcAddress(local.slice(0, split))),
       inode: cols[9]!,
     });
   }
@@ -806,8 +860,8 @@ export interface HelperReading {
  *  `<name>` is last because it may contain spaces (the helper strips tabs from it,
  *  so arity is fixed). The address is the RAW bind bytes as hex — 8 chars for v4,
  *  32 for v6 — decoded by {@link decodeProcAddress} and judged by
- *  {@link isAnyAddress}, the SAME two functions the linux `/proc` reader uses. That
- *  is the point of moving hex rather than a boolean across this boundary: one
+ *  {@link addressBind}, the SAME two functions the linux `/proc` reader uses. That
+ *  is the point of moving hex rather than a tag across this boundary: one
  *  classifier, so the two platforms cannot come to disagree about
  *  `::ffff:0.0.0.0`.
  *
@@ -871,7 +925,7 @@ export function parseHelperOutput(body: string): HelperReading {
           `port scan: helper listener row has a non-numeric pid: ${line}`,
         );
       }
-      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      if (!isTcpPort(port)) {
         throw new PortScanError(
           "blind",
           `port scan: helper listener row carries no valid port: ${line}`,
@@ -879,7 +933,7 @@ export function parseHelperOutput(body: string): HelperReading {
       }
       listeners.push({
         port,
-        wildcard: isAnyAddress(decodeNetworkAddress(f[3]!)),
+        ...addressBind(decodeNetworkAddress(f[3]!)),
         pid,
       });
       continue;

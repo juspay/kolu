@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 470" font-family="ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="ofA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a6ea5"/>
+    </marker>
+    <marker id="ofP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#6d4fa3"/>
+    </marker>
+  </defs>
+
+  <!-- consumers -->
+  <rect x="30" y="30" width="220" height="96" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="46" y="54" font-size="13" font-weight="700" fill="#1b7a3a">kolu (padi)</text>
+  <text x="46" y="74" font-size="11" fill="#1a1c20">port-scan · memorySampler</text>
+  <text x="46" y="90" font-size="11" fill="#1a1c20">socketHolder · supervisor</text>
+  <text x="46" y="112" font-size="10.5" fill="#54785f">TSV hot path, seconds-scale polls</text>
+
+  <rect x="270" y="30" width="180" height="96" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="286" y="54" font-size="13" font-weight="700" fill="#1b7a3a">drishti</text>
+  <text x="286" y="74" font-size="11" fill="#1a1c20">process inspection</text>
+  <text x="286" y="90" font-size="11" fill="#8a8574">(today: hand-rolled lsof)</text>
+
+  <rect x="470" y="30" width="220" height="96" rx="10" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="486" y="54" font-size="13" font-weight="700" fill="#1a1c20">anyone's script</text>
+  <text x="486" y="76" font-size="10.5" font-family="ui-monospace,monospace" fill="#1a1c20">osfacts snapshot --json | jq</text>
+  <text x="486" y="94" font-size="10.5" fill="#8a8574">same facts, human-readable</text>
+
+  <!-- arrows down to osfacts -->
+  <line x1="140" y1="126" x2="240" y2="186" stroke="#3a6ea5" stroke-width="1.6" marker-end="url(#ofA)"/>
+  <line x1="360" y1="126" x2="360" y2="186" stroke="#3a6ea5" stroke-width="1.6" marker-end="url(#ofA)"/>
+  <line x1="580" y1="126" x2="480" y2="186" stroke="#3a6ea5" stroke-width="1.6" marker-end="url(#ofA)"/>
+  <text x="372" y="162" font-size="10.5" fill="#5b7ea5">one versioned contract</text>
+
+  <!-- osfacts -->
+  <rect x="120" y="190" width="480" height="118" rx="10" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.8"/>
+  <text x="138" y="215" font-size="14" font-weight="700" fill="#3a6ea5">osfacts — one static Rust binary</text>
+  <text x="138" y="238" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">snapshot --roots &lt;pids&gt; --procs --ports --mem --start-time</text>
+  <text x="138" y="256" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">socket-holders &lt;path&gt;</text>
+  <text x="138" y="280" font-size="11" fill="#1a1c20">versioned TSV / --json · raw address bytes · scoped to the ask</text>
+  <text x="138" y="297" font-size="11" fill="#8a5b34">mandatory unreadable section — blindness is output, not absence</text>
+
+  <!-- arrows to platforms -->
+  <line x1="250" y1="308" x2="200" y2="352" stroke="#6d4fa3" stroke-width="1.6" marker-end="url(#ofP)"/>
+  <line x1="470" y1="308" x2="520" y2="352" stroke="#6d4fa3" stroke-width="1.6" marker-end="url(#ofP)"/>
+
+  <!-- platforms -->
+  <rect x="60" y="356" width="280" height="76" rx="10" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="76" y="380" font-size="12.5" font-weight="700" fill="#6d4fa3">linux — one /proc pass</text>
+  <text x="76" y="400" font-size="11" fill="#1a1c20">subtree descent via task/children</text>
+  <text x="76" y="416" font-size="10.5" fill="#7a6b93">never the whole pid table when scoped</text>
+
+  <rect x="380" y="356" width="280" height="76" rx="10" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="396" y="380" font-size="12.5" font-weight="700" fill="#6d4fa3">darwin — one libproc pass</text>
+  <text x="396" y="400" font-size="11" fill="#1a1c20">proc_listpids → pidinfo → pidfdinfo</text>
+  <text x="396" y="416" font-size="10.5" fill="#7a6b93">~10 ms proven (C helper, portview)</text>
+</svg>

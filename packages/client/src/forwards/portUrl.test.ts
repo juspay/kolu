@@ -1,18 +1,11 @@
 /**
- * The Ports section's own two concerns: the URL it builds, and the words it puts
- * on a chip that needs a forward.
- *
- * The DECISION behind that chip is not here — `portReach` lives in the vocabulary
- * (both ends of the wire need it, PRT2's forward manager included) and is tested
- * beside `foldPorts` in `terminal-vocab/src/ports.test.ts`. What remains here is
- * presentation, which is the point of the split: rewording the copy no longer
- * touches the decision, and the decision is no longer observed by regex-matching
- * English.
+ * How a port becomes an address — the ONE builder both the ports section and the
+ * forward rows read, and the bracketing rule that makes an IPv6-served kolu work
+ * at all.
  */
 
 import { describe, expect, it } from "vitest";
-import { FORWARD_REASON, portUrl } from "./PortsSection";
-
+import { portAuthority, portUrl } from "./portUrl";
 describe("portUrl", () => {
   it("builds the URL from the host it was given, never a literal localhost", () => {
     // The whole point of the function is the hostname it does NOT use: kolu's real
@@ -40,11 +33,15 @@ describe("portUrl", () => {
   });
 });
 
-describe("FORWARD_REASON", () => {
-  it("has words for every forward mechanism, and says which is which", () => {
-    // A `Record` over the union makes a missing arm a compile error; this pins that
-    // each arm names its OWN situation rather than sharing one vague sentence.
-    expect(FORWARD_REASON["remote-host"]).toMatch(/remote host/);
-    expect(FORWARD_REASON.loopback).toMatch(/loopback/);
+describe("portAuthority", () => {
+  it("is the half of the URL a row can SHOW as well as link", () => {
+    // The pill renders it and the copy button copies the URL built from it, so
+    // there is one derivation behind both: a row that displays one spelling and
+    // copies another is a row where only one of them works.
+    expect(portAuthority("fd7a:1:2::2", 8123)).toBe("[fd7a:1:2::2]:8123");
+    expect(portAuthority("pureintent", 5173)).toBe("pureintent:5173");
+    expect(portUrl("fd7a:1:2::2", 8123)).toContain(
+      portAuthority("fd7a:1:2::2", 8123),
+    );
   });
 });

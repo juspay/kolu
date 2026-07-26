@@ -96,6 +96,18 @@ const WEB_SHELL_FILES = [
   // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
   // ownership; runs no terminal domain), so it lives beside the binder.
   "padi/supervisorClaim",
+  // ── the port-forward arm (packages/server/src/portForward/) ──
+  // PRT2's forward subsystem, isolated the same way the padi arm is: a POLICY
+  // over `@kolu/port-forward`'s map (auto-vs-manual death, "only a real port
+  // observation may close a door"), the port READING the reaper acts on, and the
+  // per-viewer identity RESOLVER (its pure decision table graduated to
+  // `@kolu/surface/viewer-identity` — proxy topology is not a kolu concern). All
+  // web-shell code by construction — the LISTENERS are sockets in THIS process on
+  // THIS machine, and the identity fact is a property of a connection only the
+  // serving process can see. None of it runs terminal domain.
+  "portForward/forwards",
+  "portForward/hostPorts",
+  "portForward/resolveViewerHost",
   // ── the serving shell + true leaves (top-level) ──
   // The web face's boot contract — the ONE flag artifact (cleye schema +
   // derived `KoluBootFlags`), a LEAF importing only kolu-common/config so the
@@ -591,6 +603,9 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       removeHost: async () => {},
       reconnectHost: () => {},
       renewHostDaemon: async () => {},
+      // No viewer identity in a router-shape assertion — `null` is the answer
+      // for every uncertain case anyway.
+      viewerHost: async () => null,
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();

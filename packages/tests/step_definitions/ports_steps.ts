@@ -106,6 +106,20 @@ When(
 );
 
 When(
+  "I start a listener on port {int} bound to the v6 loopback only",
+  async function (this: KoluWorld, port: number) {
+    // `[::1]` and `127.0.0.1` are BOTH loopback and are NOT the same address —
+    // and this is the bind vite and several Node versions choose by default. The
+    // shipped forward dialled `127.0.0.1` unconditionally, so a door for this
+    // listener came up reporting success and refused every connection through
+    // it. Nothing on screen said anything was wrong, which is what makes this
+    // worth a scenario of its own rather than a fixture.
+    await this.terminalRun(listenerCommand(port, "::1"));
+    await waitForListening(this, port, MAIN_PANE);
+  },
+);
+
+When(
   "I start a listener on port {int} in the split terminal",
   async function (this: KoluWorld, port: number) {
     // A split is its own PTY with its own process subtree, so its ports are
@@ -135,19 +149,96 @@ When("I stop the listener", async function (this: KoluWorld) {
 interface PortsView {
   present: boolean;
   rows: Array<{ port: number; openable: boolean }>;
+  /** Ports offering a "forward & open" button — PRT2's affordance on a port that
+   *  needs a door before there is anything to point a tab at. Separate from
+   *  `openable`, because the two are different offers and a row must make exactly
+   *  one of them. */
+  forwardable: number[];
+  /** Ports whose chip carries a `⇄ :N` badge, with the local port it names. */
+  badges: Array<{ port: number; localPort: number }>;
 }
 
 async function portsView(world: KoluWorld): Promise<PortsView> {
   return world.page.evaluate(() => {
     const section = document.querySelector('[data-testid="inspector-ports"]');
-    if (section === null) return { present: false, rows: [] };
+    if (section === null)
+      return { present: false, rows: [], forwardable: [], badges: [] };
+    // Read ROW BY ROW rather than by scanning every `[data-port]` in the
+    // section: the merged section carries that attribute on the row AND on the
+    // controls inside it, so a flat scan would report one port several times and
+    // "is it openable?" could be answered by whichever element came first. Per
+    // row, each question has exactly one answer.
+    const rows = [
+      ...section.querySelectorAll('[data-testid="inspector-port-row"]'),
+    ];
+    // NO named helper inside this closure, deliberately. `page.evaluate` ships
+    // the function's SOURCE to the browser, and esbuild's `keepNames` rewrites a
+    // named arrow (`const pick = …`) into `__name(…, "pick")` — a helper that
+    // exists in the bundle but not in the page, so the call dies with
+    // `ReferenceError: __name is not defined` at runtime and no amount of
+    // type-checking sees it. Anonymous callbacks passed straight to `map`/
+    // `filter` are untouched, so the queries are inlined instead.
     return {
       present: true,
-      rows: [...section.querySelectorAll("[data-port]")].map((el) => ({
-        port: Number(el.getAttribute("data-port")),
-        openable: el.getAttribute("data-testid") === "inspector-port-open",
+      rows: rows.map((row) => ({
+        port: Number(row.getAttribute("data-port")),
+        openable:
+          row.querySelector('[data-testid="inspector-port-open"]') !== null,
       })),
+      forwardable: rows
+        .filter(
+          (row) =>
+            row.querySelector('[data-testid="inspector-port-forward-open"]') !==
+            null,
+        )
+        .map((row) => Number(row.getAttribute("data-port"))),
+      badges: rows
+        .filter(
+          (row) =>
+            row.querySelector(
+              '[data-testid="inspector-port-forward-badge"]',
+            ) !== null,
+        )
+        .map((row) => {
+          const port = Number(row.getAttribute("data-port"));
+          const text =
+            row.querySelector('[data-testid="inspector-port-forward-badge"]')
+              ?.textContent ?? "";
+          // The LAST `:digits`, because the pill carries a whole address and an
+          // IPv6-served kolu puts colons in the host half (`[fd7a::2]:61003`).
+          const named = /:(\d+)$/.exec(text.trim())?.[1];
+          // The pill always names the port the door answers on — a bare `⇄`
+          // answered no question ("forwarded WHERE?"), which is why the approved
+          // UX pass gave it the number. An absent number is therefore the markup
+          // regressing, so this reports the row's own port and lets the caller's
+          // "the door is a DIFFERENT number" assertion catch it.
+          return {
+            port,
+            localPort: named === undefined ? port : Number(named),
+          };
+        }),
     };
+  });
+}
+
+/** The forward state carried by rows of the ONE ports section.
+ *
+ *  There used to be a second titled "Forwarded Ports" group, and a forwarded
+ *  port appeared in BOTH — once as a chip and again as a row. The merge means a
+ *  forwarded port is one row that carries its own forward controls, so this
+ *  reads the ports section rather than a separate group. */
+async function forwardRows(
+  world: KoluWorld,
+): Promise<Array<{ port: number; origin: string }>> {
+  return world.page.evaluate(() => {
+    const section = document.querySelector('[data-testid="inspector-ports"]');
+    if (section === null) return [];
+    return [...section.querySelectorAll('[data-forwarded="yes"]')].map(
+      (el) => ({
+        port: Number(el.getAttribute("data-port")),
+        origin: el.getAttribute("data-origin") ?? "",
+      }),
+    );
   });
 }
 
@@ -199,6 +290,13 @@ Then(
       false,
       `port ${port} is loopback-bound, so it must not offer a direct open`,
     );
+    // …and it must offer the door instead. Asserting only the ABSENCE of a direct
+    // open would pass just as well against a row that offers nothing at all,
+    // which is what PRT1 shipped and PRT2 replaced.
+    assert.ok(
+      view.forwardable.includes(port),
+      `port ${port} is loopback-bound, so it must offer "forward & open"; forwardable was ${JSON.stringify(view.forwardable)}`,
+    );
   },
 );
 
@@ -236,5 +334,168 @@ Then(
     assert.strictEqual(await link.getAttribute("target"), "_blank");
     // The security posture rides on the element, so it is worth pinning too.
     assert.strictEqual(await link.getAttribute("rel"), "noopener noreferrer");
+  },
+);
+
+// ── PRT2: the door, opened for real ────────────────────────────────────
+//
+// Only the RELAY case runs here, and that is a scoping decision rather than a
+// gap: both ends of a relay are on the machine the suite already has, while an
+// `ssh -L` forward needs a second box (the remote-host-testing harness's job).
+// Standing in for one with a loopback ssh hop would exercise a different code
+// path from the one it claimed to cover.
+
+/** How long a forward gets to come up. A relay is two socket calls, so this is
+ *  generous — sized for a loaded CI box, not for a mechanism that is slow. */
+const FORWARD_TIMEOUT = 15_000;
+
+When(
+  "I click forward-and-open for port {int}",
+  async function (this: KoluWorld, port: number) {
+    const button = this.page.locator(
+      `[data-testid="inspector-port-forward-open"][data-port="${port}"]`,
+    );
+    await button.waitFor({ state: "visible", timeout: PORT_SCAN_TIMEOUT });
+    // The tab is claimed inside the click (before the forward is awaited), so the
+    // popup event fires immediately and its URL is set once the door is up. Arm
+    // the wait BEFORE clicking or the event is already gone.
+    const popup = this.context.waitForEvent("page", {
+      timeout: FORWARD_TIMEOUT,
+    });
+    await button.click();
+    this.externalPopup = await popup;
+  },
+);
+
+Then(
+  "the forwarded tab should load the listener's page",
+  async function (this: KoluWorld) {
+    const popup = this.externalPopup;
+    assert.ok(popup, "no forwarded tab was captured");
+    // The listener's OWN body, through a port it never bound — which is the only
+    // thing that can distinguish a working relay from a chip that merely rendered
+    // a plausible URL.
+    await pollFor({
+      observe: async () => {
+        try {
+          return await popup.evaluate(() => document.body?.textContent ?? "");
+        } catch {
+          // Mid-navigation: the execution context is being replaced.
+          return "";
+        }
+      },
+      isDone: (body) => body.includes("ok"),
+      timeoutMs: FORWARD_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `The forwarded tab never showed the listener's body within ${elapsedMs}ms — ` +
+            `it is at ${popup.url()} showing ${JSON.stringify(last)}`,
+        ),
+    });
+    // The URL must be the page's own host on a DIFFERENT port from the one the
+    // server bound: a relay that answered on the server's own number would mean
+    // the forward did nothing and the loopback port was reachable all along.
+    const url = new URL(popup.url());
+    const hostname = await this.page.evaluate(() => window.location.hostname);
+    assert.strictEqual(url.hostname, hostname.replace(/^\[|\]$/g, ""));
+    this.forwardedUrl = popup.url();
+  },
+);
+
+Then(
+  "the inspector should show a forward badge for port {int}",
+  async function (this: KoluWorld, port: number) {
+    const view = await pollFor({
+      observe: () => portsView(this),
+      isDone: (v) => v.badges.some((b) => b.port === port),
+      timeoutMs: FORWARD_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `Expected a ⇄ badge on port ${port} within ${elapsedMs}ms; ${describeView(last)}`,
+        ),
+    });
+    const badge = view.badges.find((b) => b.port === port);
+    assert.ok(badge, `no badge for port ${port}`);
+    // The badge names the DOOR's port, not the server's. Reading the same number
+    // back would mean the row is telling the user to visit a port that answers
+    // only on the server's own loopback.
+    assert.notStrictEqual(
+      badge.localPort,
+      port,
+      `the badge names port ${port}, the same one the server bound — a relay must listen on a different number`,
+    );
+    assert.ok(badge.localPort > 0, "the badge names no local port");
+  },
+);
+
+Then(
+  "the ports section should show port {int} as forwarded",
+  async function (this: KoluWorld, port: number) {
+    const rows = await pollFor({
+      observe: () => forwardRows(this),
+      isDone: (r) => r.some((row) => row.port === port),
+      timeoutMs: FORWARD_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `Expected port ${port} in Forwarded Ports within ${elapsedMs}ms; saw ${JSON.stringify(last)}`,
+        ),
+    });
+    // Opened by clicking a chip, so kolu owns its lifetime: `auto` is what lets
+    // the scanner close it when the listener dies.
+    assert.strictEqual(rows.find((r) => r.port === port)?.origin, "auto");
+  },
+);
+
+Then(
+  "the ports section should no longer show port {int} as forwarded",
+  async function (this: KoluWorld, port: number) {
+    await pollFor({
+      observe: () => forwardRows(this),
+      isDone: (rows) => !rows.some((row) => row.port === port),
+      timeoutMs: FORWARD_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `Expected port ${port} to leave Forwarded Ports within ${elapsedMs}ms; saw ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+When(
+  "I cancel the forward for port {int}",
+  async function (this: KoluWorld, port: number) {
+    const cancel = this.page
+      .locator(`[data-testid="forward-cancel"][data-port="${port}"]`)
+      .first();
+    await cancel.waitFor({ state: "visible", timeout: FORWARD_TIMEOUT });
+    await cancel.click();
+  },
+);
+
+Then(
+  "the forwarded port should refuse connections",
+  async function (this: KoluWorld) {
+    const url = this.forwardedUrl;
+    assert.ok(url, "no forwarded URL was recorded");
+    // From NODE, not from the browser: what is being asserted is that the socket
+    // is gone, and a browser could answer from cache or report a network error
+    // for half a dozen unrelated reasons. A row leaving the list is not the
+    // property — the door being shut is.
+    await pollFor({
+      observe: async () => {
+        try {
+          await fetch(url, { signal: AbortSignal.timeout(2_000) });
+          return "answered";
+        } catch {
+          return "refused";
+        }
+      },
+      isDone: (result) => result === "refused",
+      timeoutMs: FORWARD_TIMEOUT,
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `${url} was still answering ${elapsedMs}ms after its forward was cancelled — the listener outlived the row`,
+        ),
+    });
   },
 );

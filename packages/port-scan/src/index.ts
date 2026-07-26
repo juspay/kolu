@@ -14,9 +14,15 @@
 
 export {
   foldPorts,
+  type PortFamily,
+  PortFamilySchema,
   type PortInfo,
   PortInfoSchema,
+  type PortScope,
+  PortScopeSchema,
+  preferredFamily,
   samePortList,
+  widerScope,
 } from "./ports.ts";
 export {
   PortScanError,

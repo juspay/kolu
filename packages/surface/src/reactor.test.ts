@@ -882,6 +882,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     let tick!: () => void;
     let uninstalled = 0;
     const src = source({
+      label: "test source",
       read: () => Promise.resolve(value),
       install: (t) => {
         tick = t;
@@ -915,6 +916,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
 
   it("a poll source's level is honestly T | undefined; the dedicated overload recovers the served T (compile-time)", () => {
     const src = source<number>({
+      label: "test source",
       read: () => Promise.resolve(1),
       install: () => () => {},
     });
@@ -952,6 +954,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
 
   it("first-read failure PROPAGATES — the connect rejects (a boot crash)", async () => {
     const src = source<number>({
+      label: "test source",
       read: () => Promise.reject(new Error("sensor down")),
       install: () => () => {},
     });
@@ -967,6 +970,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
       let mode: "ok" | "boom" = "ok";
       let tick!: () => void;
       const src = source<number>({
+        label: "test source",
         read: () =>
           mode === "ok"
             ? Promise.resolve(5)
@@ -1001,6 +1005,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
       let value = 5;
       let tick!: () => void;
       const src = source<number>({
+        label: "test source",
         read: () => Promise.resolve(value),
         install: (t) => {
           tick = t;
@@ -1047,6 +1052,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     let resolveRead!: (n: number) => void;
     let tick!: () => void;
     const src = source<number>({
+      label: "test source",
       read: () => {
         reads++;
         return new Promise<number>((r) => {
@@ -1091,6 +1097,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
       let val = 5;
       let tick!: () => void;
       const src = source<number>({
+        label: "test source",
         // A THROW-ONLY read is type-compatible; this returns before its Promise.
         read: () => {
           if (mode === "throw") throw new Error("sync boom");
@@ -1137,6 +1144,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     let seeded = false;
     let tick!: () => void;
     const src = source<number>({
+      label: "test source",
       read: () => {
         if (!seeded) {
           seeded = true;
@@ -1177,6 +1185,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     let installed = 0;
     let uninstalled = 0;
     const src = source<number>({
+      label: "test source",
       read: () => Promise.resolve(1),
       install: (t) => {
         installed++;
@@ -1205,6 +1214,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
       let tick!: () => void;
       let seeded = false;
       const src = source<number>({
+        label: "test source",
         read: (signal) => {
           if (!seeded) {
             seeded = true;
@@ -1246,6 +1256,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     let installed = 0;
     let uninstalled = 0;
     const src = source<number>({
+      label: "test source",
       read: () =>
         new Promise<number>((r) => {
           resolveRead = r;
@@ -1276,6 +1287,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     let value = 100;
     let tick!: () => void;
     const src = source({
+      label: "test source",
       read: () => Promise.resolve(value),
       install: (t) => {
         tick = t;
@@ -1331,6 +1343,7 @@ describe("derived.collection — the keyed reconciler", () => {
       collections: {
         items: derived.collection(
           source({
+            label: "test source",
             read: () => Promise.resolve(new Map(table)),
             install: (t) => {
               tick = t;
@@ -1370,6 +1383,7 @@ describe("derived.collection — the keyed reconciler", () => {
       collections: {
         items: derived.collection(
           source({
+            label: "test source",
             read: () => {
               seedStarted = true;
               return Promise.resolve(new Map<string, { n: number }>());
@@ -1395,6 +1409,7 @@ describe("derived.collection — the keyed reconciler", () => {
       collections: {
         items: derived.collection(
           source({
+            label: "test source",
             read: () => Promise.resolve(new Map<string, { n: number }>()),
             install: () => () => {},
           }),
@@ -1429,6 +1444,7 @@ describe("derived.collection — the keyed reconciler", () => {
         collections: {
           items: derived.collection(
             source({
+              label: "test source",
               read: () => Promise.resolve(new Map<string, { n: number }>()),
               install: () => () => {},
             }),
@@ -1447,6 +1463,7 @@ describe("derived.collection — the keyed reconciler", () => {
       collections: {
         items: derived.collection(
           source({
+            label: "test source",
             read: () => Promise.resolve(new Map(table)),
             install: (t) => {
               tick = t;

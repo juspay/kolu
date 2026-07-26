@@ -251,6 +251,7 @@ export function createPortSampler(opts: {
   const node = source<
     ReadonlyMap<TerminalId, { rootPid: number; ports: TerminalPorts }>
   >({
+    label: "terminalPorts",
     // TOTAL by the poll source's contract: a transient failure logs and re-serves
     // the last map, so it can never tear the cadence down. Only a genuinely
     // permanent failure is allowed to propagate out of here.

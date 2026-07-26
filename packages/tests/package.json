@@ -10,7 +10,7 @@
     "kaval-tui": "workspace:*",
     "kolu-common": "workspace:*",
     "kolu-pty": "workspace:*",
-    "playwright": "1.57.0",
+    "playwright": "1.59.0",
     "tsx": "^4.19.0"
   },
   "scripts": {

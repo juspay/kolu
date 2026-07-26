@@ -105,16 +105,35 @@ leaves this pass with exactly one outcome:
   routed to **valve 1**.
 - **Judgment-shaped calls** — routed to **valve 2**.
 
-Each applied fix is its own commit, staging **only** that fix's files (never
-`git add -A`), with the message:
+Commits are grouped **by area, not by finding**, staging **only** that area's
+files (never `git add -A`):
+
+- **One commit per coherent area** for `major` fixes — the port-forward library's
+  mechanism seam, the client's forward rows, the server's subsystem, the build
+  validator. Every major fix belonging to that area rides that one commit, with a
+  bullet per finding in the body.
+- **One commit for ALL `minor` fixes**, across every area:
+  `fix(lens): minor polish from the lens review`, a bullet per finding.
 
 ```
-fix(lens): <the fix's title>
+fix(lens): <the area>
 
-<one-line summary of the change>
+<one-line summary of what changed in this area>
 
-Raised by the <lowy|hickey> lens review (finding <id>). Not pushed or merged.
+- <lowy|hickey> <id> — <the finding, one line>
+- <lowy|hickey> <id> — <the finding, one line>
+
+Raised by the lowy ∥ hickey lens review. Not pushed or merged.
 ```
+
+*Why not one commit per finding* (which this skill used to require): the two
+lenses read a whole diff and mark nearly everything `fix`, because in this repo
+the answer to "is it worth doing in THIS PR" is essentially always yes. That is
+the right disposition and the wrong commit granularity — it turned a 40-finding
+review into a 30-commit log where a real defect and a corrected doc comment
+looked identical. Grouping keeps a major defect individually reviewable and
+revertable, which is the property that actually mattered, without spending a
+commit on every typo.
 
 Never push, never merge. The pass writes its result to
 `<repoPath>/.lens-debate/outcome.md` — per finding: id, origin, title, location,

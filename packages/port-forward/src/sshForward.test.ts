@@ -21,15 +21,29 @@ describe("forwardSpec", () => {
   it("binds the local end on ALL interfaces", () => {
     // `*:` is the whole reason a browser on another machine can reach this;
     // a loopback bind here would make the forward useless.
-    expect(forwardSpec({ localPort: 4123, remotePort: 4123 })).toBe(
-      "*:4123:127.0.0.1:4123",
-    );
+    expect(
+      forwardSpec({ localPort: 4123, remotePort: 4123, loopback: "v4" }),
+    ).toBe("*:4123:127.0.0.1:4123");
   });
 
   it("points the far end at the target host's own loopback", () => {
-    expect(forwardSpec({ localPort: 1, remotePort: 65535 })).toBe(
-      "*:1:127.0.0.1:65535",
-    );
+    expect(
+      forwardSpec({ localPort: 1, remotePort: 65535, loopback: "v4" }),
+    ).toBe("*:1:127.0.0.1:65535");
+  });
+
+  it("dials the V6 loopback when that is what the far end is bound on", () => {
+    // The production defect: a dev server on `[::1]:5173` was forwarded to
+    // `127.0.0.1:5173`, where nothing was listening. The tunnel came up clean
+    // and served nothing at all — the worst available failure, because every
+    // signal said healthy.
+    //
+    // BRACKETED, which is ssh's own syntax for an IPv6 address inside a forward
+    // spec: unbracketed, its colons would be read as the spec's own separators
+    // and ssh would reject the argument outright.
+    expect(
+      forwardSpec({ localPort: 61000, remotePort: 5173, loopback: "v6" }),
+    ).toBe("*:61000:[::1]:5173");
   });
 });
 
@@ -39,6 +53,7 @@ describe("forwardCommandArgs", () => {
     host: "pu-dev",
     localPort: 61000,
     remotePort: 5173,
+    loopback: "v4",
   });
 
   it("opens the tunnel on its own connection", () => {
@@ -156,6 +171,7 @@ function attempt(
     localPort: 4123,
     report,
     spawnSsh,
+    loopback: "v4",
   });
 }
 
@@ -290,6 +306,7 @@ describe("the argv's preconditions", () => {
     host: "pu-dev",
     localPort: 4123,
     remotePort: 5173,
+    loopback: "v4",
   });
   const opt = (name: string): string | undefined =>
     args.find((a) => a.startsWith(`${name}=`));

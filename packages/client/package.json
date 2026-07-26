@@ -18,6 +18,7 @@
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/html-escape": "workspace:*",
     "@kolu/padi": "workspace:*",
+    "@kolu/port-forward": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/solid-browser": "workspace:*",
     "@kolu/solid-fileview": "workspace:*",

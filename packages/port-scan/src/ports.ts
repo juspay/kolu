@@ -13,40 +13,150 @@
 
 import { z } from "zod";
 
+/** What a TCP port IS — the one range every schema and every hand-check in the
+ *  repo means by "a port".
+ *
+ *  Port 0 is the kernel's "any", never a server you can point at, so the floor is
+ *  1 rather than 0. Declared here because this is the OS-vocabulary leaf that
+ *  already owns what a port is, and because the rule was being spelled
+ *  independently at eight sites that had already drifted (`port <= 0` in one,
+ *  `port < 1` in another, `.min(1)` in a third). A range restated is a range that
+ *  will disagree with itself. */
+const TCP_PORT_MIN = 1;
+const TCP_PORT_MAX = 65535;
+
+export const TcpPortSchema = z
+  .number()
+  .int()
+  .min(TCP_PORT_MIN)
+  .max(TCP_PORT_MAX);
+
+/** The same rule as {@link TcpPortSchema}, as a plain predicate — for the
+ *  scanner's parse loop, which asks it once per listening socket on a pass that
+ *  runs down to once a second for the life of every padi. Sharing the
+ *  DECLARATION is the point; running a schema pipeline (and allocating its
+ *  result object) per row is not, and the cost model in the performance note
+ *  measures that function. Both read the same two constants, so there is still
+ *  one home for the range. */
+export function isTcpPort(port: number): boolean {
+  return Number.isInteger(port) && port >= TCP_PORT_MIN && port <= TCP_PORT_MAX;
+}
+
+/** WHERE a listening socket is bound, reduced to the three cases that take
+ *  genuinely different action — never to a boolean.
+ *
+ *   - `any` — `0.0.0.0` / `::` / the v4-mapped `::ffff:0.0.0.0`. It answers on
+ *     every interface of the host that owns it, so it needs no door at all when
+ *     that host is the one serving the UI.
+ *   - `loopback` — `127.0.0.0/8` / `::1` / a v4-mapped loopback. Invisible from
+ *     any other machine (loopback never leaves the box), and forwardable: BOTH
+ *     of `@kolu/port-forward`'s mechanisms connect to `127.0.0.1` on the far
+ *     side, so this is exactly the address they can reach.
+ *   - `interface` — one specific non-loopback address (`192.168.1.5`, a tailnet
+ *     `fd7a:…`). It already answers on THAT interface without a door, and NO
+ *     door can reach it: a relay or an `ssh -L` would dial the far side's
+ *     loopback, where nothing is listening.
+ *
+ *  This started life as `wildcard: boolean` and was reshaped in PRT2, once the
+ *  forward manager became a second consumer. The boolean's `false` arm covered
+ *  the last two cases together, and they want OPPOSITE handling — one is the
+ *  case a forward exists for, the other is the case no forward can serve. A
+ *  boolean therefore had kolu opening a door to nowhere and handing the user a
+ *  refused connection.
+ *
+ *  It is a bind OBSERVATION, not a reachability verdict: whether a port answers
+ *  for a given VIEWER additionally needs to know whose host it is on, which the
+ *  scanner cannot know. That join is `portReach` in kolu's own vocabulary. */
+export const PortScopeSchema = z.enum(["any", "loopback", "interface"]);
+export type PortScope = z.infer<typeof PortScopeSchema>;
+
+/** WHICH IP family a socket is bound on — `127.0.0.1` and `::1` are both
+ *  loopback, and they are NOT the same address.
+ *
+ *  Carried because a forward has to DIAL one of them, and dialling the wrong one
+ *  fails in the worst available way: the door opens, and every connection through
+ *  it is refused at the far end. That is not hypothetical — it is what PRT2
+ *  shipped. A dev server on `[::1]:5173` (vite and several Node versions bind v6
+ *  loopback by default) was forwarded to `127.0.0.1:5173`, where nothing was
+ *  listening, so the tunnel came up healthy and served nothing at all.
+ *
+ *  It is a separate field from {@link PortScopeSchema} rather than four scope
+ *  values because the two answer different questions and only one of them is a
+ *  reachability judgment: `scope` decides WHETHER a door is needed, `family`
+ *  decides WHAT it dials. Folding them would put `loopback-v4` and `loopback-v6`
+ *  into the ordering that `widerScope` defines, where neither is wider.
+ *
+ *  A v4-MAPPED bind (`::ffff:127.0.0.1`) reads as `v4`: the socket is AF_INET6,
+ *  but the address it carries is a v4 one and a v4 dial reaches it. The family
+ *  here is the family of the ADDRESS, which is what a dial needs — not the family
+ *  of the socket, which it does not. */
+export const PortFamilySchema = z.enum(["v4", "v6"]);
+export type PortFamily = z.infer<typeof PortFamilySchema>;
+
+/** The family to dial when one port has binds in both — v4, because a v4 dial
+ *  reaches a v4 listener and a dual-stack one, while a v6 dial reaches neither
+ *  of a v4-only pair. Total and order-independent, like {@link widerScope}. */
+export function preferredFamily(a: PortFamily, b: PortFamily): PortFamily {
+  return a === "v4" || b === "v4" ? "v4" : "v6";
+}
+
+/** How USEFUL each scope is to kolu, most-useful first — the fold's ordering
+ *  when one port has several binds (see {@link foldPorts}).
+ *
+ *  The ranking is about what kolu can DO with the bind, not about how many
+ *  machines could reach it unaided — and those two orders disagree on exactly
+ *  one pair. An `interface` bind reaches more of the network than a loopback
+ *  one, but it is the single scope NO mechanism serves: both the relay and
+ *  `ssh -L` dial the far side's LOOPBACK. So a server bound to both
+ *  `192.168.1.5:5173` and `127.0.0.1:5173` has a door — through the loopback
+ *  bind — and ranking `interface` higher would fold that port to the one scope
+ *  whose row says "no forward can reach it".
+ *
+ *  `any` still subsumes both: it needs no door at all on the kolu host. */
+const SCOPE_RANK: Record<PortScope, number> = {
+  any: 2,
+  loopback: 1,
+  interface: 0,
+};
+
+/** The most reachable of two binds of the same port. Total and order-independent
+ *  — the property {@link foldPorts} rests on. */
+export function widerScope(a: PortScope, b: PortScope): PortScope {
+  return SCOPE_RANK[a] >= SCOPE_RANK[b] ? a : b;
+}
+
 /** One listening TCP port inside a process subtree — "what is this thing
  *  serving?".
  *
- *  Three fields, and deliberately not a fourth: the BIND ADDRESS is reduced to
- *  the one bit a consumer acts on (`wildcard`). What a chip has to decide is
- *  "does this already answer on the name in the address bar, or does it need a
- *  forward?", and only the any-address bind answers yes — carrying the raw
- *  address would invite every render site to re-derive that judgment (and to
- *  disagree about `::ffff:0.0.0.0`).
+ *  Four fields, and deliberately not a fifth: the raw BIND ADDRESS is reduced to
+ *  the two facts a consumer acts on — the {@link PortScope} that decides whether
+ *  a door is needed and the {@link PortFamily} that decides which loopback it
+ *  dials. Carrying the address itself
+ *  would invite every render site to re-derive that classification (and to
+ *  disagree about `::ffff:0.0.0.0`), which is the bug the single judge exists to
+ *  prevent.
  *
  *  No pid either: a fork-inherited listening socket belongs to several pids at
  *  once, so a pid here would name an arbitrary one of them. Attribution is to
  *  the SUBTREE, which is the question a caller asks. */
 export const PortInfoSchema = z.object({
   /** The TCP port the socket is listening on. */
-  port: z.number().int().min(1).max(65535),
+  port: TcpPortSchema,
   /** The PROGRAM holding the listener (`node`, `workerd`, …), for a glanceable
    *  "who is this?" beside the number — `argv[0]`'s basename on linux, the
    *  executable path's basename on darwin. Deliberately not linux's `comm`: that
    *  is the THREAD name, which Node overwrites, so a plain `node` dev server
    *  would read `MainThread`. */
   name: z.string(),
-  /** True when the socket is bound to the ANY address (`0.0.0.0` / `::`, and the
-   *  v4-mapped `::ffff:0.0.0.0`), so it already answers on every interface of the
-   *  host that owns it — including the name in the viewer's address bar when that
-   *  host is the one serving the UI. False for a loopback-only (or
-   *  single-interface) bind, which is invisible from another machine and needs a
-   *  forward. */
-  wildcard: z.boolean(),
+  /** Where it is bound — see {@link PortScopeSchema}. */
+  scope: PortScopeSchema,
+  /** Which IP family it is bound on — see {@link PortFamilySchema}. */
+  family: PortFamilySchema,
 });
 export type PortInfo = z.infer<typeof PortInfoSchema>;
 
 /** Collapse listening sockets into the one row per PORT that a reader wants —
- *  sorted by port, deduplicated, with `wildcard` folded by OR.
+ *  sorted by port, deduplicated, with `scope` folded to the widest bind.
  *
  *  This is part of what `PortInfo` MEANS, which is why it lives beside the type
  *  rather than in either consumer. The scanner folds one subtree's raw sockets (a
@@ -55,9 +165,10 @@ export type PortInfo = z.infer<typeof PortInfoSchema>;
  *  contributes two rows). A client folds several PANES of an already-folded set
  *  into one tile.
  *
- *  `wildcard` folds with OR rather than first-wins because the question a reader
- *  asks is "is this reachable from another machine as-is?", and one any-address
- *  bind is enough to make the answer yes.
+ *  `scope` folds by {@link widerScope} rather than first-wins because the
+ *  question a reader asks is "how reachable is this port?", and the widest of its
+ *  binds is the answer — one any-address bind makes the whole port answer
+ *  everywhere, whatever else it is also bound to.
  *
  *  The whole fold is a function of the observed SET, never of the order it was
  *  observed in — that is one property, and BOTH the sort and the name rule serve
@@ -77,7 +188,21 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
       byPort.set(row.port, { ...row });
       continue;
     }
-    if (row.wildcard) prior.wildcard = true;
+    // Scope and family fold TOGETHER, because the family is a property OF a
+    // bind rather than of the port. Folded independently they can come from
+    // different rows: `192.168.1.5:5173` (v4) beside `[::1]:5173` (v6) folds to
+    // scope=loopback — right, the doorable bind wins — and family=v4, so the
+    // door dials 127.0.0.1 where nothing listens. It opens, reports success and
+    // serves nothing, which is the exact failure `family` was added to stop.
+    //
+    // So: the winning scope decides, and the family is read off the rows that
+    // hold that scope. Within one scope the v4 preference still applies.
+    const scope = widerScope(prior.scope, row.scope);
+    if (scope !== prior.scope) prior.family = row.family;
+    else if (row.scope === scope) {
+      prior.family = preferredFamily(prior.family, row.family);
+    }
+    prior.scope = scope;
     if (row.name < prior.name) prior.name = row.name;
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);

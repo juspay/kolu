@@ -230,6 +230,7 @@ export function buildPadiSurfaceDeps(deps: {
       // 10s unref'd cadence (a live diagnostic never holds the process open).
       hostInventory: derived.cell(
         source({
+          label: "hostInventory",
           read: () => samplePadiHostInventory(stateRoot),
           install: everyMsOr(
             HOST_INVENTORY_SAMPLE_INTERVAL_MS,
@@ -246,6 +247,7 @@ export function buildPadiSurfaceDeps(deps: {
       // open). The graph is the one writer — no ctx `.set`, no store/equals here.
       processMemory: derived.cell(
         source({
+          label: "processMemory",
           read: samplePadiMemory,
           install: everyMsOr(MEMORY_SAMPLE_INTERVAL_MS, onDaemonStatusChange),
         }),

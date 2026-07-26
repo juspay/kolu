@@ -54,12 +54,12 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
 - **[Durable sessions](https://kolu.dev/sessions)** — keep shells and agents
   alive across tab closes, server restarts, and redeploys.
 - **[Remote access](https://kolu.dev/remote-access) and
-  [hosts](https://kolu.dev/remote-hosts)** — reach kolu from another device and
-  bring other machines onto the same canvas.
+  [hosts](https://kolu.dev/remote-hosts)** — reach kolu from another device,
+  bring other machines onto the same canvas, and
+  [forward a port](https://kolu.dev/remote-hosts#port-forwarding) so a dev
+  server on any of them opens in your browser.
 - **[Deployment](https://kolu.dev/deployment)** — keep kolu running as a
   home-manager service on Linux or macOS.
-- **[vazhi](https://kolu.dev/vazhi)** — a standalone TUI that makes a port on
-  another machine answer where your browser can reach it.
 
 The complete feature guides and command reference live at
 **[kolu.dev](https://kolu.dev)**. This README is the map.

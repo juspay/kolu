@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 930" font-family="ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="anB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a6ea5"/>
+    </marker>
+    <marker id="anP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#6d4fa3"/>
+    </marker>
+    <marker id="anG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1b7a3a"/>
+    </marker>
+  </defs>
+
+  <!-- ══ the command ══ -->
+  <text x="24" y="30" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">THE ONE COMMAND KOLU RUNS</text>
+
+  <rect x="24" y="44" width="592" height="42" rx="9" fill="#1a1c20"/>
+  <text x="40" y="70" font-size="13" font-family="ui-monospace,monospace" fill="#e8e6e1">ssh <tspan fill="#f2b134">-L</tspan> <tspan fill="#7fd1c0">*:5173</tspan>:<tspan fill="#c9a7f5">[::1]:5173</tspan> <tspan fill="#8ecf6e">naiveintent</tspan> <tspan fill="#9aa0a8">'echo READY; cat'</tspan></text>
+
+  <!-- legend, color-keyed -->
+  <rect x="40" y="102" width="12" height="12" rx="3" fill="#f2b134"/>
+  <text x="62" y="112" font-size="12" fill="#1a1c20"><tspan font-weight="700">-L</tspan> — “open a Listening door”</text>
+
+  <rect x="40" y="124" width="12" height="12" rx="3" fill="#7fd1c0"/>
+  <text x="62" y="134" font-size="12" fill="#1a1c20"><tspan font-weight="700">*:5173</tspan> — the door: port 5173, every interface of the kolu host</text>
+
+  <rect x="40" y="146" width="12" height="12" rx="3" fill="#c9a7f5"/>
+  <text x="62" y="156" font-size="12" fill="#1a1c20"><tspan font-weight="700">[::1]:5173</tspan> — where it leads: the server’s own loopback, far side</text>
+
+  <rect x="40" y="168" width="12" height="12" rx="3" fill="#8ecf6e"/>
+  <text x="62" y="178" font-size="12" fill="#1a1c20"><tspan font-weight="700">naiveintent</tspan> — the far machine, reached over ssh</text>
+
+  <rect x="40" y="190" width="12" height="12" rx="3" fill="#9aa0a8"/>
+  <text x="62" y="200" font-size="12" fill="#1a1c20"><tspan font-weight="700">'echo READY; cat'</tspan> — say ready, then hold the line open forever</text>
+
+  <!-- ══ the path, top to bottom ══ -->
+  <text x="24" y="248" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">WHAT HAPPENS WHEN YOU LOAD THE PAGE</text>
+
+  <!-- browser -->
+  <rect x="90" y="266" width="380" height="88" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="110" y="292" font-size="13" font-weight="700" fill="#1a1c20">your browser</text>
+  <text x="110" y="314" font-size="12" font-family="ui-monospace,monospace" fill="#6d4fa3">http://pureintent:5173</text>
+  <text x="110" y="336" font-size="10.5" fill="#8a8574">it only ever talks to the kolu host — nothing else</text>
+
+  <line x1="280" y1="354" x2="280" y2="392" stroke="#3a6ea5" stroke-width="2" marker-end="url(#anB)"/>
+  <circle cx="256" cy="373" r="10" fill="#3a6ea5"/>
+  <text x="256" y="377" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+  <text x="298" y="377" font-size="10.5" fill="#5b7ea5">dials the door</text>
+
+  <!-- kolu host -->
+  <rect x="60" y="396" width="440" height="130" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="80" y="420" font-size="11" font-weight="700" fill="#5b6470" letter-spacing=".07em">KOLU HOST — pureintent</text>
+  <rect x="80" y="432" width="400" height="78" rx="9" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="96" y="454" font-size="13" font-weight="700" fill="#6d4fa3">the ssh child <tspan font-weight="400" font-family="ui-monospace,monospace" fill="#1a1c20">— listens on *:5173</tspan></text>
+  <text x="96" y="476" font-size="10.5" fill="#7a6b93">every connection it accepts is wrapped and sent down one</text>
+  <text x="96" y="490" font-size="10.5" fill="#7a6b93">encrypted pipe — no bytes touch the network in the clear</text>
+
+  <line x1="280" y1="526" x2="280" y2="566" stroke="#6d4fa3" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#anP)"/>
+  <circle cx="256" cy="546" r="10" fill="#6d4fa3"/>
+  <text x="256" y="550" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+  <text x="298" y="550" font-size="10.5" fill="#7a6b93">encrypted, one pipe</text>
+
+  <!-- remote host -->
+  <rect x="60" y="570" width="440" height="196" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="80" y="594" font-size="11" font-weight="700" fill="#5b6470" letter-spacing=".07em">REMOTE HOST — naiveintent</text>
+  <rect x="80" y="606" width="180" height="58" rx="9" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="96" y="630" font-size="13" font-weight="700" fill="#1a1c20">sshd</text>
+  <text x="96" y="648" font-size="10.5" fill="#8a8574">the pipe’s far end</text>
+
+  <line x1="170" y1="664" x2="170" y2="694" stroke="#6d4fa3" stroke-width="2" marker-end="url(#anP)"/>
+  <circle cx="146" cy="679" r="10" fill="#6d4fa3"/>
+  <text x="146" y="683" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+  <text x="188" y="683" font-size="10.5" fill="#7a6b93">knocks on the loopback for you</text>
+
+  <rect x="80" y="698" width="400" height="56" rx="9" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="96" y="720" font-size="13" font-weight="700" fill="#1a1c20">dev server <tspan font-family="ui-monospace,monospace" font-weight="400" fill="#6d4fa3">[::1]:5173</tspan></text>
+  <text x="96" y="740" font-size="10.5" fill="#8a8574">loopback-only — invisible to the network, until now</text>
+
+  <!-- return path, up the right side -->
+  <path d="M 500 726 Q 588 560 520 396 Q 500 366 470 330" fill="none" stroke="#1b7a3a" stroke-width="1.8" stroke-dasharray="2 4" marker-end="url(#anG)"/>
+  <circle cx="556" cy="540" r="10" fill="#1b7a3a"/>
+  <text x="556" y="544" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+  <text x="548" y="568" font-size="10.5" fill="#54785f" text-anchor="middle">the page rides</text>
+  <text x="548" y="581" font-size="10.5" fill="#54785f" text-anchor="middle">the same pipe back</text>
+
+  <!-- closing line -->
+  <text x="320" y="806" font-size="11.5" fill="#1a1c20" text-anchor="middle">Nothing installed on either machine, no firewall changed, no server reconfigured —</text>
+  <text x="320" y="824" font-size="11.5" fill="#1a1c20" text-anchor="middle"><tspan font-weight="700">ssh is the only tool involved.</tspan></text>
+
+  <text x="320" y="874" font-size="10.5" fill="#b3a68a" text-anchor="middle">The full flag set (BatchMode, ExitOnForwardFailure, ControlPath=none) is the mechanism</text>
+  <text x="320" y="889" font-size="10.5" fill="#b3a68a" text-anchor="middle">section’s story told as options — see the footnote in the prose.</text>
+</svg>

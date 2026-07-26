@@ -57,7 +57,10 @@ import { contract } from "kolu-common/contract";
 import type { PadiProcessMemory } from "@kolu/padi/surface";
 import { derived, everyMsOr, scan, source } from "@kolu/surface/reactor";
 import type {
+  ForwardCreateInput,
+  Forwards,
   KoluBuildInfo,
+  KoluForward,
   PadiLink,
   Preferences,
   ProcessStartedAt,
@@ -84,6 +87,7 @@ import {
   MEMORY_SAMPLE_INTERVAL_MS,
   sampleServerMemory,
 } from "./memorySampler.ts";
+import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { store } from "./state.ts";
 
@@ -173,6 +177,29 @@ export interface KoluSurfaceDeps {
    *  state synchronously on subscribe and returns an unsubscribe. Drives the two push
    *  cells (payload) AND the two poll cells' fused cadence (a bare change tick). */
   onState: (cb: (state: PadiRailState) => void) => () => void;
+  /** kolu's port forwards (PRT2) — the `forwards` cell's read + its change edge,
+   *  plus the two acts that move it. The POLICY (auto vs manual, the auto-cancel
+   *  rule) lives in `forwards.ts`; this seam is only how the surface reaches it,
+   *  so the member table here stays a member table.
+   *
+   *  `read` RECONCILES then reports: it runs the auto-cancel pass and returns the
+   *  resulting list. That is one act, not two glued together — "which doors are
+   *  open" and "which of them still have anything behind them" are the same
+   *  question, and answering the first without the second would publish a list
+   *  kolu already knows is stale. It must be TOTAL, because a poll source's T+0
+   *  seed throw is fatal to the runtime.
+   *
+   *  `onChange` is the change EDGE — a bare notification that the map moved
+   *  (someone opened or cancelled a door, a mechanism reported one lost), fused
+   *  with the reap interval so an act publishes at once instead of waiting out a
+   *  tick. The payload is deliberately not carried: the read is the one reader of
+   *  the list, so there is exactly one path a value reaches the wire by. */
+  forwards: {
+    read: () => Promise<Forwards>;
+    onChange: (tick: () => void) => () => void;
+    create: (input: ForwardCreateInput) => Promise<KoluForward>;
+    cancel: (key: string) => Promise<void>;
+  };
 }
 
 // ── Surface implementation (SR8.a: served in boot; SR8.c: ONE home per member) ───
@@ -278,6 +305,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // `equals` at the spec; the graph is the one writer.
       processMemory: derived.cell(
         source({
+          label: "processMemory",
           read: () => sampleServerMemory(deps.readPadiMemory),
           install: everyMsOr(MEMORY_SAMPLE_INTERVAL_MS, deps.onState),
         }),
@@ -304,10 +332,39 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // at once. Structural `equals` at the spec; the graph is the one writer.
       daemonInventory: derived.cell(
         source({
+          label: "daemonInventory",
           read: readDaemonInventoryTotal,
           install: everyMsOr(DAEMON_INVENTORY_SAMPLE_INTERVAL_MS, deps.onState),
         }),
       ),
+      // The live forward list — a DERIVED POLL cell on a FUSED cadence, exactly
+      // like `processMemory` and `daemonInventory` above. The interval is the
+      // auto-cancel pass (a door whose listener died has to be noticed, and only a
+      // fresh port reading can notice it); the fused `onChange` edge is every act
+      // that moves the map, so opening or cancelling a forward publishes at once
+      // rather than waiting out a tick. Both arms run the SAME read, so a
+      // reconciled list is the only thing that ever reaches the wire.
+      //
+      // Poll rather than push, and not merely because the web shell's cadence
+      // belongs to the reactor (it does — `seal.test.ts` pins that with a zero
+      // allowlist): the fact being published genuinely IS sampled. "Which doors are
+      // open" cannot be answered honestly without asking whether anything is still
+      // behind them, and that answer has to be re-read on a clock.
+      forwards: derived.cell(
+        source({
+          label: "forwards",
+          read: deps.forwards.read,
+          install: everyMsOr(FORWARD_REAP_INTERVAL_MS, deps.forwards.onChange),
+        }),
+      ),
+    },
+    procedures: {
+      // Thin by design: each is one call into `forwards.ts`, which owns every rule.
+      // A handler that decided anything here would be a second home for the policy.
+      forwards: {
+        create: ({ input }) => deps.forwards.create(input),
+        cancel: ({ input }) => deps.forwards.cancel(input.key),
+      },
     },
   };
 
