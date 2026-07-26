@@ -14,6 +14,7 @@
 import type { ForwardOrigin, Forwards } from "kolu-common/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createMemo, createResource, createRoot } from "solid-js";
+import { toast } from "solid-sonner";
 import { app, client } from "../wire";
 
 // An app-lifetime subscription, for the same reason `useDaemonInventory`'s is:
@@ -80,18 +81,19 @@ export function cancelForward(key: string) {
  *  render — `PortsSection` calls it per port row inside a `<For>` child — and a
  *  Solid resource accessor RE-THROWS its fetcher's error instead of returning
  *  `undefined`, so without the catch a transient RPC failure would abort the
- *  render pass, with no `ErrorBoundary` anywhere in the client to catch it. This
- *  is not a swallowed error: `null` is already this function's word for "kolu
- *  cannot tell", it is the answer the server itself gives for every uncertain
- *  case, and it degrades to "keep offering the forward" — the path that always
- *  works. The failure is still reported, to the console rather than the UI,
- *  because the user has nothing to do about it. */
+ *  render pass, with no `ErrorBoundary` anywhere in the client to catch it.
+ *  `null` degrades to "keep offering the forward" for BOTH causes on purpose —
+ *  the server's own honest "cannot tell" and a caught RPC failure both want the
+ *  safe default, never a withheld feature — but the two are not the same fact,
+ *  so a caught failure still gets its own toast (not just a console line, which
+ *  is invisible outside DevTools) even though the render behaviour it feeds
+ *  stays identical either way. */
 const viewerHostQuery = createRoot(() =>
   createResource(async () =>
     client.hosts.viewer().then(
       (r) => r.host,
       (err: Error) => {
-        console.warn("Viewer-host lookup failed:", err);
+        toast.warning(`Viewer-host lookup failed: ${err.message}`);
         return null;
       },
     ),

@@ -38,6 +38,7 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
+import { match } from "ts-pattern";
 import { rowAction } from "../forwards/portAction";
 import { portRows } from "../forwards/portRows";
 import { servingLink } from "../forwards/terminalServingPort";
@@ -158,28 +159,30 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                   onKoluHost: isActiveHostLocal(),
                   viewerOnHost: viewerOnHost(),
                 });
-              /** WHERE the row's link points, exhaustively over `PortAction` so
-               *  a fifth arm is a compile error rather than a silent fall into
-               *  the forward branch. */
-              const openAt = (): { host: string; port: number } | undefined => {
-                const action = decided().action;
-                switch (action.kind) {
-                  case "here":
-                    return { host: window.location.hostname, port: row.port };
-                  case "viewer":
-                    return { host: "localhost", port: row.port };
-                  case "none":
-                    // Nothing reaches it — not even through a door someone
-                    // opened by hand.
-                    return undefined;
-                  case "forward": {
+              /** WHERE the row's link points, exhaustively over `PortAction` via
+               *  `match(...).exhaustive()` so a fifth arm is a REAL compile error
+               *  — a bare `switch` here type-checked fine without one (this
+               *  function's return type already allows `undefined`, so a
+               *  fall-through with no matching case would silently return
+               *  `undefined` rather than fail to build). */
+              const openAt = (): { host: string; port: number } | undefined =>
+                match(decided().action)
+                  .with({ kind: "here" }, () => ({
+                    host: window.location.hostname,
+                    port: row.port,
+                  }))
+                  .with({ kind: "viewer" }, () => ({
+                    host: "localhost",
+                    port: row.port,
+                  }))
+                  .with({ kind: "none" }, () => undefined)
+                  .with({ kind: "forward" }, () => {
                     const local = row.forward?.localPort;
                     return local === undefined
                       ? undefined
                       : { host: window.location.hostname, port: local };
-                  }
-                }
-              };
+                  })
+                  .exhaustive();
               return (
                 <PortRow
                   row={row}

@@ -184,6 +184,11 @@ type Slot<M> =
       readonly token: object;
     };
 
+/** Cap on `lastLocalPort`'s size — see that field's doc comment. Generous for
+ *  any real session (hundreds of distinct targets ever forwarded) while still
+ *  being an actual bound rather than an assumption about usage. */
+const LAST_LOCAL_PORT_CAP = 512;
+
 /** Build a forward map over the given mechanisms. Production callers want
  *  `createForwardManager` from the package index, which supplies the real ones;
  *  this entry point exists so the map can be driven against fakes. */
@@ -246,9 +251,14 @@ export function makeForwardManager<M = undefined>(opts: {
    *
    *  It lives here rather than in a consumer because it is a fact of the MAP:
    *  every consumer would otherwise keep the same table beside the map, and get
-   *  the eviction rules subtly different. Bounded by the number of distinct
-   *  targets a process has ever forwarded — a handful in any real session, and
-   *  one small integer each. */
+   *  the eviction rules subtly different. "A handful in any real session" is a
+   *  claim about typical use, not an enforced bound — a process that lives for
+   *  weeks and forwards many distinct `(host, port)` pairs over its life (a
+   *  churning fleet, many different dev-server ports across many projects)
+   *  would otherwise grow this map forever. `LAST_LOCAL_PORT_CAP` below is the
+   *  actual bound: past it, the oldest-inserted entry is evicted, trading the
+   *  "same port back" nicety for a target that hasn't been reopened in a long
+   *  time against genuinely unbounded growth. */
   const lastLocalPort = new Map<string, number>();
 
   function lose(
@@ -421,6 +431,14 @@ export function makeForwardManager<M = undefined>(opts: {
       // the process is killed), and the number is only useful if it survives
       // every one of them.
       lastLocalPort.set(key, opened.localPort);
+      // A `Map`'s iteration order is insertion order and `.set` on an EXISTING
+      // key does not move it — so the first key back from `.keys()` is the
+      // least-recently-FIRST-opened target, a fine approximation of "oldest"
+      // for a cap whose only job is to stop growth, not to be a precise LRU.
+      if (lastLocalPort.size > LAST_LOCAL_PORT_CAP) {
+        const oldest = lastLocalPort.keys().next().value;
+        if (oldest !== undefined) lastLocalPort.delete(oldest);
+      }
 
       /** The public record of what just came up. Built on demand rather than
        *  once, because the three ways out of this function below want it at

@@ -42,7 +42,7 @@ import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
 import { GrokInfoSchema } from "kolu-grok/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { z } from "zod";
 
 // ── Terminal identity ─────────────────────────────────────────────────
@@ -286,16 +286,26 @@ export function portReach(opts: {
   scope: PortScope;
   onKoluHost: boolean;
 }): PortReach {
-  // First, and on both sides of the boolean: no mechanism dials a single
-  // non-loopback address, and no honest link names one the observation dropped.
-  if (opts.scope === "interface") {
-    return { kind: "no-mechanism", via: "interface-bind" };
-  }
-  if (!opts.onKoluHost) return { kind: "needs-forward", via: "remote-host" };
-  if (opts.scope === "loopback") {
-    return { kind: "needs-forward", via: "loopback" };
-  }
-  return { kind: "direct" };
+  // `match(...).exhaustive()` over the three-way, so a fourth `PortScope` arm is
+  // a COMPILE error rather than a silent fall-through to `direct` — the single
+  // most consequential wrong answer this function can give (offering a direct
+  // open for a port that may not answer there).
+  return match(opts.scope)
+    .with(
+      "interface",
+      // On both sides of `onKoluHost`: no mechanism dials a single non-loopback
+      // address, and no honest link names one the observation dropped.
+      () => ({ kind: "no-mechanism", via: "interface-bind" }) as const,
+    )
+    .with(P.union("any", "loopback"), (scope) => {
+      if (!opts.onKoluHost) {
+        return { kind: "needs-forward", via: "remote-host" } as const;
+      }
+      return scope === "loopback"
+        ? ({ kind: "needs-forward", via: "loopback" } as const)
+        : ({ kind: "direct" } as const);
+    })
+    .exhaustive();
 }
 
 /** Are two port SAMPLES the same fact? The dedup gate the sensor applies before a

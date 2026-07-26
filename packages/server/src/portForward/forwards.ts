@@ -184,7 +184,13 @@ export function createKoluForwards(deps: {
 }): KoluForwards {
   const manager = (deps.makeManager ?? createForwardManager<ForwardOrigin>)({
     onLost: ({ forward, reason, kind }) => {
-      deps.log.warn(
+      // `gone` is the mechanism cleanly reporting a door that closed on its
+      // own (its far side died) — expected, and the map has already dropped
+      // it: `warn`. `degraded` is the map's own doc comment's "broke and
+      // could NOT be cleaned up" — a leaked, un-closeable listener nobody can
+      // reach to fix — which is a genuine unrecoverable fault: `error`.
+      const log = kind === "degraded" ? deps.log.error : deps.log.warn;
+      log(
         { key: forward.key, reason, kind },
         "port forward reported by its mechanism",
       );
@@ -214,9 +220,30 @@ export function createKoluForwards(deps: {
   /** Tell every subscriber that the map MOVED, and nothing more. Deliberately
    *  payload-free: the list is read back through `reconcile()`, which is the
    *  only path a value reaches the wire by — see `reconcile` on the interface
-   *  for the freeze that shape prevents. */
+   *  for the freeze that shape prevents.
+   *
+   *  `notify` is the FUNNEL every emission path (`create`, `cancel`,
+   *  `hostDeparted`, `dispose`, the manager's own `onLost`) shares, so a
+   *  throwing subscriber is contained HERE rather than on a subset of the
+   *  call sites — mirroring `@kolu/port-forward`'s own `announce()`, one layer
+   *  down, for the same reason: `hostDeparted` is invoked fire-and-forget
+   *  (`void forwards.hostDeparted(host)`) from a pool-departure callback with
+   *  no `.catch`, so a tick that escaped uncaught would surface as an
+   *  unhandled rejection — fatal, per this process's global handler. Re-raised
+   *  on its own turn so it stays LOUD (it is the subscriber's defect) without
+   *  taking the other subscribers, or this call's own bookkeeping, down with
+   *  it. */
   const notify = (): void => {
-    for (const tick of listeners) tick();
+    for (const tick of listeners) {
+      try {
+        tick();
+      } catch (err) {
+        deps.log.error({ err }, "port forward subscriber threw on notify");
+        queueMicrotask(() => {
+          throw err;
+        });
+      }
+    }
   };
 
   /** Is there already a door onto this target? Asked by key, which is the map's

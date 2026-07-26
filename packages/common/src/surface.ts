@@ -575,7 +575,12 @@ export function sameForwards(a: Forwards, b: Forwards): boolean {
   return (
     a.length === b.length &&
     a.every((f, i) => {
-      const g = b[i]!;
+      // `noUncheckedIndexedAccess` types `b[i]` as possibly `undefined`; the
+      // guard below is what makes that honest rather than a `b[i]!` the
+      // compiler can't verify — `a.length === b.length` (checked above) means
+      // it never actually fires, but the type system has no way to know that.
+      const g = b[i];
+      if (g === undefined) return false;
       // Every compared field is a PRIMITIVE, which is what makes the
       // read-off-the-schema promise true: a new field is covered here with no
       // second edit. `host` and `remotePort` are deliberately not in the set —

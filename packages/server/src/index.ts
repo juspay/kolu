@@ -767,10 +767,10 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       // by construction — `reconcile` logs and continues past every failure, and
       // the list is an in-memory map — so this poll's seed cannot throw and take
       // the runtime's `done` with it.
-      read: () => forwards.reconcile(),
+      read: forwards.reconcile,
       onChange: forwards.subscribe,
-      create: (input) => forwards.create(input),
-      cancel: (key) => forwards.cancel(key),
+      create: forwards.create,
+      cancel: forwards.cancel,
     },
   });
 
