@@ -11,33 +11,47 @@
  *  It holds the one piece of state in this feature — "a forward is being opened
  *  right now" — and a component per row is how that stays per row rather than
  *  becoming a map keyed by port number.
+ *
+ *  Open flow is the three-layer composition ({@link urlForPort} ·
+ *  {@link ensureDoor} · `window.open` at this edge) — the same pieces the
+ *  printed-URL card and "copy door URL" use.
  */
 
+import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { ForwardControls, ForwardPill } from "../forwards/ForwardPill";
 import type { PortAction } from "../forwards/portAction";
 import type { PortRow as PortRowData } from "../forwards/portRows";
-import { portUrl } from "../forwards/portUrl";
+import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
 import { OpenIcon } from "../ui/Icons";
 
 export const PortRow: Component<{
   row: PortRowData;
   action: PortAction;
-  /** WHERE the link points, or `undefined` when a door has to be opened first. */
-  openAt: { host: string; port: number } | undefined;
   /** Why this port is not open-as-is, when it is not. */
   forwardReason: string | undefined;
+  /** Host this row's door would open on — the active host of the section. */
+  host: HostKey;
   /** WHICH terminal serves this port, and how to get to it — the trailing
    *  group's affordance. Absent for a main port row (you are already there) and
    *  for a forward no terminal serves. */
   serving?: { name: string; jump: () => void };
-  /** Open the door. Resolves with the local port it answers on. */
-  onForward: () => Promise<number>;
 }> = (props) => {
   const [opening, setOpening] = createSignal(false);
   const forward = () => props.row.forward;
+
+  /** Ready URL when no door is needed, or when one is already open. */
+  const readyHref = (): string | undefined => {
+    const decided = urlForPort({
+      action: props.action,
+      remotePort: props.row.port,
+      doorPort: forward()?.localPort,
+      pageHost: window.location.hostname,
+    });
+    return decided.kind === "ready" ? decided.url : undefined;
+  };
 
   /** Open the door, then the page. The window is opened SYNCHRONOUSLY inside the
    *  click — before the await — because a popup blocker judges a `window.open`
@@ -57,15 +71,28 @@ export const PortRow: Component<{
     const tab = window.open("", "_blank");
     if (tab !== null) tab.opener = null;
     try {
-      const localPort = await props.onForward();
-      const url = portUrl(window.location.hostname, localPort);
+      const localPort = await ensureDoor({
+        host: props.host,
+        port: props.row.port,
+        origin: "auto",
+      });
+      const decided = urlForPort({
+        action: { kind: "forward" },
+        remotePort: props.row.port,
+        doorPort: localPort,
+        pageHost: window.location.hostname,
+      });
+      if (decided.kind !== "ready") {
+        tab?.close();
+        return;
+      }
       if (tab === null) {
         toast.info(`Forward open on port ${localPort}`, {
           description: "Your browser blocked the new tab.",
         });
         return;
       }
-      tab.location.replace(url);
+      tab.location.replace(decided.url);
     } catch (err) {
       tab?.close();
       toast.error(
@@ -144,7 +171,7 @@ export const PortRow: Component<{
           }
         >
           <Show
-            when={props.openAt}
+            when={readyHref()}
             fallback={
               <button
                 type="button"
@@ -160,9 +187,9 @@ export const PortRow: Component<{
               </button>
             }
           >
-            {(at) => (
+            {(href) => (
               <a
-                href={portUrl(at().host, at().port)}
+                href={href()}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="inline-flex items-center gap-1 text-accent hover:underline"

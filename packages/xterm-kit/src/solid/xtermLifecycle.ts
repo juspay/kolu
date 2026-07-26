@@ -38,9 +38,16 @@ export interface XtermCore {
 }
 
 /** `terminalOptions` are xterm's own constructor options; `fontFamily` is
- *  required because the lifecycle awaits that face before constructing. */
+ *  required because the lifecycle awaits that face before constructing.
+ *
+ *  `webLinkHandler` is the injected click seam for {@link WebLinksAddon} —
+ *  generic only (no app policy). When absent, the addon's default open runs.
+ *  A consumer that wants to intercept loopback URLs (or anything else) passes
+ *  its own handler; the kit never imports app code. */
 export interface XtermLifecycleOptions {
   terminalOptions: ITerminalOptions & { fontFamily: string };
+  /** Optional override for web-link activation. `(event, uri) => void`. */
+  webLinkHandler?: (event: MouseEvent, uri: string) => void;
 }
 
 /** Construct an xterm `Terminal` into `container` once its font has loaded, then
@@ -99,7 +106,15 @@ export function createXtermLifecycle(
 
         const fit = new FitAddon();
         term.loadAddon(fit);
-        term.loadAddon(new WebLinksAddon());
+        // Re-read options here (post-await) so a late-bound handler is current.
+        // The constructor's first arg is the activate callback; omit it to keep
+        // the addon's default `window.open` path.
+        const webLinkHandler = getOptions().webLinkHandler;
+        term.loadAddon(
+          webLinkHandler === undefined
+            ? new WebLinksAddon()
+            : new WebLinksAddon(webLinkHandler),
+        );
         const search = new SearchAddon();
         term.loadAddon(search);
         term.loadAddon(new Unicode11Addon());

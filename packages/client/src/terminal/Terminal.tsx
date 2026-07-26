@@ -60,6 +60,9 @@ import {
   createFileRefLinkProvider,
   fileRefAtCell,
 } from "./fileRefLinkProvider";
+import { handleWebLink } from "./handleWebLink";
+import { PrintedUrlCard } from "./PrintedUrlCard";
+import { printedUrlCardTarget } from "./printedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";
@@ -727,6 +730,11 @@ const Terminal: Component<{
         onResize={(size) => void publishDimensions(size)}
         onReady={onReady}
         onTap={onTap}
+        // Injected web-link seam — loopback URLs raise the join card; ⌘-click
+        // and non-loopback keep a raw open. Lives beside fileRefLinkProvider.
+        webLinkHandler={(event, uri) =>
+          handleWebLink(event, uri, props.terminalId)
+        }
         webglHooks={{
           onCanvas: (c) => {
             webglTrackerId = trackCreate(props.terminalId, c);
@@ -753,6 +761,17 @@ const Terminal: Component<{
         data-font-size={fontSize()}
         data-renderer={(handle()?.webgl.hasWebgl() ?? false) ? "webgl" : "dom"}
       />
+      {/* Join card for a printed loopback URL — only while this terminal owns the
+       *  open card. Portal-rendered; lives here so App stays a thin shell. */}
+      <Show
+        when={
+          printedUrlCardTarget()?.terminalId === props.terminalId
+            ? printedUrlCardTarget()
+            : undefined
+        }
+      >
+        {(t) => <PrintedUrlCard target={t()} />}
+      </Show>
     </div>
   );
 };
