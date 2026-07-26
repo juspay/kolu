@@ -641,7 +641,21 @@ page" + one-click re-forward through the chip's existing flow). **No framing
 detection exists anywhere**: the empty-frame backdrop carries a static hint,
 nothing more. Chip click's default becomes forward-then-preview;
 modifier-click keeps today's new tab; <Kbd keys="⌘+K" /> gains "Preview a
-port…" plus a discoverability tip.
+port…" plus a discoverability tip. And **◀/▶ back/forward ships in this PR,
+via `@kolu/solid-browser`'s `createBrowser`** — the pane is the second host
+that package's contract was built for (`L` = `{ port, path }`, `isSameEntry`
+over both fields so a reload refreshes in place instead of deepening
+history), with the X1/X2 mouse buttons through the same
+`attachBackForwardMouse` the Code tab uses. The trail is per-viewer client
+state over the server-shared current page: ◀/▶ act by issuing `previewOpen`,
+so viewers converge on the same page while each keeps their own trail — the
+same honesty level as the URL bar, which likewise shows only what kolu
+set.<Footnote>The package's other exports stay out on measured
+inapplicability, not deferral: `pathFromPreviewPathname` requires the framed
+document to REPORT its pathname to the parent — Code-tab previews carry a
+kolu-injected reporter because kolu serves them; a dev server's pages carry
+no reporter, so there is nothing to invert. Link resolution
+(`resolveLinkHref`) is the dev server's own business.</Footnote>
 
 **Done-criteria — each can only be met through the real seam it exists to
 prove:**
@@ -657,7 +671,10 @@ prove:**
 3. Rejection tests server-side: a raw URL, a scheme-carrying path, and a
    port belonging to no door or scan on that host each refuse loudly.
 4. Unit: path validation, the chrome-state fold, the header's forward-state
-   join. Red-first throughout, per the standing rule.
+   join, and the trail semantics (◀ reissues `previewOpen` for the prior
+   location; reload refreshes in place; a server-pushed navigation from
+   another viewer or MCP records onto this viewer's trail). Red-first
+   throughout, per the standing rule.
 
 Out of scope, unchanged: pop-out-to-split, element-annotation-to-agent, any
 page reading or driving (chrome-devtools MCP owns that, over the doors PRT2

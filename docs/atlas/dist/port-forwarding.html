@@ -891,7 +891,21 @@ page” + one-click re-forward through the chip’s existing flow). <strong>No f
 detection exists anywhere</strong>: the empty-frame backdrop carries a static hint,
 nothing more. Chip click’s default becomes forward-then-preview;
 modifier-click keeps today’s new tab; <span class="kbd-chord" data-astro-cid-7vv3zwgx><kbd class="kbd" data-astro-cid-7vv3zwgx>⌘</kbd><span class="kbd-plus" data-astro-cid-7vv3zwgx>+</span><kbd class="kbd" data-astro-cid-7vv3zwgx>K</kbd></span> gains “Preview a
-port…” plus a discoverability tip.</p>
+port…” plus a discoverability tip. And <strong>◀/▶ back/forward ships in this PR,
+via <code>@kolu/solid-browser</code>’s <code>createBrowser</code></strong> — the pane is the second host
+that package’s contract was built for (<code>L</code> = <code>{ port, path }</code>, <code>isSameEntry</code>
+over both fields so a reload refreshes in place instead of deepening
+history), with the X1/X2 mouse buttons through the same
+<code>attachBackForwardMouse</code> the Code tab uses. The trail is per-viewer client
+state over the server-shared current page: ◀/▶ act by issuing <code>previewOpen</code>,
+so viewers converge on the same page while each keeps their own trail — the
+same honesty level as the URL bar, which likewise shows only what kolu
+set.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The package’s other exports stay out on measured
+inapplicability, not deferral: <code>pathFromPreviewPathname</code> requires the framed
+document to REPORT its pathname to the parent — Code-tab previews carry a
+kolu-injected reporter because kolu serves them; a dev server’s pages carry
+no reporter, so there is nothing to invert. Link resolution
+(<code>resolveLinkHref</code>) is the dev server’s own business.</span></span></span></p>
 <p><strong>Done-criteria — each can only be met through the real seam it exists to
 prove:</strong></p>
 <ol>
@@ -906,7 +920,10 @@ the MCP seam and asserts the pane opens — and a second call with a new
 <li>Rejection tests server-side: a raw URL, a scheme-carrying path, and a
 port belonging to no door or scan on that host each refuse loudly.</li>
 <li>Unit: path validation, the chrome-state fold, the header’s forward-state
-join. Red-first throughout, per the standing rule.</li>
+join, and the trail semantics (◀ reissues <code>previewOpen</code> for the prior
+location; reload refreshes in place; a server-pushed navigation from
+another viewer or MCP records onto this viewer’s trail). Red-first
+throughout, per the standing rule.</li>
 </ol>
 <p>Out of scope, unchanged: pop-out-to-split, element-annotation-to-agent, any
 page reading or driving (chrome-devtools MCP owns that, over the doors PRT2
