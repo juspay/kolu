@@ -114,12 +114,15 @@ listeners, no kernel surprise. The live lane's whole job is the real world —
 other users' ports, platform oracles, whatever the box happens to be running —
 so folding it into the sandbox would delete the thing it is for.
 
-It never gates a merge: branch protection stays on the hermetic lane only. It
-does run on every full `/ci` (both platforms, after the hermetic `osfacts` /
-`nix` build so the binary is already in the store), and a red fails that run
-honestly — no exit-0 shim. A live host can go red without anyone having broken
-osfacts (noise, privilege, a service that appeared between samples); that is
-why merge stays hermetic while the attended `/ci` run may still go red.
+And it gates, same as everything else. Both lanes are in branch protection:
+a red — either lane — blocks the merge. We considered the industry's
+convention here (live oracles as advisory, never blocking) and rejected it:
+a red nobody has to obey is a red everybody learns to skip. When the live
+lane goes red without anyone having broken osfacts, that usually means the
+OS drifted under the tool — which is exactly when merging should stop, not
+continue. The costs are accepted with eyes open: host noise can block an
+unrelated merge until a rerun clears it, and the darwin live box is now on
+the merge-critical path. Small prices for a red that always means "look".
 
 The second lane's scenarios are Gherkin (`cucumber`), the same idiom as
 kolu's own e2e: "Given a shell running a loopback server, When I snapshot
