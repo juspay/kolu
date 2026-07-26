@@ -173,5 +173,3 @@ export const PortRow: Component<{
     </div>
   );
 };
-
-export default PortRow;

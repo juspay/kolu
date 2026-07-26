@@ -23,7 +23,7 @@
 
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
-import { HostStatusDot } from "./HostStatusDot";
+import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
 
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
@@ -62,21 +62,30 @@ describe("HostStatusDot", () => {
     expect(ring).not.toBeNull();
   });
 
-  it("carries the COUNT in the accessible label, not in the visual", () => {
-    // The count left the chrome and moved here: the ring says "there are
-    // forwards", the label says how many, and the dropdown holds the rows.
-    const { ring } = mount({ statusDot: READY, forwardCount: 2 });
-    expect(ring?.getAttribute("aria-label")).toMatch(/2 forwarded ports/);
+  it("draws nothing and announces nothing — the button owns both", () => {
     // Nothing is DRAWN inside it — not a count, not a glyph. Both were tried at
     // tab scale and both are illegible there; the ring's whole job is "doors are
-    // open on this host", and the label carries the rest.
+    // open on this host".
+    //
+    // And nothing is ANNOUNCED here either. The ring is `pointer-events-none`,
+    // so a `title` on it could never be hovered, and a second accessible name
+    // for one fact is a second thing to keep in step. The enclosing button in
+    // `HostSelectorStrip` appends `forwardRingLabel` to its own label, which is
+    // the copy a user actually gets; the count stays here only as data, for the
+    // tests and for anyone inspecting the DOM.
+    const { ring } = mount({ statusDot: READY, forwardCount: 2 });
     expect(ring?.textContent?.trim()).toBe("");
+    expect(ring?.getAttribute("aria-hidden")).toBe("true");
+    expect(ring?.getAttribute("aria-label")).toBeNull();
+    expect(ring?.getAttribute("data-count")).toBe("2");
   });
 
   it("says 'port' rather than 'ports' for one", () => {
-    const { ring } = mount({ statusDot: READY, forwardCount: 1 });
-    expect(ring?.getAttribute("aria-label")).toMatch(/1 forwarded port\b/);
-    expect(ring?.getAttribute("aria-label")).not.toMatch(/ports/);
+    // The copy itself, tested at its source now that the ring no longer carries
+    // it — the pluralization is the part worth pinning, wherever it is rendered.
+    expect(forwardRingLabel(1)).toMatch(/1 forwarded port\b/);
+    expect(forwardRingLabel(1)).not.toMatch(/ports/);
+    expect(forwardRingLabel(2)).toMatch(/2 forwarded ports/);
   });
 
   it("leaves the pip's COLOUR untouched, forwards or not", () => {

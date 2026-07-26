@@ -145,18 +145,47 @@ describe("sameForwards — the forwards cell's dedup gate", () => {
     createdAt: 1_700_000_000_001,
   };
 
-  it("sees a change in EVERY field the wire schema declares", () => {
+  it("sees a change in every field `key` does not already determine", () => {
     // Read off the schema rather than hand-listed, so this test grows with
     // `KoluForwardSchema` — a field the gate stops comparing is a field whose
     // changes are swallowed with nothing anywhere to report why the row froze.
+    //
+    // `host` and `remotePort` are excluded on both sides, and the exclusion is
+    // the point rather than a concession: `key` IS `targetKey`, which encodes
+    // `local:<port>` / `remote:<host>:<port>`, so two rows agreeing on `key`
+    // cannot disagree on either. Comparing them bought nothing and cost the
+    // guarantee — `host` is object-valued, so it needed a hand-coded arm, and
+    // the NEXT object-valued field would have fallen through to `===`, compared
+    // by reference across freshly minted rows, never matched, and silently
+    // stopped the dedup. The case below pins the transitive half.
+    const determinedByKey = new Set(["host", "remotePort"]);
     for (const key of Object.keys(
       KoluForwardSchema.shape,
     ) as (keyof KoluForward)[]) {
+      if (determinedByKey.has(key)) continue;
       expect(
         sameForwards([ROW], [{ ...ROW, [key]: OTHER[key] } as KoluForward]),
         `sameForwards ignores "${key}"`,
       ).toBe(false);
     }
+  });
+
+  it("catches a moved host or remote port THROUGH the key that encodes them", () => {
+    // The excluded fields are not unwatched — they are watched by proxy. A row
+    // whose host or remote port genuinely moved is a row with a different
+    // `targetKey`, so the change arrives on `key` and the gate sees it.
+    expect(
+      sameForwards(
+        [ROW],
+        [{ ...ROW, key: "remote:zest:5173", host: { kind: "local" } }],
+      ),
+    ).toBe(false);
+    expect(
+      sameForwards(
+        [ROW],
+        [{ ...ROW, key: "remote:pu-dev:9999", remotePort: 9999 }],
+      ),
+    ).toBe(false);
   });
 
   it("says nothing changed when nothing did, host object identity included", () => {

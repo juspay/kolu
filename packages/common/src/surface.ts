@@ -58,7 +58,7 @@ import {
 // The host key, from its own padi-LESS module — the forward vocabulary below is
 // keyed by it, so a row can be filtered to a terminal's host without parsing an
 // ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
-import { encodeHostKey, HostKeySchema } from "./hostKey.ts";
+import { HostKeySchema } from "./hostKey.ts";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -547,32 +547,45 @@ export type ForwardCreateInput = z.infer<typeof ForwardCreateInputSchema>;
 /** What `forwards.cancel` takes — the key off the row being cancelled. */
 export const ForwardCancelInputSchema = z.object({ key: z.string() });
 
+/** Fields `key` already determines, so comparing them adds nothing: `targetKey`
+ *  encodes `local:<port>` / `remote:<host>:<port>`, so two rows agreeing on
+ *  `key` cannot disagree on either.
+ *
+ *  Excluding them is what keeps the read-off-the-schema promise below TRUE.
+ *  `host` is the one object-valued field, and comparing it needed a hand-coded
+ *  arm — which quietly made the promise false, because the NEXT object-valued
+ *  field would fall through to `===`, compare by reference across freshly minted
+ *  rows, never match, and silently stop the dedup with nothing to report why. */
+const FORWARD_KEYS_DETERMINED_BY_KEY = new Set(["host", "remotePort"]);
+
 /** The comparison keys, READ OFF the schema so a new `KoluForward` field is
  *  compared with no second edit here — the `PORT_INFO_KEYS` mechanism
  *  (`@kolu/port-scan/ports`), for its reason: this is a DEDUP gate, so a field it
  *  does not compare is a field whose changes are swallowed, with nothing anywhere
  *  to report why the row never updated. */
-const FORWARD_KEYS = Object.keys(
-  KoluForwardSchema.shape,
+const FORWARD_KEYS = Object.keys(KoluForwardSchema.shape).filter(
+  (k) => !FORWARD_KEYS_DETERMINED_BY_KEY.has(k),
 ) as (keyof KoluForward)[];
 
 /** Are two forward lists the same fact? The cell's wire dedup point: the list is
  *  republished whenever the map moves, and a re-publish that changes nothing
- *  would tick every reader. Field-wise rather than `JSON.stringify` because
- *  `host` is an object and key order in a serialization is not a fact. */
+ *  would tick every reader. Field-wise rather than `JSON.stringify` because key
+ *  order in a serialization is not a fact. */
 export function sameForwards(a: Forwards, b: Forwards): boolean {
   return (
     a.length === b.length &&
     a.every((f, i) => {
       const g = b[i]!;
-      return FORWARD_KEYS.every((k) =>
-        // `host` is the one field that is an object; key order in a
-        // serialization is not a fact, so it is compared by its canonical
-        // encoding rather than by identity.
-        k === "host"
-          ? encodeHostKey(f.host) === encodeHostKey(g.host)
-          : f[k] === g[k],
-      );
+      // Every compared field is a PRIMITIVE, which is what makes the
+      // read-off-the-schema promise true: a new field is covered here with no
+      // second edit. `host` and `remotePort` are deliberately not in the set —
+      // both are fully determined by `key` (`targetKey` encodes
+      // `local:<port>` / `remote:<host>:<port>`), so comparing them adds
+      // nothing, and `host` being an object needed a hand-coded arm that
+      // quietly made the promise false: the NEXT object-valued field would
+      // have fallen through to `===`, compared by reference across freshly
+      // minted rows, never matched, and silently stopped the dedup.
+      return FORWARD_KEYS.every((k) => f[k] === g[k]);
     })
   );
 }
@@ -793,7 +806,7 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
     },
 
     /** Every port forward this kolu server currently holds open (PRT2) — see
-     *  {@link KoluForwardSchema}. Server-authored: a DERIVED PUSH cell scanning
+     *  {@link KoluForwardSchema}. Server-authored: a DERIVED POLL cell scanning
      *  the forward map's own change feed (`server/src/surface.ts`), so the
      *  reactor graph is the one writer and clients are read-only. Mutations go
      *  through the `forwards.create` / `forwards.cancel` procedures below.

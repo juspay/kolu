@@ -22,7 +22,25 @@ import { z } from "zod";
  *  independently at eight sites that had already drifted (`port <= 0` in one,
  *  `port < 1` in another, `.min(1)` in a third). A range restated is a range that
  *  will disagree with itself. */
-export const TcpPortSchema = z.number().int().min(1).max(65535);
+const TCP_PORT_MIN = 1;
+const TCP_PORT_MAX = 65535;
+
+export const TcpPortSchema = z
+  .number()
+  .int()
+  .min(TCP_PORT_MIN)
+  .max(TCP_PORT_MAX);
+
+/** The same rule as {@link TcpPortSchema}, as a plain predicate — for the
+ *  scanner's parse loop, which asks it once per listening socket on a pass that
+ *  runs down to once a second for the life of every padi. Sharing the
+ *  DECLARATION is the point; running a schema pipeline (and allocating its
+ *  result object) per row is not, and the cost model in the performance note
+ *  measures that function. Both read the same two constants, so there is still
+ *  one home for the range. */
+export function isTcpPort(port: number): boolean {
+  return Number.isInteger(port) && port >= TCP_PORT_MIN && port <= TCP_PORT_MAX;
+}
 
 /** WHERE a listening socket is bound, reduced to the three cases that take
  *  genuinely different action — never to a boolean.
@@ -110,8 +128,10 @@ export function widerScope(a: PortScope, b: PortScope): PortScope {
 /** One listening TCP port inside a process subtree — "what is this thing
  *  serving?".
  *
- *  Three fields, and deliberately not a fourth: the raw BIND ADDRESS is reduced
- *  to the {@link PortScope} a consumer acts on. Carrying the address itself
+ *  Four fields, and deliberately not a fifth: the raw BIND ADDRESS is reduced to
+ *  the two facts a consumer acts on — the {@link PortScope} that decides whether
+ *  a door is needed and the {@link PortFamily} that decides which loopback it
+ *  dials. Carrying the address itself
  *  would invite every render site to re-derive that classification (and to
  *  disagree about `::ffff:0.0.0.0`), which is the bug the single judge exists to
  *  prevent.

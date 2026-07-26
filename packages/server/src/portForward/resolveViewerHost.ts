@@ -96,7 +96,6 @@ export function makeViewerHostResolver(deps: {
       // the process, with no way back short of a restart. A definitive "this
       // name does not exist" is a fact worth keeping; "ask me later" is not.
       if (isTransientLookupFailure(err)) return [];
-      found = [];
     }
     cache.set(hostname, found);
     return found;

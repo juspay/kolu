@@ -55,11 +55,14 @@ export const HostStatusDot: Component<{
        *  is what keeps it from reading as a thicker dot. */}
       <span
         class={`pointer-events-none absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full ${FORWARD_RING}`}
-        role="img"
+        // Announced by the enclosing BUTTON, not here: this element is
+        // `pointer-events-none`, so a `title` on it can never be hovered, and a
+        // second accessible name for one fact is a second thing to keep in
+        // step. `HostSelectorStrip` appends `forwardRingLabel` to the button's
+        // own label, which is the copy a user actually gets.
+        aria-hidden="true"
         data-testid="host-forward-ring"
         data-count={props.forwardCount}
-        title={forwardRingLabel(props.forwardCount)}
-        aria-label={forwardRingLabel(props.forwardCount)}
       />
     </Show>
   </span>

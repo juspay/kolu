@@ -365,6 +365,54 @@ describe("a relay that fails after it was up", () => {
       expect(relay.localPort).toBeGreaterThan(0);
     });
 
+    it("refuses a KERNEL-CHOSEN port that lands on the target too", async () => {
+      // The guard above is on the number the caller REMEMBERED, but the runaway
+      // is a property of the number actually BOUND. When the remembered port is
+      // taken, `openPreferringPort` falls back to `pickFreePort()` — a concrete
+      // kernel-chosen number that never passed that check.
+      //
+      // So the same self-relay is reachable without anyone asking for it: a
+      // loopback target whose listener is already dead (nothing holds the
+      // number), a target port inside the ephemeral range, and the kernel hands
+      // back exactly it. Then the relay binds `0.0.0.0:<port>` and dials
+      // `127.0.0.1:<port>` — itself. That is the shape that opened ~29,000 file
+      // descriptors in 1.5 seconds.
+      //
+      // The listener seam is how the case is provoked deterministically: the
+      // kernel cannot be told which free port to pick, so a fake reports the
+      // collision instead.
+      const target = await pickFreePort();
+      let closed = false;
+      const collidingListen = (): Server => {
+        const server = createNetServer();
+        // The bind reports the very port we are dialling.
+        server.address = () => ({
+          address: "0.0.0.0",
+          family: "IPv4",
+          port: target,
+        });
+        const realClose = server.close.bind(server);
+        server.close = ((cb?: (err?: Error) => void) => {
+          closed = true;
+          return realClose(cb);
+        }) as typeof server.close;
+        return server;
+      };
+
+      await expect(
+        openRelay({
+          port: target,
+          report: silent(),
+          listen: collidingListen,
+          lastLocalPort: undefined,
+          loopback: "v4",
+        }),
+      ).rejects.toThrow(/relay into itself/);
+      // …and the listener it had already opened is taken back down, rather than
+      // left holding the very socket that would loop.
+      expect(closed).toBe(true);
+    });
+
     it("refuses the one number that would point the relay at itself", async () => {
       // Unreachable through the map (a relay can never have HAD this number), so
       // this is a guard on the consequence rather than on a live path: binding

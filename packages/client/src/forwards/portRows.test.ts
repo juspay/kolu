@@ -22,7 +22,6 @@ import { describe, expect, it } from "vitest";
 import { portRows } from "./portRows";
 
 const LOCAL = { kind: "local" as const };
-const ZEST = { kind: "remote" as const, target: "zest" };
 
 const port = (p: number, name = "node"): PortInfo => ({
   port: p,
@@ -52,7 +51,6 @@ describe("portRows", () => {
     const rows = portRows({
       ports: [port(5173)],
       forwards: [forward(5173, 5173)],
-      host: LOCAL,
     });
 
     expect(rows).toHaveLength(1);
@@ -67,7 +65,7 @@ describe("portRows", () => {
   });
 
   it("leaves a port with no forward carrying none", () => {
-    const rows = portRows({ ports: [port(3000)], forwards: [], host: LOCAL });
+    const rows = portRows({ ports: [port(3000)], forwards: [] });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: "port", port: 3000 });
     expect(rows[0]?.forward).toBeUndefined();
@@ -80,7 +78,6 @@ describe("portRows", () => {
     const rows = portRows({
       ports: [port(3000)],
       forwards: [forward(9229, 61000, "manual")],
-      host: LOCAL,
     });
 
     expect(rows.map((r) => r.kind)).toEqual(["port", "orphan"]);
@@ -98,7 +95,6 @@ describe("portRows", () => {
     const rows = portRows({
       ports: [port(8080)],
       forwards: [forward(80, 61000, "manual"), forward(8080, 8080)],
-      host: LOCAL,
     });
 
     expect(rows.map((r) => [r.kind, r.port])).toEqual([
@@ -107,26 +103,12 @@ describe("portRows", () => {
     ]);
   });
 
-  it("ignores forwards belonging to another host", () => {
-    // Forwards are host-scoped; a door to zest has no business appearing under a
-    // terminal on the local host, matched port number or not.
-    const rows = portRows({
-      ports: [port(5173)],
-      forwards: [forward(5173, 5173, "auto", ZEST)],
-      host: LOCAL,
-    });
-
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.forward).toBeUndefined();
-  });
-
   it("sorts orphans by port, so the trailing group is stable", () => {
     // `<For>` keys by identity and the list re-derives on every forward change;
     // an unstable order would rebuild the rows' DOM on unrelated ticks.
     const rows = portRows({
       ports: [],
       forwards: [forward(9229, 1), forward(80, 2), forward(3000, 3)],
-      host: LOCAL,
     });
 
     expect(rows.map((r) => r.port)).toEqual([80, 3000, 9229]);
@@ -135,6 +117,6 @@ describe("portRows", () => {
   it("is empty when there is nothing to say", () => {
     // The section renders nothing at all in that case — a heading over an empty
     // list would advertise a feature as broken rather than unused.
-    expect(portRows({ ports: [], forwards: [], host: LOCAL })).toEqual([]);
+    expect(portRows({ ports: [], forwards: [] })).toEqual([]);
   });
 });

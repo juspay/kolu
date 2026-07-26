@@ -57,6 +57,10 @@ export function openRelay(opts: {
   loopback: LoopbackFamily;
 }): Promise<OpenedForward> {
   const { port, lastLocalPort } = opts;
+  // The cheap refusal, before anything binds. It is NOT what the guarantee
+  // rests on: the runaway is a property of the port actually BOUND, and the
+  // fallback below takes a kernel-chosen number that never passes through here.
+  // The binding check in `openRelayOn` is the one that covers every path.
   if (lastLocalPort === port) {
     throw new Error(
       `port-forward: a relay for local port ${port} cannot listen on that same number — it would relay into itself.`,
@@ -202,6 +206,24 @@ function openRelayOn(
         reject(
           new Error(
             `port-forward: the relay listener has no TCP address (got ${JSON.stringify(address)}).`,
+          ),
+        );
+        return;
+      }
+      // The self-relay guard, on the port the kernel actually gave us. Checking
+      // the REQUESTED number (as `openRelay` does on its way in) misses the path
+      // that matters: when a remembered port is taken, `openPreferringPort`
+      // falls back to `pickFreePort()`, and a free port inside the ephemeral
+      // range can be exactly the target — whose own listener is by then dead, so
+      // nothing holds the number. The relay would bind `0.0.0.0:<port>` while
+      // dialling `127.0.0.1:<port>`: itself. That is the shape that opened
+      // ~29,000 file descriptors in 1.5 seconds. Here it is one check covering
+      // all three paths by construction rather than one path by inspection.
+      if (address.port === port) {
+        void teardown();
+        reject(
+          new Error(
+            `port-forward: a relay for local port ${port} cannot listen on that same number — it would relay into itself.`,
           ),
         );
         return;

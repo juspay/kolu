@@ -14,7 +14,12 @@
  */
 
 import { splitHostPort } from "@kolu/port-forward/target";
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import {
+  encodeHostKey,
+  type HostKey,
+  hostKeysInclude,
+  parseHostInput,
+} from "kolu-common/hostKey";
 import { toast } from "solid-sonner";
 import { createForward } from "./useForwards";
 
@@ -55,14 +60,20 @@ export function parseForwardInput(
   // on the machine whose terminals are on screen) and saves typing its name.
   if (hostText === "") return { ok: true, host: activeHost, port };
 
-  const match = hosts.find((h) => h.kind === "remote" && h.target === hostText);
-  if (match !== undefined) return { ok: true, host: match, port };
-  // A local host has no target to type, so let its spellings name it explicitly
-  // rather than only being reachable by omission.
-  if (hostText === "local" || hostText === "localhost") {
-    const local = hosts.find((h) => h.kind === "local");
-    if (local !== undefined) return { ok: true, host: local, port };
-  }
+  // `parseHostInput` is the repo's codec for HUMAN host input — the add-host
+  // picker and a `KOLU_PADI_HOST` seed already read through it — and
+  // `hostKeysInclude` is its membership authority. Reading them here rather than
+  // matching by hand is not tidiness: the set of spellings that name the local
+  // host lives in that codec BECAUSE a second reader knowing only some of them
+  // mints a divergent answer, which is the bug the set was introduced for. The
+  // hand-rolled version had already lost `127.0.0.1` and `::1`, so those were
+  // refused here while every other surface resolved them.
+  //
+  // It also inherits the judgment this file should not be re-making: a
+  // `user@localhost` is ssh as a different user to the loopback, which is its
+  // own remote target rather than the local default.
+  const named = parseHostInput(hostText);
+  if (hostKeysInclude(hosts, named)) return { ok: true, host: named, port };
   return {
     ok: false,
     message: `kolu has no host "${hostText}" — add it first, or use a bare port for ${labelOf(activeHost)}.`,

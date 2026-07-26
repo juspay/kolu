@@ -310,21 +310,34 @@ export function createKoluForwards(deps: {
       for (const f of auto)
         hosts.set(encodeHostKey(hostOf(f.target)), hostOf(f.target));
 
+      // The hosts are read TOGETHER, for the same reason the read fans out over
+      // a host's terminals inside `readHostPorts`: the reads are independent and
+      // each is separately bounded, so in sequence one quiet mirror costs its
+      // whole deadline and three cost three of them. Against a cadence shorter
+      // than that sum the poll's non-overlap guard just defers the next tick,
+      // and the reap slips to the sum of its worst hosts for the life of the
+      // server. Per-host error containment is unchanged — each read keeps its
+      // own catch, so one failure cannot take the others' answers down with it.
       const ports = new Map<string, HostPorts>();
-      for (const [enc, host] of hosts) {
-        try {
-          ports.set(enc, await deps.readHostPorts(host, REAP_READ_DEADLINE_MS));
-        } catch (err) {
-          // A read that FAILED is not evidence that anything died. Log it (a
-          // failed read is an anomaly, not a degraded-but-fine state) and leave
-          // this host's doors standing.
-          deps.log.error(
-            { err, host: enc },
-            "could not read a host's ports for forward auto-cancel — its forwards are left standing",
-          );
-          ports.set(enc, { status: "unknown" });
-        }
-      }
+      await Promise.all(
+        [...hosts].map(async ([enc, host]) => {
+          try {
+            ports.set(
+              enc,
+              await deps.readHostPorts(host, REAP_READ_DEADLINE_MS),
+            );
+          } catch (err) {
+            // A read that FAILED is not evidence that anything died. Log it (a
+            // failed read is an anomaly, not a degraded-but-fine state) and
+            // leave this host's doors standing.
+            deps.log.error(
+              { err, host: enc },
+              "could not read a host's ports for forward auto-cancel — its forwards are left standing",
+            );
+            ports.set(enc, { status: "unknown" });
+          }
+        }),
+      );
 
       for (const forward of auto) {
         // Re-read the origin HERE rather than trusting the snapshot above. The
@@ -391,17 +404,27 @@ export function createKoluForwards(deps: {
       const doomed = manager
         .targets()
         .filter((t) => encodeHostKey(hostOf(t)) === enc)
-        .map((t) => ({ key: targetKey(t) }));
-      for (const forward of doomed) {
-        try {
-          await manager.cancel(forward.key);
-        } catch (err) {
-          deps.log.error(
-            { err, key: forward.key, host: enc },
-            "could not cancel a departed host's forward — it is still listed",
-          );
-        }
-      }
+        .map(targetKey);
+      // Together, not one after another — the same call `dispose` already makes,
+      // and for the same reason it records: an ssh teardown escalates to SIGKILL
+      // only after a kill grace, so K wedged doors cost K × that grace in
+      // sequence. Here the wire list does not move until the last one lands, so
+      // serially the UI keeps showing doors to a departed machine for the whole
+      // sum. Each cancel keeps its own catch, so one refusal cannot cut the
+      // batch short — which is why `closeSlot` reports failures rather than
+      // throwing.
+      await Promise.all(
+        doomed.map(async (key) => {
+          try {
+            await manager.cancel(key);
+          } catch (err) {
+            deps.log.error(
+              { err, key, host: enc },
+              "could not cancel a departed host's forward — it is still listed",
+            );
+          }
+        }),
+      );
       if (doomed.length > 0) notify();
     },
 

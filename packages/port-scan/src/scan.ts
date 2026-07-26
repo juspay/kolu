@@ -179,7 +179,7 @@ import { readdir, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Logger } from "@kolu/log";
-import { foldPorts, TcpPortSchema } from "./ports.ts";
+import { foldPorts, isTcpPort } from "./ports.ts";
 import type { PortFamily, PortInfo, PortScope } from "./ports.ts";
 
 const execFileAsync = promisify(execFile);
@@ -471,10 +471,15 @@ export function addressBind(bytes: readonly number[]): {
       family: "v6",
     };
   }
-  // A width neither decoder produces. The decoders already refuse anything but
-  // 4 or 16 bytes, so this is unreachable by construction — but it must answer
-  // SOMETHING, and the safe answer is the one that offers no door.
-  return { scope: "interface", family: "v6" };
+  // A width neither decoder produces — they refuse anything but 4 or 16 bytes.
+  // It THROWS rather than answering: this is the single judge behind every
+  // reachability decision downstream, and inventing a bind observation for an
+  // impossible input is a fabricated fact wearing the shape of a measurement.
+  // The house rule is the same one the blind-scan arm follows — crash loudly
+  // rather than degrade into a plausible-looking answer nothing can check.
+  throw new Error(
+    `port-scan: a bind address of ${bytes.length} bytes is neither v4 nor v6 — the decoders cannot produce this.`,
+  );
 }
 
 /** A `/proc/net/tcp{,6}` LISTEN row, keyed by the socket inode the fd walk joins
@@ -520,7 +525,7 @@ export function parseProcNetTcp(body: string): ProcListener[] {
       );
     }
     const port = Number.parseInt(local.slice(split + 1), 16);
-    if (!TcpPortSchema.safeParse(port).success) {
+    if (!isTcpPort(port)) {
       throw new PortScanError(
         "blind",
         `port scan: "${local}" carries no valid port in a /proc/net/tcp row`,
@@ -920,7 +925,7 @@ export function parseHelperOutput(body: string): HelperReading {
           `port scan: helper listener row has a non-numeric pid: ${line}`,
         );
       }
-      if (!TcpPortSchema.safeParse(port).success) {
+      if (!isTcpPort(port)) {
         throw new PortScanError(
           "blind",
           `port scan: helper listener row carries no valid port: ${line}`,

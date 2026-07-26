@@ -144,7 +144,6 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     portRows({
       ports: ports(),
       forwards: forwardsForHost(host()),
-      host: host(),
     }),
   );
   return (

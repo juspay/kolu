@@ -43,6 +43,26 @@ describe("parseForwardInput", () => {
     expect(encodedHostOf(parseForwardInput("localhost:8080", HOSTS, PU))).toBe(
       "local",
     );
+    // …and the loopback ADDRESSES too, which is the half a hand-rolled reading
+    // of this lost. `kolu-common` owns the set of spellings that name the local
+    // host, precisely because a second reader that knows only some of them mints
+    // a divergent answer — which is the bug that set was introduced for.
+    expect(encodedHostOf(parseForwardInput("127.0.0.1:8080", HOSTS, PU))).toBe(
+      "local",
+    );
+    expect(encodedHostOf(parseForwardInput("::1:8080", HOSTS, PU))).toBe(
+      "local",
+    );
+  });
+
+  it("still takes a user@host literally, even at the loopback", () => {
+    // The one case the shared codec is careful about: ssh as a DIFFERENT user to
+    // the loopback is its own remote target, not the local host. Reusing the
+    // codec inherits that judgment rather than re-deciding it here.
+    expect(parseForwardInput("srid@localhost:8080", HOSTS, PU)).toEqual({
+      ok: false,
+      message: expect.stringContaining('kolu has no host "srid@localhost"'),
+    });
   });
 
   it("refuses a host kolu does not have", () => {

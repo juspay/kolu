@@ -18,15 +18,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const viewer = vi.fn();
+/** The forwards cell's current value, swappable per test. */
+const cell: { value: () => unknown[] } = { value: () => [] };
 
 vi.mock("../wire", () => ({
   client: { hosts: { viewer } },
-  app: { cells: { forwards: { use: () => ({ value: () => [] }) } } },
+  app: { cells: { forwards: { use: () => ({ value: () => cell.value() }) } } },
 }));
 
 afterEach(() => {
   vi.resetModules();
   viewer.mockReset();
+  cell.value = () => [];
 });
 
 /** Import fresh each time — the query is a module-level one-shot, so its
@@ -60,5 +63,40 @@ describe("viewerHost", () => {
     const viewerHost = await loadViewerHost();
     expect(() => viewerHost()).not.toThrow();
     expect(viewerHost()).toBeNull();
+  });
+});
+
+describe("forwardsForHost", () => {
+  const door = (key: string, host: { kind: string; target?: string }) => ({
+    key,
+    host,
+    remotePort: 5173,
+    localPort: 5173,
+    origin: "auto",
+    createdAt: 0,
+  });
+
+  it("keeps only the doors on the host asked for", async () => {
+    // Host scoping lives HERE, and only here. `portRows` used to re-filter what
+    // this had already filtered — two layers owning one question, which means
+    // one of them is dead code. The dead one was carrying this case, so it moved
+    // to the live layer rather than being deleted along with it.
+    //
+    // It matters because every surface showing a forward is host-scoped: a door
+    // to zest appearing under a terminal on the local host is a link that opens
+    // the wrong machine's page.
+    cell.value = () => [
+      door("remote:zest:5173", { kind: "remote", target: "zest" }),
+      door("local:5173", { kind: "local" }),
+      door("remote:pu-dev:3000", { kind: "remote", target: "pu-dev" }),
+    ];
+    const { forwardsForHost } = await import("./useForwards");
+
+    expect(
+      forwardsForHost({ kind: "remote", target: "zest" }).map((f) => f.key),
+    ).toEqual(["remote:zest:5173"]);
+    expect(forwardsForHost({ kind: "local" }).map((f) => f.key)).toEqual([
+      "local:5173",
+    ]);
   });
 });

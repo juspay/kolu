@@ -17,7 +17,6 @@
  * A pure join, so the ordering and the host scoping are testable without a DOM.
  */
 
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { KoluForward, PortInfo } from "kolu-common/surface";
 
 /** One row of the section.
@@ -44,15 +43,13 @@ export type PortRow =
 /** Join what the terminal serves to what kolu has opened. */
 export function portRows(opts: {
   ports: readonly PortInfo[];
+  /** The doors on the inspected terminal's host. ALREADY host-scoped by the
+   *  caller (`forwardsForHost`), so this function does not re-filter: two layers
+   *  owning "which host?" means one of them is dead code, and the dead one keeps
+   *  a test alive for a case the wiring cannot produce. */
   forwards: readonly KoluForward[];
-  /** The host the inspected terminal is on — forwards are host-scoped. */
-  host: HostKey;
 }): PortRow[] {
-  const here = encodeHostKey(opts.host);
-  const onThisHost = opts.forwards.filter(
-    (f) => encodeHostKey(f.host) === here,
-  );
-  const byPort = new Map(onThisHost.map((f) => [f.remotePort, f]));
+  const byPort = new Map(opts.forwards.map((f) => [f.remotePort, f]));
 
   const rows: PortRow[] = opts.ports.map((info) => ({
     kind: "port",
@@ -65,7 +62,7 @@ export function portRows(opts: {
   // subject is what this terminal is serving; the host's other doors are the
   // footnote, and interleaving by number would bury the first in the second.
   const scanned = new Set(opts.ports.map((p) => p.port));
-  const orphans = onThisHost
+  const orphans = opts.forwards
     .filter((f) => !scanned.has(f.remotePort))
     .sort((a, b) => a.remotePort - b.remotePort)
     .map(
