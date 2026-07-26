@@ -40,7 +40,7 @@
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
   workspace = import ./nix/workspace.nix { inherit pkgs; };
-  inherit (workspace) version src pnpmDeps;
+  inherit (workspace) version src fileset pnpmDeps;
 
   # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
@@ -52,44 +52,50 @@ let
   runtimeTsx = pkgs.tsx.override { nodejs_22 = runtimeNode; };
   runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
 
-  # Exact source flake with a minimal remote-agent output surface.
-  #
-  # Baking root `self` would keep the whole repository (website, Atlas, evidence)
-  # in every Kolu runtime closure. Instead, assemble the agent flake from the
-  # canonical Kolu workspace source above plus the Nix/npins machinery that
-  # evaluates it. `commit-hash` preserves the parent build's derived identity
-  # even though a store-path flake has no Git metadata. The flake exposes only
-  # Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix; selecting
-  # an agent remains independent of this derivation,
-  # so evaluating the nested flake is acyclic.
-  agentFlakeSrc = pkgs.runCommand "kolu-agent-flake-source" { } ''
-    mkdir -p "$out"
-    cp -R ${src}/. "$out/"
-    cp ${./default.nix} "$out/default.nix"
-    cp ${./nix/agent-flake.nix} "$out/flake.nix"
-    cp -R ${./nix} "$out/nix"
-    cp -R ${./npins} "$out/npins"
-    printf '%s' ${pkgs.lib.escapeShellArg commitHash} > "$out/commit-hash"
-  '';
-  agentFlakeRefEnv =
-    (pkgs.lib.importJSON ./packages/surface-remote/agent-env.json).flakeRef;
-  agentFlakeRefBakeArg =
-    ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
-
   # Build uses a placeholder so docs-only commits don't bust the derivation
   # cache; koluClientDist sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
-  # The ONE recipe for a daemon's baked build identity (hashString over a behavioral
-  # fileset + the `<PREFIX>_*` env bake), the Nix half of @kolu/surface-daemon's
-  # `readBakedIdentity`. It lives INSIDE the surface-daemon package (location is
-  # structure — it travels with the code that reads it). Each daemon below instantiates
-  # it with its OWN behavioralFileset (the policy — what counts as its behavior); the
-  # rationale for "currency key = behavioral closure" (and the zest incident) lives once
-  # at the recipe's doorstep there.
+  # Surface-owned Nix recipes (location is structure — they travel with the
+  # code that reads / depends on them). Both live inside @kolu/surface-daemon:
+  #   mkDaemonIdentity     — hashString-over-fileset + `<PREFIX>_*` bake
+  #   mkProvenAgentSource  — pure agent-tree assemble + evaluate-an-agent prove
   mkDaemonIdentity = import ./packages/surface-daemon/nix/daemon-identity.nix {
     inherit (pkgs) lib;
   };
+  mkProvenAgentSource = import ./packages/surface-daemon/nix/agent-source.nix {
+    inherit (pkgs) lib;
+  };
+
+  # Exact source flake with a minimal remote-agent output surface.
+  #
+  # Baking root `self` would keep the whole repository (website, Atlas, evidence)
+  # in every Kolu runtime closure. Instead, assemble the agent tree from the
+  # workspace package fileset plus the Nix/npins machinery that evaluates it,
+  # then PROVE an agent evaluates from that tree before handing the path to any
+  # wrapper (mkProvenAgentSource — shallow bake is unspellable). The flake
+  # exposes only Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix.
+  #
+  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/.
+  # Deliberately does NOT yet include ./osfacts — OSF2's port-scan bake needs it
+  # and the prove fails until it is added. That failure is the gate.
+  agentSource = mkProvenAgentSource {
+    root = ./.;
+    fileset = pkgs.lib.fileset.unions [
+      fileset
+      ./default.nix
+      ./nix
+      ./npins
+    ];
+    inherit pkgs commitHash;
+    agents = pkgs.lib.importJSON ./nix/agent-packages.json;
+    flakeNix = ./nix/agent-flake.nix;
+  };
+  agentFlakeSrc = agentSource.flakeSrc;
+  agentFlakeRefEnv =
+    (pkgs.lib.importJSON ./packages/surface-remote/agent-env.json).flakeRef;
+  agentFlakeRefBakeArg =
+    ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
 
   # osfacts — the single OS process/socket sampler `@kolu/port-scan` spawns
   # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper
