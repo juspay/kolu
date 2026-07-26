@@ -215,10 +215,16 @@ pub fn snapshot(scope: &Scope, want_procs: bool, want_ports: bool) -> Snapshot {
                     snap.ports.extend(listeners_of(pid));
                 }
             }
-            Err(err) => snap.unreadable.push(Unreadable {
-                pid,
-                errno: errno_name(err),
-            }),
+            Err(err) => {
+                // One U per pid — a second failure on the same pid (e.g. list
+                // race) must not double-report.
+                if !snap.unreadable.iter().any(|u| u.pid == pid) {
+                    snap.unreadable.push(Unreadable {
+                        pid,
+                        errno: errno_name(err),
+                    });
+                }
+            }
         }
     }
 
