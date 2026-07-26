@@ -30,11 +30,15 @@ export OSFACTS_LIVE=1
 # the local Cargo.lock; the hermetic gate is nix/nextest, not this script.
 # Always use the repo-pinned nixpkgs toolchain — ambient cargo/rustc can miss
 # link deps (darwin `-liconv` on rasam) even when `cargo` is on PATH.
+# `nix shell` alone puts bins on PATH but does NOT set library search paths,
+# so rustc still fails with "library not found for -liconv" unless we pin
+# LIBRARY_PATH / RUSTFLAGS to the same pin's libiconv.
 cd "$root/osfacts"
 
-echo "live-oracle: cargo test via repo-pinned nixpkgs" >&2
-# Relative path is from osfacts/ (cwd above). libiconv is required on darwin
-# for the cucumber harness link; harmless on linux.
+iconv_lib="$(nix eval --impure --raw --expr \
+  'let pkgs = import ../nix/nixpkgs.nix {}; in "${pkgs.libiconv}/lib"')"
+echo "live-oracle: cargo test via repo-pinned nixpkgs (libiconv=$iconv_lib)" >&2
+# Relative path is from osfacts/ (cwd above).
 nix shell --impure \
   --expr 'let pkgs = import ../nix/nixpkgs.nix {}; in [ pkgs.cargo pkgs.rustc pkgs.stdenv.cc pkgs.libiconv ]' \
-  -c bash -c 'cargo test --test live_oracle'
+  -c bash -c "export LIBRARY_PATH=\"${iconv_lib}\${LIBRARY_PATH:+:\$LIBRARY_PATH}\"; export RUSTFLAGS=\"-L ${iconv_lib} \${RUSTFLAGS:-}\"; cargo test --test live_oracle"
