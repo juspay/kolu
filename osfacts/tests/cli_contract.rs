@@ -1,13 +1,15 @@
 //! Lane 1 — hermetic CLI-contract suite (gates every merge).
 //!
-//! On linux, each case drives the single-threaded `osfacts-hermetic` binary
-//! (unshare + listen + snapshot). On darwin, self-referential bind-in-child.
+//! Both platforms: self-referential bind-in-child (`osfacts-listener`) +
+//! scoped snapshot. Assertions pin *our* fixtures — never "the host table is
+//! empty". One optional empty-table check exists only inside the nix
+//! sandbox's private netns (see `host_ports_empty_in_sandbox_netns`).
 
 mod common;
 
 use common::{
-    hermetic_snapshot, hex_of_v4, hex_of_v6, l_addr_for_port, osfacts, parse_tsv, redact_tsv,
-    snapshot_pids,
+    hermetic_snapshot, hex_of_v4, hex_of_v6, l_addr_for_port, l_rows_for_port, osfacts, parse_tsv,
+    redact_tsv, snapshot_pids,
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -25,6 +27,11 @@ fn fixture_loopback_v4() {
         "helper pid must appear: {procs:?}"
     );
     assert_eq!(
+        l_rows_for_port(&ports, h.port),
+        1,
+        "fixture port must appear exactly once; ports={ports:?}"
+    );
+    assert_eq!(
         l_addr_for_port(&ports, h.port),
         hex_of_v4(Ipv4Addr::LOCALHOST)
     );
@@ -35,6 +42,11 @@ fn fixture_loopback_v4() {
 fn fixture_any_v4() {
     let h = hermetic_snapshot("0.0.0.0");
     let (_, _, ports, _) = parse_tsv(&h.tsv);
+    assert_eq!(
+        l_rows_for_port(&ports, h.port),
+        1,
+        "fixture port must appear exactly once; ports={ports:?}"
+    );
     assert_eq!(
         l_addr_for_port(&ports, h.port),
         hex_of_v4(Ipv4Addr::UNSPECIFIED)
@@ -53,6 +65,11 @@ fn fixture_loopback_v6() {
     };
     let (_, _, ports, _) = parse_tsv(&h.tsv);
     assert_eq!(
+        l_rows_for_port(&ports, h.port),
+        1,
+        "fixture port must appear exactly once; ports={ports:?}"
+    );
+    assert_eq!(
         l_addr_for_port(&ports, h.port),
         hex_of_v6(Ipv6Addr::LOCALHOST)
     );
@@ -69,6 +86,11 @@ fn fixture_any_v6() {
         }
     };
     let (_, _, ports, _) = parse_tsv(&h.tsv);
+    assert_eq!(
+        l_rows_for_port(&ports, h.port),
+        1,
+        "fixture port must appear exactly once; ports={ports:?}"
+    );
     let addr = l_addr_for_port(&ports, h.port);
     assert!(
         addr == hex_of_v6(Ipv6Addr::UNSPECIFIED) || addr == hex_of_v4(Ipv4Addr::UNSPECIFIED),
@@ -87,6 +109,11 @@ fn fixture_v4_mapped_loopback() {
         }
     };
     let (_, _, ports, _) = parse_tsv(&h.tsv);
+    assert_eq!(
+        l_rows_for_port(&ports, h.port),
+        1,
+        "fixture port must appear exactly once; ports={ports:?}"
+    );
     let addr = l_addr_for_port(&ports, h.port);
     let v4 = hex_of_v4(Ipv4Addr::LOCALHOST);
     let mapped = hex_of_v6(Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001));
@@ -106,18 +133,25 @@ fn fixture_v4_mapped_loopback() {
 #[test]
 fn silent_empty_is_versioned_success_with_zero_listeners() {
     // Snapshot a pid that holds no listener: the test process itself.
-    // Not netns-scoped — version + P row is what we assert.
+    // Version + P row is what we assert — empty L means "no listeners", not
+    // "saw nothing".
     let pid = std::process::id();
     let tsv = snapshot_pids(pid);
     assert!(
         tsv.starts_with("V\t1\n") || tsv == "V\t1",
         "must begin with version line, got {tsv:?}"
     );
-    let (v, procs, _, _) = parse_tsv(&tsv);
+    let (v, procs, ports, _) = parse_tsv(&tsv);
     assert_eq!(v, 1);
     assert!(
         procs.iter().any(|p| p.starts_with(&format!("P\t{pid}\t"))),
         "asked pid must appear so empty L is 'no listeners', not 'saw nothing'"
+    );
+    // Our test process holds no listen socket; any L rows would be a lie about
+    // this exact pid (not a host-wide table claim).
+    assert!(
+        ports.is_empty(),
+        "test process must have zero L rows; ports={ports:?}"
     );
 }
 
@@ -194,12 +228,45 @@ fn json_mirrors_tsv_on_same_snapshot() {
 #[test]
 fn roots_includes_helper_process() {
     let h = hermetic_snapshot("127.0.0.1");
-    let (v, procs, _, _) = parse_tsv(&h.tsv);
+    let (v, procs, ports, _) = parse_tsv(&h.tsv);
     assert_eq!(v, 1);
     assert!(
         procs
             .iter()
             .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))),
         "root pid must appear; procs={procs:?}"
+    );
+    assert_eq!(
+        l_rows_for_port(&ports, h.port),
+        1,
+        "fixture port must appear exactly once; ports={ports:?}"
+    );
+}
+
+/// The one remaining "table is empty" pin: host-wide `--ports` with zero L
+/// rows. Exists only when positively inside a nix build sandbox
+/// (`NIX_BUILD_TOP` is set — the builder's private netns starts empty). On a
+/// noisy dev box this test does not exist (returns without asserting).
+/// nextest runs it alone so sibling bind fixtures cannot race the empty claim.
+#[cfg(target_os = "linux")]
+#[test]
+fn host_ports_empty_in_sandbox_netns() {
+    if std::env::var_os("NIX_BUILD_TOP").is_none() {
+        // Outside the sandbox: no claim, no fail — the test does not exist.
+        return;
+    }
+    let out = osfacts()
+        .args(["snapshot", "--ports"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+    let (v, _, ports, _) = parse_tsv(&stdout);
+    assert_eq!(v, 1);
+    assert!(
+        ports.is_empty(),
+        "nix sandbox netns must start with zero listeners; ports={ports:?}"
     );
 }

@@ -31,11 +31,9 @@ pkgs.rustPlatform.buildRustPackage {
 
   cargoLock.lockFile = ./Cargo.lock;
 
-  # cargo-nextest: process-per-test + timeouts.
-  # util-linux: `unshare` for the linux hermetic driver (osfacts-hermetic).
-  nativeCheckInputs = [ pkgs.cargo-nextest ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-    pkgs.util-linux
-  ];
+  # cargo-nextest: process-per-test + timeouts. No util-linux — hermetic
+  # isolation is scoped self-referential asserts, not an unshare netns.
+  nativeCheckInputs = [ pkgs.cargo-nextest ];
 
   checkPhase = ''
     runHook preCheck

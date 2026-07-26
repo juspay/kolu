@@ -6,9 +6,19 @@ fail-fast = false
 period = "30s"
 terminate-after = 2
 
+# Host-wide empty-table pin races sibling bind fixtures if they share a
+# netns; run it with the whole thread pool so nothing else binds concurrently.
+[[profile.default.overrides]]
+filter = 'test(=host_ports_empty_in_sandbox_netns)'
+threads-required = "num-test-threads"
+
 [profile.ci]
 fail-fast = true
 
 [profile.ci.slow-timeout]
 period = "30s"
 terminate-after = 2
+
+[[profile.ci.overrides]]
+filter = 'test(=host_ports_empty_in_sandbox_netns)'
+threads-required = "num-test-threads"

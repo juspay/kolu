@@ -1,11 +1,11 @@
 //! Shared hermetic-test helpers.
 //!
-//! On linux the cargo test harness is multi-threaded, so `unshare(NEWUSER)`
-//! from inside a test returns EINVAL. Netns entry lives in the single-threaded
-//! `osfacts-hermetic` binary instead; tests spawn it and parse its stdout.
-//!
-//! On darwin there is no netns — self-referential bind via `osfacts-listener`
-//! and a direct osfacts snapshot of that child.
+//! Both platforms use the same strategy: bind port 0 in a parked
+//! `osfacts-listener` child, snapshot that child's subtree (or exact pid),
+//! assert *our* fixture appears exactly. Pid and port are redacted for
+//! insta; nothing claims the host port table is empty. There is no
+//! `unshare` / netns path — hermeticity is scoped assertions, not an
+//! isolated network namespace.
 
 use assert_cmd::Command;
 use std::io::{BufRead, BufReader};
@@ -18,58 +18,19 @@ pub struct Hermetic {
     pub tsv: String,
 }
 
-/// Linux: run `osfacts-hermetic` (unshare + listen + snapshot) in one process.
-/// Darwin: spawn listener in-process tree and snapshot with osfacts directly.
+/// Bind `bind` in a parked helper child and snapshot its process subtree.
 pub fn hermetic_snapshot(bind: &str) -> Hermetic {
-    #[cfg(target_os = "linux")]
-    {
-        let bin = env!("CARGO_BIN_EXE_osfacts-hermetic");
-        let out = StdCommand::new(bin)
-            .arg(bind)
-            .arg("roots")
-            .output()
-            .unwrap_or_else(|e| panic!("spawn osfacts-hermetic: {e}"));
-        if !out.status.success() {
-            panic!(
-                "osfacts-hermetic failed: {}\nstderr:\n{}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr)
-            );
-        }
-        parse_hermetic_stdout(&String::from_utf8_lossy(&out.stdout))
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let listener = Listener::spawn(bind);
-        let tsv = snapshot_roots(listener.pid);
-        Hermetic {
-            listener_pid: listener.pid,
-            port: listener.port,
-            tsv,
-        }
+    let listener = Listener::spawn(bind);
+    let tsv = snapshot_roots(listener.pid);
+    Hermetic {
+        listener_pid: listener.pid,
+        port: listener.port,
+        tsv,
     }
 }
 
 /// Like [`hermetic_snapshot`] but `--pids` instead of `--roots`.
-#[cfg(target_os = "linux")]
-pub fn hermetic_snapshot_pids(bind: &str) -> Hermetic {
-    let bin = env!("CARGO_BIN_EXE_osfacts-hermetic");
-    let out = StdCommand::new(bin)
-        .arg(bind)
-        .arg("pids")
-        .output()
-        .unwrap_or_else(|e| panic!("spawn osfacts-hermetic: {e}"));
-    if !out.status.success() {
-        panic!(
-            "osfacts-hermetic failed: {}\nstderr:\n{}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    parse_hermetic_stdout(&String::from_utf8_lossy(&out.stdout))
-}
-
-#[cfg(not(target_os = "linux"))]
+#[allow(dead_code)] // kept for parity with --pids call sites / future fixtures
 pub fn hermetic_snapshot_pids(bind: &str) -> Hermetic {
     let listener = Listener::spawn(bind);
     let tsv = snapshot_pids(listener.pid);
@@ -80,26 +41,7 @@ pub fn hermetic_snapshot_pids(bind: &str) -> Hermetic {
     }
 }
 
-fn parse_hermetic_stdout(stdout: &str) -> Hermetic {
-    let mut lines = stdout.lines();
-    let meta = lines.next().expect("META line");
-    let rest: Vec<&str> = meta.split('\t').collect();
-    assert_eq!(rest.first().copied(), Some("META"), "first line: {meta}");
-    let listener_pid: u32 = rest.get(1).expect("pid").parse().expect("pid num");
-    let port: u16 = rest.get(2).expect("port").parse().expect("port num");
-    let tsv = lines.collect::<Vec<_>>().join("\n") + "\n";
-    Hermetic {
-        listener_pid,
-        port,
-        tsv,
-    }
-}
-
-/// No-op placeholder kept so call sites that only need "we're in the
-/// hermetic lane" stay readable. Netns entry is inside osfacts-hermetic.
-pub fn enter_hermetic_net() {}
-
-/// A spawned listener helper (darwin path, and any direct-bind tests).
+/// A spawned listener helper: bind port 0, print the kernel-chosen port, park.
 pub struct Listener {
     child: Child,
     pub pid: u32,
@@ -233,6 +175,17 @@ pub fn l_addr_for_port(ports: &[String], port: u16) -> String {
         }
     }
     panic!("no L row for port {port}; rows={ports:?}");
+}
+
+/// Count L rows that match our fixture port (self-referential "appears exactly").
+pub fn l_rows_for_port(ports: &[String], port: u16) -> usize {
+    ports
+        .iter()
+        .filter(|row| {
+            let parts: Vec<&str> = row.split('\t').collect();
+            parts.len() == 4 && parts[0] == "L" && parts[2] == port.to_string()
+        })
+        .count()
 }
 
 pub fn hex_of_v4(a: std::net::Ipv4Addr) -> String {

@@ -14,10 +14,6 @@ path = "src/main.rs"
 name = "osfacts-listener"
 path = "src/bin/osfacts-listener.rs"
 
-[[bin]]
-name = "osfacts-hermetic"
-path = "src/bin/osfacts-hermetic.rs"
-
 # Lane 2 cucumber harness — only does work when OSFACTS_LIVE=1.
 [[test]]
 name = "live_oracle"
@@ -38,7 +34,3 @@ proptest = "1"
 # cucumber MSRV is 1.88 (edition 2024); our pin is ≥1.93 — cleared.
 cucumber = "0.23"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "io-util"] }
-
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-# Unprivileged user+net namespace for hermetic port-table isolation.
-nix = { version = "0.29", features = ["sched", "user", "net"] }

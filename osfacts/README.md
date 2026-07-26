@@ -86,15 +86,20 @@ Two lanes, split by which question they answer.
 
 The first lane asks "did we break osfacts?" and gates every merge. It's
 hermetic: `nix build` compiles the binary and then tests that same binary,
-inside the sandbox, on both platforms. On linux each test gets its own
-network namespace — an unprivileged `unshare` nested inside the sandbox's
-own — so the port table starts empty and every assertion is exact. macOS
-has no namespaces, so there the tests do what every serious tool in this
-domain does: bind port 0 on loopback in a spawned child tree and assert
-osfacts sees its own processes. The two fields no test can pin — the real
-pid, the kernel-chosen port — are redacted to stable placeholders;
-everything else is byte-exact. The unreadable path is tested against pid 1,
-which is always present and always forbidden.
+inside the sandbox, on both platforms. Both platforms use the same
+strategy — bind port 0 in a parked child (`osfacts-listener`) and assert
+osfacts sees *that* process and *that* socket under a scoped snapshot.
+Assertions are self-referential ("my fixture appears exactly"), never
+"the whole host table is empty", so a noisy dev box and a clean sandbox
+exercise the same code path. There is no `unshare` / private-netns trick:
+depending on a host kernel knob for user namespaces contradicted the
+hermetic claim (and broke ubuntu-latest CI). The two fields no test can
+pin — the real pid, the kernel-chosen port — are redacted to stable
+placeholders; everything else is byte-exact. The unreadable path is
+tested against pid 1, which is always present and always forbidden.
+One optional host-wide empty-table pin exists only inside the nix
+sandbox (`NIX_BUILD_TOP` set) and runs alone under nextest so sibling
+binds cannot race it.
 
 The second lane asks "did the OS break osfacts?" and never gates anything.
 Nightly, it runs the nix-built binary on a real, noisy host and diffs its

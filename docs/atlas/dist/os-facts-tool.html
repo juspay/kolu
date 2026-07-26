@@ -440,13 +440,13 @@ and a deliberate not-chosen list longer than both:</p>
 </tr>
 <tr>
 <td>tests (dev-deps)</td>
-<td><strong><code>assert_cmd</code> + <code>predicates</code> + <code>insta</code> + <code>proptest</code> + <code>nix</code> (linux, sched+user+net) + <code>cucumber</code> + <code>tokio</code> (live harness)</strong></td>
-<td>the hermetic gate spawns the real binary (<code>assert_cmd</code>), redacts the two volatile fields for byte-exact snapshots (<code>insta</code>), and property-tests pure codecs only (<code>proptest</code>). Linux netns isolation uses the <code>nix</code> crate inside a single-threaded helper (libtest is multi-threaded; <code>unshare(NEWUSER)</code> rejects that). Live-host oracle scenarios are Gherkin via <code>cucumber</code> (MSRV 1.88; our pin is ≥1.93 — cleared)</td>
+<td><strong><code>assert_cmd</code> + <code>predicates</code> + <code>insta</code> + <code>proptest</code> + <code>cucumber</code> + <code>tokio</code> (live harness)</strong></td>
+<td>the hermetic gate spawns the real binary (<code>assert_cmd</code>), redacts the two volatile fields for byte-exact snapshots (<code>insta</code>), and property-tests pure codecs only (<code>proptest</code>). Both platforms use self-referential bind-in-child fixtures (scoped <code>--roots</code> / <code>--pids</code> asserts “my fixture appears exactly”) — no <code>unshare</code> / netns, no host-kernel knob. Live-host oracle scenarios are Gherkin via <code>cucumber</code> (MSRV 1.88; our pin is ≥1.93 — cleared)</td>
 </tr>
 <tr>
 <td>tests (nix-pinned tools)</td>
-<td><strong><code>cargo-nextest</code> + <code>util-linux</code> (linux <code>unshare</code>)</strong></td>
-<td>process-per-test isolation and per-test timeouts for the hermetic gate; not Cargo deps — they ride <code>nativeCheckInputs</code> in <code>osfacts/default.nix</code></td>
+<td><strong><code>cargo-nextest</code></strong></td>
+<td>process-per-test isolation and per-test timeouts for the hermetic gate; not a Cargo dep — rides <code>nativeCheckInputs</code> in <code>osfacts/default.nix</code></td>
 </tr>
 </tbody>
 </table>
