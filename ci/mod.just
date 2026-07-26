@@ -248,11 +248,11 @@ osfacts: nix
     # Subflake path must build the same derivation (vazhi pattern).
     bash ci/flake-build --kinds packages ./osfacts
 
-# osfacts live-host oracle (lane 2). Diffs the nix-built binary against the
-# host's own tools (`ss` / `lsof`) on a real, noisy box — the class of test
-# that can catch OS regressions hermetic fixtures cannot. Depends on `osfacts`
-# so the binary is already in the store. Runs on both platforms in the default
-# DAG (same gate as every other leaf).
+# osfacts live-host oracle (lane 2). Explicit CI recipe, NOT in the default
+# DAG and never a merge gate — a live host can go red without anyone having
+# broken the tool. Diffs the nix-built binary against the host's own tools
+# (`ss` / `lsof`). Run on demand: `just ci::osfacts-live`, or
+# `odu run --root ci::osfacts-live` on both platforms.
 [linux]
 [macos]
 osfacts-live: osfacts
