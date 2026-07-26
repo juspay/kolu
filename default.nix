@@ -76,9 +76,10 @@ let
   # wrapper (mkProvenAgentSource — shallow bake is unspellable). The flake
   # exposes only Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix.
   #
-  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/.
-  # Deliberately does NOT yet include ./osfacts — OSF2's port-scan bake needs it
-  # and the prove fails until it is added. That failure is the gate.
+  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/
+  # + osfacts/ (OSF2 — padi/koluEnv bake KOLU_OSFACTS_BIN from import ./osfacts;
+  # the prove fails without it). Not a workspace package (no typecheck script);
+  # listed here because the agent graph needs the source, not the pnpm tree.
   agentSource = mkProvenAgentSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
@@ -86,6 +87,7 @@ let
       ./default.nix
       ./nix
       ./npins
+      ./osfacts
     ];
     inherit pkgs commitHash;
     agents = pkgs.lib.importJSON ./nix/agent-packages.json;

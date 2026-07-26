@@ -40,22 +40,30 @@ let
   # Pure: store path changes iff any selected file changes; importable at eval.
   tree = lib.fileset.toSource { inherit root fileset; };
 
-  # Deep prove: evaluate each agent from the assembled tree. Lazy let-bindings
+  # Deep prove: evaluate each agent's .drvPath from the assembled tree — the
+  # same force surface-remote uses (`nix eval …#padi.drvPath`). Lazy let-bindings
   # inside the nested default.nix mean this forces only the agent graphs — not
   # a recursive re-prove of THIS helper (the nested `agentFlakeSrc` thunk is
-  # never selected by `.padi` / `.kaval`).
+  # never selected by `.padi` / `.kaval`). Force `.drvPath` strings, not a raw
+  # `deepSeq` over the derivation attrsets: walking every drv attr can re-enter
+  # the binder graph and stack-overflow once the missing-path errors are gone.
   nested = import "${tree}/default.nix" { inherit pkgs commitHash; };
-  proven = lib.genAttrs agents (name: nested.${name});
+  proven = lib.listToAttrs (map (name: {
+    inherit name;
+    value = nested.${name};
+  }) agents);
+  provenDrvPaths = map (name: nested.${name}.drvPath) agents;
 
-  # Force every proven agent before handing out any bake path. `deepSeq` walks
-  # the attrset values; a missing path aborts evaluation here.
-  provenTree = builtins.seq (builtins.deepSeq proven null) tree;
+  # Force every proven agent before handing out any bake path.
+  provenTree = builtins.seq (builtins.deepSeq provenDrvPaths null) tree;
 
   # Flake-shaped store path for SURFACE_AGENT_FLAKE_REF. Built from the already-
-  # proven pure tree; never the place the prove happens.
+  # proven pure tree; never the place the prove happens. Store sources are
+  # mode-readonly — chmod before writing flake.nix / commit-hash on top.
   flakeSrc = pkgs.runCommand "agent-flake-source" { } ''
     mkdir -p "$out"
     cp -a ${provenTree}/. "$out/"
+    chmod -R u+w "$out"
     cp ${flakeNix} "$out/flake.nix"
     printf '%s' ${lib.escapeShellArg commitHash} > "$out/commit-hash"
   '';
