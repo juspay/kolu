@@ -231,12 +231,32 @@ fn agree_with_retry(world: &mut LiveWorld, dir: Direction) {
 }
 
 fn missing_from(have: &[ListenerRow], against: &[ListenerRow]) -> Vec<(u16, CanonAddr)> {
-    let set: HashSet<(u16, CanonAddr)> =
-        against.iter().map(|r| (r.port, r.canon.clone())).collect();
+    // Dual-stack wildcard: osfacts may report `::` (AnyV6) while lsof/ss show
+    // `*` / `0.0.0.0` (AnyV4) for the same listener. Collapse both to one key
+    // so host tools that disagree on family still agree on "wildcard:port".
+    let set: HashSet<(u16, MatchCanon)> =
+        against.iter().map(|r| match_key(r.port, &r.canon)).collect();
     have.iter()
+        .filter(|r| !set.contains(&match_key(r.port, &r.canon)))
         .map(|r| (r.port, r.canon.clone()))
-        .filter(|k| !set.contains(k))
         .collect()
+}
+
+/// Comparison key for live-oracle agreement — collapses AnyV4/AnyV6.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum MatchCanon {
+    V4([u8; 4]),
+    V6([u8; 16]),
+    Any,
+}
+
+fn match_key(port: u16, canon: &CanonAddr) -> (u16, MatchCanon) {
+    let mc = match canon {
+        CanonAddr::V4(a) => MatchCanon::V4(*a),
+        CanonAddr::V6(a) => MatchCanon::V6(*a),
+        CanonAddr::AnyV4 | CanonAddr::AnyV6 => MatchCanon::Any,
+    };
+    (port, mc)
 }
 
 fn parse_unreadable_pids(tsv: &str) -> HashSet<u32> {
