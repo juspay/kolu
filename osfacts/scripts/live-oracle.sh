@@ -28,21 +28,13 @@ echo "live-oracle: binary=$OSFACTS_BIN" >&2
 export OSFACTS_LIVE=1
 # cargo test drives the harness=false cucumber binary. Dev-deps come from
 # the local Cargo.lock; the hermetic gate is nix/nextest, not this script.
+# Always use the repo-pinned nixpkgs toolchain — ambient cargo/rustc can miss
+# link deps (darwin `-liconv` on rasam) even when `cargo` is on PATH.
 cd "$root/osfacts"
 
-# harness = false (cucumber binary) — no libtest, so no --nocapture.
-run_live() {
-  cargo test --test live_oracle
-}
-
-if command -v cargo >/dev/null 2>&1; then
-  run_live
-else
-  # CI boxes / clean hosts: never bare `nix-shell -p` (needs NIX_PATH). Pull
-  # cargo+rustc+cc from the repo's npins-pinned nixpkgs — the same pin that
-  # builds the osfacts binary. Relative path is from osfacts/ (cwd above).
-  echo "live-oracle: cargo not on PATH; using repo-pinned nixpkgs" >&2
-  nix shell --impure \
-    --expr 'let pkgs = import ../nix/nixpkgs.nix {}; in [ pkgs.cargo pkgs.rustc pkgs.stdenv.cc ]' \
-    -c bash -c 'cargo test --test live_oracle'
-fi
+echo "live-oracle: cargo test via repo-pinned nixpkgs" >&2
+# Relative path is from osfacts/ (cwd above). libiconv is required on darwin
+# for the cucumber harness link; harmless on linux.
+nix shell --impure \
+  --expr 'let pkgs = import ../nix/nixpkgs.nix {}; in [ pkgs.cargo pkgs.rustc pkgs.stdenv.cc pkgs.libiconv ]' \
+  -c bash -c 'cargo test --test live_oracle'
