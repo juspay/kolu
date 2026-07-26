@@ -2,6 +2,10 @@
 //!
 //! Mirrors `packages/port-scan/native/portScanDarwin.c`. Address-slot choice
 //! is `decode::slot_from_vflag` (INI_IPV6 first). No `listeners`, no `sysinfo`.
+//!
+//! Struct sizes/offsets verified against macOS 15.5 headers on rasam
+//! (Darwin 24.5.0 arm64): socket_fdinfo=792, socket_info=768,
+//! soi_family@160, soi_kind@232, in_sockinfo=80, tcp_sockinfo=120.
 
 #![cfg(target_os = "macos")]
 
@@ -27,6 +31,7 @@ const PROX_FDTYPE_SOCKET: u32 = 2;
 const SOCKINFO_TCP: c_int = 2;
 const TSI_S_LISTEN: c_int = 1;
 
+/// `struct proc_bsdinfo` — 136 bytes. We only need ppid + name fields.
 #[repr(C)]
 struct ProcBsdInfo {
     pbi_flags: u32,
@@ -60,10 +65,11 @@ struct ProcFdInfo {
     proc_fdtype: u32,
 }
 
+/// `struct in4in6_addr` — i46a_addr4 at offset 12.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct In4In6Addr {
-    i46a_pad0: [u32; 2],
+    i46a_pad32: [u32; 3],
     i46a_addr4: u32,
 }
 
@@ -74,7 +80,7 @@ union InSockAddr {
     ina_6: [u8; 16],
 }
 
-/// `struct in_sockinfo` — fields we read + trailing pad for kernel size.
+/// `struct in_sockinfo` — 80 bytes. lport@4, vflag@24, laddr@48.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct InSockInfo {
@@ -85,32 +91,35 @@ struct InSockInfo {
     insi_flow: u32,
     insi_vflag: u8,
     insi_ip_ttl: u8,
+    _pad: u16,
     rfu_1: u32,
     insi_faddr: InSockAddr,
     insi_laddr: InSockAddr,
-    insi_v4: [u8; 12],
-    insi_v6: [u8; 20],
+    // v4/v6 extras to reach 80 bytes
+    _tail: [u8; 16],
 }
 
+/// `struct tcp_sockinfo` — 120 bytes. state@80.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct TcpSockInfo {
     tcpsi_ini: InSockInfo,
     tcpsi_state: c_int,
-    _rest: [u8; 80],
+    _rest: [u8; 36],
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 union SocketInfoProto {
     pri_tcp: TcpSockInfo,
-    _pad: [u8; 300],
+    _pad: [u8; 528], // socket_info is 768; proto starts at 240 → 528
 }
 
+/// `struct socket_info` — 768 bytes. family@160, kind@232, proto@240.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct SocketInfo {
-    _soi_stat: [u8; 144],
+    _soi_stat: [u8; 136], // vinfo_stat
     _soi_so: u64,
     _soi_pcb: u64,
     _soi_type: c_int,
@@ -125,19 +134,27 @@ struct SocketInfo {
     _soi_timeo: i16,
     _soi_error: u16,
     _soi_oobmark: u32,
-    _soi_rcv: [u8; 32],
-    _soi_snd: [u8; 32],
+    _soi_rcv: [u8; 24], // sockbuf_info
+    _soi_snd: [u8; 24],
     soi_kind: c_int,
     _rfu_1: u32,
     soi_proto: SocketInfoProto,
 }
 
+/// `struct socket_fdinfo` — 792 bytes. pfi(24) + psi(768).
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct SocketFdInfo {
-    _pfi: [u8; 32],
+    _pfi: [u8; 24],
     psi: SocketInfo,
 }
+
+const _: () = assert!(mem::size_of::<ProcFdInfo>() == 8);
+const _: () = assert!(mem::size_of::<InSockInfo>() == 80);
+const _: () = assert!(mem::size_of::<TcpSockInfo>() == 120);
+const _: () = assert!(mem::size_of::<SocketInfo>() == 768);
+const _: () = assert!(mem::size_of::<SocketFdInfo>() == 792);
+const _: () = assert!(mem::size_of::<ProcBsdInfo>() == 136);
 
 extern "C" {
     fn proc_listpids(type_: u32, typeinfo: u32, buffer: *mut c_void, buffersize: c_int) -> c_int;
@@ -362,14 +379,17 @@ fn listeners_of(pid: u32) -> Vec<Port> {
                 continue;
             }
             let ini = tcp.tcpsi_ini;
+            // insi_lport is network byte order (same as sockaddr).
             let port = u16::from_be(ini.insi_lport as u16);
             if port == 0 {
                 continue;
             }
             let addr = match slot_from_vflag(si.psi.soi_family, ini.insi_vflag) {
                 AddressSlot::V4 => {
+                    // s_addr is stored in network order; emit the in-memory
+                    // bytes (same as portScanDarwin.c's byte walk).
                     let s = ini.insi_laddr.ina_46.i46a_addr4;
-                    u32::from_be(s).to_be_bytes().to_vec()
+                    s.to_ne_bytes().to_vec()
                 }
                 AddressSlot::V6 => ini.insi_laddr.ina_6.to_vec(),
             };
