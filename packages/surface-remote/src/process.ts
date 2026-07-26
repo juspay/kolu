@@ -84,7 +84,12 @@ export type LifetimePolicy =
 export type ExitResult =
   | { ok: boolean; kind: "exit"; code: number }
   | { ok: false; kind: "signal"; signal: NodeJS.Signals }
-  | { ok: false; kind: "spawn-error"; message: string }
+  // `code` is Node's errno for the failed spawn (`"ENOENT"` when the executable
+  // does not exist, `"EACCES"`, `"EMFILE"`, …), carried alongside the message so a
+  // caller can tell "this binary is absent" — permanent — from a transient local
+  // resource fault, WITHOUT scraping the prose. Optional because the `error` event
+  // is typed as a bare `Error`; only an `ErrnoException` supplies one.
+  | { ok: false; kind: "spawn-error"; message: string; code?: string }
   | { ok: false; kind: "output-error"; message: string }
   | {
       ok: false;
@@ -319,7 +324,12 @@ function runWithLifetime(
     });
     proc.on("error", (err) => {
       o.onProgress(`${o.cmd}: ${err.message}`);
-      settle({ ok: false, kind: "spawn-error", message: err.message });
+      settle({
+        ok: false,
+        kind: "spawn-error",
+        message: err.message,
+        code: (err as NodeJS.ErrnoException).code,
+      });
     });
 
     // Wire the abort for aborts that occur AFTER launch — the already-aborted case
