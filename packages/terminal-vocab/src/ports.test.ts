@@ -84,15 +84,18 @@ describe("portReach", () => {
     });
   });
 
-  it("is direct for an INTERFACE bind on the kolu host — no door exists or is needed", () => {
-    // A port bound to one routable address of the kolu server's OWN host already
-    // answers off-box, and no door could improve on that: the relay dials
-    // `127.0.0.1`, where this listener is not. Offering a forward would open a
-    // listener that refuses every connection through it — which is precisely what
-    // the old `wildcard: false` reading did, since it could not tell this case
-    // from the loopback one above.
+  it("says NO MECHANISM for an interface bind on the kolu host too", () => {
+    // The same observation must not answer differently on either side of one
+    // boolean. A host has MANY addresses, and `scope` records that a bind is
+    // interface-specific WITHOUT recording which address — so a listener on
+    // `192.168.1.5:5173` does not answer at the tailnet `fd7a:…` name in the
+    // viewer's address bar, and `direct` renders a plain link to exactly that
+    // name. Nor can a door help: the relay dials `127.0.0.1`, where this
+    // listener is not. Neither branch has a URL kolu can honestly build, so
+    // both say so.
     expect(portReach({ scope: "interface", onKoluHost: true })).toEqual({
-      kind: "direct",
+      kind: "no-mechanism",
+      via: "interface-bind",
     });
   });
 

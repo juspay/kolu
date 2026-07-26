@@ -239,11 +239,17 @@ export function knownPorts(ports: TerminalPorts): readonly PortInfo[] {
 export type PortReach =
   | { kind: "direct" }
   | { kind: "needs-forward"; via: "loopback" | "remote-host" }
-  /** Bound to ONE specific non-loopback address on a host that is not the kolu
-   *  server's. It answers at that address, and no door kolu can open reaches it:
-   *  both forward mechanisms connect to `127.0.0.1` on the far side, where
-   *  nothing is listening. Offering a forward here produces a listener that comes
-   *  up and then refuses every connection through it. */
+  /** Bound to ONE specific non-loopback address — on EITHER host. No door kolu
+   *  can open reaches it: both forward mechanisms connect to `127.0.0.1` on the
+   *  far side, where nothing is listening, so offering a forward produces a
+   *  listener that comes up and then refuses every connection through it.
+   *
+   *  And no direct link either, even when the bind is on the kolu server's own
+   *  host: a host has many addresses, `scope` records that the bind is
+   *  interface-specific WITHOUT recording which one, and a link is built from
+   *  the name in the viewer's address bar — which is a DIFFERENT address of that
+   *  host as often as not (a tailnet `fd7a:…` name over a `192.168.1.5` bind).
+   *  There is no URL kolu can honestly build, which is the whole of this arm. */
   | { kind: "no-mechanism"; via: "interface-bind" };
 
 /** The ONE openability decision, for both ends of the wire — the join of a bind
@@ -253,14 +259,17 @@ export type PortReach =
  *  The four arms follow from what the two forward mechanisms actually dial, not
  *  from a taxonomy:
  *
+ *   - `interface`, on EITHER host → nothing to dial and nothing to link. Both
+ *     mechanisms reach a loopback, which that listener is not on; and the bind is
+ *     on ONE address, which the observation deliberately does not record, so a
+ *     link built from the viewer's address bar is a guess. The arm is stated
+ *     first because it is the one fact `onKoluHost` does not change.
  *   - not on the kolu host, `any` or `loopback` → `ssh -L` to the far side's
  *     `127.0.0.1`, where both of those binds answer.
- *   - not on the kolu host, `interface` → nothing to dial. `ssh -L` would reach
- *     the remote's loopback, which that listener is not on.
  *   - on the kolu host, `loopback` → the in-process relay, which dials
  *     `127.0.0.1` here.
- *   - on the kolu host, `any` or `interface` → no door at all: the listener is on
- *     an address of the very host whose name is in the viewer's address bar.
+ *   - on the kolu host, `any` → no door at all: the listener answers on EVERY
+ *     interface of the very host whose name is in the viewer's address bar.
  *
  *  The REMOTE-HOST precedence is load-bearing: an any-address bind on a remote ssh
  *  host is reachable from THAT machine, and `location.hostname` is not that
@@ -277,11 +286,12 @@ export function portReach(opts: {
   scope: PortScope;
   onKoluHost: boolean;
 }): PortReach {
-  if (!opts.onKoluHost) {
-    return opts.scope === "interface"
-      ? { kind: "no-mechanism", via: "interface-bind" }
-      : { kind: "needs-forward", via: "remote-host" };
+  // First, and on both sides of the boolean: no mechanism dials a single
+  // non-loopback address, and no honest link names one the observation dropped.
+  if (opts.scope === "interface") {
+    return { kind: "no-mechanism", via: "interface-bind" };
   }
+  if (!opts.onKoluHost) return { kind: "needs-forward", via: "remote-host" };
   if (opts.scope === "loopback") {
     return { kind: "needs-forward", via: "loopback" };
   }

@@ -85,8 +85,10 @@ export const NO_MECHANISM_REASON: Record<
   Extract<PortReach, { kind: "no-mechanism" }>["via"],
   string
 > = {
-  "interface-bind":
-    "bound to one interface of a remote host — no forward can reach it",
+  // Not "of a remote host": the judge says the same thing about a bind on the
+  // kolu server's own host, because the address it is bound to is not
+  // necessarily the one in the viewer's address bar.
+  "interface-bind": "bound to one interface — no forward can reach it",
 };
 
 /** What clicking a chip should DO — the join of "is this port reachable as-is?"
