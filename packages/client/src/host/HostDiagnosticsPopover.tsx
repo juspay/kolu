@@ -25,10 +25,7 @@ import { hostMarks } from "../attention/attentionMarks";
 import { activePadiTerminal } from "@kolu/padi/surface";
 import type { KoluForward } from "kolu-common/surface";
 import { ForwardRows } from "../forwards/ForwardRows";
-import {
-  servingTerminalName,
-  terminalServingPort,
-} from "../forwards/terminalServingPort";
+import { servingLink } from "../forwards/terminalServingPort";
 import { selectFleetTerminal } from "../palette/fleetActions";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { forwardsForHost } from "../forwards/useForwards";
@@ -100,54 +97,6 @@ export const HostDiagnosticsPopover: Component<{
   const isLocal = () => props.host.kind === "local";
   const store = useTerminalStore();
   const forwards = () => forwardsForHost(props.host);
-  /** WHICH terminal serves a forwarded port, and how to reach it — the answer to
-   *  "what IS this?", which a row of numbers otherwise leaves hanging. The row
-   *  shows the NAME and links it: the previous cut marked the port number
-   *  instead, and the marking was reported as invisible.
-   *
-   *  The lookup lives HERE rather than in the row because only this component
-   *  holds the host's terminals, and it holds them UNFILTERED — splits included.
-   *  That matters: a dev server almost always runs in a split, so a source that
-   *  dropped splits (the fleet index does, deliberately) would find nothing in
-   *  the common case. `terminalServingPort` folds a split back to its tile. */
-  const servingFor = (
-    forward: KoluForward,
-  ): { name: string; jump: () => void } | undefined => {
-    const arms = new Map(
-      keys().flatMap((id) => {
-        const arm = activePadiTerminal(terminals.byKey(id)?.());
-        return arm === undefined ? [] : [[id, arm] as const];
-      }),
-    );
-    const found = terminalServingPort({
-      port: forward.remotePort,
-      terminals: [...arms].map(([id, arm]) => ({
-        id,
-        parentId: arm.parentId ?? null,
-        ports: arm.ports,
-      })),
-    });
-    if (found === undefined) return undefined;
-    // The join returns the TILE, and the tile is what the row names — a split's
-    // own name would point at a pane the user cannot see as a thing.
-    const tile = arms.get(found);
-    if (tile === undefined) return undefined;
-    const name = servingTerminalName({ git: tile.git ?? null, cwd: tile.cwd });
-    const jump = () => {
-      // Switch host first when the row is foreign, then activate — the same
-      // sequencing the palette uses, so a forward row and a palette row behave
-      // identically rather than by coincidence.
-      selectFleetTerminal(
-        props.host,
-        found,
-        activeHost(),
-        setActiveHost,
-        store.activate,
-      );
-      props.onDismiss();
-    };
-    return { name, jump };
-  };
   const [confirmRemove, setConfirmRemove] = createSignal(false);
   // Local: machine hostname when known (same as the tab label); remotes: target.
   const { hostname } = useServerIdentity();
@@ -183,6 +132,59 @@ export const HostDiagnosticsPopover: Component<{
   const terminals = padiMap
     .entry(props.host)
     .collections.terminals.use({ keys });
+
+  /** Every terminal on this host with a live arm, by id.
+   *
+   *  A MEMO, because `ForwardRows` asks its lookup once per row: rebuilt inside
+   *  that lookup it re-read every terminal on the host for every row rendered.
+   *  It is held UNFILTERED — splits included — and that matters: a dev server
+   *  almost always runs in a split, so a source that dropped splits (the fleet
+   *  index does, deliberately) would find nothing in the common case. */
+  const arms = createMemo(
+    () =>
+      new Map(
+        keys().flatMap((id) => {
+          const arm = activePadiTerminal(terminals.byKey(id)?.());
+          return arm === undefined ? [] : [[id, arm] as const];
+        }),
+      ),
+  );
+
+  /** WHICH terminal serves a forwarded port, and how to reach it — the answer to
+   *  "what IS this?", which a row of numbers otherwise leaves hanging. The rule
+   *  itself is `servingLink`, shared with the Inspector; what is local to this
+   *  component is the SOURCE of the terminals (a foreign host's collection) and
+   *  the act of getting there (a host switch, then an activate). */
+  const servingFor = (forward: KoluForward) =>
+    servingLink({
+      port: forward.remotePort,
+      candidates: [...arms()].map(([id, arm]) => ({
+        id,
+        parentId: arm.parentId ?? null,
+        ports: arm.ports,
+      })),
+      // The join returns the TILE, and the tile is what the row names — a
+      // split's own name would point at a pane the user cannot see as a thing.
+      armOf: (id) => {
+        const tile = arms().get(id);
+        return tile === undefined
+          ? undefined
+          : { git: tile.git ?? null, cwd: tile.cwd };
+      },
+      activate: (id) => {
+        // Switch host first when the row is foreign, then activate — the same
+        // sequencing the palette uses, so a forward row and a palette row behave
+        // identically rather than by coincidence.
+        selectFleetTerminal(
+          props.host,
+          id,
+          activeHost(),
+          setActiveHost,
+          store.activate,
+        );
+        props.onDismiss();
+      },
+    });
 
   const terminalCount = (): string => {
     if (!props.open()) return "—";

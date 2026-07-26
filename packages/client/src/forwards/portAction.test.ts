@@ -1,50 +1,25 @@
 /**
- * The Ports section's own two concerns: the URL it builds, and the words it puts
- * on a chip that needs a forward.
+ * What a port row DOES and what it SAYS — the pure decision, with no DOM.
  *
- * The DECISION behind that chip is not here — `portReach` lives in the vocabulary
- * (both ends of the wire need it, PRT2's forward manager included) and is tested
- * beside `foldPorts` in `terminal-vocab/src/ports.test.ts`. What remains here is
- * presentation, which is the point of the split: rewording the copy no longer
- * touches the decision, and the decision is no longer observed by regex-matching
+ * The reachability decision itself is not here: `portReach` lives in the
+ * vocabulary (both ends of the wire need it, the forward manager included) and
+ * is tested beside `foldPorts` in `terminal-vocab/src/ports.test.ts`. What is
+ * here is the join with "where is the viewer?", the row-kind branch, and the
+ * words — which is the point of the split: rewording the copy no longer touches
+ * the decision, and the decision is no longer observed by regex-matching
  * English.
  */
 
+import type { PortInfo } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { portUrl } from "../forwards/portUrl";
 import {
   FORWARD_REASON,
   NO_MECHANISM_REASON,
   portAction,
-} from "./PortsSection";
-
-describe("portUrl", () => {
-  it("builds the URL from the host it was given, never a literal localhost", () => {
-    // The whole point of the function is the hostname it does NOT use: kolu's real
-    // shape is a server on a headless box viewed from a laptop, where "localhost"
-    // names the one machine certainly not running the dev server.
-    expect(portUrl("pureintent", 5173)).toBe("http://pureintent:5173");
-    expect(portUrl("pureintent", 5173)).not.toContain("localhost");
-  });
-
-  it("keeps the scheme http rather than guessing https from the port", () => {
-    // A guess would produce a broken tab more often than a working one.
-    expect(portUrl("box", 443)).toBe("http://box:443");
-  });
-
-  it("re-brackets an IPv6 literal, which location.hostname hands over bare", () => {
-    // `location.hostname` strips the brackets the URL form requires, so without
-    // this a kolu reached over IPv6 built `http://fd7a::2:8123` — the parser reads
-    // the trailing `:8123` as part of the address and the URL is malformed. A
-    // tailnet address is the ordinary way kolu is reached, not an exotic case.
-    expect(portUrl("fd7a:1:2::2", 8123)).toBe("http://[fd7a:1:2::2]:8123");
-    expect(portUrl("::1", 5173)).toBe("http://[::1]:5173");
-    // A registered name and an IPv4 literal can never contain a colon, so they are
-    // left exactly as they were.
-    expect(portUrl("192.168.1.10", 5173)).toBe("http://192.168.1.10:5173");
-  });
-});
-
+  reachReason,
+  rowAction,
+} from "./portAction";
+import type { PortRow } from "./portRows";
 describe("FORWARD_REASON", () => {
   it("has words for every forward mechanism, and says which is which", () => {
     // A `Record` over the union makes a missing arm a compile error; this pins that
@@ -162,5 +137,81 @@ describe("portAction", () => {
         viewerOnHost: false,
       }),
     ).toEqual({ kind: "none" });
+  });
+});
+
+describe("rowAction — the row KIND decides before any reach is judged", () => {
+  const info = (scope: PortInfo["scope"]): PortInfo => ({
+    port: 5173,
+    name: "node",
+    scope,
+    family: "v4",
+  });
+  const orphan: PortRow = {
+    kind: "orphan",
+    port: 5173,
+    forward: {
+      key: "remote:pu-dev:5173",
+      host: { kind: "remote", target: "pu-dev" },
+      remotePort: 5173,
+      localPort: 61003,
+      origin: "auto",
+      createdAt: 0,
+    },
+  };
+
+  it("points an orphan at its own DOOR, even for a viewer on that host", () => {
+    // An orphan is a door with no scanned port behind it — the scanner has
+    // positively said nothing is listening. The `viewer` arm would link to
+    // `localhost:<remotePort>`, a port nothing answers on, while the live door
+    // sits one field away. The row fabricated a `needs-forward` reach behind an
+    // `as` cast to get here; branching on the kind is the honest version, and it
+    // is what keeps `PortReach` a union only its judge produces.
+    expect(
+      rowAction({ row: orphan, onKoluHost: false, viewerOnHost: true }),
+    ).toEqual({ action: { kind: "forward" }, reason: undefined });
+    expect(
+      rowAction({ row: orphan, onKoluHost: true, viewerOnHost: false }),
+    ).toEqual({ action: { kind: "forward" }, reason: undefined });
+  });
+
+  it("gives a scanned row the judge's answer and the judge's sentence", () => {
+    const row: PortRow = {
+      kind: "port",
+      port: 5173,
+      info: info("loopback"),
+      forward: undefined,
+    };
+    expect(rowAction({ row, onKoluHost: true, viewerOnHost: false })).toEqual({
+      action: { kind: "forward" },
+      reason: FORWARD_REASON.loopback,
+    });
+  });
+
+  it("says the same about an interface bind on either host", () => {
+    const row: PortRow = {
+      kind: "port",
+      port: 5173,
+      info: info("interface"),
+      forward: undefined,
+    };
+    for (const onKoluHost of [true, false]) {
+      expect(rowAction({ row, onKoluHost, viewerOnHost: false })).toEqual({
+        action: { kind: "none" },
+        reason: NO_MECHANISM_REASON["interface-bind"],
+      });
+    }
+  });
+});
+
+describe("reachReason", () => {
+  it("is total over PortReach, and silent for the arm that needs no sentence", () => {
+    expect(reachReason({ kind: "direct" })).toBeUndefined();
+    expect(reachReason({ kind: "needs-forward", via: "loopback" })).toBe(
+      FORWARD_REASON.loopback,
+    );
+    expect(reachReason({ kind: "no-mechanism", via: "interface-bind" })).toBe(
+      NO_MECHANISM_REASON["interface-bind"],
+    );
   });
 });

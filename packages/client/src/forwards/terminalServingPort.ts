@@ -55,6 +55,42 @@ export function terminalServingPort(opts: {
   return undefined;
 }
 
+/** The link back to whatever serves `port`: the tile's NAME, and the act that
+ *  gets you there.
+ *
+ *  ONE home, because both surfaces that show a forward ask it — the Inspector
+ *  (over the local store) and the host dropdown (over a foreign host's
+ *  collection) — and the two ends are the only thing that genuinely differs.
+ *  Everything between them is this rule: find the tile, refuse to name a tile
+ *  with no live arm, and project the name through `servingTerminalName`. Written
+ *  twice, the two copies already spelled the same bail differently, and the
+ *  pane-not-tile rule was restated per caller.
+ *
+ *  `armOf` returns `undefined` when the tile the join pointed at has no live
+ *  metadata to name it by; an unnamed link would be an affordance with no
+ *  answer, so the whole link is absent instead. */
+export function servingLink(opts: {
+  port: number;
+  /** Every PANE on the host, already gathered — the caller owns the source. */
+  candidates: readonly ServingCandidate[];
+  armOf: (id: TerminalId) => TerminalLocation | undefined;
+  activate: (id: TerminalId) => void;
+}): { name: string; jump: () => void } | undefined {
+  const found = terminalServingPort({
+    port: opts.port,
+    terminals: opts.candidates,
+  });
+  if (found === undefined) return undefined;
+  const arm = opts.armOf(found);
+  if (arm === undefined) return undefined;
+  return {
+    name: servingTerminalName(arm),
+    jump: () => {
+      opts.activate(found);
+    },
+  };
+}
+
 /** What a forward row CALLS the terminal it found — and therefore what the link
  *  back to it reads as.
  *

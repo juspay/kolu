@@ -32,6 +32,15 @@ import type { KoluForward, PortInfo } from "kolu-common/surface";
 export type PortRow =
   | {
       kind: "port";
+      /** The arm-independent KEY the list is rendered and `data-port`-tagged by
+       *  — not a second copy of the observation: an orphan arm has no `info` to
+       *  project it from, which is why it is carried rather than derived. */
+      port: number;
+      info: PortInfo;
+      forward: KoluForward | undefined;
+    }
+  | {
+      kind: "port";
       port: number;
       name: string;
       info: PortInfo;
@@ -55,7 +64,6 @@ export function portRows(opts: {
   const rows: PortRow[] = opts.ports.map((info) => ({
     kind: "port",
     port: info.port,
-    name: info.name,
     info,
     forward: byPort.get(info.port),
   }));

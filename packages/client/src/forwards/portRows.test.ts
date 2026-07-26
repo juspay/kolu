@@ -59,7 +59,9 @@ describe("portRows", () => {
     expect(rows[0]).toMatchObject({
       kind: "port",
       port: 5173,
-      name: "node",
+      // The program name is the OBSERVATION's, read through `info` — the row
+      // does not carry a second copy of a field the observation already has.
+      info: expect.objectContaining({ name: "node" }),
       forward: expect.objectContaining({ localPort: 5173, origin: "auto" }),
     });
   });

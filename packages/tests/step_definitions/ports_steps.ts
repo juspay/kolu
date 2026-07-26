@@ -188,7 +188,9 @@ async function portsView(world: KoluWorld): Promise<PortsView> {
           const port = Number(row.getAttribute("data-port"));
           const text =
             pick(row, "inspector-port-forward-badge")?.textContent ?? "";
-          const named = /:(\d+)/.exec(text)?.[1];
+          // The LAST `:digits`, because the pill carries a whole address and an
+          // IPv6-served kolu puts colons in the host half (`[fd7a::2]:61003`).
+          const named = /:(\d+)$/.exec(text.trim())?.[1];
           // The pill always names the port the door answers on — a bare `⇄`
           // answered no question ("forwarded WHERE?"), which is why the approved
           // UX pass gave it the number. An absent number is therefore the markup

@@ -21,7 +21,7 @@ vi.mock("../forwards/useForwards", () => ({
   cancelForward: () => Promise.resolve(),
 }));
 
-const { PortRow } = await import("./PortsSection");
+const { PortRow } = await import("./PortRow");
 
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;

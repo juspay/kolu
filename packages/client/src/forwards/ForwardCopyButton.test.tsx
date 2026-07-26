@@ -26,7 +26,7 @@ const writeTextToClipboard = vi.fn((_text: string) => Promise.resolve());
 vi.mock("../ui/clipboard", () => ({ writeTextToClipboard }));
 vi.mock("./useForwards", () => ({ cancelForward: () => Promise.resolve() }));
 
-const { ForwardCopyButton } = await import("./ForwardRows");
+const { ForwardCopyButton } = await import("./ForwardPill");
 
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
@@ -82,6 +82,31 @@ describe("ForwardCopyButton", () => {
       expect(writeTextToClipboard).toHaveBeenCalledOnce();
     } finally {
       if (original) Object.defineProperty(navigator, "clipboard", original);
+    }
+  });
+});
+
+describe("what a row SHOWS and what it COPIES", () => {
+  it("agrees on an IPv6-served kolu, brackets and all", async () => {
+    // A kolu reached over a tailnet `fd7a:…` address is the ordinary case, not
+    // an exotic one, and `location.hostname` hands it over WITHOUT the brackets
+    // a URL needs. The pill text and the copied URL are two readings of one
+    // fact, so they must be one derivation: a row that displays an address the
+    // copy button does not produce is a row where only one of them works.
+    const { pasteableAddress, forwardUrl } = await import("./ForwardPill");
+    const original = window.location.hostname;
+    Object.defineProperty(window, "location", {
+      value: { hostname: "fd7a:1:2::2" },
+      configurable: true,
+    });
+    try {
+      expect(pasteableAddress(forward)).toBe("[fd7a:1:2::2]:61000");
+      expect(forwardUrl(forward)).toContain(pasteableAddress(forward));
+    } finally {
+      Object.defineProperty(window, "location", {
+        value: { hostname: original },
+        configurable: true,
+      });
     }
   });
 });
