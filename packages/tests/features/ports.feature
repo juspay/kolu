@@ -1,4 +1,4 @@
-Feature: Ports section (PRT1)
+Feature: Ports section and forwards (PRT1 + PRT2)
   The Inspector answers "what is this terminal serving?". padi's port sensor
   scans the host every 5 seconds — plus an immediate off-schedule pass whenever
   a terminal produces output or runs a command — joins each listening TCP socket
@@ -12,8 +12,15 @@ Feature: Ports section (PRT1)
 
   A port bound to 0.0.0.0 on the kolu server's own host already answers on the
   name in the address bar, so its chip opens directly — no forward involved.
-  Loopback-bound ports get an inert "needs a forward" affordance that PRT2
-  activates; nothing here forwards anything.
+  A loopback-bound port on that same host needs a door, and PRT2 opens one on
+  the first click: an in-process TCP relay from `0.0.0.0:<picked>` to
+  `127.0.0.1:<port>`. That case runs end to end here, because both ends are on
+  the machine the suite already has.
+
+  The REMOTE-host case (an `ssh -L` child) is deliberately absent: it needs a
+  real second box, and it is verified with the remote-host-testing harness
+  rather than pretended at with a loopback stand-in that would exercise the
+  wrong mechanism.
 
   Background:
     Given the terminal is ready
@@ -27,12 +34,61 @@ Feature: Ports section (PRT1)
     Then the open link for port 8123 should point at the page's own host
     And there should be no page errors
 
-  Scenario: A loopback-only listener is listed but waits for a forward
+  Scenario: A loopback-only listener is listed with a forward offered
     When I start a listener on port 8124 bound to loopback only
     And I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     Then the inspector should show port 8124 as needing a forward
+    And there should be no page errors
+
+  Scenario: Clicking a loopback port forwards it and loads the page
+    # PRT2's headline, on the one mechanism this harness can exercise for real:
+    # the relay. A loopback listener is invisible from any other machine, so the
+    # click has to open a door on 0.0.0.0 before there is anything to point a tab
+    # at — and the proof is the listener's OWN body arriving in that tab, through
+    # a port that is not the one the server bound.
+    When I start a listener on port 8127 bound to loopback only
+    And I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show port 8127 as needing a forward
+    When I click forward-and-open for port 8127
+    Then the forwarded tab should load the listener's page
+    And the inspector should show a forward badge for port 8127
+    And the ports section should show port 8127 as forwarded
+    And there should be no page errors
+
+  Scenario: A dev server on the v6 loopback forwards to the v6 loopback
+    # The production defect, end to end. `[::1]` and `127.0.0.1` are both
+    # loopback and are NOT the same address, and the first cut of PRT2 folded
+    # them into one `scope` and then dialled v4 for both. A `[::1]`-only dev
+    # server got a door that came up healthy and served nothing at all — the
+    # worst available failure, because every signal said it had worked.
+    #
+    # The proof is the same as the v4 case and has to be: the listener's OWN
+    # body, through a port it never bound. A chip merely appearing proves
+    # nothing here — it appeared before the fix too.
+    When I start a listener on port 8129 bound to the v6 loopback only
+    And I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show port 8129 as needing a forward
+    When I click forward-and-open for port 8129
+    Then the forwarded tab should load the listener's page
+    And there should be no page errors
+
+  Scenario: Cancelling a forward severs it
+    When I start a listener on port 8128 bound to loopback only
+    And I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    And I click forward-and-open for port 8128
+    Then the forwarded tab should load the listener's page
+    When I cancel the forward for port 8128
+    Then the ports section should no longer show port 8128 as forwarded
+    # The door is really shut, not just unlisted — the whole reason cancel exists.
+    And the forwarded port should refuse connections
     And there should be no page errors
 
   Scenario: A dev server in a SPLIT shows up on the tile

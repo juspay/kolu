@@ -92,7 +92,7 @@ That is a URL. `ref` is the path + fragment; `targetMode` is which "site"
 (`browse`/`local`/`branch`); `repoRoot`/`cwd` are the base href. And
 `openInCodeTab()` is already `location.assign()` — the single producer-side entry
 every navigation routes through, which is *why* relative Markdown links
-([#1161](md-preview-relative-links), <PrLink pr={1190} />) and terminal `path:N`
+(#1161, <PrLink pr={1190} />) and terminal `path:N`
 links and the right-click *Open path* menu all funnel into it. The browser is
 half-built; it is missing only `history.back()`/`forward()` and the popstate
 semantics over a stack of these locations.

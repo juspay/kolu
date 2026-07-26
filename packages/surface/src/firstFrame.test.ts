@@ -46,6 +46,38 @@ describe("firstFrameOfCollectionItem", () => {
     });
   });
 
+  it("bounds a key that STAYS a member while its item stream says nothing", async () => {
+    // The gap the two bounds left between them. Membership answers "is this key
+    // gone?" and the deadline answers "have we waited long enough?" — and they
+    // were wired as EITHER/OR, so a collection with a `keys` verb had no
+    // deadline at all. A key that remains a member while its record stream goes
+    // quiet (the mirror stalls, the producer wedges) then matches neither bound
+    // and the read never resolves.
+    //
+    // That is the hang this function exists to make unspellable, reached by the
+    // one door left open. Callers put this read inside a poll cell, where a
+    // read that never resolves holds the in-flight latch and stops the cell
+    // recomputing for the life of the process.
+    const began = Date.now();
+    const frame = await firstFrameOfCollectionItem<number>(
+      // The item stream opens and then says nothing, ever.
+      (sig) => Promise.resolve(holdOpen<number>([], sig)),
+      // …while `keys` keeps insisting the key is a member.
+      (sig) => Promise.resolve(holdOpen([["k"]], sig)),
+      "k",
+      NEVER_EMPTY,
+      NEVER_NULL,
+      150,
+      undefined,
+    );
+    expect(frame).toEqual<CollectionItemFrame<number>>({
+      present: false,
+      reason: "deadline",
+    });
+    // And it is the DEADLINE that ended it, not the test runner.
+    expect(Date.now() - began).toBeLessThan(5_000);
+  }, 10_000);
+
   it("an ABSENT key resolves not-present (keys omits it) instead of hanging", async () => {
     const frame = await firstFrameOfCollectionItem<number>(
       (sig) => Promise.resolve(holdOpen<number>([], sig)),

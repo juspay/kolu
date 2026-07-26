@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Port Forwarding — vazhi &amp; Inspector Port Links · the kolu Atlas</title><meta name="description" content="A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/port-forwarding.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Port Forwarding — vazhi &amp; Inspector Port Links · the kolu Atlas"><meta property="og:description" content="A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/port-forwarding.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-24T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Port Forwarding — vazhi &amp; Inspector Port Links · the kolu Atlas"><meta name="twitter:description" content="A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.kbd-chord[data-astro-cid-7vv3zwgx]{vertical-align:baseline;align-items:center;gap:.25em;display:inline-flex}.kbd[data-astro-cid-7vv3zwgx]{font-family:var(--mono);color:var(--ink);border:1px solid var(--rule);background:#fff;border-bottom-width:2px;border-radius:5px;padding:.2em .45em;font-size:.8em;line-height:1;box-shadow:0 1px #0000000a}.kbd-plus[data-astro-cid-7vv3zwgx]{color:var(--ink-faint);font-size:.75em}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-body[data-astro-cid-q2ml7llr]>:first-child{margin-top:0}.callout-body[data-astro-cid-q2ml7llr]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Port Forwarding — vazhi &amp; Inspector Port Links</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>accepted</span><span class="meta-sep">·</span><time datetime="2026-07-24T00:00:00.000Z">JUL 24, 2026</time></div><p class="note-sub">A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#how-a-click-becomes-a-page--the-three-cases" data-astro-cid-rda6bqd5>How a click becomes a page — the three cases</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#one-library-two-apps--and-no-third-daemon" data-astro-cid-rda6bqd5>One library, two apps — and no third daemon</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#port-links-in-the-inspector" data-astro-cid-rda6bqd5>Port links in the Inspector</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#detection-ports-attributed-to-the-terminal" data-astro-cid-rda6bqd5>Detection: ports, attributed to the terminal</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-decided-end-state-one-shared-rust-helper-behind-a-proof-gate" data-astro-cid-rda6bqd5>The decided end state: one shared Rust helper, behind a proof gate</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-gate-ran-and-it-failed-on-address-parity--so-the-c-helper-ships" data-astro-cid-rda6bqd5>The gate RAN, and it FAILED on address parity — so the C helper ships</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#round-2-the-crate-bug-is-fixed-in-a-fork-and-the-gate-now-fails-on-latency-only" data-astro-cid-rda6bqd5>Round 2: the crate bug is FIXED in a fork, and the gate now fails on LATENCY only</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#overturned-single-pass-rust-matches-c-so-the-shared-binary-is-reopened" data-astro-cid-rda6bqd5>Overturned: single-pass Rust matches C, so the shared binary is reopened</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-the-follow-up-must-clear-and-the-two-things-the-fact-check-corrected" data-astro-cid-rda6bqd5>What the follow-up must clear, and the two things the fact-check corrected</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#build-plan--the-prt-track" data-astro-cid-rda6bqd5>Build plan — the PRT track</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#prt0--the-library-proven-by-vazhi-shipped-" data-astro-cid-rda6bqd5>PRT0 — the library, proven by vazhi (shipped: )</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#prt1--detection--ports-section-one-pr" data-astro-cid-rda6bqd5>PRT1 — detection + Ports section (one PR)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#prt2--kolu-embeds-the-library-one-pr" data-astro-cid-rda6bqd5>PRT2 — kolu embeds the library (one PR)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#prt3--embedded-preview-deferred" data-astro-cid-rda6bqd5>PRT3 — embedded preview (deferred)</a></li></ul></li></ul></nav></header><div class="prose"><p>Agents constantly start dev servers, and the URL scrolls away into the
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Port Forwarding — vazhi &amp; Inspector Port Links · the kolu Atlas</title><meta name="description" content="A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/port-forwarding.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Port Forwarding — vazhi &amp; Inspector Port Links · the kolu Atlas"><meta property="og:description" content="A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/port-forwarding.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-25T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Port Forwarding — vazhi &amp; Inspector Port Links · the kolu Atlas"><meta name="twitter:description" content="A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.kbd-chord[data-astro-cid-7vv3zwgx]{vertical-align:baseline;align-items:center;gap:.25em;display:inline-flex}.kbd[data-astro-cid-7vv3zwgx]{font-family:var(--mono);color:var(--ink);border:1px solid var(--rule);background:#fff;border-bottom-width:2px;border-radius:5px;padding:.2em .45em;font-size:.8em;line-height:1;box-shadow:0 1px #0000000a}.kbd-plus[data-astro-cid-7vv3zwgx]{color:var(--ink-faint);font-size:.75em}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-body[data-astro-cid-q2ml7llr]>:first-child{margin-top:0}.callout-body[data-astro-cid-q2ml7llr]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Port Forwarding — vazhi &amp; Inspector Port Links</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>accepted</span><span class="meta-sep">·</span><time datetime="2026-07-25T00:00:00.000Z">JUL 25, 2026</time></div><p class="note-sub">A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#how-a-click-becomes-a-page--the-three-cases" data-astro-cid-rda6bqd5>How a click becomes a page — the three cases</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#one-library-two-apps--and-no-third-daemon" data-astro-cid-rda6bqd5>One library, two apps — and no third daemon</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#how-the-tunnel-works-from-zero" data-astro-cid-rda6bqd5>How the tunnel works, from zero</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#port-links-in-the-inspector" data-astro-cid-rda6bqd5>Port links in the Inspector</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#detection-ports-attributed-to-the-terminal" data-astro-cid-rda6bqd5>Detection: ports, attributed to the terminal</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-decided-end-state-one-shared-rust-helper-behind-a-proof-gate" data-astro-cid-rda6bqd5>The decided end state: one shared Rust helper, behind a proof gate</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-gate-ran-and-it-failed-on-address-parity--so-the-c-helper-ships" data-astro-cid-rda6bqd5>The gate RAN, and it FAILED on address parity — so the C helper ships</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#round-2-the-crate-bug-is-fixed-in-a-fork-and-the-gate-now-fails-on-latency-only" data-astro-cid-rda6bqd5>Round 2: the crate bug is FIXED in a fork, and the gate now fails on LATENCY only</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#overturned-single-pass-rust-matches-c-so-the-shared-binary-is-reopened" data-astro-cid-rda6bqd5>Overturned: single-pass Rust matches C, so the shared binary is reopened</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-the-follow-up-must-clear-and-the-two-things-the-fact-check-corrected" data-astro-cid-rda6bqd5>What the follow-up must clear, and the two things the fact-check corrected</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#build-plan--the-prt-track" data-astro-cid-rda6bqd5>Build plan — the PRT track</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#prt0--the-library-proven-by-vazhi-shipped-" data-astro-cid-rda6bqd5>PRT0 — the library, proven by vazhi (shipped: )</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#prt1--detection--ports-section-shipped-" data-astro-cid-rda6bqd5>PRT1 — detection + Ports section (shipped: )</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#prt2--kolu-embeds-the-library-shipped-" data-astro-cid-rda6bqd5>PRT2 — kolu embeds the library (shipped: )</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-deferred-shape-question-settled-wildcard-became-scope" data-astro-cid-rda6bqd5>The deferred shape question, settled: wildcard became scope</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#and-then-production-froze-and-scope-turned-out-to-be-half-the-fact" data-astro-cid-rda6bqd5>…and then production froze, and scope turned out to be half the fact</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#prt3--embedded-preview-deferred" data-astro-cid-rda6bqd5>PRT3 — embedded preview (deferred)</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-this-track-sent-upstream" data-astro-cid-rda6bqd5>What this track sent upstream</a></li></ul></nav></header><div class="prose"><p>Agents constantly start dev servers, and the URL scrolls away into the
 scrollback. This feature answers the one question kolu can’t answer today —
 <strong>where is the thing the agent just ran?</strong> — with exactly one concept:
 listening TCP ports, attributed to their terminal, one click from your
@@ -161,9 +161,10 @@ kolu already holds to that host carrying the last leg. And a server that
 bound <code>0.0.0.0</code> on pureintent needs no door at all — the scanner records the
 bind address, so kolu tells these cases apart
 automatically.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Sub-case of case 2: the remote host is the viewer’s
-own machine (zest as a kolu remote host, viewed from zest). Traffic loops
-zest → pureintent → ssh → zest — roundabout but correct, and not worth a
-special case in v1.</span></span></span></p>
+own machine (zest as a kolu remote host, viewed from zest). The plan first
+called the loop “roundabout but correct, not worth a special case”; field use
+proved it baffling, and PRT2 shipped the recognition — see “When the viewer
+IS the host” below.</span></span></span></p>
 <h2 id="one-library-two-apps--and-no-third-daemon">One library, two apps — and no third daemon</h2>
 <p>kaval and padi remain <strong>the only daemons</strong>. The reusable capability is a
 library package, <code>packages/port-forward/</code> (<code>@kolu/port-forward</code>): the forward
@@ -214,19 +215,27 @@ model inside the library. And the <strong><code>ForwardManager</code> API is the
 contract</strong>: <code>create</code> (idempotent by target) · <code>cancel</code> · <code>list</code> · <code>dispose</code> ·
 <code>onLost</code> is exactly what kolu’s Inspector will wire against, so the mechanism
 could be replaced under it — as it just was — without either app noticing.
-Mechanism in the library, policy in the consumers.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>One shape question
-PRT2 should settle rather than inherit: <code>list()</code> is pull-only, so a consumer
-keeps its own mirror and re-reads after every create/cancel/loss (vazhi does,
-in four places). If the Inspector wants the same, the map should hand out a
-subscription instead — an additive change to the same contract, decided once
-there are two consumers to design it against rather than one. A second shape
-question PRT2 should settle: <code>create</code> rejects with the mechanism’s own message,
-so “the local port was taken”, “the host is unreachable”, “no ssh on PATH” and
-“the tunnel never came up” are one untyped <code>Error</code> above the map. vazhi only
-prints it; the Inspector will want to branch on it (retry, pick another port,
-mark the host down), so the map should reject with a single tagged error
-carrying a <code>kind</code> — additive to the same contract, decided once there are two
-consumers to design it against.</span></span></span></p>
+Mechanism in the library, policy in the consumers.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><strong>Two shape questions
+PRT2 was to settle, and both settled as NO CHANGE — recorded because “we looked
+and the second consumer wanted the same thing” is a different fact from “nobody
+got round to it”.</strong> (1) <code>list()</code> stays pull-only. The prediction was that a second
+consumer would want a subscription; kolu instead does exactly what vazhi does —
+re-read the map after every act — and it does so because the surface CELL it feeds
+is itself a re-read on a change edge. Two independent consumers converging on
+pull is evidence the pull shape is right, not that the subscription is overdue.
+(2) <code>create</code> still rejects with the mechanism’s own message. The prediction was
+that the Inspector would branch on a <code>kind</code> (retry, pick another port, mark the
+host down); it branches on none of them, because the map ALREADY handles the only
+recoverable case — a taken local port falls back to a free one inside
+<code>openPreferringPort</code>, so it never reaches a consumer as an error. What is left is
+genuinely terminal (no ssh, host unreachable, tunnel never came up) and its one
+honest treatment is to show the user what happened. A tag with no reader would be
+speculative structure.<br/><br/><strong>One thing DID change</strong>, and it went the other
+way — into the library rather than into a consumer: a target that comes back gets
+the local port it had before. That is what makes a link survive a dev-server
+restart, and it belongs to the MAP because it is bookkeeping the map already
+holds. Left to consumers, kolu and vazhi would each have kept the same table
+beside the same map and got its eviction rules subtly different.</span></span></span></p>
 <p>Two consumers, no runtime link between them — the drishti pattern proper
 (shared libraries, independent apps):</p>
 <ul>
@@ -238,6 +247,173 @@ on the kolu server’s serving interface — anyone on the tailnet can connect,
 the same exposure as running the dev server on <code>0.0.0.0</code> yourself. That is
 the accepted v1 trust model (the tailnet is the trust boundary, as it already
 is for kolu’s own UI); per-forward auth would be a later, separate feature.</p></div></aside>
+<h2 id="how-the-tunnel-works-from-zero">How the tunnel works, from zero</h2>
+<p>No new machinery, no daemon, nothing installed on either machine: a forward is
+one ordinary <code>ssh</code> process — the same tool that logs you in — told to hold a
+door open. Here is the actual command kolu runs, taken apart:</p>
+<figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 930" font-family="ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="anB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a6ea5"/>
+    </marker>
+    <marker id="anP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#6d4fa3"/>
+    </marker>
+    <marker id="anG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1b7a3a"/>
+    </marker>
+  </defs>
+
+  <!-- ══ the command ══ -->
+  <text x="24" y="30" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">THE ONE COMMAND KOLU RUNS</text>
+
+  <rect x="24" y="44" width="592" height="42" rx="9" fill="#1a1c20"/>
+  <text x="40" y="70" font-size="13" font-family="ui-monospace,monospace" fill="#e8e6e1">ssh <tspan fill="#f2b134">-L</tspan> <tspan fill="#7fd1c0">*:5173</tspan>:<tspan fill="#c9a7f5">[::1]:5173</tspan> <tspan fill="#8ecf6e">naiveintent</tspan> <tspan fill="#9aa0a8">'echo READY; cat'</tspan></text>
+
+  <!-- legend, color-keyed -->
+  <rect x="40" y="102" width="12" height="12" rx="3" fill="#f2b134"/>
+  <text x="62" y="112" font-size="12" fill="#1a1c20"><tspan font-weight="700">-L</tspan> — “open a Listening door”</text>
+
+  <rect x="40" y="124" width="12" height="12" rx="3" fill="#7fd1c0"/>
+  <text x="62" y="134" font-size="12" fill="#1a1c20"><tspan font-weight="700">*:5173</tspan> — the door: port 5173, every interface of the kolu host</text>
+
+  <rect x="40" y="146" width="12" height="12" rx="3" fill="#c9a7f5"/>
+  <text x="62" y="156" font-size="12" fill="#1a1c20"><tspan font-weight="700">[::1]:5173</tspan> — where it leads: the server’s own loopback, far side</text>
+
+  <rect x="40" y="168" width="12" height="12" rx="3" fill="#8ecf6e"/>
+  <text x="62" y="178" font-size="12" fill="#1a1c20"><tspan font-weight="700">naiveintent</tspan> — the far machine, reached over ssh</text>
+
+  <rect x="40" y="190" width="12" height="12" rx="3" fill="#9aa0a8"/>
+  <text x="62" y="200" font-size="12" fill="#1a1c20"><tspan font-weight="700">'echo READY; cat'</tspan> — say ready, then hold the line open forever</text>
+
+  <!-- ══ the path, top to bottom ══ -->
+  <text x="24" y="248" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">WHAT HAPPENS WHEN YOU LOAD THE PAGE</text>
+
+  <!-- browser -->
+  <rect x="90" y="266" width="380" height="88" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="110" y="292" font-size="13" font-weight="700" fill="#1a1c20">your browser</text>
+  <text x="110" y="314" font-size="12" font-family="ui-monospace,monospace" fill="#6d4fa3">http://pureintent:5173</text>
+  <text x="110" y="336" font-size="10.5" fill="#8a8574">it only ever talks to the kolu host — nothing else</text>
+
+  <line x1="280" y1="354" x2="280" y2="392" stroke="#3a6ea5" stroke-width="2" marker-end="url(#anB)"/>
+  <circle cx="256" cy="373" r="10" fill="#3a6ea5"/>
+  <text x="256" y="377" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+  <text x="298" y="377" font-size="10.5" fill="#5b7ea5">dials the door</text>
+
+  <!-- kolu host -->
+  <rect x="60" y="396" width="440" height="130" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="80" y="420" font-size="11" font-weight="700" fill="#5b6470" letter-spacing=".07em">KOLU HOST — pureintent</text>
+  <rect x="80" y="432" width="400" height="78" rx="9" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="96" y="454" font-size="13" font-weight="700" fill="#6d4fa3">the ssh child <tspan font-weight="400" font-family="ui-monospace,monospace" fill="#1a1c20">— listens on *:5173</tspan></text>
+  <text x="96" y="476" font-size="10.5" fill="#7a6b93">every connection it accepts is wrapped and sent down one</text>
+  <text x="96" y="490" font-size="10.5" fill="#7a6b93">encrypted pipe — no bytes touch the network in the clear</text>
+
+  <line x1="280" y1="526" x2="280" y2="566" stroke="#6d4fa3" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#anP)"/>
+  <circle cx="256" cy="546" r="10" fill="#6d4fa3"/>
+  <text x="256" y="550" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+  <text x="298" y="550" font-size="10.5" fill="#7a6b93">encrypted, one pipe</text>
+
+  <!-- remote host -->
+  <rect x="60" y="570" width="440" height="196" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="80" y="594" font-size="11" font-weight="700" fill="#5b6470" letter-spacing=".07em">REMOTE HOST — naiveintent</text>
+  <rect x="80" y="606" width="180" height="58" rx="9" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="96" y="630" font-size="13" font-weight="700" fill="#1a1c20">sshd</text>
+  <text x="96" y="648" font-size="10.5" fill="#8a8574">the pipe’s far end</text>
+
+  <line x1="170" y1="664" x2="170" y2="694" stroke="#6d4fa3" stroke-width="2" marker-end="url(#anP)"/>
+  <circle cx="146" cy="679" r="10" fill="#6d4fa3"/>
+  <text x="146" y="683" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+  <text x="188" y="683" font-size="10.5" fill="#7a6b93">knocks on the loopback for you</text>
+
+  <rect x="80" y="698" width="400" height="56" rx="9" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="96" y="720" font-size="13" font-weight="700" fill="#1a1c20">dev server <tspan font-family="ui-monospace,monospace" font-weight="400" fill="#6d4fa3">[::1]:5173</tspan></text>
+  <text x="96" y="740" font-size="10.5" fill="#8a8574">loopback-only — invisible to the network, until now</text>
+
+  <!-- return path, up the right side -->
+  <path d="M 500 726 Q 588 560 520 396 Q 500 366 470 330" fill="none" stroke="#1b7a3a" stroke-width="1.8" stroke-dasharray="2 4" marker-end="url(#anG)"/>
+  <circle cx="556" cy="540" r="10" fill="#1b7a3a"/>
+  <text x="556" y="544" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+  <text x="548" y="568" font-size="10.5" fill="#54785f" text-anchor="middle">the page rides</text>
+  <text x="548" y="581" font-size="10.5" fill="#54785f" text-anchor="middle">the same pipe back</text>
+
+  <!-- closing line -->
+  <text x="320" y="806" font-size="11.5" fill="#1a1c20" text-anchor="middle">Nothing installed on either machine, no firewall changed, no server reconfigured —</text>
+  <text x="320" y="824" font-size="11.5" fill="#1a1c20" text-anchor="middle"><tspan font-weight="700">ssh is the only tool involved.</tspan></text>
+
+  <text x="320" y="874" font-size="10.5" fill="#b3a68a" text-anchor="middle">The full flag set (BatchMode, ExitOnForwardFailure, ControlPath=none) is the mechanism</text>
+  <text x="320" y="889" font-size="10.5" fill="#b3a68a" text-anchor="middle">section’s story told as options — see the footnote in the prose.</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>The command, dissected — and the numbered path a page request takes through it.</figcaption></figure>
+<p>A dev server bound to <strong>loopback</strong> answers only its own machine — <code>127.0.0.1</code>
+and <code>::1</code> both just mean “this computer”.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Two spellings because there
+are two loopbacks, IPv4’s and IPv6’s — and a server listening on one is NOT
+reachable on the other, which is why the command dials the exact loopback the
+scanner saw the server bind. Dialling the wrong one was a real shipped bug in
+this very track.</span></span></span> The tunnel lends that private server a public door:
+<code>ssh</code> listens on the kolu host, and everything that knocks is carried — inside
+the same encrypted connection ssh always uses — to the far machine, where
+<code>sshd</code> knocks on the server’s own loopback on your behalf. Your browser never
+learns any of this happened; it just loads a URL on the kolu
+host.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The unlabelled flags in the real invocation are the mechanism
+section’s story in option form: <code>BatchMode</code> (keys only, never prompt),
+<code>ExitOnForwardFailure</code> (if the door can’t open, fail loudly instead of
+half-connecting), <code>ControlPath=none</code> (never share a connection — the lifetime
+argument above).</span></span></span></p>
+<figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 440" font-family="ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="lfB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a6ea5"/>
+    </marker>
+  </defs>
+
+  <text x="30" y="34" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">THE DOOR LIVES EXACTLY AS LONG AS ITS PROCESS</text>
+
+  <!-- birth -->
+  <rect x="30" y="56" width="250" height="140" rx="12" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="48" y="82" font-size="13" font-weight="700" fill="#1b7a3a">birth</text>
+  <text x="48" y="106" font-size="11.5" fill="#1a1c20">kolu spawns the ssh child…</text>
+  <text x="48" y="126" font-size="11.5" fill="#1a1c20">…and waits for one line back:</text>
+  <rect x="48" y="138" width="214" height="26" rx="6" fill="#1a1c20"/>
+  <text x="60" y="156" font-size="11" font-family="ui-monospace,monospace" fill="#8ecf6e">PORT-FORWARD-READY</text>
+  <text x="48" y="184" font-size="10.5" fill="#54785f">only then is the chip marked forwarded</text>
+
+  <!-- life -->
+  <rect x="310" y="56" width="250" height="140" rx="12" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
+  <text x="328" y="82" font-size="13" font-weight="700" fill="#3a6ea5">life</text>
+  <text x="328" y="106" font-size="11.5" fill="#1a1c20">the remote <tspan font-family="ui-monospace,monospace">cat</tspan> just… waits.</text>
+  <text x="328" y="126" font-size="11.5" fill="#1a1c20">It reads input that never comes,</text>
+  <text x="328" y="146" font-size="11.5" fill="#1a1c20">holding the connection open —</text>
+  <text x="328" y="166" font-size="11.5" fill="#1a1c20">and the door with it.</text>
+  <text x="328" y="186" font-size="10.5" fill="#5b7ea5">no timers, no keep-alive code in kolu</text>
+
+  <!-- death -->
+  <rect x="590" y="56" width="240" height="140" rx="12" fill="#fbeadd" stroke="#c2611b" stroke-width="1.5"/>
+  <text x="608" y="82" font-size="13" font-weight="700" fill="#c2611b">death — any of these</text>
+  <text x="608" y="106" font-size="11.5" fill="#1a1c20">you click ⨯ → kolu kills the child</text>
+  <text x="608" y="126" font-size="11.5" fill="#1a1c20">the dev server stops → auto-cancel</text>
+  <text x="608" y="146" font-size="11.5" fill="#1a1c20">kolu itself dies → the pipe snaps,</text>
+  <text x="608" y="163" font-size="11.5" fill="#1a1c20">ssh exits on its own</text>
+
+  <!-- convergence -->
+  <line x1="155" y1="196" x2="390" y2="252" stroke="#3a6ea5" stroke-width="1.6" marker-end="url(#lfB)"/>
+  <line x1="435" y1="196" x2="430" y2="248" stroke="#3a6ea5" stroke-width="1.6" marker-end="url(#lfB)"/>
+  <line x1="710" y1="196" x2="475" y2="252" stroke="#3a6ea5" stroke-width="1.6" marker-end="url(#lfB)"/>
+
+  <rect x="250" y="256" width="360" height="66" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="430" y="284" font-size="13" font-weight="700" fill="#1a1c20" text-anchor="middle">the moment the process ends,</text>
+  <text x="430" y="304" font-size="13" fill="#1a1c20" text-anchor="middle">the kernel closes its listener — instantly</text>
+
+  <text x="430" y="356" font-size="11.5" fill="#8a8574" text-anchor="middle">There is nothing to clean up and nothing that can be forgotten:</text>
+  <text x="430" y="374" font-size="11.5" fill="#8a8574" text-anchor="middle">a door cannot outlive its owner, because the door IS the owner's open socket.</text>
+
+  <text x="430" y="412" font-size="10.5" fill="#b3a68a" text-anchor="middle">This is why quitting kolu never leaves ports mapped — the bug class vazhi's first draft had is unspellable here.</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>Birth, life, death: the door is the process&#39;s own open socket, so it cannot outlive it.</figcaption></figure>
+<p>That is the entire protocol: one <code>READY</code> line at birth, a <code>cat</code> that waits
+forever, and a kernel that closes the listener the instant the process ends —
+which is why there is no cleanup code to forget and no way to leak a port. The
+mechanism section above carries the expert-level detail (why each forward gets
+its own connection, what <code>-N</code> would break, the measured evidence).</p>
 <h2 id="port-links-in-the-inspector">Port links in the Inspector</h2>
 <div style="font-family:ui-sans-serif,system-ui;max-width:24rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)"><div style="padding:.9rem 1rem .3rem;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PORTS <span style="float:right;color:#5b6470">3</span></div><div style="padding:.1rem 1rem .6rem;font:.78rem/1.9 ui-monospace,monospace;color:#d6dae2"><div>🌐 <b>5173</b> <span style="color:#8b93a3">node</span> <span style="float:right"><span style="color:#4da3ff">⤴ open</span> <span style="background:#2a2138;color:#b79df0;border-radius:5px;padding:.05rem .4rem">⇄ :61000</span></span></div><div>🌐 <b>9229</b> <span style="color:#8b93a3">node</span> <span style="float:right;color:#4da3ff">⤴ open</span></div><div>🌐 <b>61922</b> <span style="color:#8b93a3">workerd</span> <span style="float:right;color:#4da3ff">⤴ open</span></div><div style="color:#5b6470">＋ Forward a port…</div></div><div style="padding:.4rem 1rem .7rem;border-top:1px solid #232834;font:.68rem/1.7 ui-monospace,monospace;color:#5b6470">FORWARDED PORTS<br/><span style="color:#a9b0be">⇄ pu-dev:5173 → :61000 · auto · ⨯   ⇄ zest:8080 → :61003 · manual · ⨯</span></div><div style="padding:.55rem 1rem .8rem;border-top:1px solid #232834;background:#0e1116;font:.72rem/1.8 ui-monospace,monospace"><span style="color:#b79df0;font-weight:700">vazhi</span> <span style="color:#5b6470">— its own forwards, in its own terminal</span><br/><span style="color:#8b93a3">pu-dev:3000 → 0.0.0.0:61010  up 12m</span><br/><span style="color:#5b6470"><b>a</b> add · <b>x</b> cancel · <b>q</b> quit</span></div></div>
 <p>A <strong>Ports</strong> section joins the existing blocks in
@@ -245,9 +421,9 @@ is for kolu’s own UI); per-forward auth would be a later, separate feature.</p
 data arrives on the terminal’s metadata like everything else). The flows:</p>
 <ul>
 <li><strong>Open.</strong> Click a chip → <code>window.open</code> on <code>http://${location.hostname}:…</code>, matching the Code tab’s external-open idiom (<code>CodeTab.tsx:1114</code>). Case-3 ports open <strong>directly</strong>; cases 1–2 call the embedded library’s <code>create</code>, get the listener port, open it, and the chip gains a <code>⇄ :61000</code> badge. Forwarding is <strong>lazy — first click only</strong>, never eager for every detected port.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An agent session can hold six listening ports; auto-tunneling all of them VS-Code-style keeps idle listeners alive for ports nobody opens. Lazy costs one ssh handshake on first click — the price of a forward that dies with the process that opened it, and the reason to pay it once per opened port rather than once per detected one.</span></span></span></li>
-<li><strong>Manage.</strong> A <strong>Forwarded Ports</strong> group lists every active kolu forward — <code>host:remotePort → :localPort</code>, origin <code>auto</code> (chip click) or <code>manual</code>, cancel <code>⨯</code> per row. Kolu auto-cancels an <code>auto</code> forward when the scanner sees its remote port die; <code>manual</code> forwards persist until cancelled or their host disconnects. The same list appears <strong>in the host tab’s dropdown</strong> (beside state · terminals · padi·kaval): forwards are host-scoped, so the host popover is their natural home — each row a clickable <code>http://…</code> link with its cancel <code>⨯</code> — while the Inspector group shows the same rows filtered to the active terminal’s host.</li>
+<li><strong>Manage, in ONE section — and one colour per meaning.</strong> The Inspector shows a single <strong>Ports</strong> list, and a forwarded port is ONE row: the number, the program, a teal <code>⇄ :localPort</code> pill whose tooltip is the address you can paste, copy <code>⧉</code> and cancel <code>⨯</code> revealed on hover <em>or</em> keyboard focus, and <code>↗ open</code>. Three row endings that look different on purpose — forwarded, <em>quietly</em> offerable (“↗ forward &amp; open”, muted until you reach for it), and plainly open. It used to be two stacked groups with a forwarded port in both, and a bare <code>⇄</code> that answered no question: forwarded <strong>where</strong>? What the second group was RIGHT about is kept — a forward is a fact about the HOST, so a ⌘K forward or one whose listener has died trails the same section under “also forwarded on this host”. The <strong>host tab’s dropdown</strong> keeps its own list (no hostname repeated inside that host’s own panel, a count on the header), and the host tab’s <strong>connection dot wears a hairline teal ring</strong> while doors are open there.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The binding rule the pass settled: <strong>green is connection health, teal is open doors, and neither may borrow the other’s colour</strong> — a third meaning would get a third colour, never a second green. Getting the marker right took three cuts, and the arc is worth recording because two of them failed for opposite reasons. The first drew a ring in the <strong>accent</strong>, which read as a focus highlight — a quieter way of saying “connected” rather than a fact of its own. The second fixed the colour and the field rejected it as <strong>jarring</strong>: a thick teal stroke with an offset is heavy-handed at that size and reads as a treatment applied TO the dot. The third replaced the shape with a corner <strong>badge</strong> carrying a ⇄ glyph, which failed the other way — at tab scale the glyph is illegible mush. So the shape was never the problem; the <strong>weight</strong> was. What ships is a one-pixel ring sitting tight against the pip (which keeps the extra diameter the badge needed — a hairline reads better around a bigger dot), carrying no glyph and no count: both are unreadable there, and the tooltip and accessible label have carried “N forwarded ports — click to manage” through every cut. Every version obeyed the same constraint: the marker composes with the pip and never touches the pip’s own colour, which is painted from the health fact and nothing else. Display vocabulary moved too: a <code>manual</code> forward reads <strong>“pinned”</strong> — the user knows they made it; what they need to predict is that it stays — while <code>auto</code> survived only by earning a tooltip, since it was jargon with no explanation anywhere on the surface. The wire field names do not change.</span></span></span></li>
 <li><strong>Manual forward.</strong> The <code>＋ Forward a port…</code> row and a <span class="kbd-chord" data-astro-cid-7vv3zwgx><kbd class="kbd" data-astro-cid-7vv3zwgx>⌘</kbd><span class="kbd-plus" data-astro-cid-7vv3zwgx>+</span><kbd class="kbd" data-astro-cid-7vv3zwgx>K</kbd></span> command accept <code>host:port</code> — for a port the scanner missed or one outside any terminal’s subtree.</li>
-<li><strong>The unit is the TILE, not the pane.</strong> A tile is one thing to the user and several PTYs to the daemon, so the scanner attributes a port to whichever <em>pane’s</em> subtree holds it — correct and unavoidable. But <strong>a dev server almost always runs in a split</strong>, so a section that read only the main pane showed nothing in the common case (observed on a live deployment during PRT1, not in review). Every ports surface therefore reads main + splits, the same unit the Attach section already documents, merging rather than grouping: which pane a listener sits in is a detail of how the user split their tile. PRT2’s <strong>Forwarded Ports</strong> group and auto-cancel inherit this — a forward belongs to the tile that opened it, not to a pane that may be closed while the server keeps running.</li>
+<li><strong>The unit is the TILE, not the pane.</strong> A tile is one thing to the user and several PTYs to the daemon, so the scanner attributes a port to whichever <em>pane’s</em> subtree holds it — correct and unavoidable. But <strong>a dev server almost always runs in a split</strong>, so a section that read only the main pane showed nothing in the common case (observed on a live deployment during PRT1, not in review). Every ports surface therefore reads main + splits, the same unit the Attach section already documents, merging rather than grouping: which pane a listener sits in is a detail of how the user split their tile. PRT2’s forward rows and auto-cancel inherit this — a forward belongs to the tile that opened it, not to a pane that may be closed while the server keeps running.</li>
 <li><strong>Discoverability.</strong> One tip in <code>settings/tips.ts</code>: “Click a port in the Inspector to open the server an agent just started.”</li>
 </ul>
 <h2 id="detection-ports-attributed-to-the-terminal">Detection: ports, attributed to the terminal</h2>
@@ -313,103 +489,54 @@ stdout writes and top-level enumeration failures exit non-zero.</li>
 <p>The ~50-line <code>sysinfo</code>+<code>listeners</code> wrapper was built and measured, not assessed on
 paper. It is <strong>not</strong> in this PR, because it did not clear the gate.</p>
 <p><strong>What failed: <code>listeners</code> drops the IPv4-mapping marker on darwin.</strong> Bind
-<code>::ffff:127.0.0.1</code> and ask every instrument about the same live socket — including the
-KERNEL, so this is not one tool’s word against another’s. Identical results from three
-independent binders (node, python3, and a raw C <code>bind()</code>) on zest, macOS 27.0:</p>
-<table>
-<thead>
-<tr>
-<th>instrument</th>
-<th><code>::ffff:127.0.0.1</code></th>
-<th><code>::ffff:0.0.0.0</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>kernel <code>getsockname</code></strong> — the arbiter</td>
-<td><code>00000000000000000000</code><strong><code>ffff</code></strong><code>7f000001</code> → v4-<strong>mapped</strong></td>
-<td>32 zeros</td>
-</tr>
-<tr>
-<td><strong>kernel <code>proc_pidfdinfo</code></strong></td>
-<td><code>vflag=0x01</code> (INI_IPV4 set, INI_IPV6 <strong>clear</strong>) · v4 slot <code>7f000001</code> · v6 slot <code>0000…0000``7f000001</code></td>
-<td>v4 slot <code>00000000</code></td>
-</tr>
-<tr>
-<td><strong>C helper</strong> (ships)</td>
-<td><code>7f000001</code> ✓</td>
-<td><code>00000000</code> ✓</td>
-</tr>
-<tr>
-<td><code>lsof</code></td>
-<td><code>127.0.0.1</code> ✓</td>
-<td><code>*</code> ✓</td>
-</tr>
-<tr>
-<td><code>sysinfo</code>+<code>listeners</code></td>
-<td><code>00000000000000000000</code><strong><code>0000</code></strong><code>7f000001</code> ✗ — i.e. <code>::127.0.0.1</code></td>
-<td>32 zeros</td>
-</tr>
-</tbody>
-</table>
-<p>Those <code>ffff</code> bytes are the mapping marker. Without them the reported address is
-<code>::127.0.0.1</code> — the deprecated IPv4-<strong>compatible</strong> address, which is a <em>different
-address</em> from the IPv4-<strong>mapped</strong> one that was bound. The C helper’s explicit
-<code>insi_vflag &amp; INI_IPV4</code> branch is what the crate is missing, exactly as the research
-predicted was the risk.</p>
-<p><strong>Severity, stated precisely:</strong> no wildcard verdict flips <em>today</em>. A mapped wildcard
-comes out as all-zeros, which <code>isAnyAddress</code> accepts via its all-zeros arm; a mapped
-loopback comes out non-zero and unmarked, which it rejects. So both classify correctly
-by accident. But two things are true and disqualifying: the address a consumer reads
-is <strong>wrong</strong> (PRT2 forwards to addresses, it does not merely classify them), and
-<code>isAnyAddress</code>’s v4-mapped arm — the arm that exists solely for this case — is then
-<strong>never exercised on darwin</strong>, so a future change to it would be untested on the one
-platform that needs it. Gate item 1 asks for exact raw-bind-address parity; this is
-not that.</p>
-<p><strong>What PASSED</strong>, so the follow-up need not re-derive it:</p>
-<ul>
-<li>Linux parity and all five address fixtures: green, including the v4-mapped pair
-(linux reads <code>/proc/net/tcp6</code>, which carries the mapped form literally).</li>
-<li>The crate’s integration tests <strong>run inside the nix sandbox on both platforms</strong> —
-verified, not assumed: loopback binds are permitted by linux’s private netns and by
-darwin’s <code>sandbox-exec</code>, and the darwin failure above was an assertion failure, not
-a bind error. So <code>doCheck = true</code> is viable wiring for the follow-up.</li>
-<li>Latency was never the problem: the wrapper was in the same low-tens range as the C
-helper.</li>
-</ul>
-<p><strong>Three corrections to the research sketch</strong>, found by compiling it:</p>
-<ol>
-<li><code>listeners::get_all()</code> returns <strong>UDP and non-listening sockets too</strong> (<code>Protocol</code> is
-TCP|UDP; <code>SocketState</code> carries the whole TCP state machine). The
-<code>TCP &amp;&amp; Listen</code> filter is load-bearing — without it a UDP port, or an ESTABLISHED
-connection’s local port, is published as a listener.</li>
-<li><code>get_all()</code> returns <code>Box&lt;dyn Error&gt;</code>, not <code>Box&lt;dyn Error + Send + Sync&gt;</code>; the
-sketch’s <code>main</code> signature does not compile.</li>
-<li><code>sysinfo</code> 0.39 requires Rust <strong>1.95</strong> while the pinned nixpkgs ships <strong>1.93</strong>, so
-it pins to 0.37.</li>
-</ol>
+<code>::ffff:127.0.0.1</code> and every instrument — the kernel’s own <code>getsockname</code>
+as arbiter, <code>proc_pidfdinfo</code>, the C helper, <code>lsof</code> — reports the v4-mapped
+address; the crate alone reports <code>::127.0.0.1</code>, the deprecated
+IPv4-<strong>compatible</strong> form, a <em>different address</em> from the one bound. The C
+helper’s explicit <code>insi_vflag &amp; INI_IPV4</code> branch is what the crate is
+missing, exactly as the research predicted.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Measured identically
+from three independent binders (node, python3, a raw C <code>bind()</code>) on zest,
+macOS 27.0. The kernel returns <code>…ffff7f000001</code> (the <code>ffff</code> bytes ARE the
+mapping marker); the crate returns the same bytes with the marker zeroed.
+Severity, stated precisely: no wildcard verdict flips <em>today</em> — a mapped
+wildcard reads all-zeros (accepted), a mapped loopback reads non-zero
+(rejected), so both classify correctly by accident. Disqualifying anyway:
+the address a consumer reads is WRONG (PRT2 forwards to addresses, it does
+not merely classify them), and <code>isAnyAddress</code>’s v4-mapped arm would never be
+exercised on the one platform that needs it. Gate item 1 asks for exact
+raw-bind-address parity; this is not that.</span></span></span></p>
+<p><strong>What passed, and three sketch corrections</strong> — recorded so the follow-up
+need not re-derive them.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Passed: linux parity green on all five
+fixtures (<code>/proc/net/tcp6</code> carries the mapped form literally); the crate’s
+integration tests run inside the nix sandbox on BOTH platforms (verified —
+loopback binds are permitted by linux’s private netns and darwin’s
+<code>sandbox-exec</code>), so <code>doCheck = true</code> is viable; latency was never the
+problem at this stage. Corrections found by compiling: (1)
+<code>listeners::get_all()</code> returns UDP and non-listening sockets too — the
+<code>TCP &amp;&amp; Listen</code> filter is load-bearing; (2) it returns <code>Box&lt;dyn Error&gt;</code>, not
+<code>+ Send + Sync</code>, so the sketch’s <code>main</code> does not compile; (3) <code>sysinfo</code> 0.39
+needs Rust 1.95 vs nixpkgs’ 1.93, so it pins to 0.37.</span></span></span></p>
 <h3 id="round-2-the-crate-bug-is-fixed-in-a-fork-and-the-gate-now-fails-on-latency-only">Round 2: the crate bug is FIXED in a fork, and the gate now fails on LATENCY only</h3>
 <p>The address bug was fixed and the gate re-run with the sound discriminator. Parity now
 passes everywhere; the blocker moved.</p>
 <p><strong>The fix.</strong> <code>listeners</code> is forked to
 <a href="https://github.com/juspay/listeners">juspay/listeners</a>, branch
-<code>fix/darwin-v4-mapped-addresses</code>, rev <code>227440e922f8140f22b5a6966f28b387e3ce6e8a</code>
-(pinned by rev, not branch, so a force-push cannot change what we build). It replaces the
-<code>soi_family</code> branch with an <code>insi_vflag</code> one. The flag ORDER is evidence-driven, and
-two measurements ruled out the simpler patches: a dual-stack <code>::</code> sets <strong>both</strong> flags, so
-preferring v4 would report the wildcard as <code>0.0.0.0</code> and lose its IPv6 reach; and <code>::1</code>’s
-v4 slot holds <code>00000001</code>, which preferring v4 would surface as <code>0.0.0.1</code>. Hence
-<code>INI_IPV6</code> first, <code>INI_IPV4</code> second, family last. A mapped bind now reports
-<code>::ffff:127.0.0.1</code>, matching what the crate’s own Linux path already returns.</p>
-<p>Two regression tests ride with it, negative-checked rather than assumed: the v4-mapped one
-FAILS on the unfixed code and passes after; the dual-stack one passes either way by design,
-because its job is to pin the flag order, which the first test cannot. Full crate suite on
-macOS: 15/16, and the one failure (<code>test_consistency</code>) fails <strong>identically with and without
-the fix</strong> — pre-existing, and diagnosed while we were there: <code>lsof</code> showed several ports on
-that host held by more than one process, so <code>get_process_by_port(port) == a_specific_listener</code>
-is not well-defined. Reported upstream as
-<a href="https://github.com/GyulyVGC/listeners/issues/56">GyulyVGC/listeners#56</a> (bug report only —
-the decision to offer a PR is deliberately deferred).</p>
+<code>fix/darwin-v4-mapped-addresses</code>, pinned by rev. It replaces the
+<code>soi_family</code> branch with an <code>insi_vflag</code> one, testing <code>INI_IPV6</code> first —
+the flag ORDER is evidence-driven, not stylistic.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Two measurements
+ruled out the simpler patches: a dual-stack <code>::</code> sets BOTH flags, so
+preferring v4 would report the wildcard as <code>0.0.0.0</code> and lose its IPv6
+reach; and <code>::1</code>’s v4 slot holds <code>00000001</code>, which preferring v4 would
+surface as <code>0.0.0.1</code>. Hence v6 first, v4 second, family last. Two regression
+tests ride along, negative-checked: the v4-mapped one FAILS on unfixed code;
+the dual-stack one pins the flag order, which the first cannot. The crate’s
+one pre-existing macOS suite failure (<code>test_consistency</code>) fails identically
+with and without the fix — several ports on that host are held by more than
+one process, so <code>get_process_by_port(port) == a_specific_listener</code> is not
+well-defined; reported upstream as
+<a href="https://github.com/GyulyVGC/listeners/issues/56">GyulyVGC/listeners#56</a>.</span></span></span>
+A mapped bind now reports <code>::ffff:127.0.0.1</code>, matching the crate’s own Linux
+path.</p>
 <p><strong>Parity: PASS, on both platforms.</strong> Five fixtures × two binders (node, python3) × both
 platforms, oracles <code>lsof</code> + the C helper on darwin and <code>ss</code> on linux. Compared by the
 CORRECTED discriminator — canonical equivalence, not byte equality: v4-mapped → v4, and any
@@ -486,7 +613,7 @@ never the language, and it was not really the crates either — it was composing
 whole-host enumerations. A single-pass Rust binary written against the same libproc /
 <code>/proc</code> calls the C helper already uses should land in the same ~10 ms band, and it
 would carry the cross-platform boundary the C helper cannot.</p>
-<p>That design is now written down in its own note — <a href="./os-facts-tool">osfacts</a> (proposed) —
+<p>That design is now written down in its own note — <a href="./os-facts-tool.html">osfacts</a> (proposed) —
 which also folds in <code>memorySampler</code>, <code>socketHolder</code>, the supervisor’s start-time reads and
 drishti, since they are all the same question asked five ways.</p>
 <p><strong>What that binary must add over portview</strong>, which is precisely what portview lacks:</p>
@@ -522,23 +649,19 @@ address” with “same encoding” and was not a sound discriminator. <strong>T
 address EQUIVALENCE, canonicalising v4-mapped ↔ v4</strong> (<code>::ffff:a.b.c.d</code> ≡ <code>a.b.c.d</code>),
 under which the C helper passes and the crate still fails. Byte-equality is the wrong
 test for a fact the OS is entitled to represent two ways.</p>
-<p><strong>The crate’s root cause is pinned, so the follow-up can file upstream from facts, not
-from a symptom.</strong> <code>listeners</code> 0.6.0 branches on <strong><code>soi_family</code></strong> — AF_INET6 means read
-the 16-byte <code>insi_laddr.ina_6</code> slot — where it must branch on <strong><code>insi_vflag</code></strong>. For a
-v4-mapped bind macOS reports <code>soi_family = AF_INET6</code> but <code>insi_vflag = INI_IPV4</code> (v6
-flag CLEAR), and it stores the address in the 4-byte <code>i46a_addr4</code> slot while the v6
-slot holds 12 zero pad bytes + the v4 address. Read as IPv6 that is <code>::127.0.0.1</code>, the
-deprecated IPv4-<strong>compatible</strong> form — a different address from the IPv4-<strong>mapped</strong> one
-that was bound, which is what <code>getsockname</code> returns. Corroboration that this is the
-branch and not something else: the crate handles a plain <code>0.0.0.0</code> (AF_INET) socket
-correctly at 4 bytes, and its own <code>Debug</code> output names the wrong address outright
-(<code>[::7f00:1]:19701</code>).</p>
-<p>So the fix is one <code>insi_vflag &amp; INI_IPV4</code> check in the crate’s macOS conversion — the
-same branch <code>portScanDarwin.c</code> already carries. Either land it upstream or apply it as a
-darwin post-process in the wrapper, then re-run the gate with the equivalence
-discriminator. If only latency ever fails, profile <code>sysinfo</code>’s second process pass —
-do not turn a one-shot sampler into a resident daemon merely to hide startup cost
-without revisiting the operational model.</p>
+<p><strong>The crate’s root cause is pinned, so the follow-up can file upstream from
+facts, not from a symptom</strong>: <code>listeners</code> 0.6.0 branches on <code>soi_family</code>
+where it must branch on <code>insi_vflag</code> — one check, the same branch
+<code>portScanDarwin.c</code> already carries.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The mechanics: for a v4-mapped
+bind macOS reports <code>soi_family = AF_INET6</code> but <code>insi_vflag = INI_IPV4</code> (v6
+flag CLEAR), storing the address in the 4-byte <code>i46a_addr4</code> slot while the
+v6 slot holds 12 zero pad bytes + the v4 address — read as IPv6 that is
+<code>::127.0.0.1</code>. Corroboration it is this branch and nothing else: the crate
+handles a plain AF_INET socket correctly, and its own <code>Debug</code> output names
+the wrong address outright (<code>[::7f00:1]:19701</code>). And a standing rule for any
+re-run: if only latency ever fails again, profile the second process pass —
+never turn a one-shot sampler into a resident daemon to hide startup cost
+without revisiting the operational model.</span></span></span></p>
 <p><strong>The measurements the decision rests on</strong> — zest (macOS 27.0, ~826–866 processes),
 10-run medians, spawn-to-exit; linux from a ~550-process workstation:</p>
 <table>
@@ -587,16 +710,18 @@ without revisiting the operational model.</p>
 </tr>
 </tbody>
 </table>
-<p>So the old darwin path spent <strong>~143 ms of subprocess</strong> before parsing a byte, for
-facts libproc returns in one call — <code>ps</code> and <code>lsof</code> are themselves libproc clients.
-<code>procs</code> was rejected on <strong>function, not speed</strong>: it sorts and dedups <code>u16</code> ports and
-throws the local IP away, so loopback-only and wildcard — the entire distinction this
-feature renders — collapse into the same row. <code>osquery</code> and <code>rustnet</code> were rejected
-on platform, size, and (for rustnet) its need for packet-capture privileges.</p>
-<p>Re-measured on the shipped derivation: <strong>10.6 ms/run</strong> on a busier zest (866
-processes), with live <code>lsof</code> parity confirmed on all four bind shapes — including the
-dual-stack <code>::</code> socket, where the helper’s <code>INI_IPV4</code> branch yields the 4-byte
-<code>00000000</code> that <code>isAnyAddress</code> reads as reachable, matching lsof’s <code>*:19304</code>.</p>
+<p>So the old darwin path spent <strong>~143 ms of subprocess</strong> before parsing a
+byte, for facts libproc returns in one call; the candidate rejections each
+have one-line grounds and live in <a href="./os-facts-tool.html">osfacts</a>’s
+comparison table.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>ps</code> and <code>lsof</code> are themselves libproc clients.
+<code>procs</code> was rejected on function, not speed — it discards the bind address,
+collapsing loopback-only and wildcard into one row. <code>osquery</code> and <code>rustnet</code>
+fell on operational model, size, and (rustnet) packet-capture privilege.
+Re-measured on the shipped derivation: 10.6 ms/run on a busier zest (866
+processes), with live <code>lsof</code> parity on all four bind shapes including the
+dual-stack <code>::</code> socket, where the helper’s <code>INI_IPV4</code> branch yields the
+4-byte <code>00000000</code> that <code>isAnyAddress</code> reads as reachable, matching lsof’s
+<code>*:19304</code>.</span></span></span></p>
 <p><strong>Attribution is the live ppid subtree — and nothing more.</strong> Backgrounded
 (<code>&amp;</code>) processes, pipelines, and grandchildren all keep the shell as an
 ancestor, so the walk sees them; a <em>true</em> daemon (setsid/double-fork,
@@ -635,8 +760,8 @@ and spells the wildcard bind <code>*</code>. One more, found live: <code>/proc/&
 <code>comm</code> is the THREAD name, and Node renames its main thread — a plain
 <code>node</code> dev server reports <code>MainThread</code>, so the displayed name comes from
 <code>/proc/&lt;pid&gt;/cmdline</code>’s <code>argv[0]</code> instead.</span></span></span></p>
-<p>Each terminal’s sample — <code>PortInfo { port, name, wildcard }</code> in
-<code>packages/terminal-vocab/src/schema.ts</code>, beside <code>ForegroundSchema:145</code> — is
+<p>Each terminal’s sample — <code>PortInfo { port, name, scope, family }</code> in
+<code>packages/port-scan/src/ports.ts</code> (re-exported by <code>terminal-vocab</code>), beside <code>ForegroundSchema:145</code> — is
 <strong>deduped by structural equality</strong> before it touches the snapshot, so an
 unchanged scan emits nothing: the churn guard that keeps a 5-second ticker
 from thrashing SolidJS. From there every layer exists: the sensor set folds
@@ -657,8 +782,8 @@ daemon the other must talk to.</p></div></aside>
 release note:</p>
 <ul>
 <li><strong>PRT0</strong> <em>(shipped, <a href="https://github.com/juspay/kolu/pull/1975" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1975</a>)</em> — you can forward ports by hand, today, kolu or no kolu: run <code>nix run …#vazhi</code> in any terminal (a kolu terminal keeps it alive across reloads), type <code>a host:4123</code>, and get a live table with a clickable <code>http://…</code> link; <code>q</code> reaps every forward, guaranteed. Kolu’s own UI changes not at all.</li>
-<li><strong>PRT1</strong> — the Inspector answers “what is this terminal serving?”: a live <strong>Ports</strong> section lists every listening port of the session within seconds of it appearing. No forwarding yet — but a port bound to <code>0.0.0.0</code> on the kolu server host needs none (it already answers on the name in your address bar), so those chips open in one click; loopback-bound and remote-host ports are listed but wait for PRT2.</li>
-<li><strong>PRT2</strong> — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, a <strong>Forwarded Ports</strong> group shows and cancels them (plus a manual ⌘K “Forward a port…”), and forwards clean themselves up when the server dies. This is the headline: <em>the agent started something → you’re looking at it.</em></li>
+<li><strong>PRT1</strong> <em>(shipped, <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>)</em> — the Inspector answers “what is this terminal serving?”: a live <strong>Ports</strong> section lists every listening port of the session within seconds of it appearing. No forwarding yet — but a port bound to <code>0.0.0.0</code> on the kolu server host needs none (it already answers on the name in your address bar), so those chips open in one click; loopback-bound and remote-host ports are listed but wait for PRT2.</li>
+<li><strong>PRT2</strong> <em>(shipped, <a href="https://github.com/juspay/kolu/pull/1991" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1991</a>)</em> — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, one <strong>Ports</strong> list shows and cancels them (plus a manual ⌘K “Forward a port…”), and forwards clean themselves up when the server dies. This is the headline: <em>the agent started something → you’re looking at it.</em></li>
 <li><strong>PRT3</strong> <em>(deferred)</em> — the page opens inside kolu instead of a browser tab.</li>
 </ul>
 <table>
@@ -678,14 +803,14 @@ release note:</p>
 <td>standalone forward on a real remote box, no kolu running</td>
 </tr>
 <tr>
-<td>PRT1</td>
-<td>padi port sensor · Ports section · direct open</td>
+<td>PRT1 ✅</td>
+<td>padi port sensor · Ports section · direct open — <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a></td>
 <td>—</td>
 <td>e2e: spawned listener’s chip appears + opens</td>
 </tr>
 <tr>
-<td>PRT2</td>
-<td>kolu embeds the library: lazy forward · Forwarded Ports UI · manual · auto-cancel</td>
+<td>PRT2 ✅</td>
+<td>kolu embeds the library — <a href="https://github.com/juspay/kolu/pull/1991" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1991</a>: lazy forward · merged Ports UI · manual · auto-cancel</td>
 <td>PRT0 + PRT1</td>
 <td>real remote box: chip → tunneled HTTP 200; kill the server → ports refuse</td>
 </tr>
@@ -697,7 +822,8 @@ release note:</p>
 </tr>
 </tbody>
 </table>
-<p>PRT0 shipped in <a href="https://github.com/juspay/kolu/pull/1975" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1975</a>; <strong>PRT1 is next</strong>, and PRT2 needs both.</p>
+<p>PRT0 shipped in <a href="https://github.com/juspay/kolu/pull/1975" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1975</a> and PRT1 in <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>;
+PRT2 shipped in <a href="https://github.com/juspay/kolu/pull/1991" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1991</a>; <strong>PRT3 is the only phase left</strong>, and it is deferred by design.</p>
 <h3 id="prt0--the-library-proven-by-vazhi-shipped-">PRT0 — the library, proven by vazhi (shipped: <a href="https://github.com/juspay/kolu/pull/1975" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1975</a>)</h3>
 <p><code>packages/port-forward/</code> plus the vazhi TUI with its own <code>flake.nix</code> (<code>nix run .#vazhi</code>). <strong>Done when</strong>, with <strong>no kolu running</strong>: in a terminal, vazhi
 adds a forward to a real remote box (pu harness) and shows the row live;
@@ -708,9 +834,12 @@ top: vazhi imports <strong>only <code>@kolu/port-forward</code></strong> (no kol
 proof that makes PRT2’s embed mechanical — and <code>kill -9</code> on vazhi leaves
 <strong>no port answering</strong>, checked immediately rather than after any timer, which
 is the property the per-forward connection exists to give.</p>
-<h3 id="prt1--detection--ports-section-one-pr">PRT1 — detection + Ports section (one PR)</h3>
+<h3 id="prt1--detection--ports-section-shipped-">PRT1 — detection + Ports section (shipped: <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>)</h3>
 <p>Scanner, <code>ports</code> schema field, sensor fold, the Inspector section, direct-open
-chips, the tip. <strong>Done when</strong> an e2e scenario runs
+chips, the tip. The shipped mechanisms — the linux <code>/proc</code> reader and the
+darwin C helper — have a designed successor: one shared Rust binary serving
+kolu and drishti, planned in <a href="./os-facts-tool.html">osfacts</a>; until it passes
+that note’s gates, what ships here is the measured best on each platform. <strong>Done when</strong> an e2e scenario runs
 <code>node -e &#39;require(&quot;http&quot;).createServer((_,r)=&gt;r.end(&quot;ok&quot;)).listen(8123,&quot;0.0.0.0&quot;)&#39;</code>
 in a real kolu terminal and asserts the <code>8123</code> chip appears within two scan
 ticks and clicking it opens the page at <code>location.hostname:8123</code> — pinning the
@@ -718,7 +847,7 @@ real path (padi scan → snapshot → surface → reconcile
 store), which no client-side mock can satisfy. Parser unit tests run on
 fixture <code>/proc</code> trees <em>and</em> fixture <code>lsof</code> field output; the darwin gate
 (<code>aarch64-darwin</code>) must be green, not skipped. Loopback-bound chips render
-with a “needs a forward” affordance that activates in PRT2.</p>
+with a “needs a forward” affordance; PRT2 made it live.</p>
 <p><strong>Fixtures are not enough, and this phase proved it twice.</strong> A fixture pins the
 parser; it cannot pin the assumption that the parser is handed the shape it
 expects — and both darwin bugs lived exactly there, green fixtures over a scan
@@ -733,20 +862,195 @@ thread enumeration); it <strong>repartitions from the current terminal root pids
 every tick</strong>, so a terminal opening, closing, or being re-keyed never leaves
 a stale subtree; and it is single-flight (the output-nudge and the baseline
 tick share one non-overlapping runner).</p>
-<h3 id="prt2--kolu-embeds-the-library-one-pr">PRT2 — kolu embeds the library (one PR)</h3>
-<p><strong>A shape question PRT1’s review raised and deliberately left to PRT2:</strong> whether
-<code>PortInfo</code> should carry <code>wildcard: boolean</code> or a three-way
-<code>scope: &quot;any&quot; | &quot;loopback&quot; | &quot;interface&quot;</code>. The structural lens’s case is sound —
-<code>wildcard</code> is one observation (<em>what address did it bind?</em>) doing duty as a
-judgment (<em>is it reachable from here?</em>), and the judgment is not even a function
-of that field alone: the client must join it with the terminal’s HOST to decide
-whether a chip opens. PRT1 kept the boolean because its two live symptoms —
-two platform classifiers that disagreed, and the reachability verb returned as
-prose — are fixed independently, and because <strong>PRT2 is where the second consumer
-appears.</strong> Choosing relay-vs-<code>ssh -L</code> needs the host, which <code>wildcard</code> never
-carried either, so PRT2 reshapes this surface regardless — and it can then design
-the tag against two real consumers instead of one. Same discipline as the
-<code>list()</code>/<code>subscribe()</code> and tagged-error questions above. <strong>A second question of the same shape was RAISED AND SETTLED IN PRT1</strong>, not deferred: whether a terminal that has never been successfully scanned is distinguishable on the wire from one that serves nothing. It was first argued as unreachable and the peer review refuted that with three surviving routes — a first-pass <code>lsof</code> timeout on darwin, a transient <code>/proc/net/tcp</code> read failure on linux, and (widened by PRT1’s own fix) any unexpected <code>/proc</code> errno — none of which needs the terminal’s own shell to be unreadable. So <code>ports</code> is a discriminated <code>known</code> / <code>unknown</code> two-way, the same honest shape <code>ProcessRss</code> already uses, and holding a last-good sample now covers only what it can actually cover.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>PRT1 also left a
+<h3 id="prt2--kolu-embeds-the-library-shipped-">PRT2 — kolu embeds the library (shipped: <a href="https://github.com/juspay/kolu/pull/1991" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1991</a>)</h3>
+<div style="font-family:ui-sans-serif,system-ui;max-width:26rem;margin:1.4rem auto;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25)"><div style="padding:.7rem 1rem .45rem;border-bottom:1px solid #232834;font:.78rem/1.4 ui-monospace,monospace;color:#8b93a3"><span style="color:#d6dae2">⌂ pureintent</span>  ·  zest  ·  <span style="background:#2a2138;border:1px solid #4a3a68;border-radius:6px;padding:.1rem .45rem;color:#d6dae2"><span style="display:inline-block;width:.55rem;height:.55rem;border-radius:50%;background:#2fbf8b;box-shadow:0 0 0 1px #2a2138,0 0 0 2px rgba(45,212,191,.7);margin-right:.42rem"></span>naiveintent</span>  ·  kolu-bot</div><div style="padding:.5rem 1rem .2rem;font:700 .68rem/1 ui-monospace,monospace;color:#8b93a3;letter-spacing:.08em">PORTS <span style="float:right;color:#5b6470">inspector</span></div><div style="padding:.15rem 1rem .5rem;font:.75rem/1.95 ui-monospace,monospace;color:#d6dae2"><div><b>8124</b> <span style="color:#8b93a3">node</span> <span style="float:right"><span style="background:rgba(14,117,105,.18);color:#5eead4;border-radius:4px;padding:.05rem .35rem;font-size:.68rem">⇄ :61000</span> <span style="color:#5b6470">⧉ ⨯</span> <span style="color:#4da3ff">↗ open</span></span></div><div><b>5173</b> <span style="color:#8b93a3">vite</span> <span style="float:right"><span style="background:rgba(14,117,105,.18);color:#5eead4;border-radius:4px;padding:.05rem .35rem;font-size:.68rem">⇄ :5173</span> <span style="color:#5b6470">⧉ ⨯</span> <span style="color:#4da3ff">↗ open</span></span></div><div><b>9229</b> <span style="color:#8b93a3">node</span> <span style="float:right;color:#6b7280">↗ forward &amp; open</span></div><div><b>3000</b> <span style="color:#8b93a3">workerd</span> <span style="float:right;color:#4da3ff">↗ open</span></div><div style="opacity:.55;margin-top:.3rem;font-size:.66rem;color:#8b93a3">also forwarded on this host</div><div style="opacity:.72"><b>8080</b> <span style="float:right"><span style="background:rgba(14,117,105,.18);color:#5eead4;border-radius:4px;padding:.05rem .35rem;font-size:.68rem">⇄ :61003</span> <span style="color:#5b6470">pinned ⧉ ⨯</span> <span style="color:#4da3ff">↗ open</span></span></div></div><div style="margin:0 1rem .8rem;border:1px solid #2a2f3a;border-radius:8px;background:#0e1116;padding:.5rem .8rem;font:.72rem/1.7 ui-monospace,monospace"><div style="color:#5b6470">⌘K  <span style="color:#d6dae2">forw<span style="border-left:1px solid #d6dae2"> </span></span></div><div style="color:#d6dae2;background:#1d2331;border-radius:5px;padding:.15rem .5rem;margin-top:.25rem">⇄ Forward a port… <span style="color:#5b6470">host:port → opens a tunnel</span></div></div></div>
+<p>What ships, at a glance — detail lives in the footnotes:</p>
+<ul>
+<li><strong>Every chip opens.</strong> Click → the embedded library opens a door → new tab at <code>http://${location.hostname}:&lt;port&gt;</code>. Lazy, first click only.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Case-3 (wildcard on the kolu host) keeps opening directly with no door. Cases 1–2 call <code>create</code> and the chip gains a <code>⇄ :&lt;localPort&gt;</code> badge. Lazy because an agent session can hold six listening ports; eager VS-Code-style tunneling keeps doors open for ports nobody visits, and their knob matrix exists to walk that back.</span></span></span></li>
+<li><strong>Two door mechanisms</strong>, both shipped in PRT0 and vazhi-proven: an in-process TCP relay for the kolu host’s own loopback ports, one dedicated <code>ssh -L</code> child per remote forward.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The ssh child runs with <code>ControlPath=none</code> plus a hold-open remote command — it can neither ride nor create a shared master, so the forward’s lifetime IS the child’s lifetime. The shared-master design was measured and rejected in PRT0: <code>-O forward</code> listeners outlive their requester by the full ControlPersist window, and OpenSSH has no <code>-O list</code> to re-adopt them.</span></span></span></li>
+<li><strong>Same port when free</strong>: <code>box:5173</code> answers at <code>:5173</code>, predictable and bookmarkable; the kernel picks only on collision — and a restarted listener gets its old local port back.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The restart rule is one of two details adopted from VS Code’s Ports view; the other is copy-address on every row. Both exist so links survive a dev-server restart.</span></span></span></li>
+<li><strong>Forwards, three surfaces</strong>: the Inspector’s <strong>single Ports list</strong> (a forwarded port is one row, not a second entry in a second group), the same rows in the <strong>host tab’s dropdown</strong>, and a <strong>hairline teal ring on the host tab’s connection dot</strong> whenever that host has live forwards — glanceable from anywhere.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Forwards are host-scoped facts, so the host popover is their natural home; the Inspector shows the same rows joined to what the active terminal serves, with host-scoped doors that match no scanned port trailing under “also forwarded on this host”. A row carries <code>port · &lt;the terminal serving it, as a link&gt; · ⇄ :localPort · auto|pinned · ⧉ copy · ⨯ cancel</code>. The plan through PRT2’s first cut said a <strong><code>⇄ n</code> badge</strong> here; it was built, and cut — at tab scale a glyph is illegible mush, and the ring that replaced it is recorded above.</span></span></span></li>
+<li><strong>⌘K: “Forward a port…”</strong> — accepts <code>host:port</code>, for anything the scanner missed or outside any terminal’s subtree.</li>
+<li><strong>Doors close themselves.</strong> Scanner sees the port die → <code>auto</code> forwards cancel; <code>manual</code> ones persist until cancelled or the host disconnects; kolu killed → the kernel closes everything, instantly.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The kolu-level twin of vazhi’s SIGKILL criterion, and it matters MORE here: the server restarts on every deploy. The old shared-master design would have orphaned every forward on each release while the restarted UI showed an empty list.</span></span></span></li>
+</ul>
+<figure class="diagram wide" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 520" font-family="ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="p2B" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a6ea5"/>
+    </marker>
+    <marker id="p2G" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1b7a3a"/>
+    </marker>
+    <marker id="p2O" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c2611b"/>
+    </marker>
+    <marker id="p2P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#6d4fa3"/>
+    </marker>
+  </defs>
+
+  <!-- ══════ Viewer ══════ -->
+  <rect x="20" y="40" width="300" height="400" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="38" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">VIEWER — zest</text>
+
+  <rect x="40" y="82" width="260" height="96" rx="8" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="56" y="103" font-size="13" font-weight="700" fill="#1b7a3a">Inspector chip (PRT1)</text>
+  <text x="56" y="125" font-size="12" font-family="ui-monospace,monospace" fill="#1a1c20">8124 node   ⤴ open</text>
+  <text x="56" y="145" font-size="12" font-family="ui-monospace,monospace" fill="#1a1c20">5173 vite   ⤴ open</text>
+  <text x="56" y="165" font-size="11" fill="#54785f">every chip now opens — that is PRT2</text>
+
+  <rect x="40" y="330" width="260" height="66" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="56" y="352" font-size="13" font-weight="700" fill="#1a1c20">new tab</text>
+  <text x="56" y="372" font-size="12" font-family="ui-monospace,monospace" fill="#6d4fa3">http://pureintent:8124</text>
+  <text x="56" y="388" font-size="10.5" fill="#8a8574">location.hostname, never "localhost"</text>
+
+  <line x1="170" y1="178" x2="170" y2="326" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#p2G)"/>
+  <text x="182" y="250" font-size="11" fill="#54785f">click → create → open</text>
+
+  <!-- ══════ Kolu server host ══════ -->
+  <rect x="360" y="40" width="440" height="440" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="378" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">KOLU SERVER HOST — pureintent</text>
+
+  <rect x="380" y="82" width="400" height="64" rx="8" fill="#fbeadd" stroke="#c2611b" stroke-width="1.5"/>
+  <text x="396" y="103" font-size="13" font-weight="700" fill="#c2611b">kolu server embeds @kolu/port-forward · new (PRT2)</text>
+  <text x="396" y="122" font-size="11.5" fill="#1a1c20">forwards = a cell on the existing surface · lazy on click</text>
+  <text x="396" y="138" font-size="11" fill="#8a5b34">⌘K "Forward a port…" · host-tab ⇄ badge · Forwarded Ports lists</text>
+
+  <!-- two mechanisms -->
+  <rect x="380" y="180" width="190" height="96" rx="8" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="394" y="201" font-size="12.5" font-weight="700" fill="#6d4fa3">case 1 — TCP relay</text>
+  <text x="394" y="221" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">0.0.0.0:8124</text>
+  <text x="394" y="237" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">  → 127.0.0.1:8124</text>
+  <text x="394" y="256" font-size="10.5" fill="#7a6b93">in-process; for THIS host's</text>
+  <text x="394" y="269" font-size="10.5" fill="#7a6b93">loopback-bound servers</text>
+
+  <rect x="590" y="180" width="190" height="96" rx="8" fill="#efe9f8" stroke="#6d4fa3" stroke-width="1.5"/>
+  <text x="604" y="201" font-size="12.5" font-weight="700" fill="#6d4fa3">case 2 — ssh child</text>
+  <text x="604" y="221" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">ssh -L *:5173:</text>
+  <text x="604" y="237" font-size="11" font-family="ui-monospace,monospace" fill="#1a1c20">  127.0.0.1:5173 box</text>
+  <text x="604" y="256" font-size="10.5" fill="#7a6b93">ONE child per forward;</text>
+  <text x="604" y="269" font-size="10.5" fill="#7a6b93">ControlPath=none</text>
+
+  <line x1="500" y1="146" x2="470" y2="176" stroke="#c2611b" stroke-width="1.6" marker-end="url(#p2O)"/>
+  <line x1="660" y1="146" x2="680" y2="176" stroke="#c2611b" stroke-width="1.6" marker-end="url(#p2O)"/>
+
+  <!-- lifecycle strip -->
+  <rect x="380" y="310" width="400" height="88" rx="8" fill="#eaf1f8" stroke="#3a6ea5" stroke-width="1.5"/>
+  <text x="396" y="331" font-size="12.5" font-weight="700" fill="#3a6ea5">a forward lives exactly as long as its owner</text>
+  <text x="396" y="351" font-size="11.5" fill="#1a1c20">cancel row → kill(child) · close relay</text>
+  <text x="396" y="369" font-size="11.5" fill="#1a1c20">scanner sees the port die → auto-cancel (auto forwards only)</text>
+  <text x="396" y="387" font-size="11.5" fill="#1a1c20">kolu killed → kernel closes every listener, instantly</text>
+
+  <rect x="380" y="424" width="400" height="40" rx="8" fill="#e3f4e9" stroke="#1b7a3a"/>
+  <text x="396" y="448" font-size="11.5" fill="#1b7a3a">padi port sensor (PRT1) — the death signal auto-cancel rides</text>
+  <line x1="580" y1="424" x2="580" y2="402" stroke="#3a6ea5" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#p2B)"/>
+
+  <!-- traffic: browser → listener → mechanisms -->
+  <line x1="300" y1="360" x2="376" y2="240" stroke="#6d4fa3" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#p2P)"/>
+  <text x="290" y="300" font-size="10.5" fill="#7a6b93">HTTP</text>
+
+  <!-- ══════ Remote host ══════ -->
+  <rect x="840" y="40" width="320" height="400" rx="12" fill="#faf8f2" stroke="#ddd6c4"/>
+  <text x="858" y="64" font-size="12" font-weight="700" fill="#5b6470" letter-spacing=".07em">REMOTE HOST — e.g. kolu-bot</text>
+
+  <rect x="860" y="82" width="280" height="56" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="876" y="104" font-size="13" font-weight="700" fill="#1a1c20">sshd</text>
+  <text x="876" y="122" font-size="11" fill="#8a8574">the tunnel's far end</text>
+
+  <rect x="860" y="180" width="280" height="76" rx="8" fill="#ffffff" stroke="#c9c2b0"/>
+  <text x="876" y="202" font-size="13" font-weight="700" fill="#1a1c20">dev server</text>
+  <text x="876" y="222" font-size="12" font-family="ui-monospace,monospace" fill="#6d4fa3">127.0.0.1:5173</text>
+  <text x="876" y="240" font-size="10.5" fill="#8a8574">loopback — unreachable from anywhere, until now</text>
+
+  <line x1="780" y1="220" x2="856" y2="110" stroke="#6d4fa3" stroke-width="1.8" marker-end="url(#p2P)"/>
+  <text x="790" y="150" font-size="10.5" fill="#7a6b93">encrypted</text>
+  <line x1="1000" y1="138" x2="1000" y2="176" stroke="#6d4fa3" stroke-width="1.8" marker-end="url(#p2P)"/>
+  <text x="1012" y="160" font-size="10.5" fill="#7a6b93">local hop</text>
+
+  <!-- ══════ Legend ══════ -->
+  <rect x="240" y="492" width="14" height="14" rx="3" fill="#e3f4e9" stroke="#1b7a3a"/>
+  <text x="262" y="503" font-size="12" fill="#1a1c20">shipped (PRT1)</text>
+  <rect x="420" y="492" width="14" height="14" rx="3" fill="#fbeadd" stroke="#c2611b"/>
+  <text x="442" y="503" font-size="12" fill="#1a1c20">new in PRT2</text>
+  <rect x="580" y="492" width="14" height="14" rx="3" fill="#efe9f8" stroke="#6d4fa3"/>
+  <text x="602" y="503" font-size="12" fill="#1a1c20">@kolu/port-forward mechanisms (shipped in PRT0, vazhi-proven)</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>One click, both mechanisms. A loopback port on the kolu host gets an in-process relay (case 1); a port on a remote host gets a dedicated ssh -L child whose death is the forward&#39;s death (case 2). The browser only ever opens the name already in its address bar. Auto-cancel rides PRT1&#39;s scanner; a killed kolu server takes every door with it, kernel-guaranteed.</figcaption></figure>
+<h3 id="the-deferred-shape-question-settled-wildcard-became-scope">The deferred shape question, settled: <code>wildcard</code> became <code>scope</code></h3>
+<p>PRT1’s review left one question open for exactly this phase — whether <code>PortInfo</code>
+should carry <code>wildcard: boolean</code> or a three-way
+<code>scope: &quot;any&quot; | &quot;loopback&quot; | &quot;interface&quot;</code> — on the grounds that PRT2 is where the
+second consumer appears and the tag could then be designed against two real
+readers instead of one. It appeared, and <strong>the boolean was wrong for a reason no
+amount of structural argument had reached: it is not a distinction the
+MECHANISMS can act on.</strong></p>
+<p>Both of PRT0’s doors connect to <strong><code>127.0.0.1</code> on the far side</strong> — the relay dials
+this machine’s loopback, the <code>ssh -L</code> child dials the remote’s. So the boolean’s
+<code>false</code> arm covered two cases with <em>opposite</em> correct handling: a loopback bind
+(exactly what a door reaches) and a bind to one specific interface such as
+<code>192.168.1.5</code> (which answers at that address, and which no door can reach at
+all). Under <code>wildcard: boolean</code> the second case rendered as “needs a forward”,
+the click would open a listener successfully, and every connection through it
+would be refused. A boolean cannot spell the difference, so PRT2 ships the
+three-way and <code>portReach</code> grows a fourth, honest arm — <code>no-mechanism</code> — that
+offers nothing because there is nothing to offer.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The reshape is one
+classifier, not a schema patch: <code>isAnyAddress</code> became <code>addressScope</code>, still the
+SINGLE judge both platforms reach through their own decoder, so the two cannot
+come to disagree about <code>::ffff:0.0.0.0</code> — the property PRT1 paid for twice. The
+fold widens rather than ORs (<code>any</code> &gt; <code>interface</code> &gt; <code>loopback</code>), which keeps it
+order-independent, which is what keeps a 5-second scanner from republishing a
+“change” forever. Cost, stated: padi’s surface goes 4.2 → 4.3 and a straddling
+padi is drained by the existing convergence machinery before either parser meets
+the other’s frame — the same rule 4.1 and 4.2 already rest on, so the reshape
+needs no compatibility arm and deliberately has none. Verified against the real
+OS, not just fixtures: the live suite binds a real routable interface address and
+asserts it classifies as <code>interface</code>.</span></span></span></p>
+<p>The structural lens’s original case stands too, and is worth recording as
+<em>separate</em>: <code>scope</code> is still an OBSERVATION, not a verdict. Whether a port answers
+for a given viewer needs the HOST as well, which no field of <code>PortInfo</code> ever
+carried — so the judgment stays <code>portReach(scope, onKoluHost)</code> in kolu’s own
+vocabulary, where both ends of the wire read the one copy.</p>
+<h3 id="and-then-production-froze-and-scope-turned-out-to-be-half-the-fact">…and then production froze, and <code>scope</code> turned out to be half the fact</h3>
+<p>The first deploy of PRT2 <strong>froze the entire kolu server on the first forward
+click</strong> — UI dead, HTTP dead, <code>SIGTERM</code> ignored until systemd sent <code>SIGKILL</code> —
+and the forward it did open served nothing. Three defects, and the two that
+matter are the same mistake in different clothes.</p>
+<p><strong>The freeze was a cycle between two reasonable halves.</strong> The forward cell is a
+poll on a <em>fused</em> cadence (<code>everyMsOr(interval, onChange)</code>): the interval runs
+the auto-cancel pass, and the change edge makes an act publish at once instead of
+waiting out a tick. Separately, the auto-cancel pass ended by announcing its
+result. Each half is right on its own; together, the pass announced on the very
+edge that triggers the pass — read → reap → announce → tick → read — and the
+event loop never yielded again. It was invisible until the first click because
+with zero <code>auto</code> forwards the pass returned <em>before</em> announcing. The fix is not a
+guard on the announcement but the removal of the shape: the reconciliation
+<strong>reports by returning</strong>, the poll publishes what it returns, and “reap and
+announce” is no longer spellable.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The general lesson is worth more than
+the fix: neither module was wrong in isolation, so no unit test of either could
+have caught it. What catches it is a test of the JOIN — the regression test
+reproduces the fusion in miniature and asserts the read count stays BOUNDED,
+which is a property of the wiring rather than of any module in it.</span></span></span></p>
+<p><strong>And <code>scope</code> was half a fact.</strong> <code>127.0.0.1</code> and <code>::1</code> are both <code>loopback</code> and
+are <em>not the same address</em>; the classifier folded them together, and both
+mechanisms then dialled v4. A dev server on <code>[::1]:5173</code> — what vite and several
+Node versions bind by default — got a tunnel that came up perfectly and served
+nothing, because there was no listener at the address the door opened onto. So
+<code>PortInfo</code> now carries <code>family</code> beside <code>scope</code>, and it is a <strong>separate field
+rather than a fourth scope value</strong> because the two answer different questions:
+<code>scope</code> decides <em>whether</em> a door is needed, <code>family</code> decides <em>what it dials</em>, and
+only the first is a reachability judgment with an ordering.</p>
+<p>The two are one lesson, stated once because it has now cost two defects in one
+PR: <strong>a fact the OS handed us was collapsed below what the consumer needed, and
+the collapse was invisible until something dialled the answer.</strong> <code>wildcard</code> lost
+the interface case; <code>scope</code> lost the family. Both looked like tidy reductions and
+both were reductions past the point of use.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Which is why the dial family
+is now read SERVER-side off kolu’s own scan rather than accepted from the client:
+a client’s copy of the port facts can be a scan or two stale, and a stale family
+opens a door onto an address with nothing behind it — the same failure by a
+different route. The one place kolu cannot observe it (a manual forward to a port
+no terminal serves) assumes v4 at a single named constant, with the failure loud
+at the point of use rather than silent.</span></span></span></p>
+<p><strong>A second question of the same shape was RAISED AND SETTLED IN PRT1</strong>, not deferred: whether a terminal that has never been successfully scanned is distinguishable on the wire from one that serves nothing. It was first argued as unreachable and the peer review refuted that with three surviving routes — a first-pass <code>lsof</code> timeout on darwin, a transient <code>/proc/net/tcp</code> read failure on linux, and (widened by PRT1’s own fix) any unexpected <code>/proc</code> errno — none of which needs the terminal’s own shell to be unreadable. So <code>ports</code> is a discriminated <code>known</code> / <code>unknown</code> two-way, the same honest shape <code>ProcessRss</code> already uses, and holding a last-good sample now covers only what it can actually cover.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>PRT1 also left a
 second, smaller judgment on the table: kaval’s one host-global <code>activity</code> edge now
 has three independent <code>resubscribeStream</code> consumers (the finish fold, the live
 dots, the port-scan nudge). They are not three copies of one shape — the live-dots
@@ -754,8 +1058,8 @@ one is per-SUBSCRIBER by design, the other two are daemon-lifetime — so the sh
 fan-out waits for a consumer that actually matches, rather than forcing the
 per-subscriber case into a receptacle it does not want.</span></span></span></p>
 <p>The kolu server embeds <code>@kolu/port-forward</code>; forward state becomes a cell on
-kolu’s existing surface; chip click → lazy create; tunnel badges; Forwarded
-Ports group; manual forward + ⌘K command; auto-cancel policy. Two UX details
+kolu’s existing surface; chip click → lazy create; tunnel badges; one merged
+Ports list; manual forward + ⌘K command; auto-cancel policy. Two UX details
 adopted from VS Code’s Ports view: when an auto-forwarded listener dies and
 later returns, <strong>re-forwarding prefers the local port it had before</strong> (links
 and bookmarks keep working across a dev-server restart), and every
@@ -773,14 +1077,118 @@ every deploy: <strong>kill the kolu server and every forward it created must ref
 connections at once</strong> — the old shared-master design would have orphaned them
 on each release while the restarted Inspector showed an empty list. Evidence
 video of the click-to-page flow.</p>
+<p><strong>When the viewer IS the host.</strong> A machine in kolu’s fleet can be the machine you
+are reading kolu from — the plan’s own footnote called this “roundabout but
+correct, and not worth a special case in v1”, and in practice it was baffling:
+every chip on <em>zest</em>’s terminals, viewed from zest, offered to open a door on
+<em>pureintent</em> so that zest’s browser could reach a port on zest. So kolu now
+recognises it, from the one fact that can settle it: the <strong>peer address of the
+viewer’s own connection</strong>, which only the server can see, compared against the
+addresses the host resolves to.</p>
+<p>Two things make an inexact comparison acceptable here, and neither is incidental.
+First, <strong>the failure direction is safe</strong>: a match opens the port directly on the
+viewer’s own loopback, and every way of failing to recognise the viewer — a NAT,
+a proxy, an ssh alias DNS cannot resolve — leaves the forward exactly as it was,
+which works. Second, <strong>a <code>direct</code> port is never rewritten to <code>localhost</code></strong>: it
+already answers on a name that means the same thing from every machine, and
+<code>localhost</code> is the one hostname that does not — trading the first for the second
+would undo the rule this whole feature is built on.</p>
+<p>It rides a ROOT rpc rather than a surface member, and that is structural rather
+than convenient: the answer differs per viewer, and a surface cell is broadcast,
+so it has no shape that can carry a different answer to each connected
+browser.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The reliable version of this needs a fact kolu does not have —
+the host’s own interface addresses, which padi could report but does not — so
+what ships resolves the ssh destination instead. That is genuinely weaker for
+alias-named hosts, where it simply never fires. Recorded as a limit rather than
+hidden, because the alternative was to add a padi surface field inside an
+incident fix.</span></span></span></p>
+<p><strong>The first cut of it never fired once, and the reason is worth keeping.</strong> It
+compared the connection’s TCP peer — and kolu’s real deployment is reached
+through <code>tailscale serve</code>, which terminates TLS and dials the backend from the
+host’s OWN tailnet address. So the only established connection to kolu had peer
+<code>100.122.32.106</code>: <em>pureintent itself</em>. The viewer’s address never appeared as a
+TCP peer at all; it was in an <code>X-Forwarded-For</code> header nothing read. The
+comparison had been right the whole time and the observation feeding it belonged
+to the proxy.</p>
+<p>So the address is now taken from the forwarded header <strong>when, and only when, the
+direct peer is a trusted local hop</strong> — loopback, or one of this host’s own
+addresses, which is exactly what a local reverse proxy looks like. Three
+properties make that safe to state as a rule rather than a setting: a header
+arriving on an untrusted connection is ignored <strong>entirely</strong> (anyone who can reach
+kolu directly can invent one, and honouring it would let a stranger be handed a
+<code>localhost</code> link for any host’s ports); the <strong>last</strong> entry wins rather than the
+first, because each proxy <em>appends</em> the address it received from while the
+leftmost entry is whatever the client typed; and there is no trusted-proxy list
+to configure, because the trust condition is a fact about the connection rather
+than a knob.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A deployment shape that hides the viewer more thoroughly —
+a proxy on a different machine, or one that strips the header — lands on the same
+no-match side as before, which keeps the forward that works. The mechanism is
+allowed to not fire; it is not allowed to be wrong.</span></span></span></p>
+<p><strong>What the automated suite actually covers, and what it deliberately does not.</strong>
+The e2e scenarios drive the <strong>relay</strong> case end to end — a real loopback listener
+in a real PTY, a real click, and the listener’s own body arriving in the opened
+tab through a port it never bound — plus the cancel twin, which proves the door
+is <em>shut</em> by dialling the recorded URL from node rather than by watching a row
+disappear. The <strong><code>ssh -L</code> case is not simulated</strong>: it needs a second machine, and
+a loopback ssh hop standing in for one would exercise a different code path from
+the one it claimed to cover, so it stays with the <code>remote-host-testing</code> harness
+above. Stated rather than left implicit, because “the port forwarding suite is
+green” would otherwise read as covering both mechanisms.</p>
 <h3 id="prt3--embedded-preview-deferred">PRT3 — embedded preview (deferred)</h3>
 <p>Open the forwarded page inside kolu — a browser pane in the Code tab, in the
 spirit of the Codex desktop app — instead of a new tab. Explicitly out of
-scope until PRT2 ships<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A cross-origin iframe surface for arbitrary
+scope until PRT2 shipped<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A cross-origin iframe surface for arbitrary
 dev servers is a genuinely bigger build, and any server sending
 <code>X-Frame-Options: DENY</code> / <code>frame-ancestors</code> refuses framing — the new-tab
 path must remain the fallback regardless.</span></span></span>; no design here yet —
-when it matures this section is rewritten, not layered.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+when it matures this section is rewritten, not layered.</p>
+<h2 id="what-this-track-sent-upstream">What this track sent upstream</h2>
+<p>PRT2’s production incident was the best evidence for what belongs in the
+<code>@kolu/surface</code> frameworks rather than in this feature. Four items were
+dispatched; <strong>three shipped, one was withdrawn on verified grounds</strong> — and the
+withdrawal is recorded here rather than left looking pending, because a roadmap
+that claims work it did not do is worse than one that is short.</p>
+<ol>
+<li><strong>A loop guard in the reactor, built on PROVENANCE.</strong> The freeze was the
+reactor executing a legal wiring forever, and the class stayed expressible
+after the consumer-side fix — <code>processMemory</code> and <code>daemonInventory</code> sit on
+identical wiring. Each poll read now runs inside an <code>AsyncLocalStorage</code>
+context keyed to its own source, so a change edge that fires <em>under that
+context</em> was caused by the read it is about to re-trigger. Three consecutive
+self-caused ticks crash naming the cell.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The first cut asked about
+TIMING and value-equality instead, and adversarial verification refuted it in
+both directions: a plain <code>everyMs(10)</code> cell whose read takes 30 ms and returns
+a constant crashed in ~400 ms (every coalesced trailing read looked
+“immediate”), while the proposed lap-timing fix would have MISSED the real
+freeze, since a self-loop’s lap is just its read duration. Timing is a proxy
+for causation and every variant of it fails one direction or the other. The
+repo’s own doctrine already said so — cut feedback loops with provenance, not
+value-dedup (the controlled-component echo rule).</span></span></span> Its companion
+<code>assertCellConverges</code> ships beside it as the authoring-time twin, and PRT2’s
+own convergence test uses it.</li>
+<li><strong>Viewer identity graduated</strong> to <code>@kolu/surface/viewerIdentity</code>. “Which
+machine is the viewer actually at” is a transport fact any surface-served app
+behind a reverse proxy needs, and kolu got it wrong twice in one day. The
+judgment (trusted-peer gating, which forwarded hop may be believed) is the
+package’s; the OS-touching half — DNS, interface enumeration — stays with the
+consumer.</li>
+<li><strong>The doctrine, written down</strong> where surface rules live: a per-viewer answer
+is a root RPC and never a broadcast cell; a poll read may reconcile, but
+publishes only by returning. Both cite this incident.</li>
+</ol>
+<p><strong>Withdrawn: <code>Observed&lt;T&gt;</code>.</strong> The item’s own premise — “the same discriminated
+shape hand-rolled three times” — turned out to be factually wrong, and checking
+it was the whole value of the exercise. <code>ProcessRss</code> is a deliberate THREE-way
+whose <code>error</code> arm is load-bearing on the wire (producers emit it, two client
+consumers render distinct UI from it), so it was never a candidate. Between the
+remaining two the honest duplication is ~5–7 lines of map-accumulate skeleton:
+the one real merge rule (<code>preferredFamily</code>) is already shared, the compare logic
+overlaps not at all, and <code>HostPorts</code> is a <em>projection from</em> <code>TerminalPorts</code>
+rather than a parallel fold of the same thing. The repo also already has an
+in-process generic for this (<code>Known&lt;T&gt;</code>, payload key <code>value</code>) that a wire
+unification would collide with. There is nothing worth extracting; it may be
+revisited only if osfacts’ kolu-side adoption ever creates real duplicated fold
+logic.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./padi.html" data-astro-cid-aziudkuj>padi — the per-host terminal-workspace daemon</a></li><li data-astro-cid-aziudkuj><a href="./remote-terminals-future.html" data-astro-cid-aziudkuj>Remote terminals — the future work</a></li><li data-astro-cid-aziudkuj><a href="./remote-terminals.html" data-astro-cid-aziudkuj>Remote terminals over SSH</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(
       document.querySelectorAll(".fn[data-fn]"),

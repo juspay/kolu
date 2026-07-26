@@ -1,20 +1,20 @@
 /** The Inspector's **Ports** section — "what is this terminal serving?", and one
  *  click from the page.
  *
- *  Every chip is a listening TCP port padi's scanner attributed to this terminal's
- *  process subtree. Two shapes, and which one you get is decided by facts, never by
- *  a guess:
+ *  ONE list. Every row is a listening TCP port padi's scanner attributed to this
+ *  terminal's process subtree, joined to the door kolu holds for it if there is
+ *  one; this host's other doors — a ⌘K forward, or one whose listener died
+ *  before the reap — trail the list rather than getting a heading of their own.
+ *  Which affordance a row gets is decided by facts, never by a guess:
  *
- *   - **Openable** — the port is bound to the ANY address (`0.0.0.0` / `::`) on the
- *     KOLU SERVER's own host, so it already answers on every interface of that host,
- *     including the name in the viewer's address bar. The chip is a link.
- *   - **Needs a forward** — a loopback-bound port (invisible from any other machine
- *     — loopback never leaves the box) or a port on a REMOTE host (the ssh hosts
- *     `KOLU_PADI_HOST` adds; `location.hostname` is not that machine). The chip
- *     renders with an inert affordance that says so. PRT2 makes it live by opening a
- *     forward through `@kolu/port-forward`; this phase deliberately builds none of
- *     that, so the affordance states the situation rather than offering an action
- *     that would silently do nothing.
+ *   - **Openable** — the port answers on every interface of the KOLU SERVER's own
+ *     host, including the name in the viewer's address bar. The row links.
+ *   - **Forwardable** — a loopback-bound port (invisible from any other machine)
+ *     or a port on a REMOTE host. The row offers "forward & open", which opens a
+ *     door LAZILY on click and then the page.
+ *   - **Not reachable** — an interface-bound listener. `scope` records that the
+ *     bind is interface-specific without recording WHICH address, so there is no
+ *     URL kolu can honestly build and no door that reaches it either.
  *
  *  **The URL is always built from `location.hostname`, never a literal
  *  "localhost".** kolu's real deployment shape is a server on a headless linux box
@@ -24,49 +24,35 @@
  *
  *  The port/scheme pair is deliberately fixed at `http` — a dev server on a
  *  wildcard port is overwhelmingly http, and guessing https from a port number
- *  would produce a broken tab more often than a working one. */
+ *  would produce a broken tab more often than a working one.
+ *
+ *  The DECISION each row rests on is `forwards/portAction.ts`; this file is the
+ *  section, and `PortRow.tsx` is the row.
+ */
 
 import { activeArm } from "@kolu/padi/surface";
 import {
   foldPorts,
   knownPorts,
-  type PortReach,
-  portReach,
   samePortList,
   type TerminalId,
 } from "kolu-common/surface";
-import { type Component, For, Show, createMemo } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
+import { match } from "ts-pattern";
+import { rowAction } from "../forwards/portAction";
+import { portRows } from "../forwards/portRows";
+import { servingLink } from "../forwards/terminalServingPort";
+import {
+  createForward,
+  forwardsForHost,
+  viewerHost,
+} from "../forwards/useForwards";
+import { sameHost } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { OpenIcon } from "../ui/Icons";
 import Section from "../ui/Section";
-
-/** The URL a wildcard-bound port answers on: the host the page was served from,
- *  which IS the kolu server's host. Exported for the unit test — the whole point of
- *  this function is the hostname it does NOT use.
- *
- *  An IPv6 literal is RE-BRACKETED. `location.hostname` strips the brackets the URL
- *  form requires, so a kolu reached over IPv6 (a tailnet `fd7a:…` address is the
- *  ordinary case, not an exotic one) yielded `http://fd7a::2:8123` — where the
- *  parser reads the last `:8123` as part of the address and the URL is simply
- *  malformed. Detected by the colon: a registered hostname or an IPv4 literal can
- *  never contain one, so this needs no address parsing. */
-export function portUrl(hostname: string, port: number): string {
-  const host = hostname.includes(":") ? `[${hostname}]` : hostname;
-  return `http://${host}:${port}`;
-}
-
-/** The words for each reason a chip is not openable — a table over
- *  `PortReach`'s `via` union, so a new forward mechanism (PRT2 adds one) is a
- *  COMPILE ERROR here rather than a silently missing sentence. The decision itself
- *  is `portReach` in the vocabulary; this file owns only how it reads. */
-export const FORWARD_REASON: Record<
-  Extract<PortReach, { kind: "needs-forward" }>["via"],
-  string
-> = {
-  "remote-host": "on a remote host — needs a forward (coming next)",
-  loopback: "bound to loopback — needs a forward (coming next)",
-};
+import { activeHost } from "../wire";
+import { PortRow } from "./PortRow";
 
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const store = useTerminalStore();
@@ -82,7 +68,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   // store's to say (`getTilePaneIds`), not this section's.
   //
   // `foldPorts` is the vocabulary's own collapse (the same one the scanner applies
-  // per terminal), so the wildcard-OR rule is stated once for both ends of the
+  // per terminal), so the widest-bind rule is stated once for both ends of the
   // wire rather than re-implemented here.
   // `knownPorts` is the ONE place "we never looked" reads as no ports, and calling
   // it here is deliberate: a pane whose first scan has not landed (or was blind)
@@ -105,70 +91,121 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     undefined,
     { equals: samePortList },
   );
+  const host = () => activeHost();
+
+  /** Every PANE of every tile on this host, as the port join needs them — panes
+   *  and not tiles, because a dev server almost always runs in a split and the
+   *  scanner attributes the port to the split's own subtree.
+   *  `servingLink` folds the answer back to the tile.
+   *
+   *  A memo, not a plain function: it is read once per row inside a `<For>`, and
+   *  rebuilding every pane's metadata read per row is O(rows × terminals). */
+  const servingCandidates = createMemo(() =>
+    store.terminalIds().flatMap((tileId) =>
+      store.getTilePaneIds(tileId).flatMap((paneId) => {
+        const arm = activeArm(store.getMetadata(paneId));
+        return arm === undefined
+          ? []
+          : [{ id: paneId, parentId: arm.parentId ?? null, ports: arm.ports }];
+      }),
+    ),
+  );
+
+  /** Is the browser sitting at the machine this host IS? One fact about the
+   *  PAGE, so it is derived once per host change rather than inside every row.
+   *  A `null` viewer host is "kolu cannot tell", which must read as NOT a match
+   *  — that keeps the forward, which works. */
+  const viewerOnHost = createMemo(() => {
+    const v = viewerHost();
+    return v !== null && sameHost(v, host());
+  });
+
+  /** WHICH terminal an "also forwarded on this host" row belongs to, and how to
+   *  reach it. Only the TRAILING group gets this: a main port row is already a
+   *  port of the terminal you are inspecting, so naming it would name the thing
+   *  on screen and the jump would go nowhere you are not. */
+  const servingFor = (port: number) =>
+    servingLink({
+      port,
+      candidates: servingCandidates(),
+      armOf: (id) => {
+        const arm = activeArm(store.getMetadata(id));
+        return arm === undefined
+          ? undefined
+          : { git: arm.git ?? null, cwd: arm.cwd };
+      },
+      activate: (id) => store.activate(id),
+    });
+
+  /** The ONE list: what this terminal serves, joined to the doors kolu holds,
+   *  plus this host's doors that match no scanned port. Two titled groups used
+   *  to render a forwarded port twice; the join is in `portRows` so its ordering
+   *  and host scoping are pinned without a DOM. */
+  const rows = createMemo(() =>
+    portRows({
+      ports: ports(),
+      forwards: forwardsForHost(host()),
+    }),
+  );
   return (
-    <Show when={ports().length > 0}>
+    <Show when={rows().length > 0}>
       <Section title="Ports">
-        <div class="flex flex-col gap-1" data-testid="inspector-ports">
-          <For each={ports()}>
-            {(port) => {
-              const reach = () =>
-                portReach({
-                  wildcard: port.wildcard,
+        <div class="flex flex-col" data-testid="inspector-ports">
+          <For each={rows()}>
+            {(row) => {
+              const decided = () =>
+                rowAction({
+                  row,
                   onKoluHost: isActiveHostLocal(),
+                  viewerOnHost: viewerOnHost(),
                 });
-              const forwardReason = () => {
-                const r = reach();
-                return r.kind === "needs-forward"
-                  ? FORWARD_REASON[r.via]
-                  : undefined;
-              };
+              /** WHERE the row's link points, exhaustively over `PortAction` via
+               *  `match(...).exhaustive()` so a fifth arm is a REAL compile error
+               *  — a bare `switch` here type-checked fine without one (this
+               *  function's return type already allows `undefined`, so a
+               *  fall-through with no matching case would silently return
+               *  `undefined` rather than fail to build). */
+              const openAt = (): { host: string; port: number } | undefined =>
+                match(decided().action)
+                  .with({ kind: "here" }, () => ({
+                    host: window.location.hostname,
+                    port: row.port,
+                  }))
+                  .with({ kind: "viewer" }, () => ({
+                    host: "localhost",
+                    port: row.port,
+                  }))
+                  .with({ kind: "none" }, () => undefined)
+                  .with({ kind: "forward" }, () => {
+                    const local = row.forward?.localPort;
+                    return local === undefined
+                      ? undefined
+                      : { host: window.location.hostname, port: local };
+                  })
+                  .exhaustive();
               return (
-                <div class="flex items-baseline gap-2 text-[11px] leading-snug">
-                  <span class="font-mono text-fg font-semibold tabular-nums">
-                    {port.port}
-                  </span>
-                  <span class="font-mono text-fg-3/80 truncate min-w-0">
-                    {port.name}
-                  </span>
-                  <span class="ml-auto shrink-0">
-                    <Show
-                      when={reach().kind === "direct"}
-                      fallback={
-                        // Inert on purpose — see the module header. `title` carries the
-                        // reason for the truncated layout, and the cursor stays default
-                        // so it never reads as a dead button.
-                        <span
-                          class="text-fg-3/50 text-[10px] italic"
-                          data-testid="inspector-port-needs-forward"
-                          data-port={port.port}
-                          title={forwardReason()}
-                        >
-                          needs a forward
-                        </span>
-                      }
-                    >
-                      {/* An ANCHOR, matching the Pull Request row two sections up
-                       *  in this same panel — not a `window.open` button. The browser
-                       *  then gives middle-click, cmd-click, "copy link address" and a
-                       *  status-bar URL preview for free (that last one is why the
-                       *  button had to hand-roll a `title`), and a popup blocker
-                       *  cannot eat it. A `window.open` call stays right for the Code
-                       *  tab, where the URL arrives by `postMessage` and there is no
-                       *  element to hang an href on. */}
-                      <a
-                        href={portUrl(window.location.hostname, port.port)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="inline-flex items-center gap-1 text-accent hover:underline"
-                        data-testid="inspector-port-open"
-                        data-port={port.port}
-                      >
-                        <OpenIcon class="w-3 h-3" />
-                        open
-                      </a>
-                    </Show>
-                  </span>
-                </div>
+                <PortRow
+                  row={row}
+                  serving={
+                    row.kind === "orphan" ? servingFor(row.port) : undefined
+                  }
+                  action={decided().action}
+                  openAt={openAt()}
+                  forwardReason={decided().reason}
+                  onForward={async () => {
+                    // LAZY — this is the first click on this port, so the door is
+                    // opened now rather than eagerly for every port the scanner
+                    // ever saw. `auto`, because the user asked to open a chip, not
+                    // to keep a forward: when the scanner sees the listener go, the
+                    // door has nothing behind it and closes itself.
+                    const created = await createForward({
+                      host: host(),
+                      port: row.port,
+                      origin: "auto",
+                    });
+                    return created.localPort;
+                  }}
+                />
               );
             }}
           </For>

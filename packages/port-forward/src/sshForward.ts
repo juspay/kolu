@@ -34,6 +34,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { plainDiagnostic } from "./diagnostic.ts";
 import type { ForwardReport, OpenedForward } from "./mechanism.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
+import { LOOPBACK_ADDRESS, type LoopbackFamily } from "./target.ts";
 
 /** The options every forward connection is opened with.
  *
@@ -138,12 +139,23 @@ const DIAGNOSTIC_TAIL_BYTES = 4096;
  *  interfaces regardless of `GatewayPorts`, which is the whole point — the
  *  browser that opens this port is on another machine. The far end is always
  *  the target host's own loopback, since a port already bound to `0.0.0.0`
- *  there needs no forward at all. */
+ *  there needs no forward at all — but WHICH loopback is the caller's to say.
+ *
+ *  A v6 far end is BRACKETED (`[::1]`), which is ssh's own syntax for an IPv6
+ *  address inside a forward spec; unbracketed, its colons would be read as the
+ *  spec's own field separators and ssh would reject the whole argument. Note
+ *  this is the opposite of the rule for the `host` argument, which ssh wants
+ *  BARE — `assertHost` rejects brackets there for exactly that reason. Two
+ *  different syntaxes for two different positions, which is why the bracketing
+ *  lives here and not in the target. */
 export function forwardSpec(opts: {
   localPort: number;
   remotePort: number;
+  loopback: LoopbackFamily;
 }): string {
-  return `*:${opts.localPort}:127.0.0.1:${opts.remotePort}`;
+  const address = LOOPBACK_ADDRESS[opts.loopback];
+  const far = opts.loopback === "v6" ? `[${address}]` : address;
+  return `*:${opts.localPort}:${far}:${opts.remotePort}`;
 }
 
 /** The whole argv of a forward: options, the tunnel, the host, and the command
@@ -153,6 +165,7 @@ export function forwardCommandArgs(opts: {
   host: string;
   localPort: number;
   remotePort: number;
+  loopback: LoopbackFamily;
 }): string[] {
   return [...opts.base, "-L", forwardSpec(opts), opts.host, HOLD_OPEN_COMMAND];
 }
@@ -189,10 +202,17 @@ export function openSshAttempt(opts: {
   localPort: number;
   report: ForwardReport;
   spawnSsh: SpawnSsh;
+  loopback: LoopbackFamily;
 }): Promise<OpenedForward> {
-  const { host, remotePort, localPort, report } = opts;
+  const { host, remotePort, localPort, report, loopback } = opts;
   const child = opts.spawnSsh(
-    forwardCommandArgs({ base: SSH_OPTS, host, localPort, remotePort }),
+    forwardCommandArgs({
+      base: SSH_OPTS,
+      host,
+      localPort,
+      remotePort,
+      loopback,
+    }),
   );
 
   // Only the TAIL is kept. These buffers live as long as the ssh child, which
@@ -360,19 +380,34 @@ export function openSshAttempt(opts: {
 
 /** Open one forward on its own ssh connection — the `remote` generator behind
  *  `ForwardMechanisms`, peer to `openRelay`. */
-export async function openSshForward(
-  host: string,
-  remotePort: number,
-  report: ForwardReport,
-  spawnSsh: SpawnSsh,
-): Promise<OpenedForward> {
-  // The target's own port number first — `pu-dev:4123` answers on
-  // `0.0.0.0:4123` when that number is free here. A taken port makes ssh exit
-  // (that is what `ExitOnForwardFailure` is for), which is exactly the signal
-  // the preference falls back on.
+export async function openSshForward(opts: {
+  host: string;
+  remotePort: number;
+  report: ForwardReport;
+  spawnSsh: SpawnSsh;
+  lastLocalPort: number | undefined;
+  /** WHICH loopback the far end is on. Required — see {@link LoopbackFamily}. */
+  loopback: LoopbackFamily;
+}): Promise<OpenedForward> {
+  const { host, remotePort, report, spawnSsh, lastLocalPort, loopback } = opts;
+  // The number this target answered on last time, else the target's own port —
+  // `pu-dev:4123` answers on `0.0.0.0:4123` when that number is free here. The
+  // remembered port wins because it is the more specific promise: if 4123 was
+  // taken at first open and the forward landed on 61003, the links the user has
+  // say 61003, and coming back on 4123 would break exactly what the preference
+  // exists to protect. A taken port makes ssh exit (that is what
+  // `ExitOnForwardFailure` is for), which is the signal the preference falls
+  // back on.
   return await openPreferringPort({
-    preferred: remotePort,
+    preferred: lastLocalPort ?? remotePort,
     open: (localPort) =>
-      openSshAttempt({ host, remotePort, localPort, report, spawnSsh }),
+      openSshAttempt({
+        host,
+        remotePort,
+        localPort,
+        report,
+        spawnSsh,
+        loopback,
+      }),
   });
 }

@@ -16,17 +16,26 @@ const silent = () => ({ lost: () => {}, fault: () => {} });
  *  `nativeMechanisms` hands it. The cases that inject a fake listener call
  *  `openRelay` directly. */
 const relayTo = (port: number, report: ForwardReport) =>
-  openRelay({ port, report, listen: createNetServer });
+  openRelay({
+    port,
+    report,
+    listen: createNetServer,
+    lastLocalPort: undefined,
+    loopback: "v4",
+  });
 
 /** A dev server exactly like the ones this exists for: bound to loopback, so
- *  unreachable from any other machine. */
+ *  unreachable from any other machine. `host` picks WHICH loopback — `::1` is
+ *  what vite and several Node versions bind by default, and it is the bind the
+ *  relay used to be unable to reach. */
 function serveOnLoopback(
   body: string,
+  host = "127.0.0.1",
 ): Promise<{ port: number; stop: () => Promise<void> }> {
   const server: HttpServer = createServer((_req, res) => res.end(body));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, host, () => {
       const address = server.address();
       if (address === null || typeof address === "string") {
         reject(new Error("no address"));
@@ -76,6 +85,29 @@ describe("the local TCP relay", () => {
 
     const response = await fetch(`http://127.0.0.1:${relay.localPort}/`);
     expect(await response.text()).toBe("hello from loopback");
+  });
+
+  it("serves a server bound to the V6 loopback — the production defect", async () => {
+    // `[::1]:5173` is what vite and several Node versions bind by default, and
+    // the relay used to dial `127.0.0.1` unconditionally. The door came up
+    // reporting success and refused every connection through it, which is the
+    // worst available failure: nothing in the UI said anything was wrong.
+    //
+    // This test is the reason the family is a REQUIRED field rather than an
+    // optional one — an optional field is exactly how the v4 assumption got in.
+    const origin = await serveOnLoopback("hello from ::1", "::1");
+    cleanups.push(origin.stop);
+    const relay = await openRelay({
+      port: origin.port,
+      report: silent(),
+      listen: createNetServer,
+      lastLocalPort: undefined,
+      loopback: "v6",
+    });
+    cleanups.push(relay.close);
+
+    const response = await fetch(`http://127.0.0.1:${relay.localPort}/`);
+    expect(await response.text()).toBe("hello from ::1");
   });
 
   it("cancelling severs it — the door is shut, not just closed to new callers", async () => {
@@ -170,6 +202,8 @@ describe("a relay that fails after it was up", () => {
         server = createNetServer(onConnection);
         return server;
       },
+      lastLocalPort: undefined,
+      loopback: "v4",
     });
     if (server === undefined) throw new Error("no listener was created");
     return { relay, server };
@@ -261,6 +295,8 @@ describe("a relay that fails after it was up", () => {
         }) as Server["close"];
         return server;
       },
+      lastLocalPort: undefined,
+      loopback: "v4",
     });
     cleanups.push(async () => {
       refuse = false;
@@ -284,5 +320,121 @@ describe("a relay that fails after it was up", () => {
 
     await relay.close();
     await expect(relay.close()).resolves.toBeUndefined();
+  });
+
+  describe("the remembered local port", () => {
+    it("comes back on the same number after a restart", async () => {
+      // The property links and bookmarks rest on. A relay has no target-number
+      // preference to fall back on (that number is the one it may never take), so
+      // without this every restart moved the door and silently broke every URL
+      // the user had.
+      const origin = await serveOnLoopback("one");
+      cleanups.push(origin.stop);
+      const first = await relayTo(origin.port, silent());
+      const port = first.localPort;
+      await first.close();
+
+      const again = await openRelay({
+        port: origin.port,
+        report: silent(),
+        listen: createNetServer,
+        lastLocalPort: port,
+        loopback: "v4",
+      });
+      cleanups.push(() => again.close());
+      expect(again.localPort).toBe(port);
+    });
+
+    it("takes a free port when the remembered one is gone", async () => {
+      // A forward is never refused over a busy number — the same rule the ssh
+      // mechanism follows, and the reason there is no knob for either.
+      const origin = await serveOnLoopback("two");
+      cleanups.push(origin.stop);
+      // The squatter has to hold the address the RELAY will bind — the wildcard
+      // — not just loopback. On linux a loopback holder is enough to make
+      // `0.0.0.0:<port>` unbindable; on macOS the two coexist happily, so a
+      // loopback-only squatter left the port genuinely free there and the relay
+      // correctly kept it. The test was asserting a linux kernel's conflict
+      // rules rather than the behaviour it means to pin.
+      const squatter = await serveOnLoopback("mine", "0.0.0.0");
+      cleanups.push(squatter.stop);
+
+      const relay = await openRelay({
+        port: origin.port,
+        report: silent(),
+        listen: createNetServer,
+        lastLocalPort: squatter.port,
+        loopback: "v4",
+      });
+      cleanups.push(() => relay.close());
+      expect(relay.localPort).not.toBe(squatter.port);
+      expect(relay.localPort).toBeGreaterThan(0);
+    });
+
+    it("refuses a KERNEL-CHOSEN port that lands on the target too", async () => {
+      // The guard above is on the number the caller REMEMBERED, but the runaway
+      // is a property of the number actually BOUND. When the remembered port is
+      // taken, `openPreferringPort` falls back to `pickFreePort()` — a concrete
+      // kernel-chosen number that never passed that check.
+      //
+      // So the same self-relay is reachable without anyone asking for it: a
+      // loopback target whose listener is already dead (nothing holds the
+      // number), a target port inside the ephemeral range, and the kernel hands
+      // back exactly it. Then the relay binds `0.0.0.0:<port>` and dials
+      // `127.0.0.1:<port>` — itself. That is the shape that opened ~29,000 file
+      // descriptors in 1.5 seconds.
+      //
+      // The listener seam is how the case is provoked deterministically: the
+      // kernel cannot be told which free port to pick, so a fake reports the
+      // collision instead.
+      const target = await pickFreePort();
+      let closed = false;
+      const collidingListen = (): Server => {
+        const server = createNetServer();
+        // The bind reports the very port we are dialling.
+        server.address = () => ({
+          address: "0.0.0.0",
+          family: "IPv4",
+          port: target,
+        });
+        const realClose = server.close.bind(server);
+        server.close = ((cb?: (err?: Error) => void) => {
+          closed = true;
+          return realClose(cb);
+        }) as typeof server.close;
+        return server;
+      };
+
+      await expect(
+        openRelay({
+          port: target,
+          report: silent(),
+          listen: collidingListen,
+          lastLocalPort: undefined,
+          loopback: "v4",
+        }),
+      ).rejects.toThrow(/relay into itself/);
+      // …and the listener it had already opened is taken back down, rather than
+      // left holding the very socket that would loop.
+      expect(closed).toBe(true);
+    });
+
+    it("refuses the one number that would point the relay at itself", async () => {
+      // Unreachable through the map (a relay can never have HAD this number), so
+      // this is a guard on the consequence rather than on a live path: binding
+      // `0.0.0.0:<port>` while dialling `127.0.0.1:<port>` opened ~29,000 file
+      // descriptors in 1.5 seconds the one time it happened.
+      const origin = await serveOnLoopback("three");
+      cleanups.push(origin.stop);
+      expect(() =>
+        openRelay({
+          port: origin.port,
+          report: silent(),
+          listen: createNetServer,
+          lastLocalPort: origin.port,
+          loopback: "v4",
+        }),
+      ).toThrow(/relay into itself/);
+    });
   });
 });

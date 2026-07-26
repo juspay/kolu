@@ -241,8 +241,21 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  minor suffices for the reason spelled out at 4.1: a newer binder against an old
  *  4.1 padi fails the minor rule and drains it BEFORE consuming its surface, and an
  *  older binder against a 4.2 padi is build-mismatched and drains it first — so an
- *  old parser never meets a frame carrying (or missing) this field. */
-export const PADI_SURFACE_VERSION = "4.2";
+ *  old parser never meets a frame carrying (or missing) this field.
+ *
+ *  4.3 (RESHAPED field · minor): `ports`' `PortInfo` trades `wildcard: boolean`
+ *  for `scope: "any" | "loopback" | "interface"` (PRT2). Not additive — a 4.2
+ *  frame carries a field this parser no longer knows and lacks one it requires —
+ *  yet still a MINOR, and for exactly the reason 4.1 and 4.2 give: the version
+ *  gate is what keeps the two apart, and it works in both directions. A newer
+ *  binder against a 4.2 padi fails `isContractVersionCompatible`'s minor rule and
+ *  DRAINS it before consuming its surface; an older binder against a 4.3 padi is
+ *  build-mismatched and drains it first. So no parser ever meets a frame of the
+ *  other shape, and the reshape needs no compatibility arm — which is the point:
+ *  a `wildcard`-or-`scope` union in the schema would be a permanent fallback path
+ *  bought to smooth over a window the convergence machinery already closes. The
+ *  reshape itself is in `@kolu/port-scan/ports`, with the reason. */
+export const PADI_SURFACE_VERSION = "4.3";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -470,6 +483,26 @@ export const PadiTerminalSchema = z.discriminatedUnion("state", [
   PadiParkedTerminalSchema,
 ]);
 export type PadiTerminal = z.infer<typeof PadiTerminalSchema>;
+
+/** The active arm as a standalone type — the live record a WIRE reader gets. */
+export type PadiActiveTerminal = z.infer<typeof PadiActiveTerminalSchema>;
+
+/** Narrow a WIRE terminal record to its ACTIVE arm, or `undefined` when it is
+ *  sleeping / parked / absent — `activePadiTerminal(rec)?.ports`.
+ *
+ *  The wire twin of `vocab.ts`'s {@link activeArm}, and it exists for the same
+ *  reason that one does: so "is this record live?" has exactly one spelling per
+ *  seam rather than a `state === "active"` check scattered through every reader.
+ *  Two of them rather than one because they narrow two genuinely different types
+ *  — `activeArm` takes the composed `TerminalMetadata` a store holds, this takes
+ *  the `PadiTerminal` a collection frame carries, and the union's PARKED arm
+ *  exists only on the wire side. A single reader over both would have to widen to
+ *  their intersection, which is the shape neither caller actually has. */
+export function activePadiTerminal(
+  record: PadiTerminal | null | undefined,
+): PadiActiveTerminal | undefined {
+  return record?.state === "active" ? record : undefined;
+}
 
 // ── The urgency projection (recency-free) ─────────────────────────────────
 

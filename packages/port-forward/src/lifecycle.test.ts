@@ -28,7 +28,12 @@ import type { ForwardLoss } from "./manager.ts";
 import type { ForwardMechanisms, ForwardReport } from "./mechanism.ts";
 import type { ForwardTarget } from "./target.ts";
 
-const PU: ForwardTarget = { kind: "remote", host: "pu-dev", port: 5173 };
+const PU: ForwardTarget = {
+  kind: "remote",
+  host: "pu-dev",
+  port: 5173,
+  loopback: "v4",
+};
 
 /** A mechanism whose every step is under the test's control: when the open
  *  resolves, whether the close succeeds, and when either happens. */
@@ -53,7 +58,7 @@ function scripted(script: {
   let refusals = script.refuseCloses ?? 0;
   let closes = 0;
   const mechanisms: ForwardMechanisms = {
-    open: async (_target, report) => {
+    open: async ({ report }) => {
       script.onOpen?.(report);
       if (script.deferOpen === true && !opensFlowing) {
         await new Promise<void>((resolve) => {

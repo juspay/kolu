@@ -50,7 +50,15 @@ import {
 // The honest three-way process-RSS union — composed below into `ProcessMemorySchema`.
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
-import { type ProcessRss, ProcessRssSchema } from "@kolu/terminal-vocab/schema";
+import {
+  type ProcessRss,
+  ProcessRssSchema,
+  TcpPortSchema,
+} from "@kolu/terminal-vocab/schema";
+// The host key, from its own padi-LESS module — the forward vocabulary below is
+// keyed by it, so a row can be filtered to a terminal's host without parsing an
+// ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
+import { HostKeySchema } from "./hostKey.ts";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -117,9 +125,14 @@ export {
   ForegroundSchema,
   foldPorts,
   knownPorts,
+  type PortFamily,
+  PortFamilySchema,
   type PortReach,
+  type TerminalPorts,
   portReach,
+  preferredFamily,
   samePortList,
+  TcpPortSchema,
   PrResultSchema,
   PrUnavailableSourceSchema,
   prUnavailableReason,
@@ -467,6 +480,121 @@ export const DaemonInventorySchema = z.object({
 });
 export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
 
+// ── Port forwards (PRT2) ──────────────────────────────────────────────
+//
+// The doors kolu's server holds open so a port that answers only on some other
+// machine's loopback answers on the name in the viewer's address bar. The
+// MECHANISM is `@kolu/port-forward` (an ssh child per remote forward, an
+// in-process relay for the kolu host's own loopback); what lives here is only
+// the wire shape kolu's UI renders and acts on.
+//
+// They ride koluSurface rather than padi's, and that is the honest home: the
+// listener is on the KOLU SERVER's machine, opened by the kolu server process,
+// and dies with it. A forward for a remote host's port is not a fact about that
+// host — it is a fact about this server.
+
+/** WHY a forward exists, which is the whole of its death policy.
+ *
+ *  `auto` — kolu opened it because someone clicked a port chip. It is a
+ *  convenience attached to a listener the scanner can see, so when the scanner
+ *  reports that listener gone the door has nothing left behind it and closes.
+ *  `manual` — someone asked for this target by name (⌘K, or the Inspector's
+ *  "Forward a port…" row). It may point at something no scanner watches — a port
+ *  outside every terminal's subtree, a service started before kolu — so nothing
+ *  but an explicit cancel or the host's departure may close it. Guessing here
+ *  would silently close the forward a user deliberately set up. */
+export const ForwardOriginSchema = z.enum(["auto", "manual"]);
+export type ForwardOrigin = z.infer<typeof ForwardOriginSchema>;
+
+/** One live forward, as every kolu surface renders it. */
+export const KoluForwardSchema = z.object({
+  /** The forward map's own key, and the handle `forwards.cancel` takes. Opaque
+   *  to the client on purpose: it is the library's identity for this target, so
+   *  a row cancels exactly what it displays with no re-derivation in between. */
+  key: z.string(),
+  /** WHOSE host the far end is on — the kolu host key, not an ssh string, so a
+   *  row can be filtered to the active terminal's host without parsing. */
+  host: HostKeySchema,
+  /** The port on `host` that the forward points at. */
+  remotePort: TcpPortSchema,
+  /** The port it answers on, on every interface of the KOLU SERVER's host —
+   *  the number that goes in the URL. */
+  localPort: TcpPortSchema,
+  origin: ForwardOriginSchema,
+  /** Epoch ms when the listener came up — what an "up 12m" column renders. */
+  createdAt: z.number(),
+});
+export type KoluForward = z.infer<typeof KoluForwardSchema>;
+
+/** Every live forward, oldest first. A plain array rather than a collection:
+ *  the whole set is a handful of rows, every consumer renders all of them
+ *  (filtered by host at most), and there is no per-key subscription anyone
+ *  wants. */
+export const ForwardsSchema = z.array(KoluForwardSchema);
+export type Forwards = z.infer<typeof ForwardsSchema>;
+
+/** What `forwards.create` takes. `origin` is the CALLER's to declare because only
+ *  the caller knows why it is asking — a chip click is `auto`, a typed target is
+ *  `manual` — and that reason is what decides whether the forward may be closed
+ *  without being asked. */
+export const ForwardCreateInputSchema = z.object({
+  host: HostKeySchema,
+  port: TcpPortSchema,
+  origin: ForwardOriginSchema,
+});
+export type ForwardCreateInput = z.infer<typeof ForwardCreateInputSchema>;
+
+/** What `forwards.cancel` takes — the key off the row being cancelled. */
+export const ForwardCancelInputSchema = z.object({ key: z.string() });
+
+/** Fields `key` already determines, so comparing them adds nothing: `targetKey`
+ *  encodes `local:<port>` / `remote:<host>:<port>`, so two rows agreeing on
+ *  `key` cannot disagree on either.
+ *
+ *  Excluding them is what keeps the read-off-the-schema promise below TRUE.
+ *  `host` is the one object-valued field, and comparing it needed a hand-coded
+ *  arm — which quietly made the promise false, because the NEXT object-valued
+ *  field would fall through to `===`, compare by reference across freshly minted
+ *  rows, never match, and silently stop the dedup with nothing to report why. */
+const FORWARD_KEYS_DETERMINED_BY_KEY = new Set(["host", "remotePort"]);
+
+/** The comparison keys, READ OFF the schema so a new `KoluForward` field is
+ *  compared with no second edit here — the `PORT_INFO_KEYS` mechanism
+ *  (`@kolu/port-scan/ports`), for its reason: this is a DEDUP gate, so a field it
+ *  does not compare is a field whose changes are swallowed, with nothing anywhere
+ *  to report why the row never updated. */
+const FORWARD_KEYS = Object.keys(KoluForwardSchema.shape).filter(
+  (k) => !FORWARD_KEYS_DETERMINED_BY_KEY.has(k),
+) as (keyof KoluForward)[];
+
+/** Are two forward lists the same fact? The cell's wire dedup point: the list is
+ *  republished whenever the map moves, and a re-publish that changes nothing
+ *  would tick every reader. Field-wise rather than `JSON.stringify` because key
+ *  order in a serialization is not a fact. */
+export function sameForwards(a: Forwards, b: Forwards): boolean {
+  return (
+    a.length === b.length &&
+    a.every((f, i) => {
+      // `noUncheckedIndexedAccess` types `b[i]` as possibly `undefined`; the
+      // guard below is what makes that honest rather than a `b[i]!` the
+      // compiler can't verify — `a.length === b.length` (checked above) means
+      // it never actually fires, but the type system has no way to know that.
+      const g = b[i];
+      if (g === undefined) return false;
+      // Every compared field is a PRIMITIVE, which is what makes the
+      // read-off-the-schema promise true: a new field is covered here with no
+      // second edit. `host` and `remotePort` are deliberately not in the set —
+      // both are fully determined by `key` (`targetKey` encodes
+      // `local:<port>` / `remote:<host>:<port>`), so comparing them adds
+      // nothing, and `host` being an object needed a hand-coded arm that
+      // quietly made the promise false: the NEXT object-valued field would
+      // have fallen through to `===`, compared by reference across freshly
+      // minted rows, never matched, and silently stopped the dedup.
+      return FORWARD_KEYS.every((k) => f[k] === g[k]);
+    })
+  );
+}
+
 /** The honest pre-sample default — `local` binding (no own-machine scan to show yet),
  *  `boundPadi` null. The sampler's T+0 tick replaces it with the real binding at once; a
  *  fresh subscription renders no fabricated daemons until then. */
@@ -680,6 +808,48 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Daemon inventory" } },
+    },
+
+    /** Every port forward this kolu server currently holds open (PRT2) — see
+     *  {@link KoluForwardSchema}. Server-authored: a DERIVED POLL cell scanning
+     *  the forward map's own change feed (`server/src/surface.ts`), so the
+     *  reactor graph is the one writer and clients are read-only. Mutations go
+     *  through the `forwards.create` / `forwards.cancel` procedures below.
+     *
+     *  Empty-list default is the honest pre-first-frame state AND the honest
+     *  steady state — unlike a port SAMPLE there is no "we could not look" arm to
+     *  miss, because this is not an observation of the world: it is this
+     *  process's own map, which it always knows exactly. */
+    forwards: {
+      schema: ForwardsSchema,
+      default: [] satisfies Forwards,
+      // The derived cell's one wire dedup point, declared at the member (the
+      // reactive bridge's law). The map republishes on every move; a move that
+      // leaves the rendered list identical never reaches a client.
+      equals: sameForwards,
+      verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Port forwards" } },
+    },
+  },
+
+  procedures: {
+    /** Open and close forwards. These are kolu-server's own acts on its own
+     *  machine — no host is asked for permission, because the listener is HERE —
+     *  which is why they sit on koluSurface beside the cell they move, rather
+     *  than on the per-host padi surface. */
+    forwards: {
+      /** Open a forward for `(host, port)`, or return the live one if there
+       *  already is one. Idempotent by target, so a double-clicked chip opens one
+       *  door. Rejects if the door cannot be opened, with the mechanism's own
+       *  reason (a refused host, no ssh on PATH, a tunnel that never came up). */
+      create: {
+        input: ForwardCreateInputSchema,
+        output: KoluForwardSchema,
+      },
+      /** Take down the forward with this key. Rejects if there is no such key —
+       *  nothing is "already fine" about cancelling a forward that was never
+       *  there; it means the caller's view of the list disagrees with the map. */
+      cancel: { input: ForwardCancelInputSchema },
     },
   },
 });

@@ -25,6 +25,7 @@ const forwards = createForwardManager({
 
 const forward = await forwards.create({
   kind: "remote",
+  loopback: "v4",
   host,
   port: Number(remotePort),
 });

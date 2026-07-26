@@ -1,0 +1,58 @@
+/**
+ * The ONE colour that means "kolu is holding a door open", and the words that go
+ * with it.
+ *
+ * The binding rule of the approved UX pass: **green is connection health, teal
+ * is open doors, and neither surface may borrow the other's colour.** If a third
+ * meaning ever appears it gets a third colour — never a second green. That rule
+ * is why this is a module and not a class string typed four times: the ring on
+ * the host tab, the pill in the dropdown, and the pill on a ports row all have to
+ * be the same teal, and "the same" has to survive someone restyling one of them.
+ *
+ * The first cut broke the rule by reusing `accent`, and the cost was legible
+ * immediately: the marker read as a focus or selection highlight — a quieter way
+ * of saying "connected" — rather than as a fact of its own.
+ */
+
+import type { ForwardOrigin } from "kolu-common/surface";
+import { match } from "ts-pattern";
+
+/** The pill that carries an address — teal on a teal wash, both themes. */
+export const FORWARD_PILL =
+  "rounded bg-teal-500/10 px-1 font-mono text-teal-700 dark:bg-teal-400/15 dark:text-teal-300";
+
+/** The hairline ring around the host tab's connection pip. Geometry and one
+ *  colour: it composes AROUND the pip and never touches the pip's own health
+ *  colour.
+ *
+ *  Three cuts to settle, and the last two are why this is deliberately THIN. A
+ *  thick teal ring with an offset was rejected as **jarring** — heavy enough to
+ *  read as a treatment applied TO the dot rather than as a fact beside it. A
+ *  corner badge carrying the ⇄ glyph replaced it and failed for the opposite
+ *  reason: at tab size the glyph is illegible mush. The shape was never wrong;
+ *  the WEIGHT was. One pixel, tight against the pip, quiet. */
+export const FORWARD_RING = "ring-1 ring-teal-500/70 dark:ring-teal-300/60";
+
+/** How a forward's ORIGIN reads, and what the tooltip explains. Typed by the
+ *  wire's own `ForwardOrigin` and exhaustive over it, so a third arm is a
+ *  compile error here rather than silently the `pinned` copy.
+ *
+ *  `manual` displays as **"pinned"** — the wire field keeps its name, this is
+ *  display vocabulary only. "Manual" describes how it was created, which the user
+ *  already knows because they did it; "pinned" describes the property they
+ *  actually need to predict — that it stays until they say otherwise. And "auto"
+ *  survived review only because it earns a tooltip: it was jargon with no
+ *  explanation anywhere on the surface. */
+export function originWord(origin: ForwardOrigin): string {
+  return match(origin)
+    .with("auto", () => "auto")
+    .with("manual", () => "pinned")
+    .exhaustive();
+}
+
+export function originTooltip(origin: ForwardOrigin): string {
+  return match(origin)
+    .with("auto", () => "closes itself when the server stops")
+    .with("manual", () => "opened by hand — stays until you cancel it")
+    .exhaustive();
+}

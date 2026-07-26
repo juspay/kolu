@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import GithubSlugger from "github-slugger";
 import { toString as mdastToString } from "mdast-util-to-string";
@@ -91,13 +91,49 @@ const validateLedger = (tree: Root, srcDir: string) => {
   // A product-area heading must link to a page that exists on the site: a
   // docs-collection entry (rendered by src/pages/[slug].astro) or a static
   // top-level route under src/pages/.
-  const pageExists = (slug: string) =>
+  const pageCandidates = (slug: string) =>
     [
       `content/docs/${slug}.mdx`,
       `content/docs/${slug}.md`,
       `pages/${slug}.astro`,
       `pages/${slug}/index.astro`,
-    ].some((candidate) => existsSync(resolve(srcDir, candidate)));
+    ].map((candidate) => resolve(srcDir, candidate));
+
+  const pageExists = (slug: string) =>
+    pageCandidates(slug).some((candidate) => existsSync(candidate));
+
+  // A product area can be a SECTION of a page rather than a whole page — port
+  // forwarding lives under Remote Hosts, for one. The fragment is checked, not
+  // merely tolerated: an anchor that no heading in the target page produces is
+  // a link that silently lands at the top, which is exactly the drift this
+  // validator exists to make impossible.
+  const headingSlugs = (slug: string): Set<string> => {
+    const file = pageCandidates(slug).find((c) => existsSync(c));
+    const body = file === undefined ? "" : readFileSync(file, "utf8");
+    // A slugger per PAGE, because the slug rule has to be the one that mints the
+    // real anchors — rehype's, which is this same library — and because its
+    // duplicate-suffix counter is per page. A hand-rolled rule beside an
+    // imported `GithubSlugger` is the worst of both: it diverges on unicode, on
+    // `&`, and on repeated headings, and a validator that has drifted from the
+    // renderer either rejects a correct link or accepts a broken one while being
+    // trusted.
+    const slugger = new GithubSlugger();
+    const slugs = new Set<string>();
+    for (const line of body.split("\n")) {
+      const heading = /^#{2,4}\s+(.*)$/.exec(line);
+      if (!heading) continue;
+      // The markdown STRIPPING stays hand-rolled — undoing inline syntax is a
+      // different job from slugging, and it is what rehype's own AST has already
+      // done by the time the slugger sees a heading's text.
+      const text = heading[1]
+        .replace(/`/g, "")
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/[*_]/g, "")
+        .trim();
+      slugs.add(slugger.slug(text));
+    }
+    return slugs;
+  };
 
   let sawHeading = false;
   for (const node of tree.children) {
@@ -115,10 +151,16 @@ const validateLedger = (tree: Root, srcDir: string) => {
           );
         continue;
       }
-      const slug = link.url.startsWith("/") ? link.url.slice(1) : undefined;
-      if (!slug || !/^[a-z0-9-]+$/.test(slug) || !pageExists(slug))
+      const [route, fragment] = (
+        link.url.startsWith("/") ? link.url.slice(1) : ""
+      ).split("#");
+      if (!route || !/^[a-z0-9-]+$/.test(route) || !pageExists(route))
         throw new Error(
           `Changelog heading "${label}" links to "${link.url}", but no page exists at that route (checked src/content/docs/ and src/pages/)`,
+        );
+      if (fragment !== undefined && !headingSlugs(route).has(fragment))
+        throw new Error(
+          `Changelog heading "${label}" links to "${link.url}", but "/${route}" has no heading that produces the anchor "#${fragment}"`,
         );
     } else if (node.type === "list" && !sawHeading) {
       let orphan: string | undefined;

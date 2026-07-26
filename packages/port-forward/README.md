@@ -64,9 +64,11 @@ packaging must put OpenSSH on `PATH` — kolu's [`packages/vazhi/default.nix`](.
 does it with `--prefix PATH : ${pkgs.openssh}`. A `local` target needs nothing
 but node. Outside the toolchain the only dev dependency is
 `@kolu/daemon-test-gate`, the repo's real-process test leash, used by
-`lifetime.test.ts`. Its consumer today
-is the standalone [`vazhi`](../vazhi) TUI; kolu's Inspector will embed the same
-library (the Atlas note's PRT2) as a second, independent app. They will never
-talk to each other.
+`lifetime.test.ts`. It has **two** consumers, which is
+what makes it a shared capability rather than one app's helper: the standalone
+[`vazhi`](../vazhi) TUI, and kolu's Inspector, which embeds the same library in
+its server process. They never talk to each other — each owns and lists only its
+own forwards, and since every forward carries its own ssh connection they do not
+even share those.
 
 See the Atlas note `port-forwarding` for the design.

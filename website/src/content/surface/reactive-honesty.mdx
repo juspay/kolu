@@ -63,6 +63,37 @@ value while degraded" versus "hard-gate until ready" — to the app. A component
 that dims a status dot reads the fact; it can never be handed a "ready" it did
 not earn.
 
+## A per-viewer answer is a root RPC, never a cell
+
+A cell is BROADCAST — one value, published to every connected client — so it has
+no shape that can carry a different answer to each viewer. "Which machine is the
+browser asking me from?" is exactly that kind of question: it depends on the
+connection, not on the world. Ask it through a request/response procedure, where
+the caller and the answer are the same act.
+
+Kolu learned this building port forwarding. It needed to know whether the browser
+was sitting AT one of its own hosts (so a port there could open on the viewer own
+loopback instead of being tunnelled through a third machine). The fact lives on
+the connection — its peer address, and the forwarded header a trusted local proxy
+appends — and no cell could have carried it.
+
+## A poll read may reconcile, but it publishes only by RETURNING
+
+A poll on a fused cadence (`everyMsOr(interval, edge)`) re-reads on a clock and
+on a change edge. It is fine for that read to DO something first — reconcile
+state, close what has died, tidy up. What it must not do is ANNOUNCE on the edge
+that triggers it: that closes a cycle the reactor will execute forever, and the
+failure mode is a whole-process freeze that outranks `SIGTERM`.
+
+Kolu shipped exactly that. A cell reconciled its port forwards on the interval
+and announced the result on its own change edge; the first forward a user opened
+froze the server — UI dead, HTTP dead, `SIGKILL` the only way out — and it was
+invisible before then because with nothing to reconcile the pass returned before
+announcing. The fix was not a guard on the announcement but the removal of the
+shape: report by returning, and let the poll publish what the read returns. The
+reactor now detects the cycle and crashes naming the source, so the class costs a
+stack trace rather than an outage.
+
 ## The through-line
 
 Every rule here is the same instinct applied at a different layer: a caught error

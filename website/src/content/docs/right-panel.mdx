@@ -40,10 +40,25 @@ something is genuinely listening, and it disappears when that stops.
 
 A port bound to **all interfaces** on the machine running kolu already answers on
 the address you're viewing kolu at, so its chip has an **open** link that opens it
-in a new tab. A port bound only to **loopback** — or one on a remote host — can't
-be reached from your browser as-is; those are listed with a "needs a forward"
-note. Until forwarding lands, reach them with
-[`vazhi`](/vazhi), which opens a tunnel by hand.
+in a new tab.
+
+A port bound only to **loopback** — or one on a remote host — can't be reached
+from your browser as-is, so kolu opens a door for it. Click **forward & open**
+and kolu makes that port answer on the machine serving this page, then opens the
+tab. The row then carries a teal `⇄ :<port>` pill naming where it answers, a
+copy button for the full address, and a `⨯` that closes the door — one list,
+one row per port. A door you opened by hand, or one whose server has since died,
+trails the same list under "also forwarded on this host", because a door belongs
+to the machine rather than to any one terminal.
+
+Each of those rows also **names the terminal serving the port**, and the name is
+a link: click it and you land on the agent that started the thing.
+
+[**Port forwarding**](/remote-hosts#port-forwarding) is documented in full under
+Remote Hosts — the two mechanisms, the one case that has no door at all, the
+`⌘K` → **Forward a port…** path for a port kolu never saw, and the security
+note that a forwarded port is unauthenticated on every interface of the machine
+running kolu.
 
 <Aside type="note" title="A daemonized server is not listed">
 A process that fully daemonizes itself (double-fork, reparented away from the

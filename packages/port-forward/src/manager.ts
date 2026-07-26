@@ -24,8 +24,12 @@ import type { ForwardMechanisms, OpenedForward } from "./mechanism.ts";
 import { messageOf, plainDiagnostic } from "./diagnostic.ts";
 import { assertTarget, type ForwardTarget, targetKey } from "./target.ts";
 
-/** A live forward, as callers see it. */
-export interface Forward {
+/** A live forward, as callers see it.
+ *
+ *  `M` is whatever the consumer attached at `create` — see {@link Forward.meta}.
+ *  It defaults to `undefined` for a consumer that attaches nothing (vazhi), so
+ *  `Forward` on its own still means what it always did. */
+export interface Forward<M = undefined> {
   /** `host:port` for a remote target, `local:port` for a loopback relay — the
    *  map key, and the handle `cancel` takes. */
   readonly key: string;
@@ -34,7 +38,23 @@ export interface Forward {
   readonly localPort: number;
   /** Epoch ms when the listener came up — what an "up 12m" column renders. */
   readonly createdAt: number;
+  /** Whatever the consumer attached at `create`. The map never reads it and has
+   *  no opinion about it — it keeps it for exactly as long as it keeps the
+   *  forward, which is the whole point.
+   *
+   *  It exists because the alternative is a consumer holding a second map keyed
+   *  by the same keys, with its own eviction rules that must agree with this
+   *  map's at every site that moves either. kolu had exactly that (a per-key
+   *  `origins` table synchronised by hand at six places, with a defaulting read
+   *  to survive the times they disagreed). One entry, one lifetime. */
+  readonly meta: M;
 }
+
+/** The `meta` argument, present only when there is one to give. A consumer with
+ *  no per-forward fact (`M = undefined`) calls `create(target)` as it always
+ *  did; a consumer that HAS one must pass it — optionality is exactly how a fact
+ *  a map is supposed to keep comes to be silently dropped. */
+type MetaArg<M> = undefined extends M ? [meta?: M] : [meta: M];
 
 /** Rejects a `create` that finished opening after `dispose` had already run:
  *  the listener it produced was closed immediately, so this is the map keeping
@@ -78,20 +98,39 @@ export class SurvivedTeardownError extends Error {
  *  `degraded` — it broke and could NOT be cleaned up, so it may still be
  *  reachable. The map KEEPS it: a listener nobody can close must stay visible
  *  and retryable rather than vanish from the list while the door stands open. */
-export interface ForwardLoss {
-  readonly forward: Forward;
+export interface ForwardLoss<M = undefined> {
+  readonly forward: Forward<M>;
   readonly reason: string;
   readonly kind: "gone" | "degraded";
 }
 
-export interface ForwardManager {
+export interface ForwardManager<M = undefined> {
   /** Open a forward for `target`, or return the live one if there already is
-   *  one. Rejects — with the mechanism's own error text — if it can't. */
-  create(target: ForwardTarget): Promise<Forward>;
+   *  one. Rejects — with the mechanism's own error text — if it can't.
+   *
+   *  An idempotent hit KEEPS the meta the live forward already carries: the
+   *  second caller did not open this door and does not get to relabel it by
+   *  accident. Relabelling on purpose is {@link ForwardManager.promote}. */
+  create(target: ForwardTarget, ...meta: MetaArg<M>): Promise<Forward<M>>;
+  /** Replace a live forward's meta, and hand back the updated record. Throws on
+   *  a key the map does not hold OPEN, for `cancel`'s reason: it means the
+   *  caller's view of the map disagrees with the map. */
+  promote(key: string, meta: M): Forward<M>;
   /** Take down the forward with this key. Rejects if there is no such key. */
   cancel(key: string): Promise<void>;
-  /** Every live forward, oldest first. */
-  list(): readonly Forward[];
+  /** Every live forward, oldest first. OPEN slots only — a forward that is
+   *  still opening has no record to hand out yet. */
+  list(): readonly Forward<M>[];
+  /** Every target the map currently HOLDS, in any state — open, opening, or
+   *  closing.
+   *
+   *  `list` cannot answer this: it deliberately returns only what is open, so a
+   *  caller taking down a whole class of forwards (a host leaving the pool)
+   *  could not see a door still in flight, and the flight then landed as a live
+   *  listener nothing was left to cancel. `cancel` has always handled an
+   *  opening slot correctly — the gap was purely that nothing could enumerate
+   *  one. */
+  targets(): readonly ForwardTarget[];
   /** Take every forward down. Rejects with an `AggregateError` if any refused
    *  to go, having still attempted all of them. */
   dispose(): Promise<void>;
@@ -101,10 +140,13 @@ export interface ForwardManager {
  *  container, not an open map beside an opening map: "is this key in the map?"
  *  must have a single answer, or every method has to remember to ask twice and
  *  a key can be legitimately in both. */
-type Slot =
+type Slot<M> =
   | {
       readonly state: "opening";
-      readonly flight: Promise<Forward>;
+      /** The target being opened. Carried so `targets` can report a door that
+       *  has no `forward` record yet. */
+      readonly target: ForwardTarget;
+      readonly flight: Promise<Forward<M>>;
       /** The identity of THIS opening, installed before the mechanism can call
        *  back, so a loss it reports before `open()` resolves is attributable. */
       readonly token: object;
@@ -118,7 +160,7 @@ type Slot =
     }
   | {
       readonly state: "open";
-      readonly forward: Forward;
+      readonly forward: Forward<M>;
       readonly opened: OpenedForward;
       /** Identity of the OPENING that produced this listener. A loss callback
        *  carries the same token, so a late loss from a forward that has since
@@ -131,7 +173,7 @@ type Slot =
    *  we do not know whether the door is shut. */
   | {
       readonly state: "closing";
-      readonly forward: Forward;
+      readonly forward: Forward<M>;
       readonly opened: OpenedForward;
       /** The teardown's OUTCOME — the failure, or `undefined` for success. It
        *  never rejects, because every joiner must be able to await it, and it
@@ -142,14 +184,19 @@ type Slot =
       readonly token: object;
     };
 
+/** Cap on `lastLocalPort`'s size — see that field's doc comment. Generous for
+ *  any real session (hundreds of distinct targets ever forwarded) while still
+ *  being an actual bound rather than an assumption about usage. */
+const LAST_LOCAL_PORT_CAP = 512;
+
 /** Build a forward map over the given mechanisms. Production callers want
  *  `createForwardManager` from the package index, which supplies the real ones;
  *  this entry point exists so the map can be driven against fakes. */
-export function makeForwardManager(opts: {
+export function makeForwardManager<M = undefined>(opts: {
   mechanisms: ForwardMechanisms;
-  onLost: (loss: ForwardLoss) => void;
-}): ForwardManager {
-  const slots = new Map<string, Slot>();
+  onLost: (loss: ForwardLoss<M>) => void;
+}): ForwardManager<M> {
+  const slots = new Map<string, Slot<M>>();
 
   /** Tell the consumer, from the ONE place every loss and fault passes through.
    *
@@ -160,7 +207,7 @@ export function makeForwardManager(opts: {
    *  child never reaped. So the throw is contained, and then re-raised on its own
    *  turn: it is the consumer's defect, it must still be LOUD (the host's own
    *  handler decides what to do with it), and by then this map is consistent. */
-  function announce(loss: ForwardLoss): void {
+  function announce(loss: ForwardLoss<M>): void {
     try {
       opts.onLost(loss);
     } catch (err) {
@@ -196,6 +243,23 @@ export function makeForwardManager(opts: {
    *  came and went — and recording the latter would leave a token entry nothing
    *  ever reads or deletes. */
   const opening = new Set<object>();
+
+  /** The local port each target last answered on, kept AFTER the forward leaves
+   *  the map — that is the whole point. A dev server restarts, its port dies,
+   *  the forward is cancelled, and the next open for the same target comes back
+   *  on the number the user's links already carry.
+   *
+   *  It lives here rather than in a consumer because it is a fact of the MAP:
+   *  every consumer would otherwise keep the same table beside the map, and get
+   *  the eviction rules subtly different. "A handful in any real session" is a
+   *  claim about typical use, not an enforced bound — a process that lives for
+   *  weeks and forwards many distinct `(host, port)` pairs over its life (a
+   *  churning fleet, many different dev-server ports across many projects)
+   *  would otherwise grow this map forever. `LAST_LOCAL_PORT_CAP` below is the
+   *  actual bound: past it, the oldest-inserted entry is evicted, trading the
+   *  "same port back" nicety for a target that hasn't been reopened in a long
+   *  time against genuinely unbounded growth. */
+  const lastLocalPort = new Map<string, number>();
 
   function lose(
     key: string,
@@ -258,7 +322,7 @@ export function makeForwardManager(opts: {
     const closing = new Promise<unknown | undefined>((resolve) => {
       settle = resolve;
     });
-    const mine: Slot = {
+    const mine: Slot<M> = {
       state: "closing",
       forward: slot.forward,
       opened: slot.opened,
@@ -308,7 +372,10 @@ export function makeForwardManager(opts: {
    *  methods are handed around as plain functions (vazhi passes `create` into a
    *  component), and a receiver-dependent call would throw on that one rare
    *  branch and nowhere else. */
-  async function create(target: ForwardTarget): Promise<Forward> {
+  async function create(
+    target: ForwardTarget,
+    ...meta: MetaArg<M>
+  ): Promise<Forward<M>> {
     if (disposed) {
       throw new Error(
         "port-forward: this forward map has been disposed; it opens nothing further.",
@@ -329,7 +396,7 @@ export function makeForwardManager(opts: {
         // teardown, then decide again: the key is either free (open a fresh
         // one) or still holds a forward whose close failed (return that).
         await slot.cancelling;
-        return await create(target);
+        return await create(target, ...meta);
       }
       return await slot.flight;
     }
@@ -337,7 +404,7 @@ export function makeForwardManager(opts: {
       // Wait for the door to shut, then open a NEW one. Returning the closing
       // forward would resolve this create with a listener about to vanish.
       await slot.closing.catch(() => {});
-      return await create(target);
+      return await create(target, ...meta);
     }
 
     // One identity per opening, minted BEFORE the mechanism can call back —
@@ -346,25 +413,46 @@ export function makeForwardManager(opts: {
     const token = {};
     opening.add(token);
     const flight = (async () => {
-      const opened = await opts.mechanisms.open(target, {
-        // Sanitised HERE, at the seam, not in whichever mechanism happened to
-        // remember: every reason is rendered verbatim by a consumer, and a
-        // mechanism that reads a subprocess's stderr is carrying text the far
-        // end chose. One mechanism's discipline is not a library guarantee.
-        lost: (reason) => lose(key, plainDiagnostic(reason), token, "gone"),
-        fault: (reason) =>
-          lose(key, plainDiagnostic(reason), token, "degraded"),
+      const opened = await opts.mechanisms.open({
+        target,
+        report: {
+          // Sanitised HERE, at the seam, not in whichever mechanism happened to
+          // remember: every reason is rendered verbatim by a consumer, and a
+          // mechanism that reads a subprocess's stderr is carrying text the far
+          // end chose. One mechanism's discipline is not a library guarantee.
+          lost: (reason) => lose(key, plainDiagnostic(reason), token, "gone"),
+          fault: (reason) =>
+            lose(key, plainDiagnostic(reason), token, "degraded"),
+        },
+        lastLocalPort: lastLocalPort.get(key),
       });
+      // Recorded on the way UP, not on the way down: a forward can leave the map
+      // by a route that runs no teardown of ours (the mechanism reports it lost,
+      // the process is killed), and the number is only useful if it survives
+      // every one of them.
+      lastLocalPort.set(key, opened.localPort);
+      // A `Map`'s iteration order is insertion order and `.set` on an EXISTING
+      // key does not move it — so the first key back from `.keys()` is the
+      // least-recently-FIRST-opened target, a fine approximation of "oldest"
+      // for a cap whose only job is to stop growth, not to be a precise LRU.
+      if (lastLocalPort.size > LAST_LOCAL_PORT_CAP) {
+        const oldest = lastLocalPort.keys().next().value;
+        if (oldest !== undefined) lastLocalPort.delete(oldest);
+      }
 
       /** The public record of what just came up. Built on demand rather than
        *  once, because the three ways out of this function below want it at
        *  three different moments and `createdAt` should say when the forward
        *  entered the map, not when its opening began. */
-      const record = (): Forward => ({
+      const record = (): Forward<M> => ({
         key,
         target,
         localPort: opened.localPort,
         createdAt: Date.now(),
+        // `MetaArg` makes this argument required for every consumer that has a
+        // meta at all, so the cast is only naming what the tuple already said:
+        // `M = undefined` is the one case the argument may be absent in.
+        meta: meta[0] as M,
       });
 
       // The mechanism may have called this listener DEAD before its own
@@ -454,7 +542,7 @@ export function makeForwardManager(opts: {
       slots.set(key, { state: "open", forward, opened, token });
       return forward;
     })();
-    slots.set(key, { state: "opening", flight, token });
+    slots.set(key, { state: "opening", target, flight, token });
     try {
       return await flight;
     } catch (err) {
@@ -476,6 +564,21 @@ export function makeForwardManager(opts: {
 
   return {
     create,
+
+    promote(key, meta) {
+      const slot = slots.get(key);
+      // Only an OPEN slot can be relabelled. An opening one has no record yet
+      // and a closing one is on its way out; in both cases the caller is
+      // talking about a forward that is not the one it thinks it holds.
+      if (slot === undefined || slot.state !== "open") {
+        throw new Error(
+          `port-forward: there is no live forward named "${key}" to relabel.`,
+        );
+      }
+      const forward: Forward<M> = { ...slot.forward, meta };
+      slots.set(key, { ...slot, forward });
+      return forward;
+    },
 
     async cancel(key) {
       const slot = slots.get(key);
@@ -514,11 +617,19 @@ export function makeForwardManager(opts: {
       // it (cancel, or a UI row) would be acting on something already going.
       // A teardown that FAILS puts its slot back to `open`, so a listener that
       // is still out there reappears here rather than being lost.
-      const live: Forward[] = [];
+      const live: Forward<M>[] = [];
       for (const slot of slots.values()) {
         if (slot.state === "open") live.push(slot.forward);
       }
       return live.sort((a, b) => a.createdAt - b.createdAt);
+    },
+
+    targets() {
+      const held: ForwardTarget[] = [];
+      for (const slot of slots.values()) {
+        held.push(slot.state === "opening" ? slot.target : slot.forward.target);
+      }
+      return held;
     },
 
     async dispose() {
@@ -530,7 +641,7 @@ export function makeForwardManager(opts: {
       // here would count one forward twice, or delete a forward this very call
       // is about to say could not be torn down.
       const mine: string[] = [];
-      const flights: Promise<Forward>[] = [];
+      const flights: Promise<Forward<M>>[] = [];
       for (const [key, slot] of slots.entries()) {
         if (slot.state === "opening") flights.push(slot.flight);
         else mine.push(key);

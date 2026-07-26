@@ -25,7 +25,7 @@ running it.
    like any stage's — fix now or record where, never "acceptable for scope".
 2. **`/lens-debate`** — lowy and hickey review boundaries/simplicity as two
    independent parallel subagents, then one reconcile-and-apply pass commits the
-   fixes (each its own commit). Pass the change **`rationale`** so the lenses
+   fixes (grouped by area, minors batched). Pass the change **`rationale`** so the lenses
    don't flag deliberate decisions.
 3. **`/agent-debate`** — the explicitly selected Claude, Codex, or Grok peer
    debates the current author agent to consensus. Its author rounds edit and

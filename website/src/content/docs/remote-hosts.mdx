@@ -215,6 +215,83 @@ behind a confirm: it re-provisions the host's build and starts a
 correct-version kaval. The same verdict shows in the kaval dialog and on the
 host chip — the one badge that also flags an ordinary "newer build available".
 
+## Port forwarding
+
+A dev server on a remote host is running on **that machine's loopback**, and
+loopback never leaves the machine it is on — so `http://127.0.0.1:5173` in your
+browser means *your* laptop, which is the one machine that certainly isn't
+running it. kolu closes that gap: click the port and it opens a door, then opens
+the tab.
+
+Ports show up on their own. The [Inspector's **Ports**
+section](/right-panel#ports-the-terminal-is-serving) lists what each terminal is
+serving — read from the host's own socket table, not scraped from output — so
+the thing an agent just started is one click away instead of somewhere up the
+scrollback.
+
+### How a click becomes a page
+
+kolu reads the port's **bind address** and picks the mechanism; there is no
+guessing and no configuration.
+
+| where the server listens | what kolu does | what opens |
+| --- | --- | --- |
+| a **remote host**, on loopback | `ssh -L` over a connection of its own | `http://<the kolu host>:<port>` |
+| **kolu's own machine**, on loopback | a plain TCP relay | `http://<the kolu host>:<port>` |
+| **kolu's own machine**, all interfaces | nothing — it already answers | `http://<the kolu host>:<port>` |
+| a **remote host**, one specific interface | nothing it *can* do | the row says "not reachable" |
+
+That last row is the honest one. A port bound to a single named interface of a
+remote machine answers at *that* address and nowhere else, and neither mechanism
+reaches it — both connect to the far side's loopback. kolu says so rather than
+offering a button that would fail.
+
+Whenever it can, kolu gives you back the **same port number** you asked for, so
+the URL is predictable and a link you saved keeps working across a restart. When
+that number is already taken on the kolu host, the row shows the one you got.
+
+### Managing open doors
+
+A forwarded port is one row wherever it appears, carrying a teal `⇄ :<port>`
+pill that names where it answers, a copy button for the full address, and a `⨯`
+that closes the door. You'll find those rows in three places — the Inspector's
+Ports list, the **host tab's dropdown**, and the tab's connection dot, which
+wears a **thin teal ring** while that host has doors open.
+
+Each row also **names the terminal serving that port**, and the name is a link:
+click it and you land on the agent that started the thing.
+
+A door you opened by hand, or one whose server has since died, trails the Ports
+list under **"also forwarded on this host"** — a door belongs to the machine, not
+to whichever terminal you happen to be looking at.
+
+<Steps>
+
+1. **Open one by clicking.** Any port row that needs a door offers
+   **forward &amp; open**. Doors open **lazily** — only for ports you actually
+   click — and close themselves when the scanner sees the listener die.
+
+2. **Or forward a port kolu never saw.** `⌘K` → **Forward a port…**, then
+   `host:port` (or just a port, for the host you're looking at). Useful for a
+   service outside any terminal's process tree, or one that was already running
+   before kolu started.
+
+3. **Close it when you're done.** `⨯` on the row. A forward you asked for by
+   hand stays until you cancel it or its host leaves — there is no listener for
+   kolu to watch on your behalf there.
+
+</Steps>
+
+Everything dies with the kolu server, guaranteed by the kernel rather than by a
+timer, so a deploy or a crash never leaves an orphaned door open.
+
+<Aside type="caution" title="A forwarded port is unauthenticated">
+The door kolu opens is plain TCP on **every interface** of the machine running
+kolu — the same exposure as starting the dev server on `0.0.0.0` yourself.
+Anyone who can reach that machine can reach the forwarded service. Keep it to a
+network you trust.
+</Aside>
+
 ## Known limitations
 
 A kolu remote terminal is an **ssh session** — not the machine's GUI login
