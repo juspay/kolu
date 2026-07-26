@@ -159,7 +159,7 @@ packaged in an afternoon, so packaging never counts as a
 disqualifier.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Earlier drafts listed “not packaged for darwin” against
 osquery and “not in nixpkgs” against portls. Both struck: a packaging gap is an
 errand, not an architecture verdict. The rows now stand on what each tool
-<em>is</em>.</span></span></span> The repo README carries this same table:</p>
+<em>is</em>.</span></span></span> The <a href="https://github.com/juspay/kolu/blob/master/osfacts/README.md">repo README</a> carries this same table:</p>
 <table>
 <thead>
 <tr>
@@ -349,7 +349,7 @@ one repo until the churn settles.</p>
 pnpm workspace and osfacts is a cargo crate, not a workspace member —
 location is structure, and filing it there would claim a membership it
 doesn’t have. The top-level directory <em>is</em> the whole future repo:
-<code>Cargo.toml</code>, <code>src/</code>, <code>tests/</code>, the README carrying the comparison table
+<code>Cargo.toml</code>, <code>src/</code>, <code>tests/</code>, the <a href="https://github.com/juspay/kolu/blob/master/osfacts/README.md">README</a> carrying the comparison table
 above, <code>default.nix</code>, <code>flake.nix</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Precedent: <code>website/</code> is exactly
 this shape today — a top-level non-workspace subproject with its own
 <code>default.nix</code> and subflake.</span></span></span></li>
@@ -445,7 +445,20 @@ deliberate not-chosen list longer than both:</p>
 <p>The whole runtime dependency tree is four crates deep (<code>libc</code>, <code>lexopt</code>,
 <code>serde</code>, <code>serde_json</code>), which is itself a design goal: every dependency is a
 place a platform quirk can arrive with an update, and this tool exists because
-five hand-rolled readers each got one quirk wrong.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./port-forwarding.html" data-astro-cid-aziudkuj>Port Forwarding — vazhi &amp; Inspector Port Links</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+five hand-rolled readers each got one quirk wrong.</p>
+<p>One near-term alternative was considered and rejected: replacing kolu’s C
+helper <em>now</em> with a Rust binary built on the upstream-fixed <code>listeners</code>,
+ahead of osfacts. Rejected on the same measurements as ever — the crate
+answers half the question (listener rows, no process table), so a helper must
+add its own process pass beside the crate’s internal host-wide fd walk, and
+two walks land at an estimated 15–20 ms against the C helper’s ~10
+ms.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Anchors, same box and method: one-pass C 8.45–10.6 ms; one-pass
+Rust (portview) 9.9 ms; two-pass <code>sysinfo</code>+<code>listeners</code> 23.2 ms. A leaner
+hand-rolled pid table trims the second walk’s overhead but keeps the
+duplication; the estimate is bounded by those measurements, not itself a
+measurement.</span></span></span> The proper Rust replacement of the C helper <em>is</em> OSF1’s
+darwin path, and OSF2 is the step that deletes it — building an interim means
+building a slower engine and migrating twice.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./port-forwarding.html" data-astro-cid-aziudkuj>Port Forwarding — vazhi &amp; Inspector Port Links</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(
       document.querySelectorAll(".fn[data-fn]"),

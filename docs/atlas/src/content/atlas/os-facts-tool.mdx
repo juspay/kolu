@@ -95,7 +95,7 @@ packaged in an afternoon, so packaging never counts as a
 disqualifier.<Footnote>Earlier drafts listed "not packaged for darwin" against
 osquery and "not in nixpkgs" against portls. Both struck: a packaging gap is an
 errand, not an architecture verdict. The rows now stand on what each tool
-*is*.</Footnote> The repo README carries this same table:
+*is*.</Footnote> The [repo README](https://github.com/juspay/kolu/blob/master/osfacts/README.md) carries this same table:
 
 | candidate            | disqualifier                                                                                                                                                                                                                                              |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -212,7 +212,7 @@ one repo until the churn settles.
   pnpm workspace and osfacts is a cargo crate, not a workspace member —
   location is structure, and filing it there would claim a membership it
   doesn't have. The top-level directory *is* the whole future repo:
-  `Cargo.toml`, `src/`, `tests/`, the README carrying the comparison table
+  `Cargo.toml`, `src/`, `tests/`, the [README](https://github.com/juspay/kolu/blob/master/osfacts/README.md) carrying the comparison table
   above, `default.nix`, `flake.nix`.<Footnote>Precedent: `website/` is exactly
   this shape today — a top-level non-workspace subproject with its own
   `default.nix` and subflake.</Footnote>
@@ -268,3 +268,17 @@ The whole runtime dependency tree is four crates deep (`libc`, `lexopt`,
 `serde`, `serde_json`), which is itself a design goal: every dependency is a
 place a platform quirk can arrive with an update, and this tool exists because
 five hand-rolled readers each got one quirk wrong.
+
+One near-term alternative was considered and rejected: replacing kolu's C
+helper *now* with a Rust binary built on the upstream-fixed `listeners`,
+ahead of osfacts. Rejected on the same measurements as ever — the crate
+answers half the question (listener rows, no process table), so a helper must
+add its own process pass beside the crate's internal host-wide fd walk, and
+two walks land at an estimated 15–20 ms against the C helper's ~10
+ms.<Footnote>Anchors, same box and method: one-pass C 8.45–10.6 ms; one-pass
+Rust (portview) 9.9 ms; two-pass `sysinfo`+`listeners` 23.2 ms. A leaner
+hand-rolled pid table trims the second walk's overhead but keeps the
+duplication; the estimate is bounded by those measurements, not itself a
+measurement.</Footnote> The proper Rust replacement of the C helper *is* OSF1's
+darwin path, and OSF2 is the step that deletes it — building an interim means
+building a slower engine and migrating twice.
