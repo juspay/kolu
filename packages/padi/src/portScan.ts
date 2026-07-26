@@ -21,7 +21,7 @@ import {
   type PortFamily,
   type PortInfo,
   type PortScope,
-} from "@kolu/terminal-vocab/schema";
+} from "@kolu/terminal-vocab/ports";
 
 /** Same budget as the client default — exported so supervisor can match it. */
 export { OSFACTS_COMMAND_TIMEOUT_MS as PORT_SCAN_COMMAND_TIMEOUT_MS } from "osfacts-client";
