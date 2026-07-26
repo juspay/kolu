@@ -111,6 +111,17 @@ export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
  *   - `agent-source-unbaked`  — the source ref isn't baked (a non-Nix-wrapper run).
  *   - `agent-drv-unavailable` — that source cannot resolve padi for the probed arch.
  *   - `unconverged`           — a newer-contract drain never provably took.
+ *   - `auth-required`         — the host refused kolu's ssh credentials. kolu
+ *     connects strictly non-interactively (`BatchMode`), so a password /
+ *     keyboard-interactive gate can never be answered — terminal until the
+ *     operator sets up key-based ssh (the remote-hosts prerequisite).
+ *   - `host-key-unverified`   — ssh refused the HOST's identity (an unknown or
+ *     changed host key); the trust prompt is likewise unanswerable — terminal
+ *     until the operator verifies the key with one interactive `ssh`.
+ *   - `nix-unavailable`       — ssh worked, but the host's shell could not run
+ *     `nix-instantiate` (exit 127): no Nix installed, or none on a
+ *     non-interactive PATH. padi is provisioned with the host's own Nix, so
+ *     there is nothing to proceed with — terminal.
  *   - `link-failed`           — a REMOTE transport gave up (host unreachable /
  *     provisioning failed / a remote terminal give-up). Set by the remote arm's
  *     convergence machine (`remotePadiBinding`, on the `failed` phase).
@@ -136,6 +147,9 @@ export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
   z.object({ cause: z.literal("agent-source-unbaked"), reason: z.string() }),
   z.object({ cause: z.literal("agent-drv-unavailable"), reason: z.string() }),
   z.object({ cause: z.literal("unconverged"), reason: z.string() }),
+  z.object({ cause: z.literal("auth-required"), reason: z.string() }),
+  z.object({ cause: z.literal("host-key-unverified"), reason: z.string() }),
+  z.object({ cause: z.literal("nix-unavailable"), reason: z.string() }),
   z.object({ cause: z.literal("link-failed"), reason: z.string() }),
   z.object({ cause: z.literal("local-start-failed"), reason: z.string() }),
 ]);

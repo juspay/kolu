@@ -46,7 +46,11 @@ import {
 import { PADI_SURFACE_VERSION, type PadiDaemonContract } from "./surface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-const PADI_BIN = join(SRC, "bin.ts");
+// Kept in step with the `padi` bin `package.json` declares — #2000 moved the
+// entrypoint under `daemonBoot/` and this spawn path was the one reference left
+// behind, which only the gated daemon suite exercises (the child died with
+// ERR_MODULE_NOT_FOUND, surfacing here as "padi socket never came up").
+const PADI_BIN = join(SRC, "daemonBoot", "bin.ts");
 const TSX_LOADER = pathToFileURL(
   createRequire(import.meta.url).resolve("tsx"),
 ).href;

@@ -157,19 +157,30 @@ export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
   }
 }
 
+/** The padi domain causes a dial's drv-resolution can fault with — the D1
+ *  enrichment vocabulary {@link PadiDrvFault} carries and the binder's
+ *  `drvFaultCause` closure holds. One alias so the two can never drift. */
+type DrvFaultCause = Extract<
+  EntryFailedCause,
+  | "agent-source-unbaked"
+  | "agent-drv-unavailable"
+  | "auth-required"
+  | "host-key-unverified"
+  | "nix-unavailable"
+>;
+
 /** A {@link ResolveDrvError} subclass that additionally carries the D1 domain
- *  `cause` — `"agent-source-unbaked"` (the source ref itself isn't baked) vs
- *  `"agent-drv-unavailable"` (the baked source cannot resolve padi for the
- *  probed arch). The framework resolution rides through unchanged; Padi enriches
- *  it with a typed domain cause rather than reclassifying retry policy. */
+ *  `cause` — the source-ref/arch faults (`"agent-source-unbaked"` /
+ *  `"agent-drv-unavailable"`), the ssh refusals (`"auth-required"` /
+ *  `"host-key-unverified"`), and an unrunnable remote Nix
+ *  (`"nix-unavailable"`). The framework resolution rides through unchanged
+ *  (retry policy AND terminality stay the framework's verdict); Padi enriches
+ *  it with a typed domain cause, never reclassifies it. */
 class PadiDrvFault extends ResolveDrvError {
   constructor(
     message: string,
-    readonly domainCause: Extract<
-      EntryFailedCause,
-      "agent-source-unbaked" | "agent-drv-unavailable"
-    >,
-    resolution: Extract<ResolveDrvError["resolution"], { terminal: false }>,
+    readonly domainCause: DrvFaultCause,
+    resolution: ResolveDrvError["resolution"],
   ) {
     super(message, resolution);
     this.name = "PadiDrvFault";
@@ -194,25 +205,46 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
       return await resolveBakedAgentDrv("padi", ctx);
     } catch (err) {
       if (!(err instanceof ResolveDrvError)) throw err;
-      return match(err.resolution)
-        .with({ kind: "source-unbaked" }, (resolution) => {
-          throw new PadiDrvFault(
-            `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
-            "agent-source-unbaked",
-            resolution,
-          );
-        })
-        .with({ kind: "unavailable" }, (resolution) => {
-          throw new PadiDrvFault(
-            err.message,
-            "agent-drv-unavailable",
-            resolution,
-          );
-        })
-        .with({ kind: "network-exhausted" }, () => {
-          throw err;
-        })
-        .exhaustive();
+      return (
+        match(err.resolution)
+          .with({ kind: "source-unbaked" }, (resolution) => {
+            throw new PadiDrvFault(
+              `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
+              "agent-source-unbaked",
+              resolution,
+            );
+          })
+          .with({ kind: "unavailable" }, (resolution) => {
+            throw new PadiDrvFault(
+              err.message,
+              "agent-drv-unavailable",
+              resolution,
+            );
+          })
+          // The ssh refusals (probe classified them terminal — see `resolveSystem`):
+          // enrich with the padi domain cause so the host-down card can name the
+          // actual remedy (set up key auth / accept the host key) instead of the
+          // generic "can't reach this host".
+          .with({ kind: "auth-refused" }, (resolution) => {
+            throw new PadiDrvFault(err.message, "auth-required", resolution);
+          })
+          .with({ kind: "host-key-unverified" }, (resolution) => {
+            throw new PadiDrvFault(
+              err.message,
+              "host-key-unverified",
+              resolution,
+            );
+          })
+          // The second unmet prerequisite (after ssh): the host has no runnable
+          // Nix, which is what provisions padi there.
+          .with({ kind: "nix-unavailable" }, (resolution) => {
+            throw new PadiDrvFault(err.message, "nix-unavailable", resolution);
+          })
+          .with({ kind: "network-exhausted" }, () => {
+            throw err;
+          })
+          .exhaustive()
+      );
     }
   };
 }
@@ -327,10 +359,7 @@ export function ensureRemotePadiBinding(
   // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null` —
   // set by the `resolveDrvPath` wrapper below (via `PadiDrvFault`), reset at the START
   // of every attempt so a later successful resolve clears a stale fault.
-  let drvFaultCause: Extract<
-    EntryFailedCause,
-    "agent-source-unbaked" | "agent-drv-unavailable"
-  > | null = null;
+  let drvFaultCause: DrvFaultCause | null = null;
 
   /** The D1+D2 domain detail for the map's `EntryStatus` — derived from the SAME
    *  `convergence`/`skewVersions`/`drvFaultCause` closures above rather than a
@@ -348,8 +377,15 @@ export function ensureRemotePadiBinding(
         : { cause: "contract-skew-refused" };
     }
     if (convergence?.state === "unconverged") return { cause: "unconverged" };
-    if (convergence?.state === "link-failed") return { cause: "link-failed" };
+    // A standing drv fault BEFORE the generic link banner: a terminal give-up
+    // sets `convergence = link-failed` (the `onState` tracker below), but when
+    // the dial's own resolution named a finer fault — an ssh refusal, an
+    // unbaked source — THAT is the actionable truth, and "can't reach this
+    // host" would mask its remedy. `drvFaultCause` resets at the start of
+    // every attempt, so it is always the CURRENT campaign's finding, never a
+    // stale one outliving a recovery.
     if (drvFaultCause !== null) return { cause: drvFaultCause };
+    if (convergence?.state === "link-failed") return { cause: "link-failed" };
     return null;
   }
 

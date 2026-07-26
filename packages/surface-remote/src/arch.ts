@@ -36,7 +36,13 @@
  *   });
  */
 
-import { buildSshProbeCommand } from "./host";
+import {
+  buildSshProbeCommand,
+  isLocalHost,
+  ResolveDrvError,
+  type SshRefusal,
+  sshRefusalOf,
+} from "./host";
 import { probePolicy } from "./nixCopy";
 import { describeExit, runCapture } from "./process";
 
@@ -69,6 +75,12 @@ export async function resolveSystem(
     "--expr",
     "builtins.currentSystem",
   );
+  // Watch the probe's stderr for an ssh REFUSAL as the lines stream past — the
+  // probe is every dial's FIRST ssh contact, so classifying here covers all of
+  // them: any refusal a LATER step hits (nix's own ssh fork, the agent dial)
+  // kills that dial, and the redial's probe meets the same refusal
+  // un-multiplexed and lands in this one classifier within a single retry.
+  let refusal: { kind: SshRefusal; line: string } | null = null;
   const res = await runCapture(command, args, {
     // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never a
     // build — so it rides the shared QUICK-step deadline `probePolicy()` (as does the
@@ -76,9 +88,49 @@ export async function resolveSystem(
     // in ONE place, not re-spelled here.
     policy: probePolicy(),
     signal: opts.signal,
-    onProgress: opts.onProgress,
+    onProgress: (line) => {
+      if (refusal === null) {
+        const kind = sshRefusalOf(line);
+        if (kind !== null) refusal = { kind, line };
+      }
+      opts.onProgress(line);
+    },
   });
   if (!res.ok) {
+    // A refusal line alone is not proof — the remote COMMAND's stderr also rides
+    // ssh's stderr. ssh exits 255 for its OWN failures, so require both: the
+    // refusal text AND the ssh-255 exit. (A localhost probe never sshs, so its
+    // stderr can't match; a refusal that slips this guard merely stays an
+    // untyped, retried error — the safe default, never a wrong terminal verdict.)
+    if (refusal !== null && res.kind === "exit" && res.code === 255) {
+      const { kind, line } = refusal;
+      throw new ResolveDrvError(
+        kind === "auth-refused"
+          ? `${host}: ssh refused our credentials — this client connects non-interactively and can never answer a password or passphrase prompt. Set up key-based ssh (e.g. \`ssh-copy-id ${host}\`) so plain \`ssh ${host}\` connects without prompting: ${line}`
+          : `${host}: ssh does not trust this host's identity key — this client connects non-interactively and can never answer the trust prompt. Run \`ssh ${host}\` once in a terminal to verify and accept the host key (or resolve a changed-key warning): ${line}`,
+        { kind, failureCause: "remote", terminal: true },
+      );
+    }
+    // Exit 127 is POSIX for "the shell could not find the command" — every shell
+    // honours the code even though each words its message differently (bash
+    // "command not found", dash "not found", fish "Unknown command"), so the CODE
+    // is the reliable signal and matching prose would only add ways to miss.
+    // Unlike the ssh refusals above this needs no 255 companion: 127 IS the remote
+    // command's own exit status, not text that could have come from elsewhere.
+    if (res.kind === "exit" && res.code === 127) {
+      throw new ResolveDrvError(
+        `${host}: could not run \`nix-instantiate\` — ${
+          isLocalHost(host)
+            ? "Nix is not installed, or not on this process's PATH"
+            : "Nix is either not installed there, or not on the PATH of a NON-INTERACTIVE ssh session (a common single-user Nix install, whose profile only gets sourced by a login shell)"
+        }. This agent is provisioned using the host's own Nix, so it cannot proceed without it — check with \`${
+          isLocalHost(host)
+            ? "nix-instantiate --version"
+            : `ssh ${host} nix-instantiate --version`
+        }\`, and install Nix from https://nixos.asia/en/install if it is missing.`,
+        { kind: "nix-unavailable", failureCause: "remote", terminal: true },
+      );
+    }
     throw new Error(
       `${host}: \`nix-instantiate --eval builtins.currentSystem\` ${describeExit(res)}`,
     );
