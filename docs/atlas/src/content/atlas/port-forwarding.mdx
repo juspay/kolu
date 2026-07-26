@@ -278,8 +278,9 @@ repo alone, and linux answers by a different mechanism in a different byte
 order. That is the [electricity](electricity) bar — a real axis of change
 behind a stable receptacle — so the reader lives outside padi with the arrow
 pointing out, and its only input is a list of root pids. Test ③ (a *second*
-consumer proving it) is honestly still pending: the OSF standalone tool and
-PRT2's vazhi are named but unbuilt, the same tier `@kolu/serve-dir` shipped at.
+consumer) is met from both sides now: vazhi shipped in PRT0, and
+[osfacts](./os-facts-tool.html) — whose OSF2 phase adopts it as this
+scanner's engine — is built.
 
 *Why padi drives it*: the repo's own taxonomy draws the line. Facts that require the
 PTY itself live in kaval (foreground needs `tcgetpgrp` on the PTY fd, cwd is
@@ -299,236 +300,29 @@ pid→ppid table once, partitions it into per-shell subtrees, and joins
 listening TCP sockets against each subtree:
 
 - **linux** — pid table from `/proc/*/stat`; LISTEN rows (with their **bind address**) from `/proc/net/tcp` + `tcp6`, joined to pids via `/proc/<pid>/fd` socket-inode readlinks (the same technique `socketHolder.ts` uses — RE-DERIVED, not shared: one leaf both plug into, with the fd-failure policy injected, is a standing extraction), walking **only the union of terminal subtrees**. Expect and tolerate per-pid `EACCES`/`ENOENT` outside the subtrees — but `EACCES` on a *requested* subtree surfaces as a scan error, never an empty port list. Do not spawn `ss` (measured ~7× slower, and it hides other-users' pid attribution anyway).
-- **darwin** — a **libproc helper kolu builds** (`packages/port-scan/native/portScanDarwin.c`, compiled by the nix derivation beside it, its path baked onto padi as `KOLU_PORT_SCAN_HELPER` with no `PATH` fallback and no system fallback). ONE invocation prints BOTH tables in a versioned TSV — `V\t1`, then `P\tpid\tppid\tname` and `L\tpid\tport\thex-bind-address` (tab-separated) — and refuses a version it does not know, because a half-understood shape would parse to zero listeners and read as “nothing here is serving”. It emits **raw address bytes, not a wildcard boolean**, so `isAnyAddress` stays the single judge for both platforms; that hex is in NETWORK order where `/proc`’s is host-order-per-32-bit-word, which is why there are two decoders and exactly one judge. Non-root sees own-uid pids only — sufficient by construction, since a terminal’s subtree is padi’s own uid.<Footnote>**This replaced `ps` + `lsof`, which had replaced `netstat` — and the netstat record has now been written up wrongly TWICE, in opposite directions, so it is stated as observations rather than as a verdict.** **Window A** (the original): macOS 27.0 `netstat -anv` returns an empty internet table while reporting success — zero bytes, exit 0, clean stderr; `-anv -f inet` returns 117 bytes of header and no rows. **Window B**: on the same box the same `/usr/sbin/netstat -anv -p tcp` returns 29 LISTEN rows and `-anv` returns 241 KB — which was written up as "the original does not reproduce", and the original was retracted. **That retraction was wrong**, and it made exactly the error it accused the original of: generalising one sampling window into an absolute. **Window C** (the adversarial fact-check) settled it — back to empty, deterministic over six back-to-back runs: `-anv -p tcp` 0 bytes / exit 0 / clean stderr, `-anv` 169 KB with **zero** tcp or udp rows (621 unix-domain rows — the internet tables are simply absent), and `-anv -f inet` **117 bytes, matching window A to the byte**. A pty does not change it; `lsof` and the helper each saw the same 22 listeners at that moment; and the box had **not rebooted** between B and C (up 1 d 12 h, one boot). So macOS 27's netstat **intermittently loses its internet tables while reporting success** — stable within a window, flipped between windows, **cause unknown** (three windows is not a mechanism, and `command -v netstat` resolved to `/usr/sbin/netstat` in every one). That is disqualifying by itself: "answers no ports, successfully" is the worst failure mode for a feature whose whole job is that question, and intermittent is worse than always. A second, independently verified reason stands too: netstat's `Local Address` column is fixed-width and **truncates** (`fe80::c051:5eff:.49508` — address cut, port glued on after a `.`), and the bind address is exactly what reachability is judged from.</Footnote>
+- **darwin** — a **libproc helper kolu builds** (`packages/port-scan/native/portScanDarwin.c`, compiled by the nix derivation beside it, its path baked onto padi as `KOLU_PORT_SCAN_HELPER` with no `PATH` fallback and no system fallback). ONE invocation prints BOTH tables in a versioned TSV — `V\t1`, then `P\tpid\tppid\tname` and `L\tpid\tport\thex-bind-address` (tab-separated) — and refuses a version it does not know, because a half-understood shape would parse to zero listeners and read as “nothing here is serving”. It emits **raw address bytes, not a wildcard boolean**, so `isAnyAddress` stays the single judge for both platforms; that hex is in NETWORK order where `/proc`’s is host-order-per-32-bit-word, which is why there are two decoders and exactly one judge. Non-root sees own-uid pids only — sufficient by construction, since a terminal’s subtree is padi’s own uid.<Footnote>This replaced `ps` + `lsof` (~143 ms of subprocess per
+pass), which had replaced `netstat` — disqualified because macOS 27's
+netstat intermittently loses its internet tables while reporting success
+(verified across three sampling windows on one boot; cause unknown), and its
+fixed-width columns truncate the bind address reachability is judged from.
+"Answers no ports, successfully" is the worst failure mode for a feature
+whose whole job is that question.</Footnote>
 
 
-### The decided end state: one shared Rust helper, behind a proof gate
+### The successor: osfacts
 
-The C helper is **deliberately not the destination.** The destination is a small
-(~50-line) Rust binary wrapping **`sysinfo`** (pid / ppid / name) and
-**`listeners`** (pid plus the complete bind address — and on macOS it calls the same
-`proc_listpids` / `proc_pidinfo` / `proc_pidfdinfo` family directly rather than
-shelling out to `lsof`), owning the SAME versioned TSV above so the wire shape stays
-kolu's and neither crate's debug/Serde form leaks to a consumer. It is meant to become the
-**kolu + drishti boundary** in a subsequent PR, and that shared boundary — not
-speed — is what would justify it over two per-platform readers. It is not there yet;
-see the gate result below.
+The shipped readers are deliberately not the destination. The destination —
+one scoped, single-pass Rust binary serving kolu and drishti — was proposed,
+gated on measurements, refuted, reopened on new evidence, and is now built as
+[osfacts](./os-facts-tool.html); **OSF2 migrates this very scanner onto
+it.** The candidate scoreboard, the gate results, the `listeners` bug we
+fixed upstream, and every number behind those verdicts live in that note and
+in git history, not here.<Footnote>The bar the incumbents set, kept for
+context: the darwin C helper measured 8.45–10.6 ms per pass and the linux
+`/proc` reader 14–18 ms, both parity-checked against `lsof`/`ss` on live
+boxes. osfacts clears it: ~5 ms darwin, ~8 ms scoped linux.</Footnote>
 
-It ships when it passes a concrete gate, not before:
-
-1. Exact own-user listener parity — pid, port, address family, raw bind address —
-   against `ss` on linux and this C helper plus `lsof` on macOS.
-2. Explicit fixtures for `127.0.0.1`, `0.0.0.0`, `::1`, `::`, **and a dual-stack /
-   IPv4-mapped listener.** This is the specific known risk: `listeners`' macOS
-   address conversion does not visibly carry the `insi_vflag & INI_IPV4` branch the C
-   helper uses, and that branch is what makes a dual-stack `::` socket classify as
-   reachable rather than as needing a forward.
-3. A Node process reports as `node`, never a runtime thread name such as
-   `MainThread` — executable basename must beat the short comm.
-4. Ten-run median **≤20 ms on both platforms** at baseline, and max ≤40 ms with +100
-   listeners. This admits a low-tens Rust implementation and rejects a convenience
-   wrapper with `procs`-like cost.
-5. Version line first; a malformed process name cannot change the field count; short
-   stdout writes and top-level enumeration failures exit non-zero.
-6. A pinned dependency bump cannot merge without the parity tests on both platforms.
-
-### The gate RAN, and it FAILED on address parity — so the C helper ships
-
-The ~50-line `sysinfo`+`listeners` wrapper was built and measured, not assessed on
-paper. It is **not** in this PR, because it did not clear the gate.
-
-**What failed: `listeners` drops the IPv4-mapping marker on darwin.** Bind
-`::ffff:127.0.0.1` and every instrument — the kernel's own `getsockname`
-as arbiter, `proc_pidfdinfo`, the C helper, `lsof` — reports the v4-mapped
-address; the crate alone reports `::127.0.0.1`, the deprecated
-IPv4-**compatible** form, a *different address* from the one bound. The C
-helper's explicit `insi_vflag & INI_IPV4` branch is what the crate is
-missing, exactly as the research predicted.<Footnote>Measured identically
-from three independent binders (node, python3, a raw C `bind()`) on zest,
-macOS 27.0. The kernel returns `…ffff7f000001` (the `ffff` bytes ARE the
-mapping marker); the crate returns the same bytes with the marker zeroed.
-Severity, stated precisely: no wildcard verdict flips *today* — a mapped
-wildcard reads all-zeros (accepted), a mapped loopback reads non-zero
-(rejected), so both classify correctly by accident. Disqualifying anyway:
-the address a consumer reads is WRONG (PRT2 forwards to addresses, it does
-not merely classify them), and `isAnyAddress`'s v4-mapped arm would never be
-exercised on the one platform that needs it. Gate item 1 asks for exact
-raw-bind-address parity; this is not that.</Footnote>
-
-**What passed, and three sketch corrections** — recorded so the follow-up
-need not re-derive them.<Footnote>Passed: linux parity green on all five
-fixtures (`/proc/net/tcp6` carries the mapped form literally); the crate's
-integration tests run inside the nix sandbox on BOTH platforms (verified —
-loopback binds are permitted by linux's private netns and darwin's
-`sandbox-exec`), so `doCheck = true` is viable; latency was never the
-problem at this stage. Corrections found by compiling: (1)
-`listeners::get_all()` returns UDP and non-listening sockets too — the
-`TCP && Listen` filter is load-bearing; (2) it returns `Box<dyn Error>`, not
-`+ Send + Sync`, so the sketch's `main` does not compile; (3) `sysinfo` 0.39
-needs Rust 1.95 vs nixpkgs' 1.93, so it pins to 0.37.</Footnote>
-
-### Round 2: the crate bug is FIXED in a fork, and the gate now fails on LATENCY only
-
-The address bug was fixed and the gate re-run with the sound discriminator. Parity now
-passes everywhere; the blocker moved.
-
-**The fix.** `listeners` is forked to
-[juspay/listeners](https://github.com/juspay/listeners), branch
-`fix/darwin-v4-mapped-addresses`, pinned by rev. It replaces the
-`soi_family` branch with an `insi_vflag` one, testing `INI_IPV6` first —
-the flag ORDER is evidence-driven, not stylistic.<Footnote>Two measurements
-ruled out the simpler patches: a dual-stack `::` sets BOTH flags, so
-preferring v4 would report the wildcard as `0.0.0.0` and lose its IPv6
-reach; and `::1`'s v4 slot holds `00000001`, which preferring v4 would
-surface as `0.0.0.1`. Hence v6 first, v4 second, family last. Two regression
-tests ride along, negative-checked: the v4-mapped one FAILS on unfixed code;
-the dual-stack one pins the flag order, which the first cannot. The crate's
-one pre-existing macOS suite failure (`test_consistency`) fails identically
-with and without the fix — several ports on that host are held by more than
-one process, so `get_process_by_port(port) == a_specific_listener` is not
-well-defined; reported upstream as
-[GyulyVGC/listeners#56](https://github.com/GyulyVGC/listeners/issues/56).</Footnote>
-A mapped bind now reports `::ffff:127.0.0.1`, matching the crate's own Linux
-path.
-
-**Parity: PASS, on both platforms.** Five fixtures × two binders (node, python3) × both
-platforms, oracles `lsof` + the C helper on darwin and `ss` on linux. Compared by the
-CORRECTED discriminator — canonical equivalence, not byte equality: v4-mapped → v4, and any
-all-zeros address → ANY (the same equivalence `isAnyAddress` itself applies, and a
-dual-stack wildcard is legitimately reportable in either width). 10/10 rows equal on each
-platform. The case that failed round 1 now reads
-`…ffff7f000001` → `v4:7f000001`, equal to the C helper's `7f000001`.
-
-**Latency: FAIL, on both platforms.** Gate is a 10-run median ≤20 ms:
-
-| | median | gate | verdict |
-|---|---|---|---|
-| Rust wrapper, darwin (zest) | **23.2 ms** | ≤20 ms | ✗ over by ~3 ms |
-| Rust wrapper, linux (550 procs) | **~100 ms** | ≤20 ms | ✗ over by 5× |
-| C helper, darwin, same box + method | 10.6 ms | — | the incumbent |
-| padi's own `/proc` reader, linux | 14-18 ms | — | the incumbent |
-
-The +100-listener leg was not measured: the baseline already fails, so it could not change
-the verdict.
-
-**The cost is structural, not tuning.** The wrapper enumerates processes twice — once via
-`sysinfo`, again inside `listeners` — where the C helper makes one libproc pass. That is
-exactly the risk the original research flagged. Worse on linux, and more fundamentally:
-`listeners` maps socket inodes by walking **every** process's fds, whereas padi's reader
-walks only the union of the terminal subtrees it was asked about. No amount of wrapper
-tuning changes that; it is the crate's shape.
-
-**So the C helper still ships, and the decision that remains is a threshold one, not a
-correctness one.** Darwin misses by ~3 ms for a readout whose cadence is duty-cycle bounded
-anyway (`nudgeFloorMs` would simply stretch its own floor). Linux is the real obstacle to
-the shared-boundary idea, and it is the platform that needs no helper at all. A plausible
-end state is therefore narrower than "one binary for both": the shared boundary buys most of
-its value on darwin, and linux keeping its subtree-scoped `/proc` reader may be the right
-answer rather than a compromise. That is a call to make deliberately with these numbers in
-hand, not something to settle inside this PR.
-
-### Overturned: single-pass Rust matches C, so the shared binary is reopened
-
-Surveying one more candidate — [portview](https://github.com/Mapika/portview) (MIT,
-v1.6.0) — produced a number that invalidates the conclusion drawn above, so it is
-recorded here rather than left in a report.
-
-**portview measured ~9.9 ms median on darwin and ~25.5 ms on linux**, against our C
-helper's 10.6 ms on the same box by the same method. It is Rust, and it is a single pass
-over its own libproc / `/proc` code.
-
-So the `sysinfo`+`listeners` wrapper's 23.2 ms darwin / ~100 ms linux was never
-Rust's cost — it was the **double enumeration**, exactly as suspected: `sysinfo` walks
-the process list, then `listeners` walks it again (and on linux walks every process's
-fds to map inodes). One pass in Rust is as fast as one pass in C.
-
-**That reopens the shared kolu ⇄ drishti binary on performance grounds.** The blocker was
-never the language, and it was not really the crates either — it was composing two
-whole-host enumerations. A single-pass Rust binary written against the same libproc /
-`/proc` calls the C helper already uses should land in the same ~10 ms band, and it
-would carry the cross-platform boundary the C helper cannot.
-
-That design is now written down in its own note — [osfacts](./os-facts-tool.html) (proposed) —
-which also folds in `memorySampler`, `socketHolder`, the supervisor's start-time reads and
-drishti, since they are all the same question asked five ways.
-
-**What that binary must add over portview**, which is precisely what portview lacks:
-
-1. **A process table**, not just listener rows. portview emits one row per listening
-   socket with a single `ppid` edge, so a `shell → npm → node` server cannot be
-   walked back to its terminal: `npm` holds no listener and therefore never appears.
-   That is the same disqualifier that ruled out `portls`, and it is the whole question
-   this feature asks.
-2. **`--roots` scoping**, so cost tracks the ask rather than the host. portview's
-   single-port query is a host-wide scan followed by a filter — measured at 26.0 ms full
-   vs 25.1 ms scoped, i.e. no saving at all.
-
-Two smaller findings from the same survey, both already acted on:
-
-- portview does **not** shell out (own libproc/`/proc`/IpHelper code), so it inherits
-  neither the macOS netstat blindness nor the `listeners` v4-mapped bug — it reads
-  `insi_vflag`. But it tests `INI_IPV4` **before** `INI_IPV6`, so a dual-stack
-  `::` bind reports as `0.0.0.0` (predicted from its source, then measured on zest).
-- **Our own C helper had that identical defect**, and it is fixed in this PR — v6 is now
-  tested first, with the dual-stack case bound and read back in the helper's own install
-  check. We do not get to hold an upstream project to a bar our own reader misses.
-
-### What the follow-up must clear, and the two things the fact-check corrected
-
-The finding above survived an adversarial re-run whose explicit goal was to destroy it
-(fresh instruments, three binders — node, python3, a raw C `bind()` — and the kernel
-itself as arbiter). It also corrected two things, both of which the follow-up needs.
-
-**The gate's discriminator was wrong, and it would have failed the C helper too.** The
-original harness asserted BYTE-EQUALITY with `…ffff7f000001`. But the C helper emits
-`7f000001` for that same socket — a *truthful, equivalent* encoding of the same address
-in a different width, so it fails that assertion as well. The assertion conflated "same
-address" with "same encoding" and was not a sound discriminator. **The gate must compare
-address EQUIVALENCE, canonicalising v4-mapped ↔ v4** (`::ffff:a.b.c.d` ≡ `a.b.c.d`),
-under which the C helper passes and the crate still fails. Byte-equality is the wrong
-test for a fact the OS is entitled to represent two ways.
-
-**The crate's root cause is pinned, so the follow-up can file upstream from
-facts, not from a symptom**: `listeners` 0.6.0 branches on `soi_family`
-where it must branch on `insi_vflag` — one check, the same branch
-`portScanDarwin.c` already carries.<Footnote>The mechanics: for a v4-mapped
-bind macOS reports `soi_family = AF_INET6` but `insi_vflag = INI_IPV4` (v6
-flag CLEAR), storing the address in the 4-byte `i46a_addr4` slot while the
-v6 slot holds 12 zero pad bytes + the v4 address — read as IPv6 that is
-`::127.0.0.1`. Corroboration it is this branch and nothing else: the crate
-handles a plain AF_INET socket correctly, and its own `Debug` output names
-the wrong address outright (`[::7f00:1]:19701`). And a standing rule for any
-re-run: if only latency ever fails again, profile the second process pass —
-never turn a one-shot sampler into a resident daemon to hide startup cost
-without revisiting the operational model.</Footnote>
-
-**The measurements the decision rests on** — zest (macOS 27.0, ~826–866 processes),
-10-run medians, spawn-to-exit; linux from a ~550-process workstation:
-
-| mechanism | macOS median | linux median |
-|---|---|---|
-| **this C helper** | **8.45 ms** · 9.41 ms with +100 listeners | n/a — linux reads `/proc` directly (14–18 ms) |
-| `/bin/ps` alone | 49 ms | — |
-| `/usr/sbin/lsof` alone | 94 ms | — |
-| `procs --interval 1` | 29.6 ms — **and it discards the bind address** | 89.8 ms |
-| `osqueryi` union query | not packaged for darwin | 378 ms |
-| `portview` (MIT, own libproc//proc code) | **9.9 ms** — but listener rows only, no process table | 25.5 ms |
-| `sysinfo`+`listeners` wrapper | built and measured: low tens, but **FAILS address parity** (below) | built; parity green |
-
-So the old darwin path spent **~143 ms of subprocess** before parsing a
-byte, for facts libproc returns in one call; the candidate rejections each
-have one-line grounds and live in [osfacts](./os-facts-tool.html)'s
-comparison table.<Footnote>`ps` and `lsof` are themselves libproc clients.
-`procs` was rejected on function, not speed — it discards the bind address,
-collapsing loopback-only and wildcard into one row. `osquery` and `rustnet`
-fell on operational model, size, and (rustnet) packet-capture privilege.
-Re-measured on the shipped derivation: 10.6 ms/run on a busier zest (866
-processes), with live `lsof` parity on all four bind shapes including the
-dual-stack `::` socket, where the helper's `INI_IPV4` branch yields the
-4-byte `00000000` that `isAnyAddress` reads as reachable, matching lsof's
-`*:19304`.</Footnote>
-
-**Attribution is the live ppid subtree — and nothing more.** Backgrounded
+**Attribution is the live ppid subtree**Attribution is the live ppid subtree — and nothing more.** Backgrounded
 (`&`) processes, pipelines, and grandchildren all keep the shell as an
 ancestor, so the walk sees them; a *true* daemon (setsid/double-fork,
 reparented to init) leaves the subtree and is deliberately out of scope — no
@@ -598,7 +392,7 @@ release note:
 - **PRT0** *(shipped, <PrLink pr={1975} />)* — you can forward ports by hand, today, kolu or no kolu: run `nix run …#vazhi` in any terminal (a kolu terminal keeps it alive across reloads), type `a host:4123`, and get a live table with a clickable `http://…` link; `q` reaps every forward, guaranteed. Kolu's own UI changes not at all.
 - **PRT1** *(shipped, <PrLink pr={1982} />)* — the Inspector answers "what is this terminal serving?": a live **Ports** section lists every listening port of the session within seconds of it appearing. No forwarding yet — but a port bound to `0.0.0.0` on the kolu server host needs none (it already answers on the name in your address bar), so those chips open in one click; loopback-bound and remote-host ports are listed but wait for PRT2.
 - **PRT2** *(shipped, <PrLink pr={1991} />)* — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, one **Ports** list shows and cancels them (plus a manual ⌘K "Forward a port…"), and forwards clean themselves up when the server dies. This is the headline: *the agent started something → you're looking at it.*
-- **PRT3** *(deferred)* — the page opens inside kolu instead of a browser tab.
+- **PRT3** *(design seeded)* — the page opens inside kolu instead of a browser tab.
 
 | id | ships | needs | proof |
 | --- | --- | --- | --- |
@@ -613,48 +407,25 @@ design is seeded below, and its build waits its turn behind osfacts.
 
 ### PRT0 — the library, proven by vazhi (shipped: <PrLink pr={1975} />)
 
-`packages/port-forward/` plus the vazhi TUI with its own `flake.nix` (`nix
-run .#vazhi`). **Done when**, with **no kolu running**: in a terminal, vazhi
-adds a forward to a real remote box (pu harness) and shows the row live;
-`curl http://<vazhi-host>:<port>` **from a different machine** returns the
-remote server's body (proving the non-loopback bind); cancelling the row
-severs it; quitting vazhi tears its forwards down. Two structural criteria on
-top: vazhi imports **only `@kolu/port-forward`** (no kolu internals) — the
-proof that makes PRT2's embed mechanical — and `kill -9` on vazhi leaves
-**no port answering**, checked immediately rather than after any timer, which
-is the property the per-forward connection exists to give.
+`packages/port-forward/` plus the vazhi TUI (`nix run .#vazhi`), proven
+standalone against a real remote box with **no kolu running**. Two structural
+facts remain load-bearing: vazhi imports only `@kolu/port-forward` — the
+proof that made PRT2's embed mechanical — and `kill -9` leaves no port
+answering, the property the per-forward connection exists to give.
 
 ### PRT1 — detection + Ports section (shipped: <PrLink pr={1982} />)
 
-Scanner, `ports` schema field, sensor fold, the Inspector section, direct-open
-chips, the tip. The shipped mechanisms — the linux `/proc` reader and the
-darwin C helper — have a designed successor: one shared Rust binary serving
-kolu and drishti, planned in [osfacts](./os-facts-tool.html); until it passes
-that note's gates, what ships here is the measured best on each platform. **Done when** an e2e scenario runs
-`node -e 'require("http").createServer((_,r)=>r.end("ok")).listen(8123,"0.0.0.0")'`
-in a real kolu terminal and asserts the `8123` chip appears within two scan
-ticks and clicking it opens the page at `location.hostname:8123` — pinning the
-real path (padi scan → snapshot → surface → reconcile
-store), which no client-side mock can satisfy. Parser unit tests run on
-fixture `/proc` trees *and* fixture `lsof` field output; the darwin gate
-(`aarch64-darwin`) must be green, not skipped. Loopback-bound chips render
-with a "needs a forward" affordance; PRT2 made it live.
-
-**Fixtures are not enough, and this phase proved it twice.** A fixture pins the
-parser; it cannot pin the assumption that the parser is handed the shape it
-expects — and both darwin bugs lived exactly there, green fixtures over a scan
-that threw or saw nothing. So the scanner also carries a **live** suite that
-spawns real listeners and asks the real scanner about them on whatever platform
-it runs (`describeDaemon`-gated, so it rides the `ci::daemon` node that is
-required on both platforms).
-
-Scanner discipline, pinned from the Zed/VS Code comparisons: the pass holds
-**no OS state between ticks** — parse, join, emit the structural `PortInfo`
-snapshot, drop everything else (no retained fds, no process objects, no
-thread enumeration); it **repartitions from the current terminal root pids
-every tick**, so a terminal opening, closing, or being re-keyed never leaves
-a stale subtree; and it is single-flight (the output-nudge and the baseline
-tick share one non-overlapping runner).
+Scanner (`@kolu/port-scan`), the `ports` schema field, the sensor fold,
+the Inspector section, direct-open chips, the tip. What remains load-bearing:
+the pass holds **no OS state between ticks** (parse, join, emit the
+structural `PortInfo`, drop everything else); it **repartitions from the
+current terminal root pids every tick**, so a closed or re-keyed terminal
+never leaves a stale subtree; and it is **single-flight** (the output-nudge
+and the baseline tick share one non-overlapping runner). Fixtures alone
+proved insufficient twice on darwin, so a **live** suite — real listeners,
+the real scanner, both platforms — rides CI beside them.<Footnote>The
+reading mechanism itself is OSF2's to replace; the discipline above outlives
+the swap.</Footnote>
 
 ### PRT2 — kolu embeds the library (shipped: <PrLink pr={1991} />)
 
@@ -675,119 +446,52 @@ What ships, at a glance — detail lives in the footnotes:
   caption="One click, both mechanisms. A loopback port on the kolu host gets an in-process relay (case 1); a port on a remote host gets a dedicated ssh -L child whose death is the forward's death (case 2). The browser only ever opens the name already in its address bar. Auto-cancel rides PRT1's scanner; a killed kolu server takes every door with it, kernel-guaranteed."
 />
 
-### The deferred shape question, settled: `wildcard` became `scope`
+### The port fact, as shipped: `scope` + `family`, one judge
 
-PRT1's review left one question open for exactly this phase — whether `PortInfo`
-should carry `wildcard: boolean` or a three-way
-`scope: "any" | "loopback" | "interface"` — on the grounds that PRT2 is where the
-second consumer appears and the tag could then be designed against two real
-readers instead of one. It appeared, and **the boolean was wrong for a reason no
-amount of structural argument had reached: it is not a distinction the
-MECHANISMS can act on.**
+`PortInfo` carries `scope: "any" | "loopback" | "interface"` — a boolean
+could not spell the interface-bind case, which answers at its own address
+and which **no door can reach**, so `portReach` has an honest `no-mechanism`
+arm — and `family` beside it, because `127.0.0.1` and `::1` are both
+`loopback` and are not the same address: `scope` decides *whether* a door is
+needed, `family` decides *what it dials*.<Footnote>One classifier
+(`addressScope`) stays the single judge both platforms reach through their
+own decoders, so they cannot disagree about `::ffff:0.0.0.0`; the fold
+widens (`any` > `interface` > `loopback`), keeping it order-independent so a
+5-second scanner never republishes a phantom change. The dial family is read
+SERVER-side off kolu's own scan — a client's stale copy would open a door
+onto nothing — and the one unobservable case (a manual forward to a port no
+terminal serves) assumes v4 at a named constant, loud at the point of use.
+Both fields were bought by field defects: `wildcard` lost the interface
+case, scope-alone lost the family — each a fact the OS handed us, collapsed
+below the consumer's need, invisible until something dialled the
+answer.</Footnote> `scope` is an OBSERVATION, not a verdict: whether a port
+answers for a given viewer also needs the host, so the judgment stays
+`portReach(scope, onKoluHost)` in kolu's own vocabulary. And `ports` is a
+discriminated `known` / `unknown` two-way — a terminal that has never been
+successfully scanned is distinguishable on the wire from one that serves
+nothing, with three verified routes to blindness that never touch the
+shell.<Footnote>A first-pass `lsof` timeout on darwin, a transient
+`/proc/net/tcp` read failure on linux, any unexpected `/proc` errno. Blind
+holds a last-good sample only for what it can actually cover.</Footnote>
 
-Both of PRT0's doors connect to **`127.0.0.1` on the far side** — the relay dials
-this machine's loopback, the `ssh -L` child dials the remote's. So the boolean's
-`false` arm covered two cases with *opposite* correct handling: a loopback bind
-(exactly what a door reaches) and a bind to one specific interface such as
-`192.168.1.5` (which answers at that address, and which no door can reach at
-all). Under `wildcard: boolean` the second case rendered as "needs a forward",
-the click would open a listener successfully, and every connection through it
-would be refused. A boolean cannot spell the difference, so PRT2 ships the
-three-way and `portReach` grows a fourth, honest arm — `no-mechanism` — that
-offers nothing because there is nothing to offer.<Footnote>The reshape is one
-classifier, not a schema patch: `isAnyAddress` became `addressScope`, still the
-SINGLE judge both platforms reach through their own decoder, so the two cannot
-come to disagree about `::ffff:0.0.0.0` — the property PRT1 paid for twice. The
-fold widens rather than ORs (`any` > `interface` > `loopback`), which keeps it
-order-independent, which is what keeps a 5-second scanner from republishing a
-"change" forever. Cost, stated: padi's surface goes 4.2 → 4.3 and a straddling
-padi is drained by the existing convergence machinery before either parser meets
-the other's frame — the same rule 4.1 and 4.2 already rest on, so the reshape
-needs no compatibility arm and deliberately has none. Verified against the real
-OS, not just fixtures: the live suite binds a real routable interface address and
-asserts it classifies as `interface`.</Footnote>
+### Embedded, and field-hardened
 
-The structural lens's original case stands too, and is worth recording as
-*separate*: `scope` is still an OBSERVATION, not a verdict. Whether a port answers
-for a given viewer needs the HOST as well, which no field of `PortInfo` ever
-carried — so the judgment stays `portReach(scope, onKoluHost)` in kolu's own
-vocabulary, where both ends of the wire read the one copy.
+The kolu server embeds `@kolu/port-forward`: forward state is a cell on the
+existing surface, chip click → lazy create, one merged Ports list, ⌘K manual
+forward, auto-cancel — with two UX details adopted from VS Code's Ports view
+(re-forwarding prefers the previous local port; every row carries
+copy-address). The first deploy surfaced three field defects — a
+fused-cadence publish loop that froze the whole server, the missing address
+family, and forwarding offered to the machine the viewer was sitting at —
+each fixed in the same PR with a regression test written red
+first.<Footnote>The freeze's general lesson outlived its fix and went
+upstream (next section): neither module was wrong in isolation, so only a
+test of the JOIN — reproducing the fused wiring and asserting a bounded read
+count — could catch it. The reconciliation now **reports by returning**, so
+"reap and announce" is no longer spellable; the reactor's provenance guard
+makes the whole class crash loudly instead of freezing.</Footnote>
 
-### …and then production froze, and `scope` turned out to be half the fact
-
-The first deploy of PRT2 **froze the entire kolu server on the first forward
-click** — UI dead, HTTP dead, `SIGTERM` ignored until systemd sent `SIGKILL` —
-and the forward it did open served nothing. Three defects, and the two that
-matter are the same mistake in different clothes.
-
-**The freeze was a cycle between two reasonable halves.** The forward cell is a
-poll on a *fused* cadence (`everyMsOr(interval, onChange)`): the interval runs
-the auto-cancel pass, and the change edge makes an act publish at once instead of
-waiting out a tick. Separately, the auto-cancel pass ended by announcing its
-result. Each half is right on its own; together, the pass announced on the very
-edge that triggers the pass — read → reap → announce → tick → read — and the
-event loop never yielded again. It was invisible until the first click because
-with zero `auto` forwards the pass returned *before* announcing. The fix is not a
-guard on the announcement but the removal of the shape: the reconciliation
-**reports by returning**, the poll publishes what it returns, and "reap and
-announce" is no longer spellable.<Footnote>The general lesson is worth more than
-the fix: neither module was wrong in isolation, so no unit test of either could
-have caught it. What catches it is a test of the JOIN — the regression test
-reproduces the fusion in miniature and asserts the read count stays BOUNDED,
-which is a property of the wiring rather than of any module in it.</Footnote>
-
-**And `scope` was half a fact.** `127.0.0.1` and `::1` are both `loopback` and
-are *not the same address*; the classifier folded them together, and both
-mechanisms then dialled v4. A dev server on `[::1]:5173` — what vite and several
-Node versions bind by default — got a tunnel that came up perfectly and served
-nothing, because there was no listener at the address the door opened onto. So
-`PortInfo` now carries `family` beside `scope`, and it is a **separate field
-rather than a fourth scope value** because the two answer different questions:
-`scope` decides *whether* a door is needed, `family` decides *what it dials*, and
-only the first is a reachability judgment with an ordering.
-
-The two are one lesson, stated once because it has now cost two defects in one
-PR: **a fact the OS handed us was collapsed below what the consumer needed, and
-the collapse was invisible until something dialled the answer.** `wildcard` lost
-the interface case; `scope` lost the family. Both looked like tidy reductions and
-both were reductions past the point of use.<Footnote>Which is why the dial family
-is now read SERVER-side off kolu's own scan rather than accepted from the client:
-a client's copy of the port facts can be a scan or two stale, and a stale family
-opens a door onto an address with nothing behind it — the same failure by a
-different route. The one place kolu cannot observe it (a manual forward to a port
-no terminal serves) assumes v4 at a single named constant, with the failure loud
-at the point of use rather than silent.</Footnote>
-
-**A second question of the same shape was RAISED AND SETTLED IN PRT1**, not deferred: whether a terminal that has never been successfully scanned is distinguishable on the wire from one that serves nothing. It was first argued as unreachable and the peer review refuted that with three surviving routes — a first-pass `lsof` timeout on darwin, a transient `/proc/net/tcp` read failure on linux, and (widened by PRT1&rsquo;s own fix) any unexpected `/proc` errno — none of which needs the terminal&rsquo;s own shell to be unreadable. So `ports` is a discriminated `known` / `unknown` two-way, the same honest shape `ProcessRss` already uses, and holding a last-good sample now covers only what it can actually cover.<Footnote>PRT1 also left a
-second, smaller judgment on the table: kaval's one host-global `activity` edge now
-has three independent `resubscribeStream` consumers (the finish fold, the live
-dots, the port-scan nudge). They are not three copies of one shape — the live-dots
-one is per-SUBSCRIBER by design, the other two are daemon-lifetime — so the shared
-fan-out waits for a consumer that actually matches, rather than forcing the
-per-subscriber case into a receptacle it does not want.</Footnote>
-
-The kolu server embeds `@kolu/port-forward`; forward state becomes a cell on
-kolu's existing surface; chip click → lazy create; tunnel badges; one merged
-Ports list; manual forward + ⌘K command; auto-cancel policy. Two UX details
-adopted from VS Code's Ports view: when an auto-forwarded listener dies and
-later returns, **re-forwarding prefers the local port it had before** (links
-and bookmarks keep working across a dev-server restart), and every
-forwarded-port row carries a **copy-address** affordance beside open and
-cancel. **Done when**,
-verified with the `remote-host-testing` harness against a real remote box
-*and* a viewer on a different machine than the kolu server: clicking a remote
-terminal's chip creates the forward **through the embedded library** (a
-running vazhi is neither required nor consulted), the opened
-`http://<kolu-host>:<localPort>` returns the remote server's body, cancelling
-the row severs it, and stopping the remote server auto-cancels the `auto`
-forward within two scan ticks. Plus the kolu-level twin of PRT0's SIGKILL
-criterion, which matters MORE here than in vazhi because the server restarts on
-every deploy: **kill the kolu server and every forward it created must refuse
-connections at once** — the old shared-master design would have orphaned them
-on each release while the restarted Inspector showed an empty list. Evidence
-video of the click-to-page flow.
-
-**When the viewer IS the host.** A machine in kolu's fleet can be the machine you
+**When the viewer IS the host.****When the viewer IS the host.** A machine in kolu's fleet can be the machine you
 are reading kolu from — the plan's own footnote called this "roundabout but
 correct, and not worth a special case in v1", and in practice it was baffling:
 every chip on *zest*'s terminals, viewed from zest, offered to open a door on
@@ -815,26 +519,17 @@ alias-named hosts, where it simply never fires. Recorded as a limit rather than
 hidden, because the alternative was to add a padi surface field inside an
 incident fix.</Footnote>
 
-**The first cut of it never fired once, and the reason is worth keeping.** It
-compared the connection's TCP peer — and kolu's real deployment is reached
-through `tailscale serve`, which terminates TLS and dials the backend from the
-host's OWN tailnet address. So the only established connection to kolu had peer
-`100.122.32.106`: *pureintent itself*. The viewer's address never appeared as a
-TCP peer at all; it was in an `X-Forwarded-For` header nothing read. The
-comparison had been right the whole time and the observation feeding it belonged
-to the proxy.
-
-So the address is now taken from the forwarded header **when, and only when, the
-direct peer is a trusted local hop** — loopback, or one of this host's own
-addresses, which is exactly what a local reverse proxy looks like. Three
-properties make that safe to state as a rule rather than a setting: a header
-arriving on an untrusted connection is ignored **entirely** (anyone who can reach
-kolu directly can invent one, and honouring it would let a stranger be handed a
-`localhost` link for any host's ports); the **last** entry wins rather than the
-first, because each proxy *appends* the address it received from while the
-leftmost entry is whatever the client typed; and there is no trusted-proxy list
-to configure, because the trust condition is a fact about the connection rather
-than a knob.<Footnote>A deployment shape that hides the viewer more thoroughly —
+The viewer's address is taken from the `X-Forwarded-For` header **when,
+and only when, the direct peer is a trusted local hop** — loopback, or one of
+this host's own addresses, which is exactly what a local reverse proxy looks
+like (kolu's real deployment is reached through `tailscale serve`, whose
+dial arrives from the host's own address — the reason a bare TCP-peer
+comparison never fired once in the field). A header on an untrusted
+connection is ignored **entirely** (anyone who can reach kolu directly can
+invent one); the **last** entry wins, because each proxy appends the address
+it received from while the leftmost is whatever the client typed; and there
+is no trusted-proxy list, because the trust condition is a fact about the
+connection rather than a knob.<Footnote>A deployment shape that hides the viewer more thoroughly —<Footnote>A deployment shape that hides the viewer more thoroughly —
 a proxy on a different machine, or one that strips the header — lands on the same
 no-match side as before, which keeps the forward that works. The mechanism is
 allowed to not fire; it is not allowed to be wrong.</Footnote>
@@ -896,7 +591,13 @@ finished.
 - **Agents reach it through kolu MCP as verbs over DOORS, not a browser**:
   `preview_open` / `preview_close` taking `(terminal, port, path)` — **never
   a raw URL** — plus preview state readable off the surface like every other
-  fact.<Footnote>The no-raw-URLs invariant is both safety and honesty: an
+  fact. `preview_open` is idempotent-with-navigation: calling it again for
+  the same `(terminal, port)` with a new `path` NAVIGATES the existing pane
+  ("now look at `/checkout?coupon=X`") rather than opening a second one.
+  Navigation is write-only, stated honestly: kolu can set the frame's
+  location but cross-origin rules keep it from reading where the user has
+  since clicked to, so readable state is the last path kolu set, never
+  "where the frame is now".<Footnote><Footnote>The no-raw-URLs invariant is both safety and honesty: an
   agent (or whatever prompt-injected it) cannot steer the human's viewport
   beyond ports kolu itself holds doors to, and the feature stays what it is —
   a dev-server preview, not Chrome-in-a-tab. Reading or driving the PAGE
@@ -927,49 +628,20 @@ section, per the note's own rule.
 
 ## What this track sent upstream
 
-PRT2's production incident was the best evidence for what belongs in the
-`@kolu/surface` frameworks rather than in this feature. Four items were
-dispatched; **three shipped, one was withdrawn on verified grounds** — and the
-withdrawal is recorded here rather than left looking pending, because a roadmap
-that claims work it did not do is worse than one that is short.
-
-1. **A loop guard in the reactor, built on PROVENANCE.** The freeze was the
-   reactor executing a legal wiring forever, and the class stayed expressible
-   after the consumer-side fix — `processMemory` and `daemonInventory` sit on
-   identical wiring. Each poll read now runs inside an `AsyncLocalStorage`
-   context keyed to its own source, so a change edge that fires *under that
-   context* was caused by the read it is about to re-trigger. Three consecutive
-   self-caused ticks crash naming the cell.<Footnote>The first cut asked about
-   TIMING and value-equality instead, and adversarial verification refuted it in
-   both directions: a plain `everyMs(10)` cell whose read takes 30 ms and returns
-   a constant crashed in ~400 ms (every coalesced trailing read looked
-   "immediate"), while the proposed lap-timing fix would have MISSED the real
-   freeze, since a self-loop's lap is just its read duration. Timing is a proxy
-   for causation and every variant of it fails one direction or the other. The
-   repo's own doctrine already said so — cut feedback loops with provenance, not
-   value-dedup (the controlled-component echo rule).</Footnote> Its companion
-   `assertCellConverges` ships beside it as the authoring-time twin, and PRT2's
-   own convergence test uses it.
-2. **Viewer identity graduated** to `@kolu/surface/viewerIdentity`. "Which
-   machine is the viewer actually at" is a transport fact any surface-served app
-   behind a reverse proxy needs, and kolu got it wrong twice in one day. The
-   judgment (trusted-peer gating, which forwarded hop may be believed) is the
-   package's; the OS-touching half — DNS, interface enumeration — stays with the
-   consumer.
-3. **The doctrine, written down** where surface rules live: a per-viewer answer
-   is a root RPC and never a broadcast cell; a poll read may reconcile, but
-   publishes only by returning. Both cite this incident.
-
-**Withdrawn: `Observed<T>`.** The item's own premise — "the same discriminated
-shape hand-rolled three times" — turned out to be factually wrong, and checking
-it was the whole value of the exercise. `ProcessRss` is a deliberate THREE-way
-whose `error` arm is load-bearing on the wire (producers emit it, two client
-consumers render distinct UI from it), so it was never a candidate. Between the
-remaining two the honest duplication is ~5–7 lines of map-accumulate skeleton:
-the one real merge rule (`preferredFamily`) is already shared, the compare logic
-overlaps not at all, and `HostPorts` is a *projection from* `TerminalPorts`
-rather than a parallel fold of the same thing. The repo also already has an
-in-process generic for this (`Known<T>`, payload key `value`) that a wire
-unification would collide with. There is nothing worth extracting; it may be
-revisited only if osfacts' kolu-side adoption ever creates real duplicated fold
-logic.
+PRT2's incident drove four dispatches into `@kolu/surface`; **three shipped,
+one was withdrawn** when verification refuted its premise. Shipped: the
+reactor's **loop guard built on provenance** — an `AsyncLocalStorage` read
+context per cell; three consecutive self-caused ticks crash naming the
+cell<Footnote>Timing-plus-value-equality heuristics were adversarially
+refuted in both directions first: they crash an honest poll slower than its
+interval, and they miss a real cycle whose read does work. Causation, not
+timing — the repo's own echo-loop doctrine.</Footnote> — with
+`assertCellConverges` as its authoring-time twin; **viewer identity**,
+graduated to `@kolu/surface/viewerIdentity`; and the **doctrine written
+down**: a per-viewer answer is a root RPC and never a broadcast cell; a poll
+read may reconcile but publishes only by returning. Withdrawn:
+`Observed<T>` — its "same shape three times" premise was factually wrong
+(`ProcessRss` is a load-bearing three-way; the honest duplication elsewhere
+is ~6 lines of loop skeleton), recorded so the roadmap does not claim work
+it did not do. Revisit only if osfacts' kolu-side adoption ever creates real
+duplicated fold logic.
