@@ -171,23 +171,39 @@ async function portsView(world: KoluWorld): Promise<PortsView> {
     const rows = [
       ...section.querySelectorAll('[data-testid="inspector-port-row"]'),
     ];
-    const pick = (row: Element, id: string) =>
-      row.querySelector(`[data-testid="${id}"]`);
+    // NO named helper inside this closure, deliberately. `page.evaluate` ships
+    // the function's SOURCE to the browser, and esbuild's `keepNames` rewrites a
+    // named arrow (`const pick = …`) into `__name(…, "pick")` — a helper that
+    // exists in the bundle but not in the page, so the call dies with
+    // `ReferenceError: __name is not defined` at runtime and no amount of
+    // type-checking sees it. Anonymous callbacks passed straight to `map`/
+    // `filter` are untouched, so the queries are inlined instead.
     return {
       present: true,
       rows: rows.map((row) => ({
         port: Number(row.getAttribute("data-port")),
-        openable: pick(row, "inspector-port-open") !== null,
+        openable:
+          row.querySelector('[data-testid="inspector-port-open"]') !== null,
       })),
       forwardable: rows
-        .filter((row) => pick(row, "inspector-port-forward-open") !== null)
+        .filter(
+          (row) =>
+            row.querySelector('[data-testid="inspector-port-forward-open"]') !==
+            null,
+        )
         .map((row) => Number(row.getAttribute("data-port"))),
       badges: rows
-        .filter((row) => pick(row, "inspector-port-forward-badge") !== null)
+        .filter(
+          (row) =>
+            row.querySelector(
+              '[data-testid="inspector-port-forward-badge"]',
+            ) !== null,
+        )
         .map((row) => {
           const port = Number(row.getAttribute("data-port"));
           const text =
-            pick(row, "inspector-port-forward-badge")?.textContent ?? "";
+            row.querySelector('[data-testid="inspector-port-forward-badge"]')
+              ?.textContent ?? "";
           // The LAST `:digits`, because the pill carries a whole address and an
           // IPv6-served kolu puts colons in the host half (`[fd7a::2]:61003`).
           const named = /:(\d+)$/.exec(text.trim())?.[1];
