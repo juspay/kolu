@@ -10,7 +10,10 @@ import { padiSurface } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import {
   DaemonInventorySchema,
+  type KoluForward,
+  KoluForwardSchema,
   PadiConvergenceSchema,
+  sameForwards,
   shuffleMode,
   surfaces,
 } from "./surface.ts";
@@ -119,5 +122,50 @@ describe("DaemonInventorySchema.boundPadi — exactly one representation of 'not
         },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("sameForwards — the forwards cell's dedup gate", () => {
+  const ROW: KoluForward = {
+    key: "remote:pu-dev:5173",
+    host: { kind: "remote", target: "pu-dev" },
+    remotePort: 5173,
+    localPort: 61003,
+    origin: "auto",
+    createdAt: 1_700_000_000_000,
+  };
+
+  /** A value of the right shape that DIFFERS from the row's, per field. */
+  const OTHER: KoluForward = {
+    key: "remote:pu-dev:5174",
+    host: { kind: "local" },
+    remotePort: 5174,
+    localPort: 61004,
+    origin: "manual",
+    createdAt: 1_700_000_000_001,
+  };
+
+  it("sees a change in EVERY field the wire schema declares", () => {
+    // Read off the schema rather than hand-listed, so this test grows with
+    // `KoluForwardSchema` — a field the gate stops comparing is a field whose
+    // changes are swallowed with nothing anywhere to report why the row froze.
+    for (const key of Object.keys(
+      KoluForwardSchema.shape,
+    ) as (keyof KoluForward)[]) {
+      expect(
+        sameForwards([ROW], [{ ...ROW, [key]: OTHER[key] } as KoluForward]),
+        `sameForwards ignores "${key}"`,
+      ).toBe(false);
+    }
+  });
+
+  it("says nothing changed when nothing did, host object identity included", () => {
+    expect(
+      sameForwards(
+        [ROW],
+        [{ ...ROW, host: { kind: "remote", target: "pu-dev" } }],
+      ),
+    ).toBe(true);
+    expect(sameForwards([ROW], [ROW, ROW])).toBe(false);
   });
 });

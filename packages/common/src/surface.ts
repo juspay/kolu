@@ -547,6 +547,15 @@ export type ForwardCreateInput = z.infer<typeof ForwardCreateInputSchema>;
 /** What `forwards.cancel` takes — the key off the row being cancelled. */
 export const ForwardCancelInputSchema = z.object({ key: z.string() });
 
+/** The comparison keys, READ OFF the schema so a new `KoluForward` field is
+ *  compared with no second edit here — the `PORT_INFO_KEYS` mechanism
+ *  (`@kolu/port-scan/ports`), for its reason: this is a DEDUP gate, so a field it
+ *  does not compare is a field whose changes are swallowed, with nothing anywhere
+ *  to report why the row never updated. */
+const FORWARD_KEYS = Object.keys(
+  KoluForwardSchema.shape,
+) as (keyof KoluForward)[];
+
 /** Are two forward lists the same fact? The cell's wire dedup point: the list is
  *  republished whenever the map moves, and a re-publish that changes nothing
  *  would tick every reader. Field-wise rather than `JSON.stringify` because
@@ -556,13 +565,13 @@ export function sameForwards(a: Forwards, b: Forwards): boolean {
     a.length === b.length &&
     a.every((f, i) => {
       const g = b[i]!;
-      return (
-        f.key === g.key &&
-        f.localPort === g.localPort &&
-        f.remotePort === g.remotePort &&
-        f.origin === g.origin &&
-        f.createdAt === g.createdAt &&
-        encodeHostKey(f.host) === encodeHostKey(g.host)
+      return FORWARD_KEYS.every((k) =>
+        // `host` is the one field that is an object; key order in a
+        // serialization is not a fact, so it is compared by its canonical
+        // encoding rather than by identity.
+        k === "host"
+          ? encodeHostKey(f.host) === encodeHostKey(g.host)
+          : f[k] === g[k],
       );
     })
   );
