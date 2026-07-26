@@ -159,8 +159,18 @@ export interface PollSourceOptions<T> {
   install: (tick: () => void) => SourceCleanup;
   /** What to call this source in a loop-guard error. Diagnostics only — it
    *  changes no behaviour, and it is what turns a freeze into a message naming
-   *  the cell rather than a stack in framework code. */
-  label?: string;
+   *  the cell rather than a stack in framework code.
+   *
+   *  REQUIRED, and that is the whole of it. The guard exists because a
+   *  self-caused poll loop froze a production server, and an unnamed crash
+   *  reports the class of defect without saying which cell. "Name your poll
+   *  sources" as a convention is a rule held by memory: the next fused cell is
+   *  added by someone who has not read this comment, and the guard then fires
+   *  anonymously on exactly the source nobody expected to loop. A required
+   *  field is a compile error, which is what "no anonymous poll source" has to
+   *  be. (The member key would be the ideal author of it, but it is bound at a
+   *  seam this closure is already built by the time the walk reaches.) */
+  label: string;
 }
 
 /** Whether a graph node is a POLL source (so `derived.cell` wires its async
@@ -336,10 +346,9 @@ export function __setLoopReporterForTests(
 
 /** Say it, loudly. Default is a throw on its own turn — an unbounded cycle must
  *  be a crash with a stack, not a process that stops answering. */
-function reportSelfCausedLoop(label: string | undefined): void {
-  const named = label === undefined ? "" : ` "${label}"`;
+function reportSelfCausedLoop(label: string): void {
   const err = new Error(
-    `surface reactor: the poll source${named} is re-reading itself — ${SELF_CAUSED_STREAK} ` +
+    `surface reactor: the poll source "${label}" is re-reading itself — ${SELF_CAUSED_STREAK} ` +
       "consecutive re-reads were triggered by a change edge fired from inside this source's OWN read " +
       "(same async context), which is an unbounded cycle (it froze a production server: HTTP dead, " +
       "SIGTERM ignored). Report the reconciled value by RETURNING it — the poll publishes what the " +

@@ -305,6 +305,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // `equals` at the spec; the graph is the one writer.
       processMemory: derived.cell(
         source({
+          label: "processMemory",
           read: () => sampleServerMemory(deps.readPadiMemory),
           install: everyMsOr(MEMORY_SAMPLE_INTERVAL_MS, deps.onState),
         }),
@@ -331,6 +332,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // at once. Structural `equals` at the spec; the graph is the one writer.
       daemonInventory: derived.cell(
         source({
+          label: "daemonInventory",
           read: readDaemonInventoryTotal,
           install: everyMsOr(DAEMON_INVENTORY_SAMPLE_INTERVAL_MS, deps.onState),
         }),
@@ -350,12 +352,9 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // behind them, and that answer has to be re-read on a clock.
       forwards: derived.cell(
         source({
+          label: "forwards",
           read: deps.forwards.read,
           install: everyMsOr(FORWARD_REAP_INTERVAL_MS, deps.forwards.onChange),
-          // Named, because this is the exact cell whose self-caused loop froze
-          // production — an unnamed guard crash would report the class of defect
-          // without saying which cell, on the one wiring the guard exists for.
-          label: "forwards",
         }),
       ),
     },
