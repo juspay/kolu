@@ -216,8 +216,11 @@ the fanout, but a run that resolves **zero** lanes — no file anywhere, no
 `--host`, no `--platform` — is **refused**, not defaulted to `localhost`
 (juspay/odu#46). `--host PLAT=ADDR` pins one box for the run; run on this
 machine on purpose with `--host PLAT=localhost` or a `"PLAT": "localhost"`
-entry. A mixed pool may list localhost explicitly as a real candidate when
-remotes are busy — still never an implicit fallback.
+entry. A pool must be pure-local or pure-remote: mixing localhost with remotes
+is refused when a run leases that platform, because a lease-exempt localhost
+reads as always-free and starves the busy remotes beside it (juspay/odu#54). A
+mixed pool for a platform the run never leases is nobody's business and does
+not refuse the run (juspay/odu#66).
 
 A lane host needs only **ssh + Nix + outbound https**: the runner ships as
 a Nix closure (`nix copy` → realise on the host), and the source arrives by

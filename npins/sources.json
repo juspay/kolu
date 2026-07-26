@@ -33,11 +33,11 @@
         "owner": "juspay",
         "repo": "odu"
       },
-      "branch": "master",
+      "branch": "fix/lazy-pool-validation",
       "submodules": false,
-      "revision": "04373fc31777555073ec8b6c3052bd67fd46b9c6",
-      "url": "https://github.com/juspay/odu/archive/04373fc31777555073ec8b6c3052bd67fd46b9c6.tar.gz",
-      "hash": "sha256-5y+mtJlh3Fd3flwqxAJ3rN9bEeYE0PoLWpeQ9GjPX+w="
+      "revision": "8839fa2a18f2b3962c564101ab9c46733813428e",
+      "url": "https://github.com/juspay/odu/archive/8839fa2a18f2b3962c564101ab9c46733813428e.tar.gz",
+      "hash": "sha256-kRdFW76sTBV9JsfSUaTLLM8D3hqB/uTTxBPUQ5LyNLQ="
     },
     "rhai-lsp": {
       "type": "Git",
