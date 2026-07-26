@@ -1,8 +1,14 @@
-//! Lane 2 — live-host oracle. Never gates a merge.
+//! Lane 2 — live-host oracle. Runs every full `/ci`; never a merge gate.
 //!
 //! Invoked only when `OSFACTS_LIVE=1` (see `scripts/live-oracle.sh`). The
 //! binary under test is `$OSFACTS_BIN` (the nix-built osfacts), never a
 //! target-dir debug build.
+//!
+//! Host-wide agreement is privilege-honest: osfacts only emits L rows for
+//! sockets it can attribute through readable pids. The platform oracle may
+//! list sockets owned by other uids (ss without pid, root listeners). Those
+//! are not failures — Oracle→osfacts only requires match when the oracle
+//! attributes a pid that is not in the snapshot's unreadable set.
 //!
 //! Cucumber MSRV is 1.88 (crate 0.23, edition 2024); our pin is ≥1.93 — cleared.
 
@@ -10,7 +16,7 @@ use cucumber::{given, then, when, World};
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
 use std::thread;
 use std::time::Duration;
 
@@ -27,6 +33,8 @@ struct LiveWorld {
     osfacts_listeners: Vec<ListenerRow>,
     /// Platform oracle rows: (pid_opt, port, addr_bytes).
     oracle_listeners: Vec<ListenerRow>,
+    /// Pids osfacts reported as unreadable (`U` rows) on the last snapshot.
+    unreadable_pids: HashSet<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +163,7 @@ fn listener_attributed(world: &mut LiveWorld) {
 fn host_wide(world: &mut LiveWorld) {
     let tsv = world.run_osfacts(&["snapshot", "--procs", "--ports"]);
     world.osfacts_listeners = parse_osfacts_listeners(&tsv);
+    world.unreadable_pids = parse_unreadable_pids(&tsv);
     world.snapshot = Some(tsv);
 }
 
@@ -188,7 +197,19 @@ fn agree_with_retry(world: &mut LiveWorld, dir: Direction) {
                 missing_from(&world.osfacts_listeners, &world.oracle_listeners)
             }
             Direction::OracleInOsfacts => {
-                missing_from(&world.oracle_listeners, &world.osfacts_listeners)
+                // Only sockets the oracle attributes to a pid that osfacts
+                // could have read. Unattributed (other-uid / no -p info) and
+                // unreadable pids are expected gaps, not product bugs.
+                let comparable: Vec<ListenerRow> = world
+                    .oracle_listeners
+                    .iter()
+                    .filter(|r| match r.pid {
+                        Some(pid) => !world.unreadable_pids.contains(&pid),
+                        None => false,
+                    })
+                    .cloned()
+                    .collect();
+                missing_from(&comparable, &world.osfacts_listeners)
             }
         };
         if missing.is_empty() {
@@ -198,12 +219,13 @@ fn agree_with_retry(world: &mut LiveWorld, dir: Direction) {
             // Re-read both sides.
             let tsv = world.run_osfacts(&["snapshot", "--procs", "--ports"]);
             world.osfacts_listeners = parse_osfacts_listeners(&tsv);
+            world.unreadable_pids = parse_unreadable_pids(&tsv);
             world.oracle_listeners = platform_oracle();
             continue;
         }
         panic!(
-            "canonical mismatch ({dir:?}), missing={missing:?}\nosfacts={:?}\noracle={:?}",
-            world.osfacts_listeners, world.oracle_listeners
+            "canonical mismatch ({dir:?}), missing={missing:?}\nosfacts={:?}\noracle={:?}\nunreadable={:?}",
+            world.osfacts_listeners, world.oracle_listeners, world.unreadable_pids
         );
     }
 }
@@ -215,6 +237,21 @@ fn missing_from(have: &[ListenerRow], against: &[ListenerRow]) -> Vec<(u16, Cano
         .map(|r| (r.port, r.canon.clone()))
         .filter(|k| !set.contains(k))
         .collect()
+}
+
+fn parse_unreadable_pids(tsv: &str) -> HashSet<u32> {
+    let mut out = HashSet::new();
+    for line in tsv.lines() {
+        let Some(rest) = line.strip_prefix("U\t") else {
+            continue;
+        };
+        if let Some(pid_s) = rest.split('\t').next() {
+            if let Ok(pid) = pid_s.parse::<u32>() {
+                out.insert(pid);
+            }
+        }
+    }
+    out
 }
 
 fn parse_osfacts_listeners(tsv: &str) -> Vec<ListenerRow> {
@@ -294,29 +331,35 @@ fn platform_oracle() -> Vec<ListenerRow> {
 
 #[cfg(target_os = "linux")]
 fn oracle_ss() -> Vec<ListenerRow> {
-    // `ss -ltnH` — numeric, listening, TCP, no header. Users can add -p for
-    // pid; we key by (port, canon addr) so pid is optional.
+    // `ss -ltnpH` — numeric, listening, TCP, processes when permitted, no
+    // header. Pid is None when the kernel withholds process info (other uid);
+    // Oracle→osfacts skips those (see agree_with_retry).
     let out = Command::new("ss")
-        .args(["-ltnH"])
+        .args(["-ltnpH"])
         .output()
         .expect("ss must be on PATH for the live oracle");
     assert!(out.status.success(), "ss failed: {}", out.status);
     let text = String::from_utf8_lossy(&out.stdout);
     let mut rows = Vec::new();
     for line in text.lines() {
-        // LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*
+        // LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:* users:(("node",pid=123,fd=4))
         let cols: Vec<&str> = line.split_whitespace().collect();
         if cols.len() < 4 {
             continue;
         }
         let local = cols[3];
+        let pid = line
+            .find("pid=")
+            .and_then(|i| {
+                let rest = &line[i + 4..];
+                let end = rest
+                    .find(|c: char| !c.is_ascii_digit())
+                    .unwrap_or(rest.len());
+                rest[..end].parse().ok()
+            });
         if let Some((addr, port)) = split_host_port(local) {
             if let Some(canon) = parse_ss_addr(addr) {
-                rows.push(ListenerRow {
-                    pid: None,
-                    port,
-                    canon,
-                });
+                rows.push(ListenerRow { pid, port, canon });
             }
         }
     }

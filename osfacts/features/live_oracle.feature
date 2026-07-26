@@ -16,3 +16,6 @@ Feature: Live-host oracle (lane 2 — never gates)
     And every oracle listener has a canonical match in osfacts
     # Appear/vanish races between the two reads are tolerated structurally:
     # the step functions re-read once on mismatch before failing.
+    # Privilege-honest: oracle sockets with no process attribution (or whose
+    # pid is in osfacts's unreadable set) are not required in the L table —
+    # osfacts reports those as U rows, not missing L rows.
