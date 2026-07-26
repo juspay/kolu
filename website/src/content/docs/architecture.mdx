@@ -413,15 +413,13 @@ _out_. The map, grouped:
   behind it; `kolu tui` is reserved for a later face).
 - **Daemons** — [`padi`](/padi) (the per-host workspace daemon that owns the
   terminal domain and serves `padiSurface`) and [`kaval`](/kaval) (the standalone
-  PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`. `vazhi` is
-  a standalone TUI in the same family but over no daemon at all: it drives
-  `port-forward` directly, which is what proves that library stands alone.
+  PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`.
 - **Reachability** — `port-forward` hides ssh forward lifetime and local
   binding: one dedicated ssh connection per forward, so a forwarded port dies
   with the process that opened it rather than outliving it on a shared master.
-  Two independent apps sit on it — `vazhi` and kolu's Inspector — with no
-  runtime link between them; each owns its own forwards and neither consults the
-  other.
+  It is a library rather than server code because nothing in it knows about
+  kolu: it takes a host and a port and returns a local one, so a forward's
+  lifetime is the calling process's own.
 - **The framework** — [`surface`](/surface) (typed reactive `Cell` / `Collection`
   / `Stream` / `Event` + SolidJS hooks), `surface-remote` (the ssh mirror),
   `surface-daemon` (the durable-daemon spine), and its supervisor half.
