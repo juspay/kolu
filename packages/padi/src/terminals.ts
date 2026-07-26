@@ -17,7 +17,7 @@
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { notifyDirty } from "./publisher.ts";
-import { type SessionSnapshot, saveSession } from "./session.ts";
+import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import {
   beginSleepLocal,

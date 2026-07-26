@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Logger } from "./log.ts";
+import type { Logger } from "../log.ts";
 import {
   __resetUnhandledRejectionBoundaryForTest,
   type BoundaryFloat,

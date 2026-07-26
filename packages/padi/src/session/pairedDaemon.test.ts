@@ -17,7 +17,7 @@ import {
   type SavedActiveTerminal,
   type SavedSession,
   type SavedTerminal,
-} from "./vocab.ts";
+} from "../vocab.ts";
 
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

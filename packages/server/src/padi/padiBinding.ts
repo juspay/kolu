@@ -205,7 +205,7 @@ export const AGENT_DIR_ENV_KEYS = [
 ] as const;
 
 /** Resolve how to launch padi: the built wrapper in production (`KOLU_PADI_BIN`),
- *  or the from-source `node --import <tsx> packages/padi/src/bin.ts` shape in
+ *  or the from-source `node --import <tsx> packages/padi/src/daemonBoot/bin.ts` shape in
  *  dev/e2e. Twin of `resolveKavalLaunch`. padi is ALWAYS told its state-root via
  *  `--state-root` (so its kaval + digest follow it) AND its socket via `--socket`
  *  — the EXACT path {@link ensurePadiBinding} already computed with
@@ -250,9 +250,9 @@ export function resolvePadiLaunch(
   // (not a hoisted .bin), exactly as localDriver.ts does for kaval.
   const require = createRequire(import.meta.url);
   const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
-  // packages/server/src/padi/padiBinding.ts → packages/padi/src/bin.ts
+  // packages/server/src/padi/padiBinding.ts → packages/padi/src/daemonBoot/bin.ts
   const binTs = fileURLToPath(
-    new URL("../../../padi/src/bin.ts", import.meta.url),
+    new URL("../../../padi/src/daemonBoot/bin.ts", import.meta.url),
   );
   return {
     binPath: process.execPath,

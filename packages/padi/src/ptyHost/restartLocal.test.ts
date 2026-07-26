@@ -30,7 +30,7 @@ import {
   cancelPendingAutosave,
   initAutosaveGate,
   unfreezeAutosave,
-} from "../autosaveGate.ts";
+} from "../session/autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -38,7 +38,11 @@ import {
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import { getSavedSession, saveSession, setSavedSession } from "../session.ts";
+import {
+  getSavedSession,
+  saveSession,
+  setSavedSession,
+} from "../session/session.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,

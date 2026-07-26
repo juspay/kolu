@@ -31,8 +31,8 @@ import {
   PadiTerminalSchema,
   PadiUrgencySchema,
   urgencyEqual,
-} from "./surface.ts";
-import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
+} from "../surface.ts";
+import { composePadiTerminal } from "../terminalEndpoint/metadata.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -40,9 +40,9 @@ import {
   registryMap,
   type TerminalProcess,
   unregisterTerminal,
-} from "./terminal-registry.ts";
+} from "../terminal-registry.ts";
 import { recomputeUrgency } from "./urgency.ts";
-import { type AuthoredActiveTerminal, LOCAL_LOCATION } from "./vocab.ts";
+import { type AuthoredActiveTerminal, LOCAL_LOCATION } from "../vocab.ts";
 
 /** A busy dev host runs ~16 live terminals; 24 keeps the O(M²)/O(M) gap
  *  unmistakable (24 vs 600) while staying a fast unit test. */

@@ -35,7 +35,7 @@
  */
 
 import type { PtyHostListEntry } from "kaval";
-import type { SavedActiveTerminal, SavedSession } from "./vocab.ts";
+import type { SavedActiveTerminal, SavedSession } from "../vocab.ts";
 
 /** A saved terminal whose PTY is still alive, paired with that live PTY. The
  *  join lives here (not the caller), so adoption never re-derives it: the

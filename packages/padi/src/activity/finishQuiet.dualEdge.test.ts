@@ -20,8 +20,8 @@ import {
   PadiTerminalSchema,
   PadiUrgencySchema,
   urgencyEqual,
-} from "./surface.ts";
-import { composeTerminalMetadata, LOCAL_LOCATION } from "./vocab.ts";
+} from "../surface.ts";
+import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
 
 const QUIET = 50;
 const A = "00000000-0000-4000-8000-000000000001" as TerminalId;

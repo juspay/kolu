@@ -17,7 +17,7 @@ import { inMemoryStore } from "@kolu/surface/server";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { setPadiSessionStore } from "./confStores.ts";
+import { setPadiSessionStore } from "./session/confStores.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -26,7 +26,7 @@ import {
 } from "./padiSurfaceCtx.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
-import { getSavedSession, setSavedSession } from "./session.ts";
+import { getSavedSession, setSavedSession } from "./session/session.ts";
 import {
   PADI_SURFACE_VERSION,
   type PadiIdentity,

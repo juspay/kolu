@@ -89,7 +89,7 @@ of record (<a href="https://github.com/juspay/kolu/pull/1944" rel="noopener" sty
 <tbody>
 <tr>
 <td>Premature “finished”</td>
-<td><code>finishedIds</code> = raw agent <code>waiting</code> <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/urgency.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/urgency.ts</a></td>
+<td><code>finishedIds</code> = raw agent <code>waiting</code> <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/activity/urgency.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/activity/urgency.ts</a></td>
 </tr>
 <tr>
 <td>Visit finished tile → re-chime</td>
@@ -123,7 +123,7 @@ prerequisite, makes <strong>activity</strong> a single source of truth.</p>
 <p>Consumers stamp <strong>arrival</strong> on <strong>their</strong> clock (recency-free — nothing cross-host
 compares two hosts’ clocks). Never ship kaval absolute timestamps for finish.</p>
 <h3 id="two-windows-one-tracker-type-ef1--ef2">Two windows, one tracker type (EF1 + EF2)</h3>
-<p>EF1 extracted <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/terminalActivityTracker.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/terminalActivityTracker.ts</a> and
+<p>EF1 extracted <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/activity/terminalActivityTracker.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/activity/terminalActivityTracker.ts</a> and
 wired it for live-dots. Its header already reserves <strong><code>isLive</code> / <code>forget</code></strong> for
 the finish consumer. <strong>EF2 does not re-derive stamps + a hand deadline</strong> — it
 builds a <strong>second</strong> <code>createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)</code> instance.</p>
@@ -314,7 +314,7 @@ product corrected to sticky-per-episode after field flap:</p>
 <tbody>
 <tr>
 <td>Tracker</td>
-<td><code>createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)</code> (~5s) — second instance of the EF1 leaf <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/terminalActivityTracker.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/terminalActivityTracker.ts</a> via <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/finishQuiet.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/finishQuiet.ts</a></td>
+<td><code>createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)</code> (~5s) — second instance of the EF1 leaf <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/activity/terminalActivityTracker.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/activity/terminalActivityTracker.ts</a> via <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/activity/finishQuiet.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/activity/finishQuiet.ts</a></td>
 </tr>
 <tr>
 <td>Feed</td>
@@ -330,7 +330,7 @@ product corrected to sticky-per-episode after field flap:</p>
 </tr>
 <tr>
 <td>Fold</td>
-<td><code>finishedIds</code> = active waiting ∧ <code>isEpisodeFinished(id)</code> (sticky memoize) — <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/urgency.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/urgency.ts</a>; asking ungated</td>
+<td><code>finishedIds</code> = active waiting ∧ <code>isEpisodeFinished(id)</code> (sticky memoize) — <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/activity/urgency.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/activity/urgency.ts</a>; asking ungated</td>
 </tr>
 <tr>
 <td>Graph</td>

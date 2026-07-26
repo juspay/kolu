@@ -20,12 +20,12 @@ export {
   freezeAutosave,
   initAutosaveGate,
   unfreezeAutosave,
-} from "./autosaveGate.ts";
+} from "./session/autosaveGate.ts";
 // padi's staleKey read — the binder's build-convergence key (#1670). Re-exported
 // through this barrel (not a deep `@kolu/padi/buildId` import) so the binder honors
 // the package-boundary seal: on boot it compares its own baked `PADI_BUILD_ID`
 // against the running padi's `hello.buildId` and drains a same-contract build change.
-export { currentPadiBuildId } from "./buildId.ts";
+export { currentPadiBuildId } from "./daemonBoot/buildId.ts";
 // ── host-daemon inventory scanner (the "Running daemons" leak diagnostic) ─
 // The ONE scanner both padi (its `hostInventory` member) and kolu-server's web shell
 // (its local-machine `daemonInventory.localScan` under a remote binding) reuse. Padi
@@ -52,7 +52,7 @@ export {
 } from "./padiSurfaceCtx.ts";
 // The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
 // inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
-export type { PairedDaemon } from "./pairedDaemon.ts";
+export type { PairedDaemon } from "./session/pairedDaemon.ts";
 // The range-capable serve-dir read kolu-server's re-backed Hono preview route
 // calls — the STREAMING form (`previewFile`, bounded heap), the same read
 // `preview.read` serves through its base64 wire-wrapper (`readPreview`).
@@ -83,7 +83,7 @@ export {
   saveSession,
   setSavedSession,
   setSavedSessionFromSnapshot,
-} from "./session.ts";
+} from "./session/session.ts";
 // ── padi process rendezvous (W2.2 binder) ───────────────────────────────
 // kolu-server's padi BINDER (`server/src/padi/padiBinding.ts`) resolves the SAME
 // state-root → socket/gate paths padi computes for itself, so the supervisor and

@@ -32,8 +32,8 @@ import { source } from "@kolu/surface/reactor";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
-import type { PadiTerminal, PadiUrgency } from "./surface.ts";
-import { ptyHostClient } from "./ptyHost/index.ts";
+import type { PadiTerminal, PadiUrgency } from "../surface.ts";
+import { ptyHostClient } from "../ptyHost/index.ts";
 import {
   createActivityTracker,
   type ActivityTracker,
@@ -41,7 +41,7 @@ import {
 import {
   ACTIVITY_RESUBSCRIBE_DELAY_MS,
   resubscribeStream,
-} from "./terminalEndpoint/local.ts";
+} from "../terminalEndpoint/local.ts";
 import { recomputeUrgency } from "./urgency.ts";
 
 /** Quiet window for the effective-finish fold — Padi attention policy, not shared

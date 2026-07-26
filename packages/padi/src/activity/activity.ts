@@ -9,9 +9,9 @@
  */
 
 import fs from "node:fs";
-import { log } from "./log.ts";
-import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
-import type { ActivityFeed, RecentAgent, RecentRepo } from "./vocab.ts";
+import { log } from "../log.ts";
+import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
+import type { ActivityFeed, RecentAgent, RecentRepo } from "../vocab.ts";
 
 const MAX_RECENT_REPOS = 20;
 const MAX_RECENT_AGENTS = 10;

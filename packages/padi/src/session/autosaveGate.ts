@@ -47,8 +47,8 @@
  * subscriber here.
  */
 
-import { log } from "./log.ts";
-import { terminalsDirtyChannel } from "./publisher.ts";
+import { log } from "../log.ts";
+import { terminalsDirtyChannel } from "../publisher.ts";
 import type { SessionSnapshot } from "./session.ts";
 
 /** The effects the gate drives, PUSHED in at boot so the gate imports nothing from
