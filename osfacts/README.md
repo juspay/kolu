@@ -80,6 +80,37 @@ packaging:
 | `sysinfo` + `listeners` | composing them enumerates the process list twice: 23 ms darwin / ~100 ms linux, vs 10 ms for one pass |
 | `lsof` / `netstat` | `lsof` measured 93 ms; macOS `netstat` goes intermittently blind — success and zero rows in one window, 29 rows the next, same boot |
 
+## Testing
+
+Two lanes, split by which question they answer.
+
+The first lane asks "did we break osfacts?" and gates every merge. It's
+hermetic: `nix build` compiles the binary and then tests that same binary,
+inside the sandbox, on both platforms. On linux each test gets its own
+network namespace — an unprivileged `unshare` nested inside the sandbox's
+own — so the port table starts empty and every assertion is exact. macOS
+has no namespaces, so there the tests do what every serious tool in this
+domain does: bind port 0 on loopback in a spawned child tree and assert
+osfacts sees its own processes. The two fields no test can pin — the real
+pid, the kernel-chosen port — are redacted to stable placeholders;
+everything else is byte-exact. The unreadable path is tested against pid 1,
+which is always present and always forbidden.
+
+The second lane asks "did the OS break osfacts?" and never gates anything.
+Nightly, it runs the nix-built binary on a real, noisy host and diffs its
+answers against tools that don't share its code: `ss` on linux, `lsof` and
+the upstream `listeners` crate on darwin. This is the only kind of test
+that could have caught macOS 27's netstat going intermittently blind while
+reporting success — inside a sandbox we control, our fixtures and our
+reader would just keep agreeing with each other. A live host owes you
+noise, so this lane informs instead of blocking. A gate that flakes
+teaches people to ignore it.
+
+The second lane's scenarios are Gherkin (`cucumber`), the same idiom as
+kolu's own e2e: "Given a shell running a loopback server, When I snapshot
+its subtree, Then the listener is attributed to that shell" is a sentence
+worth keeping readable.
+
 ## Status
 
 OSF1 is in: `snapshot --roots|--pids --procs --ports` on linux and darwin,
