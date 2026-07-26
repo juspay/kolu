@@ -44,7 +44,7 @@ const execFileP = promisify(execFile);
 /** Hard ceiling on the darwin `lsof` subprocess — a wedged `lsof` (contended mount,
  *  slow box) must be killed and rejected, never left to hang the serving event loop.
  *
- *  The same number as padi's `PORT_SCAN_COMMAND_TIMEOUT_MS` (`portScan.ts`), which
+ *  The same number as padi's `PORT_SCAN_COMMAND_TIMEOUT_MS` (`ports/scan.ts`), which
  *  runs the same binary for its own question; the two are cross-named because the
  *  socket↔pid reading is re-derived in both places rather than shared. */
 const LSOF_TIMEOUT_MS = 5_000;

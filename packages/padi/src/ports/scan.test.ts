@@ -1,6 +1,6 @@
 /**
  * padi's port-scan policy pins — classification, U-row mapping, subtree walk —
- * against fixture TSV. Live OS proofs live in `portScan.live.test.ts`.
+ * against fixture TSV. Live OS proofs live in `scan.live.test.ts`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -12,7 +12,7 @@ import {
   PortScanError,
   type ProcessRow,
   unreadablePolicy,
-} from "./portScan.ts";
+} from "./scan.ts";
 
 const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
 const V4_MAPPED_WILDCARD = "00000000000000000000ffff00000000";

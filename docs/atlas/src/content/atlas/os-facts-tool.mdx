@@ -191,7 +191,7 @@ OSF2, OSF3 and OSF4 are independent siblings under OSF1. **The port-forwarding
 track needs exactly OSF1 → OSF2** — that pair is the "initial version", and the
 other branches can land whenever. Each phase is a consumer deleting its own OS
 traversal, independently revertible.<Footnote>OSF2 done-criterion: padi's
-`portSampler` → `portScan` (policy) → `osfacts-client` → the osfacts binary, on
+`ports/sampler` → `ports/scan` (policy) → `osfacts-client` → the osfacts binary, on
 both platforms, with `@kolu/port-scan` gone — the port e2e must pass *through
 the new path*, not beside it.</Footnote>
 

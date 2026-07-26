@@ -29,7 +29,7 @@ in
   # (OSF2). Same footing as `KOLU_GH_BIN`: a required absolute path baked by Nix,
   # present in the packaged wrappers AND the dev shell, with no PATH fallback in
   # the reader. Lives here rather than only in default.nix because
-  # `portScan.live.test.ts` runs under bare vitest and never sees the padi
+  # `ports/scan.live.test.ts` runs under bare vitest and never sees the padi
   # wrapper — the drift that made every live test throw when the bake was
   # wrapper-only.
   KOLU_OSFACTS_BIN = "${osfacts}/bin/osfacts";

@@ -4,7 +4,7 @@
  * The binary contract (spawn, V1, P/L/U parse) lives in `osfacts-client`.
  * What lives HERE is kolu's opinion: classify bind addresses, map U rows to
  * blind-vs-empty (the sudo lesson), fold listeners per subtree, and read the
- * baked `KOLU_OSFACTS_BIN` path. The cadence is `portSampler.ts`.
+ * baked `KOLU_OSFACTS_BIN` path. The cadence is `./sampler.ts`.
  */
 
 import {

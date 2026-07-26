@@ -427,8 +427,8 @@ data arrives on the terminal’s metadata like everything else). The flows:</p>
 <li><strong>Discoverability.</strong> One tip in <code>settings/tips.ts</code>: “Click a port in the Inspector to open the server an agent just started.”</li>
 </ul>
 <h2 id="detection-ports-attributed-to-the-terminal">Detection: ports, attributed to the terminal</h2>
-<p>The scanner is <strong>padi’s port scan</strong> (<code>packages/padi/src/portScan.ts</code> +
-<code>portSampler.ts</code>), driven by a <strong>padi sensor</strong>, not a kaval module. The OS
+<p>The scanner is <strong>padi’s port detection</strong> (<code>packages/padi/src/ports/</code> —
+<code>scan.ts</code> + <code>sampler.ts</code>), driven by a <strong>padi sensor</strong>, not a kaval module. The OS
 volatility that once justified <code>@kolu/port-scan</code> as its own package now lives
 in <a href="./os-facts-tool.html">osfacts</a>; the TypeScript face is
 <code>osfacts-client</code> (<code>osfacts/client-ts/</code>), and kolu policy (bind classification,

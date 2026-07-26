@@ -73,7 +73,7 @@ import {
   PortScanError,
   portScanSupported,
   scanSubtreePorts,
-} from "./portScan.ts";
+} from "./scan.ts";
 
 /** Baseline cadence of the port scan. The same 5 s `memorySampler` uses, for the
  *  same reason: coarse enough to be free, live enough to be worth reading. */

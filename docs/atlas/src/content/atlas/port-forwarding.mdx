@@ -268,8 +268,8 @@ data arrives on the terminal's metadata like everything else). The flows:
 
 ## Detection: ports, attributed to the terminal
 
-The scanner is **padi's port scan** (`packages/padi/src/portScan.ts` +
-`portSampler.ts`), driven by a **padi sensor**, not a kaval module. The OS
+The scanner is **padi's port detection** (`packages/padi/src/ports/` —
+`scan.ts` + `sampler.ts`), driven by a **padi sensor**, not a kaval module. The OS
 volatility that once justified `@kolu/port-scan` as its own package now lives
 in [osfacts](./os-facts-tool.html); the TypeScript face is
 `osfacts-client` (`osfacts/client-ts/`), and kolu policy (bind classification,
