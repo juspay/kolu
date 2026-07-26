@@ -101,13 +101,23 @@ One optional host-wide empty-table pin exists only inside the nix
 sandbox (`NIX_BUILD_TOP` set) and runs alone under nextest so sibling
 binds cannot race it.
 
-The second lane asks "did the OS break osfacts?" — `ci::osfacts-live` in the
-CI DAG on both platforms. It runs the nix-built binary on a real, noisy host
-and diffs its answers against tools that don't share its code: `ss` on linux,
-`lsof` and the upstream `listeners` crate on darwin. This is the only kind of
-test that could have caught macOS 27's netstat going intermittently blind
-while reporting success — inside a sandbox we control, our fixtures and our
-reader would just keep agreeing with each other.
+The second lane asks "did the OS break osfacts?" It runs the nix-built binary
+on a real, noisy host and diffs its answers against tools that don't share
+its code: `ss` on linux, `lsof` and the upstream `listeners` crate on darwin.
+This is the only kind of test that could have caught macOS 27's netstat going
+intermittently blind while reporting success — inside a sandbox we control,
+our fixtures and our reader would just keep agreeing with each other.
+
+It is an explicit CI recipe (`ci::osfacts-live`), not a phase of `nix build`.
+The build sandbox is there to shut the real world out: fixed inputs, no host
+listeners, no kernel surprise. The live lane's whole job is the real world —
+other users' ports, platform oracles, whatever the box happens to be running —
+so folding it into the sandbox would delete the thing it is for.
+
+It never gates a merge. A live host can go red without anyone having broken
+osfacts (noise, privilege, a service that appeared between samples). The
+hermetic lane is the one that blames you; this one informs. Run it on demand
+when you care what the OS is doing today.
 
 The second lane's scenarios are Gherkin (`cucumber`), the same idiom as
 kolu's own e2e: "Given a shell running a loopback server, When I snapshot
