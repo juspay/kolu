@@ -529,7 +529,7 @@ connection is ignored **entirely** (anyone who can reach kolu directly can
 invent one); the **last** entry wins, because each proxy appends the address
 it received from while the leftmost is whatever the client typed; and there
 is no trusted-proxy list, because the trust condition is a fact about the
-connection rather than a knob.<Footnote>A deployment shape that hides the viewer more thoroughly —<Footnote>A deployment shape that hides the viewer more thoroughly —
+connection rather than a knob.<Footnote>A deployment shape that hides the viewer more thoroughly —
 a proxy on a different machine, or one that strips the header — lands on the same
 no-match side as before, which keeps the forward that works. The mechanism is
 allowed to not fire; it is not allowed to be wrong.</Footnote>
@@ -597,7 +597,7 @@ finished.
   Navigation is write-only, stated honestly: kolu can set the frame's
   location but cross-origin rules keep it from reading where the user has
   since clicked to, so readable state is the last path kolu set, never
-  "where the frame is now".<Footnote><Footnote>The no-raw-URLs invariant is both safety and honesty: an
+  "where the frame is now".<Footnote>The no-raw-URLs invariant is both safety and honesty: an
   agent (or whatever prompt-injected it) cannot steer the human's viewport
   beyond ports kolu itself holds doors to, and the feature stays what it is —
   a dev-server preview, not Chrome-in-a-tab. Reading or driving the PAGE
