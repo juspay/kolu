@@ -350,7 +350,13 @@ describe("a relay that fails after it was up", () => {
       // mechanism follows, and the reason there is no knob for either.
       const origin = await serveOnLoopback("two");
       cleanups.push(origin.stop);
-      const squatter = await serveOnLoopback("mine");
+      // The squatter has to hold the address the RELAY will bind — the wildcard
+      // — not just loopback. On linux a loopback holder is enough to make
+      // `0.0.0.0:<port>` unbindable; on macOS the two coexist happily, so a
+      // loopback-only squatter left the port genuinely free there and the relay
+      // correctly kept it. The test was asserting a linux kernel's conflict
+      // rules rather than the behaviour it means to pin.
+      const squatter = await serveOnLoopback("mine", "0.0.0.0");
       cleanups.push(squatter.stop);
 
       const relay = await openRelay({
