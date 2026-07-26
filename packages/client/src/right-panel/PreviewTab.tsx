@@ -25,6 +25,7 @@ import {
   on,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { ForwardPill } from "../forwards/ForwardPill";
@@ -109,13 +110,27 @@ const PreviewTab: Component<{
     ),
   );
 
-  // Record server-shared current onto this viewer's trail (MCP / other viewer).
-  createEffect(() => {
-    const id = props.terminalId;
-    const loc = props.location;
-    if (id === null || loc === null) return;
-    trailFor(id).navigate(loc);
-  });
+  // Record server-shared current onto this viewer's trail (chip / MCP / other
+  // viewer). `navigate` reads the trail signals it then writes — must run
+  // untracked or this effect re-enters until the stack blows (live toast:
+  // "Metadata error: Maximum call stack size exceeded"). Code tab only
+  // records from event handlers for the same reason.
+  createEffect(
+    on(
+      () => {
+        const loc = props.location;
+        return loc === null ? null : `${loc.port}\0${loc.path}`;
+      },
+      (key) => {
+        if (key === null) return;
+        const id = props.terminalId;
+        const loc = props.location;
+        if (id === null || loc === null) return;
+        const plain = { port: loc.port, path: loc.path };
+        untrack(() => trailFor(id).navigate(plain));
+      },
+    ),
+  );
 
   const applyPath = () => {
     const id = props.terminalId;
