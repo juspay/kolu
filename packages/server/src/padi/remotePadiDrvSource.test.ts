@@ -210,6 +210,12 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
       message: "petit: ssh does not trust this host's identity key",
       cause: "host-key-unverified",
     },
+    {
+      what: "a host with no runnable Nix",
+      kind: "nix-unavailable" as const,
+      message: "petit: could not run `nix-instantiate`",
+      cause: "nix-unavailable",
+    },
   ])("(f) $what", ({ kind, message, cause }) => {
     const refusal = () =>
       new ResolveDrvError(message, {

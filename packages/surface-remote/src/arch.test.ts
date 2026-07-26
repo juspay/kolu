@@ -194,6 +194,40 @@ describe("resolveSystem ssh-refusal classification", () => {
     expect(err).not.toBeInstanceOf(ResolveDrvError);
   });
 
+  it("a host with no runnable Nix is terminal too — exit 127, whatever the shell says", async () => {
+    // The OTHER unmet prerequisite. Provisioning uses the host's own Nix, so an
+    // absent one is as unanswerable as a password — and 127 is POSIX, so this
+    // holds for every shell without matching any of their differing prose.
+    probeEmitting("bash: nix-instantiate: command not found", 127);
+    const err = await failureOf("petit");
+    expect((err as ResolveDrvError).resolution).toEqual({
+      kind: "nix-unavailable",
+      failureCause: "remote",
+      terminal: true,
+    });
+    // Names the likelier cause (a login-shell-only Nix profile) and how to check.
+    expect((err as Error).message).toMatch(/NON-INTERACTIVE ssh session/);
+    expect((err as Error).message).toContain(
+      "ssh petit nix-instantiate --version",
+    );
+  });
+
+  it("classifies exit 127 by CODE, not by the shell's wording", async () => {
+    // fish says "Unknown command", dash says "not found" — a prose matcher would
+    // miss them and silently restore the eternal retry. The code cannot vary.
+    probeEmitting("fish: Unknown command: nix-instantiate", 127);
+    expect((await failureOf("petit")) as ResolveDrvError).toMatchObject({
+      resolution: { kind: "nix-unavailable" },
+    });
+  });
+
+  it("a nix that RAN and failed stays retryable — 127 is not any nonzero exit", async () => {
+    // nix-instantiate exiting 1 means Nix is present and something else went
+    // wrong; that is not this cause and must not be made terminal.
+    probeEmitting("error: some transient nix failure", 1);
+    expect(await failureOf("petit")).not.toBeInstanceOf(ResolveDrvError);
+  });
+
   it("keeps a refusal PER DIAL — a later clean probe resolves normally", async () => {
     // `drvFaultCause`-style staleness at the framework layer: the classifier
     // holds no state across dials, so a fixed host recovers on the next probe.

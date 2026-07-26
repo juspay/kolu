@@ -166,12 +166,14 @@ type DrvFaultCause = Extract<
   | "agent-drv-unavailable"
   | "auth-required"
   | "host-key-unverified"
+  | "nix-unavailable"
 >;
 
 /** A {@link ResolveDrvError} subclass that additionally carries the D1 domain
  *  `cause` — the source-ref/arch faults (`"agent-source-unbaked"` /
- *  `"agent-drv-unavailable"`) and the ssh refusals (`"auth-required"` /
- *  `"host-key-unverified"`). The framework resolution rides through unchanged
+ *  `"agent-drv-unavailable"`), the ssh refusals (`"auth-required"` /
+ *  `"host-key-unverified"`), and an unrunnable remote Nix
+ *  (`"nix-unavailable"`). The framework resolution rides through unchanged
  *  (retry policy AND terminality stay the framework's verdict); Padi enriches
  *  it with a typed domain cause, never reclassifies it. */
 class PadiDrvFault extends ResolveDrvError {
@@ -232,6 +234,11 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
               "host-key-unverified",
               resolution,
             );
+          })
+          // The second unmet prerequisite (after ssh): the host has no runnable
+          // Nix, which is what provisions padi there.
+          .with({ kind: "nix-unavailable" }, (resolution) => {
+            throw new PadiDrvFault(err.message, "nix-unavailable", resolution);
           })
           .with({ kind: "network-exhausted" }, () => {
             throw err;

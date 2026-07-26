@@ -45,6 +45,16 @@ export type ResolveDrvFailure =
       kind: "host-key-unverified";
       failureCause: "remote";
       terminal: true;
+    }
+  // The host answered, ssh ran our command, and the SHELL could not find
+  // `nix-instantiate` (POSIX exit 127). Provisioning is done with the host's
+  // OWN Nix, so there is nothing to fall back to — and re-running the identical
+  // command cannot make an absent binary appear. Terminal, cause `"remote"`
+  // (reached and unable to serve us), on the same footing as an ssh refusal.
+  | {
+      kind: "nix-unavailable";
+      failureCause: "remote";
+      terminal: true;
     };
 
 /** A `resolveDrvPath` rejection with an explicit connector verdict.

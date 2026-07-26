@@ -38,6 +38,7 @@
 
 import {
   buildSshProbeCommand,
+  isLocalHost,
   ResolveDrvError,
   type SshRefusal,
   sshRefusalOf,
@@ -108,6 +109,26 @@ export async function resolveSystem(
           ? `${host}: ssh refused our credentials — this client connects non-interactively and can never answer a password or passphrase prompt. Set up key-based ssh (e.g. \`ssh-copy-id ${host}\`) so plain \`ssh ${host}\` connects without prompting: ${line}`
           : `${host}: ssh does not trust this host's identity key — this client connects non-interactively and can never answer the trust prompt. Run \`ssh ${host}\` once in a terminal to verify and accept the host key (or resolve a changed-key warning): ${line}`,
         { kind, failureCause: "remote", terminal: true },
+      );
+    }
+    // Exit 127 is POSIX for "the shell could not find the command" — every shell
+    // honours the code even though each words its message differently (bash
+    // "command not found", dash "not found", fish "Unknown command"), so the CODE
+    // is the reliable signal and matching prose would only add ways to miss.
+    // Unlike the ssh refusals above this needs no 255 companion: 127 IS the remote
+    // command's own exit status, not text that could have come from elsewhere.
+    if (res.kind === "exit" && res.code === 127) {
+      throw new ResolveDrvError(
+        `${host}: could not run \`nix-instantiate\` — ${
+          isLocalHost(host)
+            ? "Nix is not installed, or not on this process's PATH"
+            : "Nix is either not installed there, or not on the PATH of a NON-INTERACTIVE ssh session (a common single-user Nix install, whose profile only gets sourced by a login shell)"
+        }. This agent is provisioned using the host's own Nix, so it cannot proceed without it — check with \`${
+          isLocalHost(host)
+            ? "nix-instantiate --version"
+            : `ssh ${host} nix-instantiate --version`
+        }\`, and install Nix from https://nixos.asia/en/install if it is missing.`,
+        { kind: "nix-unavailable", failureCause: "remote", terminal: true },
       );
     }
     throw new Error(

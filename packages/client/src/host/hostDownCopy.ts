@@ -79,6 +79,20 @@ export const HOST_DOWN_COPY = {
       "terminal to review and accept its key — or resolve a changed-key " +
       "warning — then reconnect.",
   },
+  // ssh worked; the host just has no Nix to provision padi with. A distinct
+  // prerequisite from the two above, with a distinct fix — and the "installed
+  // but not on the non-interactive PATH" case is named, because it is the more
+  // common one and looks identical to "not installed" from here.
+  "nix-unavailable": {
+    title: "This host has no Nix that kolu can run",
+    body:
+      "kolu reached the host over ssh, but its shell couldn't run " +
+      "nix-instantiate — kolu builds padi with the host's own Nix, so it has " +
+      "nothing to install from. Either Nix isn't installed there, or it isn't " +
+      "on the PATH of a non-interactive ssh session, which is common for a " +
+      "single-user install. Check with ssh <host> nix-instantiate --version, " +
+      "and install it from https://nixos.asia/en/install if it's missing.",
+  },
   "link-failed": {
     title: "Can't reach this host",
     body:

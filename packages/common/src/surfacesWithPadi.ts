@@ -118,6 +118,10 @@ export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
  *   - `host-key-unverified`   — ssh refused the HOST's identity (an unknown or
  *     changed host key); the trust prompt is likewise unanswerable — terminal
  *     until the operator verifies the key with one interactive `ssh`.
+ *   - `nix-unavailable`       — ssh worked, but the host's shell could not run
+ *     `nix-instantiate` (exit 127): no Nix installed, or none on a
+ *     non-interactive PATH. padi is provisioned with the host's own Nix, so
+ *     there is nothing to proceed with — terminal.
  *   - `link-failed`           — a REMOTE transport gave up (host unreachable /
  *     provisioning failed / a remote terminal give-up). Set by the remote arm's
  *     convergence machine (`remotePadiBinding`, on the `failed` phase).
@@ -145,6 +149,7 @@ export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
   z.object({ cause: z.literal("unconverged"), reason: z.string() }),
   z.object({ cause: z.literal("auth-required"), reason: z.string() }),
   z.object({ cause: z.literal("host-key-unverified"), reason: z.string() }),
+  z.object({ cause: z.literal("nix-unavailable"), reason: z.string() }),
   z.object({ cause: z.literal("link-failed"), reason: z.string() }),
   z.object({ cause: z.literal("local-start-failed"), reason: z.string() }),
 ]);

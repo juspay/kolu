@@ -43,8 +43,10 @@ from another device.
     with a card that [names which one and how to fix it](#when-a-host-is-down).
   </Card>
   <Card title="Nix on the remote">
-    The host has Nix installed and your user is **trusted by its nix-daemon** —
-    kolu provisions [padi](/padi) there with Nix over ssh.
+    The host has [Nix installed](https://nixos.asia/en/install) and your user is
+    **trusted by its nix-daemon** — kolu provisions [padi](/padi) there with Nix
+    over ssh. It must be runnable from a *non-interactive* ssh session, not only
+    from a login shell.
   </Card>
   <Card title="A Nix-wrapped kolu">
     Launch kolu through its Nix wrapper, which bakes in its exact agent source.
@@ -205,6 +207,7 @@ hatch). The causes it distinguishes:
 | **This host runs an older kolu** | the remote padi speaks an older contract and refused to bind |
 | **This host needs passwordless ssh** | the host asked for a password. kolu connects non-interactively and never types one — set up key-based access (`ssh-copy-id`), then reconnect |
 | **This host isn't trusted yet** | ssh doesn't recognise the host's identity key. Run `ssh <host>` once in a terminal to review and accept it — or clear a changed-key warning — then reconnect |
+| **This host has no Nix that kolu can run** | ssh worked, but the host's shell couldn't run `nix-instantiate`. Either Nix isn't [installed](https://nixos.asia/en/install) there, or it isn't on the PATH of a non-interactive ssh session |
 | **Can't reach this host** | unreachable over ssh, or provisioning failed partway |
 | **This kolu run is missing its agent source** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
 | **Kolu couldn't prepare padi for this host** | the baked source could not resolve padi; the detail shows the Nix error, including an unsupported CPU/OS pair when that is the cause |
