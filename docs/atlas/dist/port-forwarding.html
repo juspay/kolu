@@ -427,18 +427,17 @@ data arrives on the terminal’s metadata like everything else). The flows:</p>
 <li><strong>Discoverability.</strong> One tip in <code>settings/tips.ts</code>: “Click a port in the Inspector to open the server an agent just started.”</li>
 </ul>
 <h2 id="detection-ports-attributed-to-the-terminal">Detection: ports, attributed to the terminal</h2>
-<p>The scanner is its own package — <strong><code>@kolu/port-scan</code></strong>
-(<code>packages/port-scan/</code>, with the darwin C helper in its <code>native/</code>) — driven by a
-<strong>padi sensor</strong>, and not a kaval module. Two separate calls, and both matter.</p>
-<p><em>Why a package</em>: the OS is the volatility. How a kernel names the processes
-holding listening sockets has already changed three times on darwin in this
-repo alone, and linux answers by a different mechanism in a different byte
-order. That is the <a href="electricity">electricity</a> bar — a real axis of change
-behind a stable receptacle — so the reader lives outside padi with the arrow
-pointing out, and its only input is a list of root pids. Test ③ (a <em>second</em>
-consumer) is met from both sides now: vazhi shipped in PRT0, and
-<a href="./os-facts-tool.html">osfacts</a> — whose OSF2 phase adopts it as this
-scanner’s engine — is built.</p>
+<p>The scanner is <strong>padi’s port scan</strong> (<code>packages/padi/src/portScan.ts</code> +
+<code>portSampler.ts</code>), driven by a <strong>padi sensor</strong>, not a kaval module. The OS
+volatility that once justified <code>@kolu/port-scan</code> as its own package now lives
+in <a href="./os-facts-tool.html">osfacts</a>; the TypeScript face is
+<code>osfacts-client</code> (<code>osfacts/client-ts/</code>), and kolu policy (bind classification,
+U-row blindness, fold) sits beside the sampler in padi. Two separate calls,
+and both matter.</p>
+<p><em>Why not a package any more</em>: the OS axis of change is osfacts’s job. padi
+owns the cadence and the policy; the client is the tool’s own leaf (and
+drishti’s next import). Test ③ (a <em>second</em> consumer) is met by
+<code>osfacts-client</code> + the imminent drishti adoption.</p>
 <p><em>Why padi drives it</em>: the repo’s own taxonomy draws the line. Facts that require the
 PTY itself live in kaval (foreground needs <code>tcgetpgrp</code> on the PTY fd, cwd is
 parsed from OSC sequences), while facts derived by OS inspection from a
@@ -455,14 +454,14 @@ which is one more reason the scanner lives there.</span></span></span> builds th
 pid→ppid table once, partitions it into per-shell subtrees, and joins
 listening TCP sockets against each subtree:</p>
 <ul>
-<li><strong>linux</strong> — pid table from <code>/proc/*/stat</code>; LISTEN rows (with their <strong>bind address</strong>) from <code>/proc/net/tcp</code> + <code>tcp6</code>, joined to pids via <code>/proc/&lt;pid&gt;/fd</code> socket-inode readlinks (the same technique <code>socketHolder.ts</code> uses — RE-DERIVED, not shared: one leaf both plug into, with the fd-failure policy injected, is a standing extraction), walking <strong>only the union of terminal subtrees</strong>. Expect and tolerate per-pid <code>EACCES</code>/<code>ENOENT</code> outside the subtrees — but <code>EACCES</code> on a <em>requested</em> subtree surfaces as a scan error, never an empty port list. Do not spawn <code>ss</code> (measured ~7× slower, and it hides other-users’ pid attribution anyway).</li>
-<li><strong>darwin</strong> — a <strong>libproc helper kolu builds</strong> (<code>packages/port-scan/native/portScanDarwin.c</code>, compiled by the nix derivation beside it, its path baked onto padi as <code>KOLU_PORT_SCAN_HELPER</code> with no <code>PATH</code> fallback and no system fallback). ONE invocation prints BOTH tables in a versioned TSV — <code>V\t1</code>, then <code>P\tpid\tppid\tname</code> and <code>L\tpid\tport\thex-bind-address</code> (tab-separated) — and refuses a version it does not know, because a half-understood shape would parse to zero listeners and read as “nothing here is serving”. It emits <strong>raw address bytes, not a wildcard boolean</strong>, so <code>isAnyAddress</code> stays the single judge for both platforms; that hex is in NETWORK order where <code>/proc</code>’s is host-order-per-32-bit-word, which is why there are two decoders and exactly one judge. Non-root sees own-uid pids only — sufficient by construction, since a terminal’s subtree is padi’s own uid.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>This replaced <code>ps</code> + <code>lsof</code> (~143 ms of subprocess per
-pass), which had replaced <code>netstat</code> — disqualified because macOS 27’s
-netstat intermittently loses its internet tables while reporting success
-(verified across three sampling windows on one boot; cause unknown), and its
-fixed-width columns truncate the bind address reachability is judged from.
-“Answers no ports, successfully” is the worst failure mode for a feature
-whose whole job is that question.</span></span></span></li>
+<li><strong>both platforms</strong> — one spawn of the baked <strong>osfacts</strong> binary
+(<code>KOLU_OSFACTS_BIN</code>, via <code>osfacts-client</code>) with <code>--roots</code> over the terminal
+root pids. Versioned TSV (<code>V 1</code>, then <code>P</code> / <code>L</code> / <code>U</code> rows); raw network-order
+bind-address hex; padi’s <code>addressBind</code> is the single scope/family judge.
+A <code>U</code> on a <em>requested</em> root is a blind scan (never an empty port list); a <code>U</code>
+on a descendant is skipped (the sudo lesson). Non-root sees own-uid pids only
+on darwin — sufficient by construction, since a terminal’s subtree is padi’s
+own uid.</li>
 </ul>
 <h3 id="the-successor-osfacts">The successor: osfacts</h3>
 <p>The shipped readers are deliberately not the destination. The destination —
@@ -514,7 +513,7 @@ and spells the wildcard bind <code>*</code>. One more, found live: <code>/proc/&
 <code>node</code> dev server reports <code>MainThread</code>, so the displayed name comes from
 <code>/proc/&lt;pid&gt;/cmdline</code>’s <code>argv[0]</code> instead.</span></span></span></p>
 <p>Each terminal’s sample — <code>PortInfo { port, name, scope, family }</code> in
-<code>packages/port-scan/src/ports.ts</code> (re-exported by <code>terminal-vocab</code>), beside <code>ForegroundSchema:145</code> — is
+<code>@kolu/terminal-vocab</code> (<code>ports.ts</code>), beside <code>ForegroundSchema:145</code> — is
 <strong>deduped by structural equality</strong> before it touches the snapshot, so an
 unchanged scan emits nothing: the churn guard that keeps a 5-second ticker
 from thrashing SolidJS. From there every layer exists: the sensor set folds
@@ -585,7 +584,7 @@ facts remain load-bearing: vazhi imports only <code>@kolu/port-forward</code> �
 proof that made PRT2’s embed mechanical — and <code>kill -9</code> leaves no port
 answering, the property the per-forward connection exists to give.</p>
 <h3 id="prt1--detection--ports-section-shipped-">PRT1 — detection + Ports section (shipped: <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a>)</h3>
-<p>Scanner (<code>@kolu/port-scan</code>), the <code>ports</code> schema field, the sensor fold,
+<p>Scanner (padi <code>portScan</code> + <code>osfacts-client</code>), the <code>ports</code> schema field, the sensor fold,
 the Inspector section, direct-open chips, the tip. What remains load-bearing:
 the pass holds <strong>no OS state between ticks</strong> (parse, join, emit the
 structural <code>PortInfo</code>, drop everything else); it <strong>repartitions from the

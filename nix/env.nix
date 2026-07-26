@@ -25,11 +25,12 @@ in
   # both the packaged wrapper (default.nix) and the dev shell (shell.nix)
   # pick it up via `koluEnv`.
   KOLU_GH_BIN = "${pkgs.gh}/bin/gh";
-  # osfacts — the single OS process/socket fact sampler `@kolu/port-scan` spawns
+  # osfacts — the single OS process/socket fact sampler padi's port scan spawns
   # (OSF2). Same footing as `KOLU_GH_BIN`: a required absolute path baked by Nix,
   # present in the packaged wrappers AND the dev shell, with no PATH fallback in
   # the reader. Lives here rather than only in default.nix because
-  # `scan.live.test.ts` runs under bare vitest and never sees the padi wrapper —
-  # the drift that made every live test throw when the bake was wrapper-only.
+  # `portScan.live.test.ts` runs under bare vitest and never sees the padi
+  # wrapper — the drift that made every live test throw when the bake was
+  # wrapper-only.
   KOLU_OSFACTS_BIN = "${osfacts}/bin/osfacts";
 }

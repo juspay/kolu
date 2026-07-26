@@ -264,9 +264,9 @@ but are framework demos, not kolu runtime.</span></span></span></p>
 </thead>
 <tbody>
 <tr>
-<td><code>@kolu/port-scan</code></td>
+<td>padi port scan</td>
 <td>a subtree’s processes + listening ports</td>
-<td><strong>osfacts</strong> (<code>KOLU_OSFACTS_BIN</code>, OSF2 / PR #1996); C helper + TS <code>/proc</code> deleted</td>
+<td><strong>osfacts</strong> via <code>osfacts-client</code> (<code>KOLU_OSFACTS_BIN</code>, OSF2 / PR #1996); former <code>@kolu/port-scan</code> dissolved</td>
 </tr>
 <tr>
 <td>padi <code>memorySampler</code></td>
@@ -286,7 +286,7 @@ but are framework demos, not kolu runtime.</span></span></span></p>
 <tr>
 <td><strong>drishti</strong></td>
 <td>process inspection</td>
-<td>hand-rolled <code>lsof</code></td>
+<td>hand-rolled <code>lsof</code> — <strong>next adopter of <code>osfacts-client</code></strong> (PR after #1996)</td>
 </tr>
 </tbody>
 </table>
@@ -307,7 +307,7 @@ but are framework demos, not kolu runtime.</span></span></span></p>
 </tr>
 <tr>
 <td><strong>OSF2 — kolu’s port sensor adopts it</strong></td>
-<td><code>@kolu/port-scan</code> invokes the baked osfacts binary; the C helper and the linux <code>/proc</code> parse are <strong>deleted</strong> — <strong>shipped in PR #1996</strong></td>
+<td>padi invokes the baked osfacts binary through <code>osfacts-client</code>; C helper, TS <code>/proc</code>, and <code>@kolu/port-scan</code> are <strong>deleted</strong> — <strong>shipped in PR #1996</strong></td>
 <td>OSF1</td>
 </tr>
 <tr>
@@ -322,7 +322,7 @@ but are framework demos, not kolu runtime.</span></span></span></p>
 </tr>
 <tr>
 <td><strong>OSF5 — drishti &amp; extraction</strong></td>
-<td>drishti migrates wholesale; the directory moves to its own repo and the subflake becomes <em>the</em> flake</td>
+<td>drishti migrates onto <code>osfacts-client</code> (replacing hand-rolled <code>lsof</code>); the directory moves to its own repo and the subflake becomes <em>the</em> flake</td>
 <td>OSF2–4 stable</td>
 </tr>
 </tbody>
@@ -331,9 +331,9 @@ but are framework demos, not kolu runtime.</span></span></span></p>
 track needs exactly OSF1 → OSF2</strong> — that pair is the “initial version”, and the
 other branches can land whenever. Each phase is a consumer deleting its own OS
 traversal, independently revertible.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>OSF2 done-criterion: padi’s
-<code>portSampler</code> → <code>@kolu/port-scan</code> → the osfacts binary, on both platforms,
-with <code>packages/port-scan/native/</code> and the TS <code>/proc</code> parse gone — the port e2e
-must pass <em>through the new path</em>, not beside it.</span></span></span></p>
+<code>portSampler</code> → <code>portScan</code> (policy) → <code>osfacts-client</code> → the osfacts binary, on
+both platforms, with <code>@kolu/port-scan</code> gone — the port e2e must pass <em>through
+the new path</em>, not beside it.</span></span></span></p>
 <p><strong>Out of scope, deliberately:</strong> foreground process (a PTY-fd fact — <code>tcgetpgrp</code>
 on the pty, so it stays kaval’s), anything requiring root, and any
 daemon/resident mode. This is a one-shot sampler; if startup cost ever becomes
@@ -348,14 +348,24 @@ contract will churn hardest while kolu’s five readers migrate onto it — each
 migration co-evolves the crate and its caller in one PR — and that argues for
 one repo until the churn settles.</p>
 <ul>
-<li><strong>Path: top-level <code>osfacts/</code>, not under <code>packages/</code>.</strong> <code>packages/</code> is the
-pnpm workspace and osfacts is a cargo crate, not a workspace member —
-location is structure, and filing it there would claim a membership it
-doesn’t have. The top-level directory <em>is</em> the whole future repo:
-<code>Cargo.toml</code>, <code>src/</code>, <code>tests/</code>, the <a href="https://github.com/juspay/kolu/blob/master/osfacts/README.md">README</a> carrying the comparison table
-above, <code>default.nix</code>, <code>flake.nix</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Precedent: <code>website/</code> is exactly
-this shape today — a top-level non-workspace subproject with its own
+<li><strong>Path: top-level <code>osfacts/</code>, not under <code>packages/</code>.</strong> The cargo crate is not
+a pnpm workspace member by default — location is structure. The directory
+<em>is</em> the whole future repo: <code>Cargo.toml</code>, <code>src/</code>, <code>tests/</code>,
+<code>client-ts/</code> (the TypeScript client), the
+<a href="https://github.com/juspay/kolu/blob/master/osfacts/README.md">README</a>,
+<code>default.nix</code>, <code>flake.nix</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Precedent: <code>website/</code> is exactly this
+shape today — a top-level non-workspace subproject with its own
 <code>default.nix</code> and subflake.</span></span></span></li>
+<li><strong><code>client-ts/</code> — package name <code>osfacts-client</code>, no <code>@kolu</code> scope.</strong> The
+binary’s TypeScript face: spawn at a supplied path, gate <code>V 1</code>, parse typed
+<code>P</code>/<code>L</code>/<code>U</code> rows. Zero kolu imports, zero npm runtime dependencies (Node
+builtins only) so drishti can pin it without friction. Listed as one
+workspace member in <code>pnpm-workspace.yaml</code> while incubated so kolu can import
+it; leaves with the directory at OSF5. kolu policy (address scope, fold,
+U-row blindness) stays in padi — not in the client.</li>
+<li><strong><code>@kolu/port-scan</code> is dissolved (OSF2).</strong> Raw protocol → <code>osfacts-client</code>;
+kolu policy + <code>scanSubtreePorts</code> → padi; <code>PortInfo</code> / <code>foldPorts</code> →
+<code>@kolu/terminal-vocab</code>. No re-export shim.</li>
 <li><strong>One <code>default.nix</code>, plus a thin zero-input subflake — the vazhi
 pattern.</strong> The canonical build lives in <code>osfacts/default.nix</code>
 (<code>rustPlatform.buildRustPackage</code>, dependencies vendored via <code>cargoLock</code>,
@@ -367,16 +377,17 @@ day one; the root flake exports <code>.#osfacts</code> by importing the <em>same
 osfacts.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>packages/vazhi/flake.nix</code> documents this pattern: the
 subflake exists to keep the extraction gap small and visible, not to claim it
 is already zero.</span></span></span></li>
-<li><strong>Consumers take the binary by baked store path.</strong> padi and drishti reference
-the Nix-built osfacts the way padi ships its C helper today: the path is
-baked at build time and the caller crashes loudly if it is absent — never a
-<code>PATH</code> lookup, never an env override.</li>
+<li><strong>Consumers take the binary by baked store path.</strong> padi (and soon drishti)
+reference the Nix-built osfacts the way padi ships other required bins: the
+path is baked at build time and the caller crashes loudly if it is absent —
+never a <code>PATH</code> lookup, never an env override.</li>
 <li><strong>CI while incubated:</strong> the cargo regression suite runs as a kolu CI lane on
 both platforms; it moves with the directory on extraction.</li>
 <li><strong>The extraction signal is drishti (OSF5).</strong> kolu’s readers migrate in-repo;
-the day drishti — a separate repository — takes the dependency, osfacts
-graduates to its own repo. The directory moves wholesale, the subflake
-becomes <em>the</em> flake, and the contract does not change.</li>
+the next PR after #1996 has drishti adopt <code>osfacts-client</code> (replacing
+hand-rolled <code>lsof</code>). The day that lands, the directory is ready to graduate
+to its own repo. The directory moves wholesale, the subflake becomes <em>the</em>
+flake, and the contract does not change.</li>
 </ul>
 <h3 id="language--stack">Language &amp; stack</h3>
 <p><strong>Rust</strong> — settled by measurement, not preference: single-pass Rust matches C

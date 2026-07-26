@@ -120,11 +120,14 @@ worth keeping readable.
 
 OSF1 and OSF2 are in: the binary (`snapshot --roots|--pids --procs --ports`
 on both platforms, versioned TSV + `--json`, mandatory `unreadable`, scar-
-tissue suite) and kolu's port sensor, which now spawns the baked store path
-(`KOLU_OSFACTS_BIN`) and has deleted its C helper and TypeScript `/proc`
-readers. Facets beyond that (`--mem`, `--start-time`, `socket-holders`) and
-further consumer migrations are later phases. osfacts incubates in the kolu
-monorepo (this directory is the whole future repo) and moves out the day a
-second external consumer takes the dependency. Every claim and number above
-has its measurement in the plan of record:
+tissue suite) and kolu's port sensor, which spawns the baked store path
+(`KOLU_OSFACTS_BIN`). The TypeScript client lives at `client-ts/` as the
+package `osfacts-client` (no `@kolu` scope, zero npm runtime deps) — kolu/padi
+is the first consumer; drishti is next. The former `@kolu/port-scan` package
+is gone: raw protocol in this client, kolu policy in padi, `PortInfo` fold in
+`@kolu/terminal-vocab`. Facets beyond that (`--mem`, `--start-time`,
+`socket-holders`) and further consumer migrations are later phases. osfacts
+incubates in the kolu monorepo (this directory is the whole future repo) and
+moves out when a second external consumer pins it (drishti). Every claim and
+number above has its measurement in the plan of record:
 [os-facts-tool](https://kolu.dev/atlas/os-facts-tool.html).

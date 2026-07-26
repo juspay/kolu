@@ -254,7 +254,7 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  other shape, and the reshape needs no compatibility arm — which is the point:
  *  a `wildcard`-or-`scope` union in the schema would be a permanent fallback path
  *  bought to smooth over a window the convergence machinery already closes. The
- *  reshape itself is in `@kolu/port-scan/ports`, with the reason. */
+ *  reshape itself is in `@kolu/terminal-vocab` ports vocabulary, with the reason. */
 export const PADI_SURFACE_VERSION = "4.3";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */

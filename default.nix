@@ -99,10 +99,9 @@ let
   agentFlakeRefBakeArg =
     ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
 
-  # osfacts — the single OS process/socket sampler `@kolu/port-scan` spawns
+  # osfacts — the single OS process/socket sampler padi's port scan spawns
   # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper
-  # and the dev shell cannot drift — the same seam that kept the old darwin
-  # helper and bare-vitest live tests in step.
+  # and the dev shell cannot drift.
   osfactsBakeArg = ''--set KOLU_OSFACTS_BIN "${koluEnv.KOLU_OSFACTS_BIN}"'';
 
   # The `.ts` filter for a hashed daemon fileset: real source only (drops `.test.ts`
@@ -189,7 +188,9 @@ let
   padiIdentity = mkDaemonIdentity {
     name = "padi";
     prefix = "PADI";
-    root = ./packages;
+    # Repo root (not packages/): osfacts-client lives under osfacts/ so it can
+    # leave with the tool at OSF5, yet still hashes into padi's staleKey.
+    root = ./.;
     inherit commitHash;
     override = padiBuildIdOverride;
     behavioralFileset = pkgs.lib.fileset.unions [
@@ -243,11 +244,11 @@ let
       # the npm deps are NOT here — surface is the framework "electricity" (a
       # stable, drishti-gated boundary) and the rest are pinned by pnpmDeps; both
       # are stable externals in the closure guard's ALLOWED list.)
-      # @kolu/port-scan — the OS reader padi's port sensor plugs into. Hashed like
-      # any other in-process root: which ports a terminal is serving is daemon
-      # BEHAVIOUR, so a change to the reader must flip padi's staleKey exactly as a
-      # change to the sensor that calls it does.
-      (padiPkgRoot ./packages/port-scan)
+      # osfacts-client — TypeScript face of the osfacts binary that padi's port
+      # sensor spawns. Hashed like any other in-process root: which ports a
+      # terminal is serving is daemon BEHAVIOUR, so a change to the client must
+      # flip padi's staleKey exactly as a change to the sensor that calls it does.
+      (padiPkgRoot ./osfacts/client-ts)
       (padiPkgRoot ./packages/serve-dir)
       (padiPkgRoot ./packages/shell-quote)
       (padiPkgRoot ./packages/html-escape)

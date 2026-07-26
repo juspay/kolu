@@ -17,7 +17,7 @@ The export map is the boundary — both entries are **browser-safe**:
 
 | Entry | What |
 | --- | --- |
-| `./schema` | the `TerminalSnapshot` / `AgentMemory` / `AgentInfo` / `TerminalId` / `RestoreTarget` / `ProcessRss` schemas plus the `RepoChangePulse` / `FsFileInput` / `FsReadFileTextOutput` fs/git wire schemas `@kolu/padi/surface` composes. It also re-exports `@kolu/port-scan/ports`' vocabulary (`PortInfo`, `PortScope`, `PortFamily`, `foldPorts`, …) and adds the two pieces that ARE domain: `TerminalPorts`' `known`/`unknown` two-way, and `portReach`, which decides how a port becomes reachable |
+| `./schema` | the `TerminalSnapshot` / `AgentMemory` / `AgentInfo` / `TerminalId` / `RestoreTarget` / `ProcessRss` schemas plus the `RepoChangePulse` / `FsFileInput` / `FsReadFileTextOutput` fs/git wire schemas `@kolu/padi/surface` composes. It owns the port vocabulary (`PortInfo`, `PortScope`, `PortFamily`, `foldPorts`, … in `./ports.ts`) and adds the two pieces that ARE domain: `TerminalPorts`' `known`/`unknown` two-way, and `portReach`, which decides how a port becomes reachable |
 | `./agentProjection` | the pure agent-status projection (`agentBucket` · `agentPaintClass` · `agentUrgency` · `alertClass`) over a `TerminalSnapshot` |
 
 ## Who reads it

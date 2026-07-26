@@ -153,15 +153,10 @@ export const ForegroundSchema = z.object({
 // ── Listening TCP ports ───────────────────────────────────────────────
 //
 // The PORT FACTS themselves — `PortInfo`, the fold, the list comparison — live in
-// `@kolu/port-scan/ports`, not here. They are OS vocabulary: nothing in them knows
-// a terminal from an ssh-agent, and the scanner that produces them must not depend
-// on this package to describe its own output. What stays here is the part that IS
-// terminal domain — how a terminal SNAPSHOT carries them (`TerminalPorts`'
-// known/unknown two-way) and what kolu's UI decides from them (`portReach`).
-//
-// Re-exported below rather than left for each consumer to import separately: the
-// client reaches the whole terminal vocabulary through `kolu-common/surface`, and
-// splitting one snapshot field's types across two import sites would buy nothing.
+// `./ports.ts` (this package). They are bind vocabulary: nothing in them knows a
+// terminal from an ssh-agent. What is layered here is the part that IS terminal
+// domain — how a terminal SNAPSHOT carries them (`TerminalPorts`' known/unknown
+// two-way) and what kolu's UI decides from them (`portReach`).
 
 export {
   foldPorts,
@@ -175,7 +170,7 @@ export {
   samePortList,
   TcpPortSchema,
   widerScope,
-} from "@kolu/port-scan/ports";
+} from "./ports.ts";
 // Imported as well as re-exported: `export … from` re-publishes without binding,
 // and the three below are used right here to build `TerminalPortsSchema` and
 // `portReach`.
@@ -184,7 +179,7 @@ import {
   PortInfoSchema,
   type PortScope,
   samePortList,
-} from "@kolu/port-scan/ports";
+} from "./ports.ts";
 
 /** What a terminal is serving, as an HONEST two-way — not a bare `PortInfo[]` that
  *  conflates "nothing is listening" with "we could not look".
@@ -278,7 +273,7 @@ export type PortReach =
  *
  *  Pure and total over a three-way and a boolean, so there is no "unknown" arm for
  *  a render site to get wrong. It lives in kolu's vocabulary rather than beside
- *  `PortInfo` in `@kolu/port-scan` because `onKoluHost` is the domain: the scanner
+ *  `PortInfo` because `onKoluHost` is the domain: the scanner
  *  reports a bind, and only kolu knows whose host that bind is on. PRT2's forward
  *  manager needs the same judgment server-side, which is why it is here and not in
  *  the component that renders it. */

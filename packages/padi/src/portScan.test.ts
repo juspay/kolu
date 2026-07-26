@@ -1,0 +1,181 @@
+/**
+ * padi's port-scan policy pins — classification, U-row mapping, subtree walk —
+ * against fixture TSV. Live OS proofs live in `portScan.live.test.ts`.
+ */
+
+import { describe, expect, it } from "vitest";
+import { parseOsfactsOutput } from "osfacts-client";
+import {
+  addressBind,
+  decodeNetworkAddress,
+  partitionSubtrees,
+  PortScanError,
+  type ProcessRow,
+  unreadablePolicy,
+} from "./portScan.ts";
+
+const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
+const V4_MAPPED_WILDCARD = "00000000000000000000ffff00000000";
+
+const OSFACTS_OUTPUT = [
+  "V\t1",
+  "P\t1\t0\tlaunchd",
+  "P\t4200\t1\tzsh",
+  "P\t4242\t4200\tnode",
+  "P\t757\t1\tControlCenter",
+  "P\t53082\t4200\tnode",
+  "L\t757\t7000\t00000000",
+  "L\t53082\t5173\t00000000000000000000000000000001",
+  `L\t53082\t8081\t${V4_MAPPED_LOOPBACK}`,
+  `L\t53082\t8082\t${V4_MAPPED_WILDCARD}`,
+  "L\t53082\t8078\tc0a80105",
+  "",
+].join("\n");
+
+describe("decodeNetworkAddress", () => {
+  it("reads network-order v4", () => {
+    expect(decodeNetworkAddress("7f000001")).toEqual([127, 0, 0, 1]);
+  });
+
+  it("refuses a non-address", () => {
+    expect(() => decodeNetworkAddress("00FF")).toThrow(PortScanError);
+  });
+});
+
+describe("addressBind", () => {
+  it("classifies any / loopback / interface for v4", () => {
+    expect(addressBind([0, 0, 0, 0])).toEqual({ scope: "any", family: "v4" });
+    expect(addressBind([127, 0, 0, 1])).toEqual({
+      scope: "loopback",
+      family: "v4",
+    });
+    expect(addressBind([192, 168, 1, 5])).toEqual({
+      scope: "interface",
+      family: "v4",
+    });
+  });
+
+  it("classifies v4-mapped through the same judge", () => {
+    expect(addressBind(decodeNetworkAddress(V4_MAPPED_WILDCARD)).scope).toBe(
+      "any",
+    );
+    expect(addressBind(decodeNetworkAddress(V4_MAPPED_LOOPBACK)).scope).toBe(
+      "loopback",
+    );
+  });
+
+  it("classifies v6 any and loopback", () => {
+    expect(addressBind(new Array(16).fill(0))).toEqual({
+      scope: "any",
+      family: "v6",
+    });
+    const loop = new Array(16).fill(0);
+    loop[15] = 1;
+    expect(addressBind(loop)).toEqual({ scope: "loopback", family: "v6" });
+  });
+});
+
+describe("parse + classify (client raw → padi policy)", () => {
+  it("judges each bind through addressBind", () => {
+    const { ports } = parseOsfactsOutput(OSFACTS_OUTPUT);
+    const classified = ports.map((l) => ({
+      pid: l.pid,
+      port: l.port,
+      ...addressBind(decodeNetworkAddress(l.address)),
+    }));
+    expect(classified).toContainEqual({
+      pid: 757,
+      port: 7000,
+      scope: "any",
+      family: "v4",
+    });
+    expect(classified).toContainEqual({
+      pid: 53082,
+      port: 5173,
+      scope: "loopback",
+      family: "v6",
+    });
+    expect(classified).toContainEqual({
+      pid: 53082,
+      port: 8081,
+      scope: "loopback",
+      family: "v4",
+    });
+    expect(classified).toContainEqual({
+      pid: 53082,
+      port: 8078,
+      scope: "interface",
+      family: "v4",
+    });
+  });
+});
+
+describe("unreadablePolicy", () => {
+  it("skips a foreign-uid DESCENDANT rather than blinding the whole host", () => {
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 991, errno: "EACCES" }],
+      new Set([4200]),
+    );
+    expect(fatal).toBeNull();
+    expect([...skipPids]).toEqual([991]);
+  });
+
+  it("is fatal when a requested root is EACCES/EPERM", () => {
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 4200, errno: "EPERM" }],
+      new Set([4200]),
+    );
+    expect(fatal).toEqual({ pid: 4200, errno: "EPERM" });
+    expect(skipPids.size).toBe(0);
+  });
+
+  it("treats a vanished requested root as skip (empty ports), not blind", () => {
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 9999, errno: "ENOENT" }],
+      new Set([9999]),
+    );
+    expect(fatal).toBeNull();
+    expect([...skipPids]).toEqual([9999]);
+  });
+
+  it("skips U rows outside the ask rather than making them fatal", () => {
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 1, errno: "EPERM" }],
+      new Set([4200]),
+    );
+    expect(fatal).toBeNull();
+    expect([...skipPids]).toEqual([1]);
+  });
+});
+
+describe("partitionSubtrees", () => {
+  const table: ProcessRow[] = [
+    { pid: 1, ppid: 0, name: "init" },
+    { pid: 100, ppid: 1, name: "bash" },
+    { pid: 200, ppid: 100, name: "node" },
+    { pid: 300, ppid: 200, name: "workerd" },
+    { pid: 400, ppid: 1, name: "zsh" },
+    { pid: 500, ppid: 400, name: "vite" },
+  ];
+
+  it("walks grandchildren, and keeps sibling subtrees apart", () => {
+    const subtrees = partitionSubtrees(table, [100, 400]);
+    expect([...subtrees.get(100)!].sort()).toEqual([100, 200, 300]);
+    expect([...subtrees.get(400)!].sort()).toEqual([400, 500]);
+  });
+
+  it("gives a dead root an empty subtree rather than omitting the key", () => {
+    const subtrees = partitionSubtrees(table, [9999]);
+    expect(subtrees.has(9999)).toBe(true);
+    expect(subtrees.get(9999)!.size).toBe(0);
+  });
+
+  it("terminates on a cyclic ppid chain instead of overflowing the stack", () => {
+    const cyclic: ProcessRow[] = [
+      { pid: 10, ppid: 11, name: "a" },
+      { pid: 11, ppid: 10, name: "b" },
+    ];
+    const subtrees = partitionSubtrees(cyclic, [10]);
+    expect([...subtrees.get(10)!].sort()).toEqual([10, 11]);
+  });
+});

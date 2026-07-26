@@ -16,7 +16,6 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@kolu/port-scan": "workspace:*",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "kolu-claude-code": "workspace:*",

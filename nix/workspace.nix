@@ -47,7 +47,7 @@ let
     ../packages/padi
     ../packages/padi-tui
     ../packages/port-forward
-    ../packages/port-scan
+    ../osfacts/client-ts
     ../packages/vazhi
     ../packages/server
     ../packages/client

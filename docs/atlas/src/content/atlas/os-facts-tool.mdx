@@ -171,29 +171,29 @@ but are framework demos, not kolu runtime.</Footnote>
 
 | consumer today       | asks                                                  | reads today                                                                                          |
 | -------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `@kolu/port-scan`    | a subtree's processes + listening ports               | **osfacts** (`KOLU_OSFACTS_BIN`, OSF2 / PR #1996); C helper + TS `/proc` deleted |
+| padi port scan       | a subtree's processes + listening ports               | **osfacts** via `osfacts-client` (`KOLU_OSFACTS_BIN`, OSF2 / PR #1996); former `@kolu/port-scan` dissolved |
 | padi `memorySampler` | per-pid RSS                                           | only *self*-measurement (`process.memoryUsage()`) plus an RPC hop to kaval for kaval's own RSS — no true per-pid read exists yet |
 | `socketHolder` (in `surface-daemon-supervisor`) | which pids hold a unix socket **path** | `/proc/net/unix` + fd readlinks; darwin `lsof`                                                       |
 | daemon supervisor    | "is this pid still ours", and since when              | `kill(pid, 0)` liveness only — start-time identity is not read at all today                          |
-| **drishti**          | process inspection                                    | hand-rolled `lsof`                                                                                   |
+| **drishti**          | process inspection                                    | hand-rolled `lsof` — **next adopter of `osfacts-client`** (PR after #1996)                            |
 
 ### The phase tree — track prefix `OSF`
 
 | phase                        | delivers                                                                                                                                         | needs       |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
 | **OSF1 — the binary**        | `snapshot --roots --procs --ports` on both platforms · versioned TSV + `--json` · the mandatory `unreadable` section · the scar-tissue suite · `osfacts/` + subflake wiring — **shipped in PR #1996** | —           |
-| **OSF2 — kolu's port sensor adopts it** | `@kolu/port-scan` invokes the baked osfacts binary; the C helper and the linux `/proc` parse are **deleted** — **shipped in PR #1996** | OSF1        |
+| **OSF2 — kolu's port sensor adopts it** | padi invokes the baked osfacts binary through `osfacts-client`; C helper, TS `/proc`, and `@kolu/port-scan` are **deleted** — **shipped in PR #1996** | OSF1        |
 | **OSF3 — memory & age facets** | `--mem` + `--start-time`; `memorySampler` gains a true per-pid read (the RPC hop to kaval is deleted); the supervisor gains start-time identity   | OSF1        |
 | **OSF4 — socket-holders**    | the second verb ships; `socketHolder` deletes its `/proc/net/unix` and `lsof` paths                                                              | OSF1        |
-| **OSF5 — drishti & extraction** | drishti migrates wholesale; the directory moves to its own repo and the subflake becomes *the* flake                                          | OSF2–4 stable |
+| **OSF5 — drishti & extraction** | drishti migrates onto `osfacts-client` (replacing hand-rolled `lsof`); the directory moves to its own repo and the subflake becomes *the* flake | OSF2–4 stable |
 
 OSF2, OSF3 and OSF4 are independent siblings under OSF1. **The port-forwarding
 track needs exactly OSF1 → OSF2** — that pair is the "initial version", and the
 other branches can land whenever. Each phase is a consumer deleting its own OS
 traversal, independently revertible.<Footnote>OSF2 done-criterion: padi's
-`portSampler` → `@kolu/port-scan` → the osfacts binary, on both platforms,
-with `packages/port-scan/native/` and the TS `/proc` parse gone — the port e2e
-must pass *through the new path*, not beside it.</Footnote>
+`portSampler` → `portScan` (policy) → `osfacts-client` → the osfacts binary, on
+both platforms, with `@kolu/port-scan` gone — the port e2e must pass *through
+the new path*, not beside it.</Footnote>
 
 **Out of scope, deliberately:** foreground process (a PTY-fd fact — `tcgetpgrp`
 on the pty, so it stays kaval's), anything requiring root, and any
@@ -211,14 +211,24 @@ contract will churn hardest while kolu's five readers migrate onto it — each
 migration co-evolves the crate and its caller in one PR — and that argues for
 one repo until the churn settles.
 
-- **Path: top-level `osfacts/`, not under `packages/`.** `packages/` is the
-  pnpm workspace and osfacts is a cargo crate, not a workspace member —
-  location is structure, and filing it there would claim a membership it
-  doesn't have. The top-level directory *is* the whole future repo:
-  `Cargo.toml`, `src/`, `tests/`, the [README](https://github.com/juspay/kolu/blob/master/osfacts/README.md) carrying the comparison table
-  above, `default.nix`, `flake.nix`.<Footnote>Precedent: `website/` is exactly
-  this shape today — a top-level non-workspace subproject with its own
+- **Path: top-level `osfacts/`, not under `packages/`.** The cargo crate is not
+  a pnpm workspace member by default — location is structure. The directory
+  *is* the whole future repo: `Cargo.toml`, `src/`, `tests/`,
+  `client-ts/` (the TypeScript client), the
+  [README](https://github.com/juspay/kolu/blob/master/osfacts/README.md),
+  `default.nix`, `flake.nix`.<Footnote>Precedent: `website/` is exactly this
+  shape today — a top-level non-workspace subproject with its own
   `default.nix` and subflake.</Footnote>
+- **`client-ts/` — package name `osfacts-client`, no `@kolu` scope.** The
+  binary's TypeScript face: spawn at a supplied path, gate `V 1`, parse typed
+  `P`/`L`/`U` rows. Zero kolu imports, zero npm runtime dependencies (Node
+  builtins only) so drishti can pin it without friction. Listed as one
+  workspace member in `pnpm-workspace.yaml` while incubated so kolu can import
+  it; leaves with the directory at OSF5. kolu policy (address scope, fold,
+  U-row blindness) stays in padi — not in the client.
+- **`@kolu/port-scan` is dissolved (OSF2).** Raw protocol → `osfacts-client`;
+  kolu policy + `scanSubtreePorts` → padi; `PortInfo` / `foldPorts` →
+  `@kolu/terminal-vocab`. No re-export shim.
 - **One `default.nix`, plus a thin zero-input subflake — the vazhi
   pattern.** The canonical build lives in `osfacts/default.nix`
   (`rustPlatform.buildRustPackage`, dependencies vendored via `cargoLock`,
@@ -230,16 +240,17 @@ one repo until the churn settles.
   osfacts.<Footnote>`packages/vazhi/flake.nix` documents this pattern: the
   subflake exists to keep the extraction gap small and visible, not to claim it
   is already zero.</Footnote>
-- **Consumers take the binary by baked store path.** padi and drishti reference
-  the Nix-built osfacts the way padi ships its C helper today: the path is
-  baked at build time and the caller crashes loudly if it is absent — never a
-  `PATH` lookup, never an env override.
+- **Consumers take the binary by baked store path.** padi (and soon drishti)
+  reference the Nix-built osfacts the way padi ships other required bins: the
+  path is baked at build time and the caller crashes loudly if it is absent —
+  never a `PATH` lookup, never an env override.
 - **CI while incubated:** the cargo regression suite runs as a kolu CI lane on
   both platforms; it moves with the directory on extraction.
 - **The extraction signal is drishti (OSF5).** kolu's readers migrate in-repo;
-  the day drishti — a separate repository — takes the dependency, osfacts
-  graduates to its own repo. The directory moves wholesale, the subflake
-  becomes *the* flake, and the contract does not change.
+  the next PR after #1996 has drishti adopt `osfacts-client` (replacing
+  hand-rolled `lsof`). The day that lands, the directory is ready to graduate
+  to its own repo. The directory moves wholesale, the subflake becomes *the*
+  flake, and the contract does not change.
 
 ### Language & stack
 

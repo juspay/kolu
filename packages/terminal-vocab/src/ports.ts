@@ -1,14 +1,13 @@
 /**
  * What a listening port IS, and the two operations that define what a SET of them
- * means. The browser-safe half of `@kolu/port-scan` — zod and nothing else, no
- * `node:` imports — so a client that only renders ports can import it without
- * dragging the reader (and its child processes) into a bundle.
+ * means. Browser-safe — zod and nothing else, no `node:` imports — so a client
+ * that only renders ports can import it without dragging a process-spawning
+ * reader into a bundle.
  *
- * It lives here rather than in a consumer's vocabulary because both ends of the
- * wire depend on the same algebra for the same reason over different inputs: the
- * scanner folds one subtree's raw sockets, a client folds several already-folded
- * panes into one tile. Written twice it was the same rule twice, with one copy
- * tested.
+ * Lives in terminal-vocab because both ends of the wire depend on the same
+ * algebra over different inputs: the scanner folds one subtree's raw sockets, a
+ * client folds several already-folded panes into one tile. Written twice it was
+ * the same rule twice, with one copy tested.
  */
 
 import { z } from "zod";

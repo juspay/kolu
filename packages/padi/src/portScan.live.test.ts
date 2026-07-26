@@ -29,7 +29,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it, vi } from "vitest";
-import { scanSubtreePorts } from "./scan.ts";
+import { scanSubtreePorts } from "./portScan.ts";
 
 const children: ChildProcess[] = [];
 

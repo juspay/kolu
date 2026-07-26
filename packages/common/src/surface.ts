@@ -560,7 +560,7 @@ const FORWARD_KEYS_DETERMINED_BY_KEY = new Set(["host", "remotePort"]);
 
 /** The comparison keys, READ OFF the schema so a new `KoluForward` field is
  *  compared with no second edit here — the `PORT_INFO_KEYS` mechanism
- *  (`@kolu/port-scan/ports`), for its reason: this is a DEDUP gate, so a field it
+ *  (`@kolu/terminal-vocab` ports vocabulary), for its reason: this is a DEDUP gate, so a field it
  *  does not compare is a field whose changes are swallowed, with nothing anywhere
  *  to report why the row never updated. */
 const FORWARD_KEYS = Object.keys(KoluForwardSchema.shape).filter(

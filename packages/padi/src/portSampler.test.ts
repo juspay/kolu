@@ -18,7 +18,7 @@ import {
   PORT_SCAN_INTERVAL_MS,
   type PortScanTarget,
 } from "./portSampler.ts";
-import { PortScanError, portScanSupported } from "@kolu/port-scan";
+import { PortScanError, portScanSupported } from "./portScan.ts";
 
 const quietLog = pino({ level: "silent" });
 
