@@ -101,8 +101,6 @@ export interface KoluForwards {
    *  spelling of "reap and announce" left for a later caller to reach for. Never
    *  throws — a host that cannot be read keeps its forwards. */
   reconcile(): Promise<Forwards>;
-  /** A host left the pool — take ITS forwards down, both origins. A door to a
-   *  machine kolu no longer has is a door to nowhere. */
   /** Every host kolu currently holds a door to, INCLUDING one whose only door
    *  is still opening.
    *
@@ -112,6 +110,9 @@ export interface KoluForwards {
    *  flight looked like a host with no doors, so `hostDeparted` was never called
    *  for it: the door landed live for a machine kolu no longer has. */
   heldHosts(): readonly HostKey[];
+  /** A host left the pool — take ITS forwards down, both origins, including one
+   *  still opening. A door to a machine kolu no longer has is a door to
+   *  nowhere. */
   hostDeparted(host: HostKey): Promise<void>;
   /** Close everything. */
   dispose(): Promise<void>;
