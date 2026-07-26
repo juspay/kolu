@@ -49,7 +49,7 @@ import {
   createPortSampler,
   type PortSampler,
   type PortScanTarget,
-} from "../ports/sampler.ts";
+} from "../ports/index.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
