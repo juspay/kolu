@@ -65,6 +65,45 @@ describe("widerScope", () => {
   });
 });
 
+describe("foldPorts — scope and family are folded TOGETHER", () => {
+  it("takes the family from the bind whose scope WON, not from the other one", () => {
+    // The trap: fold the two fields independently and they can come from
+    // different rows. A server on `192.168.1.5:5173` (v4) and `[::1]:5173` (v6)
+    // folds to scope=loopback — right, the doorable bind wins — and family=v4,
+    // because v4 beats v6 on its own axis. The door then dials `127.0.0.1:5173`,
+    // where nothing is listening: it opens, reports success, and serves nothing.
+    //
+    // That is the SAME failure `family` was added to stop, recreated one level
+    // up at the fold. The family is a property OF a bind, so it can only be read
+    // off the binds that survived the scope decision.
+    expect(
+      foldPorts([
+        p(5173, "interface", "node", "v4"),
+        p(5173, "loopback", "node", "v6"),
+      ]),
+    ).toEqual([p(5173, "loopback", "node", "v6")]);
+    // …and order-independent, like every other property of this fold.
+    expect(
+      foldPorts([
+        p(5173, "loopback", "node", "v6"),
+        p(5173, "interface", "node", "v4"),
+      ]),
+    ).toEqual([p(5173, "loopback", "node", "v6")]);
+  });
+
+  it("still prefers v4 when BOTH binds are the winning scope", () => {
+    // Within one scope the old rule is exactly right: a v4 dial reaches a v4
+    // listener and a dual-stack one, so a port answering on both loopbacks
+    // dials v4.
+    expect(
+      foldPorts([
+        p(5173, "loopback", "node", "v6"),
+        p(5173, "loopback", "node", "v4"),
+      ]),
+    ).toEqual([p(5173, "loopback", "node", "v4")]);
+  });
+});
+
 describe("preferredFamily", () => {
   it("prefers v4 when a port is bound on both, in either order", () => {
     // A v4 dial reaches a v4 listener and a dual-stack one; a v6 dial reaches

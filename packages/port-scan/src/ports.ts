@@ -168,8 +168,21 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
       byPort.set(row.port, { ...row });
       continue;
     }
-    prior.scope = widerScope(prior.scope, row.scope);
-    prior.family = preferredFamily(prior.family, row.family);
+    // Scope and family fold TOGETHER, because the family is a property OF a
+    // bind rather than of the port. Folded independently they can come from
+    // different rows: `192.168.1.5:5173` (v4) beside `[::1]:5173` (v6) folds to
+    // scope=loopback — right, the doorable bind wins — and family=v4, so the
+    // door dials 127.0.0.1 where nothing listens. It opens, reports success and
+    // serves nothing, which is the exact failure `family` was added to stop.
+    //
+    // So: the winning scope decides, and the family is read off the rows that
+    // hold that scope. Within one scope the v4 preference still applies.
+    const scope = widerScope(prior.scope, row.scope);
+    if (scope !== prior.scope) prior.family = row.family;
+    else if (row.scope === scope) {
+      prior.family = preferredFamily(prior.family, row.family);
+    }
+    prior.scope = scope;
     if (row.name < prior.name) prior.name = row.name;
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);

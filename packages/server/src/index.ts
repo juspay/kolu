@@ -693,7 +693,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
    *  fused change EDGE — a bare tick that makes the poll re-read at once — so an
    *  act reaches the wire without waiting out the reap interval. Nothing here
    *  holds a copy of the list: the cell's read is its only reader. */
-  const forwards = createKoluForwards({ readHostPorts, log });
+  const forwards = createKoluForwards({
+    readHostPorts,
+    hostIsMember: (host) => pool.has(encodeHostKey(host)),
+    log,
+  });
 
   // A host leaving the pool takes its doors with it — a forward to a machine kolu
   // no longer has is a door to nowhere, and that holds for `manual` forwards too
@@ -702,11 +706,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // anything, and it does not need to — a remote forward's ssh child dies with its
   // own connection and the map hears about it through `onLost`.
   pool.subscribe(() => {
+    // Once per departed HOST. Walking the forwards and firing per row meant
+    // three doors on one machine started three concurrent `hostDeparted` runs
+    // over the same keys, and the losers logged a cancel failure for every key
+    // the winner had already taken down — noise shaped exactly like a fault.
+    const departed = new Map<string, HostKey>();
     for (const forward of forwards.list()) {
-      if (!pool.has(encodeHostKey(forward.host))) {
-        void forwards.hostDeparted(forward.host);
-      }
+      const enc = encodeHostKey(forward.host);
+      if (!pool.has(enc)) departed.set(enc, forward.host);
     }
+    for (const host of departed.values()) void forwards.hostDeparted(host);
   });
 
   /** "Which of kolu's hosts is this browser at?" — resolver in `portForward/`;

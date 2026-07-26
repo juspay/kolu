@@ -163,6 +163,9 @@ export function createKoluForwards(deps: {
    *  ones — see {@link REAP_READ_DEADLINE_MS} and
    *  {@link CREATE_READ_DEADLINE_MS}. */
   readHostPorts: (host: HostKey, deadlineMs: number) => Promise<HostPorts>;
+  /** Is this host still in kolu's pool? Consulted on the way into a create,
+   *  because a door is only ever worth opening to a machine kolu still has. */
+  hostIsMember: (host: HostKey) => boolean;
   log: Logger;
   /** The forward map. Defaults to the real one; injected by tests. */
   makeManager?: (opts: {
@@ -253,6 +256,17 @@ export function createKoluForwards(deps: {
       const target = alreadyOpen(input)
         ? targetFor(input.host, input.port, ASSUMED_LOOPBACK)
         : targetFor(input.host, input.port, await familyFor(input));
+      // Re-check membership HERE, after the scan read, not only on the way in.
+      // The read is a network-shaped await, and a host can leave the pool during
+      // it — `hostDeparted` then walks a map that does not yet hold this target
+      // and misses it, and the flight lands as a live listener for a machine
+      // kolu no longer has: unauthenticated on every interface of the kolu
+      // server, with no host tab left to cancel it from.
+      if (!deps.hostIsMember(input.host)) {
+        throw new Error(
+          `kolu no longer has the host "${encodeHostKey(input.host)}" — not opening a forward to it.`,
+        );
+      }
       const forward = await manager.create(target, input.origin);
       // Idempotent by target, so this may be a forward that already existed. A
       // `manual` request over an `auto` forward PROMOTES it: the user has now
@@ -349,9 +363,16 @@ export function createKoluForwards(deps: {
 
     async hostDeparted(host) {
       const enc = encodeHostKey(host);
+      // Every target the map HOLDS, not every forward it lists: a door still
+      // opening has no record to list yet, and a create in flight when its host
+      // leaves would otherwise land as a live listener for a machine kolu no
+      // longer has — with no host tab left to cancel it from. `cancel` handles
+      // an opening slot by recording the intent and tearing the flight down on
+      // arrival; enumerating it is what was missing.
       const doomed = manager
-        .list()
-        .filter((f) => encodeHostKey(hostOf(f.target)) === enc);
+        .targets()
+        .filter((t) => encodeHostKey(hostOf(t)) === enc)
+        .map((t) => ({ key: targetKey(t) }));
       for (const forward of doomed) {
         try {
           await manager.cancel(forward.key);

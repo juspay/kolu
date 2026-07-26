@@ -95,8 +95,10 @@ function harness(
       published.push(list);
     },
   };
+  const member = { all: true };
   const forwards = createKoluForwards({
     readHostPorts,
+    hostIsMember: () => member.all,
     log,
     makeManager: (o: {
       onLost: (loss: ForwardLoss<ForwardOrigin>) => void;
@@ -113,6 +115,10 @@ function harness(
     readHostPorts,
     fake,
     ports,
+    /** Take every host out of the pool — "kolu no longer has this machine". */
+    depart: () => {
+      member.all = false;
+    },
     set onChange(fn: (list: Forwards) => void) {
       h.onChange = fn;
     },
@@ -323,6 +329,49 @@ describe("a host leaving", () => {
     expect(h.forwards.list().map((f) => f.host)).toEqual([
       { kind: "remote", target: "zest" },
     ]);
+  });
+
+  it("cancels a door still OPENING when its host leaves the pool", async () => {
+    // `hostDeparted` walked the LIST, which is open slots only, so a create
+    // still in flight was invisible to it. The flight then lands after the host
+    // is gone and the door is live for a machine kolu no longer has — an
+    // unauthenticated listener on every interface of the kolu server, with no
+    // host tab left to cancel it from.
+    //
+    // The map already knew how to cancel an OPENING slot: it records the intent
+    // and tears the flight down on arrival. What it could not do was ENUMERATE
+    // one, which is the gap this closes.
+    let land: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      land = resolve;
+    });
+    const fake = fakeMechanisms();
+    const slowOpen: ForwardMechanisms = {
+      async open(target) {
+        await held;
+        return fake.mechanisms.open(target);
+      },
+    };
+    const h = harness(new Map(), {
+      onMechanisms: { ...fake, mechanisms: slowOpen },
+    });
+
+    const inFlight = h.forwards.create({
+      host: PU,
+      port: 5173,
+      origin: "auto",
+    });
+    // The host leaves the pool while the door is still opening.
+    h.depart();
+    const departed = h.forwards.hostDeparted(PU);
+    land?.();
+    await expect(inFlight).rejects.toThrow(/no longer has the host/);
+    await departed;
+
+    expect(h.forwards.list()).toEqual([]);
+    // …and no listener was ever handed out, so there is nothing orphaned on the
+    // kolu server's interfaces.
+    expect(h.fake.closed).toEqual([]);
   });
 
   it("touches nothing when the departed host had none", async () => {

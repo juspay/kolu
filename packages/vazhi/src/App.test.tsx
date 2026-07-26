@@ -66,6 +66,7 @@ function fakeManager(): {
           if (!live.delete(key)) throw new Error(`no forward named "${key}"`);
           cancelled.push(key);
         },
+        targets: () => [...live.values()].map((f) => f.target),
         list: () => [...live.values()],
         dispose: async () => {
           gone = true;

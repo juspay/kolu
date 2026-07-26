@@ -118,8 +118,19 @@ export interface ForwardManager<M = undefined> {
   promote(key: string, meta: M): Forward<M>;
   /** Take down the forward with this key. Rejects if there is no such key. */
   cancel(key: string): Promise<void>;
-  /** Every live forward, oldest first. */
+  /** Every live forward, oldest first. OPEN slots only — a forward that is
+   *  still opening has no record to hand out yet. */
   list(): readonly Forward<M>[];
+  /** Every target the map currently HOLDS, in any state — open, opening, or
+   *  closing.
+   *
+   *  `list` cannot answer this: it deliberately returns only what is open, so a
+   *  caller taking down a whole class of forwards (a host leaving the pool)
+   *  could not see a door still in flight, and the flight then landed as a live
+   *  listener nothing was left to cancel. `cancel` has always handled an
+   *  opening slot correctly — the gap was purely that nothing could enumerate
+   *  one. */
+  targets(): readonly ForwardTarget[];
   /** Take every forward down. Rejects with an `AggregateError` if any refused
    *  to go, having still attempted all of them. */
   dispose(): Promise<void>;
@@ -132,6 +143,9 @@ export interface ForwardManager<M = undefined> {
 type Slot<M> =
   | {
       readonly state: "opening";
+      /** The target being opened. Carried so `targets` can report a door that
+       *  has no `forward` record yet. */
+      readonly target: ForwardTarget;
       readonly flight: Promise<Forward<M>>;
       /** The identity of THIS opening, installed before the mechanism can call
        *  back, so a loss it reports before `open()` resolves is attributable. */
@@ -510,7 +524,7 @@ export function makeForwardManager<M = undefined>(opts: {
       slots.set(key, { state: "open", forward, opened, token });
       return forward;
     })();
-    slots.set(key, { state: "opening", flight, token });
+    slots.set(key, { state: "opening", target, flight, token });
     try {
       return await flight;
     } catch (err) {
@@ -590,6 +604,14 @@ export function makeForwardManager<M = undefined>(opts: {
         if (slot.state === "open") live.push(slot.forward);
       }
       return live.sort((a, b) => a.createdAt - b.createdAt);
+    },
+
+    targets() {
+      const held: ForwardTarget[] = [];
+      for (const slot of slots.values()) {
+        held.push(slot.state === "opening" ? slot.target : slot.forward.target);
+      }
+      return held;
     },
 
     async dispose() {

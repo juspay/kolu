@@ -123,30 +123,45 @@ export async function firstFrameOfCollectionItem<T>(
         value: await firstFrameOrThrow(source, onEmptyItem),
       };
     })();
-    // The absence bound: membership when a `keys` verb exists, else a hard deadline
-    // so a keys-less collection can NEVER hang on an absent key (never a silent
-    // fall-back to the hanging `firstFrameOrThrow(get)`).
-    const absent: Promise<CollectionItemFrame<T>> =
-      openKeys !== null
-        ? (async (): Promise<CollectionItemFrame<T>> => {
-            const source = await openKeys(ac.signal);
-            for await (const frame of source) {
-              if (!(Array.isArray(frame) && frame.includes(key))) {
-                return { present: false, reason: "absent" };
+    // TWO absence bounds, and BOTH are always armed — they answer different
+    // questions and neither subsumes the other:
+    //
+    //  - **membership** ("is this key gone?") — the precise answer, available
+    //    only when the collection has a `keys` verb, and the one that resolves
+    //    the instant a key leaves rather than after a wait;
+    //  - **the deadline** ("have we waited long enough?") — the backstop.
+    //
+    // They used to be EITHER/OR, which left a gap exactly between them: a key
+    // that STAYS a member while its item stream says nothing matched neither,
+    // so a collection with a `keys` verb had no deadline at all and the read
+    // never resolved. That is the hang this function exists to make unspellable,
+    // reached through the one door left open — and callers put this read inside
+    // poll cells, where a read that never resolves holds the in-flight latch and
+    // stops the cell recomputing for the life of the process.
+    const membership: Promise<CollectionItemFrame<T>>[] =
+      openKeys === null
+        ? []
+        : [
+            (async (): Promise<CollectionItemFrame<T>> => {
+              const source = await openKeys(ac.signal);
+              for await (const frame of source) {
+                if (!(Array.isArray(frame) && frame.includes(key))) {
+                  return { present: false, reason: "absent" };
+                }
               }
-            }
-            // `keys` ended without ever reporting the key absent — for a live
-            // surface this only happens on teardown; treat as not-found so the
-            // read stays bounded rather than resolving a stale value.
-            return { present: false, reason: "absent" };
-          })()
-        : new Promise<CollectionItemFrame<T>>((resolve) => {
-            deadlineTimer = setTimeout(
-              () => resolve({ present: false, reason: "deadline" }),
-              deadlineMs,
-            );
-          });
-    return await Promise.race([present, absent]);
+              // `keys` ended without ever reporting the key absent — for a live
+              // surface this only happens on teardown; treat as not-found so the
+              // read stays bounded rather than resolving a stale value.
+              return { present: false, reason: "absent" };
+            })(),
+          ];
+    const deadline = new Promise<CollectionItemFrame<T>>((resolve) => {
+      deadlineTimer = setTimeout(
+        () => resolve({ present: false, reason: "deadline" }),
+        deadlineMs,
+      );
+    });
+    return await Promise.race([present, ...membership, deadline]);
   } finally {
     ac.abort();
     if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);

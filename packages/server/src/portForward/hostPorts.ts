@@ -136,11 +136,30 @@ export function makeHostPortsReader(deps: {
       // `preferredFamily` is order-independent but the union must be a function
       // of the set rather than of which read happened to land first.
       for (const frame of frames) {
-        // Absent — the terminal went away between the keys frame and this read,
-        // or the read hit its deadline. Either way it contributes nothing and
-        // does NOT count as an observation: a terminal we could not read cannot
-        // testify that a port stopped listening.
-        if (!frame.present) continue;
+        // The two ways a read comes back empty are NOT the same fact, and the
+        // reaper's whole rule turns on the difference.
+        //
+        //  - `absent` — the terminal left the collection between the keys frame
+        //    and this read. It is gone, so it cannot be serving anything: it
+        //    contributes nothing and the reading stays honest without it.
+        //  - `deadline` — the terminal is STILL a member and did not answer in
+        //    time. We could not look. Folding that into a `known` map would
+        //    publish "this host serves nothing" on the strength of whichever
+        //    pane happened to answer — and if the missing pane is the one
+        //    holding the dev server, reconcile then cancels a live door.
+        //
+        // So a deadline fails the whole sample closed. Positive evidence is the
+        // only thing allowed to close a door, and a partial read is not it.
+        if (!frame.present) {
+          if (frame.reason === "deadline") {
+            deps.log.warn(
+              { host: encodeHostKey(host) },
+              "a terminal did not answer within the budget — reporting this host's ports as unknown rather than reaping on a partial reading",
+            );
+            return { status: "unknown" };
+          }
+          continue;
+        }
         const arm = activePadiTerminal(
           frame.value as Parameters<typeof activePadiTerminal>[0],
         );

@@ -39,13 +39,6 @@ export type PortRow =
       info: PortInfo;
       forward: KoluForward | undefined;
     }
-  | {
-      kind: "port";
-      port: number;
-      name: string;
-      info: PortInfo;
-      forward: KoluForward | undefined;
-    }
   | { kind: "orphan"; port: number; forward: KoluForward };
 
 /** Join what the terminal serves to what kolu has opened. */

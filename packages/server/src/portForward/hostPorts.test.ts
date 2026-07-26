@@ -146,6 +146,35 @@ describe("makeHostPortsReader", () => {
   });
 });
 
+describe("a partial read is not an observation", () => {
+  it("reports `unknown` when a still-member terminal could not be read", async () => {
+    // The reaper acts on POSITIVE evidence: a port absent from a `known`
+    // reading is a dead listener, and the door closes. That rule is only as
+    // honest as `known`.
+    //
+    // Here two panes are members. One answered and serves nothing. The other
+    // holds the actual dev server, and its read hit the deadline — the mirror
+    // went quiet, but the key never left the collection. Folding those into one
+    // `known` map publishes "this host serves nothing" on the strength of the
+    // pane that happened to answer, and reconcile then cancels a door with a
+    // live listener behind it.
+    //
+    // A VANISHED key is different and stays a non-contributor: it is gone, so
+    // it genuinely cannot be serving anything. The framework reports which of
+    // the two happened, so this does not have to guess.
+    const QUIET_MS = 150;
+    const terminals: TerminalsFace = {
+      // Both keys stay members for the whole read — nothing departs.
+      keys: async () => stream([["answered", "wedged"]]),
+      get: async ({ key }) =>
+        key === "answered" ? stream([terminalRecord([])]) : silent(),
+    };
+    const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
+
+    await expect(read(host, QUIET_MS)).resolves.toEqual({ status: "unknown" });
+  }, 10_000);
+});
+
 describe("the cost of a host is ONE slow read, not one per terminal", () => {
   it("reads a host's terminals all at once", async () => {
     // Three panes that have gone quiet: each read ends only when MEMBERSHIP
