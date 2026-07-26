@@ -34,7 +34,10 @@ Feature: Printed URL joins the scanner (PRT4)
     And there should be no page errors
 
   Scenario: Cmd-click bypasses the card and opens the raw URL
-    When I print the URL "http://localhost:8132/"
+    # A live listener so the raw open is a real navigation, not chrome-error
+    # from a refused connection (nothing was bound on the prior cut).
+    When I start a path-aware listener on port 8132 bound to loopback only
+    And I print the URL "http://localhost:8132/"
     And I cmd-click the terminal web link "http://localhost:8132/"
     Then the printed-url card should not be open
     And a raw popup should have opened for "http://localhost:8132/"
