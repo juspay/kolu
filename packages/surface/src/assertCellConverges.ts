@@ -14,22 +14,11 @@
  * bounded-read harness each time.
  */
 
-import { __setLoopReporterForTests } from "./reactor";
-
-/** A poll source, as far as this helper needs it — `source({ read, install })`
- *  returns one, and the connect seam is all that is driven here. */
-interface ConnectablePoll {
-  connectPoll: (
-    set: (next: never) => void,
-    signal?: AbortSignal,
-  ) => Promise<() => void>;
-}
+import { __setLoopReporterForTests, type PollSource } from "./reactor";
 
 export interface ConvergenceResult {
   /** How many reads happened in the observation window. */
   reads: number;
-  /** The loop the reactor detected, if it detected one. */
-  loop: Error | undefined;
 }
 
 /** Drive a poll source, poke it, and assert it goes quiet.
@@ -43,9 +32,12 @@ export interface ConvergenceResult {
  *  sides: the reactor reporting a self-caused loop, or reads still arriving after
  *  the source should have settled (a cycle the guard's provenance check somehow
  *  did not attribute — the belt to its braces). */
-export async function assertCellConverges(opts: {
-  /** Build the source. Called once; `onRead` must be invoked by its `read`. */
-  build: (onRead: () => void) => ConnectablePoll;
+export async function assertCellConverges<T>(opts: {
+  /** Build the source. Called once; `onRead` must be invoked by its `read`.
+   *  Takes the framework's own `PollSource`, so `source<T>({ … })` fits with no
+   *  cast — a helper whose first consumer needs an escape hatch to call it is a
+   *  helper nobody reaches for. */
+  build: (onRead: () => void) => PollSource<T>;
   /** The act that could start a cycle. Defaults to doing nothing. */
   kick?: () => void;
   /** How long to watch after the kick. Long enough that a real cycle — which
@@ -53,6 +45,10 @@ export async function assertCellConverges(opts: {
   settleMs?: number;
 }): Promise<ConvergenceResult> {
   let reads = 0;
+  // The reporter's report is the THROW below. Nothing returns it: a field that
+  // can only ever be `undefined` on a returned value invites a caller to branch
+  // on it and write dead code, and lets a test assert `{ loop: undefined }` and
+  // believe it checked something.
   let loop: Error | undefined;
   __setLoopReporterForTests((err) => {
     loop ??= err;
@@ -82,7 +78,7 @@ export async function assertCellConverges(opts: {
           `${growth} in the second. A settled poll re-reads on its cadence; a cycle re-reads as fast as it can.`,
       );
     }
-    return { reads, loop };
+    return { reads };
   } finally {
     stop();
     __setLoopReporterForTests(null);

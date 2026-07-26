@@ -438,13 +438,47 @@ describe("the cell wiring — reconcile-on-a-fused-cadence", () => {
               return () => listeners.delete(tick);
             }),
             label: "forwards",
-          }) as never,
+          }),
         kick: () => {
           for (const tick of [...listeners]) tick();
         },
         settleMs: 150,
       }),
-    ).resolves.toMatchObject({ loop: undefined });
+    ).resolves.toMatchObject({ reads: expect.any(Number) });
+  });
+
+  it("does not reap a door the user PINNED while the reap was reading", async () => {
+    // The reap decides which forwards are `auto` up front, then awaits a host
+    // read — and that read is a real network-shaped await (a surface mirror,
+    // bounded at seconds, not microseconds). A ⌘K "Forward a port…" for the same
+    // target landing in that window promotes the door to `manual`, which is the
+    // user saying "keep this until I say otherwise".
+    //
+    // Deciding before the await and acting after it means the promotion is
+    // invisible to the pass that then closes the door. The user's explicit act
+    // loses to a decision taken before they made it.
+    const ports = new Map<string, HostPorts>();
+    const h = harness(ports);
+    await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
+
+    // The listener is gone, so the reap WILL want to close this door…
+    ports.set("pu-dev", listening([]));
+    let promote: (() => Promise<void>) | undefined;
+    h.readHostPorts.mockImplementationOnce(async (host: HostKey) => {
+      // …and the pin lands while it is reading, exactly as a real click would.
+      await promote?.();
+      return (
+        ports.get(host.kind === "local" ? "local" : host.target) ?? "unknown"
+      );
+    });
+    promote = async () => {
+      await h.forwards.create({ host: PU, port: 5173, origin: "manual" });
+    };
+
+    await h.forwards.reconcile();
+
+    expect(h.forwards.list().map((f) => f.remotePort)).toEqual([5173]);
+    expect(h.fake.closed).toEqual([]);
   });
 
   it("CONVERGES with a live auto forward — the production freeze", async () => {

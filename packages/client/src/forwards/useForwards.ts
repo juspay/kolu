@@ -1,13 +1,13 @@
 /**
  * The client's view of kolu's port forwards — one subscription, three surfaces.
  *
- * The Inspector's Forwarded Ports group, the host tab's dropdown, and the `⇄ n`
- * badge on the host tab all render the same list, so they read it through here
- * rather than each opening its own subscription to the same cell.
+ * The Inspector's Ports list, the host tab's dropdown, and the thin teal ring on
+ * the host tab all render the same list, so they read it through here rather
+ * than each opening its own subscription to the same cell.
  *
  * Nothing here decides anything: the list is the server's, the acts are the
  * server's, and the whole death policy (auto vs manual, when a door closes on its
- * own) lives in `server/src/forwards.ts` where it belongs — a browser tab closing
+ * own) lives in `server/src/portForward/forwards.ts` where it belongs — a browser tab closing
  * must not be able to change which doors are open.
  */
 
@@ -22,8 +22,10 @@ import { app, client } from "../wire";
 // the cell's first real frame lands on nobody and the list renders empty forever.
 const sub = createRoot(() => app.cells.forwards.use());
 
-/** Every live forward, oldest first. */
-export function allForwards(): Forwards {
+/** Every live forward, oldest first. Module-local: every surface wants the
+ *  per-host slice below, and a whole-fleet reader on the outside would be a
+ *  second way to ask a question that has one right shape. */
+function allForwards(): Forwards {
   return sub.value() ?? [];
 }
 
@@ -44,16 +46,6 @@ export function forwardsForHost(host: HostKey): Forwards {
     byHost.set(enc, memo);
   }
   return memo();
-}
-
-/** The live forward for `(host, port)`, if kolu holds one — what a port chip
- *  reads to decide between "open it" and "open a door, then open it", and what
- *  gives it its `⇄ :<localPort>` badge. */
-export function forwardFor(host: HostKey, port: number) {
-  const enc = encodeHostKey(host);
-  return allForwards().find(
-    (f) => f.remotePort === port && encodeHostKey(f.host) === enc,
-  );
 }
 
 /** Open a forward, or return the live one for the same target. Idempotent by
@@ -82,9 +74,28 @@ export function cancelForward(key: string) {
  *  It exists because a host in kolu's fleet can be the machine you are reading
  *  kolu FROM: forwarding one of its loopback ports then opens a door on the kolu
  *  server so your browser can reach a port on the machine you are sitting at, by
- *  way of a third one. */
+ *  way of a third one.
+ *
+ *  A FAILED read lands on `null` rather than escaping. This is read during
+ *  render — `PortsSection` calls it per port row inside a `<For>` child — and a
+ *  Solid resource accessor RE-THROWS its fetcher's error instead of returning
+ *  `undefined`, so without the catch a transient RPC failure would abort the
+ *  render pass, with no `ErrorBoundary` anywhere in the client to catch it. This
+ *  is not a swallowed error: `null` is already this function's word for "kolu
+ *  cannot tell", it is the answer the server itself gives for every uncertain
+ *  case, and it degrades to "keep offering the forward" — the path that always
+ *  works. The failure is still reported, to the console rather than the UI,
+ *  because the user has nothing to do about it. */
 const viewerHostQuery = createRoot(() =>
-  createResource(async () => (await client.hosts.viewer()).host),
+  createResource(async () =>
+    client.hosts.viewer().then(
+      (r) => r.host,
+      (err: Error) => {
+        console.warn("Viewer-host lookup failed:", err);
+        return null;
+      },
+    ),
+  ),
 );
 
 export function viewerHost(): HostKey | null {

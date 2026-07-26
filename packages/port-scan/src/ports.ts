@@ -71,14 +71,23 @@ export function preferredFamily(a: PortFamily, b: PortFamily): PortFamily {
   return a === "v4" || b === "v4" ? "v4" : "v6";
 }
 
-/** How reachable each scope is, most-reachable first — the fold's ordering when
- *  one port has several binds (see {@link foldPorts}). `any` subsumes the other
- *  two: a server bound to both `127.0.0.1` and `0.0.0.0` IS reachable, and an
- *  `interface` bind is reachable from more places than a loopback one. */
+/** How USEFUL each scope is to kolu, most-useful first — the fold's ordering
+ *  when one port has several binds (see {@link foldPorts}).
+ *
+ *  The ranking is about what kolu can DO with the bind, not about how many
+ *  machines could reach it unaided — and those two orders disagree on exactly
+ *  one pair. An `interface` bind reaches more of the network than a loopback
+ *  one, but it is the single scope NO mechanism serves: both the relay and
+ *  `ssh -L` dial the far side's LOOPBACK. So a server bound to both
+ *  `192.168.1.5:5173` and `127.0.0.1:5173` has a door — through the loopback
+ *  bind — and ranking `interface` higher would fold that port to the one scope
+ *  whose row says "no forward can reach it".
+ *
+ *  `any` still subsumes both: it needs no door at all on the kolu host. */
 const SCOPE_RANK: Record<PortScope, number> = {
   any: 2,
-  interface: 1,
-  loopback: 0,
+  loopback: 1,
+  interface: 0,
 };
 
 /** The most reachable of two binds of the same port. Total and order-independent

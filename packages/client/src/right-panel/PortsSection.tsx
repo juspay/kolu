@@ -120,12 +120,21 @@ export function portAction(opts: {
   /** Is the port's host the machine this browser is running on? */
   viewerOnHost: boolean;
 }): PortAction {
-  // The viewer arm wins over `needs-forward`, and ONLY over it. A `direct` port
-  // already answers on the page's own host, which is the link the user can also
-  // paste elsewhere, so there is nothing to gain by rewriting it to `localhost`
-  // — and `localhost` is the one hostname that means something different on
-  // every machine, which is the trap this whole feature was built to avoid.
-  if (opts.viewerOnHost && opts.reach.kind !== "direct") {
+  // The viewer arm wins over `needs-forward`, and ONLY over it — which is what
+  // this now says, having previously said "not `direct`" and so caught
+  // `no-mechanism` too.
+  //
+  // `direct` is excluded because the port already answers on the page's own
+  // host: a link the user can paste elsewhere, where `localhost` is the one
+  // hostname that means something different on every machine — the trap this
+  // whole feature was built to avoid.
+  //
+  // `no-mechanism` is excluded for a harder reason. An interface-bound listener
+  // is bound to ONE address, so `localhost` does not reach it even from that
+  // machine, and `scope: "interface"` records that the bind is interface-specific
+  // WITHOUT recording which address — so there is no URL kolu can honestly build.
+  // "Not reachable" is the true answer for the viewer too.
+  if (opts.viewerOnHost && opts.reach.kind === "needs-forward") {
     return { kind: "viewer" };
   }
   if (opts.reach.kind === "direct") return { kind: "here" };

@@ -104,16 +104,25 @@ describe("portAction", () => {
     ).toEqual({ kind: "viewer" });
   });
 
-  it("rescues even the arm no FORWARD can serve", () => {
-    // An interface bind on a remote host has no door — but if you are sitting at
-    // that machine you can simply open it, which is the one case where "no
-    // mechanism" and "unreachable" are not the same thing.
+  it("does NOT rescue the arm no forward can serve, even for a viewer on that host", () => {
+    // This once returned `viewer`, reasoning that someone sitting at the machine
+    // can simply open the port. True of the PERSON, false of the LINK: the
+    // viewer arm builds `localhost:<port>`, and an interface-bound listener is
+    // bound to ONE address — say `192.168.1.5:5173` — so loopback does not reach
+    // it and the tab lands on a connection refused.
+    //
+    // Building the working link is not an option either: `scope: "interface"`
+    // records THAT the bind is interface-specific, not WHICH address, because
+    // the scanner folds a terminal's binds and the address is exactly what the
+    // fold drops. So kolu cannot construct a URL that works, and saying "not
+    // reachable" is the honest answer — the same one the non-viewer case gets,
+    // and the reason this arm exists at all.
     expect(
       portAction({
         reach: { kind: "no-mechanism", via: "interface-bind" },
         viewerOnHost: true,
       }),
-    ).toEqual({ kind: "viewer" });
+    ).toEqual({ kind: "none" });
   });
 
   it("does NOT rewrite a directly-answering port to localhost", () => {

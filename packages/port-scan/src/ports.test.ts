@@ -35,7 +35,7 @@ const p = (
 });
 
 describe("widerScope", () => {
-  it("ranks any > interface > loopback, in either argument order", () => {
+  it("ranks any > loopback > interface, in either argument order", () => {
     // The fold's whole ordering, asserted directly: a total order stated once
     // here is what makes `foldPorts` independent of the order it observed its
     // rows in — which is not a nicety, since `samePortList` reads the result and
@@ -46,10 +46,22 @@ describe("widerScope", () => {
         expect(widerScope(a, b)).toBe(widerScope(b, a));
       }
     }
-    expect(widerScope("loopback", "interface")).toBe("interface");
     expect(widerScope("interface", "any")).toBe("any");
     expect(widerScope("loopback", "any")).toBe("any");
     expect(widerScope("loopback", "loopback")).toBe("loopback");
+  });
+
+  it("prefers a LOOPBACK bind over an interface one — it is the one kolu can open", () => {
+    // The ordering is about what kolu can DO with the bind, not about how many
+    // machines could reach it unaided. `interface` reads as reachable-from-more-
+    // places, and that is true of a person on the LAN — but it is the ONE scope
+    // no mechanism serves: both a relay and `ssh -L` dial the far side's
+    // LOOPBACK, so an interface-bound port is the "not reachable" row.
+    //
+    // A server bound to BOTH `192.168.1.5:5173` and `127.0.0.1:5173` therefore
+    // has a door — through the loopback bind. Folding it to `interface` would
+    // report "no forward can reach it" about a port a forward reaches fine.
+    expect(widerScope("loopback", "interface")).toBe("loopback");
   });
 });
 
@@ -88,10 +100,12 @@ describe("foldPorts", () => {
     expect(foldPorts([p(5173, "any"), p(5173, "loopback")])).toEqual([
       p(5173, "any"),
     ]);
-    // The three-way's own case: an interface bind is wider than a loopback one
-    // (it answers somewhere off-box) and narrower than the any address.
+    // The three-way's own case, and the one pair where "reaches more machines"
+    // and "kolu can do more with it" disagree: an interface bind answers
+    // somewhere off-box, but it is the ONE scope no mechanism serves, while the
+    // loopback bind beside it has a door. The fold keeps the door.
     expect(foldPorts([p(4000, "loopback"), p(4000, "interface")])).toEqual([
-      p(4000, "interface"),
+      p(4000, "loopback"),
     ]);
     expect(foldPorts([p(4000, "interface"), p(4000, "any")])).toEqual([
       p(4000, "any"),

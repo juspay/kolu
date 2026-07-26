@@ -14,8 +14,9 @@
  */
 
 import type { KoluForward } from "kolu-common/surface";
-import { type Component, For, Show, createSignal } from "solid-js";
+import { type Component, For, Show, createSignal, onCleanup } from "solid-js";
 import { toast } from "solid-sonner";
+import { writeTextToClipboard } from "../ui/clipboard";
 import { FORWARD_PILL, originTooltip, originWord } from "./forwardTone";
 import { ServingTerminalLink } from "./ServingTerminalLink";
 import { portUrl } from "./portUrl";
@@ -48,6 +49,11 @@ export const ForwardCopyButton: Component<{ forward: KoluForward }> = (
   props,
 ) => {
   const [copied, setCopied] = createSignal(false);
+  // The flash timer is tracked so a rapid re-click resets it instead of stacking
+  // timers, and a mid-flash unmount cancels it rather than firing setCopied on a
+  // disposed owner — the same discipline CopyCommandButton keeps.
+  let flash: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(flash));
   return (
     <button
       type="button"
@@ -59,16 +65,20 @@ export const ForwardCopyButton: Component<{ forward: KoluForward }> = (
       onClick={() => {
         // The address is the whole point of a forward — it goes into a curl, a
         // config, another machine's browser — so every surface that renders a row
-        // renders this. `navigator.clipboard` is unavailable over plain http on a
-        // non-localhost origin, which is a shape kolu is genuinely deployed in, so
-        // the failure is REPORTED rather than swallowed into a silent no-op.
-        navigator.clipboard.writeText(forwardUrl(props.forward)).then(
-          () => {
+        // renders this. It goes through `writeTextToClipboard` because
+        // `navigator.clipboard` is a SECURE-CONTEXT-only API and kolu is
+        // genuinely deployed on plain http (a LAN address, a machine hostname, a
+        // Tailscale IP): there the property is `undefined`, so reading
+        // `.writeText` off it throws synchronously — before any handler is
+        // attached — and the copy fails with no toast at all. The helper owns
+        // that case, falling through to the execCommand path that survives it.
+        writeTextToClipboard(forwardUrl(props.forward))
+          .then(() => {
             setCopied(true);
-            setTimeout(() => setCopied(false), 1200);
-          },
-          (err: Error) => toast.error(`Could not copy: ${err.message}`),
-        );
+            clearTimeout(flash);
+            flash = setTimeout(() => setCopied(false), 1200);
+          })
+          .catch((err: Error) => toast.error(`Could not copy: ${err.message}`));
       }}
     >
       {copied() ? "✓" : "⧉"}

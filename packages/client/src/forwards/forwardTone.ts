@@ -14,9 +14,6 @@
  * of saying "connected" — rather than as a fact of its own.
  */
 
-/** Text in the forward colour, both themes. */
-export const FORWARD_TEXT = "text-teal-700 dark:text-teal-300";
-
 /** The pill that carries an address — teal on a teal wash, both themes. */
 export const FORWARD_PILL =
   "rounded bg-teal-500/10 px-1 font-mono text-teal-700 dark:bg-teal-400/15 dark:text-teal-300";

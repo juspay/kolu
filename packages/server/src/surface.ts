@@ -352,6 +352,10 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
         source({
           read: deps.forwards.read,
           install: everyMsOr(FORWARD_REAP_INTERVAL_MS, deps.forwards.onChange),
+          // Named, because this is the exact cell whose self-caused loop froze
+          // production — an unnamed guard crash would report the class of defect
+          // without saying which cell, on the one wiring the guard exists for.
+          label: "forwards",
         }),
       ),
     },

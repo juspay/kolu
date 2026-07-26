@@ -92,9 +92,13 @@ export default defineConfig({
   server: {
     port: clientPort,
     // Reaching this dev server through a kolu port forward means the Host
-    // header is the forwarding machine's name, which Vite's rebind protection
-    // rejects unless listed.
-    allowedHosts: ["pureintent.rooster-blues.ts.net"],
+    // header is the FORWARDING machine's name, which Vite's rebind protection
+    // rejects unless listed — and that name is whatever box the developer
+    // happens to run kolu on. A literal here only ever works for one person, so
+    // this accepts any Host: it is the dev server, bound for a session on a
+    // machine its developer is sitting at, and the production build has no such
+    // setting to loosen.
+    allowedHosts: true,
     // Prevent browser from caching dev assets — stale modules cause subtle bugs on refresh.
     headers: { "Cache-Control": "no-store" },
     proxy: {

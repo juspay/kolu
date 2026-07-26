@@ -266,6 +266,13 @@ export function createKoluForwards(deps: {
       }
 
       for (const forward of auto) {
+        // Re-read the origin HERE rather than trusting the snapshot above. The
+        // host reads between them are network-shaped — a surface mirror, bounded
+        // at seconds — and a ⌘K "Forward a port…" for this same target lands in
+        // that window as a promotion to `manual`, which is the user saying "keep
+        // this until I say otherwise". Acting on a decision taken before they
+        // spoke would close a door they had just pinned.
+        if (origins.get(forward.key) !== "auto") continue;
         const host = hostOf(forward.target);
         const seen = ports.get(encodeHostKey(host));
         // `unknown` — including the failed read above — is not a death. Only a

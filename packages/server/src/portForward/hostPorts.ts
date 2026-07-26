@@ -4,7 +4,7 @@
  *
  * It lives beside the rest of the forward subsystem rather than inline in the
  * web shell's boot, which is why this directory exists at all: the feature has a
- * POLICY (`forwards.ts`), a viewer-identity question (`viewerHost.ts`) and this
+ * POLICY (`forwards.ts`), a viewer-identity question (`resolveViewerHost.ts`) and this
  * READING, and with the three scattered across `index.ts` and `src/` the boot
  * file carried domain logic that had nothing to do with booting.
  *
@@ -15,9 +15,20 @@
 import type { Logger } from "@kolu/log";
 import { activePadiTerminal } from "@kolu/padi/surface";
 import { type PortFamily, preferredFamily } from "@kolu/port-scan/ports";
-import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
+import {
+  firstFrameOfCollectionItem,
+  firstFrameOrUndefined,
+} from "@kolu/surface/first-frame";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { HostPorts } from "./forwards.ts";
+
+/** The backstop bound on ONE terminal's read. Membership is the real bound —
+ *  a key that leaves the collection resolves the read immediately — so this
+ *  only catches a host whose mirror has gone quiet without dropping the key.
+ *  Generous on purpose: it is a wedge-breaker, not a latency budget, and
+ *  tripping it costs one sample rather than a wrong answer (an unread terminal
+ *  contributes nothing and does not count as an observation). */
+const READ_DEADLINE_MS = 10_000;
 
 /** A host's `terminals` collection, as this reader uses it. Loosely typed at
  *  this ONE seam for the reason `reServeSurface`'s own `surfaceMember` is: the
@@ -67,11 +78,32 @@ export function makeHostPortsReader(deps: {
       const ports = new Map<number, PortFamily>();
       let sawAnything = false;
       for (const id of keys) {
-        const record = await firstFrameOrUndefined(
-          await terminals.get({ key: id }, { signal: ctl.signal }),
+        // BOUNDED, and it has to be. A collection `get` for a key that is not a
+        // member is a HELD-OPEN subscription that yields nothing and never ends
+        // (#1681) — and the key list above is a snapshot, so a pane closed or a
+        // PTY exited in the gap leaves us asking for a key that is already gone.
+        // A bare first-frame read there never resolves, which does not merely
+        // lose a sample: this runs inside a reactor poll cell, so the in-flight
+        // latch stays held and the `forwards` cell stops recomputing for the
+        // life of the process — every door frozen, none reaped, nothing logged.
+        // `firstFrameOfCollectionItem` is the framework's reader for exactly
+        // this, racing the item's first frame against MEMBERSHIP.
+        const frame = await firstFrameOfCollectionItem(
+          (signal) => terminals.get({ key: id }, { signal }),
+          (signal) => terminals.keys({}, { signal }),
+          id,
+          `terminal ${String(id)} yielded no frame`,
+          `terminal ${String(id)} has no record stream`,
+          READ_DEADLINE_MS,
+          ctl.signal,
         );
+        // Absent — the terminal went away between the keys frame and this read,
+        // or the read hit its deadline. Either way it contributes nothing and
+        // does NOT count as an observation: a terminal we could not read cannot
+        // testify that a port stopped listening.
+        if (!frame.present) continue;
         const arm = activePadiTerminal(
-          record as Parameters<typeof activePadiTerminal>[0],
+          frame.value as Parameters<typeof activePadiTerminal>[0],
         );
         if (arm === undefined || arm.ports.status !== "known") continue;
         // One KNOWN sample is enough to make this whole reading an observation:

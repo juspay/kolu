@@ -116,7 +116,7 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
       // proxy the TCP peer is the proxy, and the viewer's own address is in the
       // forwarded header. Reading only the peer is why this never fired once on
       // the real deployment. Which of the two to BELIEVE is a judgment with a
-      // security gate on it, so it lives in `viewerHost.ts` rather than here —
+      // security gate on it, so it lives in `portForward/resolveViewerHost.ts` rather than here —
       // this handler stays a pass-through.
       viewer: t.hosts.viewer.handler(async ({ context }) => {
         const req = context as {
