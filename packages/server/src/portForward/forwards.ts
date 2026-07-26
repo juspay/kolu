@@ -34,7 +34,9 @@ import {
   type ForwardManager,
   type ForwardTarget,
   type LoopbackFamily,
+  targetKey,
 } from "@kolu/port-forward";
+import { match } from "ts-pattern";
 import type { Logger } from "@kolu/log";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type {
@@ -54,6 +56,18 @@ import type {
  *  that one. */
 export const FORWARD_REAP_INTERVAL_MS = 5_000;
 
+/** The REAPER's budget for reading one host. Generous on purpose: it is a
+ *  wedge-breaker, not a latency budget, and tripping it costs one sample of a
+ *  background pass that runs every 5 s. */
+export const REAP_READ_DEADLINE_MS = 10_000;
+
+/** The CLICK path's budget for the same read, and a different number because it
+ *  is a different volatility of it: a user is watching, with the Inspector's
+ *  button disabled and a blank tab already open beside it. A read that trips
+ *  this has a correct answer waiting — `unknown` → the assumed family — so a
+ *  tight budget degrades to the documented assumption instead of to a wait. */
+export const CREATE_READ_DEADLINE_MS = 1_000;
+
 /** What a host's listening ports look like to this module — each port mapped to
  *  the IP family it is bound on.
  *
@@ -71,6 +85,13 @@ export const FORWARD_REAP_INTERVAL_MS = 5_000;
 export type HostPorts = ReadonlyMap<number, PortFamily> | "unknown";
 
 export interface KoluForwards {
+  /** Subscribe to the map's change EDGE — someone opened or cancelled a door, a
+   *  mechanism reported one lost. A bare notification and deliberately
+   *  payload-free: the list is read back through {@link KoluForwards.reconcile},
+   *  which is the only path a value reaches the wire by, and a payload here
+   *  would be a second one — the exact shape (announce on the edge that triggers
+   *  the read) that froze production. Returns an unsubscribe. */
+  subscribe(tick: () => void): () => void;
   /** Open a forward, or return the live one for the same target. A `manual`
    *  request over a live `auto` forward PROMOTES it (see `create`). */
   create(input: ForwardCreateInput): Promise<KoluForward>;
@@ -131,104 +152,140 @@ function hostOf(target: ForwardTarget): HostKey {
     : { kind: "remote", target: target.host };
 }
 
+/** The library's loopback family for a SCANNED one.
+ *
+ *  The two packages declare the same two-way separately — `@kolu/port-forward`
+ *  takes no zod dependency, so it cannot share `PortFamilySchema` — and this is
+ *  the ONE place they are joined. Exhaustive on purpose: the unions are
+ *  identical today, which is exactly why a structural assignment would be the
+ *  seam that does NOT break when one of them grows an arm (`"v4-mapped"` on the
+ *  scanner side is the obvious candidate; `mappedV4` already exists in
+ *  `scan.ts`). Here that is a compile error instead. */
+function loopbackOf(family: PortFamily): LoopbackFamily {
+  return match(family)
+    .with("v4", () => "v4" as const)
+    .with("v6", () => "v6" as const)
+    .exhaustive();
+}
+
 export function createKoluForwards(deps: {
-  /** The host's listening ports, as the port scanner sees them. Injected rather
-   *  than read here: this module's rules are about what to DO with the answer,
-   *  and wiring them to a padi mirror would make every one of them need one. */
-  readHostPorts: (host: HostKey) => Promise<HostPorts>;
-  /** Called whenever the list changes, with the new list. The surface cell's
-   *  push source. */
-  onChange: (forwards: Forwards) => void;
+  /** The host's listening ports, as the port scanner sees them, bounded by the
+   *  CALLER's deadline. Injected rather than read here: this module's rules are
+   *  about what to DO with the answer, and wiring them to a padi mirror would
+   *  make every one of them need one.
+   *
+   *  The budget is the caller's because the two callers have irreconcilable
+   *  ones — see {@link REAP_READ_DEADLINE_MS} and
+   *  {@link CREATE_READ_DEADLINE_MS}. */
+  readHostPorts: (host: HostKey, deadlineMs: number) => Promise<HostPorts>;
   log: Logger;
   /** The forward map. Defaults to the real one; injected by tests. */
   makeManager?: (opts: {
-    onLost: (loss: ForwardLoss) => void;
-  }) => ForwardManager;
+    onLost: (loss: ForwardLoss<ForwardOrigin>) => void;
+  }) => ForwardManager<ForwardOrigin>;
 }): KoluForwards {
-  /** Why each live forward exists, by key. The library's map holds the door; this
-   *  holds the reason, which is the only thing kolu adds to it.
-   *
-   *  Entries are dropped when the key leaves the library's map, so this cannot
-   *  outgrow it — and `list()` reads the library's map as the truth and looks the
-   *  origin up, never the other way round, so a key that somehow lost its origin
-   *  produces a row with a defaulted one rather than a vanished forward. */
-  const origins = new Map<string, ForwardOrigin>();
-
-  const manager = (deps.makeManager ?? createForwardManager)({
+  const manager = (deps.makeManager ?? createForwardManager<ForwardOrigin>)({
     onLost: ({ forward, reason, kind }) => {
-      // `gone` has left the map; `degraded` is still in it and may still be
-      // reachable, so its origin must stay. Saying "lost" about a row the user
-      // can still see would be the list contradicting itself.
-      if (kind === "gone") origins.delete(forward.key);
       deps.log.warn(
         { key: forward.key, reason, kind },
         "port forward reported by its mechanism",
       );
-      publish();
+      notify();
     },
   });
 
-  /** The wire row for one library forward. `origin` defaults to `manual` for a
-   *  key with no recorded reason, and that direction is deliberate: the two ways
-   *  to be wrong are "close a door the user asked for" and "leave a convenience
-   *  door open", and only the first loses work. */
-  const rowOf = (forward: Forward): KoluForward => ({
+  /** Every subscriber to the change EDGE. The multiplicity lives here rather
+   *  than in the boot file that used to hold a `Set` beside this module: how
+   *  many listeners there are is a property of the thing being listened to. */
+  const listeners = new Set<() => void>();
+
+  /** The wire row for one library forward. The origin comes off the forward's
+   *  own `meta`, so there is no second map to keep in step and no defaulting
+   *  read to survive them disagreeing. */
+  const rowOf = (forward: Forward<ForwardOrigin>): KoluForward => ({
     key: forward.key,
     host: hostOf(forward.target),
     remotePort: forward.target.port,
     localPort: forward.localPort,
-    origin: origins.get(forward.key) ?? "manual",
+    origin: forward.meta,
     createdAt: forward.createdAt,
   });
 
   const list = (): Forwards => manager.list().map(rowOf);
 
-  /** Tell the cell. Every path that can move the map ends here — never with an
-   *  edit to a mirrored copy, which would be a second definition of what the
-   *  map's own membership means. */
-  const publish = (): void => {
-    deps.onChange(list());
+  /** Tell every subscriber that the map MOVED, and nothing more. Deliberately
+   *  payload-free: the list is read back through `reconcile()`, which is the
+   *  only path a value reaches the wire by — see `reconcile` on the interface
+   *  for the freeze that shape prevents. */
+  const notify = (): void => {
+    for (const tick of listeners) tick();
+  };
+
+  /** Is there already a door onto this target? Asked by key, which is the map's
+   *  own identity for it, so this cannot drift from what `create` will decide. */
+  const alreadyOpen = (input: ForwardCreateInput): boolean => {
+    const key = targetKey(targetFor(input.host, input.port, ASSUMED_LOOPBACK));
+    return manager.list().some((f) => f.key === key);
+  };
+
+  /** The loopback family to dial for a port about to be opened. A read that
+   *  times out on this path has a correct answer already — the assumption — so
+   *  the tight budget degrades to the documented guess rather than to a wait. */
+  const familyFor = async (
+    input: ForwardCreateInput,
+  ): Promise<LoopbackFamily> => {
+    const seen = await deps
+      .readHostPorts(input.host, CREATE_READ_DEADLINE_MS)
+      .catch((err: unknown) => {
+        deps.log.error(
+          { err, host: encodeHostKey(input.host) },
+          "could not read a host's ports while opening a forward — dialling the assumed loopback",
+        );
+        return "unknown" as const;
+      });
+    if (seen === "unknown") return ASSUMED_LOOPBACK;
+    const family = seen.get(input.port);
+    return family === undefined ? ASSUMED_LOOPBACK : loopbackOf(family);
   };
 
   return {
+    subscribe(tick) {
+      listeners.add(tick);
+      return () => listeners.delete(tick);
+    },
+
     async create(input) {
       // WHICH loopback to dial comes from kolu's own scan of that host, never
       // from the caller: a client's copy of the port facts can be a scan or two
       // stale, and a stale family opens a door onto an address with nothing
       // behind it — which is exactly the shape of the bug this reading closes.
       // A port the scan cannot speak for falls to `ASSUMED_LOOPBACK`.
-      const seen = await deps
-        .readHostPorts(input.host)
-        .catch((err: unknown) => {
-          deps.log.error(
-            { err, host: encodeHostKey(input.host) },
-            "could not read a host's ports while opening a forward — dialling the assumed loopback",
-          );
-          return "unknown" as const;
-        });
-      const loopback =
-        seen === "unknown"
-          ? ASSUMED_LOOPBACK
-          : (seen.get(input.port) ?? ASSUMED_LOOPBACK);
-      const target = targetFor(input.host, input.port, loopback);
-      const forward = await manager.create(target);
+      //
+      // Skipped entirely when the target is already open: the map is idempotent
+      // by target and KEEPS the family the live door was opened with, so the
+      // read could not change the outcome — and this is the click path, with a
+      // blank tab already open beside it.
+      const target = alreadyOpen(input)
+        ? targetFor(input.host, input.port, ASSUMED_LOOPBACK)
+        : targetFor(input.host, input.port, await familyFor(input));
+      const forward = await manager.create(target, input.origin);
       // Idempotent by target, so this may be a forward that already existed. A
       // `manual` request over an `auto` forward PROMOTES it: the user has now
       // asked for this target by name, and a door someone deliberately set up
       // must not be closed by a scanner. The reverse never happens — a chip
       // click cannot demote a manual forward into one kolu may reap.
-      const existing = origins.get(forward.key);
-      if (existing === undefined || input.origin === "manual") {
-        origins.set(forward.key, input.origin);
-      }
-      publish();
-      return rowOf(forward);
+      const row = rowOf(
+        input.origin === "manual" && forward.meta !== "manual"
+          ? manager.promote(forward.key, "manual")
+          : forward,
+      );
+      notify();
+      return row;
     },
 
     async cancel(key) {
       await manager.cancel(key);
-      origins.delete(key);
-      publish();
+      notify();
     },
 
     list,
@@ -237,7 +294,7 @@ export function createKoluForwards(deps: {
       // Which hosts to ask is decided by the forwards themselves, so a kolu with
       // no auto forwards reads nothing at all — the cost tracks the feature's
       // use rather than the size of the fleet.
-      const auto = manager.list().filter((f) => origins.get(f.key) === "auto");
+      const auto = manager.list().filter((f) => f.meta === "auto");
       if (auto.length === 0) return list();
 
       const hosts = new Map<string, HostKey>();
@@ -247,7 +304,7 @@ export function createKoluForwards(deps: {
       const ports = new Map<string, HostPorts>();
       for (const [enc, host] of hosts) {
         try {
-          ports.set(enc, await deps.readHostPorts(host));
+          ports.set(enc, await deps.readHostPorts(host, REAP_READ_DEADLINE_MS));
         } catch (err) {
           // A read that FAILED is not evidence that anything died. Log it (a
           // failed read is an anomaly, not a degraded-but-fine state) and leave
@@ -266,8 +323,14 @@ export function createKoluForwards(deps: {
         // at seconds — and a ⌘K "Forward a port…" for this same target lands in
         // that window as a promotion to `manual`, which is the user saying "keep
         // this until I say otherwise". Acting on a decision taken before they
-        // spoke would close a door they had just pinned.
-        if (origins.get(forward.key) !== "auto") continue;
+        // spoke would close a door they had just pinned. The live entry IS the
+        // origin now, so this is a read of the map rather than of a table
+        // remembered beside it.
+        if (
+          manager.list().find((f) => f.key === forward.key)?.meta !== "auto"
+        ) {
+          continue;
+        }
         const host = hostOf(forward.target);
         const seen = ports.get(encodeHostKey(host));
         // `unknown` — including the failed read above — is not a death. Only a
@@ -280,7 +343,6 @@ export function createKoluForwards(deps: {
         );
         try {
           await manager.cancel(forward.key);
-          origins.delete(forward.key);
         } catch (err) {
           // The door would not close. It stays in the map (the library keeps a
           // listener it could not shut) and stays visible, so the user can retry
@@ -304,7 +366,6 @@ export function createKoluForwards(deps: {
       for (const forward of doomed) {
         try {
           await manager.cancel(forward.key);
-          origins.delete(forward.key);
         } catch (err) {
           deps.log.error(
             { err, key: forward.key, host: enc },
@@ -312,15 +373,17 @@ export function createKoluForwards(deps: {
           );
         }
       }
-      if (doomed.length > 0) publish();
+      if (doomed.length > 0) notify();
     },
 
     async dispose() {
-      origins.clear();
       try {
         await manager.dispose();
       } finally {
-        publish();
+        // No side table to clear: a listener that SURVIVED teardown is still in
+        // the map and still carries its own origin, so the list that follows is
+        // the truth about it rather than a defaulted guess.
+        notify();
       }
     },
   };

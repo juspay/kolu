@@ -205,17 +205,24 @@ export function splitHostPort(text: string): HostPortSplit {
  *  an ssh argv that cannot use them. */
 export function parseTarget(text: string): ForwardTarget {
   const split = splitHostPort(text);
+  // A text with no colon at all names neither half — that is a different
+  // mistake from `pu-dev:http`, and it gets its own sentence. A bare `5173`
+  // lands here too: vazhi's `:port` spelling is how a user says "this machine",
+  // and it is deliberately explicit, because a target is a (machine, port) pair
+  // and half of one is not a target.
+  if (!text.includes(":") || (split.ok && split.host === undefined)) {
+    throw new Error(
+      `port-forward: "${text}" is not a target — write host:port (e.g. pu-dev:5173) or :port for a local one.`,
+    );
+  }
   if (!split.ok) {
     throw new Error(
       split.reason === "not-a-tcp-port"
         ? `port-forward: the port in "${text}" must be an integer between ${MIN_PORT} and ${MAX_PORT}, got ${split.port}.`
-        : `port-forward: "${text}" has no port — write host:port (e.g. pu-dev:5173) or :port for a local one.`,
+        : `port-forward: "${text}" has no port — write host:port (e.g. pu-dev:5173).`,
     );
   }
   if (split.host === undefined) {
-    // A bare number names no machine at all. vazhi's `:port` spelling is how a
-    // user says "this one", and it is deliberately explicit — a target is a
-    // (machine, port) pair and half of one is not a target.
     throw new Error(
       `port-forward: "${text}" is not a target — write host:port (e.g. pu-dev:5173) or :port for a local one.`,
     );

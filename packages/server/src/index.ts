@@ -690,18 +690,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     },
   });
 
-  /** The forward map + kolu's policy over it. `onChange` is the cell's fused
-   *  change EDGE — a bare tick that makes the poll re-read at once — so an act
-   *  reaches the wire without waiting out the reap interval. Nothing here holds a
-   *  copy of the list: the cell's read is its only reader. */
-  const forwardListeners = new Set<() => void>();
-  const forwards = createKoluForwards({
-    readHostPorts,
-    log,
-    onChange: () => {
-      for (const tick of forwardListeners) tick();
-    },
-  });
+  /** The forward map + kolu's policy over it. Its `subscribe` is the cell's
+   *  fused change EDGE — a bare tick that makes the poll re-read at once — so an
+   *  act reaches the wire without waiting out the reap interval. Nothing here
+   *  holds a copy of the list: the cell's read is its only reader. */
+  const forwards = createKoluForwards({ readHostPorts, log });
 
   // A host leaving the pool takes its doors with it — a forward to a machine kolu
   // no longer has is a door to nowhere, and that holds for `manual` forwards too
@@ -782,10 +775,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       // the list is an in-memory map — so this poll's seed cannot throw and take
       // the runtime's `done` with it.
       read: () => forwards.reconcile(),
-      onChange: (tick) => {
-        forwardListeners.add(tick);
-        return () => forwardListeners.delete(tick);
-      },
+      onChange: forwards.subscribe,
       create: (input) => forwards.create(input),
       cancel: (key) => forwards.cancel(key),
     },

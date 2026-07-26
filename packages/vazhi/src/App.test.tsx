@@ -46,8 +46,20 @@ function fakeManager(): {
             target,
             localPort: nextPort++,
             createdAt: Date.now(),
+            // vazhi attaches nothing per forward — its `M` is `undefined`.
+            meta: undefined,
           };
           live.set(key, forward);
+          return forward;
+        },
+        promote: (key) => {
+          // vazhi has no per-forward fact to relabel; the verb exists for a
+          // consumer that does (kolu's auto → pinned), so the fake answers
+          // only that the key is live.
+          const forward = live.get(key);
+          if (forward === undefined) {
+            throw new Error(`no forward named "${key}"`);
+          }
           return forward;
         },
         cancel: async (key) => {

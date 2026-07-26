@@ -21,6 +21,11 @@ import { makeHostPortsReader, type TerminalsFace } from "./hostPorts.ts";
 
 const host = { kind: "local" } as const;
 
+/** The budget these cases read under. Generous, because none of them is about
+ *  the deadline itself — the one that IS (a member whose `get` never yields)
+ *  is bounded by MEMBERSHIP, which is the point of that reader. */
+const TEST_DEADLINE_MS = 10_000;
+
 const log = {
   error: vi.fn(),
   warn: vi.fn(),
@@ -84,7 +89,7 @@ describe("makeHostPortsReader", () => {
     };
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
 
-    const ports = await read(host);
+    const ports = await read(host, TEST_DEADLINE_MS);
 
     // `alive` was observed and serves 5173; `gone` contributes nothing. The
     // reading is an observation either way — which is what lets a dead port be
@@ -97,7 +102,7 @@ describe("makeHostPortsReader", () => {
     // "We could not look" must never read as "nothing is listening" — an empty
     // map here would reap every auto door on the host.
     const read = makeHostPortsReader({ terminalsOf: () => null, log });
-    await expect(read(host)).resolves.toBe("unknown");
+    await expect(read(host, TEST_DEADLINE_MS)).resolves.toBe("unknown");
   });
 
   it("reports `unknown` when no terminal has ever been scanned", async () => {
@@ -107,7 +112,7 @@ describe("makeHostPortsReader", () => {
         stream([{ state: "active", ports: { status: "unknown" } }]),
     };
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
-    await expect(read(host)).resolves.toBe("unknown");
+    await expect(read(host, TEST_DEADLINE_MS)).resolves.toBe("unknown");
   });
 
   it("folds the family across terminals sharing a port — v4 wins", async () => {
@@ -122,7 +127,35 @@ describe("makeHostPortsReader", () => {
         ]),
     };
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
-    const ports = await read(host);
+    const ports = await read(host, TEST_DEADLINE_MS);
     expect([...(ports as ReadonlyMap<number, string>)]).toEqual([[3000, "v4"]]);
+  });
+});
+
+describe("the cost of a host is ONE slow read, not one per terminal", () => {
+  it("reads a host's terminals all at once", async () => {
+    // Three panes that have gone quiet: each read ends only when MEMBERSHIP
+    // says the key is gone, and that answer takes as long as the mirror takes
+    // to speak again. Serially the host costs 3 × that wait — on the click
+    // path too, with the Inspector's button disabled and a blank tab already
+    // open beside it. The reads are independent and each is individually
+    // bounded, so they run together and the host costs one wait.
+    const QUIET_MS = 200;
+    const terminals: TerminalsFace = {
+      keys: async () => ({
+        async *[Symbol.asyncIterator]() {
+          yield ["a", "b", "c"];
+          await new Promise((r) => setTimeout(r, QUIET_MS));
+          yield [];
+          await new Promise<never>(() => {});
+        },
+      }),
+      get: async () => silent(),
+    };
+    const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
+
+    const began = Date.now();
+    await expect(read(host, TEST_DEADLINE_MS)).resolves.toBe("unknown");
+    expect(Date.now() - began).toBeLessThan(QUIET_MS * 2);
   });
 });

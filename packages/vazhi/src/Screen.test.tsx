@@ -18,6 +18,7 @@ function forward(
     target: { kind: "remote", host, port, loopback: "v4" },
     localPort,
     createdAt: NOW - upMs,
+    meta: undefined,
   };
 }
 

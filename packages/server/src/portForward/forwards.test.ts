@@ -15,12 +15,17 @@ import type {
 } from "@kolu/port-forward";
 import { makeForwardManager } from "@kolu/port-forward";
 import type { HostKey } from "kolu-common/hostKey";
-import type { Forwards } from "kolu-common/surface";
+import type { ForwardOrigin, Forwards } from "kolu-common/surface";
 import pino from "pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assertCellConverges } from "@kolu/surface/assertCellConverges";
 import { everyMsOr, source } from "@kolu/surface/reactor";
-import { createKoluForwards, type HostPorts } from "./forwards.ts";
+import {
+  CREATE_READ_DEADLINE_MS,
+  createKoluForwards,
+  type HostPorts,
+  REAP_READ_DEADLINE_MS,
+} from "./forwards.ts";
 
 const log = pino({ level: "silent" });
 
@@ -73,12 +78,14 @@ function harness(
   const fake = opts.onMechanisms ?? fakeMechanisms();
   const published: Array<ReturnType<typeof forwards.list>> = [];
   const readHostPorts = vi.fn(
-    async (host: HostKey): Promise<HostPorts> =>
+    async (host: HostKey, _deadlineMs: number): Promise<HostPorts> =>
       ports.get(host.kind === "local" ? "local" : host.target) ?? "unknown",
   );
   // The change edge, redirectable: most cases only want to COUNT announcements,
   // while the wiring cases below need to route them into a real re-read (which
-  // is what production does, and what the freeze rode on).
+  // is what production does, and what the freeze rode on). The edge carries no
+  // payload, so a counting subscriber reads the list back itself — which is
+  // exactly what the surface cell does.
   const h = {
     onChange: (list: Forwards) => {
       published.push(list);
@@ -87,10 +94,15 @@ function harness(
   const forwards = createKoluForwards({
     readHostPorts,
     log,
-    onChange: (list) => h.onChange(list),
-    makeManager: (o: { onLost: (loss: ForwardLoss) => void }): ForwardManager =>
-      makeForwardManager({ mechanisms: fake.mechanisms, onLost: o.onLost }),
+    makeManager: (o: {
+      onLost: (loss: ForwardLoss<ForwardOrigin>) => void;
+    }): ForwardManager<ForwardOrigin> =>
+      makeForwardManager<ForwardOrigin>({
+        mechanisms: fake.mechanisms,
+        onLost: o.onLost,
+      }),
   });
+  forwards.subscribe(() => h.onChange(forwards.list()));
   return {
     forwards,
     published,
@@ -231,6 +243,37 @@ describe("the auto-cancel rule", () => {
     expect(h.readHostPorts.mock.calls.map(([host]) => host)).toEqual([PU]);
   });
 
+  it("does not re-read the host for a target that is already open", async () => {
+    // The click path. A second create for a live target is the map's idempotent
+    // hit, and the hit KEEPS the family the live door was opened with — so the
+    // read cannot change the outcome and is pure latency in front of a user
+    // watching a disabled button with a blank tab already open beside it.
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([5173])]]);
+    const h = harness(ports);
+    await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
+
+    h.readHostPorts.mockClear();
+    await h.forwards.create({ host: PU, port: 5173, origin: "manual" });
+    expect(h.readHostPorts).not.toHaveBeenCalled();
+  });
+
+  it("gives the CLICK path a tighter read budget than the reaper's", async () => {
+    // Two callers, two irreconcilable budgets — a background pass tolerates
+    // seconds, a user staring at "opening…" does not — so each states its own
+    // rather than inheriting one number.
+    const ports = new Map<string, HostPorts>([["pu-dev", listening([5173])]]);
+    const h = harness(ports);
+    await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
+    expect(h.readHostPorts.mock.calls.at(-1)?.[1]).toBe(
+      CREATE_READ_DEADLINE_MS,
+    );
+
+    h.readHostPorts.mockClear();
+    await h.forwards.reconcile();
+    expect(h.readHostPorts.mock.calls.at(-1)?.[1]).toBe(REAP_READ_DEADLINE_MS);
+    expect(CREATE_READ_DEADLINE_MS).toBeLessThan(REAP_READ_DEADLINE_MS);
+  });
+
   it("reads nothing at all when there are no auto forwards", async () => {
     const h = harness();
     await h.forwards.create({ host: PU, port: 5173, origin: "manual" });
@@ -354,6 +397,22 @@ describe("what the cell sees", () => {
     await h.forwards.dispose();
     expect(h.forwards.list()).toEqual([]);
     expect(h.published.at(-1)).toEqual([]);
+  });
+
+  it("still knows WHY a listener that survived dispose exists", async () => {
+    // A close that fails leaves the listener in the map — visible and
+    // retryable, which is the whole point — so the row for it must still say
+    // what it is. It was an `auto` forward before dispose and it is one after;
+    // a row that flipped to `pinned` would be the list inventing a reason the
+    // user never gave, on the one row they now have to act on. That is exactly
+    // what a side table cleared before the map went down produced.
+    const fake = fakeMechanisms();
+    const h2 = harness(new Map(), { onMechanisms: fake });
+    await h2.forwards.create({ host: PU, port: 5173, origin: "auto" });
+    fake.refuseClose(true);
+
+    await expect(h2.forwards.dispose()).rejects.toThrow();
+    expect(h2.forwards.list().map((f) => f.origin)).toEqual(["auto"]);
   });
 });
 

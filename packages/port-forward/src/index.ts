@@ -67,10 +67,10 @@ export type {
  *  `onLost` is required, not optional: a forward CAN die without being
  *  cancelled (the host drops, the master goes away), and a caller with no
  *  answer for that would render forwards that no longer exist. */
-export function createForwardManager(opts: {
-  onLost: (loss: ForwardLoss) => void;
-}): ForwardManager {
-  return makeForwardManager({
+export function createForwardManager<M = undefined>(opts: {
+  onLost: (loss: ForwardLoss<M>) => void;
+}): ForwardManager<M> {
+  return makeForwardManager<M>({
     mechanisms: nativeMechanisms(),
     onLost: opts.onLost,
   });
