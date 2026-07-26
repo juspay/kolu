@@ -31,6 +31,20 @@ export const stateLabels: Record<AgentInfo["state"], string> = {
   running_background: "Running in background",
 };
 
+/** Semantic bucket per state — THE shared "which color family" fact, so the
+ *  compact header cluster (AgentIndicator) and the Inspector's status card
+ *  paint the same state the same way. `alert-linger` is post-turn `waiting`:
+ *  needs-you violet at reduced strength (same distinction the dock StatePip
+ *  draws), vs full-strength `alert` for a genuine `awaiting_user` block. */
+export type AgentStateTone = "busy" | "alert" | "alert-linger";
+export const stateTones: Record<AgentInfo["state"], AgentStateTone> = {
+  thinking: "busy",
+  tool_use: "busy",
+  waiting: "alert-linger",
+  awaiting_user: "alert",
+  running_background: "busy",
+};
+
 /** Claude-Code's dynamic-workflow fan-out info, or null. Narrows the
  *  `AgentInfo` union: only the `claude-code` member carries `workflow`.
  *  Centralized here so the inspector and the canvas meta row read it the

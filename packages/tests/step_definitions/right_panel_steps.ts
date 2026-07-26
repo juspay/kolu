@@ -3,6 +3,27 @@ import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
+/** Expand the Inspector's Attach section — it ships COLLAPSED (reference
+ *  tier), so any step that reads a kaval command opens the disclosure first,
+ *  through the same summary click a user makes. Idempotent: a no-op when a
+ *  previous step in the scenario already opened it. */
+async function openAttachSection(world: KoluWorld): Promise<void> {
+  const toggle = world.page.locator(
+    '[data-testid="inspector-attach-section-toggle"]',
+  );
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const isOpen = await world.page.evaluate(
+    () =>
+      document.querySelector<HTMLDetailsElement>(
+        'details[data-testid="inspector-attach-section"]',
+      )?.open === true,
+  );
+  if (!isOpen) {
+    await toggle.click();
+    await world.waitForFrame();
+  }
+}
+
 // ── Actions ──
 
 When("I press the toggle inspector shortcut", async function (this: KoluWorld) {
@@ -143,12 +164,14 @@ Then(
   "the inspector should show a git branch section",
   async function (this: KoluWorld) {
     // The test suite runs inside a git repo, so the git section should be present.
+    // The Work cluster renders the branch as a CHIP (no "Branch" label since
+    // the inspector revamp) — assert the chip row exists and carries a name.
     const git = this.page.locator('[data-testid="inspector-branch"]');
-    await git.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await git.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const text = await git.textContent();
     assert.ok(
-      text?.includes("Branch"),
-      `Expected inspector git section to show branch info, got "${text}"`,
+      text && text.trim().length > 0,
+      `Expected inspector git chips to show branch info, got "${text}"`,
     );
   },
 );
@@ -172,11 +195,12 @@ Then(
 Then(
   "the inspector should show the kaval-tui attach command",
   async function (this: KoluWorld) {
-    // The Attach section renders a copy button carrying the short-form
-    // `kaval-tui attach <id>` command for the active terminal. We assert the
-    // whole deliberate contract: the button SHOWS the short id, its `title`
-    // carries the FULL command (the on-hover disambiguator), and CLICKING it
-    // copies the short form (WYSIWYG-copy) — not just that some text matches.
+    // The Attach section (collapsed by default) renders a picker whose command
+    // line defaults to `attach` on the main pane. We assert the whole
+    // deliberate contract: the button SHOWS the short id, its `title` carries
+    // the FULL command (the on-hover disambiguator), and CLICKING it copies
+    // the short form (WYSIWYG-copy) — not just that some text matches.
+    await openAttachSection(this);
     const attach = this.page.locator(
       '[data-testid="inspector-attach-command"]',
     );
@@ -219,34 +243,26 @@ Then(
 Then(
   "the inspector should show attach and snapshot commands for the main terminal and its split",
   async function (this: KoluWorld) {
-    // Each terminal — the tile's main pane plus every split — carries its own
-    // attach/snapshot pair, since each split is its own PTY in the daemon. The
-    // testids are `inspector-{verb}-command` for the main and
-    // `inspector-{verb}-command-split-N` for the Nth split, so a tile with one
-    // split resolves the prefix selectors to exactly two buttons per verb.
-    const attachAll = this.page.locator(
-      '[data-testid^="inspector-attach-command"]',
+    // The Attach picker offers every pane — the tile's main pane plus every
+    // split, since each split is its own PTY in the daemon — one command at a
+    // time: a terminal picker × a verb picker drive a single command line
+    // whose testid keeps the per-pane naming (`inspector-{verb}-command` for
+    // the main, `inspector-{verb}-command-split-N` for the Nth split). Walk
+    // all four picker states and assert the same id contract the old
+    // six-button layout carried.
+    await openAttachSection(this);
+    // The terminal picker only renders once the split's metadata has streamed
+    // in (a lone pane shows no picker at all) — wait for its second segment.
+    const splitSeg = this.page.locator(
+      '[data-testid="inspector-attach-term-1"]',
     );
-    await attachAll
-      .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // Poll until the split's metadata has streamed in and its pair mounted.
-    await this.page.waitForFunction(
-      () =>
-        document.querySelectorAll('[data-testid^="inspector-attach-command"]')
-          .length === 2 &&
-        document.querySelectorAll('[data-testid^="inspector-snapshot-command"]')
-          .length === 2,
-      null,
-      { timeout: POLL_TIMEOUT },
-    );
+    await splitSeg.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 
-    // The 8-char short-id token a given command button carries.
+    // The 8-char short-id token the command line carries in a given state.
     const shortId = async (testId: string, verb: string): Promise<string> => {
-      const shown =
-        (
-          await this.page.locator(`[data-testid="${testId}"]`).textContent()
-        )?.trim() ?? "";
+      const line = this.page.locator(`[data-testid="${testId}"]`);
+      await line.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+      const shown = (await line.textContent())?.trim() ?? "";
       const id =
         shown.match(new RegExp(`^kaval-tui ${verb} ([0-9a-f]{8})\\b`))?.[1] ??
         "";
@@ -256,19 +272,28 @@ Then(
       );
       return id;
     };
+    const pick = async (testId: string): Promise<void> => {
+      await this.page.locator(`[data-testid="${testId}"]`).click();
+      await this.waitForFrame();
+    };
 
+    // Main pane (picker defaults): attach, then snapshot.
     const mainAttach = await shortId("inspector-attach-command", "attach");
+    await pick("inspector-attach-verb-snapshot");
     const mainSnapshot = await shortId(
       "inspector-snapshot-command",
       "snapshot",
     );
-    const splitAttach = await shortId(
-      "inspector-attach-command-split-0",
-      "attach",
-    );
+    // Switch to the split: snapshot, then attach.
+    await pick("inspector-attach-term-1");
     const splitSnapshot = await shortId(
       "inspector-snapshot-command-split-0",
       "snapshot",
+    );
+    await pick("inspector-attach-verb-attach");
+    const splitAttach = await shortId(
+      "inspector-attach-command-split-0",
+      "attach",
     );
 
     // attach and snapshot for the same terminal target the same id…
@@ -307,10 +332,15 @@ Then(
 Then(
   "the inspector should show the send command and agent-driving guidance",
   async function (this: KoluWorld) {
-    // Beyond attach/snapshot, each terminal card carries a `send` command (the
-    // verb that drives an agent in it), and the section closes with a
-    // drive-an-agent callout that links the llm-debate worked example. Assert
-    // both so the redesign's new affordances don't silently regress.
+    // Beyond attach/snapshot, the picker offers a `send` verb (the one that
+    // drives an agent in the pane), and the section carries a drive-an-agent
+    // callout that links the llm-debate worked example. Assert both so the
+    // redesign's affordances don't silently regress.
+    await openAttachSection(this);
+    await this.page
+      .locator('[data-testid="inspector-attach-verb-send"]')
+      .click();
+    await this.waitForFrame();
     const send = this.page.locator('[data-testid="inspector-send-command"]');
     await send.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const shown = (await send.textContent())?.trim() ?? "";

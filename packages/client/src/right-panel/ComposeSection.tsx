@@ -22,7 +22,7 @@
 
 import { activeArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createSignal } from "solid-js";
+import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -64,6 +64,13 @@ const ComposeSection: Component<{
     parse: (raw) => raw,
   });
   const [sending, setSending] = createSignal(false);
+  // Quiet-at-rest: an empty, unfocused box is ONE line (an empty 6-row box was
+  // the first thing on the panel); focus or a live draft expands it. The
+  // footer (hint + Send) keys off `expanded` too — but a NON-EMPTY draft keeps
+  // it mounted through blur, so the mousedown-blur that precedes a Send click
+  // can never unmount the button out from under the click it started.
+  const [focused, setFocused] = createSignal(false);
+  const expanded = () => focused() || draft() !== "";
 
   // Reactive on `draft()`, so the button disables live as the box empties.
   const canSend = () => planComposeSend(draft()) !== null;
@@ -113,6 +120,8 @@ const ComposeSection: Component<{
         data-testid="compose-input"
         value={draft()}
         onInput={(e) => setDraft(e.currentTarget.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         onKeyDown={(e) => {
           // ⌘/Ctrl+Enter submits — a plain Enter stays a newline so the box
           // can hold a multiline draft.
@@ -121,24 +130,27 @@ const ComposeSection: Component<{
             void send();
           }
         }}
-        rows={4}
+        rows={expanded() ? 4 : 1}
         placeholder="Draft a prompt for the agent… ⌘⏎ to send"
-        class="w-full resize-y rounded-md border border-edge bg-surface-1/30 px-2 py-1.5 text-[11px] font-mono text-fg leading-relaxed placeholder:text-fg-3/40 focus:outline-none focus:border-accent/60"
+        class="w-full rounded-md border border-edge bg-surface-1/30 px-2 py-1.5 text-[11px] font-mono text-fg leading-relaxed placeholder:text-fg-3/40 focus:outline-none focus:border-accent/60"
+        classList={{ "resize-y": expanded(), "resize-none": !expanded() }}
       />
-      <div class="flex items-center justify-between gap-2">
-        <span class="text-[10px] leading-snug text-fg-3/50">
-          Inserts into the terminal — press Enter there to submit
-        </span>
-        <button
-          type="button"
-          data-testid="compose-send"
-          disabled={!canSend() || sending()}
-          onClick={() => void send()}
-          class="shrink-0 rounded-md border border-accent/30 bg-accent/15 px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Send&nbsp;→
-        </button>
-      </div>
+      <Show when={expanded()}>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] leading-snug text-fg-3/50">
+            Inserts into the terminal — press Enter there to submit
+          </span>
+          <button
+            type="button"
+            data-testid="compose-send"
+            disabled={!canSend() || sending()}
+            onClick={() => void send()}
+            class="shrink-0 rounded-md border border-accent/30 bg-accent/15 px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Send&nbsp;→
+          </button>
+        </div>
+      </Show>
     </div>
   );
 };
