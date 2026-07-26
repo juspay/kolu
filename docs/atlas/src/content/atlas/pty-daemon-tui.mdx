@@ -16,7 +16,7 @@ import Issue from "../../components/Issue.astro";
 
 **A terminal-side client of kolu-server's pty-host.** kolu-server owns its PTYs _in-process_ today; `kaval-tui` connects to that same in-process pty-host over a local unix socket (speaking `ptyHostSurface`) and gives you `list` / `create` / `snapshot` / `send` / `attach` / `kill` from the terminal — no browser, **no daemon**. It is the CLI face of kolu and the seed of a `tmux`/`zmx` replacement (<Issue n={671} />), shipped in phases as a beta.
 
-_Scoped to kaval-tui-on-the-in-process-server. The parent plan's Phase R2 — moving the pty-host into a surviving daemon — is a separate plan this later dovetails with (see [Later](#later)). Ancestry: child of the [pty-daemon](pty-daemon.html) plan, sibling of the [chrome-bar rail](pty-daemon-chrome-bar.html); cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html)._
+_Scoped to kaval-tui-on-the-in-process-server. The parent plan's Phase R2 — moving the pty-host into a surviving daemon — is a separate plan this later dovetails with (see [Later](#later)). Ancestry: child of the [pty-daemon](pty-daemon.html) plan; cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html)._
 
 ## Architecture — everything stays in-process
 
