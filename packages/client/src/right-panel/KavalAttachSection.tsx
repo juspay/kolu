@@ -128,19 +128,29 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
   // single store read fans out to every consumer (per the SolidJS convention).
   const socket = createMemo(() => localDaemonStatus()?.socketPath);
 
-  const [rawIndex, setRawIndex] = createSignal(0);
+  // The selection is a pane ID, not an index into the pane list: an id stays
+  // meaningful when the list changes under it, so a split closing while
+  // selected needs no clamp — `selectedId` simply stops recognizing it and the
+  // command falls back to the tile's own main pane rather than pointing at a
+  // terminal that no longer exists.
+  const [wantedPane, setWantedPane] = createSignal<TerminalId | null>(null);
   const [verb, setVerb] = createSignal<Verb>("attach");
-  // Clamp rather than reset: a split closing while selected falls back to the
-  // last remaining pane instead of pointing the command at a dead terminal.
-  const index = () => Math.max(0, Math.min(rawIndex(), terminals().length - 1));
-  // The tile-root fallback covers the one transient frame where the store's
-  // pane list is empty mid-teardown — the tile root IS a pane, so the command
-  // stays truthful rather than crashing on `undefined.slice`.
-  const selectedId = () => terminals()[index()] ?? props.terminalId;
+  /** The pane the command targets. `props.terminalId` IS the tile's main pane
+   *  (`getTilePaneIds` is `[tileId, ...splits]`), so it is both the default
+   *  selection and the answer when a selected split has since closed. */
+  const selectedId = (): TerminalId => {
+    const wanted = wantedPane();
+    return wanted !== null && terminals().includes(wanted)
+      ? wanted
+      : props.terminalId;
+  };
   const short = () => selectedId().slice(0, SHORT_ID_LEN);
   /** `""` for the main pane, `-split-N` for the (1-based) Nth split — the
    *  testid naming the per-card layout established. */
-  const testIdSuffix = () => (index() === 0 ? "" : `-split-${index() - 1}`);
+  const testIdSuffix = () => {
+    const i = terminals().indexOf(selectedId());
+    return i <= 0 ? "" : `-split-${i - 1}`;
+  };
   const paneLabel = (i: number) =>
     i === 0 ? (hasSplits() ? "Main" : "Terminal") : `Split ${i}`;
 
@@ -160,8 +170,8 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
               <For each={terminals()}>
                 {(id, i) => (
                   <SegButton
-                    pressed={index() === i()}
-                    onClick={() => setRawIndex(i())}
+                    pressed={selectedId() === id}
+                    onClick={() => setWantedPane(id)}
                     testId={`inspector-attach-term-${i()}`}
                     title={id}
                   >
