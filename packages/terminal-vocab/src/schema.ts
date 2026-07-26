@@ -165,10 +165,13 @@ export const ForegroundSchema = z.object({
 
 export {
   foldPorts,
+  type PortFamily,
+  PortFamilySchema,
   type PortInfo,
   PortInfoSchema,
   type PortScope,
   PortScopeSchema,
+  preferredFamily,
   samePortList,
   TcpPortSchema,
   widerScope,

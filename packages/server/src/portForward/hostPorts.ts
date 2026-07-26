@@ -14,12 +14,12 @@
 
 import type { Logger } from "@kolu/log";
 import { activePadiTerminal } from "@kolu/padi/surface";
-import { type PortFamily, preferredFamily } from "@kolu/port-scan/ports";
 import {
   firstFrameOfCollectionItem,
   firstFrameOrUndefined,
 } from "@kolu/surface/first-frame";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { type PortFamily, preferredFamily } from "kolu-common/surface";
 import type { HostPorts } from "./forwards.ts";
 
 /** The backstop bound on ONE terminal's read. Membership is the real bound —

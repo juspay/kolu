@@ -36,13 +36,13 @@ import {
   type LoopbackFamily,
 } from "@kolu/port-forward";
 import type { Logger } from "@kolu/log";
-import type { PortFamily } from "@kolu/port-scan/ports";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type {
   ForwardCreateInput,
   ForwardOrigin,
   Forwards,
   KoluForward,
+  PortFamily,
 } from "kolu-common/surface";
 
 /** How often the auto-cancel pass runs.
