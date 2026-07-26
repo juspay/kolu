@@ -88,8 +88,6 @@ import {
   createTerminal,
   killAllTerminals,
   killTerminal,
-  previewClose,
-  previewOpen,
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
@@ -99,6 +97,7 @@ import {
   setTerminalTheme,
   sleepTerminal,
 } from "./terminals.ts";
+import { previewClose, previewOpen } from "./previewTab/index.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
 

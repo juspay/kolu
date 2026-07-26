@@ -1,12 +1,12 @@
 import { ORPCError } from "@orpc/server";
 import { describe, expect, it } from "vitest";
-import { samePreviewLocation } from "./chromeVocab.ts";
+import { samePreviewLocation } from "../chromeVocab.ts";
 import {
   assertPreviewPath,
   assertPreviewPortAllowed,
   assertPreviewTarget,
   previewPathReject,
-} from "./previewTarget.ts";
+} from "./target.ts";
 
 describe("previewPathReject — path+query only", () => {
   it("accepts rooted paths, relative segments, query, and empty", () => {

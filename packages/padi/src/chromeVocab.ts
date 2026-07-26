@@ -112,6 +112,27 @@ export type RightPanelPerTerminalState = z.infer<
   typeof RightPanelPerTerminalStateSchema
 >;
 
+/** Field-wise equality for the per-terminal right-panel record — the gate
+ *  every writer (setRightPanel, previewOpen) uses so an idempotent write
+ *  does not republish metadata. */
+export function rightPanelStateEqual(
+  a: RightPanelPerTerminalState,
+  b: RightPanelPerTerminalState,
+): boolean {
+  if (a.collapsed !== b.collapsed) return false;
+  if (a.activeTab !== b.activeTab || a.codeMode !== b.codeMode) return false;
+  if ((a.preview?.port ?? null) !== (b.preview?.port ?? null)) return false;
+  if ((a.preview?.path ?? null) !== (b.preview?.path ?? null)) return false;
+  const am = a.selectedFileByMode;
+  const bm = b.selectedFileByMode;
+  if (am === bm) return true;
+  if (!am || !bm) return false;
+  if (am.local !== bm.local) return false;
+  if (am.branch !== bm.branch) return false;
+  if (am.browse !== bm.browse) return false;
+  return true;
+}
+
 /** Discriminated-union view of the right panel's active tab. Derived from the
  *  flat `activeTab` + `codeMode` storage shape — see `rightPanelView()`. Use
  *  this for pattern matching at consumption sites; never write code that
