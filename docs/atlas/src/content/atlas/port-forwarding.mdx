@@ -398,11 +398,11 @@ release note:
 | PRT0 ✅ | `@kolu/port-forward` library + vazhi TUI — <PrLink pr={1975} /> | — | standalone forward on a real remote box, no kolu running |
 | PRT1 ✅ | padi port sensor · Ports section · direct open — <PrLink pr={1982} /> | — | e2e: spawned listener's chip appears + opens |
 | PRT2 ✅ | kolu embeds the library — <PrLink pr={1991} />: lazy forward · merged Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
-| PRT3 | the Preview tab — right-panel, forward-backed, MCP verbs | PRT2 | design seeded (<PrLink pr={111} /> prior art) — build follows osfacts |
+| PRT3 | the Preview tab — right-panel, forward-backed, MCP verbs | PRT2 | build-ready — implementing now (prior art <PrLink pr={111} />) |
 
 PRT0 shipped in <PrLink pr={1975} /> and PRT1 in <PrLink pr={1982} />;
-PRT2 shipped in <PrLink pr={1991} />; **PRT3 is the only phase left** — its
-design is seeded below, and its build waits its turn behind osfacts.
+PRT2 shipped in <PrLink pr={1991} />; **PRT3 is the only phase left**, its
+plan below is build-ready, and it is being implemented now.
 
 ### PRT0 — the library, proven by vazhi (shipped: <PrLink pr={1975} />)
 
@@ -544,7 +544,7 @@ the one it claimed to cover, so it stays with the `remote-host-testing` harness
 above. Stated rather than left implicit, because "the port forwarding suite is
 green" would otherwise read as covering both mechanisms.
 
-### PRT3 — the Preview tab (design seeded; build follows osfacts)
+### PRT3 — the Preview tab (build-ready; implementing in this PR)
 
 <Prt3Mockup />
 
@@ -620,10 +620,48 @@ finished.
   and the comment lands as prompt text in the tile's own agent via the input
   path kaval already owns — is named here but deliberately not planned.</Footnote>
 
-Design seeded is not build-ready: the implementation plan (component
-inventory, the MCP contract, done-criteria that can only be met through the
-real seams) lands when PRT3 is scheduled — after osfacts — and rewrites this
-section, per the note's own rule.
+#### The build, pinned
+
+**Server.** Preview state is per-terminal server chrome, exactly the
+dock-state pattern: a `preview: { port, path } | null` field on the chrome
+seam that already syncs the right panel, whose `activeTab` union grows a
+`"preview"` arm. Two procedures, `previewOpen` / `previewClose`, and the MCP
+verbs are thin over them. **The no-raw-URLs invariant is enforced
+server-side, not by client politeness**: `previewOpen` accepts `(terminal,
+port, path)` where the port must be a live forward or a scanned port of that
+terminal's host, and `path` is path+query only — anything carrying a scheme,
+host, or protocol-relative `//` is rejected loudly.
+
+**Client.** A `Preview` tab joins Code · Inspector in the right panel:
+header (the `⇄` pill joined from the existing forwards store · URL bar with
+<PrLink pr={111} />'s draft-vs-applied pattern · `⟳` via `iframe.src`
+re-assign · permanent `↗ open in tab`), the frame, and the door-closed state
+fed by the same forwards store (port death → "the door closed behind this
+page" + one-click re-forward through the chip's existing flow). **No framing
+detection exists anywhere**: the empty-frame backdrop carries a static hint,
+nothing more. Chip click's default becomes forward-then-preview;
+modifier-click keeps today's new tab; <Kbd keys="⌘+K" /> gains "Preview a
+port…" plus a discoverability tip.
+
+**Done-criteria — each can only be met through the real seam it exists to
+prove:**
+
+1. e2e (extends `ports.feature`, resurrects the <PrLink pr={111} />
+   `web-view.feature` skeleton): a loopback listener in a real PTY → chip
+   click → the Preview tab's **frame content** (asserted through the frame
+   handle, not the URL bar) arrives through the relay door; kill the server
+   → the door-closed state renders with its re-forward affordance.
+2. The MCP path proven end-to-end: a scenario drives `preview_open` through
+   the MCP seam and asserts the pane opens — and a second call with a new
+   `path` **navigates** the same pane.
+3. Rejection tests server-side: a raw URL, a scheme-carrying path, and a
+   port belonging to no door or scan on that host each refuse loudly.
+4. Unit: path validation, the chrome-state fold, the header's forward-state
+   join. Red-first throughout, per the standing rule.
+
+Out of scope, unchanged: pop-out-to-split, element-annotation-to-agent, any
+page reading or driving (chrome-devtools MCP owns that, over the doors PRT2
+already opened).
 
 ## What this track sent upstream
 
