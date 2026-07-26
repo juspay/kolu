@@ -14,6 +14,7 @@
 
 import type { Logger } from "@kolu/log";
 import { activePadiTerminal } from "@kolu/padi/surface";
+import type { CollectionFace } from "@kolu/surface/collection-face";
 import {
   firstFrameOfCollectionItem,
   firstFrameOrUndefined,
@@ -53,20 +54,11 @@ export type HostPorts =
     }
   | { readonly status: "unknown" };
 
-/** A host's `terminals` collection, as this reader uses it. Loosely typed at
- *  this ONE seam for the reason `reServeSurface`'s own `surfaceMember` is: the
- *  precise per-spec client type would force a second materialization of a large
- *  union, and the caller pins the real one. */
-export interface TerminalsFace {
-  keys: (
-    input: Record<string, never>,
-    opts: { signal?: AbortSignal },
-  ) => Promise<AsyncIterable<unknown[]>>;
-  get: (
-    input: { key: unknown },
-    opts: { signal?: AbortSignal },
-  ) => Promise<AsyncIterable<unknown>>;
-}
+/** A host's `terminals` collection, as this reader uses it — the framework's own
+ *  loose face rather than a private structural copy of it. Hand-shaping one here
+ *  meant forcing the real client through `as unknown as` at the boot site, a
+ *  cast that would have survived `@kolu/surface` renaming `keys`. */
+export type TerminalsFace = CollectionFace;
 
 /** The ports currently listening on `host`, as its port scanner sees them — the
  *  evidence the auto-cancel rule needs, and the ONLY thing that may close an

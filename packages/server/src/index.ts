@@ -48,11 +48,9 @@ import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import { collectionFace } from "@kolu/surface/collection-face";
 import { createKoluForwards } from "./portForward/forwards.ts";
-import {
-  makeHostPortsReader,
-  type TerminalsFace,
-} from "./portForward/hostPorts.ts";
+import { makeHostPortsReader } from "./portForward/hostPorts.ts";
 import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import {
   TERMINAL_FILE_ROUTE_BASE,
@@ -685,7 +683,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         served.surface,
         served.router as Parameters<typeof surfaceClientRef>[1],
       );
-      return client.surface.terminals as unknown as TerminalsFace;
+      // Narrowed through the framework's own checked widening — no `unknown`
+      // in sight, so a rename of `keys`/`get` upstream is a compile error here.
+      return collectionFace(client.surface.terminals);
     },
   });
 
