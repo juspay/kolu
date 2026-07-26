@@ -212,7 +212,21 @@ pub fn snapshot(scope: &Scope, want_procs: bool, want_ports: bool) -> Snapshot {
                     rows.push((pid, ppid, name));
                 }
                 if want_ports {
-                    snap.ports.extend(listeners_of(pid));
+                    // FD-table denial (launchd / other-uid) is the darwin half
+                    // of the U-row contract — not "zero listeners". Collapsing
+                    // EPERM to an empty L list made pid-1 look like a clean
+                    // empty subtree and broke port-scan's blind throw.
+                    match listeners_of(pid) {
+                        Ok(ports) => snap.ports.extend(ports),
+                        Err(err) => {
+                            if !snap.unreadable.iter().any(|u| u.pid == pid) {
+                                snap.unreadable.push(Unreadable {
+                                    pid,
+                                    errno: errno_name(err),
+                                });
+                            }
+                        }
+                    }
                 }
             }
             Err(err) => {
@@ -341,15 +355,21 @@ fn cstr_field(buf: &[u8]) -> Option<String> {
     }
 }
 
-fn listeners_of(pid: u32) -> Vec<Port> {
+/// List TCP LISTEN sockets for `pid`. Err is a real probe failure (EPERM on
+/// launchd's fd table for a normal-uid caller); Ok(empty) is "readable, none".
+fn listeners_of(pid: u32) -> Result<Vec<Port>, i32> {
     unsafe {
+        // Clear stale errno so a 0-byte success is not confused with EPERM.
+        *libc::__error() = 0;
         let size = proc_pidinfo(pid as c_int, PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0);
         if size <= 0 {
-            return Vec::new();
+            let e = errno();
+            return if e != 0 { Err(e) } else { Ok(Vec::new()) };
         }
         let size = size + 32 * mem::size_of::<ProcFdInfo>() as c_int;
         let mut fds =
             vec![mem::zeroed::<ProcFdInfo>(); (size as usize) / mem::size_of::<ProcFdInfo>()];
+        *libc::__error() = 0;
         let used = proc_pidinfo(
             pid as c_int,
             PROC_PIDLISTFDS,
@@ -358,7 +378,8 @@ fn listeners_of(pid: u32) -> Vec<Port> {
             size,
         );
         if used <= 0 {
-            return Vec::new();
+            let e = errno();
+            return if e != 0 { Err(e) } else { Ok(Vec::new()) };
         }
         let n = (used as usize) / mem::size_of::<ProcFdInfo>();
         let mut out = Vec::new();
@@ -405,7 +426,7 @@ fn listeners_of(pid: u32) -> Vec<Port> {
                 address: hex_bytes(&addr),
             });
         }
-        out
+        Ok(out)
     }
 }
 

@@ -253,7 +253,11 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       pid,
     });
 
-  it("F4 seq-1: a gate-less PRIMARY squatter is recovered BEFORE the legacy hint is consulted (not masked)", async () => {
+  // Real SIGTERM + waitForPidGone under a busy CI host can exceed vitest's
+  // default 5s; pin a 15s budget so the OS path, not the timer, is the gate.
+  it("F4 seq-1: a gate-less PRIMARY squatter is recovered BEFORE the legacy hint is consulted (not masked)", {
+    timeout: 15_000,
+  }, async () => {
     const d = dir();
     const primarySock = join(d, "primary.sock");
     const hintSock = join(d, "hint.sock");
@@ -321,7 +325,11 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     expect(endpoint.current()?.client).toBe("FRESH");
   });
 
-  it("F4: a COMPATIBLE gate-less hint is adopted AND recorded as `held` — a later ensure() targets the hint, not the primary", async () => {
+  // Two real recycle waits (adopt + ensure); same 15s budget as F4 seq-1 under
+  // parallel CI load on a shared host.
+  it("F4: a COMPATIBLE gate-less hint is adopted AND recorded as `held` — a later ensure() targets the hint, not the primary", {
+    timeout: 15_000,
+  }, async () => {
     const d = dir();
     const primarySock = join(d, "primary.sock"); // free
     const hintSock = join(d, "hint.sock");
