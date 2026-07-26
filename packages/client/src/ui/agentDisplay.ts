@@ -31,6 +31,33 @@ export const stateLabels: Record<AgentInfo["state"], string> = {
   running_background: "Running in background",
 };
 
+/** Context-token count in compact notation: "47392" → "47K", "1183456" → "1.2M".
+ *  `maximumFractionDigits: 1` keeps "1.2M" but avoids "47.0K". Lives here — with
+ *  the other agent-display tables — because BOTH readouts of the same number
+ *  need it (the header `AgentIndicator` badge and the Inspector's status card),
+ *  and the locale/precision choice has to stay one decision rather than two
+ *  literals to keep in sync. */
+const tokenFormat = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+export const formatContextTokens = (tokens: number): string =>
+  tokenFormat.format(tokens);
+
+/** Semantic bucket per state — THE shared "which color family" fact, so the
+ *  compact header cluster (AgentIndicator) and the Inspector's status card
+ *  paint the same state the same way. `alert-linger` is post-turn `waiting`:
+ *  needs-you violet at reduced strength (same distinction the dock StatePip
+ *  draws), vs full-strength `alert` for a genuine `awaiting_user` block. */
+export type AgentStateTone = "busy" | "alert" | "alert-linger";
+export const stateTones: Record<AgentInfo["state"], AgentStateTone> = {
+  thinking: "busy",
+  tool_use: "busy",
+  waiting: "alert-linger",
+  awaiting_user: "alert",
+  running_background: "busy",
+};
+
 /** Claude-Code's dynamic-workflow fan-out info, or null. Narrows the
  *  `AgentInfo` union: only the `claude-code` member carries `workflow`.
  *  Centralized here so the inspector and the canvas meta row read it the

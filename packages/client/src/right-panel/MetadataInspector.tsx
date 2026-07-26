@@ -7,28 +7,252 @@
  *  active host. (It used to claim "pure rendering: receives metadata, renders
  *  sections", which three of its own children already broke — and a stated rule that
  *  is false is worse than an unstated one, because the next reader either enforces
- *  it wrongly or learns to ignore this file's comments.) */
+ *  it wrongly or learns to ignore this file's comments.)
+ *
+ *  The panel is organized in three tiers of attention (the inspector revamp):
+ *  - **State** leads: `AgentStatusCard` answers "does it need me?" in semantic
+ *    color before anything is read.
+ *  - **Identity** is compact: Directory + Git + Pull Request merge into one
+ *    "Work" cluster of chips + a path, since they tell one story.
+ *  - **Reference** folds: the per-check CI list, repo paths, and the whole
+ *    Attach section live behind disclosures — and expansion follows
+ *    *exceptions* (a failing/pending check list auto-expands, exceptions
+ *    sorted first; an all-green list collapses to a rollup chip). */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
-import { prValue } from "anyforge/schemas";
+import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
 import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { type Component, createMemo, For, Show } from "solid-js";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
-import { useDuration } from "../terminal/staleness";
-import {
-  agentIcons,
-  agentNames,
-  agentWorkflow,
-  stateLabels,
-} from "../ui/agentDisplay";
+import Chip from "../ui/Chip";
+import Disclosure from "../ui/Disclosure";
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
+import AgentStatusCard from "./AgentStatusCard";
 import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 import PortsSection from "./PortsSection";
+
+/** Triage order — the sequence a reader wants: what's broken, what's still
+ *  moving, what's done. ONE ordered list serves both the check list's sort and
+ *  the summary line's word order, so "exceptions first" is stated once. */
+const TRIAGE: readonly CheckStatus[] = ["fail", "pending", "pass"];
+
+/** How each outcome reads in a count ("1 failed"), and the glyph + Chip tone
+ *  the rollup wears. Keyed by the outcome, so a new `CheckStatus` member is one
+ *  entry here rather than a new arm in three separate conditionals. */
+const OUTCOME: Record<
+  CheckStatus,
+  { word: string; glyph: string; tone: "ok" | "warning" | "danger" }
+> = {
+  fail: { word: "failed", glyph: "✕", tone: "danger" },
+  pending: { word: "running", glyph: "●", tone: "warning" },
+  pass: { word: "passed", glyph: "✓", tone: "ok" },
+};
+
+/** Per-outcome tally of a PR's check runs — the counts, and ONLY the counts.
+ *  The combined verdict is deliberately NOT derived here: the server already
+ *  folds it (`foldCheckOutcomes` → `PrInfo.checks`), and re-folding the list
+ *  client-side would install a second judge of "is CI red?" that can disagree
+ *  with the one the tile title and dock pip read. */
+const countChecks = (
+  runs: PrInfo["checkRuns"],
+): Record<CheckStatus, number> => {
+  const counts: Record<CheckStatus, number> = { fail: 0, pending: 0, pass: 0 };
+  for (const run of runs) counts[run.outcome] += 1;
+  return counts;
+};
+
+/** The rollup chip: the SERVER's verdict picks the glyph, word, and tone; the
+ *  local tally only supplies the number. With no per-check entries (an older
+ *  payload) there is no number to state, so the chip names the verdict alone. */
+const ciRollup = (
+  checks: CheckStatus,
+  counts: Record<CheckStatus, number>,
+): { label: string; tone: "ok" | "warning" | "danger" } => {
+  const { word, glyph, tone } = OUTCOME[checks];
+  const n = counts[checks];
+  return {
+    label: n === 0 ? `${glyph} CI ${word}` : `${glyph} ${n} ${word}`,
+    tone,
+  };
+};
+
+/** The disclosure's summary line — "1 failed · 2 running · 6 passed", the
+ *  non-empty buckets in triage order. No verdict branching: the order carries
+ *  it, and the chip above already states it. */
+const checksSummary = (counts: Record<CheckStatus, number>): string =>
+  TRIAGE.filter((o) => counts[o] > 0)
+    .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
+    .join(" · ");
+
+/** The "Work" cluster — what you're working ON, told once: branch/repo/PR/CI
+ *  as a chip row, the PR title, the working directory, and the deep detail
+ *  (per-check list, repo paths) behind disclosures. Replaces the former
+ *  Directory + Git + Pull Request label/value sections. */
+const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
+  const active = () => activeArm(props.meta);
+  // PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
+  // resolution (same gate the old Pull Request section used).
+  const pr = () => {
+    const arm = active();
+    return arm ? prValue(arm.pr) : undefined;
+  };
+  const prUnavailable = () => {
+    const arm = active();
+    return arm ? prUnavailableSource(arm.pr) : undefined;
+  };
+  const counts = createMemo(() => countChecks(pr()?.checkRuns ?? []));
+  const sortedRuns = createMemo(() =>
+    [...(pr()?.checkRuns ?? [])].sort(
+      (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
+    ),
+  );
+  /** Anything but a clean pass is an exception, and an exception opens the list
+   *  on its own. Read off the server's fold — the same verdict the chip wears.
+   *  `null` is "no checks configured", which is not an exception (and renders no
+   *  list at all), so it is folded in with "no PR" rather than read as not-pass. */
+  const hasException = () => {
+    const verdict = pr()?.checks ?? null;
+    return verdict !== null && verdict !== "pass";
+  };
+  return (
+    <Section title="Work" accent="border-accent">
+      <div class="space-y-1.5">
+        {/* Identity chips: branch (+worktree glyph) · repo · PR · CI rollup.
+         *  `inspector-branch` sits on the BRANCH chip alone — not a wrapper
+         *  around branch+repo — so the e2e seam that asserts "the branch is on
+         *  screen" reads only the branch's own text. On the wrapper, a rendered
+         *  repo name alone would satisfy a non-empty assertion and an empty
+         *  branch would pass. */}
+        <div class="flex flex-wrap items-center gap-1.5">
+          <Show when={props.meta.git}>
+            {(git) => (
+              <>
+                <Chip
+                  tone="accent"
+                  title={git().isWorktree ? "worktree" : undefined}
+                  data-testid="inspector-branch"
+                >
+                  <Show when={git().isWorktree}>
+                    <WorktreeIcon class="h-3 w-3 shrink-0 text-fg-3/60" />
+                  </Show>
+                  <span class="truncate font-semibold">{git().branch}</span>
+                </Chip>
+                <Chip>{git().repoName}</Chip>
+              </>
+            )}
+          </Show>
+          <Show when={pr()}>
+            {(p) => (
+              <>
+                <a
+                  href={p().url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="hover:underline"
+                >
+                  <Chip tone="neutral">
+                    <PrStateIcon state={p().state} class="h-3 w-3 shrink-0" />
+                    <span class="text-accent">#{p().number}</span>
+                  </Chip>
+                </a>
+                <Show when={p().checks}>
+                  {(checks) => {
+                    const rollup = () => ciRollup(checks(), counts());
+                    return (
+                      <Chip tone={rollup().tone} data-testid="inspector-ci">
+                        {rollup().label}
+                      </Chip>
+                    );
+                  }}
+                </Show>
+              </>
+            )}
+          </Show>
+        </div>
+
+        <Show when={pr()}>
+          {(p) => (
+            <div class="text-[11.5px] leading-snug text-fg">{p().title}</div>
+          )}
+        </Show>
+
+        {/* Working directory — the one place the path appears (it used to head
+         *  its own Directory section AND repeat as Git's Worktree row). */}
+        <div
+          class="break-all font-mono text-[10.5px] leading-relaxed text-fg-3"
+          data-testid="inspector-directory"
+        >
+          {props.meta.cwd}
+        </div>
+
+        {/* Per-check breakdown — reference tier. Expansion follows exceptions:
+         *  all-green folds to the summary line, a fail/pending run auto-expands
+         *  with the exceptions sorted first. */}
+        <Show when={pr()}>
+          {(p) => (
+            <Show when={p().checkRuns.length > 0}>
+              <Disclosure
+                summary={checksSummary(counts())}
+                open={hasException()}
+              >
+                <ul
+                  data-testid="inspector-pr-checks"
+                  class="flex flex-col gap-0.5 text-[11px]"
+                >
+                  <For each={sortedRuns()}>
+                    {(c) => (
+                      <li class="flex min-w-0 items-center gap-1.5">
+                        <ChecksIndicator status={c.outcome} />
+                        <span
+                          class="min-w-0 truncate font-mono"
+                          classList={{
+                            "text-danger font-semibold": c.outcome === "fail",
+                          }}
+                        >
+                          {c.name}
+                        </span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Disclosure>
+            </Show>
+          )}
+        </Show>
+
+        <Show when={props.meta.git}>
+          {(git) => (
+            <Disclosure summary="Repo paths">
+              <Row label="Root">
+                <span class="font-mono text-fg-3">{git().mainRepoRoot}</span>
+              </Row>
+              <Show when={git().isWorktree}>
+                <Row label="Worktree">
+                  <span class="font-mono text-fg-3">{git().repoRoot}</span>
+                </Row>
+              </Show>
+            </Disclosure>
+          )}
+        </Show>
+
+        <Show when={prUnavailable()}>
+          {(source) => (
+            <div
+              data-testid="inspector-pr-unavailable"
+              class="space-y-2 pt-1 text-xs"
+            >
+              <ProviderUnavailableContent source={source()} />
+            </div>
+          )}
+        </Show>
+      </div>
+    </Section>
+  );
+};
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;
@@ -36,12 +260,6 @@ const MetadataInspector: Component<{
   themeName?: string;
   onThemeClick?: () => void;
 }> = (props) => {
-  // Reactive elapsed-since formatter for the agent's "Running for" row; reads
-  // the shared 60s tick so it advances on its own while the panel is open.
-  // `startedAt` is already reprojected to the browser clock at the metadata ingestion
-  // boundary (`useTerminalMetadata.reprojectClock`), so a plain local-clock duration +
-  // instant are correct here — the boundary owns reprojection (warming ⇒ startedAt 0).
-  const runningFor = useDuration();
   return (
     <Show
       when={props.meta}
@@ -71,207 +289,14 @@ const MetadataInspector: Component<{
             )}
           </Show>
 
-          {/* Directory */}
-          <Section title="Directory">
-            <div class="text-[11px] text-fg font-mono break-all leading-relaxed">
-              {meta().cwd}
-            </div>
-          </Section>
-
-          {/* Git */}
-          <Show when={meta().git}>
-            {(git) => (
-              <Section
-                title="Git"
-                accent="border-accent"
-                data-testid="inspector-branch"
-              >
-                <div class="space-y-0.5">
-                  <Row label="Branch" variant="tag">
-                    {git().branch}
-                    <Show when={git().isWorktree}>
-                      <WorktreeIcon class="inline w-3 h-3 ml-1 text-fg-3/50" />
-                    </Show>
-                  </Row>
-                  <Row label="Repo">
-                    <span class="text-fg">{git().repoName}</span>
-                  </Row>
-                  <Row label="Root">
-                    <span class="font-mono text-fg-3">
-                      {git().mainRepoRoot}
-                    </span>
-                  </Row>
-                  <Show when={git().isWorktree}>
-                    <Row label="Worktree">
-                      <span class="font-mono text-fg-3">{git().repoRoot}</span>
-                    </Row>
-                  </Show>
-                </div>
-              </Section>
-            )}
-          </Show>
-
-          {/* Pull Request — gated on the active arm; a sleeping terminal has
-              no live PR resolution. */}
-          <Show when={activeArm(meta())}>
-            {(active) => (
-              <>
-                <Show when={prValue(active().pr)}>
-                  {(pr) => (
-                    <Section title="Pull Request">
-                      <div class="space-y-0.5">
-                        <Row label="PR">
-                          <a
-                            href={pr().url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="inline-flex items-center gap-1.5 text-accent hover:underline"
-                          >
-                            <PrStateIcon
-                              state={pr().state}
-                              class="w-3.5 h-3.5"
-                            />
-                            <span class="font-mono">#{pr().number}</span>
-                          </a>
-                        </Row>
-                        <Row label="Title">
-                          <span class="text-fg">{pr().title}</span>
-                        </Row>
-                        <Show when={pr().checks}>
-                          {(checks) => (
-                            <Row label="CI" variant="badge">
-                              <ChecksIndicator status={checks()} />
-                              <span class="capitalize">{checks()}</span>
-                            </Row>
-                          )}
-                        </Show>
-                        {/* Per-check breakdown rendered inline — same data
-                         *  the dock-pip / tile-title tooltip carries, but
-                         *  inspector has the real estate to lay it out
-                         *  vertically so a fail/pending list is scannable
-                         *  without hovering. Skipped when the server
-                         *  hasn't sent per-check entries (older payload). */}
-                        <Show when={pr().checkRuns.length > 0}>
-                          <Row label="Checks">
-                            <ul
-                              data-testid="inspector-pr-checks"
-                              class="flex flex-col gap-0.5 text-[11px]"
-                            >
-                              <For each={pr().checkRuns}>
-                                {(c) => (
-                                  <li class="flex items-center gap-1.5 min-w-0">
-                                    <ChecksIndicator status={c.outcome} />
-                                    <span class="font-mono truncate min-w-0">
-                                      {c.name}
-                                    </span>
-                                  </li>
-                                )}
-                              </For>
-                            </ul>
-                          </Row>
-                        </Show>
-                      </div>
-                    </Section>
-                  )}
-                </Show>
-                <Show when={prUnavailableSource(active().pr)}>
-                  {(source) => (
-                    <Section title="Pull Request">
-                      <div
-                        data-testid="inspector-pr-unavailable"
-                        class="space-y-2 text-xs"
-                      >
-                        <ProviderUnavailableContent source={source()} />
-                      </div>
-                    </Section>
-                  )}
-                </Show>
-              </>
-            )}
-          </Show>
-
-          {/* Agent */}
+          {/* Agent — tier 1. The status card leads: state chip + left rail in
+           *  semantic color, task, then the quiet meta row. */}
           <Show when={activeArm(meta())?.agent}>
-            {(agent) => (
-              <Section title="Agent" accent="border-busy">
-                <div class="space-y-0.5">
-                  <Row label="Kind">
-                    <span class="inline-flex items-center gap-1.5">
-                      <Dynamic
-                        component={agentIcons[agent().kind]}
-                        class="w-3.5 h-3.5"
-                      />
-                      <span class="text-fg">
-                        {agentNames[agent().kind] ?? agent().kind}
-                      </span>
-                    </span>
-                  </Row>
-                  <Row label="State" variant="badge">
-                    {stateLabels[agent().state] ?? agent().state}
-                  </Row>
-                  <Show when={agent().startedAt}>
-                    {(startedAt) => (
-                      <Row label="Running for">
-                        <span
-                          class="font-mono text-fg"
-                          title={`Started ${new Date(startedAt()).toLocaleString()}`}
-                        >
-                          {runningFor(startedAt())}
-                        </span>
-                      </Row>
-                    )}
-                  </Show>
-                  <Show when={agent().summary}>
-                    {(summary) => (
-                      <Row label="Task">
-                        <span class="text-fg">{summary()}</span>
-                      </Row>
-                    )}
-                  </Show>
-                  <Show when={agent().model}>
-                    {(model) => (
-                      <Row label="Model">
-                        <span class="font-mono text-fg">{model()}</span>
-                      </Row>
-                    )}
-                  </Show>
-                  <Show when={agent().taskProgress}>
-                    {(tp) => (
-                      <Row label="Tasks">
-                        <span class="text-fg">
-                          <span class="font-mono">
-                            {tp().completed}/{tp().total}
-                          </span>{" "}
-                          completed
-                        </span>
-                      </Row>
-                    )}
-                  </Show>
-                  <Show when={agentWorkflow(agent())}>
-                    {(wf) => (
-                      <Row label="Workflow">
-                        <span class="text-fg">
-                          {wf().name}{" "}
-                          <span class="font-mono text-fg-2">
-                            ({wf().agents} agents · {wf().status})
-                          </span>
-                        </span>
-                      </Row>
-                    )}
-                  </Show>
-                  <Show when={agent().contextTokens}>
-                    {(tokens) => (
-                      <Row label="Context">
-                        <span class="font-mono text-fg">
-                          {tokens().toLocaleString()} tokens
-                        </span>
-                      </Row>
-                    )}
-                  </Show>
-                </div>
-              </Section>
-            )}
+            {(agent) => <AgentStatusCard agent={agent()} />}
           </Show>
+
+          {/* Work — directory + git + PR as one identity cluster. */}
+          <WorkSection meta={meta()} />
 
           {/* Ports — what this TILE is serving, its splits included (a dev server
               usually runs in a split, so a main-pane-only reading shows nothing in
@@ -285,55 +310,58 @@ const MetadataInspector: Component<{
             {(id) => <PortsSection terminalId={id()} />}
           </Show>
 
-          {/* Foreground process */}
-          <Show when={activeArm(meta())?.foreground}>
-            {(fg) => (
-              <Section title="Foreground">
-                <div class="space-y-0.5">
-                  <Row label="Process">
-                    <span class="font-mono text-fg">{fg().name}</span>
-                  </Row>
-                  <Show when={fg().title}>
-                    {(title) => (
-                      <Row label="Title">
-                        <span class="font-mono text-fg-3">{title()}</span>
-                      </Row>
-                    )}
-                  </Show>
-                </div>
+          {/* Attach/snapshot commands per terminal (main + splits) — see
+           *  KavalAttachSection for the socket-pinning + short-id rationale.
+           *  Reference tier: ships COLLAPSED (attach is an occasional act, not
+           *  a status; it used to spend ~40% of the panel). Gated on the ACTIVE
+           *  arm: a sleeping tile released its PTY (and its splits were
+           *  closed), so it is no longer one of kaval's terminals — a
+           *  `kaval-tui attach`/`snapshot` command would have nothing to
+           *  reach. Same liveness narrow the PR/Agent sections use.
+           *
+           *  `keyed` on the terminal id for the same reason Compose above is: the
+           *  section holds PICKER state (which pane, which verb), and without a
+           *  remount that state survives a tile switch — you would land on
+           *  another tile showing `send` + "Split 1" preselected on a picker you
+           *  never touched there. */}
+          <Show when={activeArm(meta()) && props.terminalId} keyed>
+            {(id) => (
+              <Section
+                title="Attach"
+                collapsible
+                data-testid="inspector-attach-section"
+              >
+                <KavalAttachSection terminalId={id} />
               </Section>
             )}
           </Show>
 
-          {/* Theme */}
-          <Show when={props.themeName}>
-            {(name) => (
-              <Section title="Theme">
+          {/* Footer meta — facts you rarely act on: the foreground process and
+           *  the theme, one quiet mono row instead of two sections. */}
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 font-mono text-[10px] text-fg-3">
+            <Show when={activeArm(meta())?.foreground}>
+              {(fg) => (
+                <span
+                  data-testid="inspector-foreground"
+                  title={fg().title ?? undefined}
+                >
+                  fg <span class="text-fg-2">{fg().name}</span>
+                </span>
+              )}
+            </Show>
+            <Show when={props.themeName}>
+              {(name) => (
                 <button
                   type="button"
                   data-testid="inspector-theme-button"
-                  class="text-[11px] text-accent hover:underline cursor-pointer"
+                  class="cursor-pointer text-accent hover:underline"
                   onClick={props.onThemeClick}
                 >
                   {name()}
                 </button>
-              </Section>
-            )}
-          </Show>
-
-          {/* Attach/snapshot commands per terminal (main + splits) — see
-           *  KavalAttachSection for the socket-pinning + short-id rationale.
-           *  Gated on the ACTIVE arm: a sleeping tile released its PTY (and its
-           *  splits were closed), so it is no longer one of kaval's terminals —
-           *  a `kaval-tui attach`/`snapshot` command would have nothing to
-           *  reach. Same liveness narrow the PR/Agent/Foreground sections use. */}
-          <Show when={activeArm(meta()) && props.terminalId}>
-            {(id) => (
-              <Section title="Attach">
-                <KavalAttachSection terminalId={id()} />
-              </Section>
-            )}
-          </Show>
+              )}
+            </Show>
+          </div>
         </div>
       )}
     </Show>

@@ -1,4 +1,6 @@
 /** Label–value pair with dim label and bright value.
+ *  Labels sit LEFT-aligned in a fixed gutter (a right-ragged label column made
+ *  every value start at a different optical x; see the inspector revamp).
  *  `variant` codifies styling rules for special rows:
  *  - "badge": pill background for status indicators
  *  - "tag": mono accent background for identity values */
@@ -11,9 +13,9 @@ const Row: Component<{
   children: JSX.Element;
 }> = (props) => (
   <div class="flex items-baseline gap-3 text-[11px] leading-snug py-0.5">
-    <span class="text-fg-3/70 shrink-0 w-20 text-right">{props.label}</span>
+    <span class="text-fg-3/70 shrink-0 w-16">{props.label}</span>
     <span
-      class={`min-w-0 break-words ${
+      class={`min-w-0 break-words tabular-nums ${
         props.variant === "badge"
           ? "text-fg-2 inline-flex items-center gap-1.5 bg-surface-2/60 px-1.5 py-px rounded-full text-[10px]"
           : props.variant === "tag"
