@@ -26,6 +26,21 @@ import {
  *  link, a VPN, a docker bridge), and the read is a cheap in-process syscall. A
  *  cached list that missed a new interface would silently stop trusting the
  *  proxy that arrived with it. */
+/** Did the lookup fail because the answer is "not now" rather than "not a
+ *  name"? Only the latter is a fact worth caching for the process's life.
+ *  `EAI_AGAIN` is the resolver saying it could not reach a server, and the
+ *  socket-level codes are the same story a layer down. */
+function isTransientLookupFailure(err: unknown): boolean {
+  const code = (err as { code?: unknown })?.code;
+  return (
+    code === "EAI_AGAIN" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNREFUSED" ||
+    code === "ENETUNREACH" ||
+    code === "ESERVFAIL"
+  );
+}
+
 export function ownAddresses(): string[] {
   return Object.values(networkInterfaces())
     .flatMap((addresses) => addresses ?? [])
@@ -59,10 +74,16 @@ export function makeViewerHostResolver(deps: {
         deps.resolve === undefined
           ? (await lookup(hostname, { all: true })).map((a) => a.address)
           : await deps.resolve(hostname);
-    } catch {
+    } catch (err) {
       // Unresolvable is the ORDINARY case for an ssh alias, not an anomaly, so
       // this is not logged at error — it simply means kolu cannot recognise a
       // viewer sitting at that host, and the forward stays.
+      //
+      // But a TRANSIENT failure is not that answer, and caching it would be: a
+      // resolver blink at boot would disable viewer recognition for the life of
+      // the process, with no way back short of a restart. A definitive "this
+      // name does not exist" is a fact worth keeping; "ask me later" is not.
+      if (isTransientLookupFailure(err)) return [];
       found = [];
     }
     cache.set(hostname, found);

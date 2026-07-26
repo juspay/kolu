@@ -79,6 +79,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-inspector-ports",
     text: "The Inspector's Ports section lists what the terminal is serving — click a port to open it, and kolu opens a forward first if it needs one (loopback, or a remote host)",
+    doc: "right-panel",
   },
   {
     id: "amb-shuffle-theme",
