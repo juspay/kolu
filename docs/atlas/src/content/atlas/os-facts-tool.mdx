@@ -249,8 +249,8 @@ every crate below must build there — the constraint that already vetoed
 `sysinfo` 0.39.
 
 The dependency bar is the repo's own: a crate is taken where it removes a
-defect class, never for convenience. Four runtime deps, two dev deps, and a
-deliberate not-chosen list longer than both:
+defect class, never for convenience. Four runtime deps, a small dev-dep set,
+and a deliberate not-chosen list longer than both:
 
 | layer | choice | why — and why not the obvious alternative |
 | --- | --- | --- |
@@ -261,8 +261,9 @@ deliberate not-chosen list longer than both:
 | `--json` | **`serde` + `serde_json`** | the serializer-defect class we hunted in `procs`/`portview` (escaping, field drift) is exactly what derive eliminates; the schema structs are the one place `deny_unknown_fields`-style strictness lives |
 | TSV hot path | **hand-written** | tab-join over the same schema structs; a dependency here would be decoration |
 | errors | **`std` error enums, no `anyhow`** | a tool whose contract REQUIRES structured blindness (`unreadable` with errnos) must never bubble an opaque box to the caller; every failure is either a row in `unreadable` or a non-zero exit with a versioned message |
-| async runtime | **none** | a one-shot sampler has no concurrency to schedule; `tokio` would be startup cost buying nothing |
-| tests (dev-deps) | **`assert_cmd` + `predicates`** | the contract is the BINARY's stdout, so the suite spawns the real binary and asserts the real TSV/JSON — `std::net::TcpListener` binds all five address fixtures natively, no fixture crate needed |
+| async runtime | **none** (runtime); **`tokio` only as a live-oracle test harness dep** | a one-shot sampler has no concurrency to schedule; `tokio` would be startup cost buying nothing in the binary. The live lane's cucumber runner is the only place async appears, and it never ships |
+| tests (dev-deps) | **`assert_cmd` + `predicates` + `insta` + `proptest` + `nix` (linux, sched+user+net) + `cucumber` + `tokio` (live harness)** | the hermetic gate spawns the real binary (`assert_cmd`), redacts the two volatile fields for byte-exact snapshots (`insta`), and property-tests pure codecs only (`proptest`). Linux netns isolation uses the `nix` crate inside a single-threaded helper (libtest is multi-threaded; `unshare(NEWUSER)` rejects that). Live-host oracle scenarios are Gherkin via `cucumber` (MSRV 1.88; our pin is ≥1.93 — cleared) |
+| tests (nix-pinned tools) | **`cargo-nextest` + `util-linux` (linux `unshare`)** | process-per-test isolation and per-test timeouts for the hermetic gate; not Cargo deps — they ride `nativeCheckInputs` in `osfacts/default.nix` |
 
 The whole runtime dependency tree is four crates deep (`libc`, `lexopt`,
 `serde`, `serde_json`), which is itself a design goal: every dependency is a

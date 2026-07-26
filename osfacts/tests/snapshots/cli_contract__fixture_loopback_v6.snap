@@ -1,0 +1,7 @@
+---
+source: tests/cli_contract.rs
+expression: redact_tsv(&h.tsv)
+---
+V	1
+P	<PID>	<PPID>	osfacts-listener
+L	<PID>	<PORT>	00000000000000000000000000000001

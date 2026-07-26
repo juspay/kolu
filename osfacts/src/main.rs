@@ -3,18 +3,12 @@
 //! Contract: docs/atlas (os-facts-tool). Front door: README.md.
 //!
 //! Layout (space + time):
-//! - `cli`     — flag surface only
-//! - `schema`  — the versioned fact set + TSV/JSON (one serializer)
+//! - `osfacts::cli`    — flag surface only
+//! - `osfacts::schema` — the versioned fact set + TSV/JSON (one serializer)
 //! - `linux` / `darwin` — OS volatility, each fills a `Snapshot`
-//! - `decode`  — pure darwin address-slot decision (fixtures run everywhere)
+//! - `osfacts::decode` — pure darwin address-slot decision
 
 mod cli;
-// decode is darwin-only at runtime; the scar-tissue unit tests path-include it
-// on every host. Allow dead_code on linux so the pure fixtures stay next to
-// the code they pin.
-#[allow(dead_code)]
-mod decode;
-mod schema;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -23,7 +17,7 @@ mod linux;
 mod darwin;
 
 use cli::{Command, SnapshotArgs};
-use schema::Snapshot;
+use osfacts::Snapshot;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
@@ -77,7 +71,5 @@ fn take_snapshot(args: &SnapshotArgs) -> Snapshot {
 }
 
 fn write_version_only() -> io::Result<()> {
-    let snap = Snapshot::new();
-    // Empty body, version line only — enough for the version-first contract.
-    snap.write_tsv(&mut io::stdout().lock())
+    Snapshot::new().write_tsv(&mut io::stdout().lock())
 }

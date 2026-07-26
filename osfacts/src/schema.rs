@@ -71,12 +71,7 @@ impl Snapshot {
 
 /// Hex-encode raw address bytes (network order).
 pub fn hex_bytes(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(s, "{b:02x}");
-    }
-    s
+    crate::proc_addr::encode_hex(bytes)
 }
 
 /// Sanitize a process name so it can be the last TSV field.

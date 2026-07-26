@@ -1,0 +1,14 @@
+# Hermetic gate: process-per-test isolation + per-test timeouts.
+[profile.default]
+fail-fast = false
+
+[profile.default.slow-timeout]
+period = "30s"
+terminate-after = 2
+
+[profile.ci]
+fail-fast = true
+
+[profile.ci.slow-timeout]
+period = "30s"
+terminate-after = 2

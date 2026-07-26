@@ -8,7 +8,9 @@
 //! Ports: `/proc/net/tcp{,6}` LISTEN rows joined to scoped pids via fd inodes.
 
 use crate::cli::Scope;
-use crate::schema::{errno_name, hex_bytes, sanitize_name, Port, Proc, Snapshot, Unreadable};
+use osfacts::{
+    decode_proc_hex, errno_name, hex_bytes, sanitize_name, Port, Proc, Snapshot, Unreadable,
+};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
@@ -274,7 +276,7 @@ fn parse_proc_net(body: &str, map: &mut HashMap<u64, Listener>) -> io::Result<()
         if port == 0 {
             continue;
         }
-        let Ok(addr) = decode_proc_address(hex_addr) else {
+        let Ok(addr) = decode_proc_hex(hex_addr) else {
             continue;
         };
         let Ok(inode) = cols[9].parse::<u64>() else {
@@ -286,27 +288,6 @@ fn parse_proc_net(body: &str, map: &mut HashMap<u64, Listener>) -> io::Result<()
         map.entry(inode).or_insert(Listener { port, addr });
     }
     Ok(())
-}
-
-/// `/proc/net/tcp{,6}` prints each 32-bit word in HOST order. Reverse per
-/// word to get network-order bytes (the form L rows emit).
-fn decode_proc_address(hex: &str) -> Result<Vec<u8>, ()> {
-    if (hex.len() != 8 && hex.len() != 32) || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(());
-    }
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    let raw = hex.as_bytes();
-    let mut word = 0;
-    while word < raw.len() {
-        // four bytes, reversed
-        for byte in (0..4).rev() {
-            let i = word + byte * 2;
-            let h = std::str::from_utf8(&raw[i..i + 2]).map_err(|_| ())?;
-            bytes.push(u8::from_str_radix(h, 16).map_err(|_| ())?);
-        }
-        word += 8;
-    }
-    Ok(bytes)
 }
 
 fn socket_inodes(pid: u32) -> Result<HashSet<u64>, i32> {

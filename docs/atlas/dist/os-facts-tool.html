@@ -384,8 +384,8 @@ trivially. The toolchain is the npins-pinned nixpkgs Rust (1.93 today), so
 every crate below must build there — the constraint that already vetoed
 <code>sysinfo</code> 0.39.</p>
 <p>The dependency bar is the repo’s own: a crate is taken where it removes a
-defect class, never for convenience. Four runtime deps, two dev deps, and a
-deliberate not-chosen list longer than both:</p>
+defect class, never for convenience. Four runtime deps, a small dev-dep set,
+and a deliberate not-chosen list longer than both:</p>
 <table>
 <thead>
 <tr>
@@ -432,13 +432,18 @@ deliberate not-chosen list longer than both:</p>
 </tr>
 <tr>
 <td>async runtime</td>
-<td><strong>none</strong></td>
-<td>a one-shot sampler has no concurrency to schedule; <code>tokio</code> would be startup cost buying nothing</td>
+<td><strong>none</strong> (runtime); <strong><code>tokio</code> only as a live-oracle test harness dep</strong></td>
+<td>a one-shot sampler has no concurrency to schedule; <code>tokio</code> would be startup cost buying nothing in the binary. The live lane’s cucumber runner is the only place async appears, and it never ships</td>
 </tr>
 <tr>
 <td>tests (dev-deps)</td>
-<td><strong><code>assert_cmd</code> + <code>predicates</code></strong></td>
-<td>the contract is the BINARY’s stdout, so the suite spawns the real binary and asserts the real TSV/JSON — <code>std::net::TcpListener</code> binds all five address fixtures natively, no fixture crate needed</td>
+<td><strong><code>assert_cmd</code> + <code>predicates</code> + <code>insta</code> + <code>proptest</code> + <code>nix</code> (linux, sched+user+net) + <code>cucumber</code> + <code>tokio</code> (live harness)</strong></td>
+<td>the hermetic gate spawns the real binary (<code>assert_cmd</code>), redacts the two volatile fields for byte-exact snapshots (<code>insta</code>), and property-tests pure codecs only (<code>proptest</code>). Linux netns isolation uses the <code>nix</code> crate inside a single-threaded helper (libtest is multi-threaded; <code>unshare(NEWUSER)</code> rejects that). Live-host oracle scenarios are Gherkin via <code>cucumber</code> (MSRV 1.88; our pin is ≥1.93 — cleared)</td>
+</tr>
+<tr>
+<td>tests (nix-pinned tools)</td>
+<td><strong><code>cargo-nextest</code> + <code>util-linux</code> (linux <code>unshare</code>)</strong></td>
+<td>process-per-test isolation and per-test timeouts for the hermetic gate; not Cargo deps — they ride <code>nativeCheckInputs</code> in <code>osfacts/default.nix</code></td>
 </tr>
 </tbody>
 </table>

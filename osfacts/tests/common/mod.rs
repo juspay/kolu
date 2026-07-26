@@ -1,0 +1,244 @@
+//! Shared hermetic-test helpers.
+//!
+//! On linux the cargo test harness is multi-threaded, so `unshare(NEWUSER)`
+//! from inside a test returns EINVAL. Netns entry lives in the single-threaded
+//! `osfacts-hermetic` binary instead; tests spawn it and parse its stdout.
+//!
+//! On darwin there is no netns — self-referential bind via `osfacts-listener`
+//! and a direct osfacts snapshot of that child.
+
+use assert_cmd::Command;
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Command as StdCommand, Stdio};
+
+/// Result of a hermetic bind+snapshot.
+pub struct Hermetic {
+    pub listener_pid: u32,
+    pub port: u16,
+    pub tsv: String,
+}
+
+/// Linux: run `osfacts-hermetic` (unshare + listen + snapshot) in one process.
+/// Darwin: spawn listener in-process tree and snapshot with osfacts directly.
+pub fn hermetic_snapshot(bind: &str) -> Hermetic {
+    #[cfg(target_os = "linux")]
+    {
+        let bin = env!("CARGO_BIN_EXE_osfacts-hermetic");
+        let out = StdCommand::new(bin)
+            .arg(bind)
+            .arg("roots")
+            .output()
+            .unwrap_or_else(|e| panic!("spawn osfacts-hermetic: {e}"));
+        if !out.status.success() {
+            panic!(
+                "osfacts-hermetic failed: {}\nstderr:\n{}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        parse_hermetic_stdout(&String::from_utf8_lossy(&out.stdout))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let listener = Listener::spawn(bind);
+        let tsv = snapshot_roots(listener.pid);
+        Hermetic {
+            listener_pid: listener.pid,
+            port: listener.port,
+            tsv,
+        }
+    }
+}
+
+/// Like [`hermetic_snapshot`] but `--pids` instead of `--roots`.
+#[cfg(target_os = "linux")]
+pub fn hermetic_snapshot_pids(bind: &str) -> Hermetic {
+    let bin = env!("CARGO_BIN_EXE_osfacts-hermetic");
+    let out = StdCommand::new(bin)
+        .arg(bind)
+        .arg("pids")
+        .output()
+        .unwrap_or_else(|e| panic!("spawn osfacts-hermetic: {e}"));
+    if !out.status.success() {
+        panic!(
+            "osfacts-hermetic failed: {}\nstderr:\n{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    parse_hermetic_stdout(&String::from_utf8_lossy(&out.stdout))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn hermetic_snapshot_pids(bind: &str) -> Hermetic {
+    let listener = Listener::spawn(bind);
+    let tsv = snapshot_pids(listener.pid);
+    Hermetic {
+        listener_pid: listener.pid,
+        port: listener.port,
+        tsv,
+    }
+}
+
+fn parse_hermetic_stdout(stdout: &str) -> Hermetic {
+    let mut lines = stdout.lines();
+    let meta = lines.next().expect("META line");
+    let rest: Vec<&str> = meta.split('\t').collect();
+    assert_eq!(rest.first().copied(), Some("META"), "first line: {meta}");
+    let listener_pid: u32 = rest.get(1).expect("pid").parse().expect("pid num");
+    let port: u16 = rest.get(2).expect("port").parse().expect("port num");
+    let tsv = lines.collect::<Vec<_>>().join("\n") + "\n";
+    Hermetic {
+        listener_pid,
+        port,
+        tsv,
+    }
+}
+
+/// No-op placeholder kept so call sites that only need "we're in the
+/// hermetic lane" stay readable. Netns entry is inside osfacts-hermetic.
+pub fn enter_hermetic_net() {}
+
+/// A spawned listener helper (darwin path, and any direct-bind tests).
+pub struct Listener {
+    child: Child,
+    pub pid: u32,
+    pub port: u16,
+}
+
+impl Listener {
+    pub fn spawn(bind: &str) -> Self {
+        let bin = env!("CARGO_BIN_EXE_osfacts-listener");
+        let mut child = StdCommand::new(bin)
+            .arg(bind)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("spawn osfacts-listener: {e}"));
+        let pid = child.id();
+        let stdout = child.stdout.take().expect("listener stdout");
+        let mut line = String::new();
+        BufReader::new(stdout)
+            .read_line(&mut line)
+            .expect("read listener port");
+        let port: u16 = line
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("listener did not print a port; got {line:?}"));
+        Self { child, pid, port }
+    }
+}
+
+impl Drop for Listener {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+pub fn osfacts() -> Command {
+    Command::cargo_bin("osfacts").expect("osfacts binary")
+}
+
+pub fn snapshot_roots(pid: u32) -> String {
+    let out = osfacts()
+        .args([
+            "snapshot",
+            "--roots",
+            &pid.to_string(),
+            "--procs",
+            "--ports",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(out).expect("utf8")
+}
+
+pub fn snapshot_pids(pid: u32) -> String {
+    let out = osfacts()
+        .args(["snapshot", "--pids", &pid.to_string(), "--procs", "--ports"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(out).expect("utf8")
+}
+
+/// Redact the two volatile fields: real pids and kernel-chosen ports.
+pub fn redact_tsv(tsv: &str) -> String {
+    let mut out = String::with_capacity(tsv.len());
+    for line in tsv.lines() {
+        let redacted = if let Some(rest) = line.strip_prefix("P\t") {
+            let mut parts = rest.splitn(3, '\t');
+            let _pid = parts.next().unwrap_or("");
+            let _ppid = parts.next().unwrap_or("");
+            let name = parts.next().unwrap_or("");
+            format!("P\t<PID>\t<PPID>\t{name}")
+        } else if let Some(rest) = line.strip_prefix("L\t") {
+            let mut parts = rest.splitn(3, '\t');
+            let _pid = parts.next().unwrap_or("");
+            let _port = parts.next().unwrap_or("");
+            let hex = parts.next().unwrap_or("");
+            format!("L\t<PID>\t<PORT>\t{hex}")
+        } else if let Some(rest) = line.strip_prefix("U\t") {
+            let mut parts = rest.splitn(2, '\t');
+            let _pid = parts.next().unwrap_or("");
+            let errno = parts.next().unwrap_or("");
+            format!("U\t<PID>\t{errno}")
+        } else {
+            line.to_string()
+        };
+        out.push_str(&redacted);
+        out.push('\n');
+    }
+    out
+}
+
+pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>) {
+    let mut lines = stdout.lines();
+    let first = lines.next().expect("stdout must have a version line");
+    let version = first
+        .strip_prefix("V\t")
+        .expect("first line must be V\\tN")
+        .parse::<u32>()
+        .expect("version number");
+    let mut procs = Vec::new();
+    let mut ports = Vec::new();
+    let mut unreadable = Vec::new();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        match line.as_bytes().first() {
+            Some(b'P') => procs.push(line.to_string()),
+            Some(b'L') => ports.push(line.to_string()),
+            Some(b'U') => unreadable.push(line.to_string()),
+            other => panic!("unexpected row tag {other:?} in {line}"),
+        }
+    }
+    (version, procs, ports, unreadable)
+}
+
+pub fn l_addr_for_port(ports: &[String], port: u16) -> String {
+    for row in ports {
+        let parts: Vec<&str> = row.split('\t').collect();
+        assert_eq!(parts.len(), 4, "L row arity: {row}");
+        assert_eq!(parts[0], "L");
+        if parts[2] == port.to_string() {
+            return parts[3].to_string();
+        }
+    }
+    panic!("no L row for port {port}; rows={ports:?}");
+}
+
+pub fn hex_of_v4(a: std::net::Ipv4Addr) -> String {
+    osfacts::encode_hex(&a.octets())
+}
+
+pub fn hex_of_v6(a: std::net::Ipv6Addr) -> String {
+    osfacts::encode_hex(&a.octets())
+}

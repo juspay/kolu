@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -238,6 +238,24 @@ biome: install home-manager
 # node_modules, so its install never races the root pnpm install above.
 atlas-sync:
     {{ nix_shell }} just atlas::check-sync
+
+# osfacts hermetic gate (lane 1). `nix build .#osfacts` runs cargo-nextest in
+# checkPhase (process-per-test, per-test timeouts, linux netns via unshare).
+# Depends on `nix` so the root flake-build has already warmed the store; this
+# node is the explicit, named status for the binary + scar-tissue suite on
+# both platforms. The live-host oracle is deliberately NOT here — see
+# `osfacts-live` below (unreachable from `default`, never gates).
+osfacts: nix
+    nix build .#osfacts --no-link -L
+    # Subflake path must build the same derivation (vazhi pattern).
+    bash ci/flake-build --kinds packages ./osfacts
+
+# osfacts live-host oracle (lane 2). NEVER in the default DAG — a live host
+# owes you noise, so this lane informs instead of blocking. Run on demand:
+#   just ci::osfacts-live
+# or via scripts/live-oracle.sh. On darwin, point ODU / ssh at rasam.
+osfacts-live:
+    bash osfacts/scripts/live-oracle.sh
 
 
 # ── odu convenience (coordinator-side; NOT part of the [metadata("ci")] DAG) ──

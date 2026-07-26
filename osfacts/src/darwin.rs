@@ -6,8 +6,10 @@
 #![cfg(target_os = "macos")]
 
 use crate::cli::Scope;
-use crate::decode::{slot_from_vflag, AddressSlot};
-use crate::schema::{errno_name, hex_bytes, sanitize_name, Port, Proc, Snapshot, Unreadable};
+use osfacts::{
+    errno_name, hex_bytes, sanitize_name, slot_from_vflag, AddressSlot, Port, Proc, Snapshot,
+    Unreadable,
+};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use std::mem;
@@ -52,6 +54,7 @@ struct ProcBsdInfo {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct ProcFdInfo {
     proc_fd: i32,
     proc_fdtype: u32,
