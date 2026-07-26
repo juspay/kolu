@@ -27,6 +27,7 @@
  */
 
 import {
+  ASSUMED_LOOPBACK,
   createForwardManager,
   type Forward,
   type ForwardLoss,
@@ -101,18 +102,12 @@ export interface KoluForwards {
   dispose(): Promise<void>;
 }
 
-/** The loopback family kolu dials for a port it has NO scan row for — a manual
- *  forward to something outside every terminal's subtree, or to a host whose scan
- *  is blind.
- *
- *  The ONE place a family is assumed rather than observed, named so it is
- *  greppable. v4 because it is what almost everything binds and what every
- *  forward did before the family existed; and when it is wrong the failure is
- *  loud at the point of use (connections refused through an open door) rather
- *  than silent. There is deliberately no "try the other one" path: a dial that
- *  guesses twice is a fallback chain, and the fix for not knowing is to know —
- *  which is what the scan reading below is for. */
-const ASSUMED_LOOPBACK: LoopbackFamily = "v4";
+/** WHEN kolu reaches for the library's {@link ASSUMED_LOOPBACK}: a port it has NO
+ *  scan row for — a manual forward to something outside every terminal's subtree,
+ *  or a host whose scan is blind. WHICH family that assumption names is the
+ *  library's to say and is imported rather than restated, so the decision has one
+ *  home; the fix for not knowing is to know, which is what the scan reading below
+ *  is for. */
 
 /** The library target for a kolu host + port. The two vocabularies are the same
  *  two cases, which is not a coincidence: a port on the machine kolu-server runs

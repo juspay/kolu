@@ -34,6 +34,21 @@ export const LOOPBACK_ADDRESS: Record<LoopbackFamily, string> = {
   v6: "::1",
 };
 
+/** The family to dial when NOTHING observed one — a bare `:port`, a remote
+ *  `box:port` that names no address, a consumer whose scan is blind.
+ *
+ *  v4 because it is what almost everything binds and what every forward did
+ *  before the family existed; and when it is wrong the failure is loud at the
+ *  point of use (connections refused through an open door) rather than silent.
+ *  There is deliberately no "try the other one" path: a dial that guesses twice
+ *  is a fallback chain, and the fix for not knowing is to know.
+ *
+ *  The ONE place this assumption is declared, for every consumer — it is one
+ *  decision, and a consumer that restated it would be a second home to edit when
+ *  the decision moves. A consumer keeps its own name for WHY it reached the
+ *  assumption; what it must not keep is its own answer. */
+export const ASSUMED_LOOPBACK: LoopbackFamily = "v4";
+
 export type ForwardTarget =
   /** A loopback listener on the machine this library runs on. */
   | {
@@ -146,10 +161,10 @@ export function assertTarget(target: ForwardTarget): void {
  *  The loopback FAMILY is read off the spelling where the spelling says it —
  *  `::1:5173` is a v6 target, `127.0.0.1:5173` a v4 one. Where it does not say
  *  (a bare `:5173`, or any remote `box:5173`, neither of which names an address
- *  at all) it is **v4**, and that is the one assumption in this file: v4 loopback
- *  is what almost everything binds, and it is what every forward did before the
- *  family existed. A caller that KNOWS better — kolu reads the family off its
- *  port scan — builds the target itself rather than going through here.
+ *  at all) it falls to {@link ASSUMED_LOOPBACK}, which is where that assumption
+ *  is declared for every consumer. A caller that KNOWS better — kolu reads the
+ *  family off its port scan — builds the target itself rather than going through
+ *  here.
  *
  *  Bracketed IPv6 literals (`[::1]:5173`) are rejected: the brackets are URL
  *  syntax that ssh does not take, so they fail loudly here rather than reaching
@@ -184,8 +199,12 @@ export function parseTarget(text: string): ForwardTarget {
     // `::1` is the one spelling that names v6 outright. `localhost` is NOT
     // treated as v6 even though it often resolves there first: this field exists
     // to carry an observed fact, and a resolver's preference is not one.
-    return { kind: "local", port, loopback: host === "::1" ? "v6" : "v4" };
+    return {
+      kind: "local",
+      port,
+      loopback: host === "::1" ? "v6" : ASSUMED_LOOPBACK,
+    };
   }
   assertHost(host);
-  return { kind: "remote", host, port, loopback: "v4" };
+  return { kind: "remote", host, port, loopback: ASSUMED_LOOPBACK };
 }

@@ -36,6 +36,7 @@ import { nativeMechanisms } from "./nativeMechanisms.ts";
 export type { Forward, ForwardLoss, ForwardManager } from "./manager.ts";
 export type { ForwardTarget, LoopbackFamily } from "./target.ts";
 export {
+  ASSUMED_LOOPBACK,
   formatTarget,
   LOOPBACK_ADDRESS,
   parseTarget,
