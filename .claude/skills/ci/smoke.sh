@@ -26,7 +26,15 @@ readonly TEARDOWN_QUIET_SEC=2
 KOLU=$(nix build .#default --no-link --print-out-paths)/bin/kolu
 PADI_TUI=$(nix build .#padi-tui --no-link --print-out-paths)/bin/padi-tui
 
-tmp=$(mktemp -d)
+# Anchor the isolated tree at /tmp rather than $TMPDIR. macOS hands every
+# process a per-user TMPDIR ~49 characters deep (/var/folders/xx/<30 chars>/T/),
+# and the daemons put their unix sockets under XDG_RUNTIME_DIR below it:
+# $TMPDIR/tmp.XXXXXXXXXX/runtime/kaval-<16 hex>/pty-host.sock is 108 bytes,
+# past macOS's 104-byte sun_path cap. kaval then cannot bind, exits, and padi
+# is left with no PTY host — so every hosted terminal silently fails to spawn.
+# Production never nests XDG_RUNTIME_DIR that deep, so this would be the
+# harness testing an OS path limit instead of the packaged binary.
+tmp=$(TMPDIR=/tmp mktemp -d)
 log="$tmp/kolu.log"
 runtime="$tmp/runtime"
 mkdir -m 700 "$runtime"
@@ -99,11 +107,17 @@ wait_for_padi_ready() {
 
 probe_terminal_node_tools() {
     local logfile=$1 proc=$2
-    local socket output="$tmp/terminal-node-tools"
+    local socket spawned="$tmp/terminal-spawned" output="$tmp/terminal-node-tools"
     socket=$(find "$runtime" -name padi.sock -type s -print -quit)
+    # Two markers, not one. `spawned` is written before anything can fail, so it
+    # separates the two ways this probe can time out: padi accepting `create`
+    # but never spawning a PTY, versus a PTY that runs but has lost the Node
+    # toolset. Collapsing them into one "could not run the packaged Node
+    # toolset" message sent an investigation after a PATH bug when the real
+    # regression was #1988 pruning node-pty's darwin spawn-helper.
     "$PADI_TUI" create --socket "$socket" -- /bin/sh -c \
-        'for tool in node npm npx corepack; do command -v "$tool" || exit 1; done; printf ok >"$1"' \
-        _ "$output" >/dev/null
+        'printf spawned >"$1"; for tool in node npm npx corepack; do command -v "$tool" || exit 1; done; printf ok >"$2"' \
+        _ "$spawned" "$output" >/dev/null
 
     local deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
     while kill -0 "$proc" 2>/dev/null; do
@@ -112,7 +126,18 @@ probe_terminal_node_tools() {
             return 0
         fi
         if (( SECONDS >= deadline )); then
-            echo "hosted terminal could not run the packaged Node toolset" >&2
+            if [[ -s "$spawned" ]]; then
+                echo "hosted terminal ran, but node, npm, npx, or corepack is missing from its PATH" >&2
+            else
+                echo "hosted terminal never spawned: padi accepted the create but no PTY ran /bin/sh — check node-pty's build/Release artifacts for this platform" >&2
+            fi
+            # kaval owns the PTYs, and when it dies its reason lands ONLY in its
+            # own log — the server just reports a generic socket timeout. Print
+            # it here so the failing lane carries the cause, not just the symptom.
+            while IFS= read -r kavalLog; do
+                echo "--- $kavalLog ---" >&2
+                cat "$kavalLog" >&2
+            done < <(find "$runtime" -name 'kaval*.log' -type f -print)
             cat "$logfile" >&2
             return 1
         fi
@@ -239,7 +264,7 @@ echo "shutdown clean"
 # on .#default deliberately: .#koluBin has no fallback and crashes if the var is
 # unset — that's what tests build, so they never traverse this wrapper, and #530
 # /#531's test-isolation guarantee is untouched.
-state_tmp=$(mktemp -d)
+state_tmp=$(TMPDIR=/tmp mktemp -d)  # short base, same sun_path reason as above
 # Resolve symlinks up front: the server echoes back the KOLU_STATE_DIR we pass
 # verbatim, so we compare against the canonical form to stay robust on the darwin
 # lane (macOS $TMPDIR / `/tmp` resolve under /private) — and against a future
