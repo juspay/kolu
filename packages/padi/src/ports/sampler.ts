@@ -69,11 +69,7 @@ import type {
 import { samePortList } from "@kolu/terminal-vocab/schema";
 import { everyMsOr, source } from "@kolu/surface/reactor";
 import type { Logger } from "pino";
-import {
-  PortScanError,
-  portScanSupported,
-  scanSubtreePorts,
-} from "./scan.ts";
+import { PortScanError, portScanSupported, scanSubtreePorts } from "./scan.ts";
 
 /** Baseline cadence of the port scan. The same 5 s `memorySampler` uses, for the
  *  same reason: coarse enough to be free, live enough to be worth reading. */
