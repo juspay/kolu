@@ -26,7 +26,15 @@ readonly TEARDOWN_QUIET_SEC=2
 KOLU=$(nix build .#default --no-link --print-out-paths)/bin/kolu
 PADI_TUI=$(nix build .#padi-tui --no-link --print-out-paths)/bin/padi-tui
 
-tmp=$(mktemp -d)
+# Anchor the isolated tree at /tmp rather than $TMPDIR. macOS hands every
+# process a per-user TMPDIR ~49 characters deep (/var/folders/xx/<30 chars>/T/),
+# and the daemons put their unix sockets under XDG_RUNTIME_DIR below it:
+# $TMPDIR/tmp.XXXXXXXXXX/runtime/kaval-<16 hex>/pty-host.sock is 108 bytes,
+# past macOS's 104-byte sun_path cap. kaval then cannot bind, exits, and padi
+# is left with no PTY host — so every hosted terminal silently fails to spawn.
+# Production never nests XDG_RUNTIME_DIR that deep, so this would be the
+# harness testing an OS path limit instead of the packaged binary.
+tmp=$(TMPDIR=/tmp mktemp -d)
 log="$tmp/kolu.log"
 runtime="$tmp/runtime"
 mkdir -m 700 "$runtime"
@@ -123,6 +131,13 @@ probe_terminal_node_tools() {
             else
                 echo "hosted terminal never spawned: padi accepted the create but no PTY ran /bin/sh — check node-pty's build/Release artifacts for this platform" >&2
             fi
+            # kaval owns the PTYs, and when it dies its reason lands ONLY in its
+            # own log — the server just reports a generic socket timeout. Print
+            # it here so the failing lane carries the cause, not just the symptom.
+            while IFS= read -r kavalLog; do
+                echo "--- $kavalLog ---" >&2
+                cat "$kavalLog" >&2
+            done < <(find "$runtime" -name 'kaval*.log' -type f -print)
             cat "$logfile" >&2
             return 1
         fi
@@ -249,7 +264,7 @@ echo "shutdown clean"
 # on .#default deliberately: .#koluBin has no fallback and crashes if the var is
 # unset — that's what tests build, so they never traverse this wrapper, and #530
 # /#531's test-isolation guarantee is untouched.
-state_tmp=$(mktemp -d)
+state_tmp=$(TMPDIR=/tmp mktemp -d)  # short base, same sun_path reason as above
 # Resolve symlinks up front: the server echoes back the KOLU_STATE_DIR we pass
 # verbatim, so we compare against the canonical form to stay robust on the darwin
 # lane (macOS $TMPDIR / `/tmp` resolve under /private) — and against a future
