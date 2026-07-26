@@ -82,8 +82,11 @@ packaging:
 
 ## Status
 
-The design is finished; the binary isn't. osfacts incubates in the kolu
-monorepo (this directory is the whole future repo) and moves out the day a
-second external consumer takes the dependency. Every claim and number above
-has its measurement in the plan of record:
+OSF1 is in: `snapshot --roots|--pids --procs --ports` on linux and darwin,
+versioned TSV + `--json`, the mandatory `unreadable` section, and the
+scar-tissue suite. Facets beyond that (`--mem`, `--start-time`,
+`socket-holders`) and the kolu consumer migration are later phases. osfacts
+incubates in the kolu monorepo (this directory is the whole future repo) and
+moves out the day a second external consumer takes the dependency. Every
+claim and number above has its measurement in the plan of record:
 [os-facts-tool](https://kolu.dev/atlas/os-facts-tool.html).

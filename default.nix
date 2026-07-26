@@ -679,6 +679,12 @@ let
   # rebuild would be pure cost.
   vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
 
+  # osfacts — scoped process/socket fact sampler (Atlas: os-facts-tool, OSF1).
+  # Its derivation lives next to its source; it has its OWN flake.nix for a
+  # later move to its own repo, and that flake wants one definition, not a
+  # copy of this one. Both paths import ./osfacts/default.nix.
+  osfacts = import ./osfacts { inherit pkgs; };
+
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
   # package. Reuses this build's `src` + `pnpmDeps` — every package with a
   # typecheck script is in the `src` fileset above (see its INVARIANT
@@ -706,5 +712,5 @@ let
   };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi;
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
 } // darwinOnly
