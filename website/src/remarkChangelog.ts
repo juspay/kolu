@@ -110,20 +110,27 @@ const validateLedger = (tree: Root, srcDir: string) => {
   const headingSlugs = (slug: string): Set<string> => {
     const file = pageCandidates(slug).find((c) => existsSync(c));
     const body = file === undefined ? "" : readFileSync(file, "utf8");
+    // A slugger per PAGE, because the slug rule has to be the one that mints the
+    // real anchors — rehype's, which is this same library — and because its
+    // duplicate-suffix counter is per page. A hand-rolled rule beside an
+    // imported `GithubSlugger` is the worst of both: it diverges on unicode, on
+    // `&`, and on repeated headings, and a validator that has drifted from the
+    // renderer either rejects a correct link or accepts a broken one while being
+    // trusted.
+    const slugger = new GithubSlugger();
     const slugs = new Set<string>();
     for (const line of body.split("\n")) {
       const heading = /^#{2,4}\s+(.*)$/.exec(line);
       if (!heading) continue;
-      slugs.add(
-        heading[1]
-          .replace(/`/g, "")
-          .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-          .replace(/[*_]/g, "")
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, ""),
-      );
+      // The markdown STRIPPING stays hand-rolled — undoing inline syntax is a
+      // different job from slugging, and it is what rehype's own AST has already
+      // done by the time the slugger sees a heading's text.
+      const text = heading[1]
+        .replace(/`/g, "")
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/[*_]/g, "")
+        .trim();
+      slugs.add(slugger.slug(text));
     }
     return slugs;
   };
