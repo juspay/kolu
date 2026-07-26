@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-26T01:45:42.058435+00:00'
+generated_at: '2026-07-26T01:50:32.141861+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -145,8 +145,7 @@ dependencies:
 - repo_url: juspay/odu
   name: odu
   host: github.com
-  resolved_commit: 8839fa2a18f2b3962c564101ab9c46733813428e
-  resolved_ref: fix/lazy-pool-validation
+  resolved_commit: 677507d76a71d5f88967ffceb69d7d59379464da
   version: 1.0.0
   package_type: apm_package
   deployed_files:

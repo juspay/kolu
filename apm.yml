@@ -39,7 +39,5 @@ dependencies:
     - juspay/skills/skills/pg
     - anthropics/skills/skills/frontend-design
     - juspay/nix-chrome-devtools-mcp
-    # Temporarily riding the PR branch for juspay/odu#67 (lazy host-pool
-    # validation); drop the `#ref` back to `juspay/odu` once it merges.
-    - juspay/odu#fix/lazy-pool-validation
+    - juspay/odu
     - juspay/project-unknown
