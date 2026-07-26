@@ -1,71 +1,89 @@
+<!--
+  Maintainers (human or agent): this README is written per the /pg skill,
+  house style "code spans + structure only" — no bold, no italics; headers
+  and `code spans` do the scanning. Edit it through that voice.
+-->
+
 # osfacts
 
-One static binary that answers **what does the OS say about these processes
-and their sockets** — scoped to exactly what you asked, honest about what it
-could not read, in about ten milliseconds.
+osfacts answers one question: what does the OS say about these processes and
+their sockets. You'd think that question was answered decades ago. It wasn't.
+Every tool we tried answers a slightly different question, and we measured our
+way through seven of them before concluding we had to write this one.
 
 ```sh
-osfacts snapshot --roots 4242 --procs --ports     # this process subtree: procs + listening ports
+osfacts snapshot --roots 4242 --procs --ports     # this subtree: procs + listening ports
 osfacts snapshot --pids 991 --mem --start-time    # exactly these pids: RSS + start time
 osfacts socket-holders /run/user/1000/padi.sock   # which pids hold this unix socket
-osfacts snapshot --json | jq                      # same facts, for humans and scripts
+osfacts snapshot --json | jq                      # same facts, readable
 ```
 
-## The creed
+One verb, composable facets, about ten milliseconds. We know it's ten
+milliseconds because we spent a week timing everything else.
 
-- **Scoped** — cost tracks the *ask*: `--roots` walks the given pids'
-  subtrees, `--pids` takes an exact set, no flag means host-wide. Never a
-  host-wide scan filtered after the fact.
-- **Attributed** — every snapshot carries the full pid→ppid table, so a
-  grandchild listener (`shell → npm → node`) walks back to its root.
-- **Honest** — every pid that could not be inspected is **reported, with its
-  errno**, in a mandatory `unreadable` section. Blindness is output, not
-  absence: "we could not look" must never read as "nothing is listening".
-- **Versioned** — the schema version is the first thing on stdout. A consumer
-  built against another revision fails loudly instead of parsing a
-  half-understood shape into zero rows.
-- **Fast** — ~10 ms per snapshot, because interactive callers poll at
-  seconds scale. This budget explains every rejection in the table below.
+## Scoping
 
-## Output
+The whole trick is `--roots`: ask about one process subtree and that subtree
+is what you pay for. Every tool we measured scans the whole machine and then
+filters — one of them took 26.0 ms host-wide and 25.1 ms "scoped", which
+isn't scoping, it's grep. Cost should track the ask, not the host. A terminal
+with three processes shouldn't cost you eight hundred.
 
-TSV on the hot path — version line first, then tagged rows (`P` process, `L`
-listener, `U` unreadable) — and `--json` for everything else. Two contract
-points worth knowing before you parse:
+And the snapshot carries the full pid→ppid table, so a grandchild listener
+walks back to its root. A dev server is usually `shell → npm → node`; if your
+tool only shows you the `node`, you know a port is open but not whose it is.
+That's the question that matters, and it's the one the listener-only tools
+can't answer.
 
-- **Raw address bytes, never a "wildcard" boolean.** You keep exactly one
-  address classifier on your side; two predicates that must agree about
-  `::ffff:0.0.0.0` is how they come to disagree.
-- **Cumulative CPU time per row**, so CPU% is a diff between two snapshots on
-  *your* clock — a one-shot sampler never sleeps to compute a rate.
+## Honesty
+
+When osfacts can't read a pid, it says so — with the errno, in an
+`unreadable` section you can't turn off. Blindness is output, not absence.
+
+Why so strict? Because we shipped the other thing. A reader that silently
+dropped unreadable pids once emptied a whole panel of facts the moment
+someone ran `sudo` — one password prompt, and every terminal on the host
+reported "nothing here", successfully. "We couldn't look" and "there is
+nothing" are different answers. A tool that conflates them will eventually
+lie to you at the worst moment, and you won't know.
+
+The rest of the contract follows the same instinct. The schema version is the
+first thing on stdout, so a consumer built against another revision fails
+loudly instead of parsing half a shape into zero rows. Addresses come as raw
+bytes, never a cooked "wildcard" flag — you keep exactly one classifier on
+your side, because two predicates that must agree about `::ffff:0.0.0.0` is
+how they come to disagree. And CPU time is cumulative per row, so CPU% is a
+diff between two snapshots on your clock. A one-shot sampler should never
+sleep; one tool we measured sleeps ~30 ms per call to compute a rate nobody
+asked it for.
 
 ## Who uses it
 
-[kolu](https://github.com/juspay/kolu) — its terminal port sensor, memory
-sampler, unix-socket takeover check, and daemon supervisor all collapse onto
-this one contract — and [drishti](https://github.com/srid/drishti) for
-process inspection. Anything else gets the same facts via `--json`.
+[kolu](https://github.com/juspay/kolu) — its terminal port sensor polls this
+every few seconds, and its memory sampler, socket-takeover check, and daemon
+supervisor all ask the same class of question — and
+[drishti](https://github.com/srid/drishti) for process inspection. Anything
+else gets the same facts from `--json`.
 
 ## Why not an existing tool
 
-Every candidate was measured, not surveyed; each fails on the contract, not
-on packaging:
+We measured, not surveyed. Each candidate fails on the contract, not on
+packaging:
 
 | tool | disqualifier |
 | --- | --- |
-| `osquery` | wrong operational model: a resident fleet-telemetry agent with a SQL surface — ~378 ms/query, ~158 MB — built for thousands of machines every few minutes, not one machine every five seconds |
-| `procs` | discards the bind address — loopback-only and wildcard collapse into one row |
-| `portls` | no PPID, no process table — a listener cannot be walked back to its root |
-| `rustnet` | interactive capture TUI, needs packet-capture privilege |
-| `portview` | listener rows only, no process table; no scoping (its single-port query is a host-wide scan plus a filter) |
-| `sysinfo` + `listeners` | composing them enumerates the process list twice: 23 ms darwin / ~100 ms linux vs 10 ms single-pass |
-| `lsof` / `netstat` | `lsof` measured 93 ms; macOS `netstat` is intermittently blind — success and zero rows in one window, 29 rows the next |
+| `osquery` | a resident fleet-telemetry agent with a SQL surface — ~378 ms/query, ~158 MB. Built for thousands of machines every few minutes, not one machine every five seconds |
+| `procs` | discards the bind address, so loopback-only and wildcard collapse into one row |
+| `portls` | no PPID, no process table — a listener can't be walked back to its root |
+| `rustnet` | an interactive capture TUI; needs packet-capture privilege |
+| `portview` | listener rows only, no process table, no scoping — its single-port query is a host-wide scan plus a filter |
+| `sysinfo` + `listeners` | composing them enumerates the process list twice: 23 ms darwin / ~100 ms linux, vs 10 ms for one pass |
+| `lsof` / `netstat` | `lsof` measured 93 ms; macOS `netstat` goes intermittently blind — success and zero rows in one window, 29 rows the next, same boot |
 
 ## Status
 
-**Design complete, binary not yet built.** osfacts incubates in the kolu
-monorepo (this directory is the whole future repo) and extracts once a second
-external consumer takes the dependency. The full design — contract, user
-stories, internals, phase tree, and the measurements behind every claim above
-— is the plan of record:
+The design is finished; the binary isn't. osfacts incubates in the kolu
+monorepo (this directory is the whole future repo) and moves out the day a
+second external consumer takes the dependency. Every claim and number above
+has its measurement in the plan of record:
 [os-facts-tool](https://kolu.dev/atlas/os-facts-tool.html).
