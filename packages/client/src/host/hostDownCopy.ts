@@ -59,6 +59,26 @@ export const HOST_DOWN_COPY = {
       "completed, so its state is unsettled and can't be trusted. Retry from the " +
       "host, or switch back to your local host while it recovers.",
   },
+  // The two ssh refusals: kolu is strictly non-interactive over ssh, so a
+  // gate only a typed answer could pass (a password, a trust prompt) is a
+  // terminal, operator-actionable fault — named here with its actual remedy,
+  // never left masquerading as a generic reachability problem.
+  "auth-required": {
+    title: "This host needs passwordless ssh",
+    body:
+      "The host refused kolu's ssh sign-in, and kolu connects " +
+      "non-interactively — it can never type a password. Set up key-based " +
+      "access (for example with ssh-copy-id), confirm plain ssh connects " +
+      "without prompting, then reconnect.",
+  },
+  "host-key-unverified": {
+    title: "This host isn't trusted yet",
+    body:
+      "ssh doesn't recognize this host's identity key, and kolu never " +
+      "answers the trust prompt itself. Run ssh to this host once in a " +
+      "terminal to review and accept its key — or resolve a changed-key " +
+      "warning — then reconnect.",
+  },
   "link-failed": {
     title: "Can't reach this host",
     body:

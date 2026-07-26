@@ -28,6 +28,23 @@ export type ResolveDrvFailure =
       kind: "network-exhausted";
       failureCause: "network";
       terminal: true;
+    }
+  // The two ssh REFUSALS ({@link SshRefusal}): the host answered and ssh
+  // stopped at a gate only an interactive answer could pass — a credential
+  // (auth-refused) or a trust decision (host-key-unverified). This package is
+  // non-interactive by contract (`BatchMode=yes`, no TTY), so no retry can ever
+  // supply that answer: terminal, and the honest transport cause is `"remote"`
+  // (the peer was reached; it refused us — never a network fault to keep
+  // redialing).
+  | {
+      kind: "auth-refused";
+      failureCause: "remote";
+      terminal: true;
+    }
+  | {
+      kind: "host-key-unverified";
+      failureCause: "remote";
+      terminal: true;
     };
 
 /** A `resolveDrvPath` rejection with an explicit connector verdict.
@@ -71,6 +88,30 @@ export function looksLikeNetworkError(line: string): boolean {
   return /connection (refused|timed out|closed|reset)|operation timed out|timeout was reached|no route to host|network is unreachable|could not resolve host(?:name)?|couldn't connect to server|failed to connect|download .* interrupted|http error (?:408|429|5\d\d)|kex_exchange_identification|ssh: connect to host|not responding|broken pipe|port 22:/i.test(
     line,
   );
+}
+
+/** The two ways a NON-INTERACTIVE ssh is refused at a gate only an interactive
+ *  answer could pass: `auth-refused` (the host rejected our credentials — with
+ *  `BatchMode=yes` a password/keyboard-interactive prompt is declined, not
+ *  asked) and `host-key-unverified` (ssh refused the HOST's identity — an
+ *  unknown or changed host key whose trust prompt we can never answer). The
+ *  vocabulary doubles as the matching {@link ResolveDrvFailure} kinds, so the
+ *  classifier and the typed failure can never spell the same fact twice. */
+export type SshRefusal = "auth-refused" | "host-key-unverified";
+
+/** Heuristic sibling of {@link looksLikeNetworkError}: does an ssh stderr line
+ *  prove a {@link SshRefusal}? Matched against the exact text OpenSSH emits —
+ *  `Permission denied (publickey,…)` (the parenthesised auth-method list keeps
+ *  a remote command's generic "Permission denied" from misclassifying),
+ *  `Too many authentication failures`, and `Host key verification failed.`
+ *  (the stable final line for both an unknown and a CHANGED host key). A miss
+ *  only means the failure stays an untyped transport error (retried) — never a
+ *  wrong terminal verdict. */
+export function sshRefusalOf(line: string): SshRefusal | null {
+  if (/host key verification failed/i.test(line)) return "host-key-unverified";
+  if (/permission denied \(|too many authentication failures/i.test(line))
+    return "auth-refused";
+  return null;
 }
 
 /** Forward every non-blank `\n`-terminated line in `chunk` to `onLine`.

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSystem } from "./arch";
 import { __resetControlMemo } from "./controlMaster";
+import { ResolveDrvError } from "./host";
 import { type CaptureResult, runCapture } from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
@@ -103,5 +104,102 @@ describe("resolveSystem host probe", () => {
     );
     expect(runCapture).toHaveBeenCalledTimes(2);
     expect(vi.mocked(runCapture).mock.calls[0]?.[2]?.signal).toBe(first.signal);
+  });
+});
+
+/** An ssh gate kolu can never pass non-interactively must reach the session as a
+ *  TERMINAL, cause-typed fault — otherwise it is classified as a transport blip
+ *  and redialed forever, leaving the host wedged on "Connecting…" with the real
+ *  reason buried in a log tail. */
+describe("resolveSystem ssh-refusal classification", () => {
+  /** Mock one probe that emits `line` on stderr and exits with `code`. */
+  const probeEmitting = (line: string, code: number): void => {
+    vi.mocked(runCapture).mockImplementationOnce(
+      async (_command, _args, runOpts): Promise<CaptureResult> => {
+        runOpts.onProgress?.(line);
+        return { ok: false, kind: "exit", code, stdout: "" };
+      },
+    );
+  };
+
+  const PERMISSION_DENIED =
+    "srid@petit: Permission denied (publickey,password,keyboard-interactive).";
+  const HOST_KEY_FAILED = "Host key verification failed.";
+
+  /** Reject and return the error — `.rejects.toThrow` can't inspect the typed
+   *  `resolution`, which is the whole point of these arms. */
+  const failureOf = async (host: string): Promise<unknown> =>
+    await resolveSystem(host, opts()).then(
+      () => {
+        throw new Error("expected the probe to reject");
+      },
+      (e: unknown) => e,
+    );
+
+  it("a password-only host is a TERMINAL auth-refused fault, not an eternal retry", async () => {
+    probeEmitting(PERMISSION_DENIED, 255);
+    const err = await failureOf("petit");
+    expect(err).toBeInstanceOf(ResolveDrvError);
+    expect((err as ResolveDrvError).resolution).toEqual({
+      kind: "auth-refused",
+      // The host was REACHED and refused us — the honest transport cause is
+      // `remote`, and terminal because no redial can type a password.
+      failureCause: "remote",
+      terminal: true,
+    });
+    // The message carries the operator's actual remedy, not just the raw line.
+    expect((err as Error).message).toContain("ssh-copy-id petit");
+    expect((err as Error).message).toContain(PERMISSION_DENIED);
+  });
+
+  it("an unverified host key is its OWN terminal cause — a different remedy", async () => {
+    probeEmitting(HOST_KEY_FAILED, 255);
+    const err = await failureOf("petit");
+    expect((err as ResolveDrvError).resolution).toEqual({
+      kind: "host-key-unverified",
+      failureCause: "remote",
+      terminal: true,
+    });
+    expect((err as Error).message).toMatch(/accept the host key/);
+  });
+
+  it("requires ssh's OWN exit 255 — a remote command's refusal text stays retryable", async () => {
+    // ssh reports its own failures with 255; any other code came from the
+    // remote command, whose stderr rides the same stream. Terminality must not
+    // hinge on text alone, or a remote-side hiccup would strand a good host.
+    probeEmitting(PERMISSION_DENIED, 1);
+    const err = await failureOf("petit");
+    expect(err).not.toBeInstanceOf(ResolveDrvError);
+    expect(err).toBeInstanceOf(Error);
+  });
+
+  it("still forwards the refusal line to the caller's progress sink", async () => {
+    // The typed classification is additive: the raw ssh line must keep reaching
+    // the session log tail the connect canvas renders.
+    probeEmitting(PERMISSION_DENIED, 255);
+    const onProgress = vi.fn();
+    await resolveSystem("petit", {
+      signal: new AbortController().signal,
+      onProgress,
+    }).catch(() => {});
+    expect(onProgress).toHaveBeenCalledWith(PERMISSION_DENIED);
+  });
+
+  it("leaves an unreachable host retryable — an untyped transport error", async () => {
+    probeEmitting(
+      "ssh: connect to host petit port 22: Connection refused",
+      255,
+    );
+    const err = await failureOf("petit");
+    expect(err).not.toBeInstanceOf(ResolveDrvError);
+  });
+
+  it("keeps a refusal PER DIAL — a later clean probe resolves normally", async () => {
+    // `drvFaultCause`-style staleness at the framework layer: the classifier
+    // holds no state across dials, so a fixed host recovers on the next probe.
+    probeEmitting(PERMISSION_DENIED, 255);
+    await failureOf("petit");
+    vi.mocked(runCapture).mockResolvedValueOnce(okSystem("x86_64-linux"));
+    await expect(resolveSystem("petit", opts())).resolves.toBe("x86_64-linux");
   });
 });
