@@ -85,7 +85,13 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
+import {
+  activeHost,
+  activePadiRpc,
+  connectionInfo,
+  hostKeys,
+  setActiveHost,
+} from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, getSubject } = useTerminals();
@@ -320,6 +326,11 @@ const App: Component = () => {
     requireKind("host-failed", (m) => m.cause, "host-failed");
   const hostFailedReason = () =>
     requireKind("host-failed", (m) => m.reason, "host-failed");
+  // The failed episode's retained output — read off the fine `connection` payload, NOT
+  // off the CanvasMode: the mode recomputes every monotonic tick, so a log array folded
+  // into it would mint a fresh mode object per line. The session carries `log` forward
+  // into its `failed` arm, so this is the tail of the episode that actually gave up.
+  const hostFailedLog = () => connectionInfo()?.log ?? [];
   const bootStalledRecovery = () =>
     requireKind("boot-stalled", (m) => m.recovery, "boot-stalled");
   // Warming arm's kaval restart state (undefined while a remote provision
@@ -483,6 +494,7 @@ const App: Component = () => {
             <HostDownCanvas
               cause={hostFailedCause()}
               reason={hostFailedReason()}
+              log={hostFailedLog()}
             />
           </Match>
           <Match when={mode().kind === "boot-stalled"}>

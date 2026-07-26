@@ -89,6 +89,19 @@ export function CanvasFailureCard(props: {
   title: string;
   body: string;
   detail?: string;
+  /** The failing episode's retained output, newest last — rendered verbatim in a bounded
+   *  scroll beneath `detail`. Structural (`{ line }` only, no domain type, no `source`
+   *  provenance): the shell stays pure presentation, and a caller hands it whatever tail it
+   *  retained. Omit — or pass empty — and nothing renders, so "no output" is data absence
+   *  rather than a flag the caller has to set.
+   *
+   *  Deliberately NOT shared with `ConnectCanvas`'s live `connect-tail`, despite the same
+   *  chrome: that one shows the last 6 lines TRUNCATED to one row each (a rolling
+   *  reassurance while work is in flight), this one shows the whole retained tail WRAPPED
+   *  (a post-mortem you have to be able to read). Same pixels, opposite jobs — unifying
+   *  them would parameterize two independently-changing behaviours for a class-string
+   *  saving, the same trade this card already declined for `DangerCard`. */
+  log?: readonly { readonly line: string }[];
   /** Optional footer line under the body (e.g. a docs link). */
   footer?: JSX.Element;
   actions: CanvasFailureAction[];
@@ -111,6 +124,26 @@ export function CanvasFailureCard(props: {
                   {detail()}
                 </p>
               )}
+            </Show>
+            {/* The retained output of the episode that failed. Rendered whenever the caller
+                HAS lines — data presence, not a per-cause flag — so the diagnostic that was
+                already collected stops dying at the card (a caught error must surface, never
+                collapse to a one-line summary). Wraps rather than truncates: a Nix store path
+                or a `tsc` diagnostic is only useful whole. Bounded height + scroll so a full
+                tail can't push the recovery buttons off-screen. */}
+            <Show when={(props.log ?? []).length > 0}>
+              <div
+                data-testid="failure-log"
+                class="mt-2 max-h-40 overflow-y-auto rounded border border-bd-1/50 bg-bg-2/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-fg-4"
+              >
+                <For each={props.log}>
+                  {(entry) => (
+                    <div class="whitespace-pre-wrap break-words">
+                      {entry.line}
+                    </div>
+                  )}
+                </For>
+              </div>
             </Show>
             <Show when={props.footer}>
               {(footer) => (

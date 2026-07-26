@@ -111,6 +111,10 @@ let
     # would traverse node_modules for no benefit.
     dontFixup = true;
 
+    # Keep a failing `astro build` readable in `nix log` — pnpm's progress tree
+    # would otherwise redraw over it. See ../nix/pnpm-reporter.nix.
+    inherit (import ../nix/pnpm-reporter.nix) npm_config_reporter;
+
     buildPhase = ''
       runHook preBuild
       pnpm build
