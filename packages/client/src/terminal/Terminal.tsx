@@ -62,7 +62,7 @@ import {
 } from "./fileRefLinkProvider";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCard } from "./PrintedUrlCard";
-import { printedUrlCardTarget } from "./printedUrlCard";
+import { printedUrlCardTarget } from "./printedUrlCardState";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";

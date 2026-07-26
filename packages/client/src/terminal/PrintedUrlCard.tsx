@@ -40,7 +40,7 @@ import { openRawUrl } from "./handleWebLink";
 import {
   closePrintedUrlCard,
   type PrintedUrlCardTarget,
-} from "./printedUrlCard";
+} from "./printedUrlCardState";
 import { useTerminalStore } from "./useTerminalStore";
 
 const CARD_WIDTH = 320;

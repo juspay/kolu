@@ -6,7 +6,10 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleWebLink } from "./handleWebLink";
-import { closePrintedUrlCard, printedUrlCardTarget } from "./printedUrlCard";
+import {
+  closePrintedUrlCard,
+  printedUrlCardTarget,
+} from "./printedUrlCardState";
 
 afterEach(() => {
   closePrintedUrlCard();

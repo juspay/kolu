@@ -2,6 +2,11 @@
  * The printed-URL card's open state — a singleton target, evaluated only while
  * a card is open (never per-render, never frozen at click).
  *
+ * Named `printedUrlCardState` (not `printedUrlCard`) so it never collides with
+ * `PrintedUrlCard.tsx` on case-insensitive filesystems (macOS APFS / Nix store
+ * volumes): TypeScript probes `PrintedUrlCard.ts` first and would bind this
+ * module instead of the component, with no `PrintedUrlCard` export.
+ *
  * The JOIN itself is a reactive derivation over the ports + forwards stores in
  * the card component; this module only holds *which* URL/terminal was clicked
  * and *where* to anchor the card.

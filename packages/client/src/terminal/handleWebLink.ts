@@ -10,7 +10,7 @@
 
 import { parseLoopbackUrl } from "@kolu/url-shape";
 import type { TerminalId } from "kolu-common/surface";
-import { closePrintedUrlCard, openPrintedUrlCard } from "./printedUrlCard";
+import { closePrintedUrlCard, openPrintedUrlCard } from "./printedUrlCardState";
 
 /** Open a URL the way the default WebLinksAddon would — new tab, opener severed. */
 export function openRawUrl(uri: string): void {
