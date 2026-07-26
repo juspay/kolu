@@ -6,11 +6,8 @@
  * paying. So the signals that already mark "something happened in this terminal" —
  * an output burst, an OSC 633 command mark — trigger an immediate off-schedule pass.
  *
- * **Per-pass cost lives in ONE place: `@kolu/port-scan`'s `scan.ts` header.** This module used to
- * quote its own figures ("~3 ms on linux, ~17 ms on macOS") and they went stale the
- * moment that header corrected them to 14-18 ms batched on linux and 17-93 ms on
- * darwin — two documents disagreeing about the number the cadence argument rests
- * on. The bound below needs no figure at all, which is the point of deriving it.
+ * **Per-pass cost is measured at the osfacts binary**, not restated here. The
+ * bound below needs no figure at all, which is the point of deriving it.
  *
  * Output is only ever a HINT ABOUT WHEN TO LOOK. The socket table stays the sole
  * source of facts: a printed URL never creates a chip. That line is exactly where
@@ -72,11 +69,7 @@ import type {
 import { samePortList } from "@kolu/terminal-vocab/schema";
 import { everyMsOr, source } from "@kolu/surface/reactor";
 import type { Logger } from "pino";
-import {
-  PortScanError,
-  portScanSupported,
-  scanSubtreePorts,
-} from "@kolu/port-scan";
+import { PortScanError, portScanSupported, scanSubtreePorts } from "./scan.ts";
 
 /** Baseline cadence of the port scan. The same 5 s `memorySampler` uses, for the
  *  same reason: coarse enough to be free, live enough to be worth reading. */
@@ -201,12 +194,7 @@ export function createPortSampler(opts: {
   log: Logger;
   scan?: (rootPids: readonly number[]) => Promise<Map<number, PortInfo[]>>;
 }): PortSampler {
-  // `@kolu/port-scan` carries no logger of its own (it is domain-blind and has no
-  // opinion about where a daemon's lines go), so padi hands it the one it already
-  // has. It is used for exactly one condition — an unexpected `/proc` errno while
-  // reading a port's LABEL — and no scan RESULT depends on it.
-  const scan =
-    opts.scan ?? ((rootPids) => scanSubtreePorts(rootPids, { log: opts.log }));
+  const scan = opts.scan ?? ((rootPids) => scanSubtreePorts(rootPids));
   // The permanent refusal, asked BEFORE the cadence exists. Checking it inside the
   // read could not deliver the "say it once, then stop" contract: the first read on
   // a host with no terminals yet answers an empty map without reaching the platform

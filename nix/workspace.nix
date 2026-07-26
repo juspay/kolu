@@ -9,58 +9,62 @@ let
 
   # INVARIANT: this fileset must include every workspace package that has a
   # `typecheck` script. packages/tests is intentionally absent: it has none.
+  # Exported as `fileset` so the agent-source assemble (surface-daemon
+  # mkProvenAgentSource) can union the same package set with the Nix/npins
+  # machinery without re-listing every package.
+  fileset = pkgs.lib.fileset.unions [
+    ../package.json
+    ../pnpm-workspace.yaml
+    ../pnpm-lock.yaml
+    ../tsconfig.base.json
+    ../packages/surface
+    ../packages/surface-map
+    ../packages/surface-mcp
+    ../packages/surface-remote
+    ../packages/surface-app
+    ../packages/surface-daemon
+    ../packages/surface-daemon-supervisor
+    ../packages/solid-pierre
+    ../packages/solid-markdown
+    ../packages/solid-pwa-install
+    ../packages/solid-fileview
+    ../packages/solid-browser
+    ../packages/solid-statepip
+    ../packages/common
+    ../packages/daemon-test-gate
+    ../packages/integrations
+    ../packages/nonempty
+    ../packages/shared
+    ../packages/terminal-themes
+    ../packages/theme
+    ../packages/memorable-names
+    ../packages/terminal-vocab
+    ../packages/terminal-protocol
+    ../packages/kaval
+    ../packages/kaval-tui
+    ../packages/kolu-cli
+    ../packages/kolu-mcp
+    ../packages/padi
+    ../packages/padi-tui
+    ../packages/port-forward
+    ../osfacts/client-ts
+    ../packages/vazhi
+    ../packages/server
+    ../packages/client
+    ../packages/transcript-core
+    ../packages/transcript-html
+    ../packages/artifact-sdk
+    ../packages/serve-dir
+    ../packages/heap-diag
+    ../packages/html-escape
+    ../packages/shell-quote
+    ../packages/url-shape
+    ../packages/log
+    ../packages/xterm-kit
+  ];
   src = pkgs.lib.fileset.toSource {
     root = ../.;
-    fileset = pkgs.lib.fileset.unions [
-      ../package.json
-      ../pnpm-workspace.yaml
-      ../pnpm-lock.yaml
-      ../tsconfig.base.json
-      ../packages/surface
-      ../packages/surface-map
-      ../packages/surface-mcp
-      ../packages/surface-remote
-      ../packages/surface-app
-      ../packages/surface-daemon
-      ../packages/surface-daemon-supervisor
-      ../packages/solid-pierre
-      ../packages/solid-markdown
-      ../packages/solid-pwa-install
-      ../packages/solid-fileview
-      ../packages/solid-browser
-      ../packages/solid-statepip
-      ../packages/common
-      ../packages/daemon-test-gate
-      ../packages/integrations
-      ../packages/nonempty
-      ../packages/shared
-      ../packages/terminal-themes
-      ../packages/theme
-      ../packages/memorable-names
-      ../packages/terminal-vocab
-      ../packages/terminal-protocol
-      ../packages/kaval
-      ../packages/kaval-tui
-      ../packages/kolu-cli
-      ../packages/kolu-mcp
-      ../packages/padi
-      ../packages/padi-tui
-      ../packages/port-forward
-      ../packages/port-scan
-      ../packages/vazhi
-      ../packages/server
-      ../packages/client
-      ../packages/transcript-core
-      ../packages/transcript-html
-      ../packages/artifact-sdk
-      ../packages/serve-dir
-      ../packages/heap-diag
-      ../packages/html-escape
-      ../packages/shell-quote
-      ../packages/url-shape
-      ../packages/log
-      ../packages/xterm-kit
-    ];
+    inherit fileset;
   };
 
   pnpmDeps = pkgs.fetchPnpmDeps {
@@ -76,5 +80,5 @@ let
   };
 in
 {
-  inherit version src pnpmDeps;
+  inherit version src fileset pnpmDeps;
 }

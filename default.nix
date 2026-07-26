@@ -40,7 +40,7 @@
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
   workspace = import ./nix/workspace.nix { inherit pkgs; };
-  inherit (workspace) version src pnpmDeps;
+  inherit (workspace) version src fileset pnpmDeps;
 
   # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
@@ -52,70 +52,57 @@ let
   runtimeTsx = pkgs.tsx.override { nodejs_22 = runtimeNode; };
   runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
 
+  # Build uses a placeholder so docs-only commits don't bust the derivation
+  # cache; koluClientDist sed-replaces it with the real hash afterwards.
+  koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
+
+  # Surface-owned Nix recipes (location is structure — they travel with the
+  # code that reads / depends on them). Both live inside @kolu/surface-daemon:
+  #   mkDaemonIdentity     — hashString-over-fileset + `<PREFIX>_*` bake
+  #   mkProvenAgentSource  — pure agent-tree assemble + evaluate-an-agent prove
+  mkDaemonIdentity = import ./packages/surface-daemon/nix/daemon-identity.nix {
+    inherit (pkgs) lib;
+  };
+  mkProvenAgentSource = import ./packages/surface-daemon/nix/agent-source.nix {
+    inherit (pkgs) lib;
+  };
+
   # Exact source flake with a minimal remote-agent output surface.
   #
   # Baking root `self` would keep the whole repository (website, Atlas, evidence)
-  # in every Kolu runtime closure. Instead, assemble the agent flake from the
-  # canonical Kolu workspace source above plus the Nix/npins machinery that
-  # evaluates it. `commit-hash` preserves the parent build's derived identity
-  # even though a store-path flake has no Git metadata. The flake exposes only
-  # Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix; selecting
-  # an agent remains independent of this derivation,
-  # so evaluating the nested flake is acyclic.
-  agentFlakeSrc = pkgs.runCommand "kolu-agent-flake-source" { } ''
-    mkdir -p "$out"
-    cp -R ${src}/. "$out/"
-    cp ${./default.nix} "$out/default.nix"
-    cp ${./nix/agent-flake.nix} "$out/flake.nix"
-    cp -R ${./nix} "$out/nix"
-    cp -R ${./npins} "$out/npins"
-    printf '%s' ${pkgs.lib.escapeShellArg commitHash} > "$out/commit-hash"
-  '';
+  # in every Kolu runtime closure. Instead, assemble the agent tree from the
+  # workspace package fileset plus the Nix/npins machinery that evaluates it,
+  # then PROVE an agent evaluates from that tree before handing the path to any
+  # wrapper (mkProvenAgentSource — shallow bake is unspellable). The flake
+  # exposes only Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix.
+  #
+  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/
+  # + osfacts/ (OSF2 — padi/koluEnv bake KOLU_OSFACTS_BIN from import ./osfacts;
+  # the prove fails without it). Not a workspace package (no typecheck script);
+  # listed here because the agent graph needs the source, not the pnpm tree.
+  agentSource = mkProvenAgentSource {
+    root = ./.;
+    fileset = pkgs.lib.fileset.unions [
+      fileset
+      ./default.nix
+      ./nix
+      ./npins
+      ./osfacts
+    ];
+    inherit pkgs commitHash;
+    agents = pkgs.lib.importJSON ./nix/agent-packages.json;
+    flakeNix = ./nix/agent-flake.nix;
+  };
+  agentFlakeSrc = agentSource.flakeSrc;
   agentFlakeRefEnv =
     (pkgs.lib.importJSON ./packages/surface-remote/agent-env.json).flakeRef;
   agentFlakeRefBakeArg =
     ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
 
-  # Build uses a placeholder so docs-only commits don't bust the derivation
-  # cache; koluClientDist sed-replaces it with the real hash afterwards.
-  koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
-
-  # The ONE recipe for a daemon's baked build identity (hashString over a behavioral
-  # fileset + the `<PREFIX>_*` env bake), the Nix half of @kolu/surface-daemon's
-  # `readBakedIdentity`. It lives INSIDE the surface-daemon package (location is
-  # structure — it travels with the code that reads it). Each daemon below instantiates
-  # it with its OWN behavioralFileset (the policy — what counts as its behavior); the
-  # rationale for "currency key = behavioral closure" (and the zest incident) lives once
-  # at the recipe's doorstep there.
-  mkDaemonIdentity = import ./packages/surface-daemon/nix/daemon-identity.nix {
-    inherit (pkgs) lib;
-  };
-
-  # padi's darwin port-scan reader: a libproc helper that replaced the `ps` + `lsof`
-  # pair, and the numbers are not close. Measured on zest (macOS 27.0): ~8.5-10.6 ms
-  # for one snapshot against 49 ms for `ps` ALONE and 94 ms for `lsof` ALONE — the old
-  # path spent ~143 ms of subprocess before a byte was parsed, for facts libproc
-  # returns in one call.
-  #
-  # A shared `sysinfo`+`listeners` Rust binary was built and MEASURED as the intended
-  # replacement, and it FAILED the address-parity gate on darwin: `listeners` drops the
-  # v4-mapping marker, reporting a `::ffff:127.0.0.1` bind as `::127.0.0.1`. The Atlas
-  # note records the exact bytes and what the follow-up must clear.
-  #
-  # `null` on linux, where the scan reads `/proc` directly — and that split is a
-  # boundary rather than an unfinished migration: the linux reader implements a policy
-  # a one-shot snapshot cannot express (`procReadFailure` — an unreadable FOREIGN-uid
-  # descendant is skipped, an unreadable REQUESTED ROOT is fatal), and collapsing those
-  # two was a real bug where one `sudo` prompt emptied the Ports section host-wide.
-  # So the bake is conditional rather than shipping an empty binary that would pretend
-  # to be a scanner.
-  # Read from koluEnv rather than re-deriving the path, so the wrapper and the dev
-  # shell cannot drift — the drift that made every darwin live test throw, since those
-  # tests run under bare vitest and never see this wrapper.
-  portScanHelperBakeArg =
-    if koluEnv ? KOLU_PORT_SCAN_HELPER
-    then ''--set KOLU_PORT_SCAN_HELPER "${koluEnv.KOLU_PORT_SCAN_HELPER}"''
-    else "";
+  # osfacts — the single OS process/socket sampler padi's port scan spawns
+  # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper
+  # and the dev shell cannot drift.
+  osfactsBakeArg = ''--set KOLU_OSFACTS_BIN "${koluEnv.KOLU_OSFACTS_BIN}"'';
 
   # The `.ts` filter for a hashed daemon fileset: real source only (drops `.test.ts`
   # AND `.testlib.ts` shared test-only helpers). The id is a content hash of the
@@ -201,7 +188,9 @@ let
   padiIdentity = mkDaemonIdentity {
     name = "padi";
     prefix = "PADI";
-    root = ./packages;
+    # Repo root (not packages/): osfacts-client lives under osfacts/ so it can
+    # leave with the tool at OSF5, yet still hashes into padi's staleKey.
+    root = ./.;
     inherit commitHash;
     override = padiBuildIdOverride;
     behavioralFileset = pkgs.lib.fileset.unions [
@@ -255,11 +244,11 @@ let
       # the npm deps are NOT here — surface is the framework "electricity" (a
       # stable, drishti-gated boundary) and the rest are pinned by pnpmDeps; both
       # are stable externals in the closure guard's ALLOWED list.)
-      # @kolu/port-scan — the OS reader padi's port sensor plugs into. Hashed like
-      # any other in-process root: which ports a terminal is serving is daemon
-      # BEHAVIOUR, so a change to the reader must flip padi's staleKey exactly as a
-      # change to the sensor that calls it does.
-      (padiPkgRoot ./packages/port-scan)
+      # osfacts-client — TypeScript face of the osfacts binary that padi's port
+      # sensor spawns. Hashed like any other in-process root: which ports a
+      # terminal is serving is daemon BEHAVIOUR, so a change to the client must
+      # flip padi's staleKey exactly as a change to the sensor that calls it does.
+      (padiPkgRoot ./osfacts/client-ts)
       (padiPkgRoot ./packages/serve-dir)
       (padiPkgRoot ./packages/shell-quote)
       (padiPkgRoot ./packages/html-escape)
@@ -280,6 +269,22 @@ let
       (padiPkgRoot ./packages/integrations/anyagent)
       (padiPkgRoot ./packages/integrations/anyforge)
     ];
+  };
+
+  # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
+  # package. Reuses this build's `src` + `pnpmDeps` — every package with a
+  # typecheck script is in the `src` fileset above (see its INVARIANT
+  # comment), so this checks exactly what `pnpm typecheck` does.
+  #
+  # This is NOT a side check: `kolu` (and therefore every wrapper that
+  # embeds `${kolu}/…` — koluBin, padi, kaval, the TUIs) depends on it, so
+  # `nix build .#default` / `.#padi` fails on a type or module-graph error
+  # before a store path is handed to deploy. flake.nix still also exposes it
+  # as `checks.*.typecheck` for a standalone proof; CI inherits the gate via
+  # the ordinary package build.
+  typecheck = import ./nix/pnpm-typecheck.nix {
+    inherit pkgs src pnpmDeps version;
+    pname = "kolu-typecheck";
   };
 
   kolu = pkgs.stdenv.mkDerivation {
@@ -320,13 +325,14 @@ let
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
     } // koluEnv;
 
-    # NOTE: this does NOT typecheck. The client is bundled by Vite (per-file
-    # transpile) and the server runs under tsx at runtime, so a green
-    # `nix build .#default` is not a type-proof (juspay/kolu#1049). The type
-    # gate is the separate `typecheck` derivation below, exposed as a flake
-    # check and built by CI's `nix` node.
+    # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
+    # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green
+    # store path can boot-loop on a missing export (juspay/kolu#1049 class).
+    # `${typecheck}` forces the gate before any vite/node-gyp work; the empty
+    # path is the success token from pnpm-typecheck.nix.
     buildPhase = ''
       runHook preBuild
+      test -e ${typecheck}
       pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
       node-gyp rebuild
       popd
@@ -489,7 +495,7 @@ let
       --add-flags "${kolu}/packages/kolu-cli/src/main.ts" \
       --set KOLU_CLIENT_DIST "${koluClientDist}" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
-      ${portScanHelperBakeArg} \
+      ${osfactsBakeArg} \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
@@ -611,7 +617,7 @@ let
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
-      ${portScanHelperBakeArg} \
+      ${osfactsBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
@@ -679,32 +685,12 @@ let
   # rebuild would be pure cost.
   vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
 
-  # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
-  # package. Reuses this build's `src` + `pnpmDeps` — every package with a
-  # typecheck script is in the `src` fileset above (see its INVARIANT
-  # comment), so this checks exactly what `pnpm typecheck` does. flake.nix
-  # strips this from `packages` and routes it to `checks`.
-  typecheck = import ./nix/pnpm-typecheck.nix {
-    inherit pkgs src pnpmDeps version;
-    pname = "kolu-typecheck";
-  };
-  # padi's darwin port-scan helper as its OWN package output, so the whole thing —
-  # the compile plus the install checks that bind a real dual-stack socket — builds
-  # and iterates alone on a Mac (`nix build .#port-scan-helper`): no client bundle,
-  # no node-pty rebuild, no pnpm fetch. That is the point of the derivation sitting
-  # in `packages/port-scan/native/` beside its one C file — the unit is self-contained,
-  # so building it should be too.
-  #
-  # The same `callPackage ./packages/port-scan/native` `nix/env.nix` bakes onto the
-  # wrappers, with the same (empty) argument set, so the two call sites cannot name
-  # different builds — they evaluate to one store path.
-  #
-  # Darwin-only, matching the derivation: it is `null` on linux, and a flake
-  # `packages` set cannot carry a null.
-  darwinOnly = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-    port-scan-helper = pkgs.callPackage ./packages/port-scan/native { };
-  };
+  # osfacts — scoped process/socket fact sampler (Atlas: os-facts-tool, OSF1).
+  # Its derivation lives next to its source; it has its OWN flake.nix for a
+  # later move to its own repo, and that flake wants one definition, not a
+  # copy of this one. Both paths import ./osfacts/default.nix.
+  osfacts = import ./osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi;
-} // darwinOnly
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+}

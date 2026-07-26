@@ -17,8 +17,8 @@ import {
   nudgeFloorMs,
   PORT_SCAN_INTERVAL_MS,
   type PortScanTarget,
-} from "./portSampler.ts";
-import { PortScanError, portScanSupported } from "@kolu/port-scan";
+} from "./sampler.ts";
+import { PortScanError, portScanSupported } from "./scan.ts";
 
 const quietLog = pino({ level: "silent" });
 

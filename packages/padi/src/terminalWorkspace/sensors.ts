@@ -120,7 +120,7 @@ export interface SensorSignals {
    *  socket. The host pushes a current snapshot first, then changes. */
   foreground: Channel<ForegroundSample>;
   /** This terminal's listening TCP ports, re-sampled WHOLE each pass by the
-   *  host's port sampler (`portSampler.ts`).
+   *  host's port sampler (`ports/sampler.ts`).
    *
    *  The odd tap out, and deliberately so: the other four are per-terminal streams
    *  the pty-host serves, while ports come from ONE host-wide scan the host

@@ -4,10 +4,7 @@
  * both ends of the wire depend on them and one of them (`samePortList`) is what
  * keeps a seconds-cadence scanner from thrashing its readers.
  *
- * These cases were once in padi's `portScan.test.ts`, then in the terminal
- * vocabulary; they follow the code, which now lives here. The cases that stayed
- * behind in `terminal-vocab/src/ports.test.ts` are the ones about a terminal
- * SNAPSHOT (`portsEqual`'s status flip, `portReach`), which are not port facts.
+ * Terminal SNAPSHOT cases (`portsEqual`, `portReach`) live in `ports.test.ts`.
  */
 
 import { describe, expect, it } from "vitest";

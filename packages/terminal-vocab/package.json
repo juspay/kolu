@@ -9,6 +9,7 @@
   "types": "./src/schema.ts",
   "exports": {
     "./schema": "./src/schema.ts",
+    "./ports": "./src/ports.ts",
     "./agentProjection": "./src/agentProjection.ts"
   },
   "scripts": {
@@ -16,7 +17,6 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@kolu/port-scan": "workspace:*",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "kolu-claude-code": "workspace:*",

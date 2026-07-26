@@ -47,7 +47,8 @@ const HASHED_ROOTS: Record<string, string> = {
   "@kolu/surface-daemon": "surface-daemon",
   "@kolu/surface-daemon-supervisor": "surface-daemon-supervisor",
   "@kolu/terminal-vocab": "terminal-vocab",
-  "@kolu/port-scan": "port-scan",
+  // Outside packages/ — lives under osfacts/ so it leaves with the tool at OSF5.
+  "osfacts-client": "../osfacts/client-ts",
   "@kolu/serve-dir": "serve-dir",
   "@kolu/shell-quote": "shell-quote",
   "@kolu/html-escape": "html-escape",

@@ -3,7 +3,7 @@
  * compares (`portsEqual`) and what kolu decides from a bind (`portReach`).
  *
  * The port FACTS they rest on — the fold and the list equality — moved out with
- * the code to `@kolu/port-scan/ports`, and are tested beside it. What is left here
+ * the code to `./ports.ts`, and are tested beside it in `portInfo.test.ts`. What is left here
  * is exactly what that package must not know: a `status` discriminant, and whose
  * host the port is on.
  */
@@ -38,7 +38,7 @@ const known = (list: PortInfo[]): TerminalPorts => ({ status: "known", list });
 const unknown: TerminalPorts = { status: "unknown" };
 
 describe("portsEqual delegates the LIST comparison", () => {
-  // Not a re-test of `samePortList` (that lives with it in `@kolu/port-scan`) —
+  // Not a re-test of `samePortList` (that lives with it in `portInfo.test.ts`) —
   // these pin that `portsEqual` actually consults the list for a known/known pair
   // rather than short-circuiting on the matching status, which is the one way this
   // wrapper can be wrong on its own.

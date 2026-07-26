@@ -12,32 +12,25 @@ let
   rhaiGrammar = pkgs.runCommand "rhai.tmLanguage.json" { } ''
     cp ${rhaiLsp}/editors/vscode/syntax/rhai.tmLanguage.json $out
   '';
+  # ONE definition — same store path as `nix build .#osfacts` / `nix run ./osfacts`.
+  osfacts = import ../osfacts { inherit pkgs; };
 in
 {
-  KOLU_FONTS_DIR          = pkgs.kolu-fonts;
+  KOLU_FONTS_DIR = pkgs.kolu-fonts;
   # Official Rhai TextMate grammar, pinned through npins and exposed as a file
   # so Vite can lazy-load it without vendoring an upstream snapshot.
-  KOLU_RHAI_GRAMMAR       = rhaiGrammar;
+  KOLU_RHAI_GRAMMAR = rhaiGrammar;
   # Pinned gh binary — the server's GitHub provider consumes this directly.
   # Required, not optional: github.ts throws at startup if unset. Set here so
   # both the packaged wrapper (default.nix) and the dev shell (shell.nix)
   # pick it up via `koluEnv`.
-  KOLU_GH_BIN             = "${pkgs.gh}/bin/gh";
-}
-# padi's darwin port-scan helper, on the SAME footing as `KOLU_GH_BIN` above: a
-# required value baked by Nix, present in the packaged wrapper AND the dev shell,
-# with no PATH fallback in the reader.
-#
-# It lives here rather than only in `default.nix` because of a regression CI caught
-# and a linux box never could: `scan.live.test.ts` runs under bare `vitest`, not
-# through padi's wrapper, so on darwin every live scan threw
-# "KOLU_PORT_SCAN_HELPER is not set" — 9 tests, all from that one line. The previous
-# `ps`+`lsof` implementation needed no env, so the dependency arrived silently with
-# the helper. `koluEnv` is exactly the seam that keeps wrapper and dev shell in step.
-#
-# Darwin-only, because the helper is: linux reads `/proc` directly and the derivation
-# evaluates to `null` there, so an unconditional attribute would be a broken path.
-// pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-  KOLU_PORT_SCAN_HELPER =
-    "${pkgs.callPackage ../packages/port-scan/native { }}/bin/kolu-port-scan-darwin";
+  KOLU_GH_BIN = "${pkgs.gh}/bin/gh";
+  # osfacts — the single OS process/socket fact sampler padi's port scan spawns
+  # (OSF2). Same footing as `KOLU_GH_BIN`: a required absolute path baked by Nix,
+  # present in the packaged wrappers AND the dev shell, with no PATH fallback in
+  # the reader. Lives here rather than only in default.nix because
+  # `ports/scan.live.test.ts` runs under bare vitest and never sees the padi
+  # wrapper — the drift that made every live test throw when the bake was
+  # wrapper-only.
+  KOLU_OSFACTS_BIN = "${osfacts}/bin/osfacts";
 }

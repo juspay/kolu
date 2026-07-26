@@ -95,7 +95,7 @@ packaged in an afternoon, so packaging never counts as a
 disqualifier.<Footnote>Earlier drafts listed "not packaged for darwin" against
 osquery and "not in nixpkgs" against portls. Both struck: a packaging gap is an
 errand, not an architecture verdict. The rows now stand on what each tool
-*is*.</Footnote> The repo README carries this same table:
+*is*.</Footnote> The [repo README](https://github.com/juspay/kolu/blob/master/osfacts/README.md) carries this same table:
 
 | candidate            | disqualifier                                                                                                                                                                                                                                              |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -125,10 +125,15 @@ One pass per platform, and no more:
   `proc_pidfdinfo`), the shape the C helper already proved at ~4 ms of real
   work.
 
-**Crates only where earned.** The fixed `listeners` for darwin address decoding
-once [the upstream fix](https://github.com/GyulyVGC/listeners/pull/57) merges —
-and **not `sysinfo`**: pairing them walks the host twice, which is disqualified
-by construction.
+**Crates only where earned — and `listeners` did not earn a dependency.** Its
+*enumeration* shape is the disqualified one (it maps socket inodes by walking
+every process's fds, host-wide — the exact cost `--roots` exists to avoid);
+the only part of it osfacts needs is the ~50-line darwin address decode
+[we fixed](https://github.com/GyulyVGC/listeners/pull/57), which is **vendored
+into osfacts** with the scar-tissue fixtures riding it, credited, and checked
+against the fork as an oracle in CI. **Not `sysinfo`** either: pairing crates
+that each enumerate walks the host twice, disqualified by construction. The
+full stack proposal lives in the Implementation section.
 
 ### The regression suite is scar tissue
 
@@ -166,26 +171,29 @@ but are framework demos, not kolu runtime.</Footnote>
 
 | consumer today       | asks                                                  | reads today                                                                                          |
 | -------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `@kolu/port-scan`    | a subtree's processes + listening ports               | linux `/proc`; darwin a C libproc helper                                                             |
+| padi port scan       | a subtree's processes + listening ports               | **osfacts** via `osfacts-client` (`KOLU_OSFACTS_BIN`, OSF2 / PR #1996); former `@kolu/port-scan` dissolved |
 | padi `memorySampler` | per-pid RSS                                           | only *self*-measurement (`process.memoryUsage()`) plus an RPC hop to kaval for kaval's own RSS — no true per-pid read exists yet |
 | `socketHolder` (in `surface-daemon-supervisor`) | which pids hold a unix socket **path** | `/proc/net/unix` + fd readlinks; darwin `lsof`                                                       |
 | daemon supervisor    | "is this pid still ours", and since when              | `kill(pid, 0)` liveness only — start-time identity is not read at all today                          |
-| **drishti**          | process inspection                                    | hand-rolled `lsof`                                                                                   |
+| **drishti**          | process inspection                                    | hand-rolled `lsof` — **next adopter of `osfacts-client`** (PR after #1996)                            |
 
 ### The phase tree — track prefix `OSF`
 
 | phase                        | delivers                                                                                                                                         | needs       |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| **OSF1 — the binary**        | `snapshot --roots --procs --ports` on both platforms · versioned TSV + `--json` · the mandatory `unreadable` section · the scar-tissue suite · `osfacts/` + subflake wiring | —           |
-| **OSF2 — kolu's port sensor adopts it** | `@kolu/port-scan` invokes the baked osfacts binary; the C helper and the linux `/proc` parse are **deleted**<Footnote>The done-criterion names the path: padi's `portSampler` → `@kolu/port-scan` → the osfacts binary, on both platforms, with `packages/port-scan/native/` and the TS `/proc` parse gone — the port e2e must pass *through the new path*, not beside it.</Footnote> | OSF1        |
+| **OSF1 — the binary**        | `snapshot --roots --procs --ports` on both platforms · versioned TSV + `--json` · the mandatory `unreadable` section · the scar-tissue suite · `osfacts/` + subflake wiring — **shipped in PR #1996** | —           |
+| **OSF2 — kolu's port sensor adopts it** | padi invokes the baked osfacts binary through `osfacts-client`; C helper, TS `/proc`, and `@kolu/port-scan` are **deleted** — **shipped in PR #1996** | OSF1        |
 | **OSF3 — memory & age facets** | `--mem` + `--start-time`; `memorySampler` gains a true per-pid read (the RPC hop to kaval is deleted); the supervisor gains start-time identity   | OSF1        |
 | **OSF4 — socket-holders**    | the second verb ships; `socketHolder` deletes its `/proc/net/unix` and `lsof` paths                                                              | OSF1        |
-| **OSF5 — drishti & extraction** | drishti migrates wholesale; the directory moves to its own repo and the subflake becomes *the* flake                                          | OSF2–4 stable |
+| **OSF5 — drishti & extraction** | drishti migrates onto `osfacts-client` (replacing hand-rolled `lsof`); the directory moves to its own repo and the subflake becomes *the* flake | OSF2–4 stable |
 
 OSF2, OSF3 and OSF4 are independent siblings under OSF1. **The port-forwarding
 track needs exactly OSF1 → OSF2** — that pair is the "initial version", and the
 other branches can land whenever. Each phase is a consumer deleting its own OS
-traversal, independently revertible.
+traversal, independently revertible.<Footnote>OSF2 done-criterion: padi's
+`ports/sampler` → `ports/scan` (policy) → `osfacts-client` → the osfacts binary, on
+both platforms, with `@kolu/port-scan` gone — the port e2e must pass *through
+the new path*, not beside it.</Footnote>
 
 **Out of scope, deliberately:** foreground process (a PTY-fd fact — `tcgetpgrp`
 on the pty, so it stays kaval's), anything requiring root, and any
@@ -203,14 +211,24 @@ contract will churn hardest while kolu's five readers migrate onto it — each
 migration co-evolves the crate and its caller in one PR — and that argues for
 one repo until the churn settles.
 
-- **Path: top-level `osfacts/`, not under `packages/`.** `packages/` is the
-  pnpm workspace and osfacts is a cargo crate, not a workspace member —
-  location is structure, and filing it there would claim a membership it
-  doesn't have. The top-level directory *is* the whole future repo:
-  `Cargo.toml`, `src/`, `tests/`, the README carrying the comparison table
-  above, `default.nix`, `flake.nix`.<Footnote>Precedent: `website/` is exactly
-  this shape today — a top-level non-workspace subproject with its own
+- **Path: top-level `osfacts/`, not under `packages/`.** The cargo crate is not
+  a pnpm workspace member by default — location is structure. The directory
+  *is* the whole future repo: `Cargo.toml`, `src/`, `tests/`,
+  `client-ts/` (the TypeScript client), the
+  [README](https://github.com/juspay/kolu/blob/master/osfacts/README.md),
+  `default.nix`, `flake.nix`.<Footnote>Precedent: `website/` is exactly this
+  shape today — a top-level non-workspace subproject with its own
   `default.nix` and subflake.</Footnote>
+- **`client-ts/` — package name `osfacts-client`, no `@kolu` scope.** The
+  binary's TypeScript face: spawn at a supplied path, gate `V 1`, parse typed
+  `P`/`L`/`U` rows. Zero kolu imports, zero npm runtime dependencies (Node
+  builtins only) so drishti can pin it without friction. Listed as one
+  workspace member in `pnpm-workspace.yaml` while incubated so kolu can import
+  it; leaves with the directory at OSF5. kolu policy (address scope, fold,
+  U-row blindness) stays in padi — not in the client.
+- **`@kolu/port-scan` is dissolved (OSF2).** Raw protocol → `osfacts-client`;
+  kolu policy + `scanSubtreePorts` → padi; `PortInfo` / `foldPorts` →
+  `@kolu/terminal-vocab`. No re-export shim.
 - **One `default.nix`, plus a thin zero-input subflake — the vazhi
   pattern.** The canonical build lives in `osfacts/default.nix`
   (`rustPlatform.buildRustPackage`, dependencies vendored via `cargoLock`,
@@ -222,13 +240,60 @@ one repo until the churn settles.
   osfacts.<Footnote>`packages/vazhi/flake.nix` documents this pattern: the
   subflake exists to keep the extraction gap small and visible, not to claim it
   is already zero.</Footnote>
-- **Consumers take the binary by baked store path.** padi and drishti reference
-  the Nix-built osfacts the way padi ships its C helper today: the path is
-  baked at build time and the caller crashes loudly if it is absent — never a
-  `PATH` lookup, never an env override.
+- **Consumers take the binary by baked store path.** padi (and soon drishti)
+  reference the Nix-built osfacts the way padi ships other required bins: the
+  path is baked at build time and the caller crashes loudly if it is absent —
+  never a `PATH` lookup, never an env override.
 - **CI while incubated:** the cargo regression suite runs as a kolu CI lane on
   both platforms; it moves with the directory on extraction.
 - **The extraction signal is drishti (OSF5).** kolu's readers migrate in-repo;
-  the day drishti — a separate repository — takes the dependency, osfacts
-  graduates to its own repo. The directory moves wholesale, the subflake
-  becomes *the* flake, and the contract does not change.
+  the next PR after #1996 has drishti adopt `osfacts-client` (replacing
+  hand-rolled `lsof`). The day that lands, the directory is ready to graduate
+  to its own repo. The directory moves wholesale, the subflake becomes *the*
+  flake, and the contract does not change.
+
+### Language & stack
+
+**Rust** — settled by measurement, not preference: single-pass Rust matches C
+on the hot path (portview's 9.9 ms vs the C helper's 10.6 ms, same box, same
+method), and the language buys the cargo test harness the scar-tissue suite
+needs, one codebase for both platforms, and a static binary Nix packages
+trivially. The toolchain is the npins-pinned nixpkgs Rust (1.93 today), so
+every crate below must build there — the constraint that already vetoed
+`sysinfo` 0.39.
+
+The dependency bar is the repo's own: a crate is taken where it removes a
+defect class, never for convenience. Four runtime deps, a small dev-dep set,
+and a deliberate not-chosen list longer than both:
+
+| layer | choice | why — and why not the obvious alternative |
+| --- | --- | --- |
+| darwin process + socket read | **`libc` + hand-declared libproc FFI** (`proc_listpids` · `proc_pidinfo` · `proc_pidfdinfo`) | the exact calls `portScanDarwin.c` proved at ~4 ms; the `libproc` wrapper crate adds a layer over the same three calls without owning the decode subtleties that actually bite |
+| darwin address decode | **vendored** ~50-line `insi_vflag` routine (our [upstream-merged fix](https://github.com/GyulyVGC/listeners/pull/57)), fixtures riding it | `listeners` as a dependency re-imports the disqualified host-wide fd walk; the decode is the only part that earned its keep. Upstream now carries our regression tests, so CI pins upstream as an **oracle** and drift is detectable<Footnote>The juspay/listeners fork's job is done: the fix merged upstream 2026-07-25 (`226273e5`), unreleased as of v0.6.0. Until a release ships, the oracle pins the upstream merge rev; after it, the crates.io release — and the fork is archived.</Footnote> |
+| linux read | **`std` only** (`/proc` via `std::fs`) | the `procfs` crate parses whole tables host-wide — the shape `--roots` exists to avoid; our subtree descent is ~a page of code |
+| CLI | **`lexopt`** | a fixed, tiny flag surface needs an args loop, not a framework; `clap` is a derive machine + help engine for a tool whose `--help` is ten lines. `lexopt` is ~0-dep and builds on 1.93 |
+| `--json` | **`serde` + `serde_json`** | the serializer-defect class we hunted in `procs`/`portview` (escaping, field drift) is exactly what derive eliminates; the schema structs are the one place `deny_unknown_fields`-style strictness lives |
+| TSV hot path | **hand-written** | tab-join over the same schema structs; a dependency here would be decoration |
+| errors | **`std` error enums, no `anyhow`** | a tool whose contract REQUIRES structured blindness (`unreadable` with errnos) must never bubble an opaque box to the caller; every failure is either a row in `unreadable` or a non-zero exit with a versioned message |
+| async runtime | **none** (runtime); **`tokio` only as a live-oracle test harness dep** | a one-shot sampler has no concurrency to schedule; `tokio` would be startup cost buying nothing in the binary. The live lane's cucumber runner is the only place async appears, and it never ships |
+| tests (dev-deps) | **`assert_cmd` + `predicates` + `insta` + `proptest` + `cucumber` + `tokio` (live harness)** | the hermetic gate spawns the real binary (`assert_cmd`), redacts the two volatile fields for byte-exact snapshots (`insta`), and property-tests pure codecs only (`proptest`). Both platforms use self-referential bind-in-child fixtures (scoped `--roots` / `--pids` asserts "my fixture appears exactly") — no `unshare` / netns, no host-kernel knob. Live-host oracle scenarios are Gherkin via `cucumber` (MSRV 1.88; our pin is ≥1.93 — cleared) |
+| tests (nix-pinned tools) | **`cargo-nextest`** | process-per-test isolation and per-test timeouts for the hermetic gate; not a Cargo dep — rides `nativeCheckInputs` in `osfacts/default.nix` |
+
+The whole runtime dependency tree is four crates deep (`libc`, `lexopt`,
+`serde`, `serde_json`), which is itself a design goal: every dependency is a
+place a platform quirk can arrive with an update, and this tool exists because
+five hand-rolled readers each got one quirk wrong.
+
+One near-term alternative was considered and rejected: replacing kolu's C
+helper *now* with a Rust binary built on the upstream-fixed `listeners`,
+ahead of osfacts. Rejected on the same measurements as ever — the crate
+answers half the question (listener rows, no process table), so a helper must
+add its own process pass beside the crate's internal host-wide fd walk, and
+two walks land at an estimated 15–20 ms against the C helper's ~10
+ms.<Footnote>Anchors, same box and method: one-pass C 8.45–10.6 ms; one-pass
+Rust (portview) 9.9 ms; two-pass `sysinfo`+`listeners` 23.2 ms. A leaner
+hand-rolled pid table trims the second walk's overhead but keeps the
+duplication; the estimate is bounded by those measurements, not itself a
+measurement.</Footnote> The proper Rust replacement of the C helper *is* OSF1's
+darwin path, and OSF2 is the step that deletes it — building an interim means
+building a slower engine and migrating twice.
