@@ -122,21 +122,19 @@ const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
     <Section title="Work" accent="border-accent">
       <div class="space-y-1.5">
         {/* Identity chips: branch (+worktree glyph) · repo · PR · CI rollup.
-         *  `inspector-branch` wraps the git chips — the e2e seam that asserts
-         *  the branch NAME is on screen (and absent outside a repo). */}
+         *  `inspector-branch` sits on the BRANCH chip alone — not a wrapper
+         *  around branch+repo — so the e2e seam that asserts "the branch is on
+         *  screen" reads only the branch's own text. On the wrapper, a rendered
+         *  repo name alone would satisfy a non-empty assertion and an empty
+         *  branch would pass. */}
         <div class="flex flex-wrap items-center gap-1.5">
           <Show when={props.meta.git}>
             {(git) => (
-              // A real inline-flex box (NOT `display: contents`): Playwright's
-              // visibility check needs a bounding box, and the e2e steps wait
-              // on this testid being visible.
-              <span
-                class="inline-flex min-w-0 flex-wrap items-center gap-1.5"
-                data-testid="inspector-branch"
-              >
+              <>
                 <Chip
                   tone="accent"
                   title={git().isWorktree ? "worktree" : undefined}
+                  data-testid="inspector-branch"
                 >
                   <Show when={git().isWorktree}>
                     <WorktreeIcon class="h-3 w-3 shrink-0 text-fg-3/60" />
@@ -144,7 +142,7 @@ const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
                   <span class="truncate font-semibold">{git().branch}</span>
                 </Chip>
                 <Chip>{git().repoName}</Chip>
-              </span>
+              </>
             )}
           </Show>
           <Show when={pr()}>
@@ -319,15 +317,21 @@ const MetadataInspector: Component<{
            *  arm: a sleeping tile released its PTY (and its splits were
            *  closed), so it is no longer one of kaval's terminals — a
            *  `kaval-tui attach`/`snapshot` command would have nothing to
-           *  reach. Same liveness narrow the PR/Agent sections use. */}
-          <Show when={activeArm(meta()) && props.terminalId}>
+           *  reach. Same liveness narrow the PR/Agent sections use.
+           *
+           *  `keyed` on the terminal id for the same reason Compose above is: the
+           *  section holds PICKER state (which pane, which verb), and without a
+           *  remount that state survives a tile switch — you would land on
+           *  another tile showing `send` + "Split 1" preselected on a picker you
+           *  never touched there. */}
+          <Show when={activeArm(meta()) && props.terminalId} keyed>
             {(id) => (
               <Section
                 title="Attach"
                 collapsible
                 data-testid="inspector-attach-section"
               >
-                <KavalAttachSection terminalId={id()} />
+                <KavalAttachSection terminalId={id} />
               </Section>
             )}
           </Show>

@@ -164,14 +164,17 @@ Then(
   "the inspector should show a git branch section",
   async function (this: KoluWorld) {
     // The test suite runs inside a git repo, so the git section should be present.
-    // The Work cluster renders the branch as a CHIP (no "Branch" label since
-    // the inspector revamp) — assert the chip row exists and carries a name.
+    // The Work cluster renders the branch as a CHIP (no "Branch" label since the
+    // inspector revamp), and `inspector-branch` is on the BRANCH chip alone — so
+    // non-empty text here is the branch name itself, not a sibling repo chip
+    // standing in for it. The suite runs inside a git repo, so it must be there.
     const git = this.page.locator('[data-testid="inspector-branch"]');
-    await git.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const text = await git.textContent();
+    await git.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = (await git.textContent())?.trim() ?? "";
     assert.ok(
-      text && text.trim().length > 0,
-      `Expected inspector git chips to show branch info, got "${text}"`,
+      // A branch name is a git refname: no whitespace, and never empty.
+      /^\S+$/.test(text),
+      `Expected the inspector branch chip to carry a branch name, got "${text}"`,
     );
   },
 );

@@ -22,6 +22,7 @@ import {
   agentIcons,
   agentNames,
   agentWorkflow,
+  formatContextTokens,
   stateLabels,
   stateTones,
 } from "../ui/agentDisplay";
@@ -41,12 +42,6 @@ const TONE: Record<
     pulse: false,
   },
 };
-
-/** Same compact notation the header AgentIndicator uses ("488,292" → "488K"). */
-const tokenFormat = new Intl.NumberFormat("en", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
 
 const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
   const tone = () => TONE[stateTones[props.agent.state]];
@@ -121,7 +116,7 @@ const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
         >
           {(box) => (
             <span title={`Context: ${box().value.toLocaleString()} tokens`}>
-              {tokenFormat.format(box().value)} ctx
+              {formatContextTokens(box().value)} ctx
             </span>
           )}
         </Show>

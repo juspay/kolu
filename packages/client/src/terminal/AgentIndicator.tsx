@@ -9,6 +9,7 @@ import { type Component, Show } from "solid-js";
 import {
   type AgentStateTone,
   agentNames,
+  formatContextTokens,
   stateLabels,
   stateTones,
 } from "../ui/agentDisplay";
@@ -28,13 +29,6 @@ const toneColor: Record<AgentStateTone, string> = {
  *  the same paint per state. Motion is the StatePip's job, not this cluster. */
 const stateColor = (state: AgentInfo["state"]): string =>
   toneColor[stateTones[state]];
-
-/** "47392" → "47K", "1183456" → "1.2M". Single call site; no helper module
- *  needed. `maximumFractionDigits: 1` keeps "1.2M" but avoids "47.0K". */
-const tokenFormat = new Intl.NumberFormat("en", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
 
 /** Tooltip body for the token badge. Includes the model when known so
  *  hover reveals both "how much" and "on what" — useful when the user
@@ -85,7 +79,7 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
             class="tabular-nums text-fg-3"
             title={contextTokensTooltip(box().value, props.agent.model)}
           >
-            {tokenFormat.format(box().value)}
+            {formatContextTokens(box().value)}
           </span>
         )}
       </Show>

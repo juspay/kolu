@@ -3,16 +3,27 @@
  *  Two shapes behind one header style:
  *  - default: static block, children always rendered (existing callers).
  *  - `collapsible`: the header becomes a native `<details>`/`<summary>` toggle
- *    with a rotating chevron; `defaultOpen` picks the initial state. Reserved
- *    for reference-tier sections (Attach) — a section whose content answers
- *    "what is happening" stays static.
+ *    with a rotating chevron, closed until the user opens it. Reserved for
+ *    reference-tier sections (Attach) — a section whose content answers "what is
+ *    happening" stays static. Deliberately NO `defaultOpen`: a section that
+ *    wants to open itself from a FACT is `Disclosure`'s job (it re-asserts a
+ *    reactive default through a `ref` + effect); a plain `open={…}` JSX binding
+ *    here would look like a one-shot initializer while behaving reactively.
  *
  *  `status` renders right-aligned in the header either way — a rollup chip the
- *  header can carry while the body is folded. */
+ *  header can carry while the body is folded.
+ *
+ *  The `<details>` chevron duplicates `Disclosure`'s markup and cannot share it:
+ *  the rotate variant is `group-open/<name>`, whose name must differ between the
+ *  two (a `Disclosure` nests INSIDE a collapsible `Section` — the CLI reference
+ *  inside Attach — and one shared group name would rotate the inner chevron
+ *  whenever the outer section is open), and Tailwind only extracts such variants
+ *  from literal class strings, so it cannot be parameterized. */
 
 import type { Component, JSX } from "solid-js";
 import { Show } from "solid-js";
 import { ChevronRightIcon } from "./Icons";
+import { SUMMARY_RESET } from "./disclosureChrome";
 
 const HEADER_CLASS =
   "text-[10px] font-bold uppercase tracking-[0.1em] text-fg-3/60";
@@ -24,8 +35,6 @@ const Section: Component<{
   /** Right-aligned header slot — e.g. a rollup chip. */
   status?: JSX.Element;
   collapsible?: boolean;
-  /** Initial state for a collapsible section (uncontrolled after mount). */
-  defaultOpen?: boolean;
   "data-testid"?: string;
   children: JSX.Element;
 }> = (props) => {
@@ -46,11 +55,10 @@ const Section: Component<{
     >
       <details
         class={`group/sec ${frame()}`}
-        open={props.defaultOpen}
         data-testid={props["data-testid"]}
       >
         <summary
-          class="flex cursor-pointer select-none list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden"
+          class={SUMMARY_RESET}
           data-testid={
             props["data-testid"] ? `${props["data-testid"]}-toggle` : undefined
           }

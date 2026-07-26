@@ -10,6 +10,7 @@
  *  so there is no toggle state to hand-roll. */
 
 import { type Component, createEffect, type JSX } from "solid-js";
+import { SUMMARY_RESET } from "./disclosureChrome";
 import { ChevronRightIcon } from "./Icons";
 
 const Disclosure: Component<{
@@ -25,7 +26,9 @@ const Disclosure: Component<{
   });
   return (
     <details ref={el} class="group/disc" data-testid={props["data-testid"]}>
-      <summary class="flex cursor-pointer select-none list-none items-center gap-1.5 py-0.5 text-[10.5px] font-mono text-fg-3 transition-colors hover:text-fg [&::-webkit-details-marker]:hidden">
+      <summary
+        class={`${SUMMARY_RESET} py-0.5 font-mono text-[10.5px] text-fg-3 transition-colors hover:text-fg`}
+      >
         <ChevronRightIcon class="h-3 w-3 shrink-0 transition-transform group-open/disc:rotate-90 motion-reduce:transition-none" />
         {props.summary}
       </summary>
