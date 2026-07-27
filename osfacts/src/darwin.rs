@@ -585,11 +585,29 @@ fn read_load() -> Result<Load, i32> {
 
 fn read_host_memory() -> Result<(HostMemory, Swap), (&'static str, i32)> {
     let total = sysctl_u64("hw.memsize").map_err(|e| ("hw_memsize", e))?;
-    let page = sysctl_u64_any("hw.pagesize").map_err(|e| ("hw_pagesize", e))?;
-    let free = sysctl_u64_any("vm.page_free_count").map_err(|e| ("vm_page_free", e))?;
-    let inactive = sysctl_u64_any("vm.page_inactive_count").map_err(|e| ("vm_page_inactive", e))?;
-    let speculative =
-        sysctl_u64_any("vm.page_speculative_count").map_err(|e| ("vm_page_speculative", e))?;
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page <= 0 {
+        return Err(("sysconf_pagesize", libc::EINVAL));
+    }
+    let mut stats = unsafe { mem::zeroed::<libc::vm_statistics64>() };
+    let mut count = libc::HOST_VM_INFO64_COUNT;
+    let status = unsafe {
+        libc::host_statistics64(
+            mach_host_self(),
+            libc::HOST_VM_INFO64,
+            (&raw mut stats).cast(),
+            &mut count,
+        )
+    };
+    if status != 0 {
+        return Err(("host_vm_info64", status));
+    }
+    // `vm_stat` exposes the same cache-aware classes Drishti used: free,
+    // inactive, speculative, and purgeable. XNU's HOST_VM_INFO64 free_count
+    // already includes speculative_count, so add it only once here.
+    let available_pages = u64::from(stats.free_count)
+        .saturating_add(u64::from(stats.inactive_count))
+        .saturating_add(u64::from(stats.purgeable_count));
     let swap = sysctl_bytes("vm.swapusage").map_err(|e| ("vm_swapusage", e))?;
     if swap.len() < 24 {
         return Err(("vm_swapusage", libc::EINVAL));
@@ -597,10 +615,7 @@ fn read_host_memory() -> Result<(HostMemory, Swap), (&'static str, i32)> {
     Ok((
         HostMemory {
             total_bytes: total,
-            available_bytes: free
-                .saturating_add(inactive)
-                .saturating_add(speculative)
-                .saturating_mul(page),
+            available_bytes: available_pages.saturating_mul(page as u64),
         },
         Swap {
             total_bytes: u64::from_ne_bytes(swap[0..8].try_into().unwrap()),
@@ -768,15 +783,6 @@ fn sysctl_u64(name: &str) -> Result<u64, i32> {
     (bytes.len() >= 8)
         .then(|| u64::from_ne_bytes(bytes[0..8].try_into().unwrap()))
         .ok_or(libc::EINVAL)
-}
-
-fn sysctl_u64_any(name: &str) -> Result<u64, i32> {
-    let bytes = sysctl_bytes(name)?;
-    match bytes.len() {
-        4 => Ok(u32::from_ne_bytes(bytes[0..4].try_into().unwrap()) as u64),
-        8.. => Ok(u64::from_ne_bytes(bytes[0..8].try_into().unwrap())),
-        _ => Err(libc::EINVAL),
-    }
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, i32> {
