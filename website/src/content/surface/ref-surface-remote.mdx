@@ -141,7 +141,21 @@ verdict, never a fabrication) and a schema-valid domain `Failure` for a standing
 terminal `failed` state that yields `null` fails loud with `UnclassifiedHostFailureError`
 (a failed entry cannot exist without a domain failure); the distinct member-with-no-session
 (unknown-host) race fails loud with `UnclassifiedHostSessionError`. There is no `"other"`
-fallback cause. These are genuine producer defects, so they **crash the process** even when
+fallback cause.
+
+At that same classification seam, `serveHostMap` mints the failure's **evidence**: the
+session frame's retained `log` tail — the very frame `failureOf` just classified — is
+stapled onto the published failure record as `evidence` (see `@kolu/surface-map`'s
+`FailureEvidence`). Both down arms get it: a terminal `failed`, and a `disconnected` the
+classifier called a standing refuse (which publishes as `failed` too). A transient
+`disconnected` publishes `warming` and carries neither a reason nor evidence. Because
+`SessionState.log` is structurally identical to `FailureEvidence`, `raw.log` is passed
+straight through — there is no injected evidence hook and no second evidence pipe to keep
+in sync. The tail is pinned at classification (a post-mortem record, not a live view), so
+it survives the client's liveness floor with the reason it belongs to, whereas the live
+`connection` word is dropped over a dead link.
+
+The fail-loud seams above are genuine producer defects, so they **crash the process** even when
 raised deep in the internal per-member republish: the loop catches synchronously (so one
 member's defect never freezes a sibling's status stream mid-frame) and then rethrows
 out-of-band on the next microtask, an uncaught exception — never a swallowed
