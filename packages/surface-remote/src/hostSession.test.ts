@@ -32,6 +32,7 @@ import {
   type SessionState,
 } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 vi.mock("./nixCopy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./nixCopy")>()),
@@ -73,7 +74,12 @@ function failingSession() {
       binary: "agent",
       localEnv: {},
       resolveDrvPath: () =>
-        Promise.resolve(directAgentDerivation("/nix/store/deadbeef-agent.drv")),
+        Promise.resolve(
+          directAgentDerivation(
+            "/nix/store/deadbeef-agent.drv",
+            TEST_BINARY_CACHE,
+          ),
+        ),
     }),
     reconnectDelayMs: 1000,
     label: "testhost",
@@ -124,7 +130,10 @@ describe("HostSession log sink (alt-screen consumers divert all diagnostics)", (
         localEnv: {},
         resolveDrvPath: () =>
           Promise.resolve(
-            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+            directAgentDerivation(
+              "/nix/store/deadbeef-agent.drv",
+              TEST_BINARY_CACHE,
+            ),
           ),
       }),
       reconnectDelayMs: 1000,

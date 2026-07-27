@@ -147,7 +147,16 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
           .map((k): [string, string | undefined] => [k, process.env[k]])
           .filter((e): e is [string, string] => e[1] !== undefined),
       ),
-      resolveDrvPath: () => Promise.resolve(directAgentDerivation(agentDrv)), // deferred per dial
+      resolveDrvPath: () =>
+        // deferred per dial; the cache names where binaries prefetch from
+        Promise.resolve(
+          directAgentDerivation(agentDrv, {
+            substituters: ["https://cache.example.org/fleet-top"],
+            trustedPublicKeys: [
+              "fleet-top:0000000000000000000000000000000000000000000=",
+            ],
+          }),
+        ),
     }),
   });
 

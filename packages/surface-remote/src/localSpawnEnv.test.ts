@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { directAgentDerivation, provisionAgent } from "./nixCopy";
 import type { ConnectContext } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 vi.mock("./nixCopy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./nixCopy")>()),
@@ -76,7 +77,9 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
       host: "localhost",
       binary: "agent",
       resolveDrvPath: () =>
-        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
+        Promise.resolve(
+          directAgentDerivation("/nix/store/x-agent.drv", TEST_BINARY_CACHE),
+        ),
       localEnv,
     });
     await connector(noopCtx);
@@ -91,7 +94,9 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
       host: "bob.example",
       binary: "agent",
       resolveDrvPath: () =>
-        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
+        Promise.resolve(
+          directAgentDerivation("/nix/store/x-agent.drv", TEST_BINARY_CACHE),
+        ),
       localEnv: { HOME: "/home/x", PATH: "/usr/bin" },
     });
     await connector(noopCtx);

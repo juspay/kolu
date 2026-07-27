@@ -8,9 +8,12 @@
 
 export { resolveSystem } from "./arch";
 export {
+  AGENT_BINARY_CACHE_FILE,
+  AgentBinaryCacheUnbakedError,
   AgentSourceUnbakedError,
   type AgentResolutionContext,
   readBakedAgentSource,
+  readBakedBinaryCache,
   resolveBakedAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "./agentDrv";
@@ -56,6 +59,7 @@ export {
   type RemotePoolOptions,
 } from "./hostFanout";
 export {
+  type AgentBinaryCache,
   type AgentDerivation,
   directAgentDerivation,
   makeProvisionBudgets,

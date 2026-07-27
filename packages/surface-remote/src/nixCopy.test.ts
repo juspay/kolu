@@ -21,6 +21,7 @@ import {
   provisionAgent,
 } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -56,8 +57,12 @@ function mockNix(over?: {
   checkValidity?: CaptureResult;
   realise?: CaptureResult;
   pin?: CaptureResult;
+  copy?: CaptureResult;
 }): void {
   vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
+    // Cache prefetch (2a) — default MISS, so the suites written before the
+    // prefetch existed keep exercising the narrated source-realise fallback.
+    if (args[0] === "copy") return over?.copy ?? failOut;
     if (args.includes("--outputs")) return over?.outputs ?? okOut(`${STORE}\n`);
     if (args.includes("--check-validity"))
       return over?.checkValidity ?? failOut; // cold: not on host yet
@@ -90,16 +95,16 @@ afterEach(() => {
 
 describe("provisionAgent GC-root pinning (cold path)", () => {
   it("rejects a direct source that is not a derivation path", () => {
-    expect(() => directAgentDerivation("/nix/store/not-an-output")).toThrow(
-      /\.drv/,
-    );
+    expect(() =>
+      directAgentDerivation("/nix/store/not-an-output", TEST_BINARY_CACHE),
+    ).toThrow(/\.drv/);
   });
 
   it("pins the realised output with an indirect per-agent root", async () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -123,7 +128,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -143,7 +148,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -171,7 +176,11 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE),
+      derivation: flakeAgentDerivation(
+        DRV,
+        FLAKE_INSTALLABLE,
+        TEST_BINARY_CACHE,
+      ),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -188,7 +197,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     await provisionAgent({
       host: "localhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -204,7 +213,11 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     await provisionAgent({
       host: "localhost",
-      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE),
+      derivation: flakeAgentDerivation(
+        DRV,
+        FLAKE_INSTALLABLE,
+        TEST_BINARY_CACHE,
+      ),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -221,7 +234,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -233,7 +246,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       mockNix({ pin: failOut });
       return provisionAgent({
         host: "testhost",
-        derivation: directAgentDerivation(DRV),
+        derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
         onProgress: () => {},
         ...provArgs(),
       });
@@ -250,7 +263,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     mockNix({ realise: failOut });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -268,7 +281,7 @@ describe("provisionAgent cause classification", () => {
     mockNix({ realise: { ok: false, kind: "exit", code: 255, stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -290,7 +303,7 @@ describe("provisionAgent cause classification", () => {
     });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -324,7 +337,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ realise: EXPIRED_PROVISION });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -339,7 +352,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ realise: EXPIRED_PROVISION });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -356,7 +369,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ realise: { ok: false, kind: "aborted", stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -370,7 +383,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix();
     await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -395,7 +408,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ checkValidity: okOut("") });
     const result = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -419,7 +432,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ pin: { ok: false, kind: "aborted", stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -434,7 +447,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ pin: EXPIRED_PROVISION });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -448,7 +461,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix({ pin: EXPIRED_PROVISION });
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(b),
     });
@@ -461,7 +474,7 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
       signal: AbortSignal.abort(),
@@ -507,5 +520,137 @@ describe("agentGcRootPath", () => {
     expect(agentGcRootPath(false, DRV)).toBe(
       ".local/state/kolu/surface-remote/gcroots/agent",
     );
+  });
+});
+
+describe("cache prefetch (2a)", () => {
+  const flakeDrv = () =>
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
+
+  it("prefetches the agent closure from the declared cache before the cold build", async () => {
+    mockNix({ copy: okOut("") });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    const calls = vi.mocked(runCapture).mock.calls;
+    const copyIdx = calls.findIndex(([, args]) => args[0] === "copy");
+    const buildIdx = calls.findIndex(([, args]) =>
+      args.includes("--print-out-paths"),
+    );
+    expect(copyIdx).toBeGreaterThanOrEqual(0);
+    expect(copyIdx).toBeLessThan(buildIdx);
+    // The exact wire shape: closure of the LOCAL output path, from the
+    // declared substituter, with the declared keys trusted for this copy.
+    expect(calls[copyIdx]?.[1]).toEqual([
+      "copy",
+      "--from",
+      TEST_BINARY_CACHE.substituters[0],
+      "--extra-trusted-public-keys",
+      TEST_BINARY_CACHE.trustedPublicKeys.join(" "),
+      STORE,
+    ]);
+  });
+
+  it("a prefetch miss narrates and the dial still succeeds from source", async () => {
+    mockNix(); // copy defaults to failure
+    const onProgress = vi.fn();
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress,
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    expect(
+      onProgress.mock.calls.some(([line]) =>
+        /cache prefetch from .* falling back to realising from source/.test(
+          String(line),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("tries each declared substituter in order until one delivers", async () => {
+    const cache = {
+      substituters: ["https://a.test.invalid", "https://b.test.invalid"],
+      trustedPublicKeys: ["k:0000000000000000000000000000000000000000000="],
+    };
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
+      if (args[0] === "copy")
+        return args.includes("https://a.test.invalid") ? failOut : okOut("");
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--check-validity")) return failOut;
+      if (args.includes("--add-root")) return okOut("/home/u/link\n");
+      if (args.includes("--print-out-paths")) return okOut(`${STORE}\n`);
+      return failOut;
+    });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, cache),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    const froms = vi
+      .mocked(runCapture)
+      .mock.calls.filter(([, args]) => args[0] === "copy")
+      .map(([, args]) => args[2]);
+    expect(froms).toEqual(["https://a.test.invalid", "https://b.test.invalid"]);
+  });
+
+  it("the drv-path arm prefetches too — downstream binders inherit the path", async () => {
+    mockNix({ copy: okOut("") });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    expect(
+      vi.mocked(runCapture).mock.calls.some(([, args]) => args[0] === "copy"),
+    ).toBe(true);
+  });
+
+  it("an abort mid-prefetch settles the standard aborted result", async () => {
+    mockNix({ copy: { ok: false, kind: "aborted", stdout: "" } });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res).toMatchObject({
+      ok: false,
+      cause: "network",
+      reason: expect.stringMatching(/aborted during cache prefetch/),
+    });
+  });
+
+  it("skips the prefetch when the local output query fails — the build owns realisation", async () => {
+    mockNix({ outputs: failOut });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    expect(
+      vi.mocked(runCapture).mock.calls.some(([, args]) => args[0] === "copy"),
+    ).toBe(false);
+  });
+
+  it("rejects a cache-blind declaration at construction, on both arms", () => {
+    const empty = { substituters: [], trustedPublicKeys: ["k"] };
+    const blankKey = { substituters: ["https://c"], trustedPublicKeys: [" "] };
+    expect(() => directAgentDerivation(DRV, empty)).toThrow(/cache-blind/);
+    expect(() =>
+      flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, blankKey),
+    ).toThrow(/cache-blind/);
   });
 });

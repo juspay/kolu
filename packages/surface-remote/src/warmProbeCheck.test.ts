@@ -23,6 +23,7 @@ import {
   provisionAgent,
 } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),
@@ -82,7 +83,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -107,7 +108,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -118,7 +119,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit();
     await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });
@@ -134,7 +135,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     const onProvisioning = vi.fn();
     await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       onProvisioning,
       ...provArgs(),
@@ -160,7 +161,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     mockWarmHit(`${STORE}\n${STORE2}\n`);
     const res = await provisionAgent({
       host: "testhost",
-      derivation: directAgentDerivation(DRV),
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
       ...provArgs(),
     });

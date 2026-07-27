@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   resolveSystem: vi.fn(),
   runCapture: vi.fn(),
+  readFile: vi.fn(),
 }));
 
 vi.mock("./arch", () => ({ resolveSystem: h.resolveSystem }));
@@ -10,11 +11,20 @@ vi.mock("./process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./process")>();
   return { ...actual, runCapture: h.runCapture };
 });
+// The baked source's binary-cache.json read — every resolve requires it, so
+// the default arm serves a valid sidecar and the contract tests override it.
+vi.mock("node:fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+  readFileSync: h.readFile,
+}));
 
 import {
+  AGENT_BINARY_CACHE_FILE,
+  AgentBinaryCacheUnbakedError,
   AgentResolutionExhaustedError,
   AgentSourceUnbakedError,
   readBakedAgentSource,
+  readBakedBinaryCache,
   resolveAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "./agentDrv";
@@ -28,12 +38,21 @@ const success = (stdout: string) => ({
   stdout,
 });
 
+const VALID_SIDECAR = JSON.stringify({
+  substituters: ["https://cache.test.invalid/oss"],
+  trustedPublicKeys: ["oss:0000000000000000000000000000000000000000000="],
+});
+
 const resolutionOptions = {
   signal: new AbortController().signal,
   onProgress: vi.fn(),
   onEvaluation: vi.fn(),
   budget: makeProvisionBudgets().evaluation,
 };
+
+beforeEach(() => {
+  h.readFile.mockReturnValue(VALID_SIDECAR);
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -355,5 +374,83 @@ describe("resolveAgentDrv", () => {
         resolutionOptions,
       ),
     ).rejects.toThrow(/not a derivation path/);
+  });
+});
+
+describe("readBakedBinaryCache", () => {
+  it("returns the sidecar's declaration and strips a path: ref prefix", () => {
+    const cache = readBakedBinaryCache("path:/nix/store/src");
+    expect(h.readFile).toHaveBeenCalledWith(
+      `/nix/store/src/${AGENT_BINARY_CACHE_FILE}`,
+      "utf8",
+    );
+    expect(cache.substituters).toEqual(["https://cache.test.invalid/oss"]);
+    expect(cache.trustedPublicKeys).toHaveLength(1);
+  });
+
+  it("throws the typed unbaked error when the sidecar is unreadable", () => {
+    h.readFile.mockImplementation(() => {
+      throw Object.assign(new Error("ENOENT: no such file"), {
+        code: "ENOENT",
+      });
+    });
+    expect(() => readBakedBinaryCache("/nix/store/pre-contract")).toThrow(
+      AgentBinaryCacheUnbakedError,
+    );
+  });
+
+  it("throws the typed unbaked error on malformed JSON", () => {
+    h.readFile.mockReturnValue("not-json{");
+    expect(() => readBakedBinaryCache("/nix/store/src")).toThrow(
+      AgentBinaryCacheUnbakedError,
+    );
+  });
+
+  it("rejects an empty or wrongly-shaped declaration — cache-blind is unspellable", () => {
+    for (const bad of [
+      { substituters: [], trustedPublicKeys: ["k"] },
+      { substituters: ["u"], trustedPublicKeys: [] },
+      { substituters: ["u"] },
+      { substituters: ["u"], trustedPublicKeys: [" "] },
+      { substituters: [42], trustedPublicKeys: ["k"] },
+    ]) {
+      h.readFile.mockReturnValue(JSON.stringify(bad));
+      expect(() => readBakedBinaryCache("/nix/store/src")).toThrow(
+        AgentBinaryCacheUnbakedError,
+      );
+    }
+  });
+
+  it("resolveAgentDrv threads the sidecar onto the derivation it returns", async () => {
+    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.runCapture.mockResolvedValue(
+      success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
+    );
+    const drv = await resolveAgentDrv(
+      "builder",
+      "/nix/store/source-cache-thread",
+      "padi",
+      resolutionOptions,
+    );
+    expect(drv.binaryCache.substituters).toEqual([
+      "https://cache.test.invalid/oss",
+    ]);
+  });
+
+  it("fails the resolve, typed, before spending a Nix evaluation when the sidecar is absent", async () => {
+    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.readFile.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+    await expect(
+      resolveAgentDrv(
+        "builder",
+        "/nix/store/source-pre-contract",
+        "padi",
+        resolutionOptions,
+      ),
+    ).rejects.toBeInstanceOf(AgentBinaryCacheUnbakedError);
+    // The typed failure precedes any `nix eval` spawn.
+    expect(h.runCapture).not.toHaveBeenCalled();
   });
 });

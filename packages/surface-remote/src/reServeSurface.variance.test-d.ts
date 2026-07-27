@@ -26,6 +26,7 @@ import { directAgentDerivation } from "./nixCopy";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { makeSession, type Session } from "./session";
 import { type AgentClient, sshConnector } from "./sshConnector";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 // A concrete, app-shaped surface: one cell, whose contract also carries the
 // framework-reserved `system.live` proc (input `Record<string, never>`) — the exact
@@ -67,7 +68,9 @@ const built = makeSession({
     binary: "b",
     localEnv: {},
     resolveDrvPath: () =>
-      Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
+      Promise.resolve(
+        directAgentDerivation("/nix/store/x-agent.drv", TEST_BINARY_CACHE),
+      ),
   }),
 });
 const looseBuilt: Session<SurfaceClientLike, string> = built;

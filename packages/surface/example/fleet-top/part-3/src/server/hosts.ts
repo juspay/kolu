@@ -109,7 +109,17 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
       // Constant resolver — this demo takes the already-selected agent .drv from
       // the environment. Source-based consumers call `ctx.resolveAgentDrv`
       // instead; the connector owns system selection and evaluation policy.
-      resolveDrvPath: () => Promise.resolve(directAgentDerivation(agentDrv)),
+      // Every derivation names where its binaries may be prefetched from — a
+      // demo cache here; a real deployment states its own.
+      resolveDrvPath: () =>
+        Promise.resolve(
+          directAgentDerivation(agentDrv, {
+            substituters: ["https://cache.example.org/fleet-top"],
+            trustedPublicKeys: [
+              "fleet-top:0000000000000000000000000000000000000000000=",
+            ],
+          }),
+        ),
     }),
     label: `host:${host}`,
   });

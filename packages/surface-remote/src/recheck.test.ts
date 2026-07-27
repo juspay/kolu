@@ -32,6 +32,7 @@ import {
   type SessionState,
 } from "./session";
 import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 vi.mock("./nixCopy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./nixCopy")>()),
@@ -130,7 +131,10 @@ describe("HostSession child-exit classification", () => {
         localEnv: {},
         resolveDrvPath: () =>
           Promise.resolve(
-            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+            directAgentDerivation(
+              "/nix/store/deadbeef-agent.drv",
+              TEST_BINARY_CACHE,
+            ),
           ),
       }),
       reconnectDelayMs: 10,
@@ -179,7 +183,10 @@ describe("HostSession.recheck", () => {
         localEnv: {},
         resolveDrvPath: () =>
           Promise.resolve(
-            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+            directAgentDerivation(
+              "/nix/store/deadbeef-agent.drv",
+              TEST_BINARY_CACHE,
+            ),
           ),
       }),
       reconnectDelayMs: 50,
@@ -220,7 +227,10 @@ describe("HostSession.recheck", () => {
         localEnv: {},
         resolveDrvPath: () =>
           Promise.resolve(
-            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+            directAgentDerivation(
+              "/nix/store/deadbeef-agent.drv",
+              TEST_BINARY_CACHE,
+            ),
           ),
       }),
       reconnectDelayMs: 50,
@@ -257,7 +267,10 @@ describe("HostSession.recheck", () => {
         localEnv: {},
         resolveDrvPath: () =>
           Promise.resolve(
-            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+            directAgentDerivation(
+              "/nix/store/deadbeef-agent.drv",
+              TEST_BINARY_CACHE,
+            ),
           ),
       }),
       label: "testhost",

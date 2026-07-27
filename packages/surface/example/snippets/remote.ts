@@ -45,8 +45,18 @@ type Pid = SF["collections"]["processes"]["Key"];
 type Proc = SF["collections"]["processes"]["Value"];
 const DEFAULT_LOAD: SF["cells"]["load"]["Value"] = { avg: [0, 0, 0] };
 
+// Every derivation names where provisioning may PREFETCH its binaries from
+// (required — a cache-blind provisioning path is unspellable). A real
+// deployment states its own cache + signing key.
+const binaryCache = {
+  substituters: ["https://cache.example.org/my-agent"],
+  trustedPublicKeys: ["my-agent:0000000000000000000000000000000000000000000="],
+};
+
 const resolveDrv = (_host: string): Promise<AgentDerivation> =>
-  Promise.resolve(directAgentDerivation("/nix/store/…-my-agent.drv"));
+  Promise.resolve(
+    directAgentDerivation("/nix/store/…-my-agent.drv", binaryCache),
+  );
 
 // #region dial
 const session: Session<

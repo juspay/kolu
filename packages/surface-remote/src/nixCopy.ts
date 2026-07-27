@@ -20,6 +20,12 @@
  *      The check NEVER substitutes (the old fused `--realise` did — the
  *      #1908 wedge). If GC races the check, restoration belongs to the required
  *      step-3 root commit, narrated as provisioning.
+ *   2a. Cache prefetch: `nix copy --from <declared cache>` pulls the agent's
+ *      output closure into the sender's LOCAL store — the one seat where the
+ *      derivation's REQUIRED `binaryCache` can act (a remote realisation
+ *      substitutes per the REMOTE daemon's own nix.conf; client settings never
+ *      participate), so step 2 ships binaries instead of compiling on the
+ *      target, cross-arch included. A miss/refusal narrates and falls back.
  *   2. One `nix build --eval-store auto --store ssh-ng://$host` evaluates
  *      locally, transfers the derivation, and realises it remotely. One Nix
  *      process owns the temporary roots across that whole handoff, so a
@@ -196,55 +202,109 @@ export interface ProvisionOptions {
 
 const agentDerivationBrand = Symbol("AgentDerivation");
 
+/** The binary caches an agent derivation is provisioned against.
+ *
+ * Provisioning PREFETCHES the agent's output closure from these caches into
+ * the binder's LOCAL store (`nix copy --from`) before realising on the
+ * target. The local store is the only seat where a declared cache can act:
+ * a remote-store realisation substitutes with the REMOTE daemon's own
+ * nix.conf — client-side substituter settings never participate (proven by
+ * an ssh-ng provisioning run that rebuilt, on the host, a padi that sat in
+ * the declared cache) — while locally-valid outputs are shipped to the
+ * target by the same `nix build`. Cross-arch included: fetching a NAR
+ * executes nothing.
+ *
+ * The declaration is REQUIRED on every {@link AgentDerivation} arm so no
+ * consumer of this package can assemble a cache-blind provisioning path.
+ * Flake-arm callers inherit it from the baked source's `binary-cache.json`
+ * (written by `mkProvenAgentSource`); direct-drv callers state their own. */
+export interface AgentBinaryCache {
+  readonly substituters: readonly string[];
+  readonly trustedPublicKeys: readonly string[];
+}
+
+/** Reject a declaration that could not act: an agent derivation with zero
+ *  substituters (or blank entries) is exactly the cache-blind provisioning
+ *  path this type exists to make unspellable. */
+function assertUsableBinaryCache(binaryCache: AgentBinaryCache): void {
+  const blank = (s: string): boolean => s.trim().length === 0;
+  if (
+    binaryCache.substituters.length === 0 ||
+    binaryCache.trustedPublicKeys.length === 0 ||
+    binaryCache.substituters.some(blank) ||
+    binaryCache.trustedPublicKeys.some(blank)
+  ) {
+    throw new Error(
+      "agent binary cache must name at least one substituter and one trusted public key — an empty declaration would leave provisioning cache-blind",
+    );
+  }
+}
+
 /** A derivation source whose variants make the GC ownership contract explicit.
  *
  * A direct `.drv` caller already owns keeping that store path valid. A flake
  * caller carries both the evaluated path (needed for the warm probe) and the
  * installable that one `nix build` can evaluate and provision as an owned unit.
  * The private symbol makes the sum nominal: callers cannot hand-assemble a
- * mismatched path/installable pair. */
+ * mismatched path/installable pair. Both arms carry the binary-cache
+ * declaration the prefetch acts on ({@link AgentBinaryCache}). */
 export type AgentDerivation =
   | {
       kind: "drv-path";
       drvPath: string;
+      binaryCache: AgentBinaryCache;
       readonly [agentDerivationBrand]: "drv-path";
     }
   | {
       kind: "flake-installable";
       drvPath: string;
       installable: string;
+      binaryCache: AgentBinaryCache;
       readonly [agentDerivationBrand]: "flake-installable";
     };
 
-/** Construct the public direct-path arm. The caller owns keeping this path valid. */
-export function directAgentDerivation(drvPath: string): AgentDerivation {
+/** Construct the public direct-path arm. The caller owns keeping this path
+ * valid, and — like every arm — must state where its binaries may be
+ * prefetched from. The parameter is deliberately REQUIRED: downstream
+ * binders (drishti's baked drv map, odu's runner flake) inherit the
+ * cache-aware provisioning path at compile time, not by opting in. */
+export function directAgentDerivation(
+  drvPath: string,
+  binaryCache: AgentBinaryCache,
+): AgentDerivation {
   if (!drvPath.endsWith(".drv")) {
     throw new Error(
       `agent derivation must be a .drv store path, got ${JSON.stringify(drvPath)}`,
     );
   }
+  assertUsableBinaryCache(binaryCache);
   return {
     kind: "drv-path",
     drvPath,
+    binaryCache,
     [agentDerivationBrand]: "drv-path",
   };
 }
 
 /** Package-internal constructor for the flake arm. Deliberately not re-exported
- * from `@kolu/surface-remote`: only `resolveAgentDrv` may pair these values. */
+ * from `@kolu/surface-remote`: only `resolveAgentDrv` may pair these values
+ * (it reads `binaryCache` from the baked source's `binary-cache.json`). */
 export function flakeAgentDerivation(
   drvPath: string,
   installable: string,
+  binaryCache: AgentBinaryCache,
 ): AgentDerivation {
   if (!drvPath.endsWith(".drv") || installable.trim().length === 0) {
     throw new Error(
       `invalid flake agent derivation: drvPath=${JSON.stringify(drvPath)}, installable=${JSON.stringify(installable)}`,
     );
   }
+  assertUsableBinaryCache(binaryCache);
   return {
     kind: "flake-installable",
     drvPath,
     installable,
+    binaryCache,
     [agentDerivationBrand]: "flake-installable",
   };
 }
@@ -396,6 +456,63 @@ async function pinGcRoot(
   };
 }
 
+/** Prefetch `outPath`'s closure from the derivation's declared caches into the
+ *  binder's LOCAL store — the seat where the declaration can act (see
+ *  {@link AgentBinaryCache}); the cold build then ships the locally-valid
+ *  outputs to the target. Tries each substituter in order until one delivers.
+ *
+ *  This step is OPTIONAL-BY-OUTCOME, never silently optional: a miss (the
+ *  commit was just built and not yet pushed), a signature refusal (the local
+ *  daemon does not trust the declared key and the user is untrusted), or a
+ *  silence kill each NARRATE into the progress tail and fall back to the cold
+ *  build's source realisation — the same truth as before this step existed.
+ *  It therefore charges no budget expiry (the required build below owns the
+ *  terminal accounting). Returns `true` only when the dial's abort signal
+ *  fired mid-copy, so the caller can settle the standard aborted result. */
+async function prefetchAgentClosure(opts: {
+  host: string;
+  outPath: string;
+  binaryCache: AgentBinaryCache;
+  onProgress: (line: string) => void;
+  policy: LifetimePolicy;
+  signal: AbortSignal | undefined;
+}): Promise<boolean> {
+  const keys = opts.binaryCache.trustedPublicKeys.join(" ");
+  for (const url of opts.binaryCache.substituters) {
+    opts.onProgress(
+      `${opts.host}: prefetching agent closure from ${url} into the local store…`,
+    );
+    const res = await runCapture(
+      "nix",
+      // `--extra-trusted-public-keys` lets a trusted local user import the
+      // declared cache's signatures without a nix.conf edit; for an untrusted
+      // user nix's own refusal line lands in the tail and we fall back.
+      [
+        "copy",
+        "--from",
+        url,
+        "--extra-trusted-public-keys",
+        keys,
+        opts.outPath,
+      ],
+      {
+        onProgress: opts.onProgress,
+        policy: opts.policy,
+        signal: opts.signal,
+      },
+    );
+    if (res.ok) {
+      opts.onProgress(`${opts.host}: agent closure prefetched from ${url}`);
+      return false;
+    }
+    if (res.kind === "aborted") return true;
+    opts.onProgress(
+      `${opts.host}: cache prefetch from ${url} ${describeExit(res)} — falling back to realising from source`,
+    );
+  }
+  return false;
+}
+
 /** Realise an agent derivation in `$host`'s store and commit its required GC
  *  root. A flake-backed derivation gives one remote-store `nix build` ownership
  *  of evaluation, transfer, and realisation. Returns the target-store output
@@ -447,34 +564,36 @@ export async function provisionAgent(
 
   const rootPath = agentGcRootPath(isLocal, drvPath);
 
-  // 1. Warm fast-path (remote only) — the ASK-ONLY check (#1908 D1a). Compute the
-  //    output path(s) LOCALLY (no network, instant), then ask the host whether they
-  //    are already valid there. A HIT skips the redundant copy/realise. A MISS (or
-  //    the local query failing because GC collected the evaluated .drv) falls through
-  //    to the full provision. A flake source is re-evaluated inside the provisioning
-  //    process, which owns a temporary root across the handoff; a direct drv-path
-  //    caller owns keeping its path valid. Localhost never copies, so the fast-path
+  // 0. The derivation's output path, computed LOCALLY (no ssh, no
+  //    substitution, instant). Two consumers: the remote warm check (1) asks
+  //    the host about this exact path, and the cache prefetch (2a) names it
+  //    to `nix copy`. `-q --outputs` prints ONE line PER OUTPUT — the agent
+  //    contract is single-output (see `multiOutputError`), so a >1 result
+  //    fails loud; a failed query (GC collected the evaluated .drv) leaves
+  //    `undefined` and both consumers fall through to the cold provision,
+  //    which re-establishes the truth itself.
+  const outsRes = await runCapture("nix-store", ["-q", "--outputs", drvPath], {
+    policy: probePolicy(),
+    signal,
+  });
+  const outputs = parseOutputs(outsRes.stdout);
+  if (outsRes.ok && outputs.length > 1) {
+    return multiOutputError(opts.host, outputs.length);
+  }
+  const localAgentPath = outsRes.ok ? outputs[0] : undefined;
+
+  // 1. Warm fast-path (remote only) — the ASK-ONLY check (#1908 D1a). Ask the
+  //    host whether the output is already valid there. A HIT skips the
+  //    redundant copy/realise. A MISS falls through to the full provision. A
+  //    flake source is re-evaluated inside the provisioning process, which
+  //    owns a temporary root across the handoff; a direct drv-path caller
+  //    owns keeping its path valid. Localhost never copies, so the fast-path
   //    is remote-only.
   if (!isLocal && rootPath !== null) {
     // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
     onProgress(`${opts.host}: checking for a cached agent…`);
-    // Local compute of the derivation's output path(s) — no ssh, no substitution.
-    const outsRes = await runCapture(
-      "nix-store",
-      ["-q", "--outputs", drvPath],
-      { policy: probePolicy(), signal },
-    );
-    // `-q --outputs` prints ONE line PER OUTPUT — the agent contract is single-output
-    // (see `multiOutputError`), so a >1 result fails loud and a 0 result falls through to
-    // the cold provision.
-    const outputs = parseOutputs(outsRes.stdout);
-    if (outsRes.ok && outputs.length > 1) {
-      return multiOutputError(opts.host, outputs.length);
-    }
-    // The sole output (length ≤ 1 here — the multi-output case already returned), or
-    // `undefined` when the local query missed — both fall through to the cold provision.
-    const agentPath = outputs[0];
-    if (outsRes.ok && agentPath !== undefined) {
+    const agentPath = localAgentPath;
+    if (agentPath !== undefined) {
       // Ask the host, bounded, whether the output is already valid there. This is a pure
       // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
       // returns non-zero instantly, no fetch).
@@ -522,6 +641,29 @@ export async function provisionAgent(
   // a speculative warm-probe miss poison the classification of this operation.
   sawNetworkError = false;
   opts.onProvisioning?.();
+  // 2a. Cache prefetch — pull the agent closure into the LOCAL store from the
+  //     derivation's declared caches, so the cold build below ships binaries
+  //     the target could never substitute itself (its nix.conf owns remote
+  //     substitution; see {@link AgentBinaryCache}). Skipped only when the
+  //     output path is unknown (0 fell through) — then the build alone owns
+  //     realisation, exactly as before this step existed.
+  if (localAgentPath !== undefined) {
+    const aborted = await prefetchAgentClosure({
+      host: opts.host,
+      outPath: localAgentPath,
+      binaryCache: opts.derivation.binaryCache,
+      onProgress,
+      policy: budgets.provisioning.policy(),
+      signal,
+    });
+    if (aborted) {
+      return {
+        ok: false,
+        reason: `${opts.host}: provisioning aborted during cache prefetch`,
+        cause: "network",
+      };
+    }
+  }
   onProgress(
     isLocal
       ? `localhost: realising '${drvPath}'…`

@@ -28,6 +28,17 @@
 # needs (`flake.nix` at the store-path root + the commit-hash file the agent
 # flake reads). They are packaged as a derivation only AFTER the pure prove
 # step; the prove itself never imports through that derivation (no IFD).
+#
+# `binary-cache.json` is the third baked file, and it is NOT optional: the
+# provisioning stack (`@kolu/surface-remote`) prefetches the agent closure into
+# the binder's local store from the caches named here before realising on a
+# target, so a host whose own nix.conf has never heard of the cache still
+# receives binaries instead of compiling. The declaration is DERIVED from the
+# agent flake's own `nixConfig` (one source of truth — the same block a manual
+# `nix build --accept-flake-config <flakeSrc>#…` would honor); a flakeNix
+# without `nixConfig.extra-substituters` + `extra-trusted-public-keys` fails
+# THIS eval, at the binder's `nix build`, so a consumer (kolu, drishti, odu)
+# cannot assemble an agent source that leaves provisioning cache-blind.
 { lib }:
 { root              # fileset.toSource root (common ancestor of `fileset`)
 , fileset           # WHAT goes into the agent tree — the consumer's policy
@@ -57,6 +68,32 @@ let
   # Force every proven agent before handing out any bake path.
   provenTree = builtins.seq (builtins.deepSeq provenDrvPaths null) tree;
 
+  # The binary-cache declaration, derived from the agent flake's own nixConfig
+  # (see the header). Values may be a space-separated string (the common flake
+  # spelling) or a list; both normalize to a non-empty list here. Absence is an
+  # eval-time error — never a silently cache-blind agent source.
+  binaryCache =
+    let
+      cfg = (import flakeNix).nixConfig or null;
+      asList = v:
+        if builtins.isList v
+        then v
+        else builtins.filter (s: s != "") (lib.splitString " " v);
+      require = name:
+        if cfg == null || !(cfg ? ${name}) || asList cfg.${name} == [ ]
+        then
+          throw
+            ("mkProvenAgentSource: ${toString flakeNix} must declare a non-empty "
+              + "nixConfig.${name} — @kolu/surface-remote provisioning prefetches the "
+              + "agent closure from the caches baked into binary-cache.json and refuses "
+              + "an agent source without them")
+        else asList cfg.${name};
+    in
+    {
+      substituters = require "extra-substituters";
+      trustedPublicKeys = require "extra-trusted-public-keys";
+    };
+
   # Flake-shaped store path for SURFACE_AGENT_FLAKE_REF. Built from the already-
   # proven pure tree; never the place the prove happens. Store sources are
   # mode-readonly — chmod before writing flake.nix / commit-hash on top.
@@ -66,6 +103,7 @@ let
     chmod -R u+w "$out"
     cp ${flakeNix} "$out/flake.nix"
     printf '%s' ${lib.escapeShellArg commitHash} > "$out/commit-hash"
+    printf '%s' ${lib.escapeShellArg (builtins.toJSON binaryCache)} > "$out/binary-cache.json"
   '';
 in
 {
