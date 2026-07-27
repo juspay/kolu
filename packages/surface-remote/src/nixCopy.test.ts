@@ -11,12 +11,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
+import { agentBinaryCache } from "./agentBinaryCache";
+import { directAgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import {
   agentGcRootPath,
-  directAgentDerivation,
-  flakeAgentDerivation,
   makeProvisionBudgets,
   makeStepBudget,
+  PROVISION_COPY_SILENCE_MS,
+  PROVISION_STEP_SILENCE_BASE_MS,
   type ProvisionBudgets,
   provisionAgent,
 } from "./nixCopy";
@@ -55,18 +57,25 @@ function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
 function mockNix(over?: {
   outputs?: CaptureResult;
   checkValidity?: CaptureResult;
+  localValidity?: CaptureResult;
   realise?: CaptureResult;
   pin?: CaptureResult;
   copy?: CaptureResult;
   ship?: CaptureResult;
 }): void {
-  vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
-    // Cache prefetch (2a) / ship (2b) — default MISS/refusal, so the suites
+  vi.mocked(runCapture).mockImplementation(async (cmd, args) => {
+    // Cache prefetch (2) / ship (3) — default MISS/refusal, so the suites
     // written before these steps existed keep exercising the narrated
     // source-realise fallback.
     if (args[0] === "copy" && args[1] === "--to") return over?.ship ?? failOut;
     if (args[0] === "copy") return over?.copy ?? failOut;
     if (args.includes("--outputs")) return over?.outputs ?? okOut(`${STORE}\n`);
+    // The LOCAL "do we even hold this closure?" query the ship is gated on
+    // (a bare `nix-store`, unlike the remote warm check's `ssh …`). Default:
+    // we don't — so a total prefetch miss skips the ship instead of narrating
+    // trust levers about a path we never had.
+    if (cmd === "nix-store" && args[0] === "--check-validity")
+      return over?.localValidity ?? failOut;
     if (args.includes("--check-validity"))
       return over?.checkValidity ?? failOut; // cold: not on host yet
     if (args.includes("--add-root"))
@@ -526,7 +535,7 @@ describe("agentGcRootPath", () => {
   });
 });
 
-describe("cache prefetch + ship (2a/2b)", () => {
+describe("cache prefetch + ship (steps 2 and 3)", () => {
   const flakeDrv = () =>
     flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
@@ -570,18 +579,44 @@ describe("cache prefetch + ship (2a/2b)", () => {
     expect(res.ok).toBe(true);
     expect(
       onProgress.mock.calls.some(([line]) =>
-        /cache prefetch from .* falling back to realising from source/.test(
+        /no declared cache had the agent closure — realising from source instead/.test(
           String(line),
         ),
       ),
     ).toBe(true);
   });
 
-  it("tries each declared substituter in order until one delivers", async () => {
-    const cache = {
+  it("a per-URL miss never claims a fall back to source while another cache is still to be tried", async () => {
+    // The give-up verdict is a property of the LOOP, not of one iteration:
+    // announcing "realising from source" after cache #1 and then trying cache
+    // #2 tells the user something that is simply not happening yet.
+    const cache = agentBinaryCache({
       substituters: ["https://a.test.invalid", "https://b.test.invalid"],
       trustedPublicKeys: ["k:0000000000000000000000000000000000000000000="],
-    };
+    });
+    mockNix(); // every --from fails
+    const onProgress = vi.fn();
+    await provisionAgent({
+      host: "build-host",
+      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, cache),
+      onProgress,
+      ...provArgs(),
+    });
+    const lines = onProgress.mock.calls.map(([l]) => String(l));
+    const giveUps = lines.filter((l) => /realising from source/.test(l));
+    expect(giveUps).toHaveLength(1);
+    expect(giveUps[0]).toMatch(/no declared cache had the agent closure/);
+    // The per-URL lines stay factual about that one URL.
+    expect(
+      lines.filter((l) => /no agent closure at https:\/\//.test(l)),
+    ).toHaveLength(2);
+  });
+
+  it("tries each declared substituter in order until one delivers", async () => {
+    const cache = agentBinaryCache({
+      substituters: ["https://a.test.invalid", "https://b.test.invalid"],
+      trustedPublicKeys: ["k:0000000000000000000000000000000000000000000="],
+    });
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
       // The substituter URL is exactly the `--from` value (args[2]) — an exact
       // compare, not a substring scan (which CodeQL would flag as URL
@@ -654,8 +689,9 @@ describe("cache prefetch + ship (2a/2b)", () => {
     );
   });
 
-  it("ships even when every cache missed — a warm binder store still has the closure", async () => {
-    mockNix({ ship: okOut("") }); // copy (--from) defaults to failure
+  it("ships even when every cache missed — IF the warm binder store already holds the closure", async () => {
+    // copy (--from) defaults to failure; the LOCAL validity query says we have it.
+    mockNix({ ship: okOut(""), localValidity: okOut("") });
     await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -668,6 +704,34 @@ describe("cache prefetch + ship (2a/2b)", () => {
         .mock.calls.some(
           ([, args]) => args[0] === "copy" && args[1] === "--to",
         ),
+    ).toBe(true);
+  });
+
+  it("skips the ship — and says so honestly — when there is no local copy to ship", async () => {
+    // Every cache missed AND the closure is not valid locally. `nix copy --to`
+    // would fail for a reason that has nothing to do with trust, so shipping
+    // anyway would narrate two remedies ("trust the key there", "add the cache
+    // to the host's nix.conf") that fix nothing.
+    mockNix({ ship: okOut("") }); // copy + local validity both default to failure
+    const onProgress = vi.fn();
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress,
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    expect(
+      vi
+        .mocked(runCapture)
+        .mock.calls.some(
+          ([, args]) => args[0] === "copy" && args[1] === "--to",
+        ),
+    ).toBe(false);
+    expect(
+      onProgress.mock.calls.some(([line]) =>
+        /no local copy of the agent to ship/.test(String(line)),
+      ),
     ).toBe(true);
   });
 
@@ -747,7 +811,61 @@ describe("cache prefetch + ship (2a/2b)", () => {
     expect(res).toMatchObject({
       ok: false,
       cause: "network",
-      reason: expect.stringMatching(/aborted during cache prefetch/),
+      reason: expect.stringMatching(/aborted during the cache prefetch/),
+    });
+  });
+
+  it("an abort mid-SHIP names the ship — not the prefetch it already finished", async () => {
+    mockNix({
+      copy: okOut(""), // the prefetch DELIVERED
+      ship: { ok: false, kind: "aborted", stdout: "" },
+    });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res).toMatchObject({
+      ok: false,
+      cause: "network",
+      reason: expect.stringMatching(/aborted during the closure ship/),
+    });
+  });
+
+  it("the speculative copies run under their OWN silence bound, never the build's escalated one", async () => {
+    // A budget that has already doubled three times (the required build was
+    // legitimately slow). The speculative copies charge no expiry, so granting
+    // them that 16-minute window would let a dead cache endpoint wedge the dial.
+    const budgets = makeProvisionBudgets();
+    for (let i = 0; i < 3; i++) budgets.provisioning.recordExpiry();
+    mockNix({ copy: okOut(""), ship: okOut("") });
+    await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(budgets),
+    });
+    const copyPolicies = vi
+      .mocked(runCapture)
+      .mock.calls.filter(([, args]) => args[0] === "copy")
+      .map(([, , opts]) => opts.policy);
+    expect(copyPolicies).toHaveLength(2); // prefetch + ship
+    for (const policy of copyPolicies) {
+      expect(policy).toEqual({
+        kind: "progress-liveness",
+        silenceMs: PROVISION_COPY_SILENCE_MS,
+      });
+    }
+    // …while the required build still gets the escalated grant it earned.
+    const buildPolicy = vi
+      .mocked(runCapture)
+      .mock.calls.find(([, args]) =>
+        args.includes("--print-out-paths"),
+      )?.[2].policy;
+    expect(buildPolicy).toEqual({
+      kind: "progress-liveness",
+      silenceMs: PROVISION_STEP_SILENCE_BASE_MS * 2 ** 3,
     });
   });
 
@@ -765,12 +883,29 @@ describe("cache prefetch + ship (2a/2b)", () => {
     ).toBe(false);
   });
 
-  it("rejects a cache-blind declaration at construction, on both arms", () => {
-    const empty = { substituters: [], trustedPublicKeys: ["k"] };
-    const blankKey = { substituters: ["https://c"], trustedPublicKeys: [" "] };
-    expect(() => directAgentDerivation(DRV, empty)).toThrow(/cache-blind/);
+  it("rejects a cache-blind declaration where it is CONSTRUCTED — so no arm can carry one", () => {
+    // The nominal `AgentBinaryCache` moves this gate off both derivation
+    // constructors and onto the one smart constructor: a declaration that
+    // could not act never becomes a value, so neither arm needs to re-check.
     expect(() =>
-      flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, blankKey),
+      agentBinaryCache({ substituters: [], trustedPublicKeys: ["k"] }),
     ).toThrow(/cache-blind/);
+    expect(() =>
+      agentBinaryCache({
+        substituters: ["https://c"],
+        trustedPublicKeys: [" "],
+      }),
+    ).toThrow(/cache-blind/);
+    // …and an unvalidated literal is a COMPILE error at both arms.
+    // @ts-expect-error — only `agentBinaryCache()` produces an AgentBinaryCache.
+    directAgentDerivation(DRV, {
+      substituters: ["u"],
+      trustedPublicKeys: ["k"],
+    });
+    // @ts-expect-error — same gate on the flake arm.
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, {
+      substituters: ["u"],
+      trustedPublicKeys: ["k"],
+    });
   });
 });

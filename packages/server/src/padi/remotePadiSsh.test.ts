@@ -53,6 +53,7 @@ import {
   type SshProv,
   sshConnector,
 } from "@kolu/surface-remote";
+import { TEST_BINARY_CACHE } from "@kolu/surface-remote/agentDerivation.testutil";
 import { collectLogger } from "@kolu/surface-remote/loggerStubs.testutil";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterAll, describe, expect, it } from "vitest";
@@ -235,16 +236,12 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         // The localhost arm's composed env — this suite dials a real ssh host, so it
         // is unused, but the type requires it (PR1.5 / #1872).
         localEnv: {},
+        // The framework's own shared test declaration (reserved-invalid host,
+        // RFC 2606): the prefetch narrates its miss and the provision falls
+        // back to shipping/realising, which this suite exercises for real.
+        // Imported, not re-spelled — one shape for every suite that needs one.
         resolveDrvPath: async () =>
-          directAgentDerivation(PADI_DRV as string, {
-            // Reserved-invalid host: the prefetch narrates its miss and the
-            // provision falls back to shipping/realising, which this suite
-            // exercises for real.
-            substituters: ["https://cache.test.invalid/oss"],
-            trustedPublicKeys: [
-              "oss:0000000000000000000000000000000000000000000=",
-            ],
-          }),
+          directAgentDerivation(PADI_DRV as string, TEST_BINARY_CACHE),
       }),
       log: collectLogger((l) => console.log(`[host] ${l}`)),
     });

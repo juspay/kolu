@@ -25,7 +25,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectLogger } from "./loggerStubs.testutil";
-import { directAgentDerivation, provisionAgent } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { provisionAgent } from "./nixCopy";
 import {
   type DownSessionState,
   makeSession,

@@ -10,15 +10,11 @@
  * evaluation, transfer, and remote realisation as one lifetime.
  */
 
-import { readFileSync } from "node:fs";
 import { resolveSystem } from "./arch";
 import { looksLikeNetworkError, ResolveDrvError } from "./host";
-import {
-  type AgentBinaryCache,
-  type AgentDerivation,
-  flakeAgentDerivation,
-  type StepBudget,
-} from "./nixCopy";
+import { readBakedBinaryCache } from "./agentBinaryCache";
+import { type AgentDerivation, flakeAgentDerivation } from "./agentDerivation";
+import type { StepBudget } from "./nixCopy";
 import { describeExit, type ExitResult, runCapture } from "./process";
 import { appendProgressLine } from "./progressTail";
 import agentEnv from "../agent-env.json" with { type: "json" };
@@ -54,74 +50,6 @@ export function readBakedAgentSource(): Result<
 > {
   const flakeRef = process.env[SURFACE_AGENT_FLAKE_REF_ENV]?.trim();
   return flakeRef ? ok(flakeRef) : err(new AgentSourceUnbakedError());
-}
-
-/** The binary-cache declaration `mkProvenAgentSource` writes next to the baked
- * flake's `commit-hash` — derived from the agent flake's own `nixConfig`, so
- * the caches provisioning prefetches from are the same ones a manual
- * `nix build --accept-flake-config <flakeSrc>#…` would honor. */
-export const AGENT_BINARY_CACHE_FILE = "binary-cache.json";
-
-/** The baked source predates (or violates) the binary-cache contract. Same
- * family as {@link AgentSourceUnbakedError}: a source-configuration fault of
- * the wrapper, not a transport fact — provisioning refuses to run cache-blind
- * rather than silently compiling on the target. */
-export class AgentBinaryCacheUnbakedError extends ResolveDrvError {
-  constructor(flakeRef: string, detail: string) {
-    super(
-      `agent source ${flakeRef} has no usable ${AGENT_BINARY_CACHE_FILE} (${detail}) — rebuild the binder with a current @kolu/surface-daemon mkProvenAgentSource; provisioning refuses a cache-blind agent source`,
-      {
-        kind: "binary-cache-unbaked",
-        failureCause: "remote",
-        terminal: false,
-      },
-    );
-    this.name = "AgentBinaryCacheUnbakedError";
-  }
-}
-
-const isNonEmptyStrings = (v: unknown): v is string[] =>
-  Array.isArray(v) &&
-  v.length > 0 &&
-  v.every((s) => typeof s === "string" && s.trim().length > 0);
-
-/** Read and validate the baked source's {@link AGENT_BINARY_CACHE_FILE}.
- * Unreadable or malformed both throw the typed error above: absence means the
- * wrapper was built by a pre-contract `mkProvenAgentSource`, and a shape
- * violation means someone hand-assembled the tree — either way the fix is
- * rebuilding the binder, and the message says so. Synchronous on purpose: a
- * few hundred bytes from the local store, read once per uncached resolve —
- * and the typed failure lands deterministically before any spawn. */
-export function readBakedBinaryCache(flakeRef: string): AgentBinaryCache {
-  // Baked refs are bare store paths; tolerate the equivalent explicit
-  // `path:`-prefixed spelling since both evaluate identically.
-  const file = `${flakeRef.replace(/^path:/, "")}/${AGENT_BINARY_CACHE_FILE}`;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
-  } catch (cause) {
-    throw new AgentBinaryCacheUnbakedError(
-      flakeRef,
-      cause instanceof Error ? cause.message : String(cause),
-    );
-  }
-  const shape = parsed as {
-    substituters?: unknown;
-    trustedPublicKeys?: unknown;
-  };
-  if (
-    !isNonEmptyStrings(shape.substituters) ||
-    !isNonEmptyStrings(shape.trustedPublicKeys)
-  ) {
-    throw new AgentBinaryCacheUnbakedError(
-      flakeRef,
-      "substituters and trustedPublicKeys must both be non-empty string arrays",
-    );
-  }
-  return {
-    substituters: shape.substituters,
-    trustedPublicKeys: shape.trustedPublicKeys,
-  };
 }
 
 /** A silent evaluation exhausted its connector-owned campaign budget. Its
@@ -217,6 +145,19 @@ export async function resolveAgentDrv(
   packageName: string,
   opts: AgentDrvResolutionOptions,
 ): Promise<AgentDerivation> {
+  // The binary-cache declaration is part of the derivation's identity
+  // (provisioning prefetches against it), so read it FIRST — before the ssh
+  // arch probe and before any Nix evaluation. A pre-contract wrapper then
+  // fails typed and instant, and its DETERMINISTIC local fault always wins the
+  // race against a NONDETERMINISTIC network one: read it after `resolveSystem`
+  // and an unreachable/unauthorised host reports `auth-required` /
+  // `host-key-unverified` / `nix-unavailable` for a binder that would have
+  // failed the same way on a perfectly healthy host. The throw sits at this
+  // function's existing classification boundary, like every other one here.
+  const cacheResult = readBakedBinaryCache(flakeRef);
+  if (cacheResult.isErr()) throw cacheResult.error;
+  const binaryCache = cacheResult.value;
+
   const system = await resolveSystem(host, {
     signal: opts.signal,
     onProgress: opts.onProgress,
@@ -227,11 +168,6 @@ export async function resolveAgentDrv(
     opts.budget.reset();
     return cached;
   }
-
-  // The binary-cache declaration is part of the derivation's identity
-  // (provisioning prefetches against it), so read it BEFORE spending a Nix
-  // evaluation — a pre-contract wrapper fails here, typed and instant.
-  const binaryCache = readBakedBinaryCache(flakeRef);
 
   const diagnostics: string[] = [];
   let sawNetworkError = false;

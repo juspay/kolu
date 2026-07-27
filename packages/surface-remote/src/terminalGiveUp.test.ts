@@ -15,14 +15,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
 import { silentLogger } from "./loggerStubs.testutil";
-import { directAgentDerivation, PROVISION_STEP_MAX_EXPIRIES } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { PROVISION_STEP_MAX_EXPIRIES } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
-import {
-  makeTestAgentSourceDir,
-  TEST_BINARY_CACHE,
-} from "./agentDerivation.testutil";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import { makeTestAgentSourceDir } from "./agentDrv.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),

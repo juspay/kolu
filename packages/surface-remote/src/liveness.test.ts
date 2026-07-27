@@ -20,7 +20,8 @@ import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { directAgentDerivation, provisionAgent } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
   type Connector,

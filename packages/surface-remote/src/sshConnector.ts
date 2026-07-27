@@ -25,11 +25,8 @@ import {
   ResolveDrvError,
 } from "./host";
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
-import {
-  type AgentDerivation,
-  makeProvisionBudgets,
-  provisionAgent,
-} from "./nixCopy";
+import type { AgentDerivation } from "./agentDerivation";
+import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
   ConnectError,

@@ -22,7 +22,7 @@
 import { defineSurface } from "@kolu/surface/define";
 import { z } from "zod";
 import { pumpRemoteSurface } from "./hostFanout";
-import { directAgentDerivation } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { makeSession, type Session } from "./session";
 import { type AgentClient, sshConnector } from "./sshConnector";

@@ -25,7 +25,8 @@ import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { directAgentDerivation, provisionAgent } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { provisionAgent } from "./nixCopy";
 import {
   type DownSessionState,
   makeSession,

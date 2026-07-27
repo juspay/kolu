@@ -21,10 +21,12 @@ vi.mock("node:fs", async (importOriginal) => ({
 import {
   AGENT_BINARY_CACHE_FILE,
   AgentBinaryCacheUnbakedError,
+  readBakedBinaryCache,
+} from "./agentBinaryCache";
+import {
   AgentResolutionExhaustedError,
   AgentSourceUnbakedError,
   readBakedAgentSource,
-  readBakedBinaryCache,
   resolveAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "./agentDrv";
@@ -379,7 +381,7 @@ describe("resolveAgentDrv", () => {
 
 describe("readBakedBinaryCache", () => {
   it("returns the sidecar's declaration and strips a path: ref prefix", () => {
-    const cache = readBakedBinaryCache("path:/nix/store/src");
+    const cache = readBakedBinaryCache("path:/nix/store/src")._unsafeUnwrap();
     expect(h.readFile).toHaveBeenCalledWith(
       `/nix/store/src/${AGENT_BINARY_CACHE_FILE}`,
       "utf8",
@@ -388,22 +390,22 @@ describe("readBakedBinaryCache", () => {
     expect(cache.trustedPublicKeys).toHaveLength(1);
   });
 
-  it("throws the typed unbaked error when the sidecar is unreadable", () => {
+  it("errs with the typed unbaked fault when the sidecar is unreadable", () => {
     h.readFile.mockImplementation(() => {
       throw Object.assign(new Error("ENOENT: no such file"), {
         code: "ENOENT",
       });
     });
-    expect(() => readBakedBinaryCache("/nix/store/pre-contract")).toThrow(
-      AgentBinaryCacheUnbakedError,
-    );
+    expect(
+      readBakedBinaryCache("/nix/store/pre-contract")._unsafeUnwrapErr(),
+    ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
   });
 
-  it("throws the typed unbaked error on malformed JSON", () => {
+  it("errs with the typed unbaked fault on malformed JSON", () => {
     h.readFile.mockReturnValue("not-json{");
-    expect(() => readBakedBinaryCache("/nix/store/src")).toThrow(
-      AgentBinaryCacheUnbakedError,
-    );
+    expect(
+      readBakedBinaryCache("/nix/store/src")._unsafeUnwrapErr(),
+    ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
   });
 
   it("rejects an empty or wrongly-shaped declaration — cache-blind is unspellable", () => {
@@ -413,11 +415,12 @@ describe("readBakedBinaryCache", () => {
       { substituters: ["u"] },
       { substituters: ["u"], trustedPublicKeys: [" "] },
       { substituters: [42], trustedPublicKeys: ["k"] },
+      null,
     ]) {
       h.readFile.mockReturnValue(JSON.stringify(bad));
-      expect(() => readBakedBinaryCache("/nix/store/src")).toThrow(
-        AgentBinaryCacheUnbakedError,
-      );
+      expect(
+        readBakedBinaryCache("/nix/store/src")._unsafeUnwrapErr(),
+      ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
     }
   });
 
@@ -437,7 +440,7 @@ describe("readBakedBinaryCache", () => {
     ]);
   });
 
-  it("fails the resolve, typed, before spending a Nix evaluation when the sidecar is absent", async () => {
+  it("fails the resolve, typed, before the arch probe or a Nix evaluation when the sidecar is absent", async () => {
     h.resolveSystem.mockResolvedValue("x86_64-linux");
     h.readFile.mockImplementation(() => {
       throw new Error("ENOENT");
@@ -450,7 +453,10 @@ describe("readBakedBinaryCache", () => {
         resolutionOptions,
       ),
     ).rejects.toBeInstanceOf(AgentBinaryCacheUnbakedError);
-    // The typed failure precedes any `nix eval` spawn.
+    // The DETERMINISTIC local fault precedes both the ssh arch probe and any
+    // `nix eval` spawn — so an unreachable host can never mask it with a
+    // nondeterministic transport fault.
+    expect(h.resolveSystem).not.toHaveBeenCalled();
     expect(h.runCapture).not.toHaveBeenCalled();
   });
 });

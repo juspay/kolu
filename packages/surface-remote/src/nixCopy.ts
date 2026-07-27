@@ -12,32 +12,42 @@
  *      package doesn't care HOW the caller obtained it. Source-based callers
  *      normally use `resolveAgentDrv`; direct-derivation callers are
  *      responsible for selecting the remote's architecture.
- *   1. (Remote, warm) an ASK-ONLY check (#1908 D1a): compute the `.drv`'s
- *      output path(s) LOCALLY on the sender (`nix-store -q --outputs`, no
- *      network), then ask the host, bounded, whether they are already valid
- *      there (`nix-store --check-validity`). Present ⇒ warm hit: refresh the
- *      GC root and short-circuit, skipping the redundant remote-store build.
- *      The check NEVER substitutes (the old fused `--realise` did — the
- *      #1908 wedge). If GC races the check, restoration belongs to the required
- *      step-3 root commit, narrated as provisioning.
- *   2a. Cache prefetch: `nix copy --from <declared cache>` pulls the agent's
+ *
+ * The steps below are numbered in EXECUTION order — the order a reader of
+ * `provisionAgent` meets them, and the order the in-body comments cite:
+ *
+ *   0. Compute the `.drv`'s output path(s) LOCALLY on the sender (`nix-store
+ *      -q --outputs`, no network, no substitution). Two consumers: step 1 asks
+ *      the host about this exact path, and step 2 names it to `nix copy`. A
+ *      failed query leaves it unknown and steps 1–3 fall through to step 4.
+ *   1. (Remote, warm) an ASK-ONLY check (#1908 D1a): ask the host, bounded,
+ *      whether the output is already valid there (`nix-store
+ *      --check-validity`). Present ⇒ warm hit: refresh the GC root and
+ *      short-circuit, skipping the redundant remote-store build. The check
+ *      NEVER substitutes (the old fused `--realise` did — the #1908 wedge). If
+ *      GC races the check, restoration belongs to the required step-5 root
+ *      commit, narrated as provisioning.
+ *   2. Cache prefetch: `nix copy --from <declared cache>` pulls the agent's
  *      output closure into the sender's LOCAL store — the one seat where the
  *      derivation's REQUIRED `binaryCache` can act (a remote realisation
  *      substitutes per the REMOTE daemon's own nix.conf; client settings never
  *      participate). A miss/refusal narrates and falls back.
- *   2b. Ship: `nix copy --to ssh-ng://$host <out>` moves the locally-valid
- *      closure to the target — step 2's build would NOT (it copies only the
+ *   3. Ship: `nix copy --to ssh-ng://$host <out>` moves the locally-valid
+ *      closure to the target — step 4's build would NOT (it copies only the
  *      .drv closure; locally-valid outputs are never consulted, verified
  *      live). Lands cross-arch (fetching/copying executes nothing); the
  *      remote daemon must trust the ssh user or the NAR signatures — a
- *      refusal narrates the real levers and step 2 realises on the host.
- *   2. One `nix build --eval-store auto --store ssh-ng://$host` evaluates
+ *      refusal narrates the real levers and step 4 realises on the host.
+ *      Runs only when the closure is provably valid LOCALLY (step 2 delivered
+ *      it, or a warm binder store already had it) — shipping a path we do not
+ *      have would narrate trust levers for a failure about neither.
+ *   4. One `nix build --eval-store auto --store ssh-ng://$host` evaluates
  *      locally, transfers the derivation, and realises it remotely. One Nix
  *      process owns the temporary roots across that whole handoff, so a
  *      concurrent GC cannot collect the just-transferred derivation between
  *      separate copy and build commands. Plain `-v` lets Nix's own transfer and
  *      build lines reach the connect overlay.
- *   3. `ssh $host nix-store --realise $out --add-root $link --indirect`
+ *   5. `ssh $host nix-store --realise $out --add-root $link --indirect`
  *      atomically proves the output still exists (restoring it if possible)
  *      and commits it behind a per-agent GC root on the target, so a
  *      `nix-collect-garbage` there can't delete the agent out from
@@ -63,6 +73,8 @@
  * or prebuilt-binary fallback exists or will.
  */
 
+import type { AgentBinaryCache } from "./agentBinaryCache";
+import type { AgentDerivation } from "./agentDerivation";
 import {
   buildSshProbeCommand,
   forEachLine,
@@ -87,6 +99,15 @@ export const PROVISION_PROBE_DEADLINE_MS = 30_000;
  *  silent for a while — MINUTES-scale, not seconds. Doubles per consecutive expiry
  *  (see {@link StepBudget}). */
 export const PROVISION_STEP_SILENCE_BASE_MS = 120_000;
+
+/** Progress-silence bound for the SPECULATIVE closure copies (steps 2 and 3).
+ *  FIXED, never escalating: those steps charge no expiry, so they must not
+ *  inherit the required build's DOUBLED allowance. `StepBudget.policy()` returns
+ *  `base × 2^expiries` precisely because `recordExpiry()` charged the previous
+ *  silence — a step that takes the first half without the second would let a
+ *  dead cache endpoint wedge provisioning for the build's escalated window (up
+ *  to 16 min) while advancing nothing. */
+export const PROVISION_COPY_SILENCE_MS = PROVISION_STEP_SILENCE_BASE_MS;
 
 /** How many consecutive `lifetime-expired` kills of the SAME step before it is
  *  genuinely terminal (#1908 R4c/C5). With base 120s and N=4 the last budgeted
@@ -205,117 +226,6 @@ export interface ProvisionOptions {
   signal?: AbortSignal;
 }
 
-const agentDerivationBrand = Symbol("AgentDerivation");
-
-/** The binary caches an agent derivation is provisioned against.
- *
- * Provisioning PREFETCHES the agent's output closure from these caches into
- * the binder's LOCAL store (`nix copy --from`), then SHIPS it to the target
- * store (`nix copy --to ssh-ng://…`) before realising there. Both copies are
- * needed: the local store is the only seat where a declared cache can act (a
- * remote-store realisation substitutes with the REMOTE daemon's own nix.conf
- * — client-side substituter settings never participate), and the cold build
- * ships only the .drv closure, never locally-valid outputs (both facts
- * verified live). Cross-arch included: fetching and copying execute nothing.
- * The ship lands only when the target trusts it (trusted ssh user, or NAR
- * signatures the host trusts) — otherwise a narrated fallback realises on
- * the host, where the quickstart's remote nix.conf advice applies.
- *
- * The declaration is REQUIRED on every {@link AgentDerivation} arm so no
- * consumer of this package can assemble a cache-blind provisioning path.
- * Flake-arm callers inherit it from the baked source's `binary-cache.json`
- * (written by `mkProvenAgentSource`); direct-drv callers state their own. */
-export interface AgentBinaryCache {
-  readonly substituters: readonly string[];
-  readonly trustedPublicKeys: readonly string[];
-}
-
-/** Reject a declaration that could not act: an agent derivation with zero
- *  substituters (or blank entries) is exactly the cache-blind provisioning
- *  path this type exists to make unspellable. */
-function assertUsableBinaryCache(binaryCache: AgentBinaryCache): void {
-  const blank = (s: string): boolean => s.trim().length === 0;
-  if (
-    binaryCache.substituters.length === 0 ||
-    binaryCache.trustedPublicKeys.length === 0 ||
-    binaryCache.substituters.some(blank) ||
-    binaryCache.trustedPublicKeys.some(blank)
-  ) {
-    throw new Error(
-      "agent binary cache must name at least one substituter and one trusted public key — an empty declaration would leave provisioning cache-blind",
-    );
-  }
-}
-
-/** A derivation source whose variants make the GC ownership contract explicit.
- *
- * A direct `.drv` caller already owns keeping that store path valid. A flake
- * caller carries both the evaluated path (needed for the warm probe) and the
- * installable that one `nix build` can evaluate and provision as an owned unit.
- * The private symbol makes the sum nominal: callers cannot hand-assemble a
- * mismatched path/installable pair. Both arms carry the binary-cache
- * declaration the prefetch acts on ({@link AgentBinaryCache}). */
-export type AgentDerivation =
-  | {
-      kind: "drv-path";
-      drvPath: string;
-      binaryCache: AgentBinaryCache;
-      readonly [agentDerivationBrand]: "drv-path";
-    }
-  | {
-      kind: "flake-installable";
-      drvPath: string;
-      installable: string;
-      binaryCache: AgentBinaryCache;
-      readonly [agentDerivationBrand]: "flake-installable";
-    };
-
-/** Construct the public direct-path arm. The caller owns keeping this path
- * valid, and — like every arm — must state where its binaries may be
- * prefetched from. The parameter is deliberately REQUIRED: downstream
- * binders (drishti's baked drv map, odu's runner flake) inherit the
- * cache-aware provisioning path at compile time, not by opting in. */
-export function directAgentDerivation(
-  drvPath: string,
-  binaryCache: AgentBinaryCache,
-): AgentDerivation {
-  if (!drvPath.endsWith(".drv")) {
-    throw new Error(
-      `agent derivation must be a .drv store path, got ${JSON.stringify(drvPath)}`,
-    );
-  }
-  assertUsableBinaryCache(binaryCache);
-  return {
-    kind: "drv-path",
-    drvPath,
-    binaryCache,
-    [agentDerivationBrand]: "drv-path",
-  };
-}
-
-/** Package-internal constructor for the flake arm. Deliberately not re-exported
- * from `@kolu/surface-remote`: only `resolveAgentDrv` may pair these values
- * (it reads `binaryCache` from the baked source's `binary-cache.json`). */
-export function flakeAgentDerivation(
-  drvPath: string,
-  installable: string,
-  binaryCache: AgentBinaryCache,
-): AgentDerivation {
-  if (!drvPath.endsWith(".drv") || installable.trim().length === 0) {
-    throw new Error(
-      `invalid flake agent derivation: drvPath=${JSON.stringify(drvPath)}, installable=${JSON.stringify(installable)}`,
-    );
-  }
-  assertUsableBinaryCache(binaryCache);
-  return {
-    kind: "flake-installable",
-    drvPath,
-    installable,
-    binaryCache,
-    [agentDerivationBrand]: "flake-installable",
-  };
-}
-
 export type ProvisionResult =
   | { ok: true; agentPath: string }
   // `cause` lets the session keep retrying a host that went unreachable
@@ -361,6 +271,13 @@ export function agentGcRootPath(
  *  the same shape rather than re-spelling the literal). */
 export function probePolicy(): LifetimePolicy {
   return { kind: "deadline", ms: PROVISION_PROBE_DEADLINE_MS };
+}
+
+/** The progress-liveness policy the two SPECULATIVE copies run under — their
+ *  own bound, not a slice of the required build's escalating budget. See
+ *  {@link PROVISION_COPY_SILENCE_MS}. */
+function copyPolicy(): LifetimePolicy {
+  return { kind: "progress-liveness", silenceMs: PROVISION_COPY_SILENCE_MS };
 }
 
 /** Non-blank store-path lines from a `nix-store` invocation's stdout — reuses the repo's
@@ -463,11 +380,34 @@ async function pinGcRoot(
   };
 }
 
+/** What ONE speculative closure-move step concluded.
+ *
+ *  A NAMED outcome, not an inverted boolean: the caller has to distinguish
+ *  three cases, and two of them matter downstream. `"delivered"` means the
+ *  closure is now VALID in that step's destination store — the fact the ship
+ *  keys off, and the fact a future "ship succeeded, skip the cold build"
+ *  optimisation would key off. `"missed"` means the step concluded without it
+ *  (a cache that did not have it, a refusal, a silence kill), which is
+ *  narrated and never fatal. `"aborted"` means the dial's own signal fired and
+ *  the caller settles the standard aborted result. */
+type CopyOutcome = "delivered" | "missed" | "aborted";
+
+/** The ONE shape of "the user's abort landed inside this provisioning step" —
+ *  named per step, so an abort during the slow ship can never report the
+ *  prefetch it had already finished. */
+function abortedDuring(host: string, step: string): ProvisionResult {
+  return {
+    ok: false,
+    reason: `${host}: provisioning aborted during ${step}`,
+    cause: "network",
+  };
+}
+
 /** Prefetch `outPath`'s closure from the derivation's declared caches into the
  *  binder's LOCAL store — the seat where the declaration can act (see
- *  {@link AgentBinaryCache}). Tries each substituter in order until one
- *  delivers; a success means the closure is now VALID LOCALLY (freshly copied
- *  or already present — `nix copy` is validity-driven).
+ *  `AgentBinaryCache`). Tries each substituter in order until one delivers;
+ *  `"delivered"` means the closure is now VALID LOCALLY (freshly copied or
+ *  already present — `nix copy` is validity-driven).
  *
  *  This step is OPTIONAL-BY-OUTCOME, never silently optional: a miss (the
  *  commit was just built and not yet pushed), a signature refusal (the local
@@ -475,21 +415,21 @@ async function pinGcRoot(
  *  silence kill each NARRATE into the progress tail and fall back to the cold
  *  build's source realisation — the same truth as before this step existed.
  *  It therefore charges no budget expiry (the required build below owns the
- *  terminal accounting). Returns `true` only when the dial's abort signal
- *  fired mid-copy, so the caller can settle the standard aborted result. */
+ *  terminal accounting).
+ *
+ *  It fills the LOCAL store and has nothing to say to any host, so it takes a
+ *  pre-bound `narrate` rather than the target's name: the progress prefix is
+ *  the caller's concern. */
 async function prefetchAgentClosure(opts: {
-  host: string;
   outPath: string;
   binaryCache: AgentBinaryCache;
-  onProgress: (line: string) => void;
+  narrate: (line: string) => void;
   policy: LifetimePolicy;
   signal: AbortSignal | undefined;
-}): Promise<boolean> {
+}): Promise<CopyOutcome> {
   const keys = opts.binaryCache.trustedPublicKeys.join(" ");
   for (const url of opts.binaryCache.substituters) {
-    opts.onProgress(
-      `${opts.host}: prefetching agent closure from ${url} into the local store…`,
-    );
+    opts.narrate(`prefetching agent closure from ${url} into the local store…`);
     const res = await runCapture(
       "nix",
       // `--extra-trusted-public-keys` lets a trusted local user import the
@@ -504,23 +444,25 @@ async function prefetchAgentClosure(opts: {
         opts.outPath,
       ],
       {
-        onProgress: opts.onProgress,
+        onProgress: opts.narrate,
         policy: opts.policy,
         signal: opts.signal,
       },
     );
     if (res.ok) {
-      opts.onProgress(
-        `${opts.host}: agent closure available locally (via ${url})`,
-      );
-      return false;
+      opts.narrate(`agent closure available locally (via ${url})`);
+      return "delivered";
     }
-    if (res.kind === "aborted") return true;
-    opts.onProgress(
-      `${opts.host}: cache prefetch from ${url} ${describeExit(res)} — falling back to realising from source`,
-    );
+    if (res.kind === "aborted") return "aborted";
+    // Per-URL: state only what this URL did. The give-up verdict belongs
+    // AFTER the loop — another declared cache may still deliver, and
+    // announcing a fall back to source before trying it is simply false.
+    opts.narrate(`no agent closure at ${url} (${describeExit(res)})`);
   }
-  return false;
+  opts.narrate(
+    "no declared cache had the agent closure — realising from source instead",
+  );
+  return "missed";
 }
 
 /** Ship the locally-valid agent closure to the REMOTE store (`nix copy --to
@@ -537,34 +479,50 @@ async function prefetchAgentClosure(opts: {
  *  already trusts. A refusal is NARRATED with the real levers (trust the
  *  key on the host, or configure the cache there per the quickstart) and the
  *  cold build falls back to realising on the host, exactly as before this
- *  step existed. Returns `true` only on a mid-copy abort. */
+ *  step existed. Those levers are only TRUE of a closure we actually hold, so
+ *  the caller runs this step only once local validity is established. */
 async function shipAgentClosure(opts: {
   host: string;
   outPath: string;
-  onProgress: (line: string) => void;
+  narrate: (line: string) => void;
   policy: LifetimePolicy;
   signal: AbortSignal | undefined;
-}): Promise<boolean> {
-  opts.onProgress(`${opts.host}: shipping agent closure to the host's store…`);
+}): Promise<CopyOutcome> {
+  opts.narrate("shipping agent closure to the host's store…");
   const res = await runCapture(
     "nix",
     ["copy", "--to", `ssh-ng://${opts.host}`, opts.outPath],
     {
-      onProgress: opts.onProgress,
+      onProgress: opts.narrate,
       policy: opts.policy,
       env: { NIX_SSHOPTS: nixSshOpts() },
       signal: opts.signal,
     },
   );
   if (res.ok) {
-    opts.onProgress(`${opts.host}: agent closure shipped`);
-    return false;
+    opts.narrate("agent closure shipped");
+    return "delivered";
   }
-  if (res.kind === "aborted") return true;
-  opts.onProgress(
-    `${opts.host}: could not ship the agent closure (${describeExit(res)}) — the host will realise it itself. If this keeps compiling on the host: trust the declared cache key there, or add the cache to the host's nix.conf.`,
+  if (res.kind === "aborted") return "aborted";
+  opts.narrate(
+    `could not ship the agent closure (${describeExit(res)}) — the host will realise it itself. If this keeps compiling on the host: trust the declared cache key there, or add the cache to the host's nix.conf.`,
   );
-  return false;
+  return "missed";
+}
+
+/** Is `outPath` valid in the LOCAL store right now? A pure store query — the
+ *  same cheap, never-substituting question step 1 asks the host, asked here of
+ *  ourselves. Used to decide whether there is anything to ship after a total
+ *  prefetch miss (a warm binder store legitimately already holds the closure). */
+async function isLocallyValid(
+  outPath: string,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  const res = await runCapture("nix-store", ["--check-validity", outPath], {
+    policy: probePolicy(),
+    signal,
+  });
+  return res.ok;
 }
 
 /** Realise an agent derivation in `$host`'s store and commit its required GC
@@ -620,7 +578,7 @@ export async function provisionAgent(
 
   // 0. The derivation's output path, computed LOCALLY (no ssh, no
   //    substitution, instant). Two consumers: the remote warm check (1) asks
-  //    the host about this exact path, and the cache prefetch (2a) names it
+  //    the host about this exact path, and the cache prefetch (2) names it
   //    to `nix copy`. `-q --outputs` prints ONE line PER OUTPUT — the agent
   //    contract is single-output (see `multiOutputError`), so a >1 result
   //    fails loud; a failed query (GC collected the evaluated .drv) leaves
@@ -684,7 +642,7 @@ export async function provisionAgent(
     }
   }
 
-  // 2. Provision the cold target in ONE Nix process. `--eval-store auto`
+  // 4. Provision the cold target in ONE Nix process. `--eval-store auto`
   //    keeps flake evaluation in the caller's store while `--store ssh-ng://…`
   //    makes the destination store own transfer and realisation. Nix therefore
   //    carries its temporary roots across the whole evaluation→copy→build
@@ -695,10 +653,10 @@ export async function provisionAgent(
   // a speculative warm-probe miss poison the classification of this operation.
   sawNetworkError = false;
   opts.onProvisioning?.();
-  // 2a/2b. Cache prefetch + ship — pull the agent closure into the LOCAL
-  //     store from the derivation's declared caches, then explicitly copy it
-  //     to the target store (the cold build alone would NOT: it copies only
-  //     the .drv closure and the remote substitutes per ITS nix.conf — see
+  // 2/3. Cache prefetch + ship — pull the agent closure into the LOCAL store
+  //     from the derivation's declared caches, then explicitly copy it to the
+  //     target store (the cold build alone would NOT: it copies only the .drv
+  //     closure and the remote substitutes per ITS nix.conf — see
   //     {@link shipAgentClosure}). Skipped only when the output path is
   //     unknown (0 fell through) — then the build alone owns realisation,
   //     exactly as before these steps existed.
@@ -707,36 +665,47 @@ export async function provisionAgent(
   //     — never the scanning wrapper: an unreachable cache's stderr must not
   //     set `sawNetworkError` and misclassify the required build's failure as
   //     retryable "network" (the same poisoning the reset above exists to
-  //     prevent for the warm probe).
+  //     prevent for the warm probe). They also run under their OWN silence
+  //     bound (`copyPolicy`), never the required build's escalated one.
   if (localAgentPath !== undefined) {
-    const prefetchAborted = await prefetchAgentClosure({
-      host: opts.host,
+    const narrate = (line: string): void =>
+      opts.onProgress(`${opts.host}: ${line}`);
+    const prefetch = await prefetchAgentClosure({
       outPath: localAgentPath,
       binaryCache: opts.derivation.binaryCache,
-      onProgress: opts.onProgress,
-      policy: budgets.provisioning.policy(),
+      narrate,
+      policy: copyPolicy(),
       signal,
     });
-    // Ship regardless of the prefetch VERDICT (the closure may already be
-    // valid locally — a warm binder store — even when every cache missed), but
-    // never after an abort, and never for localhost (the prefetch already
-    // filled the very store the build realises in).
-    const shipAborted =
-      !prefetchAborted && !isLocal
-        ? await shipAgentClosure({
-            host: opts.host,
-            outPath: localAgentPath,
-            onProgress: opts.onProgress,
-            policy: budgets.provisioning.policy(),
-            signal,
-          })
-        : false;
-    if (prefetchAborted || shipAborted) {
-      return {
-        ok: false,
-        reason: `${opts.host}: provisioning aborted during cache prefetch`,
-        cause: "network",
-      };
+    if (prefetch === "aborted") {
+      return abortedDuring(opts.host, "the cache prefetch");
+    }
+    // Ship only what we provably HOLD. The prefetch may have missed every
+    // declared cache and the closure still be valid locally (a warm binder
+    // store) — so ask, rather than assume: `nix copy --to` on a locally
+    // INVALID path fails for a reason that has nothing to do with trust, and
+    // this step's refusal narration names trust levers. Localhost never ships
+    // (the prefetch already filled the very store the build realises in).
+    if (!isLocal) {
+      const haveIt =
+        prefetch === "delivered" ||
+        (await isLocallyValid(localAgentPath, signal));
+      if (!haveIt) {
+        narrate(
+          "no local copy of the agent to ship — the host will realise it from source",
+        );
+      } else {
+        const ship = await shipAgentClosure({
+          host: opts.host,
+          outPath: localAgentPath,
+          narrate,
+          policy: copyPolicy(),
+          signal,
+        });
+        if (ship === "aborted") {
+          return abortedDuring(opts.host, "the closure ship");
+        }
+      }
     }
   }
   onProgress(
@@ -797,7 +766,7 @@ export async function provisionAgent(
   }
   onProgress(`${opts.host}: agent realised at ${agentPath}`);
 
-  // 3. Commit the realised output behind a stable, per-agent GC root. This is
+  // 5. Commit the realised output behind a stable, per-agent GC root. This is
   //    the same required operation as the warm-hit path; provision success
   //    means both "valid" and "durably rooted", never merely "was built".
   if (rootPath === null) {

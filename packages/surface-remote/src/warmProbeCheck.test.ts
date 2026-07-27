@@ -17,11 +17,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
-import {
-  directAgentDerivation,
-  makeProvisionBudgets,
-  provisionAgent,
-} from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 

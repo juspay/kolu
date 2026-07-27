@@ -7,7 +7,7 @@
  */
 import { dialAgentOnce } from "./dialAgentOnce";
 import { buildAgentCommand } from "./host";
-import { type AgentDerivation, directAgentDerivation } from "./nixCopy";
+import { type AgentDerivation, directAgentDerivation } from "./agentDerivation";
 import { sshConnector } from "./sshConnector";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 

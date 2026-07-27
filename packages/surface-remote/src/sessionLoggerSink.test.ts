@@ -15,7 +15,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { directAgentDerivation, provisionAgent } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { provisionAgent } from "./nixCopy";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";

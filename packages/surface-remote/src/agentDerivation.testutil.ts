@@ -1,26 +1,14 @@
 /** A well-formed binary-cache declaration for tests that construct agent
- *  derivations: every {@link AgentDerivation} arm REQUIRES one (the cache-blind
+ *  derivations: every `AgentDerivation` arm REQUIRES one (the cache-blind
  *  provisioning path is unspellable), so test constructors share this value.
- *  The host is reserved-invalid (RFC 2606) — no test may actually fetch. */
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { AGENT_BINARY_CACHE_FILE } from "./agentDrv";
-import type { AgentBinaryCache } from "./nixCopy";
+ *  The host is reserved-invalid (RFC 2606) — no test may actually fetch.
+ *
+ *  Reachable across the workspace through the package's
+ *  `./agentDerivation.testutil` export, so a consumer's suite (e.g.
+ *  `@kolu/server`'s ssh e2e) uses this value instead of re-spelling it. */
+import { type AgentBinaryCache, agentBinaryCache } from "./agentBinaryCache";
 
-export const TEST_BINARY_CACHE: AgentBinaryCache = {
+export const TEST_BINARY_CACHE: AgentBinaryCache = agentBinaryCache({
   substituters: ["https://cache.test.invalid/oss"],
   trustedPublicKeys: ["oss:0000000000000000000000000000000000000000000="],
-};
-
-/** A real on-disk stand-in for a baked agent source: a tmp dir carrying the
- *  binary-cache sidecar `resolveAgentDrv` reads. For tests that drive the real
- *  `agentDrv` module (no fs mock). Caller owns cleanup (`rmSync`). */
-export function makeTestAgentSourceDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "kolu-agent-source-"));
-  writeFileSync(
-    join(dir, AGENT_BINARY_CACHE_FILE),
-    JSON.stringify(TEST_BINARY_CACHE),
-  );
-  return dir;
-}
+});
