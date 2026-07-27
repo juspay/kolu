@@ -51,10 +51,9 @@ describe("padiSurface contract", () => {
     // `scope` (PRT2) — a RESHAPED field rather than an additive one, still a
     // minor because the version gate drains a straddling padi in BOTH
     // directions before either parser meets the other's frame. See surface.ts.
-    // 4.4 (minor): `fs.listAll`'s OUTPUT gained a required `ignoredPaths` (the
-    // Code tab's show-ignored toggle). Its input's `includeIgnored` is optional
-    // and would need no bump; the required OUTPUT field is 4.2's rule verbatim —
-    // the emitted shape changed, so the version says so.
+    // 4.4 (minor): a NEW `fs.listIgnored` procedure (git's collapsed gitignored
+    // listing, behind the Code tab's show-ignored toggle). Purely additive —
+    // `fs.listAll` is untouched — so the plainest minor there is.
     expect(PADI_SURFACE_VERSION).toBe("4.4");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
@@ -64,8 +63,8 @@ describe("padiSurface contract", () => {
     // binder that EXPECTS the new minor refuses a padi still reporting the old
     // one, so the convergence machinery drains-and-respawns it BEFORE the new
     // client's schema can meet an old frame missing the added field. Without
-    // this leg, a 4.4 client against a surviving 4.3 padi would fail the
-    // `fs.listAll` parse and error the Code tab's whole file list.
+    // this leg, a 4.4 client against a surviving 4.3 padi would call the
+    // `fs.listIgnored` procedure that padi does not have.
     expect(isContractVersionCompatible("4.3", "4.4")).toBe(false);
     // A newer additive minor (a future 4.x) still serves a 4.0 consumer; a
     // major bump is mutually incompatible in both directions.
@@ -144,6 +143,7 @@ describe("padiSurface contract", () => {
     ]);
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
+      "listIgnored",
       "readFile",
       "filePreviewTag",
     ]);

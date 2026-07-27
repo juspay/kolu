@@ -165,19 +165,33 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
-  // The whole-repo file list — browse mode only (the diff modes read the status
-  // files). `includeIgnored` rides in the input so it participates in the query's
-  // value key: flipping the toolbar toggle re-queries, and the ignored overlay
-  // appears/disappears atomically with the fresh list.
+  // The whole-repo file list — browse mode only (the diff modes read the status files).
   const allPaths = repoQuery({
     input: () => {
       const p = shownRepoPath();
-      return p && codeView() === "browse"
-        ? { repoPath: p, includeIgnored: showIgnoredFiles() }
-        : null;
+      return p && codeView() === "browse" ? { repoPath: p } : null;
     },
     query: (i, signal) => activePadiRpc.fs.listAll(i, { signal }),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
+  });
+
+  // The gitignored overlay — a SEPARATE query, idle (null input) unless the
+  // show-ignored toggle is on. Keeping it off `allPaths` is what lets the toggle
+  // flip without disturbing the main file list: were `includeIgnored` a field on
+  // that query's input it would join its value key, so every flip would blank the
+  // list, unmount `<FileTree>`, and remount it with `initialExpansion: "closed"` —
+  // losing every hand-expanded folder and the scroll position. Idling the input
+  // instead means the toggle costs the extra `git ls-files` spawn only while the
+  // user actually wants the overlay.
+  const ignoredPaths = repoQuery({
+    input: () => {
+      const p = shownRepoPath();
+      return p && codeView() === "browse" && showIgnoredFiles()
+        ? { repoPath: p }
+        : null;
+    },
+    query: (i, signal) => activePadiRpc.fs.listIgnored(i, { signal }),
+    onError: (err) => toast.error(`Ignored file list: ${err.message}`),
   });
 
   // The active file's diff — its input reads THIS scope's own `activeStatus` result to
@@ -249,6 +263,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     branchStatus,
     activeStatus,
     allPaths,
+    ignoredPaths,
     diff,
     fileContent,
   };
@@ -292,6 +307,11 @@ export const codeActiveStatus = windowedSub(
 );
 export const codeAllPaths = windowedSub(
   () => activeHostCodeTab()?.allPaths,
+  (v) => v,
+  undefined,
+);
+export const codeIgnoredPaths = windowedSub(
+  () => activeHostCodeTab()?.ignoredPaths,
   (v) => v,
   undefined,
 );

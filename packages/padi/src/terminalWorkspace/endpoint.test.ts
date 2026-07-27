@@ -16,27 +16,27 @@ describe("createTerminalWorkspaceEndpoint", () => {
   });
   afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
-  it("fs.listAll returns tracked + untracked paths, and no ignored entries unless asked", async () => {
+  it("fs.listAll returns tracked + untracked paths", async () => {
     const { fs: f } = createTerminalWorkspaceEndpoint(log);
-    const { paths, ignoredPaths } = await f.listAll(repo);
+    const { paths } = await f.listAll(repo);
     expect(paths).toContain("a.txt");
     expect(paths).toContain("untracked.txt");
-    expect(ignoredPaths).toEqual([]);
   });
 
-  it("fs.listAll enumerates collapsed gitignored entries when includeIgnored is set", async () => {
+  it("fs.listIgnored returns the collapsed gitignored complement of fs.listAll", async () => {
     fs.writeFileSync(path.join(repo, ".gitignore"), "secret.log\ndist/\n");
     fs.writeFileSync(path.join(repo, "secret.log"), "shh\n");
     fs.mkdirSync(path.join(repo, "dist"));
     fs.writeFileSync(path.join(repo, "dist", "out.js"), "artifact\n");
     const { fs: f } = createTerminalWorkspaceEndpoint(log);
-    const { paths, ignoredPaths } = await f.listAll(repo, true);
+    const { paths } = await f.listAll(repo);
+    const { paths: ignored } = await f.listIgnored(repo);
     expect(paths).toContain("a.txt");
     expect(paths).not.toContain("secret.log");
     // Collapsed: the fully-ignored directory is one trailing-slash entry.
-    expect(ignoredPaths).toContain("secret.log");
-    expect(ignoredPaths).toContain("dist/");
-    expect(ignoredPaths).not.toContain("dist/out.js");
+    expect(ignored).toContain("secret.log");
+    expect(ignored).toContain("dist/");
+    expect(ignored).not.toContain("dist/out.js");
   });
 
   it("fs.readFile returns the working-tree content, untruncated", async () => {

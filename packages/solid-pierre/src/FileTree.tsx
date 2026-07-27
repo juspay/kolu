@@ -23,6 +23,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import { ignoredPathsCss } from "./ignoredCss";
 import { safeApply } from "./safeApply";
 import {
   ancestorDirectoryPaths,
@@ -36,8 +37,27 @@ type Composition = NonNullable<FileTreeOptions["composition"]>;
 type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
 
 export type FileTreeProps = {
+  /** The visible file inventory. A **trailing slash** marks an entry as a
+   *  directory row that owns no children (the collapsed gitignored directories
+   *  the Code tab overlays: one `node_modules/` row, never its contents).
+   *  Pierre infers ordinary directories from path prefixes, so a slash-free
+   *  entry is a file — that is the discriminator `onSelect` filters on. */
   paths: string[];
   gitStatus?: GitStatusEntry[];
+  /** Paths to render dimmed as gitignored.
+   *
+   *  Deliberately its OWN channel rather than `gitStatus` entries carrying
+   *  Pierre's `"ignored"` status, even though that status exists: Pierre rolls
+   *  EVERY `gitStatus` entry up into its ancestors' change counters
+   *  (`incrementAncestorChangeCounts` runs unguarded by status), which sets
+   *  `data-item-contains-git-change` on every ancestor. Routing the ignored
+   *  overlay through that channel therefore paints each ancestor of an ignored
+   *  entry as "contains changes" — on the kolu repo, 47 extra directories on top
+   *  of a real 77, and 68 on an otherwise-clean checkout. "Contains a change"
+   *  and "contains something git ignores" are different facts; this prop keeps
+   *  them apart, so the roll-up stays honest and the dimming is applied by a
+   *  dedicated stylesheet keyed on `data-item-path`. */
+  ignoredPaths?: readonly string[];
   /** The host-owned selection to reflect in the tree. Writes here are
    *  effectively **one-way**: applied silently (marking `aria-selected`,
    *  scrolling the row into view), and the #1841 provenance gate normally
@@ -148,6 +168,18 @@ function injectShadowCss(container: HTMLElement, css: string): void {
   shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet];
 }
 
+/** Adopt ONE stylesheet into the shadow root and hand it back so a caller can
+ *  keep rewriting it (`replaceSync`) as its content changes. Distinct from
+ *  {@link injectShadowCss}, which adopts a fresh sheet per call — re-injecting
+ *  through that on every change would stack a new sheet each time and leak. */
+function adoptLiveShadowSheet(container: HTMLElement): CSSStyleSheet | null {
+  const shadowRoot = findShadowRoot(container);
+  if (!shadowRoot) return null;
+  const sheet = new CSSStyleSheet();
+  shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet];
+  return sheet;
+}
+
 /** Expand each resolvable directory row named by `keys`, leaving files and
  *  missing paths untouched. `getItem` returns a directory-or-file handle union:
  *  `"expand" in item` is the narrowing — Pierre's `isDirectory()` returns a
@@ -179,6 +211,9 @@ function revealDirectory(tree: FileTreeClass, dirKey: string): void {
 export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTreeClass | undefined;
+  // The one adopted sheet carrying the gitignored dimming rules, rewritten in
+  // place whenever `ignoredPaths` changes. Dies with the shadow root on cleanup.
+  let ignoredSheet: CSSStyleSheet | undefined | null;
   // The path inventory Pierre's tree currently holds. Seeded at mount and
   // updated after every `batch`, so the next path change can be applied as
   // an in-place delta. Tracked here rather than via `on`'s `prevInput`
@@ -339,6 +374,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
       appliedPaths = props.paths;
       if (props.shadowCss) injectShadowCss(container, props.shadowCss);
+      // Adopted once, rewritten in place by the effect below — see
+      // `adoptLiveShadowSheet` for why this can't reuse `injectShadowCss`.
+      ignoredSheet = adoptLiveShadowSheet(container);
+      if (ignoredSheet && props.ignoredPaths?.length) {
+        ignoredSheet.replaceSync(ignoredPathsCss(props.ignoredPaths));
+      }
     }, props.onError);
     // Deliberately do NOT clear the request here: it stays standing so this
     // exact application repeats on every remount (the host clears it on a real
@@ -404,6 +445,23 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       () => props.gitStatus,
       (g) => {
         safeApply(() => tree?.setGitStatus(g), props.onError);
+      },
+      { defer: true },
+    ),
+  );
+
+  // The gitignored overlay is pure styling — rewriting the one adopted sheet
+  // touches no Pierre state, so toggling it never disturbs expansion, scroll,
+  // or the git-change roll-up (the reason it isn't a `gitStatus` channel; see
+  // the `ignoredPaths` prop doc).
+  createEffect(
+    on(
+      () => props.ignoredPaths,
+      (paths) => {
+        safeApply(
+          () => ignoredSheet?.replaceSync(ignoredPathsCss(paths ?? [])),
+          props.onError,
+        );
       },
       { defer: true },
     ),

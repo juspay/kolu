@@ -1,0 +1,40 @@
+import { describe, expect, it } from "vitest";
+import { ignoredPathsCss } from "./ignoredCss.ts";
+
+describe("ignoredPathsCss", () => {
+  it("emits no sheet for an empty set — never a selector-less rule", () => {
+    expect(ignoredPathsCss([])).toBe("");
+  });
+
+  it("targets each path by the data-item-path Pierre stamps on the row", () => {
+    const css = ignoredPathsCss(["node_modules/", ".env"]);
+    expect(css).toContain('[data-item-path="node_modules/"]');
+    expect(css).toContain('[data-item-path=".env"]');
+    // One rule body for the whole selector list, not one rule per path.
+    expect(css.match(/\{/g)).toHaveLength(1);
+  });
+
+  it("keeps a collapsed directory's trailing slash — it IS the row's key", () => {
+    // The collapsed listing is what keeps this sheet small: `node_modules/` is
+    // one row, so one selector, never one per contained file. Stripping the
+    // slash would target a non-existent row and silently dim nothing.
+    expect(ignoredPathsCss(["node_modules/"])).toContain(
+      '[data-item-path="node_modules/"]',
+    );
+  });
+
+  it("escapes a quote in a filename so it cannot terminate the selector", () => {
+    // git hands paths through verbatim under `-z`, so `"` is legal in a name.
+    const css = ignoredPathsCss(['weird".log']);
+    expect(css).toContain('[data-item-path="weird\\".log"]');
+    // The raw, unescaped form must not appear — that would close the string
+    // early and turn the rest of the path into malformed selector syntax.
+    expect(css).not.toContain('[data-item-path="weird".log"]');
+  });
+
+  it("escapes a backslash before escaping quotes, so the two can't combine", () => {
+    // A trailing backslash would otherwise escape the closing quote.
+    const css = ignoredPathsCss(["dir\\"]);
+    expect(css).toContain('[data-item-path="dir\\\\"]');
+  });
+});

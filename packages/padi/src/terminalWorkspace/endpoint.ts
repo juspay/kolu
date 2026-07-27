@@ -29,6 +29,7 @@ import {
 } from "kolu-git";
 import type {
   FsListAllOutput,
+  FsListIgnoredOutput,
   GitDiffMode,
   GitDiffOutput,
   GitStatusOutput,
@@ -42,7 +43,12 @@ import { match } from "ts-pattern";
  *  one-shot reads AND watcher subscriptions — same volatility axis ("where the
  *  FS lives"), one place the surface binds. */
 export interface TerminalEndpointFs {
-  listAll(repoPath: string, includeIgnored?: boolean): Promise<FsListAllOutput>;
+  listAll(repoPath: string): Promise<FsListAllOutput>;
+  /** The gitignored complement of {@link listAll}, collapsed (a fully-ignored
+   *  directory is one trailing-slash entry). Its own member, not a flag on
+   *  `listAll`, so a consumer can query the two independently — see
+   *  `FsListIgnoredInputSchema` for why that separation is load-bearing. */
+  listIgnored(repoPath: string): Promise<FsListIgnoredOutput>;
   readFile(
     repoPath: string,
     filePath: string,
@@ -128,21 +134,11 @@ export function createTerminalWorkspaceEndpoint(
   log: Logger,
 ): TerminalWorkspaceEndpoint {
   const fs: TerminalEndpointFs = {
-    async listAll(
-      repoPath: string,
-      includeIgnored?: boolean,
-    ): Promise<FsListAllOutput> {
-      // Two independent `git ls-files` spawns, run concurrently. Both resolve
-      // to a GitResult (never reject), so the unwrap throws happen only after
-      // both settle — no stranded rejection.
-      const [pathsResult, ignoredResult] = await Promise.all([
-        listAll(repoPath, log),
-        includeIgnored ? listIgnored(repoPath, log) : null,
-      ]);
-      return {
-        paths: unwrapGit(pathsResult),
-        ignoredPaths: ignoredResult ? unwrapGit(ignoredResult) : [],
-      };
+    async listAll(repoPath: string): Promise<FsListAllOutput> {
+      return { paths: unwrapGit(await listAll(repoPath, log)) };
+    },
+    async listIgnored(repoPath: string): Promise<FsListIgnoredOutput> {
+      return { paths: unwrapGit(await listIgnored(repoPath, log)) };
     },
     async readFile(repoPath, filePath) {
       return unwrapGit(await readFile(repoPath, filePath, log));

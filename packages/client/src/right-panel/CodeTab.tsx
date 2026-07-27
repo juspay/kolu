@@ -72,6 +72,7 @@ import {
   codeAllPaths,
   codeBranchStatus,
   codeDiff,
+  codeIgnoredPaths,
   codeLocalStatus,
 } from "./hostCodeTab";
 import FileSearchInput from "./FileSearchInput";
@@ -334,6 +335,7 @@ const CodeTab: Component<{
   const branchStatus = codeBranchStatus;
   const activeStatus = codeActiveStatus;
   const allPaths = codeAllPaths;
+  const ignoredPaths = codeIgnoredPaths;
   const diff = codeDiff;
   const status = () => activeStatus();
   const statusPending = () => activeStatus.pending();
@@ -529,15 +531,37 @@ const CodeTab: Component<{
     // branch's `.map()` below. See `createReactiveSubscription` /
     // `writeValue.ts` for the reconcile strategy.
     //
-    // `ignoredPaths` is the gitignored overlay (empty unless the show-ignored
-    // toggle asked the query for it): collapsed entries whose trailing slash
-    // marks a fully-ignored directory — Pierre renders it as one childless
-    // dimmed folder row, so `node_modules` never enumerates.
+    // The gitignored overlay rides its own idle-unless-toggled query, so its
+    // entries are appended here: collapsed paths whose trailing slash marks a
+    // fully-ignored directory — one childless row, so `node_modules` never
+    // enumerates.
+    //
+    // Deduped, because the two listings are separate `git ls-files` reads taken
+    // at different instants against a live working tree: a file ignored between
+    // them (an agent editing `.gitignore`) can appear in BOTH, and handing
+    // Pierre a duplicate `add` desyncs the wrapper's `appliedPaths` bookkeeping
+    // for good. The tracked listing wins — it is the authority on what the tree
+    // is actually for.
     if (view() === "browse") {
-      const v = allPaths();
-      return [...(v?.paths ?? []), ...(v?.ignoredPaths ?? [])];
+      const tracked = allPaths()?.paths ?? [];
+      const ignored = ignoredPaths()?.paths ?? [];
+      if (ignored.length === 0) return [...tracked];
+      const seen = new Set(tracked);
+      return [...tracked, ...ignored.filter((p) => !seen.has(p))];
     }
     return status()?.files.map((f) => f.path) ?? [];
+  });
+
+  // The dimming set handed to Pierre as its own channel — never as `gitStatus`
+  // entries, whose ancestors Pierre rolls up into "contains a git change" (see
+  // the `ignoredPaths` prop doc in `@kolu/solid-pierre`). Filtered by what is
+  // actually in the tree so a path the tracked listing also claimed isn't dimmed.
+  const treeIgnoredPaths = createMemo(() => {
+    if (view() !== "browse") return undefined;
+    const ignored = ignoredPaths()?.paths ?? [];
+    if (ignored.length === 0) return undefined;
+    const tracked = new Set(allPaths()?.paths ?? []);
+    return ignored.filter((p) => !tracked.has(p));
   });
 
   const treeSearch = createMemo(() =>
@@ -585,18 +609,7 @@ const CodeTab: Component<{
     if (view() === "browse") {
       const local = localStatus()?.files ?? [];
       const branch = branchStatus()?.files ?? [];
-      const merged = mergeGitStatusEntries(local, branch);
-      // The gitignored overlay rows are dimmed via Pierre's native `ignored`
-      // status; a trailing-slash entry marks a directory, which Pierre also
-      // propagates to any descendants. No collision with the status layers —
-      // git status never reports an ignored path.
-      const ignored = allPaths()?.ignoredPaths ?? [];
-      return ignored.length === 0
-        ? merged
-        : [
-            ...merged,
-            ...ignored.map((path) => ({ path, status: "ignored" as const })),
-          ];
+      return mergeGitStatusEntries(local, branch);
     }
     const s = status();
     return s ? mergeGitStatusEntries(s.files, []) : undefined;
@@ -953,6 +966,7 @@ const CodeTab: Component<{
                     <FileTree
                       paths={treeSearch().projectedPaths}
                       gitStatus={treeGitStatus()}
+                      ignoredPaths={treeIgnoredPaths()}
                       selectedPath={selectedPath()}
                       onSelect={handleSelect}
                       // Terminal folder-link front door: a folder ref reveals

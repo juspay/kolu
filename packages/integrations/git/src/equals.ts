@@ -103,10 +103,7 @@ export function fsListAllOutputEqual(
   a: FsListAllOutput,
   b: FsListAllOutput,
 ): boolean {
-  return (
-    arrayEqual(a.paths, b.paths, (x, y) => x === y) &&
-    arrayEqual(a.ignoredPaths, b.ignoredPaths, (x, y) => x === y)
-  );
+  return arrayEqual(a.paths, b.paths, (x, y) => x === y);
 }
 
 export function fsReadFileOutputEqual(

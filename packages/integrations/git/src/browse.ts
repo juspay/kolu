@@ -1,8 +1,11 @@
 /** File tree browsing — git-filtered file listing and file reading.
  *
- *  Uses `git ls-files --cached --others --exclude-standard` to enumerate
- *  tracked + untracked-but-not-ignored paths in one shot. This avoids
- *  listing `node_modules/`, `.git/`, build artifacts, etc. */
+ *  `listAll` uses `git ls-files --cached --others --exclude-standard` to
+ *  enumerate tracked + untracked-but-not-ignored paths in one shot, so it never
+ *  walks `node_modules/`, `.git/`, build artifacts, etc. `listIgnored` is its
+ *  exact complement — the same enumeration for what git DOES ignore, collapsed
+ *  so a fully-ignored directory costs one entry rather than its whole subtree.
+ *  Union the two and you have the working tree. */
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
