@@ -110,7 +110,7 @@ pub fn snapshot_pids(pid: u32) -> String {
     String::from_utf8(out).expect("utf8")
 }
 
-/// Redact the two volatile fields: real pids and kernel-chosen ports.
+/// Redact volatile process ids, user ids, and kernel-chosen ports.
 pub fn redact_tsv(tsv: &str) -> String {
     let mut out = String::with_capacity(tsv.len());
     for line in tsv.lines() {
@@ -130,10 +130,10 @@ pub fn redact_tsv(tsv: &str) -> String {
             let mut parts = rest.splitn(5, '\t');
             let status = parts.next().unwrap_or("");
             let _pid = parts.next().unwrap_or("");
-            let uid = parts.next().unwrap_or("");
+            let _uid = parts.next().unwrap_or("");
             let _port = parts.next().unwrap_or("");
             let hex = parts.next().unwrap_or("");
-            format!("L\t{status}\t<PID>\t{uid}\t<PORT>\t{hex}")
+            format!("L\t{status}\t<PID>\t<UID>\t<PORT>\t{hex}")
         } else if let Some(rest) = line.strip_prefix("U\t") {
             let mut parts = rest.splitn(3, '\t');
             let _pid = parts.next().unwrap_or("");

@@ -4,4 +4,4 @@ expression: redact_tsv(&h.tsv)
 ---
 V	2
 P	<PID>	<PPID>	osfacts-listener
-L	claimed	<PID>	1000	<PORT>	00000000000000000000000000000001
+L	claimed	<PID>	<UID>	<PORT>	00000000000000000000000000000001

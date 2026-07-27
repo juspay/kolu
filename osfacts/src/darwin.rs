@@ -31,6 +31,15 @@ const XSO_TCPCB: u32 = 0x020;
 const INP_IPV6: u8 = 0x2;
 const PROCESSOR_CPU_LOAD_INFO: c_int = 2;
 
+// Apple XNU declares `xinpcb_n` under `#pragma pack(4)`. Keep these offsets
+// beside the decoder: lport follows xi_inpp + fport, while vflag and the local
+// 16-byte address follow the generation/flags/flow prefix. The corresponding
+// `xtcpcb_n` state follows t_segq, dupacks, and four timers.
+const XINPCB_LPORT_OFFSET: usize = 18;
+const XINPCB_VFLAG_OFFSET: usize = 44;
+const XINPCB_LADDR_OFFSET: usize = 64;
+const XTCPCB_STATE_OFFSET: usize = 36;
+
 #[repr(C)]
 struct ProcBsdInfo {
     pbi_flags: u32,
@@ -525,10 +534,14 @@ fn host_listeners() -> Result<Vec<(u16, String)>, i32> {
         }
         let kind = read_u32(&bytes, offset + 4)?;
         if kind == XSO_INPCB && len >= 84 {
-            let raw_port = u16::from_ne_bytes(bytes[offset + 18..offset + 20].try_into().unwrap());
+            let raw_port = u16::from_ne_bytes(
+                bytes[offset + XINPCB_LPORT_OFFSET..offset + XINPCB_LPORT_OFFSET + 2]
+                    .try_into()
+                    .unwrap(),
+            );
             let port = u16::from_be(raw_port);
-            let vflag = bytes[offset + 48];
-            let local = &bytes[offset + 68..offset + 84];
+            let vflag = bytes[offset + XINPCB_VFLAG_OFFSET];
+            let local = &bytes[offset + XINPCB_LADDR_OFFSET..offset + XINPCB_LADDR_OFFSET + 16];
             let address = if vflag & INP_IPV6 != 0 {
                 hex_bytes(local)
             } else {
@@ -536,7 +549,11 @@ fn host_listeners() -> Result<Vec<(u16, String)>, i32> {
             };
             pending = Some((port, address));
         } else if kind == XSO_TCPCB && len >= 40 {
-            let state = i32::from_ne_bytes(bytes[offset + 36..offset + 40].try_into().unwrap());
+            let state = i32::from_ne_bytes(
+                bytes[offset + XTCPCB_STATE_OFFSET..offset + XTCPCB_STATE_OFFSET + 4]
+                    .try_into()
+                    .unwrap(),
+            );
             if state == TSI_S_LISTEN {
                 if let Some(row) = pending.take() {
                     if row.0 != 0 {
