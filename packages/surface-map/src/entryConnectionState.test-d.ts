@@ -45,12 +45,34 @@ const failedNoFailure: EntryConnectionState<"copying", { reason: string }> = {
 };
 void failedNoFailure;
 
-// A `failed` arm WITH the domain failure is the ONLY constructible form.
-const failedOk: EntryConnectionState<"copying", { reason: string }> = {
+// ── The `failed` arm REQUIRES the failure's EVIDENCE too ─────────────────────────
+// A reason without its retained output tail is the defect this pairing removes
+// (juspay/kolu#2007: kolu held a reason whose evidence the liveness floor had already
+// dropped). It is UNSPELLABLE, not merely discouraged.
+// @ts-expect-error — `failed` requires `evidence`; reason-without-evidence cannot be spelled.
+const failedNoEvidence: EntryConnectionState<"copying", { reason: string }> = {
   kind: "failed",
   failure: { reason: "gave up for good" },
 };
+void failedNoEvidence;
+
+// A `failed` arm WITH the domain failure AND its evidence is the ONLY constructible form.
+const failedOk: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "failed",
+  failure: { reason: "gave up for good" },
+  evidence: [{ source: "remote", line: "error: build failed" }],
+};
 void failedOk;
+
+// `[]` is a REAL, spellable evidence value — "the failure genuinely produced no
+// output", stated by the seam that knows. (It is never a stand-in for "we can't see it":
+// no such state exists on this arm any more.)
+const failedNoOutput: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "failed",
+  failure: { reason: "gave up for good" },
+  evidence: [],
+};
+void failedNoOutput;
 
 // `disconnected.failure` stays OPTIONAL — a transient drop legitimately carries
 // none (→ warming). That per-arm optionality is exactly what does NOT bleed onto
@@ -60,6 +82,34 @@ const disconnectedTransient: EntryConnectionState<
   { reason: string }
 > = { kind: "disconnected" };
 void disconnectedTransient;
+
+// ── The `disconnected` arm PAIRS `failure` with `evidence` ───────────────────────
+// A standing refuse publishes the `failed` status, so it gets the same stapling as a
+// terminal give-up: a refuse whose reason arrived WITHOUT its evidence is a compile
+// error, not a runtime surprise.
+// @ts-expect-error — a `disconnected` failure must arrive WITH its evidence.
+const refuseNoEvidence: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "disconnected",
+  failure: { reason: "contract skew — refused" },
+};
+void refuseNoEvidence;
+
+// The paired form is the only constructible standing refuse.
+const refuseOk: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "disconnected",
+  failure: { reason: "contract skew — refused" },
+  evidence: [{ source: "local", line: "padi: refusing, version skew" }],
+};
+void refuseOk;
+
+// And evidence cannot ride a transient drop ALONE either — the pair is both-or-neither,
+// so "evidence without a reason" is as unspellable as its mirror.
+// @ts-expect-error — evidence without a `failure` is not a state this arm can hold.
+const evidenceNoRefuse: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "disconnected",
+  evidence: [{ source: "local", line: "dropped" }],
+};
+void evidenceNoRefuse;
 
 // The same split, one layer up: an `EntrySession<never>` (a LOCAL entry's
 // resolved session) cannot carry a "copying" `state` either.

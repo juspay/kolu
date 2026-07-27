@@ -126,7 +126,15 @@ export interface EntryClock {
  *  through untouched (the floor is about liveness, not identity), so the demoted `warming`
  *  is still the SAME membership, keyed the same way (PR3). `not-a-member` carries neither
  *  word nor identity and passes through as-is, and a live link is a no-op. Making `live` a
- *  REQUIRED argument is the point: `foldState` cannot forget to floor. */
+ *  REQUIRED argument is the point: `foldState` cannot forget to floor.
+ *
+ *  A failed arm's `failure` AND its `evidence` BOTH ride through untouched — by
+ *  construction, not by a carve-out: the floor drops exactly `connection`, and evidence
+ *  is a field of the FAILURE record, pinned at classification (see `FailureEvidence`).
+ *  That is the whole reason evidence lives there: staleness is a property of a LIVE view,
+ *  and a post-mortem tail of the episode that already gave up cannot go stale. Before
+ *  this, the retained tail rode `connection` and a dead browser link floored the evidence
+ *  away while the reason survived (juspay/kolu#2007). */
 export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   status: EntryState<Failure, Conn>,
   live: boolean,

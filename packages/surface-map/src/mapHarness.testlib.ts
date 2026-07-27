@@ -14,7 +14,11 @@ import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import type { AnyContractRouter } from "@orpc/contract";
 import { z } from "zod";
 import { connectSurfaceMap } from "./client";
-import { defineSurfaceMap, type KeyCodec } from "./define";
+import {
+  defineSurfaceMap,
+  type FailureEvidence,
+  type KeyCodec,
+} from "./define";
 import {
   type EntryConnectionState,
   type EntrySession,
@@ -173,7 +177,7 @@ export function makeRegistry() {
     HostKey,
     {
       session: EntrySession<"copying", TestFailure> | null;
-      fault?: TestFailure;
+      fault?: { failure: TestFailure; evidence: FailureEvidence };
     }
   >();
   const listeners = new Set<() => void>();
@@ -195,8 +199,11 @@ export function makeRegistry() {
         return {
           kind: "fault",
           failure: { cause: "unknown", reason: "unknown key" },
+          // An unknown key produced no output at all — `[]` is the honest fact,
+          // stated at the seam that knows it (never a framework default).
+          evidence: [],
         };
-      if (e.fault !== undefined) return { kind: "fault", failure: e.fault };
+      if (e.fault !== undefined) return { kind: "fault", ...e.fault };
       return e.session as EntrySession<"copying", TestFailure>;
     },
   };
@@ -211,9 +218,12 @@ export function makeRegistry() {
       fire();
     },
     // PR4: a structural fault carries a schema-valid domain `failure` (the mock's
-    // stand-in for the real classifier), never a fabricated catch-all.
-    addFault(k: HostKey, failure: TestFailure) {
-      entries.set(k, { session: null, fault: failure });
+    // stand-in for the real classifier), never a fabricated catch-all — plus that
+    // failure's `evidence`. A fault has no session, so it has no retained tail to
+    // staple: `[]` ("produced no output") is the default here for the many tests
+    // that don't care, and a test that DOES care passes its own.
+    addFault(k: HostKey, failure: TestFailure, evidence: FailureEvidence = []) {
+      entries.set(k, { session: null, fault: { failure, evidence } });
       fire();
     },
     setState(k: HostKey, state: EntryConnectionState<"copying", TestFailure>) {
@@ -263,22 +273,32 @@ export const connected = (
   clockOffset,
 });
 
-/** A terminal `failed` connection state carrying a domain `failure` (PR4) — the
- *  arm REQUIRES it, so this helper cannot construct the illegal failed-without-
- *  failure state (see `entryConnectionState.test-d.ts`). */
+/** A terminal `failed` connection state carrying a domain `failure` (PR4) and its
+ *  `evidence` — the arm REQUIRES both, so this helper cannot construct either
+ *  illegal state (failed-without-failure, or a reason without its evidence; see
+ *  `entryConnectionState.test-d.ts`).
+ *
+ *  `evidence` DEFAULTS to `[]` — "this failure produced no output" — purely so the
+ *  many framework tests that don't care about evidence stay readable. A test that
+ *  DOES care about evidence MUST pass its own tail: the default states a fact, it
+ *  never stands in for one this helper doesn't know. */
 export const failed = (
   failure: TestFailure,
+  evidence: FailureEvidence = [],
 ): EntryConnectionState<"copying", TestFailure> => ({
   kind: "failed",
   failure,
+  evidence,
 });
 
 /** A `disconnected` connection state — TRANSIENT when `failure` is omitted (the
  *  classifier returned nothing → projects to warming), STANDING when supplied
- *  (a refuse → projects to failed). */
+ *  (a refuse → projects to failed, carrying its `evidence`; same default rule as
+ *  {@link failed}). */
 export const disconnected = (
   failure?: TestFailure,
+  evidence: FailureEvidence = [],
 ): EntryConnectionState<"copying", TestFailure> =>
   failure === undefined
     ? { kind: "disconnected" }
-    : { kind: "disconnected", failure };
+    : { kind: "disconnected", failure, evidence };

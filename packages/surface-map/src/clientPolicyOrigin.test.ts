@@ -96,6 +96,8 @@ function armableRegistry() {
         entries.get(k) ?? {
           kind: "fault",
           failure: { cause: "fault", reason: "unknown key" },
+          // An unknown key produced no output — `[]` is the honest fact.
+          evidence: [],
         }
       );
     },

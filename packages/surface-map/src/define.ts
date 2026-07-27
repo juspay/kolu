@@ -76,6 +76,50 @@ export type MembershipId = z.infer<typeof MembershipIdSchema>;
 export const PENDING_MEMBERSHIP_ID: MembershipId =
   MembershipIdSchema.parse("pending");
 
+// ── Failure evidence ───────────────────────────────────────────────────
+
+/** One retained output line of a failed entry's episode — the WHOLE structural
+ *  vocabulary {@link FailureEvidence} is built from. `source` says WHERE the line
+ *  came from (`"local"` = the serving process's own chatter, `"remote"` = the far
+ *  end's forwarded output); it is a FIELD, never an in-band `[local] ` prefix.
+ *
+ *  Deliberately a FIXED structural type owned by this package, NOT a third generic
+ *  parameter beside `Failure`/`Conn`. Evidence is not domain volatility: every
+ *  transport that can fail can produce provenance-tagged output lines, and
+ *  `@kolu/surface-remote`'s own `SessionState.log` (`readonly LogEntry[]`) is
+ *  structurally exactly this — so the producer passes its retained tail straight
+ *  through (reuse of the existing source of truth; there is no second evidence
+ *  pipe to keep in sync, and nothing to inject). */
+export interface EvidenceLine {
+  readonly source: "local" | "remote";
+  readonly line: string;
+}
+
+/** The retained output tail STAPLED to a failure record — the EVIDENCE for the
+ *  reason, pinned at the classification seam from the same frame the reason was
+ *  classified from. A post-mortem record, not a live view.
+ *
+ *  It rides the FAILURE, not the live `connection` payload, and that is the whole
+ *  point: `floorOnLiveness` DROPS `connection` over a dead link (a frozen live word
+ *  keeps narrating work that is no longer happening) while keeping `failure` — so
+ *  before this existed, a consumer could hold a reason with its evidence already
+ *  floored away, and kolu did exactly that for a year (juspay/kolu#2007). Carrying
+ *  the tail on the failure record makes reason-without-evidence UNSPELLABLE: the
+ *  type requires it on both down arms, {@link entryStatusSchema} requires it on the
+ *  wire, and the floor keeps it by construction.
+ *
+ *  `[]` is a REAL value with ONE meaning — "the failure genuinely produced no
+ *  output" — minted only by the seam that knows. It is never a fallback for
+ *  "we couldn't see it": there is no such state on a failed arm any more. */
+export type FailureEvidence = readonly EvidenceLine[];
+
+/** The wire/zod schema for {@link FailureEvidence}. A module const (not a function
+ *  of a domain schema like the failure value): evidence is a fixed structural type
+ *  this package owns, so there is exactly one schema for it. */
+export const FailureEvidenceSchema: ZodType<FailureEvidence> = z
+  .array(z.object({ source: z.enum(["local", "remote"]), line: z.string() }))
+  .readonly();
+
 // ── Membership status ──────────────────────────────────────────────────
 
 /** The published per-entry status — the value carried by the `entries`
@@ -111,7 +155,14 @@ export const PENDING_MEMBERSHIP_ID: MembershipId =
  *  value — the framework has no fabricated fallback cause (PR4), so "failed with
  *  an invented reason" is unrepresentable, not merely discouraged. Defaults to
  *  `unknown` so generic library code carries the value opaquely; a domain
- *  narrows it at its own map. */
+ *  narrows it at its own map.
+ *
+ *  {@link FailureEvidence} is that reason's EVIDENCE, and it is the framework's
+ *  co-product of the same record: the `failed` arm requires BOTH, so a reason
+ *  without its retained output tail is as unrepresentable as a failure without a
+ *  reason. It is a FIXED structural type this package owns (not a third generic) —
+ *  see {@link FailureEvidence} for why, and for why it rides the failure instead of
+ *  the live `connection`. */
 /** `Conn` is the FINE connection payload carried on every session-backed arm (SR9):
  *  the domain's rich per-host connection state (padi's `ConnectionInfo` — the phase +
  *  log tail + elapsed the coarse `kind` folds away). Parameterized exactly like
@@ -135,6 +186,13 @@ export type EntryStatus<Failure = unknown, Conn = unknown> =
       kind: "failed";
       membershipId: MembershipId;
       failure: Failure;
+      // The reason's EVIDENCE, co-produced with it at the classification seam and
+      // REQUIRED — a failed entry can no more be published without its retained
+      // output tail than without its domain failure. Unlike `connection` (live,
+      // dropped by the liveness floor) this is a pinned post-mortem record, so it
+      // survives a dead link with the failure it belongs to. See
+      // {@link FailureEvidence}.
+      evidence: FailureEvidence;
       connection?: Conn;
     };
 
@@ -191,6 +249,10 @@ export function entryStatusSchema<Failure, Conn = unknown>(
       kind: z.literal("failed"),
       membershipId: MembershipIdSchema,
       failure: failureSchema,
+      // REQUIRED on the wire, not merely in TypeScript: a failed status without its
+      // evidence FAILS this parse. Enforcement lives at the codec, so "reason without
+      // evidence" cannot be decoded even from a hand-crafted frame.
+      evidence: FailureEvidenceSchema,
       ...conn,
     }),
   ]) as unknown as ZodType<EntryStatus<Failure, Conn>>;

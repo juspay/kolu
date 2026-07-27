@@ -399,6 +399,8 @@ describe("surface-map mock-entry e2e harness", () => {
           entries.get(k) ?? {
             kind: "fault",
             failure: { cause: "fault", reason: "unknown" },
+            // An unknown key produced no output — `[]` is the honest fact.
+            evidence: [],
           },
       };
       entries.set(A, { kind: "session", link: slowLink, state: connected(0) });
@@ -517,6 +519,8 @@ describe("surface-map mock-entry e2e harness", () => {
           entries.get(k) ?? {
             kind: "fault",
             failure: { cause: "fault", reason: "unknown" },
+            // An unknown key produced no output — `[]` is the honest fact.
+            evidence: [],
           },
       };
       const fire = () => {
@@ -785,6 +789,8 @@ function armableRegistry() {
         entries.get(k) ?? {
           kind: "fault",
           failure: { cause: "fault", reason: "unknown key" },
+          // An unknown key produced no output — `[]` is the honest fact.
+          evidence: [],
         }
       );
     },
@@ -1126,6 +1132,37 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
     });
   });
 
+  it("keeps a failed arm's `failure` AND its `evidence` over a DEAD link, dropping only the live `connection` (juspay/kolu#2007)", () => {
+    // THE property the whole evidence design exists for. The failure record and its
+    // evidence are one post-mortem value pinned at classification, so the liveness floor
+    // — which exists to stop a STALE LIVE view from narrating work that is no longer
+    // happening — has nothing to floor about them. Only `connection` (the live word)
+    // goes. Before this, the retained tail rode `connection`, so a dead browser link
+    // left the card showing a reason with its evidence silently dropped.
+    const evidence = [
+      { source: "local" as const, line: "nix build …" },
+      { source: "remote" as const, line: "error: attribute 'foo' missing" },
+    ];
+    expect(
+      floorOnLiveness(
+        {
+          kind: "failed",
+          membershipId: testMembershipId("m1"),
+          failure: { cause: "x", reason: "boom" },
+          evidence,
+          connection: { phase: "failed" },
+        },
+        false,
+      ),
+    ).toEqual({
+      kind: "failed",
+      membershipId: testMembershipId("m1"),
+      failure: { cause: "x", reason: "boom" },
+      evidence,
+      connection: undefined,
+    });
+  });
+
   it("never fabricates OR demotes an honest status — failed/warming/not-a-member pass through regardless of live", () => {
     for (const live of [true, false]) {
       expect(
@@ -1134,6 +1171,7 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
             kind: "failed",
             membershipId: testMembershipId("m1"),
             failure: { cause: "x", reason: "boom" },
+            evidence: [],
           },
           live,
         ),
@@ -1141,6 +1179,7 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
         kind: "failed",
         membershipId: testMembershipId("m1"),
         failure: { cause: "x", reason: "boom" },
+        evidence: [],
       });
       expect(
         floorOnLiveness(
@@ -1342,6 +1381,8 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
         entries.get(k.name) ?? {
           kind: "fault",
           failure: { cause: "fault", reason: "unknown" },
+          // An unknown key produced no output — `[]` is the honest fact.
+          evidence: [],
         },
     };
     return {

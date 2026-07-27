@@ -364,13 +364,22 @@ export function serveHostMap<
         // published arm cannot even hold.
         if (failure === null)
           throw new UnclassifiedHostFailureError(enc, down.error);
-        state = { kind: "failed", failure };
+        // EVIDENCE, stapled here: the session's retained log tail off the SAME `raw`
+        // frame `failureOf` just classified — pinned at classification, so the failure
+        // record carries a post-mortem of the episode that produced it rather than a
+        // live view that a dead browser link would later floor away. `raw.log` is the
+        // existing source of truth (`SessionState.log`, carried forward into the failed
+        // arm by `session.ts`'s `setDown`) — passed straight through, never a second
+        // evidence pipe. `[]` here means the episode genuinely retained no lines.
+        state = { kind: "failed", failure, evidence: down.log };
       } else {
         // `disconnected`: `null` = transient drop → keep `failure` ABSENT (→ warming); a
-        // domain failure → attach it (a standing refuse → failed).
+        // domain failure → attach it (a standing refuse → failed) TOGETHER with its
+        // evidence, which the type pairs with it — a standing refuse is published as
+        // `failed`, so it gets exactly the same stapling as a terminal give-up.
         state =
           failure !== null
-            ? { kind: "disconnected", failure }
+            ? { kind: "disconnected", failure, evidence: down.log }
             : { kind: "disconnected" };
       }
     } else {
