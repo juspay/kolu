@@ -80,7 +80,7 @@ publish the frequency sysctl, so absence is `null` / `-`, never a fabricated
 zero. Disk rows keep both meanings the kernel exposes: free bytes from `bfree`
 and unprivileged-available bytes from `bavail`, alongside total bytes.
 
-## Known limitation
+## Known limitations
 
 Darwin draws its privilege line through a process, not around it. `kern.proc`
 gives an ordinary caller the pid, ppid, real uid, state, nice value, start time,
@@ -102,6 +102,22 @@ setuid root, and Apple signs it with the private
 [entitlement](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/entitlements.plist)).
 osfacts deliberately has neither. A privileged helper would make the numbers
 less blind by making the program more privileged, which is a different product.
+
+macOS 27 draws the same kind of line around the host-wide TCP table. On zest,
+Apple's platform-signed `/usr/sbin/sysctl` received 54,872 bytes from
+`net.inet.tcp.pcblist_n` while a paired `/usr/sbin/netstat` read counted 29
+listeners. An ad-hoc-signed osfacts binary received 48 bytes from the same
+sysctl: just the opening and closing records, with no sockets between them.
+The full capture decodes to all 29 listeners with osfacts' existing decoder, so
+this is a caller-signing gate, not a new record layout. `netstat` carries the
+private `com.apple.private.network.statistics` entitlement; `sysctl` is an
+Apple platform binary. osfacts is neither.
+
+The 48-byte shape is indistinguishable from a genuinely empty host-wide table,
+so osfacts keeps reporting `E darwin_tcp_pcblist BLIND_OR_EMPTY`. It does not
+throw away facts it got elsewhere: the same-uid fd walk still emits its claimed
+listeners. What macOS 27 gates is the independent table that would also reveal
+listeners no readable pid claimed.
 
 Source blindness is an `E` row, not an instruction to discard facts that did
 arrive. A partial snapshot exits successfully and leaves reject-versus-render
