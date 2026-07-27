@@ -342,7 +342,11 @@ const hostScoped = createRoot(() => {
   const connection = (): ConnectionInfo | undefined =>
     match(active.state())
       .with({ kind: "warming" }, { kind: "connected" }, (s) => s.connection)
-      .otherwise(() => undefined);
+      // Spelled EXHAUSTIVELY, not `.otherwise()`: a future arm that DOES carry a live
+      // word must state its policy here rather than silently answering "no connection".
+      // This is the read that narrated the wrong thing for a year.
+      .with({ kind: "failed" }, { kind: "not-a-member" }, () => undefined)
+      .exhaustive();
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
   // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader

@@ -701,11 +701,15 @@ export function serveSurfaceMap<
     a: EntryStatus<Failure, Conn>,
     b: EntryStatus<Failure, Conn>,
   ): boolean => {
-    const keys = Object.keys(a);
-    if (keys.length !== Object.keys(b).length) return false;
     const ra = a as unknown as Record<string, unknown>;
     const rb = b as unknown as Record<string, unknown>;
-    return keys.every((k) => Object.is(ra[k], rb[k]));
+    // The UNION of both values' own keys — computed, not assumed from a matching key
+    // COUNT. A count guard is only sound while a given `kind` always yields a fixed key
+    // set, which is the very assumption this rewrite exists to stop relying on: `{p, q}`
+    // vs `{p, r}` (both `undefined`) compare equal under a count guard and unequal over
+    // the union. Over the union the gate cannot skip a key present on only one side.
+    const keys = new Set([...Object.keys(ra), ...Object.keys(rb)]);
+    return [...keys].every((k) => Object.is(ra[k], rb[k]));
   };
   const unsubRepublish = registry.subscribe(() => {
     const ks = members();

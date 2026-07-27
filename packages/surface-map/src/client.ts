@@ -147,7 +147,20 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   // `failed` has no `connection` field to drop — its record is already floor-proof by
   // construction, so it passes through whole rather than being rebuilt.
   if (status.kind === "failed") return status;
-  return { ...status, connection: undefined };
+  // The last session-backed arm, spelled EXPLICITLY rather than as a catch-all. A new
+  // `EntryStatus` arm must state its own floor policy here; falling through to a blanket
+  // `connection: undefined` is how a hand-enumerated site silently mis-floors an arm it
+  // was never told about — the same failure mode the republish gate was rewritten to
+  // remove. (`surface-map` carries no `ts-pattern` dependency, so this is a local `never`
+  // assertion rather than an `.exhaustive()`.)
+  if (status.kind === "warming") return { ...status, connection: undefined };
+  return assertNeverEntryArm(status);
+}
+
+function assertNeverEntryArm(s: never): never {
+  throw new Error(
+    `surface-map: floorOnLiveness has no policy for entry arm ${JSON.stringify(s)}`,
+  );
 }
 
 /** Floor a per-key `Subscription<EntryStatus>` on liveness with the SAME
