@@ -92,7 +92,11 @@ vi.mock("../wire", async () => {
       getDiff: async () => ({ hunks: [] }),
     },
     fs: {
-      listAll: async () => ({ paths: [] }),
+      listAll: async () => {
+        bag.counts.listAll = (bag.counts.listAll ?? 0) + 1;
+        return { paths: ["src/app.ts"] };
+      },
+      listIgnored: async () => ({ paths: ["node_modules/"] }),
       readFile: async () => ({ content: "", truncated: false }),
       filePreviewTag: async (input: { repoPath: string; filePath: string }) => {
         bag.previewTagInputs.push(input);
@@ -135,7 +139,8 @@ import {
   removeHost,
   resetHosts,
 } from "../hostScope/mockHostMap.testlib";
-import { codeFileContent, codeLocalStatus } from "./hostCodeTab";
+import { codeAllPaths, codeFileContent, codeLocalStatus } from "./hostCodeTab";
+import { setShowIgnoredFiles } from "./showIgnoredFiles";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const pulse = () => {
@@ -348,5 +353,42 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     filePulse(secondInput);
     await flush();
     expect(bag.previewTagInputs).toEqual([indexInput, secondInput]);
+  });
+
+  // The show-ignored toggle is a DISPLAY preference, so it must not disturb the
+  // main file list. An earlier shape put it in `fs.listAll`'s input as an
+  // `includeIgnored` flag, which joined that query's value key: every flip
+  // blanked the whole list, which unmounts `<FileTree>` and remounts it with
+  // `initialExpansion: "closed"` — losing every hand-expanded folder and the
+  // scroll position. Splitting the ignored listing into its own idle-unless-on
+  // query is what fixes it, and this pins that separation.
+  it("flipping the show-ignored toggle leaves the main file list untouched — no blank, no re-query", async () => {
+    switchTo(HOST_A);
+    void codeAllPaths.pending();
+    await flush();
+    pulse();
+    await flush();
+
+    const settled = codeAllPaths();
+    expect(settled?.paths).toEqual(["src/app.ts"]);
+    const queriesBefore = bag.counts.listAll;
+    // Guard against a vacuous pass: if the mock were never reached, the
+    // equality assertions below would compare `undefined` to `undefined`.
+    expect(queriesBefore).toBeGreaterThan(0);
+
+    setShowIgnoredFiles(true);
+    await flush();
+
+    // Same value object identity is not required, but the value must never go
+    // absent (a blank) and the tracked listing must not be re-fetched.
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
+    expect(codeAllPaths.pending()).toBe(false);
+    expect(bag.counts.listAll).toBe(queriesBefore);
+
+    setShowIgnoredFiles(false);
+    await flush();
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
+    expect(codeAllPaths.pending()).toBe(false);
+    expect(bag.counts.listAll).toBe(queriesBefore);
   });
 });

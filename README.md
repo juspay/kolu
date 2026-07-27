@@ -33,6 +33,10 @@ Open <http://127.0.0.1:7681>. Continue with the
 [Quickstart](https://kolu.dev/quickstart) and
 [First Five Minutes](https://kolu.dev/first-five-minutes).
 
+If the first run starts **compiling** instead of downloading, enable kolu's
+binary cache — see
+[the Quickstart](https://kolu.dev/quickstart#first-run-compiling-enable-the-binary-cache).
+
 ## Why kolu
 
 Unlike an agent command center that wraps one model behind its own chat UI,

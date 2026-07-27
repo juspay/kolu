@@ -201,4 +201,9 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "The Code tab is a browser — follow a link or jump between files, then use the ◀ ▶ buttons, Alt+←/→, or your mouse's back/forward buttons to retrace everywhere you've been",
     doc: "code-tab",
   },
+  {
+    id: "amb-code-tab-show-ignored",
+    text: "The eye toggle in the Code tab's All-files toolbar reveals gitignored files as dimmed rows — a fully-ignored folder shows as one collapsed entry, so peeking inside node_modules costs one row",
+    doc: "code-tab",
+  },
 ];
