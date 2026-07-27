@@ -4,10 +4,18 @@
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
 import Dialog from "@corvu/dialog";
+import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { attentionDiagnostic } from "./attention/attentionDiagnostics";
+import { hostUrgencyMirror } from "./attention/attentionMarks";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
+import { bindStatePip } from "./terminal/statePipBind";
+import { useFinishedQuiet } from "./terminal/useFinishedQuiet";
+import { useTerminalActivity } from "./terminal/useTerminalActivity";
+import { useTerminalStore } from "./terminal/useTerminalStore";
+import { activeHost } from "./wire";
 import { PAINT_STALL_WARN_MS } from "@kolu/xterm-kit/solid";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
@@ -63,6 +71,59 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   props,
 ) => {
   const browser = browserFacts();
+  const store = useTerminalStore();
+  const activity = useTerminalActivity();
+  const finishedQuiet = useFinishedQuiet();
+
+  /** The attention snapshot — every terminal's paint inputs beside the counts'
+   *  inputs, plus this host's mirrored urgency frame, so a "why does the tab
+   *  say 2 when I see 3 working" report carries its own diagnosis. The two
+   *  sides are captured from the SAME render, so a disagreement in the dump is
+   *  a real disagreement and not two reads a second apart. */
+  const attention = createMemo(() => {
+    const encHost = encodeHostKey(activeHost());
+    const urgency = hostUrgencyMirror(encHost);
+    const rows = store.terminalIds().map((id) => {
+      const meta = store.getMetadata(id);
+      if (!meta) return null;
+      const isLive = activity.isLive(id);
+      const isFinished = finishedQuiet.isFinished(id);
+      // Bind through the REAL binder rather than re-deriving paint here — a
+      // diagnostic that re-spells the rule it is diagnosing can drift from it
+      // and quietly report the wrong thing.
+      const pip = bindStatePip({ meta, isLive, isFinished, unread: false });
+      const d = attentionDiagnostic({
+        id,
+        meta,
+        glyph: pip.glyph,
+        pipVariant: pip.variant,
+        shellLive: pip.shellLive,
+        isLive,
+        isFinished,
+      });
+      return {
+        ...d,
+        // padi's own verdict for the same terminal, from the mirrored urgency
+        // frame. `agentState: null` here while padi lists it working is a
+        // client/server SYNC gap; both blank while the title spins is a
+        // DETECTION gap. The pair is what tells them apart.
+        padiSaysWorking: urgency.workingIds.includes(id),
+        padiSaysAwaiting: urgency.askingIds.includes(id),
+        padiSaysFinished: urgency.finishedIds.includes(id),
+      };
+    });
+    const terminals = rows.filter((r) => r !== null);
+    return {
+      host: encHost,
+      hostLive: urgency.live,
+      counts: {
+        working: urgency.workingIds.length,
+        asking: urgency.askingIds.length,
+      },
+      disagreements: terminals.filter((t) => t.disagreement !== null).length,
+      terminals,
+    };
+  });
 
   const snapshot = createMemo(() => {
     const webgl = webglLifecycleSnapshot();
@@ -125,6 +186,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           },
         };
       }),
+      attention: attention(),
       webgl,
     };
   });
@@ -289,6 +351,70 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 );
               })()}
             </Row>
+          </div>
+        </Section>
+
+        {/* Attention — the paint inputs beside the count inputs. A row turns
+         *  red when the two disagree, which is the bug this section exists to
+         *  make self-reporting rather than pixel-forensic. */}
+        <Section title="Attention">
+          <div class="text-[11px] font-mono space-y-1">
+            <Row label="host counts">
+              <span class="tabular-nums">
+                {attention().counts.working} working ·{" "}
+                {attention().counts.asking} awaiting
+                {attention().hostLive ? "" : " (host not live)"}
+              </span>
+            </Row>
+            <Show
+              when={attention().disagreements > 0}
+              fallback={
+                <div class="text-[10px] text-fg-3/60 italic">
+                  paint and counts agree on every terminal
+                </div>
+              }
+            >
+              <div class="text-[10px] text-danger font-semibold">
+                {attention().disagreements} terminal(s) where the pip and the
+                counts disagree — details below
+              </div>
+            </Show>
+            <For each={attention().terminals}>
+              {(t) => (
+                <div
+                  class="space-y-0.5 border-l-2 pl-2"
+                  classList={{
+                    "border-danger": t.disagreement !== null,
+                    "border-edge/40": t.disagreement === null,
+                  }}
+                >
+                  <div class="grid grid-cols-[9ch_1fr_auto] items-baseline gap-3">
+                    <span class="text-fg-3/70">{t.id.slice(0, 8)}</span>
+                    <span class="text-fg-2 truncate">{t.label}</span>
+                    <span class="text-[10px] text-fg-3/70">
+                      {t.agentKind ?? "no-agent"}/{t.agentState ?? "—"}
+                    </span>
+                  </div>
+                  <div class="pl-[9ch] text-[10px] text-fg-3/80 tabular-nums">
+                    pip={t.pipVariant}
+                    {t.shellLive ? "+shellLive" : ""} glyph={t.glyph} live=
+                    {String(t.isLive)} fin={String(t.isFinished)} busy=
+                    {String(t.paintsBusy)} counted={String(t.countedWorking)}
+                    {t.spinnerInTitle ? " spinner=YES" : ""}
+                    {t.padiSaysWorking ? " padi=working" : ""}
+                    {t.padiSaysFinished ? " padi=finished" : ""}
+                    {t.padiSaysAwaiting ? " padi=awaiting" : ""}
+                  </div>
+                  <Show when={t.disagreement}>
+                    {(msg) => (
+                      <div class="pl-[9ch] text-[10px] text-danger">
+                        {msg()}
+                      </div>
+                    )}
+                  </Show>
+                </div>
+              )}
+            </For>
           </div>
         </Section>
 

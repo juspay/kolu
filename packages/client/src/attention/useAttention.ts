@@ -213,7 +213,8 @@ export function useAttention(deps: AttentionDeps): {
         const v = value();
         writeHostMarks(encHost, {
           askingIds: v?.awaitingIds ?? [],
-          working: v?.workingIds.length ?? 0,
+          workingIds: v?.workingIds ?? [],
+          finishedIds: v?.finishedIds ?? [],
           live: live(),
         });
       });

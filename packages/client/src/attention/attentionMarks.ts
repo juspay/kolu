@@ -28,8 +28,14 @@ export interface HostMarks {
   /** Terminals blocked on your input — the violet needs-you pill (`.length`)
    *  and the pill click's jump targets. */
   askingIds: readonly TerminalId[];
-  /** Agents in flight (thinking / tools / background) — the rust count. */
-  working: number;
+  /** Agents in flight (thinking / tools / background) — the rust count's ids. */
+  workingIds: readonly TerminalId[];
+  /** Terminals that effectively finished a turn (EF2). Not itself a rendered
+   *  mark — the amber count is `unseenFinished` — but held so the host's whole
+   *  urgency frame is mirrored in ONE place, which the attention diagnostics
+   *  read to compare what padi says against what the client's per-terminal
+   *  metadata says. */
+  finishedIds: readonly TerminalId[];
   /** Finished-but-unvisited terminals on this host — the amber count. */
   unseenFinished: number;
   /** Host link + urgency cell are up — a dead host's `asking` must not count. */
@@ -79,9 +85,29 @@ export function hostMarks(encHost: string): {
   unseenFinished: () => number;
 } {
   return {
-    working: () => marks[encHost]?.working ?? 0,
+    // Counts are DERIVED from the id lists at the read site — the same
+    // no-second-source law the urgency cell itself follows, so a count can
+    // never disagree with the ids it summarizes.
+    working: () => marks[encHost]?.workingIds.length ?? 0,
     asking: () => hostAsking(encHost),
     unseenFinished: () => hostUnseenFinished(encHost),
+  };
+}
+
+/** The host's whole mirrored urgency frame — the attention diagnostics read
+ *  this to compare padi's view against the client's per-terminal metadata. */
+export function hostUrgencyMirror(encHost: string): {
+  askingIds: readonly TerminalId[];
+  workingIds: readonly TerminalId[];
+  finishedIds: readonly TerminalId[];
+  live: boolean;
+} {
+  const m = marks[encHost];
+  return {
+    askingIds: m?.askingIds ?? [],
+    workingIds: m?.workingIds ?? [],
+    finishedIds: m?.finishedIds ?? [],
+    live: m?.live ?? false,
   };
 }
 
