@@ -21,7 +21,7 @@ use std::process::{Child, Command};
 use std::thread;
 use std::time::Duration;
 
-const LINUX_ALL_FACETS_CPU_BUDGET_US_PER_PROCESS: u128 = 85;
+const LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS: u128 = 75;
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -44,6 +44,7 @@ struct LiveWorld {
     cpu_time_second: Option<u64>,
     cpu_time_oracle_delta: Option<u64>,
     foreign_processes: Vec<ForeignProcessOracle>,
+    linux_perf_baseline_samples: Vec<Duration>,
     linux_perf_samples: Vec<Duration>,
     linux_perf_process_count: Option<usize>,
 }
@@ -606,7 +607,9 @@ fn time_complete_process_snapshots(_world: &mut LiveWorld) {
             "--status",
             "--argv",
         ];
+        let baseline_args = ["snapshot", "--procs"];
         for _ in 0..3 {
+            world.run_osfacts(&baseline_args);
             world.run_osfacts(&args);
         }
         world.linux_perf_process_count = Some(
@@ -616,13 +619,19 @@ fn time_complete_process_snapshots(_world: &mut LiveWorld) {
                 .filter(|entry| entry.file_name().to_string_lossy().parse::<u32>().is_ok())
                 .count(),
         );
-        world.linux_perf_samples = (0..11)
-            .map(|_| {
-                let started = child_cpu_time();
-                world.run_osfacts(&args);
-                child_cpu_time().saturating_sub(started)
-            })
-            .collect();
+        for _ in 0..11 {
+            let started = child_cpu_time();
+            world.run_osfacts(&baseline_args);
+            world
+                .linux_perf_baseline_samples
+                .push(child_cpu_time().saturating_sub(started));
+
+            let started = child_cpu_time();
+            world.run_osfacts(&args);
+            world
+                .linux_perf_samples
+                .push(child_cpu_time().saturating_sub(started));
+        }
     }
 }
 
@@ -631,17 +640,22 @@ fn complete_process_snapshot_is_fast(_world: &mut LiveWorld) {
     #[cfg(target_os = "linux")]
     {
         let world = _world;
+        world.linux_perf_baseline_samples.sort_unstable();
         world.linux_perf_samples.sort_unstable();
+        let baseline_median =
+            world.linux_perf_baseline_samples[world.linux_perf_baseline_samples.len() / 2];
         let median = world.linux_perf_samples[world.linux_perf_samples.len() / 2];
+        let extra = median.saturating_sub(baseline_median);
         let process_count = world.linux_perf_process_count.expect("process count");
-        let limit_micros = LINUX_ALL_FACETS_CPU_BUDGET_US_PER_PROCESS
+        let limit_micros = LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS
             .saturating_mul(process_count as u128);
         eprintln!(
-            "Linux all-facets child CPU median: {median:?} across {process_count} processes ({LINUX_ALL_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process budget, {limit_micros}us total)"
+            "Linux child CPU medians across {process_count} processes: --procs={baseline_median:?}, all facets={median:?}, extra={extra:?} ({LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process budget, {limit_micros}us total)"
         );
         assert!(
-            median.as_micros() < limit_micros,
-            "Linux all-facets child CPU median was {median:?} across {process_count} processes; live smoke budget is {LINUX_ALL_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process ({limit_micros}us total; samples={:?})",
+            extra.as_micros() < limit_micros,
+            "Linux extra-facets child CPU median was {extra:?} (--procs={baseline_median:?}, all facets={median:?}) across {process_count} processes; live smoke budget is {LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process ({limit_micros}us total; baseline samples={:?}; all-facet samples={:?})",
+            world.linux_perf_baseline_samples,
             world.linux_perf_samples,
         );
     }

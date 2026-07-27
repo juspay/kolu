@@ -205,13 +205,14 @@ interleaved run. Every kept cycle cleared the 3% noise bar.
 The fix opens shared proc files once, preallocates one page for virtual-file
 reads, reuses the cached `stat` RSS in combined snapshots, buffers stdout, and
 parallelizes only large fd walks. Ordered collection keeps attribution stable;
-small scopes never spawn a worker. A live-lane smoke takes 11 warm all-facet
-samples and requires median child CPU below 85 µs per live process. It failed
-first on the pinned old binary at 49.86 ms across 480 processes, over its 40.80
-ms budget, then passed with the current binary. Child CPU makes this a generous
-CI smoke rather than a wall-clock benchmark: other jobs can delay osfacts
-without manufacturing a regression. One rejected version read RSS from `stat`
-even for `--mem` alone; that slowed
+small scopes never spawn a worker. A live-lane smoke takes 11 interleaved warm
+`--procs` and all-facet samples, then gives the extra facets 75 µs of child CPU
+per live process. The pinned old binary spends 42.25 ms beyond `--procs` across
+500 processes and fails its 37.50 ms budget; the current binary spends 27.69 ms
+and passes. Child CPU and the same-load baseline make this a generous CI smoke
+rather than a wall-clock benchmark: other jobs can delay osfacts or disturb its
+caches without manufacturing most of a regression. One rejected version read
+RSS from `stat` even for `--mem` alone; that slowed
 the narrow shape from 5.46 to 6.87 ms, so the final reader keeps `statm` unless
 another requested facet has already paid for `stat`. Combining Drishti's two
 subprocesses was not worth a new command shape: the host half costs only 2.6 ms.

@@ -63,11 +63,12 @@ virtual files into a page-sized buffer, reuses `stat`'s RSS field in combined
 snapshots, buffers stdout, and splits only large fd walks into ordered workers.
 Small scopes stay on the simple path.
 
-The live lane also samples the child CPU consumed by 11 warm all-facet
-snapshots. Its process-count-scaled budget is 85 µs per process, so scheduler
-contention in parallel CI does not pretend to be a regression. The pinned old
-binary fails that smoke at 49.86 ms of child CPU across 480 processes, over its
-40.80 ms budget. The current one passes.
+The live lane also samples the child CPU consumed by 11 interleaved warm
+`--procs` and all-facet snapshots. The extra facets get a process-count-scaled
+budget of 75 µs per process, so scheduler and shared-cache contention in
+parallel CI mostly cancel instead of pretending to be a regression. The pinned
+old binary spends 42.25 ms beyond `--procs` across 500 processes and fails its
+37.50 ms budget. The current one spends 27.69 ms and passes.
 
 ## Honesty
 
