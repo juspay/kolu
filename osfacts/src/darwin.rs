@@ -314,12 +314,15 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             }
         }
         match host_listeners() {
-            Ok(rows) if rows.is_empty() => snap.errors.push(SourceError {
-                source: "darwin_tcp_pcblist".into(),
-                code: "BLIND_OR_EMPTY".into(),
-            }),
             Ok(rows) => {
+                let host_table_blind = rows.is_empty();
                 snap.ports = attribute_host_listeners(rows, &claims);
+                if host_table_blind {
+                    snap.errors.push(SourceError {
+                        source: "darwin_tcp_pcblist".into(),
+                        code: "BLIND_OR_EMPTY".into(),
+                    });
+                }
             }
             Err(err) => snap.errors.push(source_error("darwin_tcp_pcblist", err)),
         }
@@ -808,9 +811,13 @@ fn decode_host_listeners(bytes: &[u8]) -> Result<Vec<(u16, String)>, i32> {
 }
 
 fn attribute_host_listeners(
-    rows: Vec<(u16, String)>,
+    mut rows: Vec<(u16, String)>,
     claims: &HashMap<(u16, String), Vec<u32>>,
 ) -> Vec<Port> {
+    if rows.is_empty() {
+        rows.extend(claims.keys().cloned());
+        rows.sort();
+    }
     rows.into_iter()
         .map(|(port, address)| Port {
             attribution: claims
