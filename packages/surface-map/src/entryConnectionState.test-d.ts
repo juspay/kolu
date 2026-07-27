@@ -75,9 +75,9 @@ const failedNoOutput: EntryConnectionState<"copying", { reason: string }> = {
 };
 void failedNoOutput;
 
-// `disconnected.failure` stays OPTIONAL — a transient drop legitimately carries
+// `disconnected.refuse` stays OPTIONAL — a transient drop legitimately carries
 // none (→ warming). That per-arm optionality is exactly what does NOT bleed onto
-// `failed`, so an omitted `failure` here is valid, not an error.
+// `failed`, so an omitted `refuse` here is valid, not an error.
 const disconnectedTransient: EntryConnectionState<
   "copying",
   { reason: string }

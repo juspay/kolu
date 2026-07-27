@@ -88,10 +88,12 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
  *  earlier (the session's raw connection state, before {@link projectStatus}
  *  projects it onto the published `EntryStatus`). Its optionality is PER-ARM, and
  *  the two down arms differ because their lifecycles do:
- *    - `disconnected.failure` is OPTIONAL — a transient drop legitimately carries
- *      NONE (still coming back → projects to `warming`); a standing refuse carries
- *      one (→ `failed(failure)`). Presence IS the warming-vs-failed discriminant.
- *    - `failed.failure` is REQUIRED — a terminal give-up is ALWAYS a real failure,
+ *    - `disconnected.refuse` is OPTIONAL and is a whole {@link FailureRecord} — a
+ *      transient drop legitimately carries NONE (still coming back → projects to
+ *      `warming`); a standing refuse carries one (→ `failed`). Presence IS the
+ *      warming-vs-failed discriminant, and because the record is ONE value the
+ *      reason can never arrive without the evidence that explains it.
+ *    - `failed` IS a `FailureRecord` — a terminal give-up is ALWAYS a real failure,
  *      so "failed with no failure" is an illegal state made UNCONSTRUCTIBLE at the
  *      type, not caught by a runtime throw. The optionality a transient
  *      `disconnected` legitimately needs does NOT bleed onto `failed` (independent

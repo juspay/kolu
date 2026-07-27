@@ -131,8 +131,10 @@ export interface EntryClock {
  *  The `failed` arm has NOTHING for the floor to do, and structurally so: the arm carries
  *  no `connection` at all, so its record is not a liveness payload — see
  *  {@link FailureEvidence}. Note this is NOT a claim that a failed entry is terminal: a
- *  standing refuse publishes `failed` while its session keeps redialing, so a later frame
- *  can still supersede the record. The guarantee is that its two halves move TOGETHER. */
+ *  standing refuse also publishes `failed`, and its session HOLDS degraded rather than
+ *  redialing (`session.ts` — "a persistent skew holds degraded, it doesn't spin"), so the
+ *  record is superseded by a later link death or an operator recheck, never by a retry loop
+ *  grinding underneath it. The guarantee is that its two halves move TOGETHER. */
 export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   status: EntryState<Failure, Conn>,
   live: boolean,
