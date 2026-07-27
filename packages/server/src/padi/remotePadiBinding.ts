@@ -188,6 +188,21 @@ const PASS_THROUGH_FAULT_CAUSE: Record<
   "nix-unavailable": "nix-unavailable",
 };
 
+/** The two SOURCE-CONFIGURATION faults: the wrapper baked no source ref, or the
+ *  tree it names carries no usable binary-cache declaration. Both get the same
+ *  "…or unset the env" hint appended, and differ ONLY in the domain cause they
+ *  rename to — the ref-unbaked card tells the operator to launch through the
+ *  wrapper, the cache-unbaked one must not (the ref IS baked). A distinct cause
+ *  needs a distinct ROW, not a structurally-identical `match` arm; same reason
+ *  {@link PASS_THROUGH_FAULT_CAUSE} above is a table. */
+const UNSET_HINT_FAULT_CAUSE: Record<
+  "source-unbaked" | "binary-cache-unbaked",
+  DrvFaultCause
+> = {
+  "source-unbaked": "agent-source-unbaked",
+  "binary-cache-unbaked": "agent-cache-unbaked",
+};
+
 /** A {@link ResolveDrvError} subclass that additionally carries the D1 domain
  *  `cause` — the source-ref/arch faults (`"agent-source-unbaked"` /
  *  `"agent-drv-unavailable"`), the ssh refusals (`"auth-required"` /
@@ -226,22 +241,22 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
       if (!(err instanceof ResolveDrvError)) throw err;
       return (
         match(err.resolution)
-          .with({ kind: "source-unbaked" }, (resolution) => {
-            throw new PadiDrvFault(
-              `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
-              "agent-source-unbaked",
-              resolution,
-            );
-          })
-          // Its own arm, not `source-unbaked`'s: the ref IS baked here, so the
-          // card must not tell the operator to launch through the wrapper.
-          .with({ kind: "binary-cache-unbaked" }, (resolution) => {
-            throw new PadiDrvFault(
-              `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
-              "agent-cache-unbaked",
-              resolution,
-            );
-          })
+          // The two source-configuration faults, renamed by
+          // `UNSET_HINT_FAULT_CAUSE` — one arm, because the only difference
+          // between them is the row, not the body.
+          .with(
+            P.union(
+              { kind: "source-unbaked" },
+              { kind: "binary-cache-unbaked" },
+            ),
+            (resolution) => {
+              throw new PadiDrvFault(
+                `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
+                UNSET_HINT_FAULT_CAUSE[resolution.kind],
+                resolution,
+              );
+            },
+          )
           // The remaining pass-through faults: an unresolvable baked drv, and
           // (probe-classified terminal — see `resolveSystem`) the two ssh
           // refusals plus an unrunnable remote Nix. Enrich each with its
