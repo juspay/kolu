@@ -57,6 +57,9 @@ daemonProcessMain({
         socketPath: SOCKET_PATH,
         router: top.router,
         lifetime: { kind: "forever" },
+        // fleet-top keeps no on-disk state — nothing whose absence would make
+        // the daemon garbage — so it is honestly, visibly unanchored.
+        anchor: () => undefined,
         log: stderrLogger(),
         onReady: ({ socketPath, pid }) =>
           process.stderr.write(

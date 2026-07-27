@@ -71,7 +71,7 @@ The extraction is safe only because the line between spine and soul is sharp. Th
 
 - **Survivor semantics.** kaval holds *irreplaceable kernel state* — live PTY fds that cannot be reconstructed; R2.4's survival, adoption, and reconciliation are its whole point. odu serve holds *replaceable orchestration state* — the per-SHA trail is durable on disk, runs are append-only, and a lost in-flight run is a `seq`-bump rerun. **R2.4 is not spine.** Adoption, `reconcile.ts`, the schema round-trip — none of it transfers, and odu-runner's "live-state resurrection stays out of scope" must survive the deduplication.
 - **Scope.** kaval is a per-user machine singleton; odu serve is per-repo — many sockets, one per checkout. The pid-gate takes a scope key; neither program's choice leaks into the mechanism.
-- **Lifecycle policy.** odu-runner's idle-timeout auto-serve is a legitimate mode for a CI coordinator and a catastrophic one for a PTY daemon (an idle-timeout kaval kills your terminals). The `daemonMain` skeleton exposes lifetime as a parameter (`forever` | `idleTimeout(ms)` | `boundToPid(pid)`); each program picks, neither inherits. `boundToPid` is the *test/smoke* constructor — a daemon detached+unref'd for survival must still die with the RUN that spawned it, so it watches that pid and exits when it is gone; production selects `forever` by the deliberate absence of the bind (never a weakened production daemon).
+- **Lifecycle policy.** odu-runner's idle-timeout auto-serve is a legitimate mode for a CI coordinator and a catastrophic one for a PTY daemon (an idle-timeout kaval kills your terminals). The `daemonMain` skeleton exposes lifetime as a parameter (`forever` | `idleTimeout(ms)` | `boundToPid(pid)`); each program picks, neither inherits. `boundToPid` is the *test/smoke* constructor — a daemon detached+unref'd for survival must still die with the RUN that spawned it, so it watches that pid and exits when it is gone; production selects `forever` by the deliberate absence of the bind (never a weakened production daemon). Orthogonal to lifetime (juspay/kolu#2010): every daemon also declares its **anchor** — the directory whose deletion makes it garbage — and the spine reaps it (`anchor-gone`) once that dir is proven gone, so a `git worktree remove` cannot strand a padi/kaval forever. Required, re-evaluated per poll; kaval's #1713 private `watchStateRoot` was this invariant hand-rolled in one soul, now spine-enforced for every tenant.
 
 Same mechanism, opposite policies — which is precisely the evidence the mechanism is real. A spine that worked for only one lifetime policy or one scope would just be kaval's internals wearing a package name.
 
@@ -143,12 +143,13 @@ export type DaemonLifetimeInfo =
 export function lifetimeInfo(l: DaemonLifetime): DaemonLifetimeInfo;
 export type DaemonExit =
   | { kind: "already-running"; pid: number }  // single-instance: this is SUCCESS, the caller exits 0
-  | { kind: "shutdown"; reason: "signal" | "abort" | "idle" | "pid-gone" };
+  | { kind: "shutdown"; reason: "signal" | "abort" | "idle" | "pid-gone" | "anchor-gone" };
 export function daemonMain(spec: {
   gatePath: string;       // the scope key: per-user for kaval, per-repo for odu serve
   socketPath: string;
   router: SurfaceRouter;  // any @kolu/surface router — served over the unix-socket listener PR #1084 moved there
   lifetime: DaemonLifetime;
+  anchor: () => string | undefined; // REQUIRED (#2010): the dir whose deletion makes this daemon garbage; proven gone (ENOENT ×2 polls) → self-reap. `undefined` = not anchored right now.
   log: Logger;            // one structured boot line; every transition logged
   signal?: AbortSignal;   // tests drive teardown without real signals
 }): Promise<DaemonExit>;  // never calls process.exit — the bin maps DaemonExit to a code

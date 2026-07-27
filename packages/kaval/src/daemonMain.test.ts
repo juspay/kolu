@@ -2,13 +2,16 @@
  * Pins kaval's state-root self-exit (zombie hygiene): a padi-spawned kaval whose
  * ephemeral state-root is deleted out from under it — an e2e/nix-shell run's temp
  * dir removed when the shell exits — must reap ITSELF rather than linger as a
- * leaked daemon holding a socket forever. The watcher reads the `state-root`
- * manifest padi writes beside kaval's socket; when that path is gone it aborts the
- * daemon through the spine's normal teardown (socket unlinked, gate released).
+ * leaked daemon holding a socket forever. The mechanism is the spine's ANCHOR
+ * invariant (`@kolu/surface-daemon`, juspay/kolu#2010); what these pin is kaval's
+ * WIRING of it — the anchor thunk that re-reads the `state-root` manifest padi
+ * writes beside kaval's socket, reaped through the spine's normal teardown
+ * (socket unlinked, gate released).
  *
- * A standalone kaval has NO manifest and is deliberately never watched — its
- * reason to exist isn't tied to any state-root. These run the REAL `runKavalDaemon`
- * in-process with a tiny poll interval so the reap is observable in milliseconds.
+ * A standalone kaval has NO manifest, so its anchor thunk stays `undefined` and
+ * it is deliberately never reaped — its reason to exist isn't tied to any
+ * state-root. These run the REAL `runKavalDaemon` in-process with a tiny poll
+ * interval so the reap is observable in milliseconds.
  */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -80,10 +83,10 @@ describe("kaval daemon — state-root self-exit", () => {
     // Delete the state-root out from under the daemon — the nix-shell/e2e teardown.
     rmSync(stateRoot, { recursive: true, force: true });
 
-    // The daemon reaps itself: its promise resolves as a clean shutdown and the
-    // socket + gate are gone (torn down via the spine's abort path).
+    // The daemon reaps itself: its promise resolves as the spine's anchor-gone
+    // shutdown and the socket + gate are gone (torn down via the normal path).
     const result = await d.exit;
-    expect(result.kind).toBe("shutdown");
+    expect(result).toEqual({ kind: "shutdown", reason: "anchor-gone" });
     expect(existsSync(d.socketPath)).toBe(false);
     expect(existsSync(d.gatePath)).toBe(false);
   }, 15000);

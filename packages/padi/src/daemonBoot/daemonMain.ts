@@ -491,6 +491,15 @@ export async function runPadiDaemon(
       // daemon. `forever` in production; `boundToPid` under a harness/smoke run (padi
       // forwards the same var into its kaval).
       lifetime,
+      // padi's ANCHOR is its state-root — the identity it resolved as its very
+      // first act (#1334), known directly, no manifest indirection (unlike its
+      // kaval, which must read the root back off the manifest padi writes).
+      // When the root is deleted — `git worktree remove` on a dev workspace —
+      // padi reaps itself instead of leaking forever (juspay/kolu#2010: the
+      // very leak class its kaval already self-collected since #1713). No
+      // session persist on the way out: the place a session would persist TO
+      // is exactly what is gone.
+      anchor: () => stateRoot,
       log,
       signal: drainController.signal,
       onReady: opts.onReady,

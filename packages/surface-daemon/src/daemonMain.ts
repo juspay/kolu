@@ -3,7 +3,10 @@
  *
  * `daemonMain` is the mechanism; the *policy* arrives as parameters — the scope
  * key (`gatePath`), where to listen (`socketPath`), what to serve (`router`,
- * any `@kolu/surface` router), and how long to live (`lifetime`). kaval picks
+ * any `@kolu/surface` router), how long to live (`lifetime`), and what the
+ * daemon's existence is anchored to (`anchor` — the required self-reap
+ * invariant: a daemon whose identity directory is proven gone shuts itself
+ * down rather than leaking forever, juspay/kolu#2010). kaval picks
  * `{ kind: "forever" }` — an idle PTY daemon still holds your terminals;
  * `odu serve` will pick `idleTimeout` — a quiet CI coordinator may exit. Same
  * skeleton, opposite policies, which is the evidence the mechanism is real and
@@ -16,6 +19,7 @@
  * forked children.
  */
 
+import { lstatSync } from "node:fs";
 import {
   serveOverUnixSocket,
   type UnixSocketServeOutcome,
@@ -81,12 +85,24 @@ export function lifetimeInfo(lifetime: DaemonLifetime): DaemonLifetimeInfo {
   lifetime satisfies never;
 }
 
+/** Why a daemon's tenure ended — every trigger `waitForShutdown` can fire.
+ *  Single-sourced here so the trigger sites, `DaemonExit`, and the resolve
+ *  type can't drift on the union. `anchor-gone` is the self-reap: the daemon's
+ *  {@link DaemonSpec.anchor} directory stopped existing, so its reason to exist
+ *  is gone. */
+export type DaemonShutdownReason =
+  | "signal"
+  | "abort"
+  | "idle"
+  | "pid-gone"
+  | "anchor-gone";
+
 /** Why `daemonMain` returned, for the bin to turn into an exit code.
  *  `already-running` is a *success* (another live daemon serves this scope —
  *  exit 0); `serve-failed` is the one real error. */
 export type DaemonExit =
   | { kind: "already-running"; pid: number }
-  | { kind: "shutdown"; reason: "signal" | "abort" | "idle" | "pid-gone" }
+  | { kind: "shutdown"; reason: DaemonShutdownReason }
   | { kind: "serve-failed"; detail: UnixSocketServeOutcome["kind"] };
 
 /** The env var that binds a spawned daemon to the RUN that spawned it: when set
@@ -168,6 +184,41 @@ export function daemonExitCode(exit: DaemonExit): number {
   return 1;
 }
 
+/** How often the daemon's {@link DaemonSpec.anchor} is re-evaluated. Fixed, not
+ *  a knob — a vanished anchor is permanent, so a lazy cadence reaps the zombie
+ *  without busy-watching. (Tests inject a small value via
+ *  {@link DaemonSpec.anchorPollMs}.) */
+const ANCHOR_POLL_MS = 5_000;
+
+/** Consecutive PROVEN-gone polls before the daemon reaps itself. A single miss
+ *  could be a transient (a brief unmount); a real deletion stays gone, so a
+ *  second confirm costs one interval and rules the transient out. */
+const ANCHOR_MISSES_TO_EXIT = 2;
+
+/** Is `path` PROVEN absent — `lstat` failed with ENOENT? Reaping requires
+ *  proof, and only ENOENT is proof: any other failure (EACCES, EIO, ENOTDIR)
+ *  means "I could not read whether it exists", which is the opposite of proof
+ *  and must never count toward a self-reap. Exported for the supervisor side
+ *  (kolu-server's padi binder) so both ends of the anchor invariant share one
+ *  definition of "gone" and can't drift.
+ *
+ *  SYNC on the serving loop is deliberate (the
+ *  `no-sync-blocking-on-the-serving-loop` carve-out, same shape as the padi
+ *  binder's `processAlive` gate read): one `lstat` of a single dirent, fired
+ *  once per {@link ANCHOR_POLL_MS} tick inside a daemon and once per
+ *  (boot/reconnect) dial in the binder — never per request — and identical in
+ *  cost to the `existsSync` kaval's #1713 watcher ran on the same cadence in
+ *  production. Promoting the anchor thunk to `Promise` for that read would
+ *  spread async through every trigger site for no observable gain. */
+export function anchorGone(path: string): boolean {
+  try {
+    lstatSync(path);
+    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT";
+  }
+}
+
 export interface DaemonSpec {
   /** The single-instance gate path — the scope key (per-user for kaval, per-repo
    *  for `odu serve`). */
@@ -179,6 +230,29 @@ export interface DaemonSpec {
   readProcessIdentity: ReadProcessIdentity;
   /** Where to bind the unix socket clients dial. */
   socketPath: string;
+  /** Resolve the directory this daemon's EXISTENCE is anchored to — its
+   *  identity/state root, the path whose deletion makes the daemon garbage.
+   *  When that directory has been PROVEN gone ({@link anchorGone}, ENOENT-only)
+   *  for {@link ANCHOR_MISSES_TO_EXIT} consecutive polls, the daemon reaps
+   *  itself (`reason: "anchor-gone"`) through the normal teardown — socket
+   *  unlinked, gate released — instead of lingering as a zombie holding its
+   *  sockets and RSS forever (juspay/kolu#2010: `git worktree remove` stranded
+   *  every dev padi this way; kaval had hand-rolled exactly this watch in
+   *  #1713, padi never did — the spine now enforces what was once one daemon's
+   *  private discipline).
+   *
+   *  REQUIRED, no opt-out knob, and armed under EVERY lifetime (it is a
+   *  separate trigger, not a lifetime arm — `forever ∧ anchored` and
+   *  `boundToPid ∧ anchored` both occur): a daemon author must answer "what is
+   *  my anchor?" to compile. Re-evaluated every poll tick, so an anchor learned
+   *  after boot self-corrects (kaval reads the manifest its padi writes around
+   *  kaval's own boot); `undefined` means "not anchored right now" — never
+   *  reaped — which is also the honest, visible spelling (`() => undefined`)
+   *  for the rare daemon with genuinely no on-disk identity. */
+  anchor: () => string | undefined;
+  /** Anchor poll period override, in ms. A TEST seam — production omits it and
+   *  uses {@link ANCHOR_POLL_MS} (mirrors `boundToPid`'s `pollMs`). */
+  anchorPollMs?: number;
   /** The surface router to serve. Shared across every connection.  */
   // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverUnixSocket's own `Router<any, any>` param.
   router: Router<any, any>;
@@ -205,7 +279,7 @@ export interface DaemonSpec {
  *  for the configured lifetime to end. Resolves with a `DaemonExit`; cleans up
  *  the socket and releases the gate on every non-`already-running` path. */
 export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
-  const { gatePath, socketPath, router, lifetime, log, signal } = spec;
+  const { gatePath, socketPath, router, lifetime, anchor, log, signal } = spec;
 
   // The caller may have claimed the gate already (padi, to fence its boot side
   // effects behind it); otherwise acquire it here (kaval).
@@ -259,7 +333,13 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
     // means an invalid `boundToPid` pid (the guard throw) crashes BEFORE
     // ready is ever announced — a daemon that cannot arm its lifetime must
     // not claim to be up.
-    const { shutdown, disarm, alreadyOver } = waitForShutdown(lifetime, signal);
+    const { shutdown, disarm, alreadyOver } = waitForShutdown({
+      lifetime,
+      anchor,
+      anchorPollMs: spec.anchorPollMs,
+      external: signal,
+      log,
+    });
 
     // The armed lifetime must never outlive this frame: `finish()` already
     // disarms on every resolving path and `disarm` is idempotent, so the
@@ -312,11 +392,14 @@ const PID_WATCH_POLL_MS = 2_000;
  *  that is the readiness ordering `daemonMain` load-bears on — and `disarm`
  *  removes them without resolving, for the one caller path (an `onReady`
  *  throw) where the armed promise must not outlive the daemon call. */
-function waitForShutdown(
-  lifetime: DaemonLifetime,
-  external?: AbortSignal,
-): {
-  shutdown: Promise<"signal" | "abort" | "idle" | "pid-gone">;
+function waitForShutdown(opts: {
+  lifetime: DaemonLifetime;
+  anchor: () => string | undefined;
+  anchorPollMs: number | undefined;
+  external?: AbortSignal;
+  log: Logger;
+}): {
+  shutdown: Promise<DaemonShutdownReason>;
   disarm: () => void;
   /** Shutdown won DURING arming (an already-aborted external signal, an
    *  already-dead bound pid): `shutdown` is already resolved and the triggers
@@ -325,6 +408,7 @@ function waitForShutdown(
    *  meet the kernel's default disposition (observed as exit 143). */
   alreadyOver: boolean;
 } {
+  const { lifetime, anchor, anchorPollMs, external, log } = opts;
   // Fail fast at CONSUMPTION, not only at the env boundary: a direct caller can
   // construct `{ kind: "boundToPid", pid }` with any number, and an invalid pid
   // (0, negative, fractional, out of range) would be silently reclassified — a
@@ -347,93 +431,120 @@ function waitForShutdown(
     armed = false;
     for (const c of cleanups) c();
   };
-  const shutdown = new Promise<"signal" | "abort" | "idle" | "pid-gone">(
-    (resolve) => {
-      const finish = (
-        reason: "signal" | "abort" | "idle" | "pid-gone",
-      ): void => {
-        if (!armed) return;
-        disarm();
-        resolve(reason);
-      };
-      // The poll-timer scaffold, single-sourced: create the interval, unref it so it
-      // never keeps the event loop alive on its own, and register a clearInterval
-      // cleanup. Both poll sites (idleTimeout, boundToPid) supply only their period +
-      // predicate; the register/unref/cleanup idiom lives here once.
-      const registerPoll = (period: number, tick: () => void): void => {
-        const t = setInterval(tick, period);
-        t.unref?.();
-        cleanups.push(() => clearInterval(t));
-      };
+  const shutdown = new Promise<DaemonShutdownReason>((resolve) => {
+    const finish = (reason: DaemonShutdownReason): void => {
+      if (!armed) return;
+      disarm();
+      resolve(reason);
+    };
+    // The poll-timer scaffold, single-sourced: create the interval, unref it so it
+    // never keeps the event loop alive on its own, and register a clearInterval
+    // cleanup. Every poll site (idleTimeout, boundToPid, the anchor trigger)
+    // supplies only its period + predicate; the register/unref/cleanup idiom
+    // lives here once.
+    const registerPoll = (period: number, tick: () => void): void => {
+      const t = setInterval(tick, period);
+      t.unref?.();
+      cleanups.push(() => clearInterval(t));
+    };
 
-      for (const sig of ["SIGTERM", "SIGINT"] as const) {
-        const handler = (): void => finish("signal");
-        process.on(sig, handler);
-        cleanups.push(() => {
-          process.off(sig, handler);
-        });
+    for (const sig of ["SIGTERM", "SIGINT"] as const) {
+      const handler = (): void => finish("signal");
+      process.on(sig, handler);
+      cleanups.push(() => {
+        process.off(sig, handler);
+      });
+    }
+
+    if (external) {
+      if (external.aborted) {
+        finish("abort");
+        return;
       }
+      const handler = (): void => finish("abort");
+      external.addEventListener("abort", handler, { once: true });
+      cleanups.push(() => external.removeEventListener("abort", handler));
+    }
 
-      if (external) {
-        if (external.aborted) {
-          finish("abort");
+    // The ANCHOR trigger — armed under EVERY lifetime, like the signal +
+    // external-abort triggers above (it is an independent axis, not a
+    // lifetime arm: `forever ∧ anchored` and `boundToPid ∧ anchored` both
+    // occur). Deliberately poll-only, no synchronous first check: the
+    // consecutive-miss discipline can't be satisfied at arm time, and an
+    // anchor already gone at boot still gets its two confirming polls (the
+    // same transient tolerance a mid-life miss gets) — so this never
+    // contributes to `alreadyOver`. The thunk is re-evaluated every tick:
+    // an anchor learned after boot (kaval's manifest, written by its padi
+    // around kaval's own boot) self-corrects, and `undefined` — "not
+    // anchored right now" — resets the count rather than counting either way.
+    const registerAnchorTrigger = (): void => {
+      let misses = 0;
+      registerPoll(anchorPollMs ?? ANCHOR_POLL_MS, () => {
+        const path = anchor();
+        if (path === undefined || !anchorGone(path)) {
+          misses = 0;
           return;
         }
-        const handler = (): void => finish("abort");
-        external.addEventListener("abort", handler, { once: true });
-        cleanups.push(() => external.removeEventListener("abort", handler));
-      }
+        misses += 1;
+        if (misses < ANCHOR_MISSES_TO_EXIT) return;
+        log.info(
+          { anchor: path },
+          "daemon anchor has been deleted; shutting down (its reason to exist is gone)",
+        );
+        finish("anchor-gone");
+      });
+    };
+    registerAnchorTrigger();
 
-      // Lifetime-specific shutdown trigger, dispatched EXHAUSTIVELY over the union
-      // (mirroring `daemonExitCode`'s fence) — the signal + external-abort triggers
-      // above apply to every kind, so `forever` adds nothing here. A future
-      // `DaemonLifetime` kind compile-fails at the `satisfies never` until it wires
-      // its own trigger, rather than silently inheriting `forever`'s "signal only".
-      switch (lifetime.kind) {
-        case "forever":
-          break;
-        case "idleTimeout": {
-          // Poll idleness; shut down once it has held continuously for `ms`. Any
-          // activity resets the clock. The tick is frequent relative to `ms` but
-          // capped so a long timeout doesn't busy-poll.
-          let idleSince: number | undefined;
-          const period = Math.max(20, Math.min(lifetime.ms, 1000));
-          registerPoll(period, () => {
-            if (lifetime.isIdle()) {
-              idleSince ??= Date.now();
-              if (Date.now() - idleSince >= lifetime.ms) finish("idle");
-            } else {
-              idleSince = undefined;
-            }
-          });
-          break;
-        }
-        case "boundToPid": {
-          // The daemon's reason to exist is the run at `pid`; watch it and shut down
-          // cleanly once it is gone. Registration on an ALREADY-dead pid exits
-          // immediately — the run this daemon would serve is already over, so there is
-          // nothing to serve (and no poll tick to wait for). The pid is already proven
-          // a single-process pid by the guard clause above.
-          const { pid } = lifetime;
-          // Reuse the package's canonical liveness probe (`isHolderLive`, pidGate.ts) —
-          // the same `kill(pid,0)` verdict the gate's stale-reap and the supervisor use,
-          // single-sourced so the two can't drift on the ESRCH-gone / EPERM-alive rule.
-          if (!isHolderLive(pid)) {
-            finish("pid-gone");
-            break;
+    // Lifetime-specific shutdown trigger, dispatched EXHAUSTIVELY over the union
+    // (mirroring `daemonExitCode`'s fence) — the signal + external-abort triggers
+    // above apply to every kind, so `forever` adds nothing here. A future
+    // `DaemonLifetime` kind compile-fails at the `satisfies never` until it wires
+    // its own trigger, rather than silently inheriting `forever`'s "signal only".
+    switch (lifetime.kind) {
+      case "forever":
+        break;
+      case "idleTimeout": {
+        // Poll idleness; shut down once it has held continuously for `ms`. Any
+        // activity resets the clock. The tick is frequent relative to `ms` but
+        // capped so a long timeout doesn't busy-poll.
+        let idleSince: number | undefined;
+        const period = Math.max(20, Math.min(lifetime.ms, 1000));
+        registerPoll(period, () => {
+          if (lifetime.isIdle()) {
+            idleSince ??= Date.now();
+            if (Date.now() - idleSince >= lifetime.ms) finish("idle");
+          } else {
+            idleSince = undefined;
           }
-          registerPoll(lifetime.pollMs ?? PID_WATCH_POLL_MS, () => {
-            if (!isHolderLive(pid)) finish("pid-gone");
-          });
+        });
+        break;
+      }
+      case "boundToPid": {
+        // The daemon's reason to exist is the run at `pid`; watch it and shut down
+        // cleanly once it is gone. Registration on an ALREADY-dead pid exits
+        // immediately — the run this daemon would serve is already over, so there is
+        // nothing to serve (and no poll tick to wait for). The pid is already proven
+        // a single-process pid by the guard clause above.
+        const { pid } = lifetime;
+        // Reuse the package's canonical liveness probe (`isHolderLive`, pidGate.ts) —
+        // the same `kill(pid,0)` verdict the gate's stale-reap and the supervisor use,
+        // single-sourced so the two can't drift on the ESRCH-gone / EPERM-alive rule.
+        if (!isHolderLive(pid)) {
+          finish("pid-gone");
           break;
         }
-        default:
-          // Exhaustiveness fence: a new `DaemonLifetime` kind compile-fails here until
-          // it joins a case above (`lifetime satisfies never`).
-          lifetime satisfies never;
+        registerPoll(lifetime.pollMs ?? PID_WATCH_POLL_MS, () => {
+          if (!isHolderLive(pid)) finish("pid-gone");
+        });
+        break;
       }
-    },
-  );
+      default:
+        // Exhaustiveness fence: a new `DaemonLifetime` kind compile-fails here until
+        // it joins a case above (`lifetime satisfies never`).
+        lifetime satisfies never;
+    }
+  });
   // `armed` flipped during construction ⇔ a trigger fired synchronously
   // (`finish` disarms before resolving), so this read IS the already-over fact.
   return { shutdown, disarm, alreadyOver: !armed };

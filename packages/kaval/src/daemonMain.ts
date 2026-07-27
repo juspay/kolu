@@ -2,8 +2,11 @@
  * kaval's daemon composition — a ~thin wrapper over `@kolu/surface-daemon`'s
  * `daemonMain` skeleton. This is the "soul" side of the spine/soul line: it
  * supplies kaval's choices (where its gate and socket live, its own rcDir, the
- * pty-host router, the `forever` lifetime) and nothing more. The mechanism —
- * gate → serve → teardown — lives in the spine, where `odu serve` reuses it.
+ * pty-host router, the `forever` lifetime, and its anchor — the state-root
+ * manifest its padi writes beside the socket) and nothing more. The mechanism —
+ * gate → serve → teardown, including the anchor-gone self-reap that used to be
+ * kaval's private `watchStateRoot` (#1713, generalized in juspay/kolu#2010) —
+ * lives in the spine, where `odu serve` reuses it.
  *
  * kaval computes its OWN paths in-package: it does NOT import kolu-server's
  * `koluRoot`. A standalone daemon owns its disk. B0 already removed any env
@@ -11,7 +14,6 @@
  * fully-specified spawns it is handed.
  */
 
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
 import {
@@ -30,17 +32,6 @@ import {
   readStateRootManifest,
 } from "./socketPath.ts";
 
-/** How often the daemon checks whether its state-root still exists. Fixed, not a
- *  knob — a vanished state-root is permanent, so a lazy cadence reaps the zombie
- *  without busy-watching. (Tests inject a small value via
- *  {@link KavalDaemonOptions.stateRootPollMs}.) */
-const STATE_ROOT_POLL_MS = 5_000;
-
-/** Consecutive missed checks before self-exit. A single miss could be a transient
- *  (a brief unmount); a real deletion stays gone, so a second confirm costs one
- *  interval and rules the transient out. */
-const STATE_ROOT_MISSES_TO_EXIT = 2;
-
 export interface KavalDaemonOptions {
   /** Override the default socket path (`--socket`). The gate and rcDir are
    *  derived as siblings of it, so one flag relocates the whole rendezvous. */
@@ -51,8 +42,9 @@ export interface KavalDaemonOptions {
   signal?: AbortSignal;
   /** Forwarded readiness hook — fired once the socket is listening. */
   onReady?: (info: { socketPath: string; pid: number }) => void;
-  /** State-root liveness poll interval, in ms. A TEST seam (like `signal`) —
-   *  production omits it and uses {@link STATE_ROOT_POLL_MS}. */
+  /** State-root (anchor) liveness poll interval, in ms — forwarded to the
+   *  spine's `anchorPollMs`. A TEST seam (like `signal`); production omits it
+   *  and uses the spine's default cadence. */
   stateRootPollMs?: number;
 }
 
@@ -106,24 +98,17 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     extraColumns: () => ({ terminals: terminalCount() }),
   });
 
-  // Self-exit when our state-root is deleted out from under us. A padi-spawned
-  // kaval's reason to exist is its padi's state-root (recorded in the manifest
-  // padi writes beside our socket); when an e2e/nix-shell run's ephemeral
-  // state-root is removed, the daemon it left behind has nothing to serve and
-  // should reap itself rather than linger as a zombie. Fold the watcher's stop
-  // signal together with the caller's own `signal` so whichever fires first tears
-  // the daemon down through the spine's normal abort path (gate released, socket
-  // unlinked) — consistent with the fail-fast doctrine: a vanished invariant is a
-  // loud clean exit, not a silent degrade. A standalone kaval has no manifest and
-  // is simply never watched.
-  const controller = new AbortController();
-  forwardAbort(opts.signal, controller);
-  const stopWatch = watchStateRoot({
-    dir,
-    log,
-    pollMs: opts.stateRootPollMs ?? STATE_ROOT_POLL_MS,
-    onGone: () => controller.abort(),
-  });
+  // Once the manifest resolves to a real path, it never changes again for this
+  // process's lifetime (padi writes it once, around kaval's own boot) — so cache
+  // it after the first successful read. Two properties ride on this, not one:
+  // it stops the spine's anchor poll `readFileSync`-ing the same answer every
+  // tick for a `forever` daemon's whole life, AND it PINS the anchor against
+  // later manifest loss — a rendezvous dir deleted after resolution would
+  // otherwise reset the thunk to `undefined` ("never anchored") and silently
+  // disarm the self-reap for a daemon that unambiguously should still reap.
+  // Retry (uncached) only while it's still unresolved, which is exactly the
+  // startup race this thunk exists to survive.
+  let resolvedStateRoot: string | undefined;
 
   return daemonMain({
     gatePath,
@@ -134,11 +119,19 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     // The same lifetime resolved above (reused, never re-derived) — so the value
     // served on `system.version` is provably the one governing the daemon.
     lifetime,
+    // kaval's ANCHOR is its padi's state-root, learned from the `state-root`
+    // manifest padi writes beside kaval's socket (kaval is told only a
+    // `--socket`, never the root itself). The spine re-reads the thunk every
+    // poll tick, which is exactly the semantics the manifest needs: padi writes
+    // it around kaval's boot (a one-shot startup read could race it), and a
+    // STANDALONE kaval has no manifest at all — the thunk stays `undefined` and
+    // it is simply never reaped, its reason to exist untied to any state-root.
+    anchor: () => (resolvedStateRoot ??= readStateRootManifest(dir)),
+    anchorPollMs: opts.stateRootPollMs,
     log,
-    signal: controller.signal,
+    signal: opts.signal,
     onReady: opts.onReady,
   }).finally(() => {
-    stopWatch();
     // Own the surface runtime's shutdown deterministically: once the daemon has
     // stopped serving, release its owned sources. AWAITING close here (the
     // `.finally` waits on the returned promise) — rather than a fire-and-forget
@@ -151,7 +144,6 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     return ptyHost.close();
   });
 }
-
 function osfactsBinPath(): string {
   const path = process.env.KOLU_OSFACTS_BIN;
   if (!path) {
@@ -174,55 +166,4 @@ function selfIdentity() {
     );
   }
   return identity;
-}
-
-/** Poll the state-root recorded in the manifest beside kaval's socket; once it
- *  has been gone for {@link STATE_ROOT_MISSES_TO_EXIT} consecutive checks, log a
- *  clear line and fire `onGone`. Returns a stop function (cleared on daemon exit).
- *
- *  The manifest is re-read every tick, not captured once: padi writes it around
- *  kaval's boot, so a single startup read could race it, and a standalone kaval
- *  never has one — re-reading makes both cases self-correcting. The manifest file
- *  lives in the rendezvous dir (NOT inside the state-root), so it survives the
- *  state-root's deletion and still names what vanished. */
-function watchStateRoot(opts: {
-  dir: string;
-  log: Logger;
-  pollMs: number;
-  onGone: () => void;
-}): () => void {
-  let misses = 0;
-  const timer = setInterval(() => {
-    const stateRoot = readStateRootManifest(opts.dir);
-    if (stateRoot === undefined || existsSync(stateRoot)) {
-      misses = 0;
-      return;
-    }
-    misses += 1;
-    if (misses < STATE_ROOT_MISSES_TO_EXIT) return;
-    opts.log.info(
-      { stateRoot },
-      "kaval state-root has been deleted; shutting down (its reason to exist is gone)",
-    );
-    clearInterval(timer);
-    opts.onGone();
-  }, opts.pollMs);
-  // Don't let the poll timer alone keep the event loop alive.
-  timer.unref?.();
-  return () => clearInterval(timer);
-}
-
-/** Forward an external abort into `controller`, so kaval's own stop triggers (the
- *  state-root watcher) and the caller's `signal` share one teardown path. Fires
- *  immediately if `external` is already aborted. */
-function forwardAbort(
-  external: AbortSignal | undefined,
-  controller: AbortController,
-): void {
-  if (external === undefined) return;
-  if (external.aborted) {
-    controller.abort();
-    return;
-  }
-  external.addEventListener("abort", () => controller.abort(), { once: true });
 }

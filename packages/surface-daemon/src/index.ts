@@ -52,10 +52,12 @@ export {
   daemonBuild,
 } from "./convergenceIdentity.ts";
 export {
+  anchorGone,
   DAEMON_BIND_PID_ENV,
   type DaemonExit,
   type DaemonLifetime,
   type DaemonLifetimeInfo,
+  type DaemonShutdownReason,
   type DaemonSpec,
   daemonLifetimeFromEnv,
   daemonMain,

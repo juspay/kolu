@@ -35,6 +35,7 @@
  * plumbing), then the reconnect loop re-spawns it.
  */
 
+import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -60,6 +61,7 @@ import {
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
+  anchorGone,
   DAEMON_BIND_PID_ENV,
   gatePid,
   isHolderLive,
@@ -350,26 +352,29 @@ export interface EnsurePadiBindingOptions {
   verbose?: boolean;
   /** Reconnect backoff (test hook). */
   reconnectDelayMs?: number;
-  /** Invoked with the {@link PadiAdoptionRefusedError} on EVERY dial that reaches a
-   *  genuine 'refused' convergence outcome — the very first boot dial AND every
-   *  later RECONNECT dial alike. #1313's refuse-a-skew verdict is structurally
-   *  unresolvable (retrying can never make an incompatible padiSurface contract
-   *  compatible), so it must fail loudly no matter which dial discovers it.
+  /** Invoked with the {@link PadiBindingFatalError} on EVERY dial that reaches a
+   *  structurally-unresolvable verdict — a genuine 'refused' convergence outcome
+   *  (#1313) or a vanished state root (#2010) — the very first boot dial AND every
+   *  later RECONNECT dial alike. Both verdicts are permanent (retrying can never
+   *  make an incompatible contract compatible, nor resurrect a deleted workspace),
+   *  so they must fail loudly no matter which dial discovers them.
    *
    *  This exists because the composition root's boot `pin()` await only observes
    *  the FIRST dial's rejection: every dial AFTER that runs through the session's
    *  own fire-and-forget reconnect loop (`@kolu/surface-remote`'s `session.ts`,
    *  `launchAttempt`), which deliberately swallows a `connectOnce` rejection into
    *  the state cell and never rethrows it anywhere a caller could observe. Without
-   *  this hook, a refusal reached on a reconnect — e.g. a second binder taking over
-   *  the state root between this binder's boot and a later reconnect — would be
-   *  silently retried as "network" forever, recreating the exact silent spinner the
-   *  boot-time fail-fast was meant to kill. The composition root wires this to the
-   *  SAME `handlePadiBootFailure` the boot pin's rejection already reaches, so a
-   *  first-dial and a later-dial refusal fail exactly the same way (calling it
-   *  twice for a first-dial refusal — once here, once via the boot pin's own catch
-   *  — is a harmless, deliberate redundancy, not a bug). */
-  onAdoptionRefused?: (err: PadiAdoptionRefusedError) => void;
+   *  this hook, a fatal verdict reached on a reconnect — a second binder taking
+   *  over the state root, or the workspace deleted under a live dev server — would
+   *  be silently retried as "network" forever, recreating the exact silent spinner
+   *  the boot-time fail-fast was meant to kill (and, for a gone root, respawning a
+   *  padi that recreates the deleted directory — the #2010 resurrection). The
+   *  composition root wires this to the SAME `handlePadiBootFailure` the boot
+   *  pin's rejection already reaches, so a first-dial and a later-dial verdict
+   *  fail exactly the same way (calling it twice for a first-dial verdict — once
+   *  here, once via the boot pin's own catch — is a harmless, deliberate
+   *  redundancy, not a bug). */
+  onFatalBindingError?: (err: PadiBindingFatalError) => void;
 }
 
 /** The single local padi host id — the endpoint's status key. Distinct from
@@ -378,21 +383,52 @@ export interface EnsurePadiBindingOptions {
 export const PADI_HOST_ID = "padi-local";
 
 /**
+ * The binder's STRUCTURALLY-UNRESOLVABLE failure class: retrying can never fix
+ * it, so looping forever (fail-open's usual stance for a transient boot hiccup)
+ * would just be a silent spinner behind the scenes — the ONE outcome the boot
+ * acceptance bar forbids (the c9e4af3c fail-fast doctrine). The composition
+ * root (`server/src/index.ts`) catches this class specifically — off the boot
+ * `pin()` AND via {@link EnsurePadiBindingOptions.onFatalBindingError} on every
+ * later reconnect dial — and exits non-zero with the message here, naming the
+ * conflict + the remedy, instead of logging a buried error and serving a UI
+ * that will never connect. Two members: an adoption refusal (#1313) and a
+ * vanished state root (#2010).
+ */
+export class PadiBindingFatalError extends Error {}
+
+/**
  * A resident padi owns this state root at a `padiSurface` contract this binder
  * cannot speak, and — per #1313 (never kill a running padi) — the binder REFUSED
- * to touch it (left it standing + degraded). This is thrown ONLY for that
- * structurally-unresolvable case: retrying can never make an incompatible
- * contract compatible, so looping forever (fail-open's usual stance for a
- * transient boot hiccup) would just be a silent spinner behind the scenes — the
- * ONE outcome the boot acceptance bar forbids. The composition root
- * (`server/src/index.ts`) catches this specifically off the boot `pin()` and
- * exits non-zero with the message here, naming the conflict + the remedy,
- * instead of logging a buried error and serving a UI that will never connect.
+ * to touch it (left it standing + degraded). Retrying can never make an
+ * incompatible contract compatible.
  */
-export class PadiAdoptionRefusedError extends Error {
+export class PadiAdoptionRefusedError extends PadiBindingFatalError {
   constructor(message: string) {
     super(message);
     this.name = "PadiAdoptionRefusedError";
+  }
+}
+
+/**
+ * The state root this binder pinned at boot no longer exists — the workspace
+ * was deleted out from under a running kolu (a dev worktree removed, #2010).
+ * Spawning a padi into it would RECREATE the directory (padi's boot mkdirs its
+ * log home) and resurrect the very zombie the daemon's own anchor-gone
+ * self-reap just collected — so a gone root is terminal for the binder, never
+ * a retry. The binder itself CREATED this directory at boot
+ * ({@link ensurePadiBinding}), so "missing now" is always proof of deletion,
+ * never a fresh-machine first boot.
+ */
+export class PadiStateRootGoneError extends PadiBindingFatalError {
+  constructor(stateRoot: string) {
+    super(
+      `padi's state root is gone: ${stateRoot} no longer exists — the workspace ` +
+        "was deleted while this kolu was still running (e.g. its worktree removed). " +
+        "There is nothing left to serve; exiting rather than respawning a padi " +
+        "into a recreated empty directory. Restart kolu from a live workspace " +
+        "(or point KOLU_PADI_STATE_DIR at one).",
+    );
+    this.name = "PadiStateRootGoneError";
   }
 }
 
@@ -430,31 +466,32 @@ export function padiConnectFailure(
   );
 }
 
-/** Report a classified connect failure through the injected `onAdoptionRefused`
+/** Report a classified connect failure through the injected `onFatalBindingError`
  *  hook — extracted as its own pure function (no I/O) so the ONE thing that must
  *  hold on EVERY dial (first AND every later reconnect) is unit-testable directly,
- *  without a real session or daemon. Called at the connector's throw site itself
- *  (not left to whichever dial's promise a caller happens to await): the
+ *  without a real session or daemon. Called at the connector's throw sites
+ *  themselves (not left to whichever dial's promise a caller happens to await): the
  *  composition root's boot `pin()` only observes the FIRST dial's rejection, and
  *  every later dial runs through the session's own fire-and-forget reconnect loop
  *  (`@kolu/surface-remote`'s `launchAttempt`), which swallows a `connectOnce`
  *  rejection with no rethrow. Calling the hook HERE — synchronously, before the
- *  throw — means a later dial's refusal is reported exactly the same way the first
- *  dial's is, closing that gap. A no-op for every other (retryable) classification. */
-export function reportAdoptionRefusal(
+ *  throw — means a later dial's fatal verdict is reported exactly the same way the
+ *  first dial's is, closing that gap. A no-op for every other (retryable)
+ *  classification. */
+export function reportFatalBindingError(
   err: Error,
-  onAdoptionRefused: ((err: PadiAdoptionRefusedError) => void) | undefined,
+  onFatalBindingError: ((err: PadiBindingFatalError) => void) | undefined,
 ): void {
-  if (err instanceof PadiAdoptionRefusedError) onAdoptionRefused?.(err);
+  if (err instanceof PadiBindingFatalError) onFatalBindingError?.(err);
 }
 
 /** The composition root's boot-`pin()` failure handler — extracted so it is
- *  unit-testable without booting the whole server. Distinguishes the ONE fatal case
- *  ({@link PadiAdoptionRefusedError}: adoption structurally cannot proceed, #1313) from
- *  every other boot hiccup, which stays fail-open (the reconnect loop already
- *  scheduled its own retry; this only logs). `deps` are injected (never read `log`/
- *  `process.exit` off a module global) so a test observes the exact calls without a
- *  real process teardown. */
+ *  unit-testable without booting the whole server. Distinguishes the fatal class
+ *  ({@link PadiBindingFatalError}: structurally unresolvable — an adoption refusal
+ *  (#1313) or a vanished state root (#2010)) from every other boot hiccup, which
+ *  stays fail-open (the reconnect loop already scheduled its own retry; this only
+ *  logs). `deps` are injected (never read `log`/`process.exit` off a module
+ *  global) so a test observes the exact calls without a real process teardown. */
 export function handlePadiBootFailure(
   err: unknown,
   deps: {
@@ -462,7 +499,7 @@ export function handlePadiBootFailure(
     exit: (code: number) => void;
   },
 ): void {
-  if (err instanceof PadiAdoptionRefusedError) {
+  if (err instanceof PadiBindingFatalError) {
     deps.log.fatal({ err }, err.message);
     deps.exit(1);
     return;
@@ -488,6 +525,13 @@ export function handlePadiBootFailure(
  */
 export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
+  // The binder OWNS the state root's creation, once per boot. This is what makes
+  // the connector's gone-root check below sound on a fresh machine: after this
+  // line the root exists, so a LATER dial finding it missing is always proof of
+  // deletion (#2010), never a first boot that hasn't created it yet. (padi's own
+  // boot also mkdirs its log home inside — this is the supervisor-side twin, not
+  // a new behavior for a normal boot.)
+  mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
   // DISCOVER a resident before computing our own drawer (the #1713 adopt-path
   // sibling's fix): `residentPadiSocket` reads back the `state-root` manifest a
   // running padi wrote about ITSELF, across every drawer this host could
@@ -603,6 +647,24 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // sibling (the pump mirrors `/surface/padi/*`; `identity()` reads its `system.identity`).
   const connector: Connector<PadiSurfaceClient> = async (ctx) => {
     ctx.connecting();
+    // The gone-root fail-fast (#2010), checked at the top of EVERY dial — the
+    // binder created the root at boot (above), so ENOENT here is proof the
+    // workspace was deleted while this kolu ran. Converging would respawn a
+    // padi whose boot RECREATES the directory, resurrecting the zombie its own
+    // anchor-gone self-reap just collected; reported through the same hook a
+    // reconnect-dial adoption refusal uses, so the composition root exits loud
+    // no matter which dial discovers it. Same ENOENT-only proof as the daemon
+    // side (`anchorGone`, single-sourced in `@kolu/surface-daemon`). A deletion
+    // landing in the check→spawn window is a DOCUMENTED RESIDUAL, not
+    // engineered around (the `boundToPid` pid-reuse stance): the spawned padi
+    // recreates the dir, its own anchor poll reaps it within two ticks, and the
+    // reconnect dial that follows lands back here — one bounded extra cycle,
+    // never a leaked class.
+    if (anchorGone(stateRoot)) {
+      const gone = new PadiStateRootGoneError(stateRoot);
+      reportFatalBindingError(gone, opts.onFatalBindingError);
+      throw gone;
+    }
     const outcome = await convergePadi();
     const conn = ep.current();
     if (conn === undefined) {
@@ -615,8 +677,8 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       // Report a fatal refusal HERE, synchronously, on every dial this connector
       // ever runs — not just whichever dial a caller happens to await. Reconnect
       // dials run through the session's own fire-and-forget loop and would
-      // otherwise swallow this throw silently (see `onAdoptionRefused`'s doc).
-      reportAdoptionRefusal(err, opts.onAdoptionRefused);
+      // otherwise swallow this throw silently (see `onFatalBindingError`'s doc).
+      reportFatalBindingError(err, opts.onFatalBindingError);
       throw err;
     }
     // The far-end clock offset is no longer hand-measured here: `makeSession` samples

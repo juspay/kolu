@@ -43,6 +43,10 @@ export function runDaemon(
         socketPath: SOCKET_PATH, // where the surface is served
         router, // runtime.router — already the final flattened router
         lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
+        // The self-reap anchor: the dir whose deletion makes this daemon
+        // garbage (its state root). fleet-top keeps no on-disk state, so the
+        // honest spelling is the visible "not anchored" thunk.
+        anchor: () => undefined,
         log: stderrLogger(),
         signal: controller.signal,
         onReady: ({ socketPath, pid }) =>

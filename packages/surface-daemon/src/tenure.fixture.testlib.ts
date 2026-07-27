@@ -75,6 +75,9 @@ async function runDaemon(): Promise<DaemonExit> {
       pid === process.pid ? { pid, startUnixUs: 1_000_000 } : undefined,
     socketPath: join(dir, "daemon.sock"),
     router,
+    // The fixture exercises tenure (exit ownership), not the anchor — honestly
+    // unanchored, like any daemon with no on-disk identity.
+    anchor: () => undefined,
     lifetime: { kind: "forever" },
     log: stderrLogger(),
     onReady: () => process.stderr.write(`${MARKER.listening}\n`),
