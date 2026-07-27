@@ -113,6 +113,7 @@ import {
   rowRecencyAt,
 } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
+import { nextAfter } from "../../attention/attentionNav";
 import { SubAgentRow } from "./SubAgentRow";
 import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
@@ -510,11 +511,10 @@ const RepoSection: Component<{
   // pill (violet clears only when the agent stops waiting; amber clears
   // because activating the terminal marks it read).
   const jumpTo = (match: (row: RankedDockRow) => boolean) => {
-    const ids = props.group.rows.filter(match).map((r) => r.id);
-    if (ids.length === 0) return;
-    const cur = tileStore.activeId();
-    const curIdx = cur === null ? -1 : ids.indexOf(cur);
-    const next = ids[(curIdx + 1) % ids.length];
+    const next = nextAfter(
+      props.group.rows.filter(match).map((r) => r.id),
+      tileStore.activeId(),
+    );
     if (next !== undefined) tileStore.activate(next);
   };
   // Section is the grid container. Four columns (the `DOCK_ROW_GRID`

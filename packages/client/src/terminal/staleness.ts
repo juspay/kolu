@@ -17,6 +17,7 @@
  *  one signal so every consumer (dock buckets, minimap fade, badge gate)
  *  agrees on what "stale" means. */
 
+import { DASH } from "kolu-common/surface";
 import { getClockNow, makeTickingClock } from "../time/clock";
 import { compactDelta } from "../time/duration";
 import { type IdleBucketKey, idleBucketFor } from "./activityWindow";
@@ -86,8 +87,18 @@ export function useIdleClassifier(): (
 /** Compact forward duration: "12s" / "5m" / "2h" / "3d". Single-unit and
  *  coarse — it renders only the dominant tier of the shared {@link compactDelta}
  *  ladder. Driven live by `useDuration`'s 1s clock, so the sub-minute seconds
- *  tier counts up; the coarser tiers change at most once a minute. */
+ *  tier counts up; the coarser tiers change at most once a minute.
+ *
+ *  A NEGATIVE duration renders as the dash, not as "0s". The timestamps this
+ *  measures from are stamped by the host the terminal runs on, and subtracted
+ *  from the browser's clock — so a remote host running even slightly ahead
+ *  puts its events in this clock's future. An event cannot have happened
+ *  later than now, so the reading is provably wrong, and the honest answer is
+ *  that we do not know: a dock chip reading "0s" beside an agent that has been
+ *  blocked for twenty hours is worse than one admitting it can't say, and it
+ *  would appear on exactly the remote hosts the chip exists for. */
 export function formatDuration(ms: number): string {
+  if (ms < 0) return DASH;
   const { value, unit } = compactDelta(ms);
   return `${value}${unit}`;
 }

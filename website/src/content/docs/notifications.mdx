@@ -26,14 +26,23 @@ row, repo section header, host tab, phone host row:
 | --- | --- | --- |
 | **Needs you** — an agent is blocked on your input | violet count pill · violet row wash · a chip counting **how long it has waited** | you answer it — nothing else clears it |
 | **Unread** — an agent finished and you haven't looked | amber count pill · amber row wash · amber badge on the pip | you open that terminal |
-| **Working** — an agent is in flight | a plain rust count with a spinner | the agent finishes |
+| **Active** — something is happening in a terminal | a plain rust count with a spinner | everything goes quiet |
 
-The two you can **act on** wear a pill; the working count deliberately does not.
-So a number in a pill always means *there is something to do here*, and
-**clicking one takes you to it** — the next terminal blocked on you (or the next
-unread), cycling through them on repeat clicks. Clicking never dismisses: the
-needs-you count is a live reading of what is actually waiting, so only answering
-the agent clears it.
+The two you can **act on** wear a pill; the activity count deliberately does not.
+So a number in a pill always means *there is something to do here*. Where kolu
+has somewhere to send you, **clicking a pill takes you there** — the violet count
+jumps to the next terminal blocked on you, cycling through them on repeat clicks.
+Clicking never dismisses: the needs-you count is a live reading of what is
+actually waiting, so only answering the agent clears it. (A host tab's amber
+count has no jump of its own — switching to that machine is what clears it, and
+the tab is already the button that does that.)
+
+**"Active" means what the marks mean.** The rust count is the same question a
+moving mark answers, asked about a whole machine or a whole repo — so it counts
+an agent thinking, an agent still settling in the moments after its turn, and a
+plain shell that is printing. That last one matters: a terminal running a build
+has no agent to ask, and its output is the only evidence there is. If three marks
+are moving, the count above them says three.
 
 An agent that finishes in the background washes its whole dock row amber — tinted
 background, lit leading stripe, bold title. A blocked one washes violet and floats
@@ -78,8 +87,9 @@ The needs-you signal is a first-class part of the [multi-host](/remote-hosts)
 story, and it reaches you **the same way on every host** — an agent that finishes
 or starts waiting on a *background* machine chimes, shows a backgrounded-tab
 popup, and marks that host, exactly as the active machine's does. Each host tab
-carries the **full summary for that machine** — how many agents are working, how
-many are blocked on you, and how much finished work you haven't opened — read
+carries the **full summary for that machine** — how many terminals have something
+happening in them, how many agents are blocked on you, and how much finished work
+you haven't opened — read
 straight off it (a host whose link drops **dims** its tab rather than dropping the
 counts). A tab with an agent waiting on you **washes violet**; one with unopened
 finished work washes amber until you switch there.

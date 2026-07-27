@@ -5,8 +5,8 @@
  *  keys on, so the age a row shows is the age that decides whether the window
  *  hides it.
  *
- *  Active rows hide the label: effectively active terminals (same predicate as
- *  `pipIsActive` — do not re-derive the formula here) are "just now" by
+ *  Active rows hide the label: an active terminal (the ONE shared predicate,
+ *  `attentionActive` — do not re-derive the formula here) is "just now" by
  *  definition, so the text is noise. The fixed `w-[8ch]` still reserves the
  *  column so rows do not jump when the cell appears on quiet.
  *
@@ -39,8 +39,8 @@ const RecencyCell: Component<{
   /** Tailwind text-size token — the only thing the desktop and touch rows
    *  differ by (e.g. `text-[0.6rem]` vs `text-[0.65rem]`). */
   textSize: string;
-  /** Hide the label while the terminal is effectively active (`pipIsActive`).
-   *  Column width is still reserved. */
+  /** Hide the label while the terminal is active (`attentionActive`). Column
+   *  width is still reserved. */
   hidden?: boolean;
   /** The row's agent is blocked on you — render the age as the violet wait
    *  chip (overrides `hidden`: a blocked row's age is the signal). */

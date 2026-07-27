@@ -17,14 +17,16 @@ the *attention summary* both surfaces roll up into.
   Callers should use kolu's `bindStatePip` so surfaces cannot drift. A bare
   `<StatePip variant={…} />` is still valid.
 
-- **`<AttentionTriplet working asking unseen sizeClass onAsking onUnseen>`** —
+- **`<AttentionTriplet active asking unseen sizeClass onAsking onUnseen>`** —
   the attention summary every altitude renders identically (host tab, host
   switcher row, mobile host chip, dock repo-section header), so one fact cannot
   grow four dialects. Its rule: the two **actionable** counts wear a capsule and
-  become real `<button>`s when a jump handler is passed; **working** is a bare
-  count + spinner and never clickable. Callers inside an already-interactive
-  parent omit the handlers and get plain spans (valid HTML, same vocabulary).
-  `sizeClass` is the only per-surface pixel.
+  become real `<button>`s when a jump handler is passed; **active** is a bare
+  count + spinner and never clickable. A capsule falls back to a plain span
+  wherever its surface has nowhere to send you — a caller inside an
+  already-interactive parent omits the handlers (valid HTML, same vocabulary),
+  and a host tab passes no `onUnseen` because switching to the machine is what
+  clears that count. `sizeClass` is the only per-surface pixel.
 
 - **`PipVariant`**, **`pipForPaintClass`**, box sizes, and the count classes on
   `./pipVariant` — `NEEDS_YOU_PILL_CLASS` (violet, blocked on you),

@@ -53,7 +53,7 @@ import {
   liveAskingTotal,
   writeHostMarks,
 } from "./attentionMarks";
-import { registerAttentionJump } from "./attentionNav";
+import { nextAfter, registerAttentionJump } from "./attentionNav";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel, sameHost } from "../host/hostChipTone";
@@ -266,15 +266,15 @@ export function useAttention(deps: AttentionDeps): {
   // focus the next terminal blocked on you — cycling past the currently-active
   // one so repeated clicks walk every blocked agent. Navigation only; the count
   // clears exclusively when an agent leaves `awaiting_user`.
-  registerAttentionJump((encHost) => {
-    const ids = hostAskingIds(encHost);
-    if (ids.length === 0) return;
-    setActiveHost(decodeHostKey(encHost));
-    const cur = deps.activeId();
-    const curIdx = cur === null ? -1 : ids.indexOf(cur);
-    const next = ids[(curIdx + 1) % ids.length];
-    if (next !== undefined) deps.activate(next);
-  });
+  onCleanup(
+    registerAttentionJump((encHost) => {
+      const ids = hostAskingIds(encHost);
+      if (ids.length === 0) return;
+      setActiveHost(decodeHostKey(encHost));
+      const next = nextAfter(ids, deps.activeId());
+      if (next !== undefined) deps.activate(next);
+    }),
+  );
 
   // The SINGLE notification-click router: switch to the originating host first (a
   // notification outlives the active-host selection), then focus. Both the current

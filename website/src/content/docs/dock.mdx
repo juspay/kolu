@@ -68,10 +68,20 @@ threads still went unnoticed, because motion on a 7px object doesn't buy attenti
 
 The same StatePip leads the tile title bar, so dock and title never disagree.
 
+**An agent running in a split gets its own indented entry** beneath the row for
+the terminal holding it. A split is a whole second terminal, so an agent working
+in one used to be counted on the host tab and visible nowhere in the dock —
+findable only by clicking into terminals one at a time. Clicking the entry takes
+you to that pane, focused. Only splits actually running an agent get a line; a
+plain shell split stays folded into the `⊟` count, where it was always legible
+enough.
+
 Every repo section header carries the same three counts the host tab does —
-**working**, **needs you**, **unread**. The two you can act on are pills, and
+**active**, **needs you**, **unread**. The two you can act on are pills, and
 clicking one jumps to the next terminal it counts; the plain number beside the
-repo name is just how many terminals it holds.
+repo name is just how many terminals it holds. The counts include rows a filter
+is currently hiding: an agent that has been blocked long enough to fall out of
+the activity window is exactly the one whose count must still reach you.
 
 Rows sort **blocked-first, then by recency**: a terminal whose agent is waiting on
 your input floats to the top of its section, and everything else orders by what

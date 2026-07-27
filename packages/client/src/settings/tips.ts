@@ -47,8 +47,13 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-host-map",
-    text: "Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each chip showing its connection and how many agents await you",
+    text: "Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each tab carrying that machine's whole attention summary",
     doc: "remote-hosts",
+  },
+  {
+    id: "amb-attention-jump",
+    text: "A violet count means agents are blocked on you — click it to jump straight to one, and again to walk the rest. Rust counts what is working; amber counts what finished while you were away",
+    doc: "notifications",
   },
   {
     id: "amb-workspace-switcher-shortcut",

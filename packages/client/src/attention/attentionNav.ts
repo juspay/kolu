@@ -12,15 +12,31 @@
  *
  *  Unregistered calls THROW: a chip that renders a clickable capsule before
  *  `useAttention` mounted is a wiring defect to surface, never a silent no-op
- *  click (fail fast — no fallbacks). */
+ *  click (fail fast — no fallbacks). A SECOND registration throws too — there
+ *  is exactly one attention owner, and two would mean a click reaching
+ *  whichever mounted last, which is not a thing to discover from behaviour.
+ *  Registration hands back a disposer so a torn-down owner empties the slot
+ *  instead of leaving a closure over its disposed deps behind it. */
 
 type JumpToAsking = (encHost: string) => void;
 
 let impl: JumpToAsking | null = null;
 
-/** Called ONCE by `useAttention` at construction with the real implementation. */
-export function registerAttentionJump(fn: JumpToAsking): void {
+/** Called ONCE by `useAttention` at construction with the real implementation.
+ *  Returns the disposer for that owner's `onCleanup`. */
+export function registerAttentionJump(fn: JumpToAsking): () => void {
+  if (impl !== null) {
+    throw new Error(
+      "attentionNav: a second useAttention tried to register the jump seam — there is exactly one attention owner",
+    );
+  }
   impl = fn;
+  // No identity check on the way out: the throw above means two owners can
+  // never hold the slot at once, so the only thing this can be clearing is
+  // its own registration.
+  return () => {
+    impl = null;
+  };
 }
 
 /** Focus the next terminal blocked on you on `encHost` — cycles through the
@@ -33,4 +49,18 @@ export function jumpToAsking(encHost: string): void {
     );
   }
   impl(encHost);
+}
+
+/** The id after `current` in `ids`, wrapping — the "cycle past the one you are
+ *  already on" rule every attention jump follows, so repeated clicks walk the
+ *  whole set instead of bouncing on the first. `current` absent (or not in the
+ *  list) starts at the beginning. Shared by the host-tab jump and the dock
+ *  section header's, which had spelled the same modular arithmetic twice. */
+export function nextAfter<T>(
+  ids: readonly T[],
+  current: T | null,
+): T | undefined {
+  if (ids.length === 0) return undefined;
+  const at = current === null ? -1 : ids.indexOf(current);
+  return ids[(at + 1) % ids.length];
 }
