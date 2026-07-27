@@ -25,15 +25,10 @@ fn fixture_loopback_v4() {
             .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))),
         "helper pid must appear: {procs:?}"
     );
-    if darwin_pcblist_is_blind(&errors) {
-        assert!(
-            ports.is_empty(),
-            "a blind source cannot emit L rows: {h:?}",
-            h = h.tsv
-        );
-        return;
-    }
-    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
+    assert!(
+        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        "unexpected source errors: {errors:?}"
+    );
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -43,7 +38,9 @@ fn fixture_loopback_v4() {
         l_addr_for_port(&ports, h.port),
         hex_of_v4(Ipv4Addr::LOCALHOST)
     );
-    insta::assert_snapshot!("fixture_loopback_v4", redact_tsv(&h.tsv));
+    if errors.is_empty() {
+        insta::assert_snapshot!("fixture_loopback_v4", redact_tsv(&h.tsv));
+    }
 }
 
 #[test]
@@ -53,11 +50,10 @@ fn fixture_any_v4() {
     assert!(procs
         .iter()
         .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
-    if darwin_pcblist_is_blind(&errors) {
-        assert!(ports.is_empty());
-        return;
-    }
-    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
+    assert!(
+        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        "unexpected source errors: {errors:?}"
+    );
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -67,7 +63,9 @@ fn fixture_any_v4() {
         l_addr_for_port(&ports, h.port),
         hex_of_v4(Ipv4Addr::UNSPECIFIED)
     );
-    insta::assert_snapshot!("fixture_any_v4", redact_tsv(&h.tsv));
+    if errors.is_empty() {
+        insta::assert_snapshot!("fixture_any_v4", redact_tsv(&h.tsv));
+    }
 }
 
 #[test]
@@ -83,11 +81,10 @@ fn fixture_loopback_v6() {
     assert!(procs
         .iter()
         .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
-    if darwin_pcblist_is_blind(&errors) {
-        assert!(ports.is_empty());
-        return;
-    }
-    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
+    assert!(
+        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        "unexpected source errors: {errors:?}"
+    );
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -97,7 +94,9 @@ fn fixture_loopback_v6() {
         l_addr_for_port(&ports, h.port),
         hex_of_v6(Ipv6Addr::LOCALHOST)
     );
-    insta::assert_snapshot!("fixture_loopback_v6", redact_tsv(&h.tsv));
+    if errors.is_empty() {
+        insta::assert_snapshot!("fixture_loopback_v6", redact_tsv(&h.tsv));
+    }
 }
 
 #[test]
@@ -113,11 +112,10 @@ fn fixture_any_v6() {
     assert!(procs
         .iter()
         .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
-    if darwin_pcblist_is_blind(&errors) {
-        assert!(ports.is_empty());
-        return;
-    }
-    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
+    assert!(
+        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        "unexpected source errors: {errors:?}"
+    );
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -128,7 +126,9 @@ fn fixture_any_v6() {
         addr == hex_of_v6(Ipv6Addr::UNSPECIFIED) || addr == hex_of_v4(Ipv4Addr::UNSPECIFIED),
         "expected any-address for :: bind, got {addr}"
     );
-    insta::assert_snapshot!("fixture_any_v6", redact_tsv(&h.tsv));
+    if errors.is_empty() {
+        insta::assert_snapshot!("fixture_any_v6", redact_tsv(&h.tsv));
+    }
 }
 
 #[test]
@@ -144,11 +144,10 @@ fn fixture_v4_mapped_loopback() {
     assert!(procs
         .iter()
         .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
-    if darwin_pcblist_is_blind(&errors) {
-        assert!(ports.is_empty());
-        return;
-    }
-    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
+    assert!(
+        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        "unexpected source errors: {errors:?}"
+    );
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -266,7 +265,6 @@ fn json_mirrors_tsv_on_same_snapshot() {
         "partial snapshot must preserve process facts: {tsv}"
     );
     if darwin_pcblist_is_blind(&errors) {
-        assert!(ports.is_empty());
         assert_eq!(
             val["errors"][0],
             serde_json::json!({
@@ -274,10 +272,9 @@ fn json_mirrors_tsv_on_same_snapshot() {
                 "code": "BLIND_OR_EMPTY"
             })
         );
-        assert!(val["ports"].as_array().is_some_and(Vec::is_empty));
-        return;
+    } else {
+        assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     }
-    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     let tsv_addr = l_addr_for_port(&ports, listener.port);
     let json_ports = val["ports"].as_array().expect("ports");
     assert!(
@@ -302,11 +299,10 @@ fn roots_includes_helper_process() {
             .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))),
         "root pid must appear; procs={procs:?}"
     );
-    if darwin_pcblist_is_blind(&errors) {
-        assert!(ports.is_empty());
-        return;
-    }
-    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
+    assert!(
+        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        "unexpected source errors: {errors:?}"
+    );
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
