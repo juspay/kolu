@@ -38,6 +38,8 @@ struct LiveWorld {
     unreadable_pids: HashSet<u32>,
     host_first: Option<String>,
     host_second: Option<String>,
+    #[cfg(target_os = "macos")]
+    ps_process_count: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -215,6 +217,66 @@ fn memory_and_start_are_real(world: &mut LiveWorld) {
         start > 0 && start <= now,
         "start instant must be in the past: {body}"
     );
+}
+
+#[when("I snapshot launchd's subtree as an unprivileged darwin user")]
+fn snapshot_launchd_subtree(_world: &mut LiveWorld) {
+    #[cfg(target_os = "macos")]
+    {
+        let world = _world;
+        assert_ne!(
+            unsafe { libc::geteuid() },
+            0,
+            "fixture requires a non-root user"
+        );
+        let ps = Command::new("ps")
+            .args(["-axo", "pid="])
+            .output()
+            .expect("ps must be available on darwin");
+        assert!(ps.status.success(), "ps failed: {}", ps.status);
+        world.ps_process_count = Some(
+            String::from_utf8(ps.stdout)
+                .expect("ps utf8")
+                .lines()
+                .filter(|line| line.trim().parse::<u32>().is_ok())
+                .count(),
+        );
+        world.snapshot = Some(world.run_osfacts(&[
+            "snapshot",
+            "--roots",
+            "1",
+            "--procs",
+            "--ports",
+            "--mem",
+            "--start-time",
+        ]));
+    }
+}
+
+#[then("the snapshot reports launchd's readable process tree without hiding its blindness")]
+fn launchd_tree_survives_unreadable_root(_world: &mut LiveWorld) {
+    #[cfg(target_os = "macos")]
+    {
+        let world = _world;
+        let body = world.snapshot.as_ref().expect("snapshot");
+        let osfacts_count = body.lines().filter(|line| line.starts_with("P\t")).count();
+        let ps_count = world.ps_process_count.expect("ps count");
+        assert!(
+            body.lines().any(|line| {
+                line.starts_with("U\t1\tproc\t")
+                    && (line.ends_with("EPERM") || line.ends_with("EACCES"))
+            }),
+            "launchd must be reported unreadable:\n{body}"
+        );
+        assert!(
+            osfacts_count > 1,
+            "an unreadable launchd must not collapse its subtree to one row:\n{body}"
+        );
+        assert!(
+            osfacts_count.saturating_mul(2) >= ps_count,
+            "osfacts process count must be comparable to ps: osfacts={osfacts_count}, ps={ps_count}\n{body}"
+        );
+    }
 }
 
 #[when("I take two complete host snapshots")]

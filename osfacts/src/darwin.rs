@@ -331,11 +331,20 @@ fn select_pids(scope: &Scope, all: &[u32], snap: &mut Snapshot) -> Vec<u32> {
 }
 
 fn subtree(roots: &[u32], all: &[u32], snap: &mut Snapshot) -> Vec<u32> {
+    subtree_with(roots, all, snap, read_bsd)
+}
+
+fn subtree_with(
+    roots: &[u32],
+    all: &[u32],
+    snap: &mut Snapshot,
+    mut read: impl FnMut(u32) -> Result<BsdRow, i32>,
+) -> Vec<u32> {
     let mut children = HashMap::<u32, Vec<u32>>::new();
     let mut readable = HashSet::new();
     let listed: HashSet<u32> = all.iter().copied().collect();
     for &pid in all {
-        if let Ok(row) = read_bsd(pid) {
+        if let Ok(row) = read(pid) {
             children.entry(row.ppid).or_default().push(pid);
             readable.insert(pid);
         }
@@ -345,7 +354,7 @@ fn subtree(roots: &[u32], all: &[u32], snap: &mut Snapshot) -> Vec<u32> {
     for &root in roots {
         if !readable.contains(&root) {
             let err = if listed.contains(&root) {
-                read_bsd(root).err().unwrap_or(libc::EIO)
+                read(root).err().unwrap_or(libc::EIO)
             } else {
                 libc::ESRCH
             };
@@ -801,4 +810,34 @@ fn source_error(source: &str, err: i32) -> SourceError {
 
 fn errno() -> i32 {
     unsafe { *libc::__error() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unreadable_root_still_selects_readable_descendants() {
+        let mut snap = Snapshot::new();
+        let selected = subtree_with(&[1], &[1, 2, 3], &mut snap, |pid| match pid {
+            1 => Err(libc::EPERM),
+            2 => Ok(BsdRow {
+                ppid: 1,
+                name: "child".into(),
+                start_unix_us: 2,
+            }),
+            3 => Ok(BsdRow {
+                ppid: 2,
+                name: "grandchild".into(),
+                start_unix_us: 3,
+            }),
+            _ => unreachable!(),
+        });
+
+        assert_eq!(selected, vec![1, 2, 3]);
+        assert!(snap
+            .unreadable
+            .iter()
+            .any(|row| { row.pid == 1 && row.facet == "proc" && row.errno == "EPERM" }));
+    }
 }

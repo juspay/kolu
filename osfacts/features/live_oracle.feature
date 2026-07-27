@@ -23,6 +23,10 @@ Feature: Live-host oracle (lane 2 — never gates)
     When I snapshot this process's memory and start time
     Then osfacts reports positive RSS and a past start instant
 
+  Scenario: An unreadable launchd does not hide its readable descendants on darwin
+    When I snapshot launchd's subtree as an unprivileged darwin user
+    Then the snapshot reports launchd's readable process tree without hiding its blindness
+
   Scenario: Host telemetry preserves gauge and cumulative semantics
     When I take two complete host snapshots
     Then host gauges are sane and cumulative counters do not decrease
