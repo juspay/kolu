@@ -128,13 +128,17 @@ export interface EntryClock {
  *  word nor identity and passes through as-is, and a live link is a no-op. Making `live` a
  *  REQUIRED argument is the point: `foldState` cannot forget to floor.
  *
- *  A failed arm's `failure` AND its `evidence` BOTH ride through untouched — by
- *  construction, not by a carve-out: the floor drops exactly `connection`, and evidence
- *  is a field of the FAILURE record, pinned at classification (see `FailureEvidence`).
- *  That is the whole reason evidence lives there: staleness is a property of a LIVE view,
- *  and a post-mortem tail of the episode that already gave up cannot go stale. Before
- *  this, the retained tail rode `connection` and a dead browser link floored the evidence
- *  away while the reason survived (juspay/kolu#2007). */
+ *  The `failed` arm has NOTHING for the floor to do, and that is structural rather than a
+ *  carve-out here: the arm carries no `connection` at all (see `EntryStatus`), so its
+ *  `failure` and `evidence` are simply not liveness payloads. What the floor exists to
+ *  stop is a LIVE word narrating work our link can no longer report on; a failure record
+ *  is not a live word, so it is none of the floor's business. That is deliberately NOT a
+ *  claim that a failed entry is terminal — a STANDING REFUSE publishes `failed` while its
+ *  session keeps redialing, so both the reason and its tail can still be superseded by a
+ *  later frame. The guarantee is that they move TOGETHER: the floor can never strand one
+ *  without the other, which is exactly what it used to do when the retained tail rode
+ *  `connection` and a dead browser link floored the evidence away while the reason
+ *  survived (juspay/kolu#2007). */
 export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   status: EntryState<Failure, Conn>,
   live: boolean,
@@ -146,6 +150,9 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   // and drop the fine `connection` word on this and every other session-backed arm.
   if (status.kind === "connected")
     return { kind: "warming", membershipId: status.membershipId };
+  // `failed` has no `connection` field to drop — its record is already floor-proof by
+  // construction, so it passes through whole rather than being rebuilt.
+  if (status.kind === "failed") return status;
   return { ...status, connection: undefined };
 }
 

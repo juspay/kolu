@@ -293,9 +293,11 @@ function projectStatus<Failure, Conn>(
             failure: state.failure,
             // Paired with `failure` at the type (see `EntryConnectionState`), so the
             // refuse's evidence travels onto the published arm with its reason — one
-            // record, never two independently-optional fields.
+            // record, never two independently-optional fields. The live `connection` is
+            // deliberately NOT carried: the published `failed` arm has no such field
+            // (see `EntryStatus`), because it would be this same frame's tail a second
+            // time, in the one place the liveness floor drops it.
             evidence: state.evidence,
-            connection,
           }
         : { kind: "warming", membershipId, connection };
     // A terminal give-up (the reconnect loop stopped for good) — always a red
@@ -307,8 +309,8 @@ function projectStatus<Failure, Conn>(
         kind: "failed",
         membershipId,
         failure: state.failure,
+        // Same as the standing-refuse arm above: evidence only, no live `connection`.
         evidence: state.evidence,
-        connection,
       };
   }
 }
@@ -699,23 +701,31 @@ export function serveSurfaceMap<
   // a per-key status only when that member's own EntryStatus actually changed.
   let lastKeyset: readonly string[] | undefined;
   const lastPublished = new Map<string, EntryStatus<Failure, Conn>>();
-  // Structural equality over the PUBLISHED EntryStatus fields (the arm shape in
-  // `define.ts`): `connection` is the cached `SessionState` frame, reference-stable
-  // per frame (`projectConnection` is identity), so `===` is exactly "did the source
-  // hand a new frame" — the fine word's change signal. `clockOffset`/`failure` are
-  // the only other published fields; comparing them by `===` errs toward RE-emitting
-  // a rebuilt-but-equal value (safe — it never MISSES a real change).
+  // Structural equality over the PUBLISHED EntryStatus — a SHALLOW compare over the
+  // union of both values' own keys, deliberately NOT a hand-written field list. A
+  // hand-enumerated compare has to be edited every time an arm in `define.ts` grows a
+  // field, and the failure mode of forgetting is SILENT: the new field's changes stop
+  // republishing (exactly what happened when the `failed` arm gained `evidence`). Over
+  // the key union the gate cannot miss a field it was never told about.
+  //
+  // `Object.is` is the right per-field test because every published field is
+  // reference- or value-stable per frame: `connection` is the cached `SessionState`
+  // (`projectConnection` is identity), `evidence` is that same frame's retained `log`,
+  // `failure` is the classifier's own value, and `kind`/`membershipId`/`clockOffset`
+  // are primitives. So `Object.is` is exactly "did the source hand a new value", and a
+  // rebuilt-but-equal value merely RE-emits (safe) — the gate still never MISSES a
+  // real change, which is the only direction that matters. A differing key COUNT (an
+  // arm gaining or losing an optional field) also re-emits, same safe direction.
   const samePublished = (
     a: EntryStatus<Failure, Conn>,
     b: EntryStatus<Failure, Conn>,
-  ): boolean =>
-    a.kind === b.kind &&
-    a.membershipId === b.membershipId &&
-    a.connection === b.connection &&
-    (a as { clockOffset?: number | null }).clockOffset ===
-      (b as { clockOffset?: number | null }).clockOffset &&
-    (a as { failure?: Failure }).failure ===
-      (b as { failure?: Failure }).failure;
+  ): boolean => {
+    const keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length) return false;
+    const ra = a as unknown as Record<string, unknown>;
+    const rb = b as unknown as Record<string, unknown>;
+    return keys.every((k) => Object.is(ra[k], rb[k]));
+  };
   const unsubRepublish = registry.subscribe(() => {
     const ks = members();
     const encoded = ks.map((k) => map.codec.encode(k));

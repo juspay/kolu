@@ -108,6 +108,12 @@ export interface EvidenceLine {
  *  type requires it on both down arms, {@link entryStatusSchema} requires it on the
  *  wire, and the floor keeps it by construction.
  *
+ *  The move is only complete because the OLD home was also closed: the published
+ *  `failed` arm carries no `connection` at all. Had it kept one, the same frame's tail
+ *  would ride the entry twice and `connection?.log` would still be the spellable,
+ *  compiling, floorable read the whole change exists to remove — the defect relocated
+ *  rather than eliminated. One tail, one home, one arm that can hold it.
+ *
  *  `[]` is a REAL value with ONE meaning — "the failure genuinely produced no
  *  output" — minted only by the seam that knows. It is never a fallback for
  *  "we couldn't see it": there is no such state on a failed arm any more. */
@@ -115,8 +121,14 @@ export type FailureEvidence = readonly EvidenceLine[];
 
 /** The wire/zod schema for {@link FailureEvidence}. A module const (not a function
  *  of a domain schema like the failure value): evidence is a fixed structural type
- *  this package owns, so there is exactly one schema for it. */
-export const FailureEvidenceSchema: ZodType<FailureEvidence> = z
+ *  this package owns, so there is exactly one schema for it.
+ *
+ *  MODULE-PRIVATE on purpose. Evidence reaches the wire through exactly one door —
+ *  {@link entryStatusSchema}'s failed arm — so nothing outside this file has a reason to
+ *  hold the schema, and exporting it would invite a SECOND validation site for a value
+ *  the entry status already validates. Export it the day a consumer genuinely needs it,
+ *  not before. */
+const FailureEvidenceSchema: ZodType<FailureEvidence> = z
   .array(z.object({ source: z.enum(["local", "remote"]), line: z.string() }))
   .readonly();
 
@@ -188,12 +200,20 @@ export type EntryStatus<Failure = unknown, Conn = unknown> =
       failure: Failure;
       // The reason's EVIDENCE, co-produced with it at the classification seam and
       // REQUIRED — a failed entry can no more be published without its retained
-      // output tail than without its domain failure. Unlike `connection` (live,
-      // dropped by the liveness floor) this is a pinned post-mortem record, so it
-      // survives a dead link with the failure it belongs to. See
-      // {@link FailureEvidence}.
+      // output tail than without its domain failure. See {@link FailureEvidence}.
+      //
+      // And note what this arm does NOT carry: there is no `connection` here. A failed
+      // entry's live word is the SAME `raw` frame its evidence was pinned from, so
+      // publishing both put a byte-identical tail on the arm twice — once as a
+      // post-mortem record, once as a live payload the liveness floor drops. That left
+      // `entry.connection?.log` still spellable, still compiling, and still WRONG on
+      // exactly this arm: it is the read that lost the tail for a year
+      // (juspay/kolu#2007). Removing the field makes it a compile error instead of a
+      // documented hazard — unspellable beats discouraged. A consumer that wants the
+      // failed entry's output reads `evidence`; one that wants a LIVE phase has, by
+      // definition, no live phase to read here. The up arms keep `connection` because
+      // there the live word is the only word there is.
       evidence: FailureEvidence;
-      connection?: Conn;
     };
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
@@ -253,7 +273,9 @@ export function entryStatusSchema<Failure, Conn = unknown>(
       // evidence FAILS this parse. Enforcement lives at the codec, so "reason without
       // evidence" cannot be decoded even from a hand-crafted frame.
       evidence: FailureEvidenceSchema,
-      ...conn,
+      // No `...conn` — the failed arm carries no `connection` (see `EntryStatus`). The
+      // wire must agree with the type or a hand-crafted frame could smuggle back the
+      // duplicate live tail the type just removed.
     }),
   ]) as unknown as ZodType<EntryStatus<Failure, Conn>>;
 }

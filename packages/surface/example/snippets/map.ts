@@ -374,12 +374,14 @@ type EntryStatus<Failure = unknown, Conn = unknown> =
       clockOffset: number | null; // own-clock offset; null = not-yet-measured
       connection?: Conn;
     }
+  // No `connection` on this arm — deliberately. The failed entry's live word would be
+  // the same frame `evidence` was pinned from, so `connection?.log` here was a second,
+  // floorable copy of the tail. Removing the field makes that read a compile error.
   | {
       kind: "failed";
       membershipId: MembershipId;
       failure: Failure; // schema-valid domain failure
       evidence: FailureEvidence; // the retained output tail that EVIDENCES it
-      connection?: Conn;
     };
 // #endregion entrystatus
 

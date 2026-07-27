@@ -335,10 +335,18 @@ const hostScoped = createRoot(() => {
   // has no encoding left). `useEntry` already re-keys the entry on a host switch AND a
   // same-key re-add (a new `membershipId`), so this read rebuilds by construction (PR3).
   // Active-host-only falls out for free: only the active entry's state is read here.
-  const connection = (): ConnectionInfo | undefined => {
-    const s = active.state();
-    return s.kind === "not-a-member" ? undefined : s.connection;
-  };
+  //
+  // Read off the UP arms only. A `failed` entry carries no `connection` at all (the arm
+  // has no such field — see `EntryStatus`), because on that arm the "live" word would be
+  // the same frame the failure's `evidence` was already pinned from. So there is nothing
+  // here to fall back to and nothing to accidentally narrate: a failed host answers
+  // `undefined`, and its readers go to `failedEpisode`/`evidence` instead. This is the
+  // read that used to hand a stale live tail to the down surface (juspay/kolu#2007); it
+  // no longer type-checks its way onto that arm.
+  const connection = (): ConnectionInfo | undefined =>
+    match(active.state())
+      .with({ kind: "warming" }, { kind: "connected" }, (s) => s.connection)
+      .otherwise(() => undefined);
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
   // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader

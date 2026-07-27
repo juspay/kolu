@@ -20,8 +20,11 @@ import type { SshProv } from "./sshConnector";
 type Inferred = z.infer<typeof ConnectionInfoSchema>;
 
 /** Mutual assignability (tuple-wrapped so a union operand doesn't distribute): `true`
- *  only when `A` and `B` are structurally interchangeable, else `never`. */
-type Mutually<A, B> = [A] extends [B]
+ *  only when `A` and `B` are structurally interchangeable, else `never`. Exported as
+ *  this package's shared vocabulary for structural-identity pins — its sibling
+ *  `failureEvidenceIdentity.test-d.ts` asserts a different seam with the same helper,
+ *  rather than re-declaring it. Type-only, so nothing is emitted. */
+export type Mutually<A, B> = [A] extends [B]
   ? [B] extends [A]
     ? true
     : never
