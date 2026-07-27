@@ -61,8 +61,7 @@ import {
   fileRefAtCell,
 } from "./fileRefLinkProvider";
 import { handleWebLink } from "./handleWebLink";
-import { PrintedUrlCard } from "./PrintedUrlCard";
-import { printedUrlCardTarget } from "./printedUrlCardState";
+import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";
@@ -763,15 +762,7 @@ const Terminal: Component<{
       />
       {/* Join card for a printed loopback URL — only while this terminal owns the
        *  open card. Portal-rendered; lives here so App stays a thin shell. */}
-      <Show
-        when={
-          printedUrlCardTarget()?.terminalId === props.terminalId
-            ? printedUrlCardTarget()
-            : undefined
-        }
-      >
-        {(t) => <PrintedUrlCard target={t()} />}
-      </Show>
+      <PrintedUrlCardMount terminalId={props.terminalId} />
     </div>
   );
 };
