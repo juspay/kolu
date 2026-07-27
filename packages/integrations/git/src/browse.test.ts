@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAll, readFile, filePreviewTag } from "./browse.ts";
+import { listAll, listIgnored, readFile, filePreviewTag } from "./browse.ts";
+import { _computeIgnore } from "./working-tree-watcher.ts";
 
 describe("listAll", () => {
   let tmpDir: string;
@@ -40,6 +41,66 @@ describe("listAll", () => {
       expect(p).not.toContain('"');
       expect(p).not.toContain("\\3");
     }
+  });
+});
+
+describe("listIgnored", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listignored-test-"));
+    execFileSync("git", ["init", "-q"], { cwd: tmpDir });
+    fs.writeFileSync(path.join(tmpDir, ".gitignore"), "secret.log\nbuild/\n");
+    fs.writeFileSync(path.join(tmpDir, "kept.md"), "kept\n");
+    fs.writeFileSync(path.join(tmpDir, "secret.log"), "shh\n");
+    fs.mkdirSync(path.join(tmpDir, "build"));
+    fs.writeFileSync(path.join(tmpDir, "build", "out.js"), "artifact\n");
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("lists ignored entries collapsed — a fully-ignored directory is ONE trailing-slash entry, never its contents", async () => {
+    const result = await listIgnored(tmpDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The slash is the directory marker downstream consumers key on (Pierre's
+    // childless dimmed folder row; the watcher strips it).
+    expect(result.value).toContain("secret.log");
+    expect(result.value).toContain("build/");
+    expect(result.value).not.toContain("build/out.js");
+    expect(result.value).not.toContain("kept.md");
+  });
+
+  it("is the exact complement of listAll — disjoint, and together the whole tree", async () => {
+    const all = await listAll(tmpDir);
+    const ignored = await listIgnored(tmpDir);
+    expect(all.ok && ignored.ok).toBe(true);
+    if (!all.ok || !ignored.ok) return;
+    expect(all.value).toContain("kept.md");
+    expect(all.value).toContain(".gitignore");
+    // Disjoint: no entry is claimed by both listings.
+    const tracked = new Set(all.value);
+    expect(ignored.value.filter((p) => tracked.has(p))).toEqual([]);
+    // Together, the whole working tree — with the ignored side COLLAPSED, so
+    // `build/` stands in for its contents.
+    expect([...all.value, ...ignored.value].sort()).toEqual(
+      [".gitignore", "build/", "kept.md", "secret.log"].sort(),
+    );
+  });
+
+  it("feeds the watcher's parcel ignore as absolute, slash-free paths", async () => {
+    // The property that is actually observable: `path.resolve` erases git's
+    // trailing directory slash, so the collapsed `build/` entry reaches parcel
+    // as a plain absolute directory path (which prunes the whole subtree).
+    // Asserted here rather than at a slash-stripping listing variant, which no
+    // consumer could tell apart from `listIgnored`.
+    const ignore = await _computeIgnore(tmpDir);
+    expect(ignore).toContain(path.join(tmpDir, "build"));
+    expect(ignore).toContain(path.join(tmpDir, "secret.log"));
+    expect(ignore).toContain(path.join(tmpDir, ".git"));
+    for (const p of ignore) expect(p.endsWith("/")).toBe(false);
   });
 });
 

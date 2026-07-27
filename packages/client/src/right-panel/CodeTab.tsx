@@ -21,7 +21,8 @@ import {
   viewLabel,
 } from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
-import { FileTree } from "@kolu/solid-pierre";
+import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
+
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
@@ -30,6 +31,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  type JSX,
   Match,
   on,
   onCleanup,
@@ -44,9 +46,11 @@ import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { realSizes } from "../ui/corvuResizable";
+import { filterChipAccent } from "../ui/filterChip";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import {
   ChevronRightIcon,
+  EyeIcon,
   FileBrowseIcon,
   FileDiffIcon,
   GitBranchIcon,
@@ -55,6 +59,7 @@ import { resolveRef } from "../ui/lineRef";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
 import {
   pierreIconConfig,
+  pierreTreesIgnoredRowDecl,
   pierreTreesShadowCss,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
@@ -66,11 +71,13 @@ import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
+import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
 import {
   codeActiveStatus,
   codeAllPaths,
   codeBranchStatus,
   codeDiff,
+  codeIgnoredPaths,
   codeLocalStatus,
 } from "./hostCodeTab";
 import FileSearchInput from "./FileSearchInput";
@@ -81,6 +88,7 @@ import {
   pendingOpen,
 } from "./openInCodeTab";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
+import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
 import { type BrowserLocation, useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
@@ -116,10 +124,41 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
   </div>
 );
 
-// Browser-style back/forward toolbar button. The back and forward variants are
-// identical save for direction, so the shared hit-target class string (and its
-// touch sizing, driven by the toolbar row's `data-touch` via the group variant)
-// lives here once rather than in two hand-synced copies.
+// The Code-tab toolbar's icon button — ONE chrome for every toolbar affordance
+// (the nav arrows, the show-ignored eye), so the shared hit target and its
+// touch sizing (driven by the toolbar row's `data-touch` via the group variant)
+// live here rather than in hand-synced copies. `pressed` paints via `classList`
+// so the ARIA fact and the paint share one source, per the convention
+// `KavalAttachSection` documents.
+const ToolbarIconButton: Component<{
+  testId: string;
+  label: string;
+  title: string;
+  disabled?: boolean;
+  pressed?: boolean;
+  onClick: () => void;
+  children: JSX.Element;
+}> = (props) => (
+  <button
+    type="button"
+    data-testid={props.testId}
+    aria-label={props.label}
+    aria-pressed={props.pressed}
+    title={props.title}
+    disabled={props.disabled}
+    onClick={props.onClick}
+    class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+    // The repo's one accent-vs-neutral toggle grammar, shared with the dock's
+    // activity-window and ☾ chips — so a change to what "actively filtering"
+    // looks like is one edit, not three that drift apart.
+    classList={filterChipAccent(props.pressed === true)}
+  >
+    {props.children}
+  </button>
+);
+
+// Browser-style back/forward toolbar button — the two variants differ only by
+// direction.
 const NavButton: Component<{
   direction: "back" | "forward";
   disabled: boolean;
@@ -127,17 +166,15 @@ const NavButton: Component<{
 }> = (props) => {
   const back = props.direction === "back";
   return (
-    <button
-      type="button"
-      data-testid={`code-tab-${props.direction}-button`}
-      aria-label={back ? "Go back" : "Go forward"}
+    <ToolbarIconButton
+      testId={`code-tab-${props.direction}-button`}
+      label={back ? "Go back" : "Go forward"}
       title={back ? "Go back (Alt+←)" : "Go forward (Alt+→)"}
       disabled={props.disabled}
       onClick={props.onClick}
-      class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
     >
       <ChevronRightIcon class={`h-3.5 w-3.5${back ? " rotate-180" : ""}`} />
-    </button>
+    </ToolbarIconButton>
   );
 };
 
@@ -332,6 +369,7 @@ const CodeTab: Component<{
   const branchStatus = codeBranchStatus;
   const activeStatus = codeActiveStatus;
   const allPaths = codeAllPaths;
+  const ignoredPaths = codeIgnoredPaths;
   const diff = codeDiff;
   const status = () => activeStatus();
   const statusPending = () => activeStatus.pending();
@@ -413,7 +451,7 @@ const CodeTab: Component<{
       () => {
         const req = pendingOpen();
         const paths = treePaths();
-        const isPending = allPaths.pending();
+        const isPending = treeInventory().pending;
         return { req, repo: repoPath(), paths, isPending };
       },
       ({ req, repo, paths, isPending }) => {
@@ -514,7 +552,20 @@ const CodeTab: Component<{
     return { start: req.ref.startLine, end: req.ref.endLine };
   });
 
-  const treePaths = createMemo(() => {
+  /** The tree's file inventory AND its readiness, minted together as ONE
+   *  value — never a bare array a consumer then pairs with a readiness it
+   *  picks itself. Browse now has TWO authorities (the tracked `fs.listAll`
+   *  listing and the idle-unless-toggled gitignored overlay), landing at
+   *  different ticks; a consumer that reads the merged array while checking
+   *  only `allPaths.pending()` treats a half-loaded tree as authoritative and
+   *  drops the user's selection in that window. Same rule the surface's
+   *  `health().live` states: read the complete fact, never hand-AND one leg.
+   *  Adding a third source later changes this memo and nothing else.
+   *
+   *  The overlay's `pending` leg is gated on the toggle because an idle query
+   *  reports `pending` forever (`createPolledQuery`'s `blank()` on a null
+   *  input) — with the toggle off it is idle by design, not loading. */
+  const treeInventory = createMemo<BrowseInventory>(() => {
     // Copy `paths` out rather than returning the store proxy directly:
     // `fsListAll` lands in a reconciled store whose `paths` array is
     // mutated in place, so the proxy's reference is stable across an
@@ -526,20 +577,67 @@ const CodeTab: Component<{
     // element + length and mints a fresh reference, matching the diff
     // branch's `.map()` below. See `createReactiveSubscription` /
     // `writeValue.ts` for the reconcile strategy.
-    if (view() === "browse") return [...(allPaths()?.paths ?? [])];
-    return status()?.files.map((f) => f.path) ?? [];
+    //
+    // The gitignored overlay rides its own idle-unless-toggled query, so its
+    // entries join here: collapsed paths whose trailing slash marks a
+    // fully-ignored directory — one childless row, so `node_modules` never
+    // enumerates. The merge's three rules (absent≠empty, tracked wins the
+    // overlap, readiness covers only the consulted sources) live in
+    // `mergeBrowseInventory`, where a table test pins each one.
+    if (view() === "browse") {
+      return mergeBrowseInventory(allPaths()?.paths, ignoredPaths()?.paths, {
+        trackedPending: allPaths.pending(),
+        ignoredPending: ignoredPaths.pending(),
+        showIgnored: showIgnoredFiles(),
+      });
+    }
+    return {
+      paths: status()?.files.map((f) => f.path) ?? [],
+      ignored: [],
+      pending: statusPending(),
+    };
   });
+
+  const treePaths = () => treeInventory().paths;
 
   const treeSearch = createMemo(() =>
     projectFileTreeSearch(treePaths(), searchQuery()),
   );
 
+  // Everything kolu paints inside Pierre's shadow root, as ONE string on the one
+  // channel the wrapper exposes.
+  //
+  // The gitignored rows are dimmed by this sheet rather than handed to Pierre as
+  // `gitStatus` entries carrying its own `"ignored"` status, even though that
+  // status exists. Pierre rolls EVERY `gitStatus` entry up into its ancestors'
+  // change counters (`incrementAncestorChangeCounts` runs unguarded by status),
+  // setting `data-item-contains-git-change` on each ancestor — which the theme
+  // paints as modified. Routing the overlay through that channel therefore marks
+  // every ancestor of an ignored entry as "contains changes": measured on the
+  // kolu repo, 47 extra directories on top of a real 77, and 68 on an
+  // otherwise-clean checkout. "Contains a change" and "contains something git
+  // ignores" are different facts, so the overlay keys on `data-item-path` and
+  // the roll-up stays honest.
+  //
+  // Deliberately NOT narrowed to the search projection: a `[data-item-path=…]`
+  // selector matching no row is inert (the browser buckets by attribute name and
+  // only tests rows that exist), so filtering by the visible set would buy
+  // nothing and put a full sheet rebuild + shadow-root re-parse on the
+  // per-keystroke path. Memoized on the string, so the identical sheet a repo
+  // pulse re-derives never reaches `replaceSync`.
+  const treeShadowCss = createMemo(() => {
+    const ignored = treeInventory().ignored;
+    if (ignored.length === 0) return pierreTreesShadowCss;
+    return `${pierreTreesShadowCss}\n${rowPathsCss(ignored, pierreTreesIgnoredRowDecl)}`;
+  });
+
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.
-  // Gate on the relevant stream's `pending()` — when the gitStatus / fsList
-  // stream resubscribes (e.g. on right-panel tab switch, since its inputFn
-  // returns a fresh object literal), the value briefly resets to undefined
-  // and `treePaths()` collapses to `[]`. Treating that transient empty as
+  // Gate on the inventory's OWN readiness — taken from the same value as the
+  // paths, so the guard can never check a half-loaded tree against a settled
+  // flag. When a stream resubscribes (e.g. on right-panel tab switch, since its
+  // inputFn returns a fresh object literal), the value briefly resets to
+  // undefined and the inventory collapses to `[]`. Treating that transient empty as
   // "selected file is missing" would null `selectedPath` on every
   // resubscribe and lose the selection across tab toggles. Once the stream
   // has delivered (`!pending()`), an empty paths set IS authoritative —
@@ -557,8 +655,7 @@ const CodeTab: Component<{
       () => {
         const s = selectedPath();
         const sk = slotKey();
-        const isPending = isDiffView() ? statusPending() : allPaths.pending();
-        const paths = treePaths();
+        const { paths, pending: isPending } = treeInventory();
         return { s, sk, pathExists: !s || isPending || paths.includes(s) };
       },
       (cur, prev) => {
@@ -678,6 +775,13 @@ const CodeTab: Component<{
 
   const treeError = (): Error | undefined =>
     isDiffView() ? statusError() : allPaths.error();
+  // "Is there a tree to paint at all", which is the TRACKED authority's
+  // question alone — deliberately not `treeInventory().pending`. The gitignored
+  // overlay is additive decoration; waiting on it here would hold the whole
+  // tree behind a second `git ls-files` the user is only ever offered as an
+  // extra. The selection/resolution guards read the merged readiness because
+  // they ask a different question: is this inventory complete enough to
+  // conclude a path is absent.
   const treeReady = () => (isDiffView() ? status() : allPaths());
   // Branch base, read off the always-on `branchStatus` so it's correct in
   // any view (the scope switcher annotates the Branch segment even from
@@ -824,6 +928,26 @@ const CodeTab: Component<{
             onChange={setSearchQuery}
             touch={isTouch()}
           />
+          {/* Show-ignored toggle — browse only (the diff modes list changed
+           *  files, where gitignored paths can't appear). Device-local pref;
+           *  flipping it arms the SEPARATE fs.listIgnored query in
+           *  `hostCodeTab` — fs.listAll is untouched, so the mounted tree keeps
+           *  its expansion and scroll. */}
+          <Show when={view() === "browse"}>
+            <ToolbarIconButton
+              testId="code-tab-show-ignored-toggle"
+              label="Show gitignored files"
+              title={
+                showIgnoredFiles()
+                  ? "Hide gitignored files"
+                  : "Show gitignored files"
+              }
+              pressed={showIgnoredFiles()}
+              onClick={() => setShowIgnoredFiles((v) => !v)}
+            >
+              <EyeIcon class="h-3.5 w-3.5" />
+            </ToolbarIconButton>
+          </Show>
         </div>
 
         {/* Vertical split between tree and content. Mirrors the horizontal
@@ -919,7 +1043,7 @@ const CodeTab: Component<{
                       search={false}
                       expandPaths={treeSearch().expandedAncestors}
                       icons={pierreIconConfig}
-                      shadowCss={pierreTreesShadowCss}
+                      shadowCss={treeShadowCss()}
                       contextMenu={{
                         enabled: true,
                         triggerMode: "both",
@@ -1074,16 +1198,17 @@ const CodeTab: Component<{
                           terminalId={tid}
                           repoPath={repo}
                           filePath={path}
-                          // The live repo file list — the vault a `[[wikilink]]`
-                          // in the previewed doc resolves against, pathless —
-                          // paired with its readiness as one value. `fsListAll`
-                          // resubscribes (and briefly empties `treePaths()`) on
-                          // tab toggles; `pending` rides alongside the snapshot
-                          // so the click guard reads the readiness of the very
-                          // list it resolves against, never a drifted pair.
+                          // The live repo FILE list — the vault a `[[wikilink]]`
+                          // in the previewed doc resolves against, pathless.
+                          // Both halves come off `treeInventory()`, the one
+                          // value that mints the snapshot and its readiness
+                          // together, so the click guard reads the readiness of
+                          // the very list it resolves against, never a drifted
+                          // pair (a stream resubscribe briefly empties it, and
+                          // the overlay lands on its own clock).
                           repoVault={{
                             paths: treePaths(),
-                            pending: allPaths.pending(),
+                            pending: treeInventory().pending,
                           }}
                           theme={diffTheme()}
                           initialSelectedLines={selectedRange()}

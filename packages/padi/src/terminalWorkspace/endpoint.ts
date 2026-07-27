@@ -21,6 +21,7 @@ import {
   getStatus,
   type GitResult,
   listAll,
+  listIgnored,
   readFile,
   filePreviewTag,
   subscribeFileChange,
@@ -28,6 +29,7 @@ import {
 } from "kolu-git";
 import type {
   FsListAllOutput,
+  FsListIgnoredOutput,
   GitDiffMode,
   GitDiffOutput,
   GitStatusOutput,
@@ -42,6 +44,11 @@ import { match } from "ts-pattern";
  *  FS lives"), one place the surface binds. */
 export interface TerminalEndpointFs {
   listAll(repoPath: string): Promise<FsListAllOutput>;
+  /** The gitignored complement of {@link listAll}, collapsed (a fully-ignored
+   *  directory is one trailing-slash entry). Its own member, not a flag on
+   *  `listAll`, so a consumer can query the two independently — see
+   *  `FsListIgnoredInputSchema` for why that separation is load-bearing. */
+  listIgnored(repoPath: string): Promise<FsListIgnoredOutput>;
   readFile(
     repoPath: string,
     filePath: string,
@@ -129,6 +136,9 @@ export function createTerminalWorkspaceEndpoint(
   const fs: TerminalEndpointFs = {
     async listAll(repoPath: string): Promise<FsListAllOutput> {
       return { paths: unwrapGit(await listAll(repoPath, log)) };
+    },
+    async listIgnored(repoPath: string): Promise<FsListIgnoredOutput> {
+      return { paths: unwrapGit(await listIgnored(repoPath, log)) };
     },
     async readFile(repoPath, filePath) {
       return unwrapGit(await readFile(repoPath, filePath, log));

@@ -6,14 +6,16 @@
  * Two shapes, one per recovery arm:
  *   - `via: "connector"` — a warming REMOTE campaign the server ssh connector is STILL retrying
  *     (probing / provisioning / connecting). NON-TERMINAL copy from {@link CONNECTOR_STALLED_COPY}
- *     plus the live `phase` detail, and the recovery verb **[Retry connection]** calls
+ *     plus the live `phase` detail and that campaign's output tail, and the recovery verb
+ *     **[Retry connection]** calls
  *     `client.hosts.reconnect` — which PR1 gave a real abort-in-flight `recheck()` that recycles
  *     the held server session into a fresh dial. `location.reload()` could not recycle a
  *     server-side connector, so it would be a lie over a still-retrying campaign (the field
  *     bewilderment this fixes: the old card read as a terminal wedge over a self-healing dial).
  *   - `via: "client"` — a genuinely client-side leg (a connected host's session/daemon
- *     subscription, or a membership stall). Its own {@link bootStalledCopy} plus the **[Reload]**
- *     verb (`location.reload()` — a fresh boot re-runs every leg's subscription from a clean
+ *     subscription, or a membership stall). No tail: this arm carries none, so the settled
+ *     connect log that has nothing to say about the wedge is unspellable here rather than
+ *     suppressed by a ternary. Its own {@link bootStalledCopy} plus the **[Reload]** verb (`location.reload()` — a fresh boot re-runs every leg's subscription from a clean
  *     context, the honest "try again" for a hung client-side boot).
  *
  * **[Switch to local]** is offered on either shape when the wedged host is remote — the escape
@@ -42,9 +44,12 @@ import {
   switchToLocalAction,
 } from "./CanvasFailureCard";
 
-const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
-  props,
-) => {
+const BootStalledCanvas: Component<{
+  /** The whole verdict, tail included: only the `connector` arm carries a `log`, so the
+   *  card cannot show a settled connect log over a client-side stall — see
+   *  {@link BootStalledRecovery}. */
+  recovery: BootStalledRecovery;
+}> = (props) => {
   // The two recovery verbs, built ONCE per instance so their identity is stable across every
   // 1s canvas re-resolve (see the REACTIVITY note above) — the connector recycles the SERVER
   // connector (PR1's recheck()), the client one reloads the browser.
@@ -70,6 +75,12 @@ const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
   );
   const connectorPhase = createMemo(() =>
     props.recovery.via === "connector" ? props.recovery.phase : undefined,
+  );
+  // The connector campaign's own output tail — the narration of the work the card is asking
+  // about. A memo like the two above, so the `<For>` inside the card sees a stable array
+  // across every 1s re-resolve instead of a fresh reference per tick.
+  const connectorLog = createMemo(() =>
+    props.recovery.via === "connector" ? props.recovery.log : undefined,
   );
 
   const actions = createMemo<CanvasFailureAction[]>(() => [
@@ -97,6 +108,8 @@ const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
       title={copy().title}
       body={copy().body}
       detail={detail()}
+      log={connectorLog()}
+      logTestid="boot-stalled-log"
       actions={actions()}
     />
   );

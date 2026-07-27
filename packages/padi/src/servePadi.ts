@@ -560,6 +560,7 @@ export function buildPadiSurfaceDeps(deps: {
       // goes through `preview.read`).
       fs: {
         listAll: ({ input }) => endpoint.fs.listAll(input.repoPath),
+        listIgnored: ({ input }) => endpoint.fs.listIgnored(input.repoPath),
         // A file deleted while the Code tab is viewing it must surface as a
         // TYPED `NOT_FOUND`, not a raw ENOENT that masks to a generic error on
         // the wire: `BrowseFileDispatcher` swallows `NOT_FOUND` (delete-while-

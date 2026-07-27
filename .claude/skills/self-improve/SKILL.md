@@ -63,9 +63,13 @@ note's corpus audit.
    skill (most friction is a rule that just wasn't loaded) > sharpen one clause > write a
    new rule or skill, last resort. A **speed** fix routes *independent* work to forked
    subagents or a dynamic workflow — never the serial review gauntlet, which stays
-   sole-editor. The fix lands in `.apm/skills/*` **sources only** (`.claude/`, `.agents/`,
-   `AGENTS.md` are generated; §5 applies it inside the worktree, not PWD). Each edit honors
-   fail-fast / electricity / reuse-source and trips no llm-autonomy anti-pattern.
+   sole-editor. The fix lands in an apm **source** only (`.claude/`, `.agents/`,
+   `AGENTS.md` are generated; §5 applies it inside the worktree, not PWD) — and there are
+   **two** source trees, so grep both before concluding a skill isn't apm-managed: root
+   `.apm/skills/*` for this repo's own skills, `agents/.apm/skills/*` for the reusable
+   gauntlet package (`be`, `be-review`, `lens-debate`, `agent-debate`, …). See
+   `.claude/rules/apm-workflow.md`. Each edit honors fail-fast / electricity /
+   reuse-source and trips no llm-autonomy anti-pattern.
 5. **Ship from a throwaway worktree — PWD is NEVER mutated.** Steps 1–4 only *read*
    PWD (the transcript lives outside the repo; target discovery greps `.apm` read-only),
    so do **zero** mutation here — no `git switch`, no edits, no commit in PWD. Cut a fresh
@@ -78,9 +82,13 @@ note's corpus audit.
    git worktree prune                                               # clear a stale admin entry from a hard-killed prior run (never reuses a live worktree)
    git worktree add -b "$BR" "$WT" "$DEF"                           # NEW branch cut from origin/master — never rides the /be HEAD
    ```
-   Apply the step-4 edit(s) to `$WT/.apm/skills/*`, then **inside `$WT`**: `just ai::apm`
-   (regen `.claude/.agents/.codex/.opencode` + `AGENTS.md` from the sources — generated copies
-   ride the **same** commit as the sources or the runtimes drift), `just fmt`, `just check`.
+   Apply the step-4 edit(s) to the source tree(s) inside `$WT`, then **inside `$WT`**:
+   `just ai::apm` (regen `.claude/.agents/.codex/.opencode` + `AGENTS.md` from the sources —
+   generated copies ride the **same** commit as the sources or the runtimes drift), `just fmt`,
+   `just check`. **An `agents/.apm/**` edit must be `git commit`ted BEFORE `just ai::apm`** —
+   the regen vendors that package from a git checkout, not your working tree, so an uncommitted
+   edit silently regenerates the OLD text with no error. Commit the source, regen, then confirm
+   the new wording actually landed in `.claude/skills/<name>/SKILL.md` before pushing.
    - **Check green** → commit (`chore(skills): …` + a provenance trailer citing `$SID`),
      `git push -u origin HEAD`, and open it **draft** via `/forge-pr` with a per-edit evidence
      ledger. **Never merge, never `--admin`** — the human reviews; merging is what makes the

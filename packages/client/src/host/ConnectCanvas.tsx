@@ -39,6 +39,7 @@ import { DAEMON_STATE_PRESENTATION } from "../kaval/daemonPresentation";
 import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import DocLink from "../ui/DocLink";
+import { LOG_TAIL_SURFACE } from "../ui/logTailChrome";
 import { activeHost, connectionInfo } from "../wire";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
 
@@ -183,7 +184,7 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
           <Show when={tail().length > 0}>
             <div
               data-testid="connect-tail"
-              class="w-full max-w-2xl overflow-hidden rounded border border-bd-1/50 bg-bg-2/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-fg-4"
+              class={`w-full max-w-2xl overflow-hidden px-3 py-2 text-[11px] leading-relaxed ${LOG_TAIL_SURFACE}`}
             >
               <For each={tail()}>
                 {(entry) => (

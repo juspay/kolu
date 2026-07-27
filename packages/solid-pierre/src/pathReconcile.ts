@@ -12,6 +12,36 @@ export type FileTreeRemoveOperation = Extract<
   { type: "remove" }
 >;
 
+/** Pierre's directory marker is a trailing slash: folder keys carry it
+ *  (`src/`), file entries never do. The ONE place that fact is spelled — every
+ *  site asking "is this row a directory?" reads it here, so the predicate
+ *  can't drift into another ad-hoc `endsWith` at the next call site. */
+export function isDirectoryPath(path: string): boolean {
+  return path.endsWith("/");
+}
+
+/** `"/"`, as a char code — compared numerically in the scan below so the loop
+ *  does no per-character string allocation. */
+const SLASH = 47;
+
+/** Strip Pierre's directory marker. Idempotent, and tolerates a repeated
+ *  separator so a caller never has to know how many slashes arrived. Module
+ *  private: `isDirectoryPath` is the marker's public face (every consumer asks
+ *  whether a path IS a directory, never to un-mark one), so exporting this too
+ *  would publish surface with no caller.
+ *
+ *  A scan rather than the obvious `/\/+$/` replace: that pattern backtracks
+ *  quadratically on a path ending in many slashes (`js/polynomial-redos` — the
+ *  engine retries `\/+$` from each slash in turn, and each retry rescans the
+ *  run before failing the anchor). Paths reach this from `git ls-files`, i.e.
+ *  from disk rather than from us, so their shape is not ours to bound. Walking
+ *  back from the end touches each trailing slash once. */
+function stripDirectoryMarker(path: string): string {
+  let end = path.length;
+  while (end > 0 && path.charCodeAt(end - 1) === SLASH) end--;
+  return end === path.length ? path : path.slice(0, end);
+}
+
 /** Directory paths that contain `path`, formatted with the trailing
  *  slash Pierre uses for folder keys (`src/`, `src/right-panel/`).
  *  Tolerates an input that already carries a trailing slash (folder
@@ -19,7 +49,7 @@ export type FileTreeRemoveOperation = Extract<
  *  internal `getAncestorDirectoryPaths` walks so the result can be
  *  fed back as `initialExpandedPaths` without surprises. */
 export function ancestorDirectoryPaths(path: string): string[] {
-  const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
+  const normalized = stripDirectoryMarker(path);
   if (normalized.length === 0) return [];
   const segments = normalized.split("/").filter(Boolean);
   const out: string[] = [];

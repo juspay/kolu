@@ -199,7 +199,18 @@ session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-i
 If a host's [padi](/padi) can't bind, its canvas is replaced by a card that names the cause
 in plain language and offers two actions — **Reconnect** (a real re-dial, once
 you've cleared the cause) and **Switch to local** (the always-available escape
-hatch). The causes it distinguishes:
+hatch).
+
+When the failed attempt produced any output, **the card shows the last lines of it** beneath
+the cause — the same running log the canvas shows you while a host is coming up, kept
+where it is most useful. That output is usually what tells you which kind of failure you
+have: a machine that is genuinely unreachable looks nothing like one whose remote build
+failed to compile, and only the log distinguishes them. When kolu can't show it, it shows
+nothing rather than an empty box — an unreadable log and a failure that genuinely printed
+nothing are not the same thing. The same tail appears on the host tab's diagnostics
+popover, so you can read it without leaving the host you're on.
+
+The causes it distinguishes:
 
 | card | what happened |
 | --- | --- |
@@ -208,7 +219,7 @@ hatch). The causes it distinguishes:
 | **This host needs passwordless ssh** | the host asked for a password. kolu connects non-interactively and never types one — set up key-based access (`ssh-copy-id`), then reconnect |
 | **This host isn't trusted yet** | ssh doesn't recognise the host's identity key. Run `ssh <host>` once in a terminal to review and accept it — or clear a changed-key warning — then reconnect |
 | **This host has no Nix that kolu can run** | ssh worked, but the host's shell couldn't run `nix-instantiate`. Either Nix isn't [installed](https://nixos.asia/en/install) there, or it isn't on the PATH of a non-interactive ssh session |
-| **Can't reach this host** | unreachable over ssh, or provisioning failed partway |
+| **Can't reach this host** | unreachable over ssh, or provisioning failed partway. These look identical from the outside, so read the output on the card: silence or an ssh error means the machine; a compiler or build error means the host was fine and its build wasn't |
 | **This kolu run is missing its agent source** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
 | **Kolu couldn't prepare padi for this host** | the baked source could not resolve padi; the detail shows the Nix error, including an unsupported CPU/OS pair when that is the cause |
 | **This host's padi never settled** | a contract upgrade's drain never provably finished |

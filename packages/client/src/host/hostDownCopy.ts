@@ -93,12 +93,17 @@ export const HOST_DOWN_COPY = {
       "single-user install. Check with ssh <host> nix-instantiate --version, " +
       "and install it from https://nixos.asia/en/install if it's missing.",
   },
+  // Two causes, so the copy must not give one remedy as if it were the answer: the
+  // card now carries the failed episode's own output, which is what tells the two
+  // apart. Point at it rather than sending everyone to check ssh — the case this fix
+  // came from had a reachable host and a build that failed on a type error.
   "link-failed": {
     title: "Can't reach this host",
     body:
       "The connection to this host gave up — it may be unreachable, or its " +
-      "provisioning failed partway. Check the host is up and reachable over ssh, " +
-      "or switch back to your local host.",
+      "provisioning failed partway. The output below says which: check the host " +
+      "is up and reachable over ssh, or fix what the build reported. You can also " +
+      "switch back to your local host.",
   },
   // The LOCAL padi couldn't start on this machine — a distinct producer from the
   // remote `link-failed` (a local spawn/connect give-up, not a network reach). Its
