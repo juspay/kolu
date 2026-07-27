@@ -442,7 +442,7 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         arity(f, 2, line);
         out.uptimeUs = integer(f[1], "uptime");
         break;
-      case "HCPU":
+      case "HCPU": {
         arity(f, 8, line);
         const model = jsonString(f[6], "cpu model");
         if (model.length === 0)
@@ -458,6 +458,7 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
             f[7] === "-" ? null : positiveInteger(f[7], "cpu frequency MHz"),
         });
         break;
+      }
       case "HNET":
         arity(f, 4, line);
         out.networks.push({
