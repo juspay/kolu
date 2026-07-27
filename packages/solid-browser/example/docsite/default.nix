@@ -14,12 +14,11 @@
 #   pnpmDeps — the workspace pnpm fetch.
 { pkgs, src, pnpmDeps }:
 let
-  # See ../../../../nix/pnpm-build-env.nix.
-  docsiteClient = pkgs.stdenv.mkDerivation ((import ../../../../nix/pnpm-build-env.nix) // {
+  docsiteClient = pkgs.stdenv.mkDerivation {
     pname = "solid-browser-example-docsite";
     version = "0.1.0";
     inherit src;
-    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm_10 pkgs.pnpmConfigHook ];
+    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm-build pkgs.pnpmConfigHook ];
     inherit pnpmDeps;
     dontFixup = true;
     buildPhase = ''
@@ -32,7 +31,7 @@ let
       cp -r packages/solid-browser/example/docsite/dist $out
       runHook postInstall
     '';
-  });
+  };
 in
 {
   solid-browser-example-docsite = docsiteClient;

@@ -14,13 +14,12 @@
 # Callers: default.nix (workspace `tsc --noEmit`, required input of `kolu`)
 # and website/default.nix (`astro check`).
 { pkgs, pname, src, pnpmDeps, version }:
-# See ./pnpm-build-env.nix.
-pkgs.stdenv.mkDerivation ((import ./pnpm-build-env.nix) // {
+pkgs.stdenv.mkDerivation {
   inherit pname src pnpmDeps version;
 
   nativeBuildInputs = [
     pkgs.nodejs
-    pkgs.pnpm_10
+    pkgs.pnpm-build
     pkgs.pnpmConfigHook
   ];
 
@@ -38,4 +37,4 @@ pkgs.stdenv.mkDerivation ((import ./pnpm-build-env.nix) // {
     touch $out
     runHook postInstall
   '';
-})
+}

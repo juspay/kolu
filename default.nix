@@ -293,7 +293,7 @@ let
 
     nativeBuildInputs = [
       pkgs.nodejs
-      pkgs.pnpm_10
+      pkgs.pnpm-build
       pkgs.pnpmConfigHook
       pkgs.python3
       pkgs.node-gyp
@@ -323,8 +323,7 @@ let
       npm_config_nodedir = pkgs.nodejs;
       NIX_NODEJS_BUILDNPMPACKAGE = "1";
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
-      # See ./nix/pnpm-build-env.nix.
-    } // (import ./nix/pnpm-build-env.nix) // koluEnv;
+    } // koluEnv;
 
     # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
     # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green

@@ -42,12 +42,11 @@ let
       --add-flags "${workspaceTree}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
   '';
-  # See ../../../../nix/pnpm-build-env.nix.
-  processMonitorClient = pkgs.stdenv.mkDerivation ((import ../../../../nix/pnpm-build-env.nix) // {
+  processMonitorClient = pkgs.stdenv.mkDerivation {
     pname = "process-monitor-client";
     version = "0.1.0";
     inherit src;
-    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm_10 pkgs.pnpmConfigHook ];
+    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm-build pkgs.pnpmConfigHook ];
     inherit pnpmDeps;
     dontFixup = true;
     buildPhase = ''
@@ -60,7 +59,7 @@ let
       cp -r packages/surface/example/remote-process-monitor/dist $out
       runHook postInstall
     '';
-  });
+  };
 
   processMonitorMonitor = pkgs.runCommand "process-monitor-monitor"
     {
