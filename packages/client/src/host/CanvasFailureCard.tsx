@@ -101,12 +101,18 @@ export function CanvasFailureCard(props: {
    *  how one of two callers silently dropped the evidence, so "this surface has no tail" must
    *  be said out loud.
    *
-   *  THE HOME of the `undefined` vs `[]` distinction every surface that carries a tail
-   *  preserves: `undefined` means WE CANNOT SEE the output — the padi map's liveness floor
-   *  DROPS the `connection` word over a dead link while keeping `failure`, so the reason
-   *  survives and the evidence does not — while `[]` means the failure genuinely produced
-   *  none. Both render nothing here, but only the caller can tell them apart, so no reader
-   *  upstream may collapse one into the other.
+   *  THE HOME of the `undefined` vs `[]` distinction — which now applies to LIVE-TAIL
+   *  callers ONLY. `undefined` means WE CANNOT SEE the output: the padi map's liveness floor
+   *  DROPS the live `connection` word over a dead link, so a caller reading its tail off
+   *  `connection` (today just `BootStalledCanvas`, a WARMING-arm surface where flooring a
+   *  stale in-progress narration is exactly right) can legitimately have nothing to show.
+   *  `[]` means the episode genuinely produced no output. Both render nothing here, but only
+   *  the caller can tell them apart, so no reader upstream may collapse one into the other.
+   *
+   *  A FAILED-arm caller (`HostDownCanvas`, and the diagnostics popover off the same reader)
+   *  can never be in the `undefined` case: its tail is the failure record's own `evidence`,
+   *  stapled at classification and carried past the floor with the reason
+   *  (juspay/kolu#2007). The prop keeps `| undefined` for the live-tail caller alone.
    *
    *  Chrome shared with the other tails is named in `ui/logTailChrome.ts`; everything else
    *  stays local, because the three differ by decision rather than by accident. */

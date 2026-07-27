@@ -232,17 +232,22 @@ export const HostDiagnosticsPopover: Component<{
   // The failed episode, through the ONE shared reader (`failedEpisode`) — the popover is the
   // only failure surface you can reach for a host WITHOUT switching to it (the host-down card
   // only ever renders for the active host), so the reason must not arrive here without the
-  // evidence that says whether "unreachable" or "the build failed" is the right story, and it
-  // must not disagree with the card about what a missing tail means.
+  // evidence that says whether "unreachable" or "the build failed" is the right story. It
+  // cannot: the two are one record on the failed arm now, not two fields with two
+  // liveness policies.
   const failure = createMemo(() => failedEpisode(state()));
   // A MEMO because both the `Show` guard and the `For` read it: called twice per render it
   // folded the entry twice and handed `For` a fresh array each time, so the tail's rows tore
   // down and rebuilt on every unrelated repaint (the same `Show`+`For` pairing ConnectCanvas
-  // already memoizes). `undefined` — no failure, or a failure whose output we cannot see —
-  // renders no block at all, which is NOT the same claim as an empty one.
+  // already memoizes). `undefined` here means only "this entry is not failed" — a FAILED
+  // entry always has its tail, because the evidence rides the failure record past the
+  // liveness floor (see `failedEpisode`); "a failure whose output we cannot see" no longer
+  // exists as a state to distinguish.
   const failureLog = createMemo(() => {
-    const log = failure()?.log;
-    return log === undefined ? undefined : tailOf(log, POPOVER_TAIL_LINES);
+    const episode = failure();
+    return episode === undefined
+      ? undefined
+      : tailOf(episode.log, POPOVER_TAIL_LINES);
   });
 
   return (

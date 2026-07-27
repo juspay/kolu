@@ -26,6 +26,7 @@ import {
 import {
   defineSurfaceMap,
   type EntryStatus as RealEntryStatus,
+  type FailureEvidence,
   type KeyCodec,
   type MembershipId,
 } from "@kolu/surface-map";
@@ -122,9 +123,14 @@ function projectState(
       kind: "disconnected" as const,
     }))
     .with({ phase: "failed" }, (failed) => ({
-      // A terminal give-up carries the schema-valid domain failure it publishes.
+      // A terminal give-up carries the schema-valid domain failure it publishes, AND
+      // that failure's EVIDENCE — the session's own retained log tail off this same
+      // frame. The two are one record, so a client's liveness floor (which drops the
+      // live `connection` word over a dead link) can never leave a reason without the
+      // output that produced it.
       kind: "failed" as const,
       failure: { reason: failed.error },
+      evidence: failed.log,
     }))
     .exhaustive();
 }
@@ -257,7 +263,13 @@ export function serveMap(hosts: string[], agentDrv: string) {
     ): EntrySession<"copying", HostFailure> | EntryFault<HostFailure> => {
       const b = bindings.get(k);
       if (b === undefined)
-        return { kind: "fault", failure: { reason: `unknown host: ${k}` } };
+        return {
+          kind: "fault",
+          failure: { reason: `unknown host: ${k}` },
+          // A fault has no session, so no retained tail — `[]` is the honest
+          // "produced no output", stated explicitly at the mint site.
+          evidence: [],
+        };
       return { kind: "session", link: b.link, state: b.state() };
     },
   };
@@ -366,6 +378,7 @@ type EntryStatus<Failure = unknown, Conn = unknown> =
       kind: "failed";
       membershipId: MembershipId;
       failure: Failure; // schema-valid domain failure
+      evidence: FailureEvidence; // the retained output tail that EVIDENCES it
       connection?: Conn;
     };
 // #endregion entrystatus
