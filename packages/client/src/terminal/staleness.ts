@@ -89,18 +89,14 @@ export function useIdleClassifier(): (
  *  ladder. Driven live by `useDuration`'s 1s clock, so the sub-minute seconds
  *  tier counts up; the coarser tiers change at most once a minute.
  *
- *  A NEGATIVE duration renders as the dash, not as "0s". The timestamps this
- *  measures from are stamped by the host the terminal runs on, and subtracted
- *  from the browser's clock — so a remote host running even slightly ahead
- *  puts its events in this clock's future. An event cannot have happened
- *  later than now, so the reading is provably wrong, and the honest answer is
- *  that we do not know: a dock chip reading "0s" beside an agent that has been
- *  blocked for twenty hours is worse than one admitting it can't say, and it
- *  would appear on exactly the remote hosts the chip exists for. */
+ *  An untrustworthy delta (host clock skew — see {@link compactDelta}) renders
+ *  as the dash. The policy is the ladder's, not this formatter's: as a local
+ *  guard it contradicted the clamp `compactDelta` applied for every OTHER
+ *  formatter, and the two answers appeared side by side in the same dock row. */
 export function formatDuration(ms: number): string {
-  if (ms < 0) return DASH;
-  const { value, unit } = compactDelta(ms);
-  return `${value}${unit}`;
+  const d = compactDelta(ms);
+  if (d.kind === "unknown") return DASH;
+  return `${d.value}${d.unit}`;
 }
 
 /** Reactive elapsed-since formatter. Returns a function consumers call with a
@@ -123,7 +119,9 @@ export function useDuration(): (startedAtMs: number) => string {
  *  mount, which is finer-grained than the 60s tick anyway. */
 export function formatTimeAgo(ts: number | null): string {
   if (ts === null) return "";
-  const { value, unit } = compactDelta(Date.now() - ts);
-  if (unit === "s") return "just now";
-  return `${value}${unit} ago`;
+  const d = compactDelta(Date.now() - ts);
+  // Same skew answer the wait chip beside it gives — the two share this row.
+  if (d.kind === "unknown") return DASH;
+  if (d.unit === "s") return "just now";
+  return `${d.value}${d.unit} ago`;
 }
