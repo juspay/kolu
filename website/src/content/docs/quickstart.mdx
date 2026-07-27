@@ -77,9 +77,11 @@ nix.settings = {
 
 After editing `nix.conf`, restart the daemon (`sudo systemctl restart
 nix-daemon` on Linux, `sudo launchctl kickstart -k
-system/org.nixos.nix-daemon` on macOS). The same setting benefits any machine
-you [add as a remote host](/remote-hosts): kolu builds its agent there with
-that host's Nix, which faces the same trust rule.
+system/org.nixos.nix-daemon` on macOS). The same applies to any machine you
+[add as a remote host](/remote-hosts): kolu realises its agent there with
+that host's own Nix, whose `nix.conf` alone decides where binaries may come
+from — so put the cache in the remote machine's system config too, exactly as
+above.
 
 ## Bind a different address
 
