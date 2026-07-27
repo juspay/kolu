@@ -78,12 +78,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-inspector-ports",
-    text: "The Inspector's Ports section lists what the terminal is serving — click a port to open it, and kolu opens a forward first if it needs one (loopback, or a remote host)",
-    doc: "right-panel",
-  },
-  {
-    id: "amb-printed-localhost-url",
-    text: "Click a localhost URL the agent printed — a card offers forward & open through the same door as the Ports chips (⌘/Ctrl-click opens the raw URL with no card)",
+    text: "Ports and printed localhost URLs open through a door when the browser can't reach them — click a port in the Inspector, or a localhost link the agent printed, and kolu forwards then opens (⌘/Ctrl-click opens the raw URL)",
     doc: "remote-hosts",
   },
   {
