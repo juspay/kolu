@@ -1,6 +1,17 @@
 ---
 version: "2.0.0"
 date: 2026-07-23
+summary: >-
+  The release where kolu stopped being one process on one machine. Your
+  terminals moved out of kolu into **kaval**, a PTY daemon that outlives it,
+  and your workspace into **padi** — so updating or restarting kolu no longer
+  costs you a shell, a scrollback, or an agent mid-thought. Point kolu at
+  another box over ssh and the **whole canvas becomes that machine**, one click
+  away in a host tab bar, with no reload. Terminals you're done with **sleep**
+  and wake with their conversation intact; every agent — **Grok Build**
+  included — wears its live state on the tile, in the dock, and in your
+  notifications; and `kaval-tui`, `padi-tui`, and `kolu mcp` let one agent
+  drive another.
 ---
 
 ### [Remote Hosts](/remote-hosts)

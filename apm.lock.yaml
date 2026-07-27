@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-27T16:42:32.253254+00:00'
+generated_at: '2026-07-27T19:52:17.438550+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -552,7 +552,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:a4c722541155db92ed871dfc5e5192d23092df8ff4f3ec29a9c1906e5cd48f92
+  content_hash: sha256:92e14eb40f9c6c8f39e12c10108d2aaacd671968ed73af1e87df0922df27dee4
 - kind: project-relative
   target: agents
   value: .agents/skills/remote-host-testing
@@ -1624,7 +1624,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:a4c722541155db92ed871dfc5e5192d23092df8ff4f3ec29a9c1906e5cd48f92
+  content_hash: sha256:92e14eb40f9c6c8f39e12c10108d2aaacd671968ed73af1e87df0922df27dee4
 - kind: project-relative
   target: claude
   value: .claude/skills/remote-host-testing
@@ -2612,7 +2612,7 @@ local_deployed_file_hashes:
   .agents/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
   .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .agents/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
-  .agents/skills/release/SKILL.md: sha256:a4c722541155db92ed871dfc5e5192d23092df8ff4f3ec29a9c1906e5cd48f92
+  .agents/skills/release/SKILL.md: sha256:92e14eb40f9c6c8f39e12c10108d2aaacd671968ed73af1e87df0922df27dee4
   .agents/skills/remote-host-testing/SKILL.md: sha256:2f57f20805195cef801120f374232b8522af3407efa5795d2dfb7fa3964019f4
   .agents/skills/self-improve/SKILL.md: sha256:0f8c6bacddfe459b60265bc7de5b148a3a66750271f3264f1fad131f9bf870bd
   .agents/skills/test/SKILL.md: sha256:5a8f2f1e53fb27464ae6117503b97a97830d644e5e36428453c2d6c2360e006c
@@ -2647,7 +2647,7 @@ local_deployed_file_hashes:
   .claude/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
   .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .claude/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
-  .claude/skills/release/SKILL.md: sha256:a4c722541155db92ed871dfc5e5192d23092df8ff4f3ec29a9c1906e5cd48f92
+  .claude/skills/release/SKILL.md: sha256:92e14eb40f9c6c8f39e12c10108d2aaacd671968ed73af1e87df0922df27dee4
   .claude/skills/remote-host-testing/SKILL.md: sha256:2f57f20805195cef801120f374232b8522af3407efa5795d2dfb7fa3964019f4
   .claude/skills/self-improve/SKILL.md: sha256:0f8c6bacddfe459b60265bc7de5b148a3a66750271f3264f1fad131f9bf870bd
   .claude/skills/test/SKILL.md: sha256:5a8f2f1e53fb27464ae6117503b97a97830d644e5e36428453c2d6c2360e006c
