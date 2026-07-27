@@ -52,6 +52,10 @@ fn run_snapshot(args: SnapshotArgs) -> ExitCode {
         let _ = writeln!(io::stderr(), "osfacts: write failed: {e}");
         return ExitCode::from(1);
     }
+    snapshot_exit_code(&snap)
+}
+
+fn snapshot_exit_code(snap: &Snapshot) -> ExitCode {
     if snap.errors.is_empty() {
         ExitCode::SUCCESS
     } else {
@@ -112,4 +116,26 @@ fn take_host(args: &HostArgs) -> HostSnapshot {
 
 fn write_version_only() -> io::Result<()> {
     Snapshot::new().write_tsv(&mut io::stdout().lock())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use osfacts::{Proc, SourceError};
+
+    #[test]
+    fn partial_source_failure_does_not_discard_good_facts() {
+        let mut snap = Snapshot::new();
+        snap.procs.push(Proc {
+            pid: 42,
+            ppid: 1,
+            name: "readable".into(),
+        });
+        snap.errors.push(SourceError {
+            source: "darwin_tcp_pcblist".into(),
+            code: "BLIND_OR_EMPTY".into(),
+        });
+
+        assert_eq!(snapshot_exit_code(&snap), ExitCode::SUCCESS);
+    }
 }
