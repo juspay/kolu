@@ -2,19 +2,17 @@
  *  `useAttention`'s fire-once/escalation rules, tested off id-sets without the
  *  wire. */
 
-import type { PadiUrgency } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
+  type AttentionFrame,
   attentionTransitions,
   nextUnseenFinished,
 } from "./attentionTransitions";
 
-const u = (awaiting: string[], finished: string[] = []): PadiUrgency => ({
-  awaitingIds: awaiting as TerminalId[],
+const u = (asking: string[], finished: string[] = []): AttentionFrame => ({
+  askingIds: asking as TerminalId[],
   finishedIds: finished as TerminalId[],
-  workingIds: [],
-  lingerIds: [],
 });
 
 describe("attentionTransitions", () => {

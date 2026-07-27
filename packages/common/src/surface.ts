@@ -90,8 +90,10 @@ export {
   agentPaintClass,
   agentUrgency,
   alertClass,
+  ATTENTION_CLASSES,
   attentionActive,
   attentionClass,
+  attentionCounted,
   DASH,
   URGENCY_RANK,
 } from "@kolu/terminal-vocab/agentProjection";

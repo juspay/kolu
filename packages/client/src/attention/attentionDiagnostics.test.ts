@@ -75,7 +75,7 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
 
     expect(d.paintsBusy).toBe(true);
     // Counted now — the bytes are the evidence, which is exactly the fix.
-    expect(d.countedWorking).toBe(true);
+    expect(d.countedActive).toBe(true);
     expect(d.spinnerInTitle).toBe(true);
     expect(d.agentState).toBeNull();
     expect(d.disagreement).toMatch(/no agent state/);
@@ -100,7 +100,7 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       attention: { klass: "finished", live: false },
     });
     expect(d.paintsBusy).toBe(true);
-    expect(d.countedWorking).toBe(false);
+    expect(d.countedActive).toBe(false);
     expect(d.disagreement).toMatch(/agent state is "waiting"/);
     expect(d.disagreement).not.toMatch(/NO agent state/);
   });
@@ -118,7 +118,7 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       isFinished: false,
       attention: { klass: "working", live: true },
     });
-    expect(d.countedWorking).toBe(true);
+    expect(d.countedActive).toBe(true);
     expect(d.paintsBusy).toBe(true);
     expect(d.disagreement).toBeNull();
   });
@@ -142,7 +142,7 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       attention: { klass: "idle", live: false },
     });
     expect(d.paintsBusy).toBe(false);
-    expect(d.countedWorking).toBe(false);
+    expect(d.countedActive).toBe(false);
     expect(d.disagreement).toMatch(/counted only because bytes are moving/);
   });
 
@@ -182,7 +182,7 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       attention: { klass: "linger", live: false },
     });
     expect(d.paintsBusy).toBe(true);
-    expect(d.countedWorking).toBe(true);
+    expect(d.countedActive).toBe(true);
     expect(d.disagreement).toBeNull();
   });
 });

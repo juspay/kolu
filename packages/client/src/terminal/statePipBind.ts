@@ -29,6 +29,12 @@ export type StatePipBind = {
   motion: PipMotionKind;
   /** Effectively active — recency hide, data-active. Not raw PTY bytes. */
   active: boolean;
+  /** The agent is blocked on YOU. The ONE test every surface reads for it —
+   *  the row wash, the wait chip, the section count and the section jump all
+   *  come off this rather than each re-testing `bucket === "awaiting"`, which
+   *  is a different fold (ORDER) that agreed with the attention class only by
+   *  luck and would stop the moment either partition moved. */
+  asking: boolean;
   /** Raw meaningful output — a11y "live output" only. */
   bytesLive: boolean;
   /** Quiet shell with live PTY bytes → busy orange without agent "Working". */
@@ -69,6 +75,7 @@ export function bindStatePip(input: {
     glyph: pipGlyphFor(input.meta),
     motion,
     active,
+    asking: input.attention.klass === "asking",
     bytesLive: input.attention.live,
     shellLive,
     sleeping: sleepingArm(input.meta) !== undefined,
@@ -78,8 +85,16 @@ export function bindStatePip(input: {
 }
 
 /** Memoized binder for a reactive terminal row — owns the attention read so
- *  call sites do not re-run the fold once per JSX prop. */
+ *  call sites do not re-run the fold once per JSX prop.
+ *
+ *  `encHost` is the host the terminal lives on: the attention mirror is keyed
+ *  by host, and a reader that threw the key away had to scan every host's
+ *  arrays for the id — which made correctness rest on ids never colliding
+ *  across hosts, and made any host's ~1 s activity tick invalidate every pip
+ *  memo in the dock instead of only that host's. Every call site already knows
+ *  its host. */
 export function useStatePip(
+  encHost: Accessor<string>,
   id: Accessor<TerminalId>,
   meta: Accessor<TerminalMetadata>,
   unread: Accessor<boolean>,
@@ -89,7 +104,7 @@ export function useStatePip(
   return createMemo(() =>
     bindStatePip({
       meta: meta(),
-      attention: facts.attentionOf(meta(), id()),
+      attention: facts.attentionOf(encHost(), id()),
       unread: unread(),
       pipBucket: pipBucket?.(),
     }),

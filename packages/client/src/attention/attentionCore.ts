@@ -7,9 +7,9 @@
  *  calls `hooks.deliver` directly — so its only real coverage is the unit tests
  *  that drive `observe` with frames and assert the `deliver` calls. */
 
-import type { PadiUrgency } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
+  type AttentionFrame,
   attentionTransitions,
   nextUnseenFinished,
 } from "./attentionTransitions";
@@ -30,10 +30,10 @@ export interface AttentionHooks {
 }
 
 export interface AttentionCore {
-  /** Feed one host's latest `urgency` frame. The FIRST frame per host is the
+  /** Feed one host's latest attention frame. The FIRST frame per host is the
    *  baseline (records only, never fires — attention is a transition, not a
    *  discovery); every later frame diffs and may fire. */
-  observe(encHost: string, cur: PadiUrgency): void;
+  observe(encHost: string, cur: AttentionFrame): void;
   /** The host left the pool — drop all its state. */
   forgetHost(encHost: string): void;
   /** The user switched TO this host — clear its unseen-finished dot ("you looked"). */
@@ -41,7 +41,7 @@ export interface AttentionCore {
 }
 
 export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
-  const prevByHost = new Map<string, PadiUrgency>();
+  const prevByHost = new Map<string, AttentionFrame>();
   const unseenByHost = new Map<string, Set<TerminalId>>();
   // Per-host fire-once latch — same `Map<encHost, …>` shape as its two siblings, so
   // a host's latch is data the structure holds directly (a `forgetHost` delete),
@@ -57,7 +57,7 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     return set;
   };
 
-  const observe = (encHost: string, cur: PadiUrgency): void => {
+  const observe = (encHost: string, cur: AttentionFrame): void => {
     const prev = prevByHost.get(encHost) ?? null;
     const { candidates, ended } = attentionTransitions(prev, cur);
 
@@ -84,8 +84,8 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     // guarantee. A baseline FINISHED id is deliberately NOT pre-latched, so a later
     // genuine finished→asking gate over it still fires (#1177); and the latch clears
     // when the terminal leaves both sets (`ended`), so a real NEW episode chimes.
-    if (prev === null && cur.awaitingIds.length > 0) {
-      for (const id of cur.awaitingIds) latchOf(encHost).add(id);
+    if (prev === null && cur.askingIds.length > 0) {
+      for (const id of cur.askingIds) latchOf(encHost).add(id);
     }
 
     // `candidates` is empty on the baseline (a finish already present when a host
@@ -102,18 +102,15 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       if (alerted || (asking && seen)) latchOf(encHost).add(id);
     }
 
-    // SNAPSHOT the frame — never keep a reference. The live surface delivers this
-    // value via SolidJS `reconcile`, mutating ONE object in place across frames;
-    // storing the reference would make the next frame's `prev` and `cur` the SAME
-    // mutated object, so no transition is ever seen and nothing fires. Copy the id
-    // arrays so the diff compares a frozen prior frame against the live current one.
+    // SNAPSHOT the frame — never keep a reference. The mirror delivers these
+    // lists off a SolidJS store that replaces them per frame, and the caller may
+    // hand back the same arrays; storing the reference would risk the next
+    // frame's `prev` and `cur` being the SAME object, so no transition is ever
+    // seen and nothing fires. Copy the two id arrays the diff reads — and only
+    // those, because `AttentionFrame` carries only what the engine diffs.
     prevByHost.set(encHost, {
-      awaitingIds: [...cur.awaitingIds],
+      askingIds: [...cur.askingIds],
       finishedIds: [...cur.finishedIds],
-      // Carried for type-fidelity only — the engine diffs the two attention
-      // lists; the activity lists are marks the per-host root writes directly.
-      workingIds: [...cur.workingIds],
-      lingerIds: [...cur.lingerIds],
     });
   };
 

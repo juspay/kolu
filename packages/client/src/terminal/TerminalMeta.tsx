@@ -16,6 +16,7 @@ import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
+import { encodeHostKey } from "kolu-common/hostKey";
 import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
@@ -29,6 +30,7 @@ import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
+import { activeHost } from "../wire";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
@@ -58,6 +60,7 @@ const TerminalMeta: Component<{
       {(v) => {
         // T1: brand mark lives once on StatePip; AgentIndicator is words only.
         const pip = useStatePip(
+          () => encodeHostKey(activeHost()),
           () => props.terminalId,
           () => v().meta,
           () => props.unread,

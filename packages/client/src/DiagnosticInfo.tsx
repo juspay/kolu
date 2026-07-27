@@ -88,7 +88,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       // Bind through the REAL binder, off the REAL attention value, rather
       // than re-deriving either here — a diagnostic that re-spells the rule it
       // is diagnosing can drift from it and quietly report the wrong thing.
-      const attention = facts.attentionOf(meta, id);
+      const attention = facts.attentionOf(encHost, id);
       const pip = bindStatePip({ meta, attention, unread: false });
       const d = attentionDiagnostic({
         id,
@@ -98,7 +98,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         motion: pip.motion,
         shellLive: pip.shellLive,
         isLive: attention.live,
-        isFinished: facts.isFinished(id),
+        // padi's sticky EF2 verdict — the `finished` class IS that verdict, so
+        // this reads it off the same one value rather than through a second
+        // accessor beside it.
+        isFinished: attention.klass === "finished",
         attention,
       });
       return {
@@ -107,10 +110,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         // frame. `agentState: null` here while padi lists it working is a
         // client/server SYNC gap; both blank while the title spins is a
         // DETECTION gap. The pair is what tells them apart.
-        padiSaysWorking: urgency.workingIds.includes(id),
-        padiSaysLingering: urgency.lingerIds.includes(id),
-        padiSaysAwaiting: urgency.askingIds.includes(id),
-        padiSaysFinished: urgency.finishedIds.includes(id),
+        padiSaysWorking: urgency.byClass.working.includes(id),
+        padiSaysLingering: urgency.byClass.linger.includes(id),
+        padiSaysAwaiting: urgency.byClass.asking.includes(id),
+        padiSaysFinished: urgency.byClass.finished.includes(id),
       };
     });
     const terminals = rows.filter((r) => r !== null);
@@ -123,9 +126,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     // green is exactly how a 4-vs-3 mismatch reached a user).
     const seen = new Set(terminals.map((t) => t.id));
     const uncounted = [
-      ...urgency.workingIds.map((id: TerminalId) => ({ id, as: "working" })),
-      ...urgency.lingerIds.map((id: TerminalId) => ({ id, as: "lingering" })),
-      ...urgency.askingIds.map((id: TerminalId) => ({ id, as: "awaiting" })),
+      ...urgency.byClass.working.map((id: TerminalId) => ({
+        id,
+        as: "working",
+      })),
+      ...urgency.byClass.linger.map((id: TerminalId) => ({
+        id,
+        as: "lingering",
+      })),
+      ...urgency.byClass.asking.map((id: TerminalId) => ({
+        id,
+        as: "awaiting",
+      })),
     ].filter((u) => !seen.has(u.id));
     return {
       host: encHost,
@@ -134,9 +146,9 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         // The tab renders ACTIVE (working + lingering + printing shells), so
         // the dump must show the number the tab shows, not a leg of it.
         active: hostActiveIds(urgency).length,
-        working: urgency.workingIds.length,
-        lingering: urgency.lingerIds.length,
-        asking: urgency.askingIds.length,
+        working: urgency.byClass.working.length,
+        lingering: urgency.byClass.linger.length,
+        asking: urgency.byClass.asking.length,
       },
       // A terminal this list can't see is a disagreement too — the count says
       // it exists and every visible surface says it doesn't.
@@ -382,9 +394,14 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
          *  make self-reporting rather than pixel-forensic. */}
         <Section title="Attention">
           <div class="text-[11px] font-mono space-y-1">
+            {/* The visible line a user copies into a bug report must show the
+             *  number the TAB shows — it read `working`, a leg of it, which is
+             *  the "tab says 2, I see 3" confusion reproduced inside the tool
+             *  built to resolve it. Legs stay, in parentheses. */}
             <Row label="host counts">
               <span class="tabular-nums">
-                {attention().counts.working} working ·{" "}
+                {attention().counts.active} active ({attention().counts.working}{" "}
+                working · {attention().counts.lingering} lingering) ·{" "}
                 {attention().counts.asking} awaiting
                 {attention().hostLive ? "" : " (host not live)"}
               </span>
@@ -434,9 +451,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                     pip={t.pipVariant}
                     {t.shellLive ? "+shellLive" : ""} glyph={t.glyph} live=
                     {String(t.isLive)} fin={String(t.isFinished)} busy=
-                    {String(t.paintsBusy)} counted={String(t.countedWorking)}
+                    {String(t.paintsBusy)} counted={String(t.countedActive)}
                     {t.spinnerInTitle ? " spinner=YES" : ""}
                     {t.padiSaysWorking ? " padi=working" : ""}
+                    {t.padiSaysLingering ? " padi=lingering" : ""}
                     {t.padiSaysFinished ? " padi=finished" : ""}
                     {t.padiSaysAwaiting ? " padi=awaiting" : ""}
                   </div>

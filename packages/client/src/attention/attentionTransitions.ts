@@ -3,8 +3,20 @@
  *  owner. Given one host's previous `urgency` cell and its current one, it decides
  *  which terminals should chime and which ended their attention episode. */
 
-import type { PadiUrgency } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
+
+/** The two lists the attention engine actually diffs — deliberately NOT the
+ *  wire's `PadiUrgency`. The engine's memory should be described by what it
+ *  compares, not by what the transport happens to carry: typing it as the wire
+ *  value meant widening the cell forced two more array copies per host per
+ *  frame that nothing ever read, with a comment admitting as much, and every
+ *  future wire field would land here the same way. It speaks the CLASS name
+ *  (`asking`), not the wire's positional `awaitingIds`, because the translation
+ *  belongs at the one wire→frame seam. */
+export interface AttentionFrame {
+  readonly askingIds: readonly TerminalId[];
+  readonly finishedIds: readonly TerminalId[];
+}
 
 export interface AttentionTransition {
   /** Terminals that should chime (subject to the caller's fire-once latch) — a
@@ -22,21 +34,21 @@ export interface AttentionTransition {
  *  definitionally not a transition, so it yields no candidates and no ends; the
  *  rule lives HERE, once, not as a "remember to check prev" guard at each caller. */
 export function attentionTransitions(
-  prev: PadiUrgency | null,
-  cur: PadiUrgency,
+  prev: AttentionFrame | null,
+  cur: AttentionFrame,
 ): AttentionTransition {
   if (prev === null) return { candidates: [], ended: [] };
 
-  const nextAsk = new Set(cur.awaitingIds);
+  const nextAsk = new Set(cur.askingIds);
   const nextFin = new Set(cur.finishedIds);
-  const prevAsk = new Set(prev.awaitingIds);
+  const prevAsk = new Set(prev.askingIds);
   const prevFin = new Set(prev.finishedIds);
 
   // Walk the source arrays directly (the two buckets are disjoint and each id is
-  // unique, so `awaitingIds` then `finishedIds` IS the union) — no throwaway
+  // unique, so `askingIds` then `finishedIds` IS the union) — no throwaway
   // spread array per frame on this ~150 ms-per-host hot path.
   const ended: TerminalId[] = [];
-  for (const id of prev.awaitingIds) {
+  for (const id of prev.askingIds) {
     if (!nextAsk.has(id) && !nextFin.has(id)) ended.push(id);
   }
   for (const id of prev.finishedIds) {
@@ -46,7 +58,7 @@ export function attentionTransitions(
   const candidates: Array<{ id: TerminalId; asking: boolean }> = [];
   // An ASKING id chimes unless it was already asking — a fresh entry AND a
   // finished→asking escalation both reduce to "wasn't asking last frame" (#1177).
-  for (const id of cur.awaitingIds) {
+  for (const id of cur.askingIds) {
     if (!prevAsk.has(id)) candidates.push({ id, asking: true });
   }
   // A FINISHED id chimes only as a FRESH entry into the class — it was in neither

@@ -36,7 +36,7 @@ import type {
   PipMotionKind,
   PipVariant,
 } from "@kolu/solid-statepip/pipVariant";
-import { isActive, type TerminalAttention } from "./attentionFacts";
+import { isCounted, type TerminalAttention } from "./attentionFacts";
 
 /** Spinner glyphs a CLI animates into its terminal title while it works: the
  *  braille block (U+2800–U+28FF — codex, claude, and most Node spinners use
@@ -89,7 +89,7 @@ export type AttentionDiagnostic = {
   /** Does the pip read as busy/working to a user glancing at it? */
   paintsBusy: boolean;
   /** Do the attention counts include this terminal as active? */
-  countedWorking: boolean;
+  countedActive: boolean;
   /** Set when the axes disagree — the line to paste into a bug report. */
   disagreement: string | null;
 };
@@ -114,8 +114,6 @@ export function attentionDiagnostic(input: {
     title: arm?.foreground?.title ?? null,
   };
   const spinnerInTitle = titleShowsSpinner(foreground.title);
-  // "Busy" as the USER reads it: the working paint, or the byte-level shell
-  // fallback that renders in the identical orange.
   // "Busy" as the USER reads it — and that includes the MOTION axis: a mark
   // that is spinning reads as busy whatever colour it wears, which is how a
   // violet lingering pip spun beside a host tab counting nothing and the
@@ -125,9 +123,10 @@ export function attentionDiagnostic(input: {
     input.pipVariant === "working" ||
     input.motion === "spin";
   // Exactly what every attention count folds — the ONE shared predicate, read
-  // off the same value the pip was bound from.
-  const countedWorking =
-    isActive(input.attention) && input.attention.klass !== "asking";
+  // off the same value the pip was bound from. A diagnostic that re-spells the
+  // rule it is diagnosing agrees with itself by construction and cannot see the
+  // drift it was built to catch, so this is a CALL, never a copy.
+  const countedActive = isCounted(input.attention);
 
   return {
     id: input.id,
@@ -144,14 +143,14 @@ export function attentionDiagnostic(input: {
     motion: input.motion,
     shellLive: input.shellLive,
     paintsBusy,
-    countedWorking,
+    countedActive,
     disagreement: describeDisagreement({
       agentState,
       agentKind: agent?.kind ?? null,
       glyph: input.glyph,
       spinnerInTitle,
       paintsBusy,
-      countedWorking,
+      countedActive,
       isLive: input.isLive,
     }),
   };
@@ -167,10 +166,10 @@ function describeDisagreement(f: {
   glyph: string;
   spinnerInTitle: boolean;
   paintsBusy: boolean;
-  countedWorking: boolean;
+  countedActive: boolean;
   isLive: boolean;
 }): string | null {
-  if (f.paintsBusy && !f.countedWorking) {
+  if (f.paintsBusy && !f.countedActive) {
     if (f.agentState === null) {
       return f.spinnerInTitle
         ? `pip paints busy and the terminal's own title is spinning, but kolu holds NO agent state for it (glyph ${f.glyph} came from the restore target) — kolu is blind to a working agent, so no count can include it`
@@ -178,7 +177,7 @@ function describeDisagreement(f: {
     }
     return `pip paints busy but agent state is "${f.agentState}", which the activity predicate does not read as active`;
   }
-  if (!f.paintsBusy && f.countedWorking) {
+  if (!f.paintsBusy && f.countedActive) {
     return `counts read this as active (state "${f.agentState}") but the pip neither paints busy nor moves`;
   }
   // Agent state absent while the terminal insists it is working. The COUNT is
