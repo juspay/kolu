@@ -31,9 +31,9 @@ Feature: Live-host oracle (lane 2 — never gates)
     When I snapshot this process's identity and launch details
     Then uid cwd status and argv match this process
 
-  Scenario: An unreadable launchd does not hide its readable descendants on darwin
-    When I snapshot launchd's subtree as an unprivileged darwin user
-    Then the snapshot reports launchd's readable process tree without hiding its blindness
+  Scenario: Foreign darwin process basics stay readable without privilege
+    When I snapshot stable foreign-uid processes visible to ps on darwin
+    Then osfacts matches their identity and start facts without hiding real blindness
 
   Scenario: Host telemetry preserves gauge and cumulative semantics
     When I take two complete host snapshots

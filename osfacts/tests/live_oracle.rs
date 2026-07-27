@@ -40,6 +40,7 @@ struct LiveWorld {
     host_second: Option<String>,
     cpu_time_first: Option<u64>,
     cpu_time_second: Option<u64>,
+    foreign_processes: Vec<ForeignProcessOracle>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,14 @@ struct ListenerRow {
     port: u16,
     /// Canonical form for comparison (v4-mapped collapsed to v4; any-form kept).
     canon: CanonAddr,
+}
+
+#[derive(Debug, Clone)]
+struct ForeignProcessOracle {
+    pid: u32,
+    uid: u32,
+    ppid: u32,
+    name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -293,46 +302,139 @@ fn process_details_are_real(world: &mut LiveWorld) {
     );
 }
 
-#[when("I snapshot launchd's subtree as an unprivileged darwin user")]
-fn snapshot_launchd_subtree(_world: &mut LiveWorld) {
+#[when("I snapshot stable foreign-uid processes visible to ps on darwin")]
+fn snapshot_foreign_processes(_world: &mut LiveWorld) {
     #[cfg(target_os = "macos")]
     {
         let world = _world;
-        assert_ne!(
-            unsafe { libc::geteuid() },
-            0,
-            "fixture requires a non-root user"
+        let own_uid = unsafe { libc::geteuid() };
+        assert_ne!(own_uid, 0, "fixture requires a non-root user");
+        let output = Command::new("ps")
+            .args(["-axo", "pid=,uid=,ppid=,comm="])
+            .output()
+            .expect("ps must be on PATH for the live oracle");
+        assert!(output.status.success(), "ps failed: {}", output.status);
+        let mut rows = String::from_utf8(output.stdout)
+            .expect("ps output is utf8")
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split_whitespace();
+                let pid = fields.next()?.parse::<u32>().ok()?;
+                let uid = fields.next()?.parse::<u32>().ok()?;
+                let ppid = fields.next()?.parse::<u32>().ok()?;
+                let command = fields.collect::<Vec<_>>().join(" ");
+                let name = PathBuf::from(command).file_name()?.to_str()?.to_owned();
+                (pid > 0 && pid < 10_000 && uid != own_uid).then_some(ForeignProcessOracle {
+                    pid,
+                    uid,
+                    ppid,
+                    name,
+                })
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|row| row.pid);
+        rows.truncate(12);
+        assert!(
+            rows.len() >= 5,
+            "need at least five stable foreign processes, found {rows:?}"
         );
+        assert!(
+            rows.iter().any(|row| row.name.len() > 16),
+            "fixture must include a name longer than kern.proc p_comm: {rows:?}"
+        );
+        let pids = rows
+            .iter()
+            .map(|row| row.pid.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        world.foreign_processes = rows;
         world.snapshot = Some(world.run_osfacts(&[
             "snapshot",
-            "--roots",
-            "1",
+            "--pids",
+            &pids,
             "--procs",
-            "--ports",
-            "--mem",
+            "--uid",
             "--start-time",
+            "--mem",
+            "--cpu-time",
         ]));
     }
 }
 
-#[then("the snapshot reports launchd's readable process tree without hiding its blindness")]
-fn launchd_tree_survives_unreadable_root(_world: &mut LiveWorld) {
+#[then("osfacts matches their identity and start facts without hiding real blindness")]
+fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
     #[cfg(target_os = "macos")]
     {
         let world = _world;
         let body = world.snapshot.as_ref().expect("snapshot");
-        let osfacts_count = body.lines().filter(|line| line.starts_with("P\t")).count();
-        assert!(
-            body.lines().any(|line| {
-                line.starts_with("U\t1\tproc\t")
-                    && (line.ends_with("EPERM") || line.ends_with("EACCES"))
-            }),
-            "launchd must be reported unreadable:\n{body}"
+        let rows = |tag: &str| {
+            body.lines()
+                .filter_map(|line| {
+                    let fields = line.split('\t').collect::<Vec<_>>();
+                    (fields.first().copied() == Some(tag)).then_some(fields)
+                })
+                .collect::<Vec<_>>()
+        };
+        let procs = rows("P");
+        let uids = rows("UID");
+        let starts = rows("S");
+        let memory = rows("M");
+        let cpu_times = rows("C");
+        let unreadable = rows("U");
+        assert_eq!(
+            procs.len(),
+            world.foreign_processes.len(),
+            "foreign process count diverged from ps:\n{body}"
         );
-        assert!(
-            osfacts_count > 1,
-            "an unreadable launchd must not collapse its subtree to one row:\n{body}"
-        );
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_micros() as u64;
+        for expected in &world.foreign_processes {
+            let pid = expected.pid.to_string();
+            let ppid = expected.ppid.to_string();
+            let uid = expected.uid.to_string();
+            let proc = procs
+                .iter()
+                .find(|row| row.get(1) == Some(&pid.as_str()))
+                .unwrap_or_else(|| panic!("missing P row for {}:\n{body}", expected.pid));
+            assert_eq!(proc.get(2), Some(&ppid.as_str()));
+            assert_eq!(proc.get(3), Some(&expected.name.as_str()));
+            let uid_row = uids
+                .iter()
+                .find(|row| row.get(1) == Some(&pid.as_str()))
+                .unwrap_or_else(|| panic!("missing UID row for {}:\n{body}", expected.pid));
+            assert_eq!(uid_row.get(2), Some(&uid.as_str()));
+            let start = starts
+                .iter()
+                .find(|row| row.get(1) == Some(&pid.as_str()))
+                .unwrap_or_else(|| panic!("missing S row for {}:\n{body}", expected.pid));
+            let start = start[2].parse::<u64>().expect("start time");
+            assert!(start > 0 && start <= now, "bad start row: {start}");
+            for facet in ["proc", "uid", "start_time"] {
+                assert!(
+                    !unreadable
+                        .iter()
+                        .any(|row| row.get(1) == Some(&pid.as_str()) && row.get(2) == Some(&facet)),
+                    "false {facet} blindness for {}:\n{body}",
+                    expected.pid
+                );
+            }
+            for (tag, facet, facts) in [
+                ("M", "mem", &memory),
+                ("C", "cpu_time", &cpu_times),
+            ] {
+                let has_fact = facts.iter().any(|row| row.get(1) == Some(&pid.as_str()));
+                let has_unreadable = unreadable
+                    .iter()
+                    .any(|row| row.get(1) == Some(&pid.as_str()) && row.get(2) == Some(&facet));
+                assert!(
+                    has_fact ^ has_unreadable,
+                    "{tag}/{facet} must be exactly fact or honest U for {}:\n{body}",
+                    expected.pid
+                );
+            }
+        }
     }
 }
 
