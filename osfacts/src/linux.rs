@@ -10,7 +10,7 @@ use osfacts::{
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::Path;
 use std::thread;
 
@@ -48,8 +48,8 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
         // and can mix observations from different instants.
         let stat = (args.procs || args.start_time || args.cpu_time || args.status)
             .then(|| read_string(&format!("/proc/{pid}/stat")));
-        let cmdline = (args.procs || args.argv)
-            .then(|| fs::read(format!("/proc/{pid}/cmdline")).map_err(|err| raw_errno(&err)));
+        let cmdline =
+            (args.procs || args.argv).then(|| read_bytes(&format!("/proc/{pid}/cmdline")));
         if args.procs {
             let stat = stat
                 .as_ref()
@@ -281,7 +281,7 @@ fn children_of(pid: u32) -> Vec<u32> {
     let mut out = Vec::new();
     if let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) {
         for task in tasks.flatten() {
-            if let Ok(body) = fs::read_to_string(format!(
+            if let Ok(body) = read_string(&format!(
                 "/proc/{pid}/task/{}/children",
                 task.file_name().to_string_lossy()
             )) {
@@ -431,14 +431,14 @@ struct Listener {
 }
 fn load_listeners() -> Result<Vec<Listener>, (&'static str, i32)> {
     let mut out = Vec::new();
-    let tcp = fs::read_to_string("/proc/net/tcp").map_err(|e| ("proc_net_tcp", raw_errno(&e)))?;
+    let tcp = read_string("/proc/net/tcp").map_err(|err| ("proc_net_tcp", err))?;
     parse_proc_net(&tcp, &mut out).map_err(|e| ("proc_net_tcp", raw_errno(&e)))?;
-    match fs::read_to_string("/proc/net/tcp6") {
+    match read_string("/proc/net/tcp6") {
         Ok(body) => {
             parse_proc_net(&body, &mut out).map_err(|e| ("proc_net_tcp6", raw_errno(&e)))?
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(("proc_net_tcp6", raw_errno(&e))),
+        Err(libc::ENOENT) => {}
+        Err(err) => return Err(("proc_net_tcp6", err)),
     }
     // A proc snapshot can transiently repeat the same socket while its row is
     // moving between kernel tables. The inode is the socket identity used by
@@ -736,7 +736,17 @@ fn source_error(source: &str, err: i32) -> SourceError {
     }
 }
 fn read_string(path: &str) -> Result<String, i32> {
-    fs::read_to_string(path).map_err(|e| raw_errno(&e))
+    let mut file = fs::File::open(path).map_err(|err| raw_errno(&err))?;
+    let mut body = String::with_capacity(4096);
+    file.read_to_string(&mut body)
+        .map_err(|err| raw_errno(&err))?;
+    Ok(body)
+}
+fn read_bytes(path: &str) -> Result<Vec<u8>, i32> {
+    let mut file = fs::File::open(path).map_err(|err| raw_errno(&err))?;
+    let mut body = Vec::with_capacity(4096);
+    file.read_to_end(&mut body).map_err(|err| raw_errno(&err))?;
+    Ok(body)
 }
 fn read_dir_names(path: &str) -> Result<Vec<String>, i32> {
     fs::read_dir(path)
