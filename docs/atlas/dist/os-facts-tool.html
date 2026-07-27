@@ -445,10 +445,11 @@ small scopes never spawn a worker. A live-lane smoke takes 11 interleaved warm
 <code>--procs</code> and all-facet samples, then gives the extra facets 75 µs of child CPU
 per live process. The pinned old binary spends 42.25 ms beyond <code>--procs</code> across
 500 processes and fails its 37.50 ms budget; the current binary spends 27.69 ms
-and passes. Child CPU and the same-load baseline make this a generous CI smoke
-rather than a wall-clock benchmark: other jobs can delay osfacts or disturb its
-caches without manufacturing most of a regression. One rejected version read
-RSS from <code>stat</code> even for <code>--mem</code> alone; that slowed
+and passes. Child CPU, the same-load baseline, and running after CI’s heavy
+fan-out drains make this a generous smoke rather than a wall-clock benchmark:
+other jobs can delay osfacts or disturb its caches without manufacturing most
+of a regression. One rejected version read RSS from <code>stat</code> even for <code>--mem</code>
+alone; that slowed
 the narrow shape from 5.46 to 6.87 ms, so the final reader keeps <code>statm</code> unless
 another requested facet has already paid for <code>stat</code>. Combining Drishti’s two
 subprocesses was not worth a new command shape: the host half costs only 2.6 ms.</p>

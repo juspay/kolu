@@ -66,9 +66,10 @@ Small scopes stay on the simple path.
 The live lane also samples the child CPU consumed by 11 interleaved warm
 `--procs` and all-facet snapshots. The extra facets get a process-count-scaled
 budget of 75 µs per process, so scheduler and shared-cache contention in
-parallel CI mostly cancel instead of pretending to be a regression. The pinned
-old binary spends 42.25 ms beyond `--procs` across 500 processes and fails its
-37.50 ms budget. The current one spends 27.69 ms and passes.
+parallel CI mostly cancel instead of pretending to be a regression. CI runs the
+smoke after its heavy fan-out drains. The pinned old binary spends 42.25 ms
+beyond `--procs` across 500 processes and fails its 37.50 ms budget. The current
+one spends 27.69 ms and passes.
 
 ## Honesty
 
