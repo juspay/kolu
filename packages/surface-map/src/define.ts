@@ -185,13 +185,12 @@ const FailureEvidenceSchema: ZodType<FailureEvidence> = z
  *  `unknown` so generic library code carries the value opaquely; a domain
  *  narrows it at its own map.
  *
- *  {@link FailureEvidence} is that reason's EVIDENCE, and it is the framework's
- *  co-product of the same record: the `failed` arm requires BOTH, so a reason
- *  without its retained output tail is as unrepresentable as a failure without a
- *  reason. It is a FIXED structural type this package owns (not a third generic) —
- *  see {@link FailureEvidence} for why, and for why it rides the failure instead of
- *  the live `connection`. */
-/** `Conn` is the FINE connection payload carried on every session-backed arm (SR9):
+ *  {@link FailureEvidence} is that reason's EVIDENCE, and the `failed` arm carries the
+ *  whole {@link FailureRecord} — see `FailureEvidence`'s doc, which is the ONE home of
+ *  the argument for why the tail rides the failure record rather than the live
+ *  `connection`, and why that arm carries no `connection` at all.
+ *
+ *  `Conn` is the FINE connection payload carried on every session-backed arm (SR9):
  *  the domain's rich per-host connection state (padi's `ConnectionInfo` — the phase +
  *  log tail + elapsed the coarse `kind` folds away). Parameterized exactly like
  *  `Failure` — `@kolu/surface-map` carries the value and validates it against the map's

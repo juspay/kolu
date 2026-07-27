@@ -135,13 +135,10 @@ export function activeEntryState(): PadiEntry {
  *  host-diagnostics popover (the only failure surface reachable for a host WITHOUT switching
  *  to it).
  *
- *  `log` is NON-OPTIONAL, and that is the whole point of where it now comes from: the tail
- *  is `entry.evidence`, a field of the FAILURE record that `@kolu/surface-map` staples on at
- *  classification — not the live `connection` payload the liveness floor drops over a dead
- *  link. So the old `undefined` case ("we cannot see the output") is UNREPRESENTABLE on the
- *  failed arm: evidence rides past the floor with the reason it belongs to. `[]` keeps its
- *  one meaning — the failure genuinely produced no output. (`connection?.log` was the read
- *  that silently lost the tail for a year, juspay/kolu#2007.)
+ *  `log` is NON-OPTIONAL because it reads `entry.evidence` — a field of the failure record
+ *  rather than the live `connection` payload, so "we cannot see the output" is not a state
+ *  this arm can be in, and `[]` keeps its one meaning (the failure genuinely produced no
+ *  output). See `@kolu/surface-map`'s `FailureEvidence` for why the tail lives there.
  *
  *  Takes the entry rather than reading the active one, because the popover asks about a host
  *  that is NOT the active one. `undefined` when the entry is in any other state — the caller

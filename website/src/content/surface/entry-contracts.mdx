@@ -37,9 +37,13 @@ vibes:
 - **connected** — live. `clockOffset` is this entry's clock seam (below).
 - **failed** — it will *not* resolve without someone acting: a bounded give-up, or a standing refuse ("another owner holds this host"). The right UI is an actionable card; the wrong one is an eternal spinner.
 
-The `failed` arm is a **two-field record**: the reason, and the output that evidences
-it. Neither half is optional, because a card that names a cause without showing what
-the machine actually printed is exactly the card nobody can act on. The pairing is also
+The `failed` arm is a **`FailureRecord`**: the reason, and the output that evidences
+it, as one named value. Neither half is optional, because a card that names a cause
+without showing what the machine actually printed is exactly the card nobody can act
+on — and because a pair spelled out as two correlated fields is a rule you have to
+remember, whereas one value is a rule you cannot forget. That is also why a
+`disconnected` session state carries an optional `refuse: FailureRecord` rather than
+two optional fields: there is no pair left to leave half-filled. The pairing is also
 what survives the client's liveness floor. That floor drops the live `connection`
 payload when the browser's own link to kolu goes quiet — a frozen in-progress word
 would otherwise keep narrating work that is no longer happening — and for a year the

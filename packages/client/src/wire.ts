@@ -336,13 +336,9 @@ const hostScoped = createRoot(() => {
   // same-key re-add (a new `membershipId`), so this read rebuilds by construction (PR3).
   // Active-host-only falls out for free: only the active entry's state is read here.
   //
-  // Read off the UP arms only. A `failed` entry carries no `connection` at all (the arm
-  // has no such field — see `EntryStatus`), because on that arm the "live" word would be
-  // the same frame the failure's `evidence` was already pinned from. So there is nothing
-  // here to fall back to and nothing to accidentally narrate: a failed host answers
-  // `undefined`, and its readers go to `failedEpisode`/`evidence` instead. This is the
-  // read that used to hand a stale live tail to the down surface (juspay/kolu#2007); it
-  // no longer type-checks its way onto that arm.
+  // Read off the UP arms only. A `failed` entry carries no `connection` field at all
+  // (see `@kolu/surface-map`'s `FailureEvidence`), so a failed host answers `undefined`
+  // here and its readers go to `failedEpisode`/`evidence` instead.
   const connection = (): ConnectionInfo | undefined =>
     match(active.state())
       .with({ kind: "warming" }, { kind: "connected" }, (s) => s.connection)

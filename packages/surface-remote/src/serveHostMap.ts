@@ -399,13 +399,11 @@ export function serveHostMap<
         // published arm cannot even hold.
         if (failure === null)
           throw new UnclassifiedHostFailureError(enc, down.error);
-        // EVIDENCE, stapled here: the session's retained log tail off the SAME `raw`
-        // frame `failureOf` just classified — pinned at classification, so the failure
-        // record carries a post-mortem of the episode that produced it rather than a
-        // live view that a dead browser link would later floor away. `raw.log` is the
-        // existing source of truth (`SessionState.log`, carried forward into the failed
-        // arm by `session.ts`'s `setDown`) — passed straight through, never a second
-        // evidence pipe. `[]` here means the episode genuinely retained no lines.
+        // EVIDENCE, stapled here: the retained log tail off the SAME `raw` frame
+        // `failureOf` just classified. `down.log` is the existing source of truth
+        // (`SessionState.log`, carried forward into the failed arm by `session.ts`'s
+        // `setDown`) — passed straight through, never a second evidence pipe. See
+        // `@kolu/surface-map`'s `FailureEvidence` for why it rides the record.
         state = { kind: "failed", failure, evidence: down.log };
       } else {
         // `disconnected`: `null` = transient drop → keep the `refuse` record ABSENT

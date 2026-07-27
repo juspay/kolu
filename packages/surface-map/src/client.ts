@@ -128,17 +128,11 @@ export interface EntryClock {
  *  word nor identity and passes through as-is, and a live link is a no-op. Making `live` a
  *  REQUIRED argument is the point: `foldState` cannot forget to floor.
  *
- *  The `failed` arm has NOTHING for the floor to do, and that is structural rather than a
- *  carve-out here: the arm carries no `connection` at all (see `EntryStatus`), so its
- *  `failure` and `evidence` are simply not liveness payloads. What the floor exists to
- *  stop is a LIVE word narrating work our link can no longer report on; a failure record
- *  is not a live word, so it is none of the floor's business. That is deliberately NOT a
- *  claim that a failed entry is terminal — a STANDING REFUSE publishes `failed` while its
- *  session keeps redialing, so both the reason and its tail can still be superseded by a
- *  later frame. The guarantee is that they move TOGETHER: the floor can never strand one
- *  without the other, which is exactly what it used to do when the retained tail rode
- *  `connection` and a dead browser link floored the evidence away while the reason
- *  survived (juspay/kolu#2007). */
+ *  The `failed` arm has NOTHING for the floor to do, and structurally so: the arm carries
+ *  no `connection` at all, so its record is not a liveness payload — see
+ *  {@link FailureEvidence}. Note this is NOT a claim that a failed entry is terminal: a
+ *  standing refuse publishes `failed` while its session keeps redialing, so a later frame
+ *  can still supersede the record. The guarantee is that its two halves move TOGETHER. */
 export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   status: EntryState<Failure, Conn>,
   live: boolean,
