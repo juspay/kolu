@@ -855,6 +855,7 @@ fn read_cpus() -> Result<Vec<Cpu>, (&'static str, i32)> {
             (mhz > 0).then_some(mhz)
         }
         Ok(_) => return Err(("hw_cpufrequency", libc::EINVAL)),
+        Err(libc::ENOENT) => None,
         Err(err) => return Err(("hw_cpufrequency", err)),
     };
     unsafe {

@@ -85,6 +85,29 @@ fn argv_facet_reports_full_argument_vector() {
 }
 
 #[test]
+fn missing_pid_reports_each_detail_facet_as_unreadable() {
+    let pid = u32::MAX.to_string();
+    let out = osfacts()
+        .args([
+            "snapshot", "--pids", &pid, "--uid", "--cwd", "--status", "--argv",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).expect("utf8");
+    let facets: std::collections::HashSet<_> = rows(&stdout, "U")
+        .into_iter()
+        .map(|row| row[2].clone())
+        .collect();
+    assert_eq!(
+        facets,
+        ["uid", "cwd", "status", "argv"].map(String::from).into()
+    );
+}
+
+#[test]
 fn mem_and_start_time_are_independent_pid_facets() {
     let pid = std::process::id();
     let out = osfacts()
@@ -230,7 +253,9 @@ fn host_cpu_rows_include_model_and_nullable_mhz() {
         .stdout
         .clone();
     let stdout = String::from_utf8(out).expect("utf8");
-    for cpu in rows(&stdout, "HCPU") {
+    let cpus = rows(&stdout, "HCPU");
+    assert!(!cpus.is_empty(), "{stdout}");
+    for cpu in cpus {
         assert_eq!(cpu.len(), 8, "{cpu:?}");
         let model: String = serde_json::from_str(&cpu[6]).expect("JSON-encoded CPU model");
         assert!(!model.is_empty(), "CPU model must not be a sentinel");

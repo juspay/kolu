@@ -51,7 +51,7 @@ same verb with different facets, never a consumer-shaped flag or mode:
 | who                             | wants to know                                         | runs                                                      | comes back                                                                                                             |
 | ------------------------------- | ----------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | kolu's port sensor, every ~5 s  | which ports this terminal's subtree listens on        | `osfacts snapshot --roots 4242 --procs --ports`           | pid table + listener rows with raw addresses; unreadable pids listed, so a blind terminal renders *blind*, not *empty* |
-| drishti's inspector             | the process tree under a service, with memory, age, and CPU% | `osfacts snapshot --roots 991 --procs --mem --start-time --cpu-time` | one row per descendant with RSS, start time, and cumulative CPU microseconds; CPU% is a consumer-side diff              |
+| drishti's inspector             | every process, with identity, launch details, memory, age, and CPU% | `snapshotHost(bin, { procs, uid, cwd, status, argv, mem, startTime, cpuTime })` | the real host process set — not pid 1's incomplete subtree — with raw uid, cwd, state/nice/threads, full argv, RSS, start time, and cumulative CPU microseconds |
 | kolu's daemon supervisor        | is this pid still mine, and since when                | `osfacts snapshot --pids 991 --start-time`                | a start time to compare against the recorded one                                                                       |
 | padi's socket takeover          | which pids hold this unix socket                      | `osfacts socket-holders /run/user/1000/padi.sock`         | the holder pids, or none                                                                                               |
 | drishti's host dashboard        | how the machine itself is doing                       | `osfacts host --cpu --mem --load --net --disk`            | cumulative counters + gauges, one versioned schema                                                                     |
@@ -62,10 +62,11 @@ same verb with different facets, never a consumer-shaped flag or mode:
   *ask*, not the host — the property no surveyed tool has and the one the
   measurements say matters most.
 - **Facets** so a consumer pays only for what it reads: `--procs`, `--ports`,
-  `--mem`, `--start-time`, `--cpu-time`. `socket-holders` and `host` are
+  `--mem`, `--start-time`, `--cpu-time`, `--uid`, `--cwd`, `--status`, and
+  `--argv`. `socket-holders` and `host` are
   separate verbs because they answer different questions (a path, not a pid
   set; the machine, not a process).
-- **One versioned schema.** TSV on the hot path (`V<TAB>1` first, tagged rows),
+- **One versioned schema.** TSV on the hot path (`V<TAB>2` first, tagged rows),
   `--json` for humans and one-offs.
 - **Raw address bytes, never a `wildcard` boolean.** Consumers keep exactly one
   classifier. Two predicates that must agree about `::ffff:0.0.0.0` is precisely
@@ -81,6 +82,23 @@ same verb with different facets, never a consumer-shaped flag or mode:
   `sudo` password prompt emptied the Ports section for every terminal on the
   host; when it threw indiscriminately, one foreign-uid descendant did the
   same.</Footnote>
+
+| process facet | tagged TSV row | JSON field | unreadable facet | semantics |
+| --- | --- | --- | --- | --- |
+| `--procs` | `P pid ppid name` | `procs` | `proc` | short display name and parent identity |
+| `--mem` | `M pid rss_bytes` | `memory` | `mem` | resident bytes at snapshot time |
+| `--start-time` | `S pid start_unix_us` | `startTimes` | `start_time` | process identity instant in Unix microseconds |
+| `--cpu-time` | `C pid cpu_time_us` | `cpuTimes` | `cpu_time` | cumulative user + system time; CPU% is a consumer-side diff |
+| `--uid` | `UID pid uid` | `uids` | `uid` | real uid; username resolution belongs to the consumer |
+| `--cwd` | `CWD pid cwd_json` | `cwds` | `cwd` | current directory; JSON in the final TSV field preserves delimiters |
+| `--status` | `STAT pid state nice threads` | `statuses` | `status` | one-character state, signed nice, nullable thread count (`-` in TSV) |
+| `--argv` | `ARGV pid argv_json` | `argv` | `argv` | the full vector, distinct from the short name; JSON preserves tabs, newlines, and NULs |
+
+Host `HCPU` rows add a nonempty model name and nullable MHz to the cumulative
+per-core counters. The frequency is honestly absent on Apple Silicon rather
+than represented by zero. `HDISK` carries both `freeBytes` (`bfree`) and
+`availableBytes` (`bavail`) so the consumer chooses its used-space definition
+without inheriting a hidden semantic change.
 
 ## Why not an existing tool
 
@@ -122,7 +140,7 @@ timer is the wrong operational model.</Footnote>
 | `socketHolder` (in `surface-daemon-supervisor`) | which pids hold a unix socket **path**   | OSF4 — today `/proc/net/unix` + fd readlinks; darwin `lsof`                                                                |
 | **drishti**                                     | process inspection + host telemetry      | OSF3 · OSF6 · OSF7 — first attempt [srid/drishti#122](https://github.com/srid/drishti/pull/122)                            |
 
-**Drishti's first adoption attempt hit two walls, and they name the missing
+**Drishti's first adoption attempt hit two walls, and they named the missing
 phases.** [srid/drishti#122](https://github.com/srid/drishti/pull/122) moved
 process identity and listeners onto the contract, then deployment as an
 ordinary SSH user turned red: 41 system processes came back readable as `P`
@@ -132,16 +150,24 @@ listener-blind — honest, but useless for a whole-host inspector (OSF6). And
 native host-telemetry readers the contract doesn't cover at all — `/proc`
 gauges, `vm_stat`, `sysctl`, `netstat -ib`, Node `os` calls, `statfs` (OSF7).
 
+The later dropped-info audit found the quieter third wall: pid 1 is not a
+portable synonym for the host process set (Linux's `kthreadd` tree is its own
+root), and the first contract omitted uid, cwd, state/nice/threads, full argv,
+CPU model/frequency, and `bfree`. PR <PrLink pr={2011} /> closes that set in
+the same V2 contract. `osfacts-client` now exposes `snapshotHost` directly;
+Drishti can delete its native readers without narrowing or sentinelizing the
+facts it used to show.
+
 ### The phase tree — track prefix `OSF`
 
 | phase                            | delivers                                                                                                                                                                                                              | needs             |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | **OSF1 — the binary**            | `snapshot --roots --procs --ports` on both platforms · versioned TSV + `--json` · the mandatory `unreadable` section · the scar-tissue suite — **shipped in <PrLink pr={1996} />**                                     | —                 |
 | **OSF2 — kolu's port sensor**    | padi invokes the baked osfacts binary through `osfacts-client`; C helper, TS `/proc`, and `@kolu/port-scan` deleted — **shipped in <PrLink pr={1996} />**                                                              | OSF1              |
-| **OSF3 — process detail facets** | `--mem` + `--start-time` + `--cpu-time`: kolu's `memorySampler` gains a true per-pid read and the supervisor gains start-time identity; drishti's process detail gains RSS, age, and cumulative user-plus-system CPU microseconds so its CPU% column can be restored as a consumer-side diff — **shipped in <PrLink pr={2011} />** | OSF1              |
+| **OSF3 — process detail facets** | `--mem` + `--start-time` + `--cpu-time` + `--uid` + `--cwd` + `--status` + `--argv`: kolu gains true per-pid RSS and start identity; drishti regains credentials, cwd, state/nice/threads, full argv, age, and cumulative CPU microseconds. The client adds a host-wide entry point so Linux roots outside pid 1 are not dropped — **shipped in <PrLink pr={2011} />** | OSF1              |
 | **OSF4 — socket-holders**        | the second verb ships; `socketHolder` deletes its `/proc/net/unix` and `lsof` paths                                                                                                                                    | OSF1              |
 | **OSF6 — unattributed listeners** | a listener no readable pid claims is *emitted* with explicit unattributed status (and its owning uid on linux) instead of dropped — the fix for #122's privilege regression — **shipped in <PrLink pr={2011} />**<Footnote>Linux already parses the world-readable `/proc/net/tcp{,6}` table — address, port, uid, inode — and today discards any LISTEN row no scoped fd readlink claims; emitting it is honesty, not new privilege. Two points the phase must pin: under a narrow `--roots`, an unclaimed socket may simply belong to an out-of-scope process, so the row says *unclaimed*, never *unowned*; and darwin's only fd-walk-free enumeration is the `pcblist` sysctl behind `netstat` — the source measured intermittently blind — so the silent-empty detection scar rides this phase.</Footnote> | OSF1              |
-| **OSF7 — host facets**           | the `host` verb: load, memory + swap, uptime, per-core cumulative CPU, per-interface cumulative counters, root-fs capacity — drishti deletes its native telemetry readers ([srid/drishti#123](https://github.com/srid/drishti/issues/123)) — **shipped in <PrLink pr={2011} />**<Footnote>Semantics to preserve, per the issue: cache-aware available memory, swap used/total, cumulative per-interface byte counters, per-core CPU deltas. Cumulative per the creed — rates are consumer-side diffs between snapshots; the tool never sleeps.</Footnote> | OSF1              |
+| **OSF7 — host facets**           | the `host` verb: load, memory + swap, uptime, per-core cumulative CPU with model and nullable MHz, per-interface cumulative counters, root-fs total/free/available bytes — drishti deletes its native telemetry readers ([srid/drishti#123](https://github.com/srid/drishti/issues/123)) — **shipped in <PrLink pr={2011} />**<Footnote>Semantics to preserve, per the issue: cache-aware available memory, swap used/total, cumulative per-interface byte counters, per-core CPU deltas, honest CPU metadata absence, and distinct `bfree`/`bavail` disk meanings. Cumulative per the creed — rates are consumer-side diffs between snapshots; the tool never sleeps.</Footnote> | OSF1              |
 | **OSF5 — drishti & extraction**  | drishti's migration relands whole — every native reader deleted, fail-fast baked path — and the directory graduates to its own repo<Footnote>The directory moves wholesale: `osfacts/` already carries its own README, `default.nix`, a zero-input subflake, and `client-ts/` (`osfacts-client` — no `@kolu` scope, Node builtins only) precisely so extraction is a move, not a redesign. The subflake becomes *the* flake and the contract does not change.</Footnote> | OSF3 · OSF6 · OSF7 |
 
 OSF3, OSF4, OSF6 and OSF7 are independent siblings under OSF1; OSF5 closes the

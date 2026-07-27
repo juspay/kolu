@@ -8,17 +8,24 @@
 
 The TypeScript face of the [osfacts](../) binary. Spawn it at a path you
 supply, refuse a schema version you do not speak, and hand back typed
-`P` / `M` / `S` / `C` / `L` / `U` / `E` and host rows. Nothing more.
+process, listener, unreadable, source-error, and host rows. Nothing more.
 
 ```ts
-import { snapshotSubtree } from "osfacts-client";
+import { snapshotHost } from "osfacts-client";
 
-const reading = await snapshotSubtree(process.env.OSFACTS_BIN!, [4242]);
+const reading = await snapshotHost(process.env.OSFACTS_BIN!, {
+  procs: true,
+  uid: true,
+  cwd: true,
+  status: true,
+  argv: true,
+  cpuTime: true,
+});
 if (reading.errors.length > 0) {
   // This consumer rejects partial source failures; another may render them.
   throw new Error(JSON.stringify(reading.errors));
 }
-// reading.procs · reading.cpuTimes · reading.ports · reading.unreadable
+// reading.procs · reading.uids · reading.cwds · reading.statuses · reading.argv
 ```
 
 No `@kolu` imports. No npm runtime dependencies — only `node:child_process`
@@ -29,15 +36,16 @@ the next (replacing a hand-rolled `lsof` path). Policy about what a bind
 
 ## What it does
 
-- Spawn `osfacts snapshot --roots … --procs --ports` (or `--pids`) at a
-  supplied absolute binary path.
+- Spawn an exact-pid, subtree, or true host-wide process snapshot at a supplied
+  absolute binary path.
 - Gate on `V 2` — a mismatched format fails loudly.
 - Parse every row; a line it cannot read is an error, never a skip.
 - Return partial facts when one requested source is blind. The process exits
   successfully when other facts survived, keeps the source failure in
   `reading.errors`, and leaves reject-versus-render policy to the caller.
-- Return the raw tables: process identity, RSS, start time, and cumulative
-  user-plus-system CPU microseconds; listener rows with explicit
+- Return the raw tables: process identity, uid, cwd, state/nice/thread count,
+  full argv, RSS, start time, and cumulative user-plus-system CPU microseconds;
+  listener rows with explicit
   claimed/unclaimed status and network-order hex addresses; host gauges and
   cumulative counters; unreadable facets; and source errors.
 

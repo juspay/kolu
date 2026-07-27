@@ -101,9 +101,9 @@ same verb with different facets, never a consumer-shaped flag or mode:</p>
 </tr>
 <tr>
 <td>drishti’s inspector</td>
-<td>the process tree under a service, with memory, age, and CPU%</td>
-<td><code>osfacts snapshot --roots 991 --procs --mem --start-time --cpu-time</code></td>
-<td>one row per descendant with RSS, start time, and cumulative CPU microseconds; CPU% is a consumer-side diff</td>
+<td>every process, with identity, launch details, memory, age, and CPU%</td>
+<td><code>snapshotHost(bin, { procs, uid, cwd, status, argv, mem, startTime, cpuTime })</code></td>
+<td>the real host process set — not pid 1’s incomplete subtree — with raw uid, cwd, state/nice/threads, full argv, RSS, start time, and cumulative CPU microseconds</td>
 </tr>
 <tr>
 <td>kolu’s daemon supervisor</td>
@@ -137,10 +137,11 @@ same verb with different facets, never a consumer-shaped flag or mode:</p>
 <em>ask</em>, not the host — the property no surveyed tool has and the one the
 measurements say matters most.</li>
 <li><strong>Facets</strong> so a consumer pays only for what it reads: <code>--procs</code>, <code>--ports</code>,
-<code>--mem</code>, <code>--start-time</code>, <code>--cpu-time</code>. <code>socket-holders</code> and <code>host</code> are
+<code>--mem</code>, <code>--start-time</code>, <code>--cpu-time</code>, <code>--uid</code>, <code>--cwd</code>, <code>--status</code>, and
+<code>--argv</code>. <code>socket-holders</code> and <code>host</code> are
 separate verbs because they answer different questions (a path, not a pid
 set; the machine, not a process).</li>
-<li><strong>One versioned schema.</strong> TSV on the hot path (<code>V&lt;TAB&gt;1</code> first, tagged rows),
+<li><strong>One versioned schema.</strong> TSV on the hot path (<code>V&lt;TAB&gt;2</code> first, tagged rows),
 <code>--json</code> for humans and one-offs.</li>
 <li><strong>Raw address bytes, never a <code>wildcard</code> boolean.</strong> Consumers keep exactly one
 classifier. Two predicates that must agree about <code>::ffff:0.0.0.0</code> is precisely
@@ -157,6 +158,80 @@ sudo lesson made structural: when an unreadable pid was silently dropped, one
 host; when it threw indiscriminately, one foreign-uid descendant did the
 same.</span></span></span></li>
 </ul>
+<table>
+<thead>
+<tr>
+<th>process facet</th>
+<th>tagged TSV row</th>
+<th>JSON field</th>
+<th>unreadable facet</th>
+<th>semantics</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--procs</code></td>
+<td><code>P pid ppid name</code></td>
+<td><code>procs</code></td>
+<td><code>proc</code></td>
+<td>short display name and parent identity</td>
+</tr>
+<tr>
+<td><code>--mem</code></td>
+<td><code>M pid rss_bytes</code></td>
+<td><code>memory</code></td>
+<td><code>mem</code></td>
+<td>resident bytes at snapshot time</td>
+</tr>
+<tr>
+<td><code>--start-time</code></td>
+<td><code>S pid start_unix_us</code></td>
+<td><code>startTimes</code></td>
+<td><code>start_time</code></td>
+<td>process identity instant in Unix microseconds</td>
+</tr>
+<tr>
+<td><code>--cpu-time</code></td>
+<td><code>C pid cpu_time_us</code></td>
+<td><code>cpuTimes</code></td>
+<td><code>cpu_time</code></td>
+<td>cumulative user + system time; CPU% is a consumer-side diff</td>
+</tr>
+<tr>
+<td><code>--uid</code></td>
+<td><code>UID pid uid</code></td>
+<td><code>uids</code></td>
+<td><code>uid</code></td>
+<td>real uid; username resolution belongs to the consumer</td>
+</tr>
+<tr>
+<td><code>--cwd</code></td>
+<td><code>CWD pid cwd_json</code></td>
+<td><code>cwds</code></td>
+<td><code>cwd</code></td>
+<td>current directory; JSON in the final TSV field preserves delimiters</td>
+</tr>
+<tr>
+<td><code>--status</code></td>
+<td><code>STAT pid state nice threads</code></td>
+<td><code>statuses</code></td>
+<td><code>status</code></td>
+<td>one-character state, signed nice, nullable thread count (<code>-</code> in TSV)</td>
+</tr>
+<tr>
+<td><code>--argv</code></td>
+<td><code>ARGV pid argv_json</code></td>
+<td><code>argv</code></td>
+<td><code>argv</code></td>
+<td>the full vector, distinct from the short name; JSON preserves tabs, newlines, and NULs</td>
+</tr>
+</tbody>
+</table>
+<p>Host <code>HCPU</code> rows add a nonempty model name and nullable MHz to the cumulative
+per-core counters. The frequency is honestly absent on Apple Silicon rather
+than represented by zero. <code>HDISK</code> carries both <code>freeBytes</code> (<code>bfree</code>) and
+<code>availableBytes</code> (<code>bavail</code>) so the consumer chooses its used-space definition
+without inheriting a hidden semantic change.</p>
 <h2 id="why-not-an-existing-tool">Why not an existing tool</h2>
 <p>Every candidate was <strong>measured, not surveyed</strong>, and each fails on the contract
 above rather than on packaging — a packaging gap is an errand, not an
@@ -249,7 +324,7 @@ timer is the wrong operational model.</span></span></span></p>
 </tr>
 </tbody>
 </table>
-<p><strong>Drishti’s first adoption attempt hit two walls, and they name the missing
+<p><strong>Drishti’s first adoption attempt hit two walls, and they named the missing
 phases.</strong> <a href="https://github.com/srid/drishti/pull/122">srid/drishti#122</a> moved
 process identity and listeners onto the contract, then deployment as an
 ordinary SSH user turned red: 41 system processes came back readable as <code>P</code>
@@ -258,6 +333,13 @@ listener-blind — honest, but useless for a whole-host inspector (OSF6). And
 <a href="https://github.com/srid/drishti/issues/123">srid/drishti#123</a> inventories the
 native host-telemetry readers the contract doesn’t cover at all — <code>/proc</code>
 gauges, <code>vm_stat</code>, <code>sysctl</code>, <code>netstat -ib</code>, Node <code>os</code> calls, <code>statfs</code> (OSF7).</p>
+<p>The later dropped-info audit found the quieter third wall: pid 1 is not a
+portable synonym for the host process set (Linux’s <code>kthreadd</code> tree is its own
+root), and the first contract omitted uid, cwd, state/nice/threads, full argv,
+CPU model/frequency, and <code>bfree</code>. PR <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a> closes that set in
+the same V2 contract. <code>osfacts-client</code> now exposes <code>snapshotHost</code> directly;
+Drishti can delete its native readers without narrowing or sentinelizing the
+facts it used to show.</p>
 <h3 id="the-phase-tree--track-prefix-osf">The phase tree — track prefix <code>OSF</code></h3>
 <table>
 <thead>
@@ -280,7 +362,7 @@ gauges, <code>vm_stat</code>, <code>sysctl</code>, <code>netstat -ib</code>, Nod
 </tr>
 <tr>
 <td><strong>OSF3 — process detail facets</strong></td>
-<td><code>--mem</code> + <code>--start-time</code> + <code>--cpu-time</code>: kolu’s <code>memorySampler</code> gains a true per-pid read and the supervisor gains start-time identity; drishti’s process detail gains RSS, age, and cumulative user-plus-system CPU microseconds so its CPU% column can be restored as a consumer-side diff — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong></td>
+<td><code>--mem</code> + <code>--start-time</code> + <code>--cpu-time</code> + <code>--uid</code> + <code>--cwd</code> + <code>--status</code> + <code>--argv</code>: kolu gains true per-pid RSS and start identity; drishti regains credentials, cwd, state/nice/threads, full argv, age, and cumulative CPU microseconds. The client adds a host-wide entry point so Linux roots outside pid 1 are not dropped — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong></td>
 <td>OSF1</td>
 </tr>
 <tr>
@@ -295,7 +377,7 @@ gauges, <code>vm_stat</code>, <code>sysctl</code>, <code>netstat -ib</code>, Nod
 </tr>
 <tr>
 <td><strong>OSF7 — host facets</strong></td>
-<td>the <code>host</code> verb: load, memory + swap, uptime, per-core cumulative CPU, per-interface cumulative counters, root-fs capacity — drishti deletes its native telemetry readers (<a href="https://github.com/srid/drishti/issues/123">srid/drishti#123</a>) — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Semantics to preserve, per the issue: cache-aware available memory, swap used/total, cumulative per-interface byte counters, per-core CPU deltas. Cumulative per the creed — rates are consumer-side diffs between snapshots; the tool never sleeps.</span></span></span></td>
+<td>the <code>host</code> verb: load, memory + swap, uptime, per-core cumulative CPU with model and nullable MHz, per-interface cumulative counters, root-fs total/free/available bytes — drishti deletes its native telemetry readers (<a href="https://github.com/srid/drishti/issues/123">srid/drishti#123</a>) — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Semantics to preserve, per the issue: cache-aware available memory, swap used/total, cumulative per-interface byte counters, per-core CPU deltas, honest CPU metadata absence, and distinct <code>bfree</code>/<code>bavail</code> disk meanings. Cumulative per the creed — rates are consumer-side diffs between snapshots; the tool never sleeps.</span></span></span></td>
 <td>OSF1</td>
 </tr>
 <tr>

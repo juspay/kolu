@@ -14,7 +14,8 @@ way through seven of them before concluding we had to write this one.
 ```sh
 osfacts snapshot --roots 4242 --procs --ports     # this subtree: procs + listening ports
 osfacts snapshot --pids 991 --mem --start-time --cpu-time # exact pids: RSS + start + cumulative CPU µs
-osfacts host --load --mem --cpu --net --disk      # machine gauges + cumulative counters
+osfacts snapshot --uid --cwd --status --argv      # every pid: identity + launch details
+osfacts host --load --mem --cpu --net --disk      # machine gauges, metadata + cumulative counters
 osfacts snapshot --procs --json | jq              # same facts, readable
 ```
 
@@ -64,6 +65,20 @@ asked it for.
 process start, normalized to microseconds on both platforms. An unreadable pid
 emits `U <pid> cpu_time <errno>` instead. The tool never computes CPU%; a
 consumer differences two `cpu_time_us` values over its own wall-clock interval.
+
+The other process details stay independent too. `--uid` emits the real uid
+(name lookup belongs to the consumer); `--cwd` emits the current directory;
+`--status` emits the one-character state, nice value, and a nullable thread
+count; `--argv` emits the full argument vector, distinct from the short process
+name. Cwd and argv are JSON-encoded inside their final TSV field, so tabs,
+newlines, and NULs cannot change row boundaries. Each failed read is its own
+`U <pid> <facet> <errno>` row — asking for cwd cannot turn an unreadable cwd
+into an empty path or erase a readable uid.
+
+Host CPU rows carry a nonempty model plus nullable MHz. Apple Silicon does not
+publish the frequency sysctl, so absence is `null` / `-`, never a fabricated
+zero. Disk rows keep both meanings the kernel exposes: free bytes from `bfree`
+and unprivileged-available bytes from `bavail`, alongside total bytes.
 
 Source blindness is an `E` row, not an instruction to discard facts that did
 arrive. A partial snapshot exits successfully and leaves reject-versus-render
@@ -144,9 +159,10 @@ worth keeping readable.
 ## Status
 
 OSF1, OSF2, OSF3, OSF6, and OSF7 are in: the binary's process, listener,
-RSS, start-time, per-process cumulative CPU-time, and host-telemetry facts on
-both platforms, plus kolu's port and memory sensors and start-qualified daemon
-ownership. The contract is
+RSS, start-time, cumulative CPU-time, uid, cwd, status, full argv, and complete
+host-telemetry facts on both platforms, plus kolu's port and memory sensors and
+start-qualified daemon ownership. The TypeScript client exposes exact-pid,
+subtree, and true host-wide process snapshots. The contract is
 versioned TSV + `--json`, with mandatory `unreadable` and source-error rows,
 and kolu spawns the baked store path
 (`KOLU_OSFACTS_BIN`). The TypeScript client lives at `client-ts/` as the
