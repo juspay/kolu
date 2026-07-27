@@ -181,6 +181,12 @@ fn narrow_scope_emits_unclaimed_host_listener() {
     let stdout = String::from_utf8(out.stdout).expect("utf8");
     let listeners = rows(&stdout, "L");
     let errors = rows(&stdout, "E");
+    let claimed_row = listeners
+        .iter()
+        .find(|row| row.get(4) == Some(&claimed.port.to_string()))
+        .unwrap_or_else(|| panic!("claimed fixture missing:\n{stdout}"));
+    assert_eq!(claimed_row[1], "claimed");
+    assert_eq!(claimed_row[2], claimed.pid.to_string());
 
     if errors
         == [vec![
@@ -189,22 +195,20 @@ fn narrow_scope_emits_unclaimed_host_listener() {
             "BLIND_OR_EMPTY".to_owned(),
         ]]
     {
-        assert!(!out.status.success(), "an E-only total failure must exit 1");
         assert!(
-            listeners.is_empty(),
-            "a blind source cannot emit L rows: {stdout}"
+            out.status.success(),
+            "claimed facts plus source blindness are a partial success: {stdout}"
+        );
+        assert!(
+            listeners
+                .iter()
+                .all(|row| row.get(4) != Some(&outside.port.to_string())),
+            "a gated host table cannot invent the out-of-scope listener: {stdout}"
         );
         return;
     }
     assert!(out.status.success(), "osfacts failed: {stdout}");
     assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
-
-    let claimed_row = listeners
-        .iter()
-        .find(|row| row.get(4) == Some(&claimed.port.to_string()))
-        .unwrap_or_else(|| panic!("claimed fixture missing:\n{stdout}"));
-    assert_eq!(claimed_row[1], "claimed");
-    assert_eq!(claimed_row[2], claimed.pid.to_string());
 
     let outside_row = listeners
         .iter()
