@@ -4,10 +4,14 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   OsfactsClientError,
   parseOsfactsOutput,
   OSFACTS_FORMAT_VERSION,
+  snapshotHost,
 } from "./client.ts";
 
 const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
@@ -20,10 +24,16 @@ const SAMPLE = [
   "M\t4242\t12345678",
   "S\t4242\t1710000000123456",
   "C\t4242\t987654",
+  "UID\t4242\t1000",
+  'CWD\t4242\t"/tmp/a\\tb\\nc"',
+  "STAT\t4242\tR\t-5\t12",
+  'ARGV\t4242\t["node","a\\tb","c\\nd","e\\u0000f"]',
   "L\tclaimed\t4242\t1000\t5173\t7f000001",
   `L\tunclaimed\t-\t0\t8081\t${V4_MAPPED_LOOPBACK}`,
   "U\t991\tports\tEACCES",
   "E\tdarwin_tcp_pcblist\tBLIND_OR_EMPTY",
+  'HCPU\t0\t10\t20\t30\t40\t"Apple M1 Max"\t-',
+  "HDISK\t/\t1000\t700\t800",
   "",
 ].join("\n");
 
@@ -40,6 +50,14 @@ describe("parseOsfactsOutput", () => {
       { pid: 4242, startUnixUs: 1710000000123456 },
     ]);
     expect(r.cpuTimes).toEqual([{ pid: 4242, cpuTimeUs: 987654 }]);
+    expect(r.uids).toEqual([{ pid: 4242, uid: 1000 }]);
+    expect(r.cwds).toEqual([{ pid: 4242, cwd: "/tmp/a\tb\nc" }]);
+    expect(r.statuses).toEqual([
+      { pid: 4242, state: "R", nice: -5, threads: 12 },
+    ]);
+    expect(r.argv).toEqual([
+      { pid: 4242, argv: ["node", "a\tb", "c\nd", "e\0f"] },
+    ]);
     expect(r.ports).toEqual([
       {
         status: "claimed",
@@ -61,6 +79,37 @@ describe("parseOsfactsOutput", () => {
     expect(r.errors).toEqual([
       { source: "darwin_tcp_pcblist", code: "BLIND_OR_EMPTY" },
     ]);
+    expect(r.cpus).toEqual([
+      {
+        core: 0,
+        userUs: 10,
+        systemUs: 20,
+        idleUs: 30,
+        otherUs: 40,
+        model: "Apple M1 Max",
+        frequencyMhz: null,
+      },
+    ]);
+    expect(r.disks).toEqual([
+      { mount: "/", totalBytes: 1000, availableBytes: 700, freeBytes: 800 },
+    ]);
+  });
+
+  it("offers a host-wide process snapshot without a fake pid scope", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+    const bin = join(dir, "osfacts-fixture");
+    try {
+      await writeFile(
+        bin,
+        '#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = snapshot ] && [ "$2" = --uid ] || exit 9\nprintf "V\\t2\\nUID\\t1\\t0\\n"\n',
+      );
+      await chmod(bin, 0o755);
+      await expect(snapshotHost(bin, { uid: true })).resolves.toMatchObject({
+        uids: [{ pid: 1, uid: 0 }],
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("refuses a version it does not speak", () => {
