@@ -11,7 +11,6 @@
  *  would freeze the memo for every later consumer with no error to
  *  point at. */
 
-import { encodeHostKey } from "kolu-common/hostKey";
 import { type Accessor, createMemo } from "solid-js";
 import { useAttentionFacts } from "../../attention/useAttentionFacts";
 import { createSharedRoot } from "../../createSharedRoot";
@@ -21,7 +20,7 @@ import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import { rankDockRows } from "./dockRowRanking";
 import { buildDockTree, type DockTree } from "./dockTree";
-import { activeHost } from "../../wire";
+import { encActiveHost } from "../../wire";
 
 export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   const store = useTerminalStore();
@@ -56,7 +55,7 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
       tileStore.tileIds(),
       store.getMetadata,
       isStale,
-      (id) => facts.classOf(encodeHostKey(activeHost()), id),
+      (id) => facts.classOf(encActiveHost(), id),
       store.getSubTerminalIds,
     ),
   );

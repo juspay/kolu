@@ -41,8 +41,15 @@ import type { AttentionClass, TerminalId } from "kolu-common/surface";
 import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
-import type { TerminalAttention } from "./attentionFacts";
 import {
+  FRAME_CLASSES,
+  hostActiveIds,
+  type TerminalAttention,
+} from "./attentionFacts";
+import {
+  forgetHostIndex,
+  hostFrame,
+  registerHostIndex,
   terminalAttention,
   terminalClass,
   writeHostMarks,
@@ -125,8 +132,61 @@ export const useAttentionFacts = createSharedRoot(() => {
         if (activity.pending()) return;
         writeHostMarks(encHost, { liveIds: [...(activity() ?? [])] });
       });
-      // Host left the pool — drop its whole record. The ONE deleter.
-      onCleanup(() => writeHostMarks(encHost, undefined));
+      // --- The read-side indexes over this host's frame ---
+      //
+      // Every reader below asks a per-terminal question of a frame whose folds
+      // are O(frame): `frameClassOf` rescans four class lists per id (three
+      // readers × every dock row, per urgency frame) and `hostActiveIds` rebuilds
+      // a Map + two Sets per call (~10 calls per host per byte tick). Indexed
+      // here rather than at the read sites because THIS is the one scope with a
+      // reactive owner and a disposal path for the host — the module-level
+      // readers in `attentionMarks` reach them through the registry below.
+      //
+      // The two frame legs are lifted into their own memos FIRST, and this is
+      // the load-bearing part of the whole arrangement. `writeHostMarks` merges
+      // `{...prev, ...value}`, so a `liveIds`-only write leaves `byClass`
+      // REFERENTIALLY IDENTICAL; a memo returning that reference therefore does
+      // not notify, and everything derived from it — the class index, and so the
+      // dock's O(n log n) rank+group pass — sits still through kaval's ~1 s byte
+      // tick. Reading `.byClass` off the frame inside the class index directly
+      // would put the whole record's store node in that memo's dependency set
+      // and give the byte tick a path back into the row order.
+      const byClass = createMemo(() => hostFrame(encHost).byClass);
+      const liveIds = createMemo(() => hostFrame(encHost).liveIds);
+      // Class index — `byClass` ONLY. Kept SEPARATE from `liveIndex` below (and
+      // from `activeCount`) because a terminal's CLASS is what the dock ranks
+      // and paints on, at the agent-transition cadence; merging the two into one
+      // "attention index" memo would re-sort every dock row on every byte tick,
+      // which is the exact defect the split exists to prevent.
+      const classIndex = createMemo(() => {
+        const map = new Map<TerminalId, AttentionClass>();
+        for (const klass of FRAME_CLASSES)
+          for (const id of byClass()[klass]) map.set(id, klass);
+        return map;
+      });
+      // Live index — `liveIds` ONLY, for the same reason mirrored: a reader that
+      // wants motion must not be invalidated by an agent transition it does not
+      // paint.
+      const liveIndex = createMemo(() => new Set(liveIds()));
+      // The host tab's count legitimately depends on BOTH legs — and stays its
+      // OWN memo for that reason, so its two-sided dependency cannot leak into
+      // the class-only path above. It folds through the pure `hostActiveIds`
+      // rather than restating the membership rule: this is an index over that
+      // answer, not a second definition of it.
+      const activeCount = createMemo(
+        () => hostActiveIds({ byClass: byClass(), liveIds: liveIds() }).length,
+      );
+      registerHostIndex(encHost, {
+        classOf: (id) => classIndex().get(id) ?? "idle",
+        isLive: (id) => liveIndex().has(id),
+        activeCount,
+      });
+      // Host left the pool — drop its whole record, and the index whose memos
+      // are disposed with this owner. The ONE deleter.
+      onCleanup(() => {
+        forgetHostIndex(encHost);
+        writeHostMarks(encHost, undefined);
+      });
       return null;
     },
   );

@@ -83,6 +83,53 @@ export function writeHostMarks(
   setMarks(encHost, (prev) => ({ ...(prev ?? emptyMarks()), ...value }));
 }
 
+/** A host's frame in INDEXED form — the same three answers `attentionFacts`
+ *  defines, precomputed once per invalidation instead of re-folded per read.
+ *
+ *  The pure folds in `attentionFacts` remain the DEFINITION (and what the tests
+ *  pin); this is an index over the same answer, never a second rule. It exists
+ *  because both folds are O(frame) for ONE question: `frameClassOf` scans four
+ *  class lists through the store proxy per id — and three readers ask it per
+ *  dock row on every urgency frame (the rank's `classOf`, each row's pip memo,
+ *  `useSectionAttention`) — while `hostActiveIds` builds a Map, two Sets and an
+ *  array per call, which `hostMarks().active` did ~10× per host per byte tick
+ *  (five reactive reads inside `AttentionTriplet`, and `HostChip` mounts twice
+ *  per host for width measurement).
+ *
+ *  The three legs are SEPARATE accessors on purpose, and the separation is the
+ *  load-bearing part — see `useAttentionFacts`, which builds them. */
+export interface HostAttentionIndex {
+  /** This terminal's class. Derived from `byClass` ONLY — a class read must
+   *  never subscribe to `liveIds`. */
+  classOf: (id: TerminalId) => AttentionClass;
+  /** Is this terminal moving bytes? Derived from `liveIds` ONLY. */
+  isLive: (id: TerminalId) => boolean;
+  /** How many terminals this host's tab counts. Depends on BOTH legs — which is
+   *  why it is its own accessor rather than folded into either of them. */
+  activeCount: () => number;
+}
+
+/** Per-host indexes, keyed the same way the marks store is. Populated by
+ *  `useAttentionFacts`' per-host root (the one place with a reactive owner AND a
+ *  disposal path) and dropped by that root's `onCleanup`, so the map cannot
+ *  outlive the memos it holds. A host with no root yet simply has no entry, and
+ *  every reader below falls back to the pure fold — the honest answer computed
+ *  the slow way, never a wrong one. */
+const indexes = new Map<string, HostAttentionIndex>();
+
+/** Publish a host's index. One root per host, so no two writers race a key. */
+export function registerHostIndex(
+  encHost: string,
+  index: HostAttentionIndex,
+): void {
+  indexes.set(encHost, index);
+}
+
+/** Drop a host's index — its memos are about to be disposed with the root. */
+export function forgetHostIndex(encHost: string): void {
+  indexes.delete(encHost);
+}
+
 /** The encoded keys of every host the store holds a record for — the membership
  *  the attention engine's per-host state follows, so the engine consumes the
  *  mirror rather than opening a second subscription of its own. */
@@ -127,7 +174,16 @@ export function hostMarks(encHost: string): {
     // never disagree with the ids it summarizes. `active` is the SAME predicate
     // the pips' motion runs on (`attentionFacts`), which is why the number on a
     // host tab always matches the number of moving marks under it.
-    active: () => hostActiveIds(hostFrame(encHost)).length,
+    //
+    // Read through the host's index when there is one: `hostActiveIds` builds a
+    // Map, two Sets and an array per call, and this thunk is read from five
+    // independent reactive computations inside `AttentionTriplet` on a chip that
+    // is mounted twice per host — ~10 full folds per host on every ~1 s byte
+    // tick. The index memoizes the identical fold; the fallback is that same
+    // fold, so a host whose root has not mounted yet is slow, never wrong.
+    active: () =>
+      indexes.get(encHost)?.activeCount() ??
+      hostActiveIds(hostFrame(encHost)).length,
     asking: () => hostAsking(encHost),
     unseenFinished: () => hostUnseenFinished(encHost),
   };
@@ -153,6 +209,11 @@ export function terminalAttention(
   encHost: string,
   id: TerminalId,
 ): TerminalAttention {
+  // Two SEPARATE index legs, not one fused lookup: the pair a caller receives
+  // is one value, but the two dependencies must stay apart so `terminalClass`
+  // below can take the class leg alone without dragging `liveIds` in.
+  const index = indexes.get(encHost);
+  if (index) return { klass: index.classOf(id), live: index.isLive(id) };
   const frame = hostFrame(encHost);
   return {
     klass: frameClassOf(frame, id),
@@ -167,9 +228,15 @@ export function terminalAttention(
  *  ~1 s idle window, so a reader that took the whole `TerminalAttention` would
  *  re-sort and re-group every dock row every time any terminal on the host
  *  printed a line. The class moves on agent transitions, which is the cadence
- *  the row order already follows. */
+ *  the row order already follows.
+ *
+ *  The index's `classOf` leg is derived from `byClass` ALONE for exactly that
+ *  reason, and the fallback fold reads only `byClass` too — so neither path can
+ *  quietly acquire a dependency on the live set. */
 export function terminalClass(encHost: string, id: TerminalId): AttentionClass {
-  return frameClassOf(hostFrame(encHost), id);
+  return (
+    indexes.get(encHost)?.classOf(id) ?? frameClassOf(hostFrame(encHost), id)
+  );
 }
 
 /** The app-badge fold: Σ `asking` over LIVE hosts — read reactively inside the

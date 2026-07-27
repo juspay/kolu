@@ -97,6 +97,11 @@ export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
  *  it from any other tracking scope would reintroduce #1714's per-call identity churn,
  *  which is why the value read path funnels through `getMetadata` alone. */
 
+/** A parent with no splits — the common case, and the SAME array every time so
+ *  a consumer keyed on the reference (a dock row's `subIds`) doesn't see a fresh
+ *  empty array on every read. Never mutated; neither are the index's own lists. */
+const NO_SUB_IDS: TerminalId[] = [];
+
 export function useTerminalMetadata(deps: {
   list: Accessor<{ id: TerminalId }[] | undefined>;
 }) {
@@ -111,7 +116,8 @@ export function useTerminalMetadata(deps: {
   // Memoized so the id array is computed once per list change, not re-mapped on
   // every `.use({ keys })` read, every `terminalIds` recompute, and every
   // `getSubTerminalIds` call (the last runs O(terminals) times per display
-  // rebuild).
+  // rebuild — which is why the parent→children relation is INDEXED once below
+  // rather than re-scanned per parent).
   const keys = createMemo<TerminalId[]>(
     () => deps.list()?.map((t) => t.id) ?? [],
   );
@@ -292,14 +298,38 @@ export function useTerminalMetadata(deps: {
     { equals: sameTerminalIdOrder },
   );
 
-  /** Sub-terminal IDs for a parent, in server-provided order. `getMetadata`
-   *  excludes parked records (never a live split — they await restore), so a
-   *  presence check suffices here too. */
+  /** The parent→children relation, indexed ONCE per invalidation.
+   *
+   *  Both readers of that relation used to walk EVERY terminal per parent:
+   *  `getSubTerminalIds` filtered `keys()` for one parentId, and both the dock's
+   *  rank (once per row, at the agent-transition cadence) and
+   *  `buildTerminalDisplayInfos` (once per display row) asked it per parent — so
+   *  the same relation was scanned quadratically, twice. One O(T) grouping walk
+   *  answers both in O(1) per parent. Server-provided `keys()` order is
+   *  preserved by construction: the walk appends in `keys()` order, so each
+   *  parent's list is the same sequence the old filter produced — which
+   *  `useSubPanel`'s tab order and `Cmd`-cycling depend on. */
+  const childrenByParent = createMemo<Map<TerminalId, TerminalId[]>>(() => {
+    const byParent = new Map<TerminalId, TerminalId[]>();
+    for (const id of keys()) {
+      // `rawTile` already returns `undefined` for a parked (or not-yet-arrived)
+      // record, so presence alone excludes restore-card rows — the same gate the
+      // per-parent filter applied. Raw (not reprojected): `parentId` is
+      // clock-free.
+      const parentId = rawTile(id)?.parentId;
+      if (!parentId) continue;
+      const siblings = byParent.get(parentId);
+      if (siblings) siblings.push(id);
+      else byParent.set(parentId, [id]);
+    }
+    return byParent;
+  });
+
+  /** Sub-terminal IDs for a parent, in server-provided order. Reads the shared
+   *  index above; the returned array is the index's own and must be treated as
+   *  read-only by callers (none mutate it). */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
-    return keys().filter((id) => {
-      const a = rawTile(id);
-      return a !== undefined && a.parentId === parentId;
-    });
+    return childrenByParent().get(parentId) ?? NO_SUB_IDS;
   }
 
   /** The PANES of a tile — its root plus its splits, in server order.
