@@ -22,5 +22,5 @@ export { CodeView } from "./CodeView";
 export { diffItem, fileItem } from "./codeViewItem";
 export type { FileTreeProps } from "./FileTree";
 export { FileTree } from "./FileTree";
-export { ignoredPathsCss } from "./ignoredCss";
+export { rowPathsCss } from "./rowPathsCss";
 export { useCodeViewSelection } from "./useCodeViewSelection";

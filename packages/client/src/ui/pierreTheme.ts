@@ -91,7 +91,7 @@ export const pierreTreesShadowCss = `
 `;
 
 /** How kolu paints a gitignored row in the browse tree — the declaration body
- *  `ignoredPathsCss` wraps in its per-row selectors. It lives HERE with every
+ *  `rowPathsCss` wraps in its per-row selectors. It lives HERE with every
  *  other decision about how kolu paints Pierre, so one edit changes the
  *  treatment; the selector construction (and its escaping) stays the pure leaf
  *  in `@kolu/solid-pierre`. A literal, not a `var(--…, fallback)`: a custom

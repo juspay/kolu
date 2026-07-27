@@ -21,7 +21,7 @@ import {
   viewLabel,
 } from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
-import { FileTree, ignoredPathsCss } from "@kolu/solid-pierre";
+import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
 import { isDirectoryPath } from "@kolu/solid-pierre/paths";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
@@ -632,11 +632,23 @@ const CodeTab: Component<{
     projectFileTreeSearch(treePaths(), searchQuery()),
   );
 
-  // The dimming set handed to Pierre as its own channel — never as `gitStatus`
-  // entries, whose ancestors Pierre rolls up into "contains a git change" (see
-  // `ignoredPathsCss`). Filtered by what the tree ACTUALLY renders, which is
-  // the search projection, not the whole inventory — so the claim holds with a
-  // filter active too, instead of emitting selectors for absent rows.
+  // The gitignored rows to dim.
+  //
+  // These are painted by a stylesheet rather than handed to Pierre as
+  // `gitStatus` entries carrying its own `"ignored"` status, even though that
+  // status exists. Pierre rolls EVERY `gitStatus` entry up into its ancestors'
+  // change counters (`incrementAncestorChangeCounts` runs unguarded by status),
+  // setting `data-item-contains-git-change` on each ancestor — which the theme
+  // below paints as modified. Routing the overlay through that channel
+  // therefore marks every ancestor of an ignored entry as "contains changes":
+  // measured on the kolu repo, 47 extra directories on top of a real 77, and 68
+  // on an otherwise-clean checkout. "Contains a change" and "contains something
+  // git ignores" are different facts, so the overlay keys on `data-item-path`
+  // instead and the roll-up stays honest.
+  //
+  // Filtered by what the tree ACTUALLY renders — the search projection, not the
+  // whole inventory — so the claim holds with a filter active too, instead of
+  // emitting selectors for absent rows.
   const treeIgnoredPaths = createMemo(() => {
     const ignored = treeInventory().ignored;
     if (ignored.length === 0) return undefined;
@@ -657,7 +669,7 @@ const CodeTab: Component<{
   const treeShadowCss = createMemo(() => {
     const ignored = treeIgnoredPaths();
     if (!ignored?.length) return pierreTreesShadowCss;
-    return `${pierreTreesShadowCss}\n${ignoredPathsCss(ignored, pierreTreesIgnoredRowDecl)}`;
+    return `${pierreTreesShadowCss}\n${rowPathsCss(ignored, pierreTreesIgnoredRowDecl)}`;
   });
 
   // Track membership rather than the treePaths array identity: browse paths
