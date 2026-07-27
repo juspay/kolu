@@ -3,13 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  listAll,
-  listIgnored,
-  listIgnoredPaths,
-  readFile,
-  filePreviewTag,
-} from "./browse.ts";
+import { listAll, listIgnored, readFile, filePreviewTag } from "./browse.ts";
+import { _computeIgnore } from "./working-tree-watcher.ts";
 
 describe("listAll", () => {
   let tmpDir: string;
@@ -88,12 +83,17 @@ describe("listIgnored", () => {
     expect(all.value.some((p) => p.startsWith("build"))).toBe(false);
   });
 
-  it("listIgnoredPaths strips the directory slash — the watcher's parcel-ignore shape", async () => {
-    const result = await listIgnoredPaths(tmpDir);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toContain("build");
-    expect(result.value).not.toContain("build/");
+  it("feeds the watcher's parcel ignore as absolute, slash-free paths", async () => {
+    // The property that is actually observable: `path.resolve` erases git's
+    // trailing directory slash, so the collapsed `build/` entry reaches parcel
+    // as a plain absolute directory path (which prunes the whole subtree).
+    // Asserted here rather than at a slash-stripping listing variant, which no
+    // consumer could tell apart from `listIgnored`.
+    const ignore = await _computeIgnore(tmpDir);
+    expect(ignore).toContain(path.join(tmpDir, "build"));
+    expect(ignore).toContain(path.join(tmpDir, "secret.log"));
+    expect(ignore).toContain(path.join(tmpDir, ".git"));
+    for (const p of ignore) expect(p.endsWith("/")).toBe(false);
   });
 });
 
