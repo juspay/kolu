@@ -28,6 +28,7 @@ import {
   ancestorDirectoryPaths,
   directoryRemovalOps,
   type FileTreeRemoveOperation,
+  isDirectoryPath,
   pathDiffOperations,
 } from "./pathReconcile";
 
@@ -36,6 +37,12 @@ type Composition = NonNullable<FileTreeOptions["composition"]>;
 type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
 
 export type FileTreeProps = {
+  /** The visible file inventory. A **trailing slash** marks an entry as a
+   *  directory row that owns no children (the collapsed gitignored directories
+   *  the Code tab overlays: one `node_modules/` row, never its contents).
+   *  Pierre infers ordinary directories from path prefixes, so a slash-free
+   *  entry is a file — the discriminator `onSelect` filters on, spelled once as
+   *  `isDirectoryPath` in `@kolu/solid-pierre/paths`. */
   paths: string[];
   gitStatus?: GitStatusEntry[];
   /** The host-owned selection to reflect in the tree. Writes here are
@@ -105,13 +112,16 @@ export type FileTreeProps = {
   contextMenu?: FileTreeContextMenu;
   /** Extra CSS injected into Pierre's shadow root, for styling Pierre
    *  exposes no `--trees-*` theme variable for — e.g. tinting a directory
-   *  that contains a change, which Pierre only renders as a half-opacity dot.
-   *  Pierre owns its shadow DOM, so a host stylesheet can't reach inside;
-   *  this is the escape hatch. Snapshot at mount via a constructable sheet
-   *  appended to the shadow root's `adoptedStyleSheets` (so Pierre's own row
-   *  re-renders never wipe it) — **not reactive**, re-mount to change it. The
-   *  rule's selectors are Pierre's internal row anatomy, so the rule belongs
-   *  to the host theme, not here. */
+   *  that contains a change (which Pierre only renders as a half-opacity dot),
+   *  or dimming the Code tab's gitignored rows. Pierre owns its shadow DOM, so
+   *  a host stylesheet can't reach inside; this is the ONE escape hatch —
+   *  every host-side row decoration composes into this string rather than
+   *  earning its own prop. **Reactive**: carried by a single constructable
+   *  sheet adopted at mount (so Pierre's own row re-renders never wipe it) and
+   *  rewritten in place on change, which touches no Pierre state — expansion,
+   *  scroll and the git-change roll-up are undisturbed. The rule's selectors
+   *  are Pierre's internal row anatomy, so the rule belongs to the host theme,
+   *  not here. */
   shadowCss?: string;
   /** Surface construction or render throws to the host. Required because
    *  silent failure produces a blank pane indistinguishable from "no
@@ -135,17 +145,19 @@ function findShadowRoot(el: Element): ShadowRoot | null {
   return null;
 }
 
-/** Append `css` to Pierre's shadow root as a constructable stylesheet —
- *  `adoptedStyleSheets` survives Pierre's row re-renders (a `<style>` child
- *  could be cleared by a virtualizer pass) and stacks after Pierre's own
- *  sheet, so the host rule wins on equal specificity. No-op if the shadow
- *  root isn't found (defensive — Pierre always mounts one). */
-function injectShadowCss(container: HTMLElement, css: string): void {
+/** Adopt ONE constructable stylesheet into Pierre's shadow root and hand it
+ *  back so the host's CSS can be rewritten in place (`replaceSync`) as it
+ *  changes. `adoptedStyleSheets` survives Pierre's row re-renders (a `<style>`
+ *  child could be cleared by a virtualizer pass) and stacks after Pierre's own
+ *  sheet, so the host rule wins on equal specificity. ONE sheet per mount —
+ *  adopting a fresh one per change would stack sheets and leak. No-op if the
+ *  shadow root isn't found (defensive — Pierre always mounts one). */
+function adoptShadowSheet(container: HTMLElement): CSSStyleSheet | null {
   const shadowRoot = findShadowRoot(container);
-  if (!shadowRoot) return;
+  if (!shadowRoot) return null;
   const sheet = new CSSStyleSheet();
-  sheet.replaceSync(css);
   shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet];
+  return sheet;
 }
 
 /** Expand each resolvable directory row named by `keys`, leaving files and
@@ -179,6 +191,9 @@ function revealDirectory(tree: FileTreeClass, dirKey: string): void {
 export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTreeClass | undefined;
+  // The one adopted sheet carrying the host's CSS, rewritten in place whenever
+  // `shadowCss` changes. Dies with the shadow root on cleanup.
+  let hostSheet: CSSStyleSheet | undefined | null;
   // The path inventory Pierre's tree currently holds. Seeded at mount and
   // updated after every `batch`, so the next path change can be applied as
   // an in-place delta. Tracked here rather than via `on`'s `prevInput`
@@ -230,9 +245,19 @@ export const FileTree: Component<FileTreeProps> = (props) => {
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
-  // don't appear in `paths` (Pierre infers them from path prefixes), so
-  // membership in this set is a reliable file-vs-folder discriminator.
-  const fileSet = createMemo(() => new Set(props.paths));
+  // mostly don't appear in `paths` (Pierre infers them from path prefixes) —
+  // but a host MAY pass explicit trailing-slash directory entries (the Code
+  // tab's collapsed gitignored dirs, `node_modules/`), and Pierre reports a
+  // click on such a row with the slash intact. Exclude them so membership
+  // stays a reliable file-vs-folder discriminator.
+  // Built in one pass, no intermediate array: this recomputes on every `paths`
+  // change (each search keystroke, each file add/remove) but is read only
+  // inside `onSelectionChange`, i.e. on a click.
+  const fileSet = createMemo(() => {
+    const files = new Set<string>();
+    for (const p of props.paths) if (!isDirectoryPath(p)) files.add(p);
+    return files;
+  });
 
   onMount(() => {
     // Arm the provenance gate on real user input. Capture phase so it is set
@@ -333,7 +358,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // scroll). The folder is already expanded via `initialExpandedPaths`.
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
       appliedPaths = props.paths;
-      if (props.shadowCss) injectShadowCss(container, props.shadowCss);
+      // Adopted empty; the (non-deferred) shadow-CSS effect below runs right
+      // after this one in creation order and is what writes the content — one
+      // call site for the rule, so the mount case can't drift from the change
+      // case.
+      hostSheet = adoptShadowSheet(container);
     }, props.onError);
     // Deliberately do NOT clear the request here: it stays standing so this
     // exact application repeats on every remount (the host clears it on a real
@@ -401,6 +430,21 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         safeApply(() => tree?.setGitStatus(g), props.onError);
       },
       { defer: true },
+    ),
+  );
+
+  // The host's CSS is pure styling — rewriting the one adopted sheet touches no
+  // Pierre state, so a change never disturbs expansion, scroll, or the
+  // git-change roll-up. NOT deferred: this effect is created after `onMount`
+  // above, so Solid runs it later in the same flush, with the sheet already
+  // adopted — its first run IS the mount-time application, and there is no
+  // second call site to keep in sync.
+  createEffect(
+    on(
+      () => props.shadowCss,
+      (css) => {
+        safeApply(() => hostSheet?.replaceSync(css ?? ""), props.onError);
+      },
     ),
   );
 

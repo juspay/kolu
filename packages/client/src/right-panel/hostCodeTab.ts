@@ -1,9 +1,10 @@
 /** `hostCodeTab` — the Code tab's per-host RETAINED query world, for instant
  *  switch-back of the Code tab (padi W9's Code-tab half, completing W7's K1).
  *
- *  It owns the six pulse-then-requery reads the Code tab stands on — the three git
- *  status streams (local / branch / active-view), the browse file list, the diff,
- *  and the browse file-content — as one {@link createPolledQuery} instance PER host,
+ *  It owns the pulse-then-requery reads the Code tab stands on — the three git
+ *  status streams (local / branch / active-view), the browse file list, the
+ *  gitignored overlay, the diff, and the browse file-content — as one
+ *  {@link createPolledQuery} instance PER host,
  *  born inside a `scopedByEntry(padiMap, activeHost, …)` owner: created LAZILY on a
  *  host's first activation, RETAINED across every switch-away (paused, value held),
  *  and DISPOSED only when the host leaves `padiMap.entries`. `CodeTab` and
@@ -65,6 +66,7 @@ import { windowedSub } from "../hostScope/windowedSub.ts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
+import { showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";
 
 /** The client-side text|binary partition, off the wire (moved verbatim from the old
@@ -78,7 +80,7 @@ export type BrowseFileContent =
   | { kind: "text"; content: string; truncated: boolean }
   | { kind: "binary"; url: string };
 
-/** Build ONE host's six retained Code-tab queries. `ctx.isActive` is this host's
+/** Build ONE host's retained Code-tab queries. `ctx.isActive` is this host's
  *  "am I the shown host" gate — see the isActive contract in the header. The host key
  *  is intentionally unused: every input reads the ACTIVE projection (blessed), so an
  *  instance differs from its siblings only in its retained store and its active gate. */
@@ -164,14 +166,33 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
-  // The whole-repo file list — browse mode only (the diff modes read the status files).
+  // "The browse tree is live" — spelled once, so the two listings that feed it
+  // cannot drift into querying for different views (a new view mode added to one
+  // and not the other would silently fetch an overlay for a tree that isn't
+  // mounted). The diff modes read the status files instead of either listing.
+  const browseInput = (): { repoPath: string } | null => {
+    const p = shownRepoPath();
+    return p && codeView() === "browse" ? { repoPath: p } : null;
+  };
+
+  // The whole-repo file list.
   const allPaths = repoQuery({
-    input: () => {
-      const p = shownRepoPath();
-      return p && codeView() === "browse" ? { repoPath: p } : null;
-    },
+    input: browseInput,
     query: (i, signal) => activePadiRpc.fs.listAll(i, { signal }),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
+  });
+
+  // The gitignored overlay — a SEPARATE query, idle (null input) unless the
+  // show-ignored toggle is on. Keeping it off `allPaths` is what lets the toggle
+  // flip without disturbing the main file list: as a field on that query's input
+  // it would join its value key, so every flip would blank the list, unmount
+  // `<FileTree>`, and remount it collapsed — losing every hand-expanded folder
+  // and the scroll position. Idling the input instead means the toggle costs the
+  // extra `git ls-files` spawn only while the user actually wants the overlay.
+  const ignoredPaths = repoQuery({
+    input: () => (showIgnoredFiles() ? browseInput() : null),
+    query: (i, signal) => activePadiRpc.fs.listIgnored(i, { signal }),
+    onError: (err) => toast.error(`Ignored file list: ${err.message}`),
   });
 
   // The active file's diff — its input reads THIS scope's own `activeStatus` result to
@@ -243,6 +264,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     branchStatus,
     activeStatus,
     allPaths,
+    ignoredPaths,
     diff,
     fileContent,
   };
@@ -286,6 +308,11 @@ export const codeActiveStatus = windowedSub(
 );
 export const codeAllPaths = windowedSub(
   () => activeHostCodeTab()?.allPaths,
+  (v) => v,
+  undefined,
+);
+export const codeIgnoredPaths = windowedSub(
+  () => activeHostCodeTab()?.ignoredPaths,
   (v) => v,
   undefined,
 );

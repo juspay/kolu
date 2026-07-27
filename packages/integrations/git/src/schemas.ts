@@ -224,6 +224,26 @@ export const FsListAllOutputSchema = z.object({
 });
 export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
 
+/** The gitignored listing is its OWN procedure rather than a flag on
+ *  `fs.listAll`, so the two are independently queryable. That separation is
+ *  load-bearing on the client: the Code tab's show-ignored toggle keys only
+ *  THIS query, leaving the main file-list query (and therefore the mounted
+ *  tree, its hand-expanded folders, and its scroll position) untouched when the
+ *  toggle flips. Folding it into `fs.listAll` as an `includeIgnored` flag put
+ *  the toggle in that query's value key, which blanked the whole list and
+ *  remounted the tree collapsed on every flip. */
+export const FsListIgnoredInputSchema = z.object({
+  /** Absolute path to the repo root. */
+  repoPath: z.string(),
+});
+
+export const FsListIgnoredOutputSchema = z.object({
+  /** Gitignored entries, COLLAPSED: a fully-ignored directory is ONE entry
+   *  carrying a trailing slash (`node_modules/`), never its contents. */
+  paths: z.array(z.string()),
+});
+export type FsListIgnoredOutput = z.infer<typeof FsListIgnoredOutputSchema>;
+
 export const FsReadFileInputSchema = z.object({
   /** Terminal that owns the URL handle for `kind: "binary"` outputs.
    *  Text reads ignore this — the field is on the input because the URL
