@@ -31,6 +31,7 @@ import { selectFleetTerminal } from "../palette/fleetActions";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { forwardsForHost } from "../forwards/useForwards";
 import { formatTimeAgo } from "../terminal/staleness";
+import { LOG_TAIL_SURFACE } from "../ui/logTailChrome";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
@@ -278,7 +279,7 @@ export const HostDiagnosticsPopover: Component<{
           <Show when={failureLog().length > 0}>
             <div
               data-testid="host-diagnostics-log"
-              class="mt-1 max-h-20 overflow-y-auto rounded border border-bd-1/50 bg-bg-2/40 px-1.5 py-1 font-mono text-[10px] leading-4 text-fg-4"
+              class={`mt-1 max-h-20 overflow-y-auto px-1.5 py-1 text-[10px] leading-4 ${LOG_TAIL_SURFACE}`}
             >
               <For each={failureLog()}>
                 {(entry) => (

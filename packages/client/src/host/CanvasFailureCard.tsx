@@ -23,6 +23,7 @@
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
 import { WarningIcon } from "../ui/Icons";
+import { LOG_TAIL_SURFACE } from "../ui/logTailChrome";
 import { activeHost, setActiveHost } from "../wire";
 import { reconnectHost } from "./reconnectHost";
 
@@ -104,12 +105,13 @@ export function CanvasFailureCard(props: {
    *  render nothing today, but only the caller can tell them apart, so the distinction
    *  survives the trip instead of being collapsed upstream.
    *
-   *  Deliberately NOT shared with `ConnectCanvas`'s live `connect-tail`, despite the same
-   *  chrome: that one shows the last 6 lines TRUNCATED to one row each (a rolling
-   *  reassurance while work is in flight), this one shows the whole retained tail WRAPPED
-   *  (a post-mortem you have to be able to read). Same pixels, opposite jobs — unifying
-   *  them would parameterize two independently-changing behaviours for a class-string
-   *  saving, the same trade this card already declined for `DangerCard`. */
+   *  Shares only its SURFACE with the other two tails (`LOG_TAIL_SURFACE` — see
+   *  `ui/logTailChrome.ts`); the rendering stays local, because the three differ by
+   *  decision rather than by accident. `ConnectCanvas`'s live `connect-tail` shows six
+   *  lines TRUNCATED to one row each (a rolling reassurance while work is in flight);
+   *  this one shows the whole retained tail WRAPPED (a post-mortem you have to be able to
+   *  read). Folding that into a `wrap` knob would parameterize two independently-changing
+   *  behaviours, the same trade this card already declined for `DangerCard`. */
   log: readonly LogLine[] | undefined;
   /** Test handle for the tail block, supplied by the caller like every other handle on this
    *  shell (`dataTestid` / `dataAttrs` / `action.testid`) — two callers now render a tail, so
@@ -141,7 +143,7 @@ export function CanvasFailureCard(props: {
             <Show when={(props.log ?? []).length > 0}>
               <div
                 data-testid={props.logTestid}
-                class="mt-2 max-h-40 overflow-y-auto rounded border border-bd-1/50 bg-bg-2/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-fg-4"
+                class={`mt-2 max-h-40 overflow-y-auto px-3 py-2 text-[11px] leading-relaxed ${LOG_TAIL_SURFACE}`}
               >
                 <For each={props.log}>
                   {(entry) => (
