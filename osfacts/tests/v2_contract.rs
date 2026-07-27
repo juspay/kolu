@@ -18,6 +18,72 @@ fn rows(stdout: &str, tag: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+fn snapshot_self(facet: &str) -> String {
+    let pid = std::process::id();
+    let out = osfacts()
+        .args(["snapshot", "--pids", &pid.to_string(), facet])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(out).expect("utf8")
+}
+
+#[test]
+fn uid_facet_reports_real_uid() {
+    let stdout = snapshot_self("--uid");
+    let uid = rows(&stdout, "UID");
+    assert_eq!(uid.len(), 1, "{stdout}");
+    assert_eq!(uid[0][1], std::process::id().to_string());
+    assert_eq!(uid[0][2], unsafe { libc::getuid() }.to_string());
+}
+
+#[test]
+fn cwd_facet_reports_current_directory() {
+    let stdout = snapshot_self("--cwd");
+    let cwd = rows(&stdout, "CWD");
+    assert_eq!(cwd.len(), 1, "{stdout}");
+    assert_eq!(cwd[0][1], std::process::id().to_string());
+    let path: String = serde_json::from_str(&cwd[0][2]).expect("JSON-encoded cwd");
+    assert_eq!(
+        path,
+        std::env::current_dir()
+            .expect("current dir")
+            .to_string_lossy()
+    );
+}
+
+#[test]
+fn status_facet_reports_state_nice_and_threads() {
+    let stdout = snapshot_self("--status");
+    let status = rows(&stdout, "STAT");
+    assert_eq!(status.len(), 1, "{stdout}");
+    assert_eq!(status[0][1], std::process::id().to_string());
+    assert_eq!(
+        status[0][2].chars().count(),
+        1,
+        "state must be one character"
+    );
+    status[0][3].parse::<i32>().expect("nice value");
+    if status[0][4] != "-" {
+        assert!(status[0][4].parse::<u32>().expect("thread count") > 0);
+    }
+}
+
+#[test]
+fn argv_facet_reports_full_argument_vector() {
+    let stdout = snapshot_self("--argv");
+    let argv = rows(&stdout, "ARGV");
+    assert_eq!(argv.len(), 1, "{stdout}");
+    assert_eq!(argv[0][1], std::process::id().to_string());
+    let values: Vec<String> = serde_json::from_str(&argv[0][2]).expect("JSON-encoded argv");
+    assert!(
+        values.iter().any(|value| value.contains("v2_contract")),
+        "harness argv missing: {values:?}"
+    );
+}
+
 #[test]
 fn mem_and_start_time_are_independent_pid_facets() {
     let pid = std::process::id();
@@ -152,4 +218,43 @@ fn host_emits_cumulative_machine_facts() {
     let available = disk[3].parse::<u64>().expect("available disk");
     assert_eq!(disk[1], "/");
     assert!(total > 0 && available <= total, "{disk:?}");
+}
+
+#[test]
+fn host_cpu_rows_include_model_and_nullable_mhz() {
+    let out = osfacts()
+        .args(["host", "--cpu"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).expect("utf8");
+    for cpu in rows(&stdout, "HCPU") {
+        assert_eq!(cpu.len(), 8, "{cpu:?}");
+        let model: String = serde_json::from_str(&cpu[6]).expect("JSON-encoded CPU model");
+        assert!(!model.is_empty(), "CPU model must not be a sentinel");
+        if cpu[7] != "-" {
+            assert!(cpu[7].parse::<u64>().expect("frequency MHz") > 0);
+        }
+    }
+}
+
+#[test]
+fn host_disk_distinguishes_free_from_available() {
+    let out = osfacts()
+        .args(["host", "--disk"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).expect("utf8");
+    let disk = rows(&stdout, "HDISK");
+    assert_eq!(disk.len(), 1, "{stdout}");
+    assert_eq!(disk[0].len(), 5, "{disk:?}");
+    let total = disk[0][2].parse::<u64>().expect("total bytes");
+    let available = disk[0][3].parse::<u64>().expect("available bytes");
+    let free = disk[0][4].parse::<u64>().expect("free bytes");
+    assert!(available <= free && free <= total, "{disk:?}");
 }
