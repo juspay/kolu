@@ -19,6 +19,7 @@
  * type-only session shapes), so it rides the browser bundle.
  */
 
+import type { EvidenceLine } from "@kolu/surface-map";
 import { z } from "zod";
 // TYPE-ONLY (erased at runtime): the connection value IS `SessionState<SshProv>`, so this
 // module keeps ONE connection-state type family. Neither import pulls the node/server
@@ -26,16 +27,29 @@ import { z } from "zod";
 import type { SessionState } from "./session";
 import type { SshProv } from "./sshConnector";
 
-/** One line of the link's provenance-tagged log tail — the browser mirror of a
- *  session's {@link SessionState.log} entry: `source` is WHERE the line came from
- *  (`"local"` = the parent's own provisioning / lifecycle chatter, `"remote"` =
- *  the far agent's forwarded stderr), a FIELD now rather than an in-band
- *  `[local] `/`[remote] ` string prefix. */
-export const LogEntrySchema = z.object({
+/** One line of the link's provenance-tagged log tail: `source` is WHERE the line came
+ *  from (`"local"` = the parent's own provisioning / lifecycle chatter, `"remote"` = the
+ *  far agent's forwarded stderr), a FIELD rather than an in-band `[local] `/`[remote] `
+ *  string prefix.
+ *
+ *  It IS `@kolu/surface-map`'s `EvidenceLine` — the same concept, so the same type, not
+ *  a pinned twin. `serveHostMap` stamps a failed entry's evidence by passing the
+ *  session's retained tail straight through (`evidence: down.log`); that only ever
+ *  compiled because the two vocabularies were element-for-element identical, and this
+ *  alias makes the identity the DEFINITION rather than a fact a separate file had to
+ *  monitor. `import type` is erased, so this module's browser-bundle constraint (zod +
+ *  type-only shapes) is untouched. */
+export type LogEntry = EvidenceLine;
+
+/** The wire validator for {@link LogEntry}. A zod schema must exist (a wire value needs a
+ *  concrete browser-safe validator, which a TS type is not) — annotating it
+ *  `ZodType<LogEntry>` is what makes a one-sided edit to either vocabulary a compile
+ *  error HERE, in the file that owns the schema, rather than a confusing assignment
+ *  failure inside `serveHostMap` in another package. */
+export const LogEntrySchema: z.ZodType<LogEntry> = z.object({
   source: z.enum(["local", "remote"]),
   line: z.string(),
 });
-export type LogEntry = z.infer<typeof LogEntrySchema>;
 
 const logSchema = z.array(LogEntrySchema).readonly();
 
