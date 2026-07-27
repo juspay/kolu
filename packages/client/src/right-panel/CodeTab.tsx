@@ -929,7 +929,9 @@ const CodeTab: Component<{
           />
           {/* Show-ignored toggle — browse only (the diff modes list changed
            *  files, where gitignored paths can't appear). Device-local pref;
-           *  flipping it re-keys the fs.listAll query in `hostCodeTab`. */}
+           *  flipping it arms the SEPARATE fs.listIgnored query in
+           *  `hostCodeTab` — fs.listAll is untouched, so the mounted tree keeps
+           *  its expansion and scroll. */}
           <Show when={view() === "browse"}>
             <button
               type="button"
