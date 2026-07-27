@@ -23,7 +23,11 @@
  *
  *  One deliberate exception: a twin of this ladder lives in
  *  `packages/vazhi/src/format.ts` — vazhi may not import the client bundle.
- *  Keep the thresholds in step. */
+ *  Keep the THRESHOLDS in step. The negative arm is deliberately NOT shared,
+ *  and the twin's comment says why: the policy is a function of whose clock
+ *  stamped the input, and the two differ. Here a remote host stamps the event
+ *  and this browser subtracts it, so the clocks are genuinely different and a
+ *  negative is real skew. Vazhi measures its own forwards with its own clock. */
 import { DASH } from "kolu-common/surface";
 
 export type DeltaUnit = "s" | "m" | "h" | "d";
@@ -63,15 +67,26 @@ export function compactDelta(ms: number): CompactDelta {
 
 /** A compact elapsed readout for a LIVE, seconds-granularity timer — `"45s"` under a
  *  minute, `"2m 3s"` above (dual-unit so a minutes-long connect still shows its seconds
- *  ticking). Built on the {@link compactDelta} ladder's sec/min bucketing so the
- *  thresholds live in ONE place — the connect overlay's elapsed timer reads this rather
- *  than hand-rolling `Math.floor(secs/60)` in a domain module. Distinct from the
- *  hours-scale single-unit `formatDuration`/`formatUptime` (which want `2h`, not `2h 3s`)
- *  precisely because a live connect timer wants its seconds visible. */
+ *  ticking). Built on the {@link compactDelta} ladder so the thresholds live in ONE
+ *  place — the connect overlay's elapsed timer reads this rather than hand-rolling
+ *  `Math.floor(secs/60)` in a domain module. Distinct from the hours-scale single-unit
+ *  `formatDuration`/`formatUptime` (which want `2h`, not `2h 3s`) precisely because a
+ *  live connect timer wants its seconds visible.
+ *
+ *  Seconds tick only under the MINUTE tier. Past an hour the second half comes from
+ *  the ladder's own `sub` unit, because appending seconds-within-the-minute beside an
+ *  hours figure reads as a duration and isn't one: a two-hour reconnect rendered
+ *  "2h 47s", a number that cycles 0-59 every second and answers no question anyone
+ *  has. This is the readout a connection outage sits on, so it is exactly the timer
+ *  that crosses an hour. */
 export function formatElapsedShort(ms: number): string {
   const d = compactDelta(ms);
   if (d.kind === "unknown") return DASH;
   if (d.unit === "s") return `${d.value}s`;
-  const sec = Math.floor(ms / 1000);
-  return `${d.value}${d.unit} ${sec % 60}s`;
+  // The minute tier has no `sub` on the ladder — its finer unit is the live
+  // second, which is the whole point of this formatter.
+  if (d.unit === "m") return `${d.value}m ${Math.floor(ms / 1000) % 60}s`;
+  return d.sub
+    ? `${d.value}${d.unit} ${d.sub.value}${d.sub.unit}`
+    : `${d.value}${d.unit}`;
 }
