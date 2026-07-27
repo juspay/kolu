@@ -10,6 +10,7 @@
 import { activeArm } from "@kolu/padi/surface";
 import { parseLoopbackUrl } from "@kolu/url-shape";
 import { portReach } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -91,12 +92,17 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     ),
   );
 
-  const join = createMemo(() =>
-    joinPrintedUrl({
-      uri: props.target.uri,
-      observation: observation(),
-      forwards: forwardsForHost(host()),
-    }),
+  const join = createMemo(
+    () =>
+      joinPrintedUrl({
+        uri: props.target.uri,
+        observation: observation(),
+        forwards: forwardsForHost(host()),
+      }),
+    undefined,
+    // Structural equality: the keyed <Match> below re-creates its children on
+    // every identity change, so a no-op scan tick must not re-key the card.
+    { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) },
   );
 
   const viewerOnHost = createMemo(() => {
@@ -311,12 +317,14 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
         }}
       >
         <Switch>
-          <Match when={join().kind === "joined" ? join() : undefined}>
+          <Match keyed when={join().kind === "joined" ? join() : undefined}>
             {(j) => {
+              // `keyed`: `j` is the VALUE at branch entry — a stale accessor
+              // read is unspellable. The join memo's structural equality keeps
+              // re-keying to real content changes only.
               const joined = () => {
-                const v = j();
-                if (v.kind !== "joined") throw new Error("unreachable");
-                return v;
+                if (j.kind !== "joined") throw new Error("unreachable");
+                return j;
               };
               const action = () => actionForJoined();
               const primaryLabel = () => {
@@ -408,7 +416,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                   </div>
                   <p class="text-fg-3 text-[11px] mb-2">{prose()}</p>
                   <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <Show when={primaryLabel()}>
+                    <Show keyed when={primaryLabel()}>
                       {(label) => (
                         <button
                           type="button"
@@ -417,11 +425,11 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                           disabled={busy()}
                           onClick={() => void forwardAndOpen()}
                         >
-                          {label()}
+                          {label}
                         </button>
                       )}
                     </Show>
-                    <Show when={copyLabel()}>
+                    <Show keyed when={copyLabel()}>
                       {(label) => (
                         <button
                           type="button"
@@ -430,7 +438,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                           disabled={busy()}
                           onClick={() => void copyDoorUrl()}
                         >
-                          {label()}
+                          {label}
                         </button>
                       )}
                     </Show>
@@ -522,3 +530,22 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     </Portal>
   );
 };
+
+/** The card's mount — KEYED, so children receive the target as a VALUE and a
+ *  dismiss mid-cascade cannot produce a stale accessor read (the production
+ *  second-click crash). Terminal renders this; tests render this; there is no
+ *  second copy of the mount pattern to drift. */
+export const PrintedUrlCardMount: Component<{ terminalId: TerminalId }> = (
+  props,
+) => (
+  <Show
+    keyed
+    when={
+      printedUrlCardTarget()?.terminalId === props.terminalId
+        ? printedUrlCardTarget()
+        : undefined
+    }
+  >
+    {(t) => <PrintedUrlCard target={t} />}
+  </Show>
+);
