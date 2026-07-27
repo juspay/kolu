@@ -29,16 +29,18 @@
 # flake reads). They are packaged as a derivation only AFTER the pure prove
 # step; the prove itself never imports through that derivation (no IFD).
 #
-# `binary-cache.json` is the third baked file, and it is NOT optional: the
+# The binary-cache sidecar is the third baked file, and it is NOT optional: the
 # provisioning stack (`@kolu/surface-remote`) prefetches the agent closure into
 # the binder's local store from the caches named here before realising on a
 # target, so a host whose own nix.conf has never heard of the cache still
 # receives binaries instead of compiling. The declaration is DERIVED from the
 # agent flake's own `nixConfig` (one source of truth — the same block a manual
 # `nix build --accept-flake-config <flakeSrc>#…` would honor); a flakeNix
-# without `nixConfig.extra-substituters` + `extra-trusted-public-keys` fails
-# THIS eval, at the binder's `nix build`, so a consumer (kolu, drishti, odu)
-# cannot assemble an agent source that leaves provisioning cache-blind.
+# declaring no substituters + trusted keys fails THIS eval, at the binder's
+# `nix build`, so a consumer (kolu, drishti, odu) cannot assemble an agent
+# source that leaves provisioning cache-blind. Both the derivation of that
+# declaration (`binary-cache.nix`) and the assembly of the tree it lands in
+# (`agent-source-tree.nix`) are shared recipes — see those files.
 { lib }:
 { root              # fileset.toSource root (common ancestor of `fileset`)
 , fileset           # WHAT goes into the agent tree — the consumer's policy
@@ -68,25 +70,17 @@ let
   # Force every proven agent before handing out any bake path.
   provenTree = builtins.seq (builtins.deepSeq provenDrvPaths null) tree;
 
-  # The binary-cache declaration, derived from the agent flake's own nixConfig
-  # by the shared recipe (see the header, and `binary-cache.nix` for why
-  # absence is an eval-time error rather than a default).
-  binaryCache = import ./binary-cache.nix { inherit lib; } {
-    inherit flakeNix;
-    label = "mkProvenAgentSource";
-  };
-
   # Flake-shaped store path for SURFACE_AGENT_FLAKE_REF. Built from the already-
-  # proven pure tree; never the place the prove happens. Store sources are
-  # mode-readonly — chmod before writing flake.nix / commit-hash on top.
-  flakeSrc = pkgs.runCommand "agent-flake-source" { } ''
-    mkdir -p "$out"
-    cp -a ${provenTree}/. "$out/"
-    chmod -R u+w "$out"
-    cp ${flakeNix} "$out/flake.nix"
-    printf '%s' ${lib.escapeShellArg commitHash} > "$out/commit-hash"
-    printf '%s' ${lib.escapeShellArg (builtins.toJSON binaryCache)} > "$out/binary-cache.json"
-  '';
+  # proven pure tree; never the place the prove happens. The LAYOUT (the copy,
+  # the flake veneer, the derived binary-cache sidecar) belongs to the shared
+  # `mkAgentSourceTree`, so this recipe is exactly prove-then-assemble and the
+  # example flake's assemble-only bake cannot drift from it.
+  flakeSrc = import ./agent-source-tree.nix { inherit lib; } {
+    inherit pkgs flakeNix;
+    src = provenTree;
+    label = "mkProvenAgentSource";
+    extraFiles = { "commit-hash" = commitHash; };
+  };
 in
 {
   # Pure tree (proven). Useful for further pure imports / debugging.
