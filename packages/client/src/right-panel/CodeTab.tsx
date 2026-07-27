@@ -22,6 +22,7 @@ import {
 } from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
+import { isDirectoryPath } from "@kolu/solid-pierre/paths";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
@@ -416,8 +417,8 @@ const CodeTab: Component<{
     on(
       () => {
         const req = pendingOpen();
-        const paths = treePaths();
-        const isPending = allPaths.pending();
+        const paths = treeFilePaths();
+        const isPending = treeInventory().pending;
         return { req, repo: repoPath(), paths, isPending };
       },
       ({ req, repo, paths, isPending }) => {
@@ -453,7 +454,7 @@ const CodeTab: Component<{
           // branch. The reveal isn't a content navigation, so it's not
           // recorded in back/forward history.
           //
-          // Resolution ran against the full `treePaths()`, but the mounted
+          // Resolution ran against the full `treeFilePaths()`, but the mounted
           // tree shows `treeSearch().projectedPaths` — a *filtered* set when a
           // browse search is active. A folder outside the current filter has no
           // row to reveal, so the request would be silently consumed with
@@ -518,7 +519,28 @@ const CodeTab: Component<{
     return { start: req.ref.startLine, end: req.ref.endLine };
   });
 
-  const treePaths = createMemo(() => {
+  /** The tree's file inventory AND its readiness, minted together as ONE
+   *  value — never a bare array a consumer then pairs with a readiness it
+   *  picks itself. Browse now has TWO authorities (the tracked `fs.listAll`
+   *  listing and the idle-unless-toggled gitignored overlay), landing at
+   *  different ticks; a consumer that reads the merged array while checking
+   *  only `allPaths.pending()` treats a half-loaded tree as authoritative and
+   *  drops the user's selection in that window. Same rule the surface's
+   *  `health().live` states: read the complete fact, never hand-AND one leg.
+   *  Adding a third source later changes this memo and nothing else.
+   *
+   *  The overlay's `pending` leg is gated on the toggle because an idle query
+   *  reports `pending` forever (`createPolledQuery`'s `blank()` on a null
+   *  input) — with the toggle off it is idle by design, not loading. */
+  const treeInventory = createMemo<{
+    paths: string[];
+    /** The overlay's contribution: gitignored entries the tracked listing did
+     *  not already claim. The ONE subtraction — the merged inventory and the
+     *  dimming set MUST partition identically, or a row is added without being
+     *  dimmed (or dimmed while absent). */
+    ignored: readonly string[];
+    pending: boolean;
+  }>(() => {
     // Copy `paths` out rather than returning the store proxy directly:
     // `fsListAll` lands in a reconciled store whose `paths` array is
     // mutated in place, so the proxy's reference is stable across an
@@ -543,37 +565,65 @@ const CodeTab: Component<{
     // for good. The tracked listing wins — it is the authority on what the tree
     // is actually for.
     if (view() === "browse") {
-      const tracked = allPaths()?.paths ?? [];
-      const ignored = ignoredPaths()?.paths ?? [];
-      if (ignored.length === 0) return [...tracked];
+      const tracked = allPaths()?.paths;
+      const pending =
+        allPaths.pending() || (showIgnoredFiles() && ignoredPaths.pending());
+      // ABSENT is not EMPTY. While the tracked listing is blank (a repo/host
+      // switch, first paint) there is no authority to subtract against, so
+      // admitting the overlay unfiltered would paint the tree as nothing but
+      // dimmed `node_modules/` + `.env` rows until `fs.listAll` lands. No
+      // authority ⇒ no partition, which makes "the tracked listing wins" true
+      // at every instant rather than only at settled ones.
+      if (!tracked) return { paths: [], ignored: [], pending };
       const seen = new Set(tracked);
-      return [...tracked, ...ignored.filter((p) => !seen.has(p))];
+      const ignored = (ignoredPaths()?.paths ?? []).filter((p) => !seen.has(p));
+      return { paths: [...tracked, ...ignored], ignored, pending };
     }
-    return status()?.files.map((f) => f.path) ?? [];
+    return {
+      paths: status()?.files.map((f) => f.path) ?? [],
+      ignored: [],
+      pending: statusPending(),
+    };
   });
 
-  // The dimming set handed to Pierre as its own channel — never as `gitStatus`
-  // entries, whose ancestors Pierre rolls up into "contains a git change" (see
-  // the `ignoredPaths` prop doc in `@kolu/solid-pierre`). Filtered by what is
-  // actually in the tree so a path the tracked listing also claimed isn't dimmed.
-  const treeIgnoredPaths = createMemo(() => {
-    if (view() !== "browse") return undefined;
-    const ignored = ignoredPaths()?.paths ?? [];
-    if (ignored.length === 0) return undefined;
-    const tracked = new Set(allPaths()?.paths ?? []);
-    return ignored.filter((p) => !tracked.has(p));
-  });
+  const treePaths = () => treeInventory().paths;
+
+  // Resolution targets — `resolveRef` and the wikilink vault document that they
+  // take FILES only and derive directories from path prefixes. The collapsed
+  // gitignored directory rows would poison their basename index with an empty
+  // key (`basename("node_modules/")` is `""`), so the tree's directory rows are
+  // dropped here, once, rather than at each consumer.
+  const treeFilePaths = createMemo(() =>
+    treeInventory().paths.filter((p) => !isDirectoryPath(p)),
+  );
 
   const treeSearch = createMemo(() =>
     projectFileTreeSearch(treePaths(), searchQuery()),
   );
 
+  // The dimming set handed to Pierre as its own channel — never as `gitStatus`
+  // entries, whose ancestors Pierre rolls up into "contains a git change" (see
+  // `ignoredPathsCss`). Filtered by what the tree ACTUALLY renders, which is
+  // the search projection, not the whole inventory — so the claim holds with a
+  // filter active too, instead of emitting selectors for absent rows.
+  const treeIgnoredPaths = createMemo(() => {
+    const ignored = treeInventory().ignored;
+    if (ignored.length === 0) return undefined;
+    const shown = treeSearch().projectedPaths;
+    // Identity means "no query" — `projectFileTreeSearch` hands the same array
+    // straight back — so the whole inventory is on screen and nothing to filter.
+    if (shown === treeInventory().paths) return ignored;
+    const inTree = new Set(shown);
+    return ignored.filter((p) => inTree.has(p));
+  });
+
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.
-  // Gate on the relevant stream's `pending()` — when the gitStatus / fsList
-  // stream resubscribes (e.g. on right-panel tab switch, since its inputFn
-  // returns a fresh object literal), the value briefly resets to undefined
-  // and `treePaths()` collapses to `[]`. Treating that transient empty as
+  // Gate on the inventory's OWN readiness — taken from the same value as the
+  // paths, so the guard can never check a half-loaded tree against a settled
+  // flag. When a stream resubscribes (e.g. on right-panel tab switch, since its
+  // inputFn returns a fresh object literal), the value briefly resets to
+  // undefined and the inventory collapses to `[]`. Treating that transient empty as
   // "selected file is missing" would null `selectedPath` on every
   // resubscribe and lose the selection across tab toggles. Once the stream
   // has delivered (`!pending()`), an empty paths set IS authoritative —
@@ -591,8 +641,7 @@ const CodeTab: Component<{
       () => {
         const s = selectedPath();
         const sk = slotKey();
-        const isPending = isDiffView() ? statusPending() : allPaths.pending();
-        const paths = treePaths();
+        const { paths, pending: isPending } = treeInventory();
         return { s, sk, pathExists: !s || isPending || paths.includes(s) };
       },
       (cur, prev) => {
@@ -712,6 +761,13 @@ const CodeTab: Component<{
 
   const treeError = (): Error | undefined =>
     isDiffView() ? statusError() : allPaths.error();
+  // "Is there a tree to paint at all", which is the TRACKED authority's
+  // question alone — deliberately not `treeInventory().pending`. The gitignored
+  // overlay is additive decoration; waiting on it here would hold the whole
+  // tree behind a second `git ls-files` the user is only ever offered as an
+  // extra. The selection/resolution guards read the merged readiness because
+  // they ask a different question: is this inventory complete enough to
+  // conclude a path is absent.
   const treeReady = () => (isDiffView() ? status() : allPaths());
   // Branch base, read off the always-on `branchStatus` so it's correct in
   // any view (the scope switcher annotates the Branch segment even from
@@ -1133,16 +1189,17 @@ const CodeTab: Component<{
                           terminalId={tid}
                           repoPath={repo}
                           filePath={path}
-                          // The live repo file list — the vault a `[[wikilink]]`
-                          // in the previewed doc resolves against, pathless —
-                          // paired with its readiness as one value. `fsListAll`
-                          // resubscribes (and briefly empties `treePaths()`) on
-                          // tab toggles; `pending` rides alongside the snapshot
-                          // so the click guard reads the readiness of the very
-                          // list it resolves against, never a drifted pair.
+                          // The live repo FILE list — the vault a `[[wikilink]]`
+                          // in the previewed doc resolves against, pathless.
+                          // Both halves come off `treeInventory()`, the one
+                          // value that mints the snapshot and its readiness
+                          // together, so the click guard reads the readiness of
+                          // the very list it resolves against, never a drifted
+                          // pair (a stream resubscribe briefly empties it, and
+                          // the overlay lands on its own clock).
                           repoVault={{
-                            paths: treePaths(),
-                            pending: allPaths.pending(),
+                            paths: treeFilePaths(),
+                            pending: treeInventory().pending,
                           }}
                           theme={diffTheme()}
                           initialSelectedLines={selectedRange()}
