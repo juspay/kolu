@@ -21,6 +21,7 @@ import {
   lifetimeInfo,
   type Logger,
 } from "@kolu/surface-daemon";
+import { processIdentity } from "osfacts-client";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
   getPtyHostSocketPath,
@@ -126,6 +127,8 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
 
   return daemonMain({
     gatePath,
+    processIdentity: selfIdentity(),
+    readProcessIdentity,
     socketPath,
     router: servedRouter,
     // The same lifetime resolved above (reused, never re-derived) — so the value
@@ -147,6 +150,30 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     // construction.
     return ptyHost.close();
   });
+}
+
+function osfactsBinPath(): string {
+  const path = process.env.KOLU_OSFACTS_BIN;
+  if (!path) {
+    throw new Error(
+      "KOLU_OSFACTS_BIN is not set — kaval requires the baked osfacts binary",
+    );
+  }
+  return path;
+}
+
+function readProcessIdentity(pid: number) {
+  return processIdentity(osfactsBinPath(), pid);
+}
+
+function selfIdentity() {
+  const identity = readProcessIdentity(process.pid);
+  if (identity === undefined) {
+    throw new Error(
+      `osfacts could not resolve this kaval process (${process.pid})`,
+    );
+  }
+  return identity;
 }
 
 /** Poll the state-root recorded in the manifest beside kaval's socket; once it

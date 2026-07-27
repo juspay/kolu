@@ -70,6 +70,9 @@ const router = {} as DaemonSpec["router"];
 async function runDaemon(): Promise<DaemonExit> {
   const exit = await daemonMain({
     gatePath: join(dir, "gate.pid"),
+    processIdentity: { pid: process.pid, startUnixUs: 1_000_000 },
+    readProcessIdentity: (pid) =>
+      pid === process.pid ? { pid, startUnixUs: 1_000_000 } : undefined,
     socketPath: join(dir, "daemon.sock"),
     router,
     lifetime: { kind: "forever" },
@@ -97,7 +100,7 @@ switch (mode) {
   case "--already-running": {
     // A live holder (this very process) already owns the gate — the run
     // yields `already-running`, which is success (exit 0).
-    writeFileSync(join(dir, "gate.pid"), `${process.pid}\n`);
+    writeFileSync(join(dir, "gate.pid"), `${process.pid}\t1000000\n`);
     daemonProcessMain({ name: "fixture-bin", run: runDaemon });
     break;
   }

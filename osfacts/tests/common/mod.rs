@@ -114,6 +114,12 @@ pub fn snapshot_pids(pid: u32) -> String {
 pub fn redact_tsv(tsv: &str) -> String {
     let mut out = String::with_capacity(tsv.len());
     for line in tsv.lines() {
+        // OSF6 intentionally emits the whole host listener table as unclaimed
+        // even under a narrow scope. Snapshot only this test's self-referential
+        // claimed fixture; host noise belongs in structural assertions.
+        if line.starts_with("L\tunclaimed\t") {
+            continue;
+        }
         let redacted = if let Some(rest) = line.strip_prefix("P\t") {
             let mut parts = rest.splitn(3, '\t');
             let _pid = parts.next().unwrap_or("");
@@ -121,16 +127,19 @@ pub fn redact_tsv(tsv: &str) -> String {
             let name = parts.next().unwrap_or("");
             format!("P\t<PID>\t<PPID>\t{name}")
         } else if let Some(rest) = line.strip_prefix("L\t") {
-            let mut parts = rest.splitn(3, '\t');
+            let mut parts = rest.splitn(5, '\t');
+            let status = parts.next().unwrap_or("");
             let _pid = parts.next().unwrap_or("");
+            let uid = parts.next().unwrap_or("");
             let _port = parts.next().unwrap_or("");
             let hex = parts.next().unwrap_or("");
-            format!("L\t<PID>\t<PORT>\t{hex}")
+            format!("L\t{status}\t<PID>\t{uid}\t<PORT>\t{hex}")
         } else if let Some(rest) = line.strip_prefix("U\t") {
-            let mut parts = rest.splitn(2, '\t');
+            let mut parts = rest.splitn(3, '\t');
             let _pid = parts.next().unwrap_or("");
+            let facet = parts.next().unwrap_or("");
             let errno = parts.next().unwrap_or("");
-            format!("U\t<PID>\t{errno}")
+            format!("U\t<PID>\t{facet}\t{errno}")
         } else {
             line.to_string()
         };
@@ -168,10 +177,10 @@ pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>) {
 pub fn l_addr_for_port(ports: &[String], port: u16) -> String {
     for row in ports {
         let parts: Vec<&str> = row.split('\t').collect();
-        assert_eq!(parts.len(), 4, "L row arity: {row}");
+        assert_eq!(parts.len(), 6, "L row arity: {row}");
         assert_eq!(parts[0], "L");
-        if parts[2] == port.to_string() {
-            return parts[3].to_string();
+        if parts[4] == port.to_string() {
+            return parts[5].to_string();
         }
     }
     panic!("no L row for port {port}; rows={ports:?}");
@@ -183,7 +192,7 @@ pub fn l_rows_for_port(ports: &[String], port: u16) -> usize {
         .iter()
         .filter(|row| {
             let parts: Vec<&str> = row.split('\t').collect();
-            parts.len() == 4 && parts[0] == "L" && parts[2] == port.to_string()
+            parts.len() == 6 && parts[0] == "L" && parts[4] == port.to_string()
         })
         .count()
 }

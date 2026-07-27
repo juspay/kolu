@@ -30,6 +30,7 @@ import {
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { GATE_PATH, SOCKET_PATH } from "../common/paths";
+import { readProcessIdentity } from "../common/processIdentity";
 import { connectTop, type TopClient, type TopIdentity } from "./connect";
 
 async function firstFrame<T>(
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     gatePath: GATE_PATH,
+    readProcessIdentity: async (pid) => readProcessIdentity(pid),
     socketPath: SOCKET_PATH,
     driver: survivableSpawnDriver({
       binPath: process.execPath, // node

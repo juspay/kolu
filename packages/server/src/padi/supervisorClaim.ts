@@ -33,6 +33,7 @@ import { dirname, join } from "node:path";
 // (`seal.test.ts`) forbids a deep `@kolu/padi/stateRoot` import from kolu-server.
 import { padiSocketPath, residentPadiSocket } from "@kolu/padi/assembly";
 import { acquirePidGate, type GateAcquisition } from "@kolu/surface-daemon";
+import { processIdentity } from "osfacts-client";
 
 /** The supervisor gate filename — sits BESIDE padi's own `padi.pid` in the
  *  ephemeral `$XDG_RUNTIME_DIR/padi-<digest>/` runtime dir, so it is boot-wiped
@@ -68,7 +69,7 @@ export type SupervisorClaim =
  *  two-supervisor war can be exercised without a real padi runtime dir. Defaults
  *  are the real {@link acquirePidGate} / {@link supervisorGatePath}. */
 export interface SupervisorClaimDeps {
-  acquire?: (gatePath: string) => GateAcquisition;
+  acquire?: typeof acquirePidGate;
   resolveGatePath?: (stateRoot: string) => string;
 }
 
@@ -81,7 +82,18 @@ export function claimLocalSupervisor(
 ): SupervisorClaim {
   const acquire = deps.acquire ?? acquirePidGate;
   const gatePath = (deps.resolveGatePath ?? supervisorGatePath)(stateRoot);
-  const acq = acquire(gatePath);
+  const bin = process.env.KOLU_OSFACTS_BIN;
+  if (!bin) {
+    throw new Error(
+      "KOLU_OSFACTS_BIN is not set — supervisor ownership requires osfacts",
+    );
+  }
+  const readIdentity = (pid: number) => processIdentity(bin, pid);
+  const self = readIdentity(process.pid);
+  if (self === undefined) {
+    throw new Error(`osfacts could not resolve kolu-server pid ${process.pid}`);
+  }
+  const acq = acquire(gatePath, self, readIdentity);
   switch (acq.kind) {
     case "acquired":
       return { kind: "self", release: acq.release };

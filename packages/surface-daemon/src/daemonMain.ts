@@ -26,6 +26,8 @@ import {
   acquirePidGate,
   type GateAcquisition,
   isHolderLive,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
 } from "./pidGate.ts";
 
 /** How long the daemon stays up once serving. `forever` waits for a signal or
@@ -170,6 +172,11 @@ export interface DaemonSpec {
   /** The single-instance gate path — the scope key (per-user for kaval, per-repo
    *  for `odu serve`). */
   gatePath: string;
+  /** This daemon's OS identity, supplied by the composition root. The generic
+   * spine compares it but never reads platform process state itself. */
+  processIdentity: ProcessIdentity;
+  /** Resolve a PID to its current start-qualified identity. */
+  readProcessIdentity: ReadProcessIdentity;
   /** Where to bind the unix socket clients dial. */
   socketPath: string;
   /** The surface router to serve. Shared across every connection.  */
@@ -202,7 +209,9 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
 
   // The caller may have claimed the gate already (padi, to fence its boot side
   // effects behind it); otherwise acquire it here (kaval).
-  const gate = spec.gate ?? acquirePidGate(gatePath);
+  const gate =
+    spec.gate ??
+    acquirePidGate(gatePath, spec.processIdentity, spec.readProcessIdentity);
   if (gate.kind === "held") {
     log.info(
       { gatePath, pid: gate.pid },

@@ -8,7 +8,7 @@
 
 The TypeScript face of the [osfacts](../) binary. Spawn it at a path you
 supply, refuse a schema version you do not speak, and hand back typed
-`P` / `L` / `U` rows. Nothing more.
+`P` / `M` / `S` / `L` / `U` / `E` and host rows. Nothing more.
 
 ```ts
 import { snapshotSubtree } from "osfacts-client";
@@ -27,10 +27,11 @@ the next (replacing a hand-rolled `lsof` path). Policy about what a bind
 
 - Spawn `osfacts snapshot --roots … --procs --ports` (or `--pids`) at a
   supplied absolute binary path.
-- Gate on `V 1` — a mismatched format fails loudly.
+- Gate on `V 2` — a mismatched format fails loudly.
 - Parse every row; a line it cannot read is an error, never a skip.
-- Return the raw tables: process rows, listener rows with network-order
-  hex addresses, unreadable rows with errno.
+- Return the raw tables: process identity and RSS, listener rows with explicit
+  claimed/unclaimed status and network-order hex addresses, host gauges and
+  cumulative counters, unreadable facets, and source errors.
 
 ## What it does not
 

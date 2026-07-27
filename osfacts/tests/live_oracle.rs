@@ -13,7 +13,7 @@
 //! Cucumber MSRV is 1.88 (crate 0.23, edition 2024); our pin is ≥1.93 — cleared.
 
 use cucumber::{given, then, when, World};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -35,6 +35,8 @@ struct LiveWorld {
     oracle_listeners: Vec<ListenerRow>,
     /// Pids osfacts reported as unreadable (`U` rows) on the last snapshot.
     unreadable_pids: HashSet<u32>,
+    host_first: Option<String>,
+    host_second: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -144,8 +146,8 @@ fn listener_attributed(world: &mut LiveWorld) {
         }
         if let Some(rest) = line.strip_prefix("L\t") {
             let parts: Vec<&str> = rest.split('\t').collect();
-            if parts.len() >= 2 && parts[1] == port.to_string() {
-                let holder: u32 = parts[0].parse().expect("L pid");
+            if parts.len() == 5 && parts[0] == "claimed" && parts[3] == port.to_string() {
+                let holder: u32 = parts[1].parse().expect("L pid");
                 assert!(
                     pids.contains(&holder) || holder == root,
                     "listener pid {holder} not in subtree of {root}; pids={pids:?}"
@@ -182,6 +184,88 @@ fn oracle_subset_of_osfacts(world: &mut LiveWorld) {
     agree_with_retry(world, Direction::OracleInOsfacts);
 }
 
+#[when("I snapshot this process's memory and start time")]
+fn snapshot_memory_and_start(world: &mut LiveWorld) {
+    let pid = std::process::id().to_string();
+    world.snapshot =
+        Some(world.run_osfacts(&["snapshot", "--pids", &pid, "--mem", "--start-time"]));
+}
+
+#[then("osfacts reports positive RSS and a past start instant")]
+fn memory_and_start_are_real(world: &mut LiveWorld) {
+    let pid = std::process::id();
+    let body = world.snapshot.as_ref().expect("snapshot");
+    let memory = body
+        .lines()
+        .find_map(|line| line.strip_prefix(&format!("M\t{pid}\t")))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .expect("M row for current process");
+    let start = body
+        .lines()
+        .find_map(|line| line.strip_prefix(&format!("S\t{pid}\t")))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .expect("S row for current process");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_micros() as u64;
+    assert!(memory > 0, "RSS must be positive: {body}");
+    assert!(
+        start > 0 && start <= now,
+        "start instant must be in the past: {body}"
+    );
+}
+
+#[when("I take two complete host snapshots")]
+fn two_host_snapshots(world: &mut LiveWorld) {
+    let args = ["host", "--load", "--mem", "--cpu", "--net", "--disk"];
+    world.host_first = Some(world.run_osfacts(&args));
+    thread::sleep(Duration::from_millis(20));
+    world.host_second = Some(world.run_osfacts(&args));
+}
+
+#[then("host gauges are sane and cumulative counters do not decrease")]
+fn host_facts_are_sane(world: &mut LiveWorld) {
+    let first = world.host_first.as_ref().expect("first host snapshot");
+    let second = world.host_second.as_ref().expect("second host snapshot");
+    for tag in [
+        "HLOAD\t", "HMEM\t", "HSWAP\t", "HUP\t", "HCPU\t", "HNET\t", "HDISK\t",
+    ] {
+        assert!(
+            second.lines().any(|line| line.starts_with(tag)),
+            "missing {tag} in:\n{second}"
+        );
+    }
+    let counters = |body: &str, tag: &str| -> HashMap<String, Vec<u64>> {
+        body.lines()
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split('\t').collect();
+                if fields.first().copied() != Some(tag) {
+                    return None;
+                }
+                let values = fields[2..]
+                    .iter()
+                    .map(|raw| raw.parse::<u64>().expect("counter"))
+                    .collect();
+                Some((fields[1].to_owned(), values))
+            })
+            .collect()
+    };
+    for tag in ["HCPU", "HNET"] {
+        let before = counters(first, tag);
+        let after = counters(second, tag);
+        assert!(!after.is_empty(), "no {tag} rows");
+        for (key, values) in before {
+            if let Some(next) = after.get(&key) {
+                assert!(
+                    values.iter().zip(next).all(|(a, b)| b >= a),
+                    "{tag} {key} decreased: {values:?} -> {next:?}"
+                );
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 enum Direction {
     OsfactsInOracle,
@@ -197,19 +281,7 @@ fn agree_with_retry(world: &mut LiveWorld, dir: Direction) {
                 missing_from(&world.osfacts_listeners, &world.oracle_listeners)
             }
             Direction::OracleInOsfacts => {
-                // Only sockets the oracle attributes to a pid that osfacts
-                // could have read. Unattributed (other-uid / no -p info) and
-                // unreadable pids are expected gaps, not product bugs.
-                let comparable: Vec<ListenerRow> = world
-                    .oracle_listeners
-                    .iter()
-                    .filter(|r| match r.pid {
-                        Some(pid) => !world.unreadable_pids.contains(&pid),
-                        None => false,
-                    })
-                    .cloned()
-                    .collect();
-                missing_from(&comparable, &world.osfacts_listeners)
+                missing_from(&world.oracle_listeners, &world.osfacts_listeners)
             }
         };
         if missing.is_empty() {
@@ -234,8 +306,10 @@ fn missing_from(have: &[ListenerRow], against: &[ListenerRow]) -> Vec<(u16, Cano
     // Dual-stack wildcard: osfacts may report `::` (AnyV6) while lsof/ss show
     // `*` / `0.0.0.0` (AnyV4) for the same listener. Collapse both to one key
     // so host tools that disagree on family still agree on "wildcard:port".
-    let set: HashSet<(u16, MatchCanon)> =
-        against.iter().map(|r| match_key(r.port, &r.canon)).collect();
+    let set: HashSet<(u16, MatchCanon)> = against
+        .iter()
+        .map(|r| match_key(r.port, &r.canon))
+        .collect();
     have.iter()
         .filter(|r| !set.contains(&match_key(r.port, &r.canon)))
         .map(|r| (r.port, r.canon.clone()))
@@ -281,20 +355,24 @@ fn parse_osfacts_listeners(tsv: &str) -> Vec<ListenerRow> {
             continue;
         };
         let parts: Vec<&str> = rest.split('\t').collect();
-        if parts.len() < 3 {
+        if parts.len() != 5 {
             continue;
         }
-        let pid: u32 = parts[0].parse().unwrap_or(0);
-        let port: u16 = match parts[1].parse() {
+        let pid = match parts[0] {
+            "claimed" => parts[1].parse().ok(),
+            "unclaimed" => None,
+            _ => continue,
+        };
+        let port: u16 = match parts[3].parse() {
             Ok(p) => p,
             Err(_) => continue,
         };
-        let bytes = match osfacts::decode_network_hex(parts[2]) {
+        let bytes = match osfacts::decode_network_hex(parts[4]) {
             Ok(b) => b,
             Err(_) => continue,
         };
         out.push(ListenerRow {
-            pid: Some(pid),
+            pid,
             port,
             canon: canonicalize(&bytes),
         });
@@ -368,15 +446,13 @@ fn oracle_ss() -> Vec<ListenerRow> {
             continue;
         }
         let local = cols[3];
-        let pid = line
-            .find("pid=")
-            .and_then(|i| {
-                let rest = &line[i + 4..];
-                let end = rest
-                    .find(|c: char| !c.is_ascii_digit())
-                    .unwrap_or(rest.len());
-                rest[..end].parse().ok()
-            });
+        let pid = line.find("pid=").and_then(|i| {
+            let rest = &line[i + 4..];
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(rest.len());
+            rest[..end].parse().ok()
+        });
         if let Some((addr, port)) = split_host_port(local) {
             if let Some(canon) = parse_ss_addr(addr) {
                 rows.push(ListenerRow { pid, port, canon });

@@ -26,6 +26,7 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
+    "osfacts-client": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {

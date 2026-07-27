@@ -20,7 +20,7 @@ import {
   DAEMON_BIND_PID_ENV,
   type DaemonSpec,
   daemonLifetimeFromEnv,
-  daemonMain,
+  daemonMain as daemonMainCore,
   lifetimeInfo,
 } from "./daemonMain.ts";
 import type { Logger } from "./logger.ts";
@@ -43,6 +43,21 @@ const silentLog: Logger = {
 // The router is never invoked in these tests (no RPC is made) — only bound —
 // so an empty object stands in for a real surface router.
 const noRouter = {} as DaemonSpec["router"];
+const SELF_IDENTITY = { pid: process.pid, startUnixUs: 1_000_000 };
+const startTime = (pid: number) => pid * 1_000;
+const daemonMain = (
+  spec: Omit<DaemonSpec, "processIdentity" | "readProcessIdentity">,
+) =>
+  daemonMainCore({
+    ...spec,
+    processIdentity: SELF_IDENTITY,
+    readProcessIdentity: (pid) =>
+      pid === process.pid
+        ? SELF_IDENTITY
+        : isHolderLive(pid)
+          ? { pid, startUnixUs: startTime(pid) }
+          : undefined,
+  });
 
 const children: ChildProcess[] = [];
 afterEach(() => {
@@ -83,7 +98,7 @@ describeDaemon("daemonMain", () => {
   it("yields to a live instance without serving (already-running)", async () => {
     const { gatePath, socketPath } = paths();
     const otherPid = liveChild().pid;
-    writeFileSync(gatePath, `${otherPid}\n`);
+    writeFileSync(gatePath, `${otherPid}\t${startTime(otherPid)}\n`);
 
     const exit = await daemonMain({
       gatePath,

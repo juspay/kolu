@@ -139,6 +139,7 @@ export function unreadablePolicy(
   const skipPids = new Set<number>();
   let fatal: UnreadableRow | null = null;
   for (const u of unreadable) {
+    if (u.facet !== "proc" && u.facet !== "ports") continue;
     const exitRace = u.errno === "ENOENT" || u.errno === "ESRCH";
     if (rootPids.has(u.pid)) {
       if (exitRace) {
@@ -172,18 +173,21 @@ export function osfactsBinPath(): string {
 function classifyListeners(
   ports: readonly ListenerRow[],
 ): Array<{ pid: number; port: number; scope: PortScope; family: PortFamily }> {
-  return ports.map((l) => {
+  return ports.flatMap((l) => {
+    if (l.status === "unclaimed") return [];
     if (!isTcpPort(l.port)) {
       throw new PortScanError(
         "blind",
         `port scan: listener carries no valid port: ${l.port}`,
       );
     }
-    return {
-      pid: l.pid,
-      port: l.port,
-      ...addressBind(decodeNetworkAddress(l.address)),
-    };
+    return [
+      {
+        pid: l.pid,
+        port: l.port,
+        ...addressBind(decodeNetworkAddress(l.address)),
+      },
+    ];
   });
 }
 

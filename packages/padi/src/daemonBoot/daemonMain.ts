@@ -24,6 +24,8 @@ import {
   lifetimeInfo,
   type Logger,
 } from "@kolu/surface-daemon";
+import { processIdentity } from "osfacts-client";
+import { osfactsBinPath } from "../ports/scan.ts";
 
 /** padi's boot time (ms epoch), stamped ONCE when this module first loads — i.e.
  *  at process start. The control-core `hello` echoes it so the binder measures
@@ -374,7 +376,15 @@ export async function runPadiDaemon(
   // gate is acquired here, at the top, and HANDED to the spine's `daemonMain` (which
   // otherwise acquires it last, after all of that). A crash mid-boot (the fail-fast
   // import) leaves a gate held by a dead pid, which the next launch reclaims.
-  const gate = acquirePidGate(gatePath);
+  const readProcessIdentity = (pid: number) =>
+    processIdentity(osfactsBinPath(), pid);
+  const selfIdentity = readProcessIdentity(process.pid);
+  if (selfIdentity === undefined) {
+    throw new Error(
+      `osfacts could not resolve this padi process (${process.pid})`,
+    );
+  }
+  const gate = acquirePidGate(gatePath, selfIdentity, readProcessIdentity);
   if (gate.kind === "held") {
     log.info(
       { gatePath, pid: gate.pid },
@@ -470,6 +480,8 @@ export async function runPadiDaemon(
 
     return await daemonMain({
       gatePath,
+      processIdentity: selfIdentity,
+      readProcessIdentity,
       socketPath,
       // The router is the serve phase's output — read it straight off `served` rather
       // than re-threading it through the endpoint token that neither owns nor touches it.

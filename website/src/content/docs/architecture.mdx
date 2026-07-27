@@ -420,6 +420,11 @@ _out_. The map, grouped:
   It is a library rather than server code because nothing in it knows about
   kolu: it takes a host and a port and returns a local one, so a forward's
   lifetime is the calling process's own.
+- **Host observation** — `osfacts` is one Rust executable, with a strict
+  TypeScript client, that hides Linux and macOS process, listener, memory, CPU,
+  network, and disk inspection behind a versioned fact stream. Daemons inject
+  its process identities into lifecycle machinery, so reusable framework
+  packages never traverse an operating system's process table themselves.
 - **The framework** — [`surface`](/surface) (typed reactive `Cell` / `Collection`
   / `Stream` / `Event` + SolidJS hooks), `surface-remote` (the ssh mirror),
   `surface-daemon` (the durable-daemon spine), and its supervisor half.

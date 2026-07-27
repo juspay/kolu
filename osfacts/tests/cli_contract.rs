@@ -19,7 +19,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 fn fixture_loopback_v4() {
     let h = hermetic_snapshot("127.0.0.1");
     let (v, procs, ports, _) = parse_tsv(&h.tsv);
-    assert_eq!(v, 1);
+    assert_eq!(v, 2);
     assert!(
         procs
             .iter()
@@ -131,27 +131,29 @@ fn fixture_v4_mapped_loopback() {
 // ── silent-empty / version / json ───────────────────────────────────────
 
 #[test]
-fn silent_empty_is_versioned_success_with_zero_listeners() {
+fn pid_without_listener_has_no_claimed_listener() {
     // Snapshot a pid that holds no listener: the test process itself.
     // Version + P row is what we assert — empty L means "no listeners", not
     // "saw nothing".
     let pid = std::process::id();
     let tsv = snapshot_pids(pid);
     assert!(
-        tsv.starts_with("V\t1\n") || tsv == "V\t1",
+        tsv.starts_with("V\t2\n") || tsv == "V\t2",
         "must begin with version line, got {tsv:?}"
     );
     let (v, procs, ports, _) = parse_tsv(&tsv);
-    assert_eq!(v, 1);
+    assert_eq!(v, 2);
     assert!(
         procs.iter().any(|p| p.starts_with(&format!("P\t{pid}\t"))),
         "asked pid must appear so empty L is 'no listeners', not 'saw nothing'"
     );
-    // Our test process holds no listen socket; any L rows would be a lie about
-    // this exact pid (not a host-wide table claim).
+    // OSF6 emits unrelated host rows as unclaimed. It must not claim one for
+    // this exact pid, which holds no listener.
     assert!(
-        ports.is_empty(),
-        "test process must have zero L rows; ports={ports:?}"
+        ports
+            .iter()
+            .all(|row| !row.starts_with(&format!("L\tclaimed\t{pid}\t"))),
+        "test process must have zero claimed L rows; ports={ports:?}"
     );
 }
 
@@ -166,7 +168,7 @@ fn version_first_on_success() {
         .clone();
     let stdout = String::from_utf8(out).unwrap();
     assert!(
-        stdout.starts_with("V\t1\n") || stdout == "V\t1",
+        stdout.starts_with("V\t2\n") || stdout == "V\t2",
         "stdout must begin V\\t1, got {stdout:?}"
     );
 }
@@ -182,7 +184,7 @@ fn version_first_on_usage_error() {
         .clone();
     let stdout = String::from_utf8(out).unwrap();
     assert!(
-        stdout.starts_with("V\t1"),
+        stdout.starts_with("V\t2"),
         "even error paths must open with V\\t1, got {stdout:?}"
     );
 }
@@ -210,9 +212,9 @@ fn json_mirrors_tsv_on_same_snapshot() {
     let tsv = String::from_utf8(tsv_out).unwrap();
     let json_s = String::from_utf8(json_out).unwrap();
     let (v, _, ports, _) = parse_tsv(&tsv);
-    assert_eq!(v, 1);
+    assert_eq!(v, 2);
     let val: serde_json::Value = serde_json::from_str(&json_s).expect("json");
-    assert_eq!(val["version"], 1);
+    assert_eq!(val["version"], 2);
     let tsv_addr = l_addr_for_port(&ports, listener.port);
     let json_ports = val["ports"].as_array().expect("ports");
     assert!(
@@ -220,6 +222,7 @@ fn json_mirrors_tsv_on_same_snapshot() {
             row["port"] == listener.port
                 && row["address"].as_str() == Some(tsv_addr.as_str())
                 && row["pid"] == listener.pid
+                && row["status"] == "claimed"
         }),
         "json must mirror tsv L row; json={json_ports:?}"
     );
@@ -229,7 +232,7 @@ fn json_mirrors_tsv_on_same_snapshot() {
 fn roots_includes_helper_process() {
     let h = hermetic_snapshot("127.0.0.1");
     let (v, procs, ports, _) = parse_tsv(&h.tsv);
-    assert_eq!(v, 1);
+    assert_eq!(v, 2);
     assert!(
         procs
             .iter()
@@ -264,7 +267,7 @@ fn host_ports_empty_in_sandbox_netns() {
         .clone();
     let stdout = String::from_utf8(out).unwrap();
     let (v, _, ports, _) = parse_tsv(&stdout);
-    assert_eq!(v, 1);
+    assert_eq!(v, 2);
     assert!(
         ports.is_empty(),
         "nix sandbox netns must start with zero listeners; ports={ports:?}"

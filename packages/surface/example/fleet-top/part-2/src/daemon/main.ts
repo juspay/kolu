@@ -31,6 +31,10 @@ import {
   stderrLogger,
 } from "@kolu/surface-daemon";
 import { GATE_PATH, SOCKET_PATH } from "../common/paths";
+import {
+  readProcessIdentity,
+  selfProcessIdentity,
+} from "../common/processIdentity";
 import { createTop } from "./top";
 
 daemonProcessMain({
@@ -48,6 +52,8 @@ daemonProcessMain({
 
       return await daemonMain({
         gatePath: GATE_PATH,
+        processIdentity: selfProcessIdentity(),
+        readProcessIdentity,
         socketPath: SOCKET_PATH,
         router: top.router,
         lifetime: { kind: "forever" },

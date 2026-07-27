@@ -22,9 +22,10 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import {
-  createEndpoint,
+  createEndpoint as createEndpointCore,
   type DaemonConnection,
   DaemonContractSkewError,
+  type EndpointSpec,
   type EndpointStatus,
   isSocketSquatterForeignError,
 } from "./endpoint.ts";
@@ -38,6 +39,15 @@ const silentLog = {
 
 type Identity = { staleKey: string };
 type Meta = { contractVersion: string };
+function createEndpoint<C, I, M = undefined>(
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
+) {
+  return createEndpointCore({
+    ...spec,
+    readProcessIdentity: async (pid) =>
+      isHolderLive(pid) ? { pid, startUnixUs: pid * 1_000 } : undefined,
+  });
+}
 
 const servers: Server[] = [];
 const children: number[] = [];

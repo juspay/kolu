@@ -12,6 +12,8 @@ import {
   daemonProcessMain,
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
 import { router as serveRouter } from "./serve";
@@ -25,13 +27,19 @@ const router = serveRouter as Parameters<typeof daemonMain>[0]["router"];
 
 // The example surface's flattened router — the same `router` a browser or a
 // unix-socket client reaches; the daemon just serves it durably.
-export function runDaemon(controller: AbortController): void {
+export function runDaemon(
+  controller: AbortController,
+  processIdentity: ProcessIdentity,
+  readProcessIdentity: ReadProcessIdentity,
+): void {
   // #region lifecycle
   daemonProcessMain({
     name: "fleet-top", // crash-arm narration prefix
     run: () =>
       daemonMain({
         gatePath: GATE_PATH, // the single-instance scope key
+        processIdentity, // injected `(pid, startUnixUs)` for this process
+        readProcessIdentity, // injected OS fact reader; the spine only compares
         socketPath: SOCKET_PATH, // where the surface is served
         router, // runtime.router — already the final flattened router
         lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }

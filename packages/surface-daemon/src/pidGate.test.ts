@@ -22,13 +22,26 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it } from "vitest";
-import { acquirePidGate, gatePid, isHolderLive } from "./pidGate.ts";
+import {
+  acquirePidGate,
+  gateIdentity,
+  type ProcessIdentity,
+} from "./pidGate.ts";
+
+const SELF: ProcessIdentity = { pid: process.pid, startUnixUs: 1_000_000 };
+const identities = new Map<number, ProcessIdentity>([[process.pid, SELF]]);
+const readIdentity = (pid: number): ProcessIdentity | undefined =>
+  identities.get(pid);
 
 /** The supervisor's read, composed from the shared primitives: the live
  *  holder's pid, or `undefined` (absent, malformed, or stale). */
 function liveHolder(gatePath: string): number | undefined {
-  const pid = gatePid(gatePath);
-  return pid !== undefined && isHolderLive(pid) ? pid : undefined;
+  const recorded = gateIdentity(gatePath);
+  if (recorded === undefined) return undefined;
+  const current = readIdentity(recorded.pid);
+  return current?.startUnixUs === recorded.startUnixUs
+    ? recorded.pid
+    : undefined;
 }
 
 const children: ChildProcess[] = [];
@@ -44,6 +57,7 @@ function liveChild(): number {
   });
   children.push(child);
   if (child.pid === undefined) throw new Error("child failed to start");
+  identities.set(child.pid, { pid: child.pid, startUnixUs: child.pid * 1_000 });
   return child.pid;
 }
 
@@ -67,10 +81,12 @@ function gateIn(): string {
 describeDaemon("acquirePidGate", () => {
   it("acquires a free gate, records this pid, and release removes it", () => {
     const path = gateIn();
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
     expect(liveHolder(path)).toBe(process.pid);
-    expect(readFileSync(path, "utf8").trim()).toBe(String(process.pid));
+    expect(readFileSync(path, "utf8").trim()).toBe(
+      `${process.pid}\t${SELF.startUnixUs}`,
+    );
 
     if (gate.kind === "acquired") gate.release();
     expect(existsSync(path)).toBe(false);
@@ -80,19 +96,23 @@ describeDaemon("acquirePidGate", () => {
   it("reports `held` (not acquired) when a live process owns the gate", () => {
     const path = gateIn();
     const otherPid = liveChild();
-    writeFileSync(path, `${otherPid}\n`);
+    const other = identities.get(otherPid)!;
+    writeFileSync(path, `${other.pid}\t${other.startUnixUs}\n`);
 
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate).toEqual({ kind: "held", pid: otherPid });
     // The live holder's gate is left untouched.
-    expect(readFileSync(path, "utf8").trim()).toBe(String(otherPid));
+    expect(readFileSync(path, "utf8").trim()).toBe(
+      `${other.pid}\t${other.startUnixUs}`,
+    );
   });
 
   it("reaps a stale gate (dead holder) and acquires it", async () => {
     const path = gateIn();
-    writeFileSync(path, `${await deadPid()}\n`);
+    const dead = await deadPid();
+    writeFileSync(path, `${dead}\t1\n`);
 
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
     expect(liveHolder(path)).toBe(process.pid);
   });
@@ -101,7 +121,7 @@ describeDaemon("acquirePidGate", () => {
     const path = gateIn();
     writeFileSync(path, "not-a-pid\n");
 
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
     expect(liveHolder(path)).toBe(process.pid);
   });
@@ -112,10 +132,12 @@ describeDaemon("acquirePidGate", () => {
     // (exit 0 as "already running") before the socket-side privacy check runs.
     const path = gateIn();
     const dir = dirname(path);
-    writeFileSync(path, `${liveChild()}\n`);
+    const holderPid = liveChild();
+    const holder = identities.get(holderPid)!;
+    writeFileSync(path, `${holder.pid}\t${holder.startUnixUs}\n`);
     chmodSync(dir, 0o755);
 
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     if (process.getuid === undefined) {
       // No uid semantics (Windows): the check is a no-op and the live gate is
       // honored — nothing to assert about privacy here.
@@ -127,16 +149,22 @@ describeDaemon("acquirePidGate", () => {
 
   it("release does not remove a gate that a successor now owns", () => {
     const path = gateIn();
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
 
     // A successor takes the gate (simulated by overwriting the pid).
     const successor = liveChild();
-    writeFileSync(path, `${successor}\n`);
+    const successorIdentity = identities.get(successor)!;
+    writeFileSync(
+      path,
+      `${successorIdentity.pid}\t${successorIdentity.startUnixUs}\n`,
+    );
 
     if (gate.kind === "acquired") gate.release();
     // The successor's gate survives our (late) release.
-    expect(readFileSync(path, "utf8").trim()).toBe(String(successor));
+    expect(readFileSync(path, "utf8").trim()).toBe(
+      `${successorIdentity.pid}\t${successorIdentity.startUnixUs}`,
+    );
   });
 });
 
@@ -148,13 +176,22 @@ describeDaemon("liveHolder (supervisor read)", () => {
   it("returns the live holder's pid", () => {
     const path = gateIn();
     const pid = liveChild();
-    writeFileSync(path, `${pid}\n`);
+    const identity = identities.get(pid)!;
+    writeFileSync(path, `${identity.pid}\t${identity.startUnixUs}\n`);
     expect(liveHolder(path)).toBe(pid);
   });
 
   it("returns undefined for a stale gate", async () => {
     const path = gateIn();
-    writeFileSync(path, `${await deadPid()}\n`);
+    writeFileSync(path, `${await deadPid()}\t1\n`);
+    expect(liveHolder(path)).toBeUndefined();
+  });
+
+  it("rejects a live reused pid whose start time no longer matches", () => {
+    const path = gateIn();
+    const pid = liveChild();
+    const current = identities.get(pid)!;
+    writeFileSync(path, `${pid}\t${current.startUnixUs - 1}\n`);
     expect(liveHolder(path)).toBeUndefined();
   });
 });

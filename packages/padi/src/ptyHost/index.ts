@@ -38,7 +38,9 @@ import {
   type PtyHostSystemInfo,
 } from "kaval";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
+import { processIdentity } from "osfacts-client";
 import { log } from "../log.ts";
+import { osfactsBinPath } from "../ports/scan.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
   connectKaval,
@@ -248,6 +250,7 @@ export async function ensureLocalEndpoint(opts: {
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: encodeHostLocation(LOCAL_LOCATION),
     gatePath: kavalGatePath(socketPath),
+    readProcessIdentity: async (pid) => processIdentity(osfactsBinPath(), pid),
     socketPath,
     driver: localKavalDriver(socketPath),
     connect: () => connectKaval(socketPath),

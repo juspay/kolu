@@ -21,8 +21,15 @@
  */
 
 import { log } from "./log.ts";
-import { readDaemonStatus } from "./ptyHost/daemonStatus.ts";
-import { ptyHostClient } from "./ptyHost/index.ts";
+import { dirname, join } from "node:path";
+import { gatePid } from "@kolu/surface-daemon";
+import { snapshotPids } from "osfacts-client";
+import { KAVAL_GATE_FILE } from "kaval";
+import {
+  getLocalSocketPath,
+  readDaemonStatus,
+} from "./ptyHost/daemonStatus.ts";
+import { osfactsBinPath } from "./ports/scan.ts";
 import type { PadiProcessMemory, ProcessRss } from "./vocab.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
 
@@ -37,17 +44,58 @@ export const MEMORY_SAMPLE_INTERVAL_MS = 5_000;
  *  answered `system.processMemory`; `error` when a BELIEVED-connected daemon's poll
  *  threw (surfaced — logged ERROR — and reported distinctly, so a failed RPC never
  *  renders identically to "no daemon"). */
-async function pollKavalRss(): Promise<ProcessRss> {
+export interface MemorySamplerDeps {
+  selfRss: () => number;
+  connectedKavalPid: () => number | undefined;
+  samplePidRss: (pid: number) => Promise<number>;
+}
+
+function connectedKavalPid(): number | undefined {
   if (
     readDaemonStatus(encodeHostLocation(LOCAL_LOCATION))?.state !== "connected"
   ) {
-    return { status: "absent" };
+    return undefined;
   }
+  const socketPath = getLocalSocketPath();
+  if (socketPath === undefined) {
+    throw new Error("connected kaval has no recorded socket path");
+  }
+  const pid = gatePid(join(dirname(socketPath), KAVAL_GATE_FILE));
+  if (pid === undefined) {
+    throw new Error("connected kaval has no readable gate pid");
+  }
+  return pid;
+}
+
+async function samplePidRss(pid: number): Promise<number> {
+  const reading = await snapshotPids(osfactsBinPath(), [pid], { mem: true });
+  const row = reading.memory.find((value) => value.pid === pid);
+  if (row === undefined) {
+    const unreadable = reading.unreadable.find(
+      (value) => value.pid === pid && value.facet === "mem",
+    );
+    throw new Error(
+      unreadable === undefined
+        ? `osfacts returned no RSS for kaval pid ${pid}`
+        : `osfacts could not read kaval pid ${pid} RSS (${unreadable.errno})`,
+    );
+  }
+  return row.rssBytes;
+}
+
+const defaultDeps: MemorySamplerDeps = {
+  selfRss: () => process.memoryUsage().rss,
+  connectedKavalPid,
+  samplePidRss,
+};
+
+async function pollKavalRss(deps: MemorySamplerDeps): Promise<ProcessRss> {
   try {
-    const { rss } = await ptyHostClient.surface.system.processMemory({});
-    return { status: "ok", rssBytes: rss };
+    const pid = deps.connectedKavalPid();
+    if (pid === undefined) return { status: "absent" };
+    return { status: "ok", rssBytes: await deps.samplePidRss(pid) };
   } catch (err) {
-    log.error({ err }, "kaval processMemory poll failed");
+    log.error({ err }, "kaval osfacts RSS read failed");
     return { status: "error" };
   }
 }
@@ -58,11 +106,14 @@ async function pollKavalRss(): Promise<ProcessRss> {
  *  The reactor owns the loop the hand-rolled sampler used to: the T+0 seed read,
  *  the non-overlap guard, and later-read log-skip-continue — so this is just the
  *  pure read, and `MEMORY_SAMPLE_INTERVAL_MS` is the caller-owned cadence. */
-export async function samplePadiMemory(): Promise<PadiProcessMemory> {
+export async function samplePadiMemory(
+  _signal?: AbortSignal,
+  deps: MemorySamplerDeps = defaultDeps,
+): Promise<PadiProcessMemory> {
   const padi: ProcessRss = {
     status: "ok",
-    rssBytes: process.memoryUsage().rss,
+    rssBytes: deps.selfRss(),
   };
-  const kaval = await pollKavalRss();
+  const kaval = await pollKavalRss(deps);
   return { padi, kaval };
 }

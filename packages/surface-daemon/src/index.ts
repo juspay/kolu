@@ -6,10 +6,10 @@
  *
  *   - **Serve it** — code that runs *inside* the daemon process:
  *     - `acquirePidGate` — the atomic single-instance gate. The gate's file
- *       format is single-sourced here as two daemon-running primitives
- *       (`gatePid`, the pid parse; `isHolderLive`, the liveness probe) that the
- *       supervisor (kolu-server, from B2) composes where it lives — so the
- *       reader itself never crosses into this daemon-hashed package.
+ *       format is single-sourced here through `gateIdentity`; the supervisor
+ *       (kolu-server, from B2) compares it with an injected process-identity
+ *       reader where it lives, so OS process traversal never crosses into this
+ *       daemon-hashed package.
  *     - `daemonMain` — the gate → serve → teardown skeleton, parameterized over
  *       the scope key, socket path, surface router, and lifetime policy.
  *     - `daemonProcessMain` — the bin half of that partition: run the daemon
@@ -71,7 +71,10 @@ export { type Logger, stderrLogger } from "./logger.ts";
 export {
   acquirePidGate,
   type GateAcquisition,
+  gateIdentity,
   gatePid,
   isHolderLive,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
 } from "./pidGate.ts";
 export { daemonProcessMain } from "./tenure.ts";

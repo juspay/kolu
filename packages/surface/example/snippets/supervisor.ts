@@ -12,6 +12,7 @@ import type { ContractRouterClient } from "@orpc/contract";
 import {
   type ConvergenceIdentity,
   daemonBuild,
+  type ProcessIdentity,
   readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
@@ -88,11 +89,14 @@ async function connectTop(
   };
 }
 
-export async function bootSupervisor(): Promise<void> {
+export async function bootSupervisor(
+  readProcessIdentity: (pid: number) => Promise<ProcessIdentity | undefined>,
+): Promise<void> {
   // #region endpoint
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     gatePath: GATE_PATH,
+    readProcessIdentity,
     socketPath: SOCKET_PATH,
     driver: survivableSpawnDriver({
       binPath: daemonEntry,

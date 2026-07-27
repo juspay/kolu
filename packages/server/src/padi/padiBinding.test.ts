@@ -42,6 +42,7 @@ import {
 } from "@kolu/padi/surface";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
+import { processIdentity } from "osfacts-client";
 import {
   type ConvergenceOutcome,
   converge,
@@ -165,7 +166,7 @@ const sleep = (ms: number): Promise<void> =>
 const makeStateRoot = (): string =>
   mkdtempSync(join(tmpdir(), "padi-bind-sr-"));
 
-/** The pid a gate file records (decimal text), or undefined if unreadable. */
+/** The pid field a gate records, or undefined if unreadable. */
 function gatePid(gatePath: string): number | undefined {
   try {
     const pid = Number.parseInt(readFileSync(gatePath, "utf8").trim(), 10);
@@ -674,6 +675,11 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     const ep = createEndpoint({
       hostId: PADI_HOST_ID,
       gatePath: padiGatePath(socketPath),
+      readProcessIdentity: async (pid) => {
+        const bin = process.env.KOLU_OSFACTS_BIN;
+        if (!bin) throw new Error("KOLU_OSFACTS_BIN is required by this test");
+        return processIdentity(bin, pid);
+      },
       socketPath,
       driver: localPadiDriver(
         stateRoot,

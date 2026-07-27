@@ -29,7 +29,11 @@
  * transition reports.
  */
 
-import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
+import {
+  gateIdentity,
+  type Logger,
+  type ProcessIdentity,
+} from "@kolu/surface-daemon";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
 import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
@@ -251,6 +255,10 @@ export interface EndpointSpec<C, I, M = undefined> {
   /** The daemon's single-instance gate path — the same path the daemon's own
    *  `daemonMain` derives, so the supervisor reads the true current holder. */
   gatePath: string;
+  /** OS identity lookup supplied by the program's composition root. The
+   * generic endpoint compares start-qualified identities but performs no
+   * platform process traversal itself. */
+  readProcessIdentity(pid: number): Promise<ProcessIdentity | undefined>;
   /** The unix socket the daemon serves and we dial. */
   socketPath: string;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
@@ -500,21 +508,26 @@ export function createEndpoint<C, I, M = undefined>(
 
   // The gate-holder check shared by every boot policy: return the live holder
   // whose socket is *accepting* (a real daemon — the adopt-or-kill candidate),
-  // or undefined. The gate is PID-ONLY: a hard kill (SIGKILL / power loss)
-  // leaves the pidfile behind and the OS can later reuse that pid for an
-  // UNRELATED process, so a live pid whose socket is dead/absent is a stale gate
-  // over a possibly-reused pid — log it and leave that pid alone (never SIGTERM
-  // a stranger), letting the freshly-spawned daemon's own `acquirePidGate` reap
-  // the stale gate.
+  // or undefined. The gate records pid + process-start instant: a hard kill
+  // (SIGKILL / power loss) leaves the file behind, but a later process reusing
+  // the pid has a different identity and is never mistaken for the holder.
   const liveServingHolder = async (rv: {
     gatePath: string;
     socketPath: string;
   }): Promise<number | undefined> => {
-    const holder = gatePid(rv.gatePath);
-    if (holder === undefined || !isHolderLive(holder)) return undefined;
-    if (await socketAccepting(rv.socketPath)) return holder;
+    const recorded = gateIdentity(rv.gatePath);
+    if (recorded === undefined) return undefined;
+    const current = await spec.readProcessIdentity(recorded.pid);
+    if (
+      current === undefined ||
+      current.pid !== recorded.pid ||
+      current.startUnixUs !== recorded.startUnixUs
+    ) {
+      return undefined;
+    }
+    if (await socketAccepting(rv.socketPath)) return recorded.pid;
     spec.log.warn(
-      { hostId: spec.hostId, pid: holder, socketPath: rv.socketPath },
+      { hostId: spec.hostId, pid: recorded.pid, socketPath: rv.socketPath },
       "gate names a live pid but its socket is dead — treating gate as " +
         "stale (not killing the pid: it may be an unrelated reused pid)",
     );

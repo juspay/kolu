@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { isHolderLive } from "@kolu/surface-daemon";
 import {
-  createEndpoint,
+  createEndpoint as createEndpointCore,
   type DaemonConnection,
   DaemonContractSkewError,
+  type EndpointSpec,
   type EndpointStatus,
 } from "./endpoint.ts";
 import { serializeRestart } from "./restart.ts";
@@ -35,6 +37,16 @@ const skewError = ({
   new DaemonContractSkewError({ subject, daemonVersion, requiredVersion });
 
 type Identity = { staleKey: string };
+const startTime = (pid: number) => pid * 1_000;
+function createEndpoint<C, I, M = undefined>(
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
+) {
+  return createEndpointCore({
+    ...spec,
+    readProcessIdentity: async (pid) =>
+      isHolderLive(pid) ? { pid, startUnixUs: startTime(pid) } : undefined,
+  });
+}
 
 /** A fake daemon: a net server the driver "spawns" by listening on socketPath. */
 function fakeDaemon(socketPath: string): {
@@ -230,7 +242,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
     const survivorPid = survivor.pid as number;
     children.push(survivorPid);
-    writeFileSync(gatePath, `${survivorPid}\n`);
+    writeFileSync(gatePath, `${survivorPid}\t${startTime(survivorPid)}\n`);
     const survivorExited = new Promise<void>((r) =>
       survivor.on("exit", () => r()),
     );
@@ -281,7 +293,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const stranger = spawn("sleep", ["60"], { stdio: "ignore" });
     const strangerPid = stranger.pid as number;
     children.push(strangerPid);
-    writeFileSync(gatePath, `${strangerPid}\n`);
+    writeFileSync(gatePath, `${strangerPid}\t${startTime(strangerPid)}\n`);
     let strangerSignalled = false;
     stranger.on("exit", () => {
       strangerSignalled = true;
@@ -492,7 +504,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
     const survivorPid = survivor.pid as number;
     children.push(survivorPid);
-    writeFileSync(gatePath, `${survivorPid}\n`);
+    writeFileSync(gatePath, `${survivorPid}\t${startTime(survivorPid)}\n`);
     let survivorExited = false;
     survivor.on("exit", () => {
       survivorExited = true;
@@ -551,7 +563,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
     const survivorPid = survivor.pid as number;
     children.push(survivorPid);
-    writeFileSync(gatePath, `${survivorPid}\n`);
+    writeFileSync(gatePath, `${survivorPid}\t${startTime(survivorPid)}\n`);
     let survivorExited = false;
     survivor.on("exit", () => {
       survivorExited = true;
@@ -607,7 +619,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
     const survivorPid = survivor.pid as number;
     children.push(survivorPid);
-    writeFileSync(gatePath, `${survivorPid}\n`);
+    writeFileSync(gatePath, `${survivorPid}\t${startTime(survivorPid)}\n`);
     const survivorExited = new Promise<void>((r) =>
       survivor.on("exit", () => r()),
     );
@@ -677,7 +689,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
     const survivorPid = survivor.pid as number;
     children.push(survivorPid);
-    writeFileSync(gatePath, `${survivorPid}\n`);
+    writeFileSync(gatePath, `${survivorPid}\t${startTime(survivorPid)}\n`);
     const survivorExited = new Promise<void>((r) =>
       survivor.on("exit", () => r()),
     );
@@ -777,7 +789,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
     const survivorPid = survivor.pid as number;
     children.push(survivorPid);
-    writeFileSync(gatePath, `${survivorPid}\n`);
+    writeFileSync(gatePath, `${survivorPid}\t${startTime(survivorPid)}\n`);
     let survivorExited = false;
     survivor.on("exit", () => {
       survivorExited = true;
@@ -870,7 +882,7 @@ describeDaemon(
       const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
       const survivorPid = survivor.pid as number;
       children.push(survivorPid);
-      writeFileSync(gatePath, `${survivorPid}\n`);
+      writeFileSync(gatePath, `${survivorPid}\t${startTime(survivorPid)}\n`);
       let survivorExited = false;
       survivor.on("exit", () => {
         survivorExited = true;
@@ -939,7 +951,7 @@ describeDaemon(
       const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
       const survivorPid = survivor.pid as number;
       children.push(survivorPid);
-      writeFileSync(gatePath, `${survivorPid}\n`);
+      writeFileSync(gatePath, `${survivorPid}\t${startTime(survivorPid)}\n`);
       let survivorExited = false;
       survivor.on("exit", () => {
         survivorExited = true;
@@ -1027,7 +1039,7 @@ describeDaemon(
       const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
       const pid = survivor.pid as number;
       children.push(pid);
-      writeFileSync(rv.gatePath, `${pid}\n`);
+      writeFileSync(rv.gatePath, `${pid}\t${startTime(pid)}\n`);
       let hasExited = false;
       survivor.on("exit", () => {
         hasExited = true;

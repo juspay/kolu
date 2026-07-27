@@ -174,7 +174,7 @@ async function startPadi(stateRoot: string): Promise<Padi> {
   return p;
 }
 
-/** The pid a gate file records (decimal text), or undefined if unreadable. */
+/** The pid field a gate records, or undefined if unreadable. */
 function gatePid(gatePath: string): number | undefined {
   try {
     const pid = Number.parseInt(readFileSync(gatePath, "utf8").trim(), 10);

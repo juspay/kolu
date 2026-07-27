@@ -16,8 +16,8 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod darwin;
 
-use cli::{Command, SnapshotArgs};
-use osfacts::Snapshot;
+use cli::{Command, HostArgs, SnapshotArgs};
+use osfacts::{HostSnapshot, Snapshot};
 use std::io::{self, Write};
 use std::process::ExitCode;
 
@@ -26,6 +26,7 @@ fn main() -> ExitCode {
     // another revision fails loudly instead of parsing a half-shape into zero.
     match cli::parse(std::env::args_os().skip(1)) {
         Ok(Command::Snapshot(args)) => run_snapshot(args),
+        Ok(Command::Host(args)) => run_host(args),
         Err(cli::CliError::Help(msg)) => {
             let _ = write_version_only();
             let _ = writeln!(io::stderr(), "{msg}");
@@ -51,22 +52,61 @@ fn run_snapshot(args: SnapshotArgs) -> ExitCode {
         let _ = writeln!(io::stderr(), "osfacts: write failed: {e}");
         return ExitCode::from(1);
     }
-    ExitCode::SUCCESS
+    if snap.errors.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
 }
 
 fn take_snapshot(args: &SnapshotArgs) -> Snapshot {
     #[cfg(target_os = "linux")]
     {
-        return linux::snapshot(&args.scope, args.procs, args.ports);
+        return linux::snapshot(args);
     }
     #[cfg(target_os = "macos")]
     {
-        return darwin::snapshot(&args.scope, args.procs, args.ports);
+        return darwin::snapshot(args);
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = args;
         Snapshot::new()
+    }
+}
+
+fn run_host(args: HostArgs) -> ExitCode {
+    let host = take_host(&args);
+    let mut out = io::stdout().lock();
+    let written = if args.json {
+        host.write_json(&mut out)
+    } else {
+        host.write_tsv(&mut out)
+    };
+    if let Err(e) = written {
+        let _ = writeln!(io::stderr(), "osfacts: write failed: {e}");
+        return ExitCode::from(1);
+    }
+    if host.errors.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+fn take_host(args: &HostArgs) -> HostSnapshot {
+    #[cfg(target_os = "linux")]
+    {
+        return linux::host(args);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return darwin::host(args);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = args;
+        HostSnapshot::new()
     }
 }
 

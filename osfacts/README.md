@@ -14,8 +14,8 @@ way through seven of them before concluding we had to write this one.
 ```sh
 osfacts snapshot --roots 4242 --procs --ports     # this subtree: procs + listening ports
 osfacts snapshot --pids 991 --mem --start-time    # exactly these pids: RSS + start time
-osfacts socket-holders /run/user/1000/padi.sock   # which pids hold this unix socket
-osfacts snapshot --json | jq                      # same facts, readable
+osfacts host --load --mem --cpu --net --disk      # machine gauges + cumulative counters
+osfacts snapshot --procs --json | jq              # same facts, readable
 ```
 
 One verb, composable facets, about ten milliseconds. We know it's ten
@@ -39,6 +39,9 @@ can't answer.
 
 When osfacts can't read a pid, it says so — with the errno, in an
 `unreadable` section you can't turn off. Blindness is output, not absence.
+The listener table is independent of attribution: a socket whose owning fd
+cannot be read still appears as `unclaimed` (with its uid on linux). Under a
+narrow scope that word matters — the owner may simply be outside the ask.
 
 Why so strict? Because we shipped the other thing. A reader that silently
 dropped unreadable pids once emptied a whole panel of facts the moment
@@ -131,15 +134,17 @@ worth keeping readable.
 
 ## Status
 
-OSF1 and OSF2 are in: the binary (`snapshot --roots|--pids --procs --ports`
-on both platforms, versioned TSV + `--json`, mandatory `unreadable`, scar-
-tissue suite) and kolu's port sensor, which spawns the baked store path
+OSF1, OSF2, OSF3, OSF6, and OSF7 are in: the binary's process, listener,
+RSS, start-time, and host-telemetry facts on both platforms, plus kolu's port
+and memory sensors and start-qualified daemon ownership. The contract is
+versioned TSV + `--json`, with mandatory `unreadable` and source-error rows,
+and kolu spawns the baked store path
 (`KOLU_OSFACTS_BIN`). The TypeScript client lives at `client-ts/` as the
 package `osfacts-client` (no `@kolu` scope, zero npm runtime deps) — kolu/padi
 is the first consumer; drishti is next. The former `@kolu/port-scan` package
 is gone: raw protocol in this client, kolu policy in padi, `PortInfo` fold in
-`@kolu/terminal-vocab`. Facets beyond that (`--mem`, `--start-time`,
-`socket-holders`) and further consumer migrations are later phases. osfacts
+`@kolu/terminal-vocab`. Socket-holder lookup and further consumer migrations
+are later phases. osfacts
 incubates in the kolu monorepo (this directory is the whole future repo) and
 moves out when a second external consumer pins it (drishti). Every claim and
 number above has its measurement in the plan of record:

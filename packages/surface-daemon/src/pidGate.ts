@@ -4,7 +4,8 @@
  *
  * A "surface daemon" (kaval today, `odu serve` next) must run at most once per
  * scope. The gate is a small file at a scope-keyed path whose content is the
- * holder's pid. Acquisition is atomic by construction: write the pid to a
+ * holder's pid and process-start instant. Acquisition is atomic by construction:
+ * write that identity to a
  * private temp file, then `link(2)` it onto the gate path — `link` fails with
  * `EEXIST` if the gate already exists, so two racers cannot both believe they
  * acquired it (unlike a check-then-write, which has a window). On `EEXIST` the
@@ -13,11 +14,10 @@
  * predecessor left a stale gate, which is unlinked and retried.
  *
  * Everything here runs **inside the daemon**: `acquirePidGate` (kaval's
- * `daemonMain`) plus the two pieces the gate's file format is made of — the pid
- * parse (`gatePid`) and the liveness probe (`isHolderLive`). The supervisor
- * that spawns and watches the daemon (kolu-server, from B2) does not get a
- * reader of its own here; it composes these same primitives where it lives, so
- * the gate's file format — pid as decimal text — stays defined in one place
+ * `daemonMain`) plus the shared identity parser (`gateIdentity`). The supervisor
+ * that spawns and watches the daemon (kolu-server, from B2) composes that parser
+ * with an injected process-identity reader where it lives, so the gate's file
+ * format — pid and start time as tab-separated decimal integers — stays defined in one place
  * without dragging supervisor code into this daemon-hashed package.
  *
  * No survival, adoption, or env policy lives here: this is pure lifecycle
@@ -47,6 +47,15 @@ export type GateAcquisition =
   | { kind: "acquired"; release: () => void }
   | { kind: "held"; pid: number }
   | { kind: "dir-not-private"; dir: string };
+
+/** A PID is not an identity: after exit the kernel can reuse it. The process
+ * start instant makes gate ownership stable across that reuse. */
+export interface ProcessIdentity {
+  pid: number;
+  startUnixUs: number;
+}
+
+export type ReadProcessIdentity = (pid: number) => ProcessIdentity | undefined;
 
 /** Is `dir` a private, owner-only directory the current user owns? The gate
  *  shares its parent directory with the socket, and that directory's privacy is
@@ -85,17 +94,38 @@ export function isHolderLive(pid: number): boolean {
   }
 }
 
-/** The gate's raw pid, or `undefined` if the file is absent or malformed. Does
- *  NOT check liveness — that is each reader's job (acquire treats a dead pid as
- *  stale; the supervisor pairs this with `isHolderLive` for a live-only read).
- *  The parse half of the gate's file format, single-sourced here. */
-export function gatePid(gatePath: string): number | undefined {
+/** The gate's recorded identity, or `undefined` if the file is absent or
+ * malformed. Does NOT check the live process — each reader compares this record
+ * with its injected process-identity reader. The parse half of the gate's file
+ * format is single-sourced here. */
+export function gateIdentity(gatePath: string): ProcessIdentity | undefined {
   try {
-    const pid = Number.parseInt(readFileSync(gatePath, "utf8").trim(), 10);
-    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+    const fields = readFileSync(gatePath, "utf8").trim().split("\t");
+    if (fields.length !== 2) return undefined;
+    const pid = Number(fields[0]);
+    const startUnixUs = Number(fields[1]);
+    return Number.isSafeInteger(pid) &&
+      pid > 0 &&
+      Number.isSafeInteger(startUnixUs) &&
+      startUnixUs > 0
+      ? { pid, startUnixUs }
+      : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Convenience projection for diagnostics and socket paths. Ownership checks
+ * must use {@link gateIdentity}, never this PID alone. */
+export function gatePid(gatePath: string): number | undefined {
+  return gateIdentity(gatePath)?.pid;
+}
+
+function identitiesEqual(
+  left: ProcessIdentity,
+  right: ProcessIdentity,
+): boolean {
+  return left.pid === right.pid && left.startUnixUs === right.startUnixUs;
 }
 
 /** Take the gate for *this* process, atomically. Returns `acquired` (with a
@@ -103,7 +133,16 @@ export function gatePid(gatePath: string): number | undefined {
  *  exit 0). Bounded retry: each pass either acquires, observes a live holder,
  *  or clears one stale gate and tries again; the cap stops an adversarial
  *  unlink/recreate race from spinning forever. */
-export function acquirePidGate(gatePath: string): GateAcquisition {
+export function acquirePidGate(
+  gatePath: string,
+  self: ProcessIdentity,
+  readProcessIdentity: ReadProcessIdentity,
+): GateAcquisition {
+  if (self.pid !== process.pid) {
+    throw new Error(
+      `pid-gate identity pid ${self.pid} does not match this process ${process.pid}`,
+    );
+  }
   const dir = dirname(gatePath);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
 
@@ -123,7 +162,7 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
     const tmp = `${gatePath}.tmp.${process.pid}.${attempt}`;
     const fd = openSync(tmp, "w", 0o600);
     try {
-      writeSync(fd, `${process.pid}\n`);
+      writeSync(fd, `${self.pid}\t${self.startUnixUs}\n`);
     } finally {
       closeSync(fd);
     }
@@ -141,7 +180,8 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
           // Remove the gate only while it is still ours — never unlink a
           // successor's gate (we may be releasing late, after a stale-reap
           // handed the gate to another process).
-          if (gatePid(gatePath) === process.pid) {
+          const recorded = gateIdentity(gatePath);
+          if (recorded !== undefined && identitiesEqual(recorded, self)) {
             try {
               unlinkSync(gatePath);
             } catch {
@@ -161,9 +201,12 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
       // The gate exists. A live holder wins; a dead one is stale — reap it and
       // retry. (Concurrent reapers are safe: ENOENT on unlink just means a
       // peer reaped first, and the next pass re-reads the new state.)
-      const pid = gatePid(gatePath);
-      if (pid !== undefined && isHolderLive(pid)) {
-        return { kind: "held", pid };
+      const recorded = gateIdentity(gatePath);
+      if (recorded !== undefined) {
+        const current = readProcessIdentity(recorded.pid);
+        if (current !== undefined && identitiesEqual(recorded, current)) {
+          return { kind: "held", pid: recorded.pid };
+        }
       }
       try {
         unlinkSync(gatePath);

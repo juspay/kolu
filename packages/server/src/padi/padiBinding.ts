@@ -85,6 +85,7 @@ import {
 } from "@kolu/surface-remote";
 import { assertDaemonSpawnAllowed } from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
+import { processIdentity } from "osfacts-client";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
@@ -512,6 +513,15 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   >({
     hostId: PADI_HOST_ID,
     gatePath, // reuse padi's pid gate as-is.
+    readProcessIdentity: async (pid) => {
+      const bin = process.env.KOLU_OSFACTS_BIN;
+      if (!bin) {
+        throw new Error(
+          "KOLU_OSFACTS_BIN is not set — padi supervision requires osfacts",
+        );
+      }
+      return processIdentity(bin, pid);
+    },
     socketPath,
     driver: localPadiDriver(
       stateRoot,
