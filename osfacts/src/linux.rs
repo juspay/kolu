@@ -4,8 +4,8 @@
 use crate::cli::{HostArgs, Scope, SnapshotArgs};
 use osfacts::{
     decode_proc_hex, errno_name, hex_bytes, sanitize_name, Attribution, Cpu, Disk, HostMemory,
-    HostSnapshot, Load, Memory, Network, Port, Proc, ProcessCpuTime, Snapshot, SourceError,
-    StartTime, Swap, Unreadable,
+    HostSnapshot, Load, Memory, Network, Port, Proc, ProcessArgv, ProcessCpuTime, ProcessCwd,
+    ProcessStatus, ProcessUid, Snapshot, SourceError, StartTime, Swap, Unreadable,
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
@@ -70,6 +70,35 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 Err(err) => push_unreadable(&mut snap, pid, "cpu_time", err),
             }
         }
+        if args.uid {
+            match read_uid(pid) {
+                Ok(uid) => snap.uids.push(ProcessUid { pid, uid }),
+                Err(err) => push_unreadable(&mut snap, pid, "uid", err),
+            }
+        }
+        if args.cwd {
+            match read_cwd(pid) {
+                Ok(cwd) => snap.cwds.push(ProcessCwd { pid, cwd }),
+                Err(err) => push_unreadable(&mut snap, pid, "cwd", err),
+            }
+        }
+        if args.status {
+            match read_status(pid) {
+                Ok((state, nice, threads)) => snap.statuses.push(ProcessStatus {
+                    pid,
+                    state,
+                    nice,
+                    threads: Some(threads),
+                }),
+                Err(err) => push_unreadable(&mut snap, pid, "status", err),
+            }
+        }
+        if args.argv {
+            match read_argv(pid) {
+                Ok(argv) => snap.argv.push(ProcessArgv { pid, argv }),
+                Err(err) => push_unreadable(&mut snap, pid, "argv", err),
+            }
+        }
     }
 
     if args.ports {
@@ -106,6 +135,10 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     snap.memory.sort_by_key(|row| row.pid);
     snap.start_times.sort_by_key(|row| row.pid);
     snap.cpu_times.sort_by_key(|row| row.pid);
+    snap.uids.sort_by_key(|row| row.pid);
+    snap.cwds.sort_by_key(|row| row.pid);
+    snap.statuses.sort_by_key(|row| row.pid);
+    snap.argv.sort_by_key(|row| row.pid);
     snap.ports.sort_by_key(|row| {
         let pid = match row.attribution {
             Attribution::Claimed { pid } => pid,
@@ -142,7 +175,7 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
     if args.cpu {
         match read_cpus() {
             Ok(v) => out.cpus = v,
-            Err(e) => out.errors.push(source_error("proc_stat_cpu", e)),
+            Err((source, e)) => out.errors.push(source_error(source, e)),
         }
     }
     if args.net {
@@ -317,6 +350,47 @@ fn read_cpu_time(pid: u32, hz: u64) -> Result<u64, i32> {
     Ok(ticks_us(user.saturating_add(system), hz))
 }
 
+fn read_uid(pid: u32) -> Result<u32, i32> {
+    let status = read_string(&format!("/proc/{pid}/status"))?;
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .and_then(|value| value.split_whitespace().next())
+        .ok_or(libc::EINVAL)?
+        .parse()
+        .map_err(|_| libc::EINVAL)
+}
+
+fn read_cwd(pid: u32) -> Result<String, i32> {
+    fs::read_link(format!("/proc/{pid}/cwd"))
+        .map(|path| path.to_string_lossy().into_owned())
+        .map_err(|err| raw_errno(&err))
+}
+
+fn read_status(pid: u32) -> Result<(char, i32, u32), i32> {
+    let stat = read_string(&format!("/proc/{pid}/stat"))?;
+    let state = parse_stat_field(&stat, 0)?
+        .chars()
+        .next()
+        .ok_or(libc::EINVAL)?;
+    let nice = parse_stat_field(&stat, 16)?
+        .parse()
+        .map_err(|_| libc::EINVAL)?;
+    let threads = parse_stat_field(&stat, 17)?
+        .parse()
+        .map_err(|_| libc::EINVAL)?;
+    Ok((state, nice, threads))
+}
+
+fn read_argv(pid: u32) -> Result<Vec<String>, i32> {
+    let bytes = fs::read(format!("/proc/{pid}/cmdline")).map_err(|err| raw_errno(&err))?;
+    Ok(bytes
+        .split(|byte| *byte == 0)
+        .filter(|arg| !arg.is_empty())
+        .map(|arg| String::from_utf8_lossy(arg).into_owned())
+        .collect())
+}
+
 struct Listener {
     inode: u64,
     uid: u32,
@@ -460,9 +534,10 @@ fn read_host_memory() -> Result<(HostMemory, Swap), i32> {
 fn ticks_us(v: u64, hz: u64) -> u64 {
     v.saturating_mul(1_000_000) / hz
 }
-fn read_cpus() -> Result<Vec<Cpu>, i32> {
-    let s = read_string("/proc/stat")?;
-    let hz = clock_ticks()?;
+fn read_cpus() -> Result<Vec<Cpu>, (&'static str, i32)> {
+    let metadata = read_cpu_metadata()?;
+    let s = read_string("/proc/stat").map_err(|err| ("proc_stat_cpu", err))?;
+    let hz = clock_ticks().map_err(|err| ("sysconf_clk_tck", err))?;
     let mut out = Vec::new();
     for line in s.lines() {
         let mut f = line.split_whitespace();
@@ -474,21 +549,74 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
             continue;
         }
         let Ok(core) = core_s.parse() else { continue };
-        let vals: Vec<u64> = f.map(|v| v.parse().unwrap_or(0)).collect();
+        let vals: Vec<u64> = f
+            .map(|value| value.parse().map_err(|_| ("proc_stat_cpu", libc::EINVAL)))
+            .collect::<Result<_, _>>()?;
         if vals.len() < 4 {
-            continue;
+            return Err(("proc_stat_cpu", libc::EINVAL));
         }
         let get = |i| *vals.get(i).unwrap_or(&0);
+        let (model, frequency_mhz) = metadata.get(&core).ok_or(("proc_cpuinfo", libc::EINVAL))?;
         out.push(Cpu {
             core,
             user_us: ticks_us(get(0) + get(1), hz),
             system_us: ticks_us(get(2), hz),
             idle_us: ticks_us(get(3), hz),
             other_us: ticks_us(get(4) + get(5) + get(6) + get(7) + get(8) + get(9), hz),
+            model: model.clone(),
+            frequency_mhz: *frequency_mhz,
         })
     }
     if out.is_empty() {
-        Err(libc::EINVAL)
+        Err(("proc_stat_cpu", libc::EINVAL))
+    } else {
+        Ok(out)
+    }
+}
+
+fn read_cpu_metadata() -> Result<HashMap<u32, (String, Option<u64>)>, (&'static str, i32)> {
+    let body = read_string("/proc/cpuinfo").map_err(|err| ("proc_cpuinfo", err))?;
+    let mut out = HashMap::new();
+    for block in body.split("\n\n") {
+        let mut core = None;
+        let mut model = None;
+        let mut frequency_mhz = None;
+        for line in block.lines() {
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
+            match key.trim() {
+                "processor" => {
+                    core = Some(
+                        value
+                            .trim()
+                            .parse::<u32>()
+                            .map_err(|_| ("proc_cpuinfo", libc::EINVAL))?,
+                    )
+                }
+                "model name" => model = Some(value.trim().to_owned()),
+                "cpu MHz" => {
+                    let mhz = value
+                        .trim()
+                        .parse::<f64>()
+                        .map_err(|_| ("proc_cpuinfo", libc::EINVAL))?;
+                    if !mhz.is_finite() || mhz < 0.0 {
+                        return Err(("proc_cpuinfo", libc::EINVAL));
+                    }
+                    frequency_mhz = (mhz.round() as u64 > 0).then_some(mhz.round() as u64);
+                }
+                _ => {}
+            }
+        }
+        if let Some(core) = core {
+            let model = model
+                .filter(|value| !value.is_empty())
+                .ok_or(("proc_cpuinfo", libc::EINVAL))?;
+            out.insert(core, (model, frequency_mhz));
+        }
+    }
+    if out.is_empty() {
+        Err(("proc_cpuinfo", libc::EINVAL))
     } else {
         Ok(out)
     }
@@ -526,6 +654,7 @@ fn read_root_disk() -> Result<Disk, i32> {
         mount: "/".into(),
         total_bytes: (st.f_blocks as u64).saturating_mul(block),
         available_bytes: (st.f_bavail as u64).saturating_mul(block),
+        free_bytes: (st.f_bfree as u64).saturating_mul(block),
     })
 }
 

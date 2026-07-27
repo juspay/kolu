@@ -60,6 +60,10 @@ fn snapshot_exit_code(snap: &Snapshot) -> ExitCode {
         || !snap.memory.is_empty()
         || !snap.start_times.is_empty()
         || !snap.cpu_times.is_empty()
+        || !snap.uids.is_empty()
+        || !snap.cwds.is_empty()
+        || !snap.statuses.is_empty()
+        || !snap.argv.is_empty()
         || !snap.ports.is_empty()
         || !snap.unreadable.is_empty();
     if snap.errors.is_empty() || has_facts {

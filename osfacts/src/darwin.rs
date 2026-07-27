@@ -6,8 +6,8 @@
 use crate::cli::{HostArgs, Scope, SnapshotArgs};
 use osfacts::{
     errno_name, hex_bytes, sanitize_name, slot_from_vflag, AddressSlot, Attribution, Cpu, Disk,
-    HostMemory, HostSnapshot, Load, Memory, Network, Port, Proc, ProcessCpuTime, Snapshot,
-    SourceError, StartTime, Swap, Unreadable,
+    HostMemory, HostSnapshot, Load, Memory, Network, Port, Proc, ProcessArgv, ProcessCpuTime,
+    ProcessCwd, ProcessStatus, ProcessUid, Snapshot, SourceError, StartTime, Swap, Unreadable,
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const PROC_ALL_PIDS: u32 = 1;
 const PROC_PIDTBSDINFO: c_int = 3;
 const PROC_PIDTASKINFO: c_int = 4;
+const PROC_PIDVNODEPATHINFO: c_int = 9;
 const PROC_PIDLISTFDS: c_int = 1;
 const PROC_PIDPATHINFO_MAXSIZE: usize = 4 * 1024;
 const PROC_PIDFDSOCKETINFO: c_int = 3;
@@ -29,6 +30,11 @@ const XSO_INPCB: u32 = 0x010;
 const XSO_TCPCB: u32 = 0x020;
 const INP_IPV6: u8 = 0x2;
 const PROCESSOR_CPU_LOAD_INFO: c_int = 2;
+const PROC_VNODEPATHINFO_SIZE: usize = 2_352;
+const VNODE_CDIR_PATH_OFFSET: usize = 152;
+const MAXPATHLEN: usize = 1_024;
+const CTL_KERN: c_int = 1;
+const KERN_PROCARGS2: c_int = 49;
 
 // Apple XNU declares `xinpcb_n` under `#pragma pack(4)`. Keep these offsets
 // beside the decoder: lport follows xi_inpp + fport, while vflag and the local
@@ -82,7 +88,7 @@ struct ProcTaskInfo {
     _pti_syscalls_mach: i32,
     _pti_syscalls_unix: i32,
     _pti_csw: i32,
-    _pti_threadnum: i32,
+    pti_threadnum: i32,
     _pti_numrunning: i32,
     _pti_priority: i32,
 }
@@ -220,7 +226,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     let wanted = select_pids(&args.scope, &all, &mut snap);
 
     for &pid in &wanted {
-        let bsd = if args.procs || args.start_time {
+        let bsd = if args.procs || args.start_time || args.uid || args.status {
             Some(read_bsd(pid))
         } else {
             None
@@ -235,7 +241,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 Err(err) => push_unreadable(&mut snap, pid, "proc", *err),
             }
         }
-        let task = if args.mem || args.cpu_time {
+        let task = if args.mem || args.cpu_time || args.status {
             Some(read_task(pid))
         } else {
             None
@@ -263,12 +269,46 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 Ok(row) => snap.cpu_times.push(ProcessCpuTime {
                     pid,
                     // XNU's proc_taskinfo totals are nanoseconds.
-                    cpu_time_us: row
-                        .pti_total_user
-                        .saturating_add(row.pti_total_system)
-                        / 1_000,
+                    cpu_time_us: row.pti_total_user.saturating_add(row.pti_total_system) / 1_000,
                 }),
                 Err(err) => push_unreadable(&mut snap, pid, "cpu_time", *err),
+            }
+        }
+        if args.uid {
+            match bsd.as_ref().expect("bsd requested") {
+                Ok(row) => snap.uids.push(ProcessUid { pid, uid: row.uid }),
+                Err(err) => push_unreadable(&mut snap, pid, "uid", *err),
+            }
+        }
+        if args.cwd {
+            match read_cwd(pid) {
+                Ok(cwd) => snap.cwds.push(ProcessCwd { pid, cwd }),
+                Err(err) => push_unreadable(&mut snap, pid, "cwd", err),
+            }
+        }
+        if args.status {
+            match bsd.as_ref().expect("bsd requested") {
+                Ok(row) => match darwin_state(row.status) {
+                    Ok(state) => snap.statuses.push(ProcessStatus {
+                        pid,
+                        state,
+                        nice: row.nice,
+                        threads: task
+                            .as_ref()
+                            .and_then(|result| result.as_ref().ok())
+                            .and_then(|task| {
+                                (task.pti_threadnum > 0).then_some(task.pti_threadnum as u32)
+                            }),
+                    }),
+                    Err(err) => push_unreadable(&mut snap, pid, "status", err),
+                },
+                Err(err) => push_unreadable(&mut snap, pid, "status", *err),
+            }
+        }
+        if args.argv {
+            match read_argv(pid) {
+                Ok(argv) => snap.argv.push(ProcessArgv { pid, argv }),
+                Err(err) => push_unreadable(&mut snap, pid, "argv", err),
             }
         }
     }
@@ -312,6 +352,10 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     snap.memory.sort_by_key(|row| row.pid);
     snap.start_times.sort_by_key(|row| row.pid);
     snap.cpu_times.sort_by_key(|row| row.pid);
+    snap.uids.sort_by_key(|row| row.pid);
+    snap.cwds.sort_by_key(|row| row.pid);
+    snap.statuses.sort_by_key(|row| row.pid);
+    snap.argv.sort_by_key(|row| row.pid);
     snap.ports.sort_by_key(|row| row.port);
     snap.unreadable
         .sort_by_key(|row| (row.pid, row.facet.clone()));
@@ -342,7 +386,7 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
     if args.cpu {
         match read_cpus() {
             Ok(value) => out.cpus = value,
-            Err(err) => out.errors.push(source_error("host_processor_info", err)),
+            Err((source, err)) => out.errors.push(source_error(source, err)),
         }
     }
     if args.net {
@@ -365,6 +409,9 @@ struct BsdRow {
     ppid: u32,
     name: String,
     start_unix_us: u64,
+    uid: u32,
+    status: u32,
+    nice: i32,
 }
 
 fn select_pids(scope: &Scope, all: &[u32], snap: &mut Snapshot) -> Vec<u32> {
@@ -469,8 +516,107 @@ fn read_bsd(pid: u32) -> Result<BsdRow, i32> {
                 .pbi_start_tvsec
                 .saturating_mul(1_000_000)
                 .saturating_add(bsd.pbi_start_tvusec),
+            uid: bsd.pbi_ruid,
+            status: bsd.pbi_status,
+            nice: bsd.pbi_nice,
         })
     }
+}
+
+fn darwin_state(status: u32) -> Result<char, i32> {
+    match status {
+        1 => Ok('I'),
+        2 => Ok('R'),
+        3 => Ok('S'),
+        4 => Ok('T'),
+        5 => Ok('Z'),
+        _ => Err(libc::EINVAL),
+    }
+}
+
+fn read_cwd(pid: u32) -> Result<String, i32> {
+    unsafe {
+        let mut bytes = [0u8; PROC_VNODEPATHINFO_SIZE];
+        let count = proc_pidinfo(
+            pid as c_int,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            bytes.as_mut_ptr().cast(),
+            bytes.len() as c_int,
+        );
+        if count < bytes.len() as c_int {
+            return Err(errno());
+        }
+        let path = &bytes[VNODE_CDIR_PATH_OFFSET..VNODE_CDIR_PATH_OFFSET + MAXPATHLEN];
+        let end = path
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or(libc::EINVAL)?;
+        if end == 0 {
+            return Err(libc::EINVAL);
+        }
+        Ok(String::from_utf8_lossy(&path[..end]).into_owned())
+    }
+}
+
+fn read_argv(pid: u32) -> Result<Vec<String>, i32> {
+    unsafe {
+        let mut mib = [CTL_KERN, KERN_PROCARGS2, pid as c_int];
+        let mut len = 0;
+        if libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as c_uint,
+            std::ptr::null_mut(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        ) != 0
+        {
+            return Err(errno());
+        }
+        let mut bytes = vec![0u8; len];
+        if libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as c_uint,
+            bytes.as_mut_ptr().cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        ) != 0
+        {
+            return Err(errno());
+        }
+        bytes.truncate(len);
+        parse_procargs2(&bytes)
+    }
+}
+
+fn parse_procargs2(bytes: &[u8]) -> Result<Vec<String>, i32> {
+    let argc = bytes
+        .get(..4)
+        .and_then(|raw| raw.try_into().ok())
+        .map(i32::from_ne_bytes)
+        .filter(|argc| *argc >= 0)
+        .ok_or(libc::EINVAL)? as usize;
+    let mut cursor = 4;
+    cursor += bytes[cursor..]
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or(libc::EINVAL)?;
+    while cursor < bytes.len() && bytes[cursor] == 0 {
+        cursor += 1;
+    }
+    let mut out = Vec::with_capacity(argc);
+    while out.len() < argc {
+        let rest = bytes.get(cursor..).ok_or(libc::EINVAL)?;
+        let end = rest
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or(libc::EINVAL)?;
+        out.push(String::from_utf8_lossy(&rest[..end]).into_owned());
+        cursor = cursor.saturating_add(end + 1);
+    }
+    Ok(out)
 }
 
 fn read_task(pid: u32) -> Result<ProcTaskInfo, i32> {
@@ -690,7 +836,25 @@ fn uptime_us() -> Result<u64, i32> {
     Ok(now_us.saturating_sub(boot_us))
 }
 
-fn read_cpus() -> Result<Vec<Cpu>, i32> {
+fn read_cpus() -> Result<Vec<Cpu>, (&'static str, i32)> {
+    let model = sysctl_string("machdep.cpu.brand_string")
+        .map_err(|err| ("machdep_cpu_brand_string", err))?;
+    if model.is_empty() {
+        return Err(("machdep_cpu_brand_string", libc::EINVAL));
+    }
+    let frequency_mhz = match sysctl_bytes("hw.cpufrequency") {
+        Ok(bytes) if bytes.is_empty() => None,
+        Ok(bytes) if bytes.len() >= 8 => {
+            let hz = u64::from_ne_bytes(bytes[0..8].try_into().unwrap());
+            (hz > 0).then_some(hz / 1_000_000)
+        }
+        Ok(bytes) if bytes.len() >= 4 => {
+            let hz = u32::from_ne_bytes(bytes[0..4].try_into().unwrap()) as u64;
+            (hz > 0).then_some(hz / 1_000_000)
+        }
+        Ok(_) => return Err(("hw_cpufrequency", libc::EINVAL)),
+        Err(err) => return Err(("hw_cpufrequency", err)),
+    };
     unsafe {
         let mut cores = 0;
         let mut info = std::ptr::null_mut();
@@ -703,10 +867,10 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
             &mut count,
         );
         if status != 0 {
-            return Err(status);
+            return Err(("host_processor_info", status));
         }
         if info.is_null() {
-            return Err(libc::EINVAL);
+            return Err(("host_processor_info", libc::EINVAL));
         }
         if count < cores.saturating_mul(4) {
             let _ = libc::vm_deallocate(
@@ -714,7 +878,7 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
                 info as libc::vm_address_t,
                 count as libc::vm_size_t * mem::size_of::<c_int>(),
             );
-            return Err(libc::EINVAL);
+            return Err(("host_processor_info", libc::EINVAL));
         }
         let ticks = std::slice::from_raw_parts(info, count as usize);
         let hz = libc::sysconf(libc::_SC_CLK_TCK);
@@ -724,7 +888,7 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
                 info as libc::vm_address_t,
                 count as libc::vm_size_t * mem::size_of::<c_int>(),
             );
-            return Err(libc::EINVAL);
+            return Err(("sysconf_clk_tck", libc::EINVAL));
         }
         let to_us = |value: c_int| (value as u64).saturating_mul(1_000_000) / hz as u64;
         let rows = (0..cores as usize)
@@ -736,6 +900,8 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
                     system_us: to_us(ticks[base + 1]),
                     idle_us: to_us(ticks[base + 2]),
                     other_us: to_us(ticks[base + 3]),
+                    model: model.clone(),
+                    frequency_mhz,
                 }
             })
             .collect();
@@ -747,7 +913,7 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
         if status == 0 {
             Ok(rows)
         } else {
-            Err(status)
+            Err(("vm_deallocate", status))
         }
     }
 }
@@ -777,6 +943,7 @@ fn read_root_disk() -> Result<Disk, i32> {
             mount: "/".into(),
             total_bytes: u64::from(stat.f_blocks).saturating_mul(stat.f_frsize),
             available_bytes: u64::from(stat.f_bavail).saturating_mul(stat.f_frsize),
+            free_bytes: u64::from(stat.f_bfree).saturating_mul(stat.f_frsize),
         })
     }
 }
@@ -816,6 +983,15 @@ fn sysctl_u64(name: &str) -> Result<u64, i32> {
     (bytes.len() >= 8)
         .then(|| u64::from_ne_bytes(bytes[0..8].try_into().unwrap()))
         .ok_or(libc::EINVAL)
+}
+
+fn sysctl_string(name: &str) -> Result<String, i32> {
+    let bytes = sysctl_bytes(name)?;
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    String::from_utf8(bytes[..end].to_vec()).map_err(|_| libc::EINVAL)
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, i32> {
@@ -868,11 +1044,17 @@ mod tests {
                 ppid: 1,
                 name: "child".into(),
                 start_unix_us: 2,
+                uid: 501,
+                status: 2,
+                nice: 0,
             }),
             3 => Ok(BsdRow {
                 ppid: 2,
                 name: "grandchild".into(),
                 start_unix_us: 3,
+                uid: 501,
+                status: 2,
+                nice: 0,
             }),
             _ => unreachable!(),
         });

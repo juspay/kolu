@@ -34,6 +34,32 @@ pub struct ProcessCpuTime {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ProcessUid {
+    pub pid: u32,
+    pub uid: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcessCwd {
+    pub pid: u32,
+    pub cwd: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcessStatus {
+    pub pid: u32,
+    pub state: char,
+    pub nice: i32,
+    pub threads: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcessArgv {
+    pub pid: u32,
+    pub argv: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum Attribution {
     Claimed { pid: u32 },
@@ -72,6 +98,10 @@ pub struct Snapshot {
     pub start_times: Vec<StartTime>,
     #[serde(rename = "cpuTimes")]
     pub cpu_times: Vec<ProcessCpuTime>,
+    pub uids: Vec<ProcessUid>,
+    pub cwds: Vec<ProcessCwd>,
+    pub statuses: Vec<ProcessStatus>,
+    pub argv: Vec<ProcessArgv>,
     pub ports: Vec<Port>,
     pub unreadable: Vec<Unreadable>,
     pub errors: Vec<SourceError>,
@@ -98,6 +128,21 @@ impl Snapshot {
         }
         for c in &self.cpu_times {
             writeln!(out, "C\t{}\t{}", c.pid, c.cpu_time_us)?;
+        }
+        for u in &self.uids {
+            writeln!(out, "UID\t{}\t{}", u.pid, u.uid)?;
+        }
+        for c in &self.cwds {
+            writeln!(out, "CWD\t{}\t{}", c.pid, encode_tsv_string(&c.cwd))?;
+        }
+        for s in &self.statuses {
+            let threads = s
+                .threads
+                .map_or_else(|| "-".into(), |value| value.to_string());
+            writeln!(out, "STAT\t{}\t{}\t{}\t{threads}", s.pid, s.state, s.nice)?;
+        }
+        for a in &self.argv {
+            writeln!(out, "ARGV\t{}\t{}", a.pid, encode_tsv_strings(&a.argv))?;
         }
         for l in &self.ports {
             let (status, pid) = match l.attribution {
@@ -156,6 +201,9 @@ pub struct Cpu {
     pub idle_us: u64,
     #[serde(rename = "otherUs")]
     pub other_us: u64,
+    pub model: String,
+    #[serde(rename = "frequencyMhz")]
+    pub frequency_mhz: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,6 +222,8 @@ pub struct Disk {
     pub total_bytes: u64,
     #[serde(rename = "availableBytes")]
     pub available_bytes: u64,
+    #[serde(rename = "freeBytes")]
+    pub free_bytes: u64,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -216,8 +266,15 @@ impl HostSnapshot {
         for v in &self.cpus {
             writeln!(
                 out,
-                "HCPU\t{}\t{}\t{}\t{}\t{}",
-                v.core, v.user_us, v.system_us, v.idle_us, v.other_us
+                "HCPU\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                v.core,
+                v.user_us,
+                v.system_us,
+                v.idle_us,
+                v.other_us,
+                encode_tsv_string(&v.model),
+                v.frequency_mhz
+                    .map_or_else(|| "-".into(), |value| value.to_string())
             )?;
         }
         for v in &self.networks {
@@ -226,8 +283,8 @@ impl HostSnapshot {
         for v in &self.disks {
             writeln!(
                 out,
-                "HDISK\t{}\t{}\t{}",
-                v.mount, v.total_bytes, v.available_bytes
+                "HDISK\t{}\t{}\t{}\t{}",
+                v.mount, v.total_bytes, v.available_bytes, v.free_bytes
             )?;
         }
         for e in &self.errors {
@@ -256,6 +313,14 @@ pub fn sanitize_name(name: &str) -> String {
             }
         })
         .collect()
+}
+
+pub fn encode_tsv_string(value: &str) -> String {
+    serde_json::to_string(value).expect("a string always serializes as JSON")
+}
+
+pub fn encode_tsv_strings(values: &[String]) -> String {
+    serde_json::to_string(values).expect("strings always serialize as JSON")
 }
 
 pub fn errno_name(err: i32) -> String {

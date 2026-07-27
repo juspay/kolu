@@ -5,8 +5,9 @@
 //! (b) TSV name sanitizing never yields an unescaped delimiter.
 
 use osfacts::{
-    decode_network_hex, decode_proc_hex, encode_hex, encode_proc_hex, sanitize_name,
-    slot_from_vflag, AddressSlot, AF_INET, AF_INET6, INI_IPV4, INI_IPV6,
+    decode_network_hex, decode_proc_hex, encode_hex, encode_proc_hex, encode_tsv_string,
+    encode_tsv_strings, sanitize_name, slot_from_vflag, AddressSlot, AF_INET, AF_INET6, INI_IPV4,
+    INI_IPV6,
 };
 use proptest::prelude::*;
 
@@ -89,5 +90,26 @@ proptest! {
         let fields: Vec<&str> = row.split('\t').collect();
         prop_assert_eq!(fields.len(), 4);
         prop_assert_eq!(fields[0], "P");
+    }
+
+
+    #[test]
+    fn cwd_json_field_roundtrips_hostile_text(value in ".*") {
+        let encoded = encode_tsv_string(&value);
+        let row = format!("CWD\t1\t{encoded}");
+        let fields: Vec<&str> = row.split('\t').collect();
+        prop_assert_eq!(fields.len(), 3);
+        let decoded: String = serde_json::from_str(fields[2]).expect("decode cwd");
+        prop_assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn argv_json_field_roundtrips_hostile_text(values in prop::collection::vec(".*", 0..20)) {
+        let encoded = encode_tsv_strings(&values);
+        let row = format!("ARGV\t1\t{encoded}");
+        let fields: Vec<&str> = row.split('\t').collect();
+        prop_assert_eq!(fields.len(), 3);
+        let decoded: Vec<String> = serde_json::from_str(fields[2]).expect("decode argv");
+        prop_assert_eq!(decoded, values);
     }
 }
