@@ -70,9 +70,11 @@ let
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
     inherit version src;
-    # Pin the package-manager major: nixpkgs' unversioned pnpm alias advances
-    # independently, while this workspace and lockfile use pnpm 10 semantics.
-    pnpm = pkgs.pnpm_10;
+    # The wrapped builder pnpm (nix/pnpm.nix): pins the package-manager major
+    # — nixpkgs' unversioned pnpm alias advances independently, while this
+    # workspace and lockfile use pnpm 10 semantics — and gives this fetcher's
+    # `pnpm install` a reporter whose output survives into `nix log`.
+    pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
     hash = "sha256-e0bxLIKWHjsQovUtK6ROA89MZgttm6xrWjnkuTAOaFw=";

@@ -37,10 +37,8 @@
  *      (terminal creation must wait for `connected`). */
 
 import type { DaemonState } from "@kolu/padi/surface";
-import type {
-  ConnectPhase,
-  EntryFailedCause,
-} from "kolu-common/surfacesWithPadi";
+import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
+import type { LogLine } from "../ui/logTailChrome";
 import { match, P } from "ts-pattern";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
 import type { DaemonDownState } from "./daemonPresentation";
@@ -77,13 +75,20 @@ export type ClientStalledLeg = Exclude<StalledLeg, "provisioning">;
  *     host-down card, so this arm is always non-terminal). Recovery RECYCLES the server
  *     connector (`client.hosts.reconnect`, the verb PR1 gave a real abort-in-flight `recheck()`),
  *     and the copy stays NON-TERMINAL; `phase` narrates where the campaign is (probing /
- *     provisioning / connecting). `location.reload()` cannot recycle a server-side dial, so it would
- *     be a lie here.
+ *     provisioning / connecting) and `log` is that campaign's live output tail — the narration of
+ *     the very work the card is asking about. `location.reload()` cannot recycle a server-side dial,
+ *     so it would be a lie here.
  *   - `client`: a genuinely client-side leg (a connected host's session / daemon subscription, a
  *     membership stall). A fresh boot re-runs that subscription, so the verb is `location.reload()`
- *     and the copy is the leg's own {@link bootStalledCopy}. */
+ *     and the copy is the leg's own {@link bootStalledCopy}. Its tail would be a SETTLED connect
+ *     log with nothing to say about the wedge, so the arm carries none — the card cannot show one
+ *     BY CONSTRUCTION, rather than by a ternary at the render site. */
 export type BootStalledRecovery =
-  | { via: "connector"; phase: ConnectPhase | undefined }
+  | {
+      via: "connector";
+      phase: ConnectPhase | undefined;
+      log: readonly LogLine[] | undefined;
+    }
   | { via: "client"; leg: ClientStalledLeg };
 
 /** The per-frame anchor VERDICT, declared AT the resolver's return site (never inferred
@@ -97,10 +102,10 @@ export type BootStalledRecovery =
  *     anchor.
  *  The resolver KNOWS which of the three it is at every return, so the verdict travels ON
  *  the tag rather than being re-derived downstream from `kind`. A future overlay return must
- *  DECLARE its `accrual` or fail to compile. `accrue` also carries `phase` — the connect
- *  phase the escape surface names beside the leg — declared here for the SAME reason as
- *  `leg`/`ceiling`: {@link escapeSurface} renders off the tag alone, never by re-reading
- *  `facts` for a field that may not exist on every arm. */
+ *  DECLARE its `accrual` or fail to compile. `accrue` also carries `phase` and `log` — the
+ *  connect phase the escape surface names beside the leg, and the campaign's own output tail —
+ *  declared here for the SAME reason as `leg`/`ceiling`: {@link escapeSurface} renders off the
+ *  tag alone, never by re-reading `facts` for a field that may not exist on every arm. */
 export type BootTag =
   | { accrual: "clear" }
   | { accrual: "retain" }
@@ -109,14 +114,17 @@ export type BootTag =
       leg: StalledLeg;
       ceiling: CeilingClass;
       phase: ConnectPhase | undefined;
+      log: readonly LogLine[] | undefined;
     };
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
- *  the down sub-state, the warming label, and the host-failure cause travel WITH
- *  the choice — the renderer reads no accessor a second time. `host-failed` is
- *  the Skew-UX addition: the ACTIVE host's map-membership entry itself failed
- *  (an ssh/contract-level fault, cause-typed), distinct from `down` (a CONNECTED
- *  host whose kaval daemon died). `boot-stalled` is the #1763 boot-deadline escape:
+ *  the down sub-state and the warming label travel WITH the choice — the renderer
+ *  reads no accessor a second time for THOSE. `host-failed` is the Skew-UX addition:
+ *  the ACTIVE host's map-membership entry itself failed (an ssh/contract-level fault),
+ *  distinct from `down` (a CONNECTED host whose kaval daemon died). It carries NO
+ *  payload deliberately — the episode is read as one value by `failedEpisode`
+ *  (`useDaemonStatus.ts`, which owns that rationale), so this stays a routing decision with
+ *  nothing on it to go stale. `boot-stalled` is the #1763 boot-deadline escape:
  *  a boot overlay held past its ceiling, carrying its honest {@link BootStalledRecovery}
  *  verdict — a `connector` arm (a warming-remote campaign, with its live phase) or a `client`
  *  arm (a client-side leg), never both. */
@@ -126,7 +134,7 @@ export type CanvasMode =
   // restartable DegradedCanvas; `incompatible` renders the skew card with both
   // versions and the renew action — the affordance is a total function of it.
   | { kind: "down"; down: DaemonDownState }
-  | { kind: "host-failed"; cause: EntryFailedCause; reason: string }
+  | { kind: "host-failed" }
   // The #1763 boot-deadline escape: a boot overlay wedged past its ceiling, carrying its
   // honest {@link BootStalledRecovery} — `connector` (a warming-remote campaign the server ssh
   // connector still owns → recycle it, non-terminal copy, phase narrated) vs `client` (a
@@ -175,6 +183,11 @@ interface EntryLivenessFacts {
  *  runtime guard. `undefined` before the cell's first frame (or once C' floors a stale cell). */
 type NotYetConnectedFacts = EntryLivenessFacts & {
   connectPhase: ConnectPhase | undefined;
+  /** The SAME connection cell's retained output tail, read in the same breath as
+   *  `connectPhase` (one `connectionInfo()` read in `useCanvasMode`). It rides the boot tag onto
+   *  the boot-stalled card's `connector` arm, so a wedged provisioning campaign shows what it was
+   *  doing. `undefined` before the cell's first frame, or once the map's liveness floor drops it. */
+  connectLog: readonly LogLine[] | undefined;
 };
 
 /** The precedence decision's snapshot — a DISCRIMINATED UNION keyed on the active
@@ -192,11 +205,9 @@ export type CanvasFacts =
     })
   | (EntryLivenessFacts & {
       /** The active entry `failed` — an ssh dial/handshake or contract-level fault
-       *  the map reported, cause-typed. Carries NO kaval facts (the host never
-       *  connected, so there is no daemon to describe). */
+       *  the map reported. Carries NO kaval facts (the host never connected, so there
+       *  is no daemon to describe) and NO failure payload (see `failedEpisode`). */
       entry: "failed";
-      cause: EntryFailedCause;
-      reason: string;
     })
   | (NotYetConnectedFacts & {
       /** The active host is transiently not in the membership pool (mid-switch,
@@ -275,9 +286,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
       // The host BINDING itself failed (cause-typed) — the Skew-UX host-down card ([Reconnect] /
       // [Switch to local]), distinct from `down` (a connected host's dead kaval). Not a boot
       // overlay: it is already a terminal, escape-bearing surface.
-      .with({ entry: "failed" }, (f) =>
-        clear({ kind: "host-failed", cause: f.cause, reason: f.reason }),
-      )
+      .with({ entry: "failed" }, () => clear({ kind: "host-failed" }))
       .with(
         { entry: "warming" },
         { entry: "not-a-member" },
@@ -301,6 +310,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
             leg,
             ceiling: ceilingFor(f.isLocalHost, f.connectPhase),
             phase: f.connectPhase,
+            log: f.connectLog,
           };
           // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is coming
           // up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase — the SAME
@@ -340,7 +350,9 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
               // A connected fact carries no connect phase → the handshake/local cell.
               leg,
               ceiling: ceilingFor(f.isLocalHost, undefined),
+              // A connected fact carries no connection-cell narration either.
               phase: undefined,
+              log: undefined,
             },
           };
         }
@@ -401,7 +413,7 @@ function escapeSurface(
       { leg: "provisioning" },
       (): CanvasMode => ({
         kind: "boot-stalled",
-        recovery: { via: "connector", phase: tag.phase },
+        recovery: { via: "connector", phase: tag.phase, log: tag.log },
       }),
     )
     .with(

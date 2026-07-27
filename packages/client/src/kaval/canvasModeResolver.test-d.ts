@@ -114,12 +114,11 @@ const warmingConnectedPhase: CanvasFacts = {
 };
 void warmingConnectedPhase;
 
-// The `failed` arm carries the cause + reason, NO kaval facts, NO connectPhase.
+// The `failed` arm is the DISCRIMINANT only — no kaval facts, no connectPhase, and no
+// failure payload (that is `failedEpisode`'s one value, not a routing payload).
 const failed: CanvasFacts = {
   ...liveness,
   entry: "failed",
-  cause: "contract-skew-refused",
-  reason: "remote padi contract skew",
   // @ts-expect-error — `down` is a CONNECTED-arm-only kaval fact; a failed host
   // never connected, so there is no daemon to describe.
   down: "dead",
@@ -131,8 +130,6 @@ void failed;
 const failedArm: Extract<CanvasFacts, { entry: "failed" }> = {
   ...liveness,
   entry: "failed",
-  cause: "link-failed",
-  reason: "host unreachable",
 };
 // @ts-expect-error — `daemonState` does not exist on the `failed` arm.
 void failedArm.daemonState;
@@ -142,6 +139,7 @@ const warmingArm: Extract<CanvasFacts, { entry: "warming" }> = {
   ...liveness,
   entry: "warming",
   connectPhase: undefined,
+  connectLog: undefined,
 };
 // @ts-expect-error — `terminalCount` does not exist on the `warming` arm.
 void warmingArm.terminalCount;

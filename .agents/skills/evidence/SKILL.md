@@ -148,7 +148,7 @@ fit — not as a shortcut past a quick scenario that would do.
 **Delegate to a subagent** (`Agent(subagent_type="general-purpose", model="sonnet")`) so
 the main context stays clear of capture noise. Brief it with the box name, the branch, whether the
 deliverable is an image or a video, the scenario to record (feature file + exact scenario name) or
-the live state to drive, a `<slug>`, the PR number, and the fixed `pr-evidence` release tag; have it
+the live state to drive, a `<slug>`, the PR number, and the fixed `evidence-assets` release tag; have it
 return only the markdown body it posted.
 
 ## How the harness records (wired in `packages/tests/support/hooks.ts`, gated on `KOLU_EVIDENCE`)
@@ -270,23 +270,28 @@ pu connect "$host" -- 'bash -lc "
 `gh pr comment` can't attach binaries, so copy artifacts back and upload to a long-lived
 GitHub release. (A screenshot from §A is a `.png` — upload and embed it the same way.)
 
-**`pr-evidence` is the one fixed evidence-release tag.** It already exists. Never derive a release
-tag from the PR number or artifact slug, and never create another release. Verify `pr-evidence`
-exists before uploading; if it does not, fail loudly.
+**`evidence-assets` is the one fixed evidence-release tag.** It already exists (a pre-release
+holding every prior PR's artifacts). Never derive a release tag from the PR number or artifact
+slug, and never create another release. Verify `evidence-assets` exists before uploading; if it
+does not, fail loudly.
+
+**The local filename IS the asset name.** `gh release upload` names each asset after the file's
+basename, and the embed URL below is `…/download/evidence-assets/<slug>.png` — so copy back to
+`/tmp/<slug>.png`, not a decorated `/tmp/evidence-<slug>.png`, or every embed 404s.
 
 ```sh
-scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.png /tmp/evidence-<slug>.png
-scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.gif /tmp/evidence-<slug>.gif
-scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.mp4 /tmp/evidence-<slug>.mp4
-gh release view pr-evidence >/dev/null
-gh release upload pr-evidence /tmp/evidence-<slug>.png /tmp/evidence-<slug>.gif /tmp/evidence-<slug>.mp4 --clobber
+scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.png /tmp/<slug>.png
+scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.gif /tmp/<slug>.gif
+scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.mp4 /tmp/<slug>.mp4
+gh release view evidence-assets >/dev/null
+gh release upload evidence-assets /tmp/<slug>.png /tmp/<slug>.gif /tmp/<slug>.mp4 --clobber
 ```
 
 Embed inline (GitHub renders PNG **and** animated GIF from any release URL):
 
 ```
-![](https://github.com/<OWNER>/<REPO>/releases/download/pr-evidence/<slug>.png)
-![](https://github.com/<OWNER>/<REPO>/releases/download/pr-evidence/<slug>.gif)
+![](https://github.com/<OWNER>/<REPO>/releases/download/evidence-assets/<slug>.png)
+![](https://github.com/<OWNER>/<REPO>/releases/download/evidence-assets/<slug>.gif)
 ```
 
 For a **before↔after** comparison, post the two stills side by side (a small two-cell table or two
