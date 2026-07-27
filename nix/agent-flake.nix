@@ -6,6 +6,19 @@
 # shells. The inventory is application policy in nix/agent-packages.json;
 # @kolu/surface-remote owns only the generic provisioning mechanism.
 {
+  # Same cache the root flake declares. This is the flake a remote host
+  # actually builds (`nix build --accept-flake-config --store ssh-ng://…` in
+  # @kolu/surface-remote's nixCopy.ts) — without this block that flag had
+  # nothing to accept, so provisioning compiled the agent closure (including
+  # the Rust osfacts) from source even though CI had pushed it. Nix still
+  # honors it only when the building user is trusted by the target daemon;
+  # untrusted setups need the cache in the host's own nix.conf (see the
+  # Quickstart's binary-cache section).
+  nixConfig = {
+    extra-substituters = "https://cache.nixos.asia/oss";
+    extra-trusted-public-keys = "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=";
+  };
+
   outputs = { ... }:
     let
       platform = import ./nix/each-system.nix;
