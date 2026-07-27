@@ -20,6 +20,8 @@ export type PrintedUrlCardTarget = {
   /** The raw URI as the link provider reported it. */
   uri: string;
   port: number;
+  /** Scheme from the printout — doors carry TLS bytes when this is https:. */
+  protocol: "http:" | "https:";
   pathname: string;
   search: string;
   hash: string;

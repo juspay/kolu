@@ -76,6 +76,23 @@ describe("urlForPort", () => {
     ).toEqual({ kind: "ready", url: "http://pureintent:61000/app?x=1" });
   });
 
+  it("keeps https from the printout so TLS rides the door", () => {
+    expect(
+      urlForPort({
+        action: { kind: "forward" },
+        remotePort: 5173,
+        doorPort: 61000,
+        pageHost,
+        remainder: {
+          pathname: "/",
+          search: "",
+          hash: "",
+          protocol: "https:",
+        },
+      }),
+    ).toEqual({ kind: "ready", url: "https://pureintent:61000" });
+  });
+
   it("says none when nothing reaches the port", () => {
     expect(
       urlForPort({

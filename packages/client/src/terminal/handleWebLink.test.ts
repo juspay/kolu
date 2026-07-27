@@ -31,6 +31,7 @@ describe("handleWebLink", () => {
     expect(printedUrlCardTarget()).toMatchObject({
       terminalId: "t1",
       port: 5173,
+      protocol: "http:",
       pathname: "/app",
       x: 40,
       y: 80,

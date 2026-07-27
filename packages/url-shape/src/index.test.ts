@@ -39,6 +39,7 @@ describe("parseLoopbackUrl", () => {
     expect(parseLoopbackUrl("http://localhost:5173/")).toEqual({
       host: "localhost",
       port: 5173,
+      protocol: "http:",
       pathname: "/",
       search: "",
       hash: "",
@@ -48,9 +49,21 @@ describe("parseLoopbackUrl", () => {
     ).toEqual({
       host: "127.0.0.1",
       port: 8080,
+      protocol: "http:",
       pathname: "/notes/today",
       search: "?q=1",
       hash: "#here",
+    });
+  });
+
+  it("preserves https so a TLS listener is not reopened as http", () => {
+    expect(parseLoopbackUrl("https://localhost:5173/app")).toEqual({
+      host: "localhost",
+      port: 5173,
+      protocol: "https:",
+      pathname: "/app",
+      search: "",
+      hash: "",
     });
   });
 
@@ -58,6 +71,7 @@ describe("parseLoopbackUrl", () => {
     expect(parseLoopbackUrl("http://[::1]:3000/app")).toEqual({
       host: "::1",
       port: 3000,
+      protocol: "http:",
       pathname: "/app",
       search: "",
       hash: "",
@@ -65,6 +79,7 @@ describe("parseLoopbackUrl", () => {
     expect(parseLoopbackUrl("http://0.0.0.0:9000")).toEqual({
       host: "0.0.0.0",
       port: 9000,
+      protocol: "http:",
       pathname: "/",
       search: "",
       hash: "",

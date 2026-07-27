@@ -13,15 +13,18 @@
 
 import type { HostKey } from "kolu-common/hostKey";
 import type { ForwardOrigin } from "kolu-common/surface";
+import { match } from "ts-pattern";
 import type { PortAction } from "./portAction";
 import { portUrl } from "./portUrl";
 import { createForward } from "./useForwards";
 
-/** Path / query / hash carried from a printed URL onto the door URL. */
+/** Path / query / hash / scheme carried from a printed URL onto the door URL. */
 export type UrlRemainder = {
   pathname: string;
   search: string;
   hash: string;
+  /** Scheme the printout used; default `http:` when absent (chip path). */
+  protocol?: "http:" | "https:";
 };
 
 /** Append a printed URL's path+query+hash onto a door base URL.
@@ -57,28 +60,34 @@ export function urlForPort(opts: {
   pageHost: string;
   remainder?: UrlRemainder;
 }): UrlForPort {
-  if (opts.action.kind === "none") return { kind: "none" };
-  if (opts.action.kind === "here") {
-    return {
-      kind: "ready",
+  const protocol = opts.remainder?.protocol ?? "http:";
+  return match(opts.action)
+    .with({ kind: "none" }, () => ({ kind: "none" }) as const)
+    .with({ kind: "here" }, () => ({
+      kind: "ready" as const,
       url: withRemainder(
-        portUrl(opts.pageHost, opts.remotePort),
+        portUrl(opts.pageHost, opts.remotePort, protocol),
         opts.remainder,
       ),
-    };
-  }
-  if (opts.action.kind === "viewer") {
-    return {
-      kind: "ready",
-      url: withRemainder(portUrl("localhost", opts.remotePort), opts.remainder),
-    };
-  }
-  // forward
-  if (opts.doorPort === undefined) return { kind: "needs-door" };
-  return {
-    kind: "ready",
-    url: withRemainder(portUrl(opts.pageHost, opts.doorPort), opts.remainder),
-  };
+    }))
+    .with({ kind: "viewer" }, () => ({
+      kind: "ready" as const,
+      url: withRemainder(
+        portUrl("localhost", opts.remotePort, protocol),
+        opts.remainder,
+      ),
+    }))
+    .with({ kind: "forward" }, () => {
+      if (opts.doorPort === undefined) return { kind: "needs-door" } as const;
+      return {
+        kind: "ready" as const,
+        url: withRemainder(
+          portUrl(opts.pageHost, opts.doorPort, protocol),
+          opts.remainder,
+        ),
+      };
+    })
+    .exhaustive();
 }
 
 /** Open (or reuse) the door for this port. Returns the local port it answers on.

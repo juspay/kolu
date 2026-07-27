@@ -22,6 +22,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
+import { match } from "ts-pattern";
 import { FORWARD_PILL } from "../forwards/forwardTone";
 import {
   joinPrintedUrl,
@@ -39,6 +40,7 @@ import { activeHost } from "../wire";
 import { openRawUrl } from "./handleWebLink";
 import {
   closePrintedUrlCard,
+  printedUrlCardTarget,
   type PrintedUrlCardTarget,
 } from "./printedUrlCardState";
 import { useTerminalStore } from "./useTerminalStore";
@@ -106,6 +108,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     pathname: props.target.pathname,
     search: props.target.search,
     hash: props.target.hash,
+    protocol: props.target.protocol,
   });
 
   const actionForJoined = () => {
@@ -119,6 +122,14 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   };
 
   const pos = () => clampPos(props.target.x, props.target.y, CARD_WIDTH, 160);
+
+  // Terminal unmount (host switch, tile kill) drops listeners but the singleton
+  // target would survive — remount would reopen a zombie card. Clear if we own it.
+  onCleanup(() => {
+    if (printedUrlCardTarget()?.terminalId === props.target.terminalId) {
+      closePrintedUrlCard();
+    }
+  });
 
   // Outside click + Escape — same discipline as useAnchoredPopover, but the
   // "trigger" is a coordinate rather than an element.
@@ -169,8 +180,14 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     }
     // needs-door — claim the tab before the await (popup-blocker rule).
     const tab = window.open("", "_blank");
-    if (tab !== null) tab.opener = null;
     try {
+      if (tab !== null) {
+        try {
+          tab.opener = null;
+        } catch {
+          // Electron can throw; ignore.
+        }
+      }
       const localPort = await ensureDoor({
         host: host(),
         port: props.target.port,
@@ -204,41 +221,65 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     }
   };
 
-  /** Copy door URL = decision + act, no effect. */
+  /** Copy = decision (+ act when a door is already ready). Never clipboard-write
+   *  after an await — user activation is gone (see clipboard.ts). needs-door
+   *  opens the door, then asks for a second click to copy. */
   const copyDoorUrl = async (): Promise<void> => {
     const action = actionForJoined();
     if (action === undefined || action.kind === "none") return;
     if (busy()) return;
+    const j = join();
+    const doorPort = j.kind === "joined" ? j.forward?.localPort : undefined;
+    const decided = urlForPort({
+      action,
+      remotePort: props.target.port,
+      doorPort,
+      pageHost: window.location.hostname,
+      remainder: remainder(),
+    });
+    if (decided.kind === "ready") {
+      // Still inside the click gesture — write before any await.
+      try {
+        await writeTextToClipboard(decided.url);
+        toast.success("URL copied");
+      } catch (err) {
+        toast.error(`Could not copy: ${(err as Error).message}`);
+      }
+      return;
+    }
+    if (decided.kind !== "needs-door") return;
     setBusy(true);
     try {
-      const j = join();
-      let doorPort = j.kind === "joined" ? j.forward?.localPort : undefined;
-      let decided = urlForPort({
-        action,
+      const localPort = await ensureDoor({
+        host: host(),
+        port: props.target.port,
+        origin: "auto",
+      });
+      const ready = urlForPort({
+        action: { kind: "forward" },
         remotePort: props.target.port,
-        doorPort,
+        doorPort: localPort,
         pageHost: window.location.hostname,
         remainder: remainder(),
       });
-      if (decided.kind === "needs-door") {
-        doorPort = await ensureDoor({
-          host: host(),
-          port: props.target.port,
-          origin: "auto",
-        });
-        decided = urlForPort({
-          action: { kind: "forward" },
-          remotePort: props.target.port,
-          doorPort,
-          pageHost: window.location.hostname,
-          remainder: remainder(),
-        });
-      }
-      if (decided.kind !== "ready") return;
-      await writeTextToClipboard(decided.url);
-      toast.success("Door URL copied");
+      if (ready.kind !== "ready") return;
+      // Second gesture required — clipboard after await is blocked.
+      toast.success(`Door open on port ${localPort}`, {
+        description: "Click copy again to put the URL on the clipboard.",
+        action: {
+          label: "Copy",
+          onClick: () => {
+            void writeTextToClipboard(ready.url).then(
+              () => toast.success("URL copied"),
+              (err: Error) => toast.error(`Could not copy: ${err.message}`),
+            );
+          },
+        },
+      });
     } catch (err) {
-      toast.error(`Could not copy: ${(err as Error).message}`);
+      toast.error(
+        `Could not open door for port ${props.target.port}: ${(err as Error).message}`,
+      );
     } finally {
       setBusy(false);
     }
@@ -280,38 +321,42 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
               const action = () => actionForJoined();
               const primaryLabel = () => {
                 const a = action();
-                if (a === undefined || a.kind === "none") return null;
-                if (a.kind === "viewer" || a.kind === "here") return "↗ open";
-                if (joined().forward !== undefined) return "↗ open";
-                return "⇄ forward & open ↗";
+                if (a === undefined) return null;
+                return match(a)
+                  .with({ kind: "none" }, () => null)
+                  .with({ kind: "viewer" }, () => "↗ open")
+                  .with({ kind: "here" }, () => "↗ open")
+                  .with({ kind: "forward" }, () =>
+                    joined().forward !== undefined
+                      ? "↗ open"
+                      : "⇄ forward & open ↗",
+                  )
+                  .exhaustive();
               };
-              return (
-                <>
-                  <div class="flex items-center gap-2 mb-1">
-                    <span
-                      class={`${FORWARD_PILL} text-[11px]`}
-                      data-testid="printed-url-pill"
-                    >
-                      ⇄ {joined().port}
-                    </span>
-                    <span class="min-w-0 truncate text-fg font-medium">
-                      {joined().forward !== undefined
-                        ? "door already open"
-                        : "this terminal serves it"}
-                      <span class="text-fg-3 font-normal font-mono">
-                        {" "}
-                        · {joined().info.name}
-                      </span>
-                    </span>
-                  </div>
-                  <p class="text-fg-3 text-[11px] mb-2">
-                    {action()?.kind === "viewer" ? (
-                      <>
-                        You are on this host —{" "}
-                        <span class="font-mono">localhost</span> is correct
-                        here.
-                      </>
-                    ) : joined().forward !== undefined ? (
+              const copyLabel = () => {
+                const a = action();
+                if (a === undefined || a.kind === "none") return null;
+                return a.kind === "forward" ? "⧉ copy door URL" : "⧉ copy URL";
+              };
+              const prose = () => {
+                const a = action();
+                if (a === undefined) return null;
+                return match(a)
+                  .with({ kind: "viewer" }, () => (
+                    <>
+                      You are on this host —{" "}
+                      <span class="font-mono">localhost</span> is correct here.
+                    </>
+                  ))
+                  .with({ kind: "here" }, () => (
+                    <>
+                      This port already answers on{" "}
+                      <span class="font-mono">{hostName()}</span> — opens
+                      directly, path included.
+                    </>
+                  ))
+                  .with({ kind: "forward" }, () =>
+                    joined().forward !== undefined ? (
                       <>
                         Already forwarded — the click opens through the door on{" "}
                         <span class="font-mono">{hostName()}</span>, path
@@ -325,8 +370,43 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                         </span>{" "}
                         — opens via a door on the kolu host, path included.
                       </>
-                    )}
-                  </p>
+                    ),
+                  )
+                  .with({ kind: "none" }, () => (
+                    <>
+                      Bound to one interface — no door can reach it, and there
+                      is no honest URL to build.
+                    </>
+                  ))
+                  .exhaustive();
+              };
+              return (
+                <>
+                  <div class="flex items-center gap-2 mb-1">
+                    <span
+                      class={`${FORWARD_PILL} text-[11px]`}
+                      data-testid="printed-url-pill"
+                    >
+                      ⇄ {joined().port}
+                    </span>
+                    <span class="min-w-0 truncate text-fg font-medium">
+                      {match(action() ?? { kind: "none" as const })
+                        .with({ kind: "forward" }, () =>
+                          joined().forward !== undefined
+                            ? "door already open"
+                            : "this terminal serves it",
+                        )
+                        .with({ kind: "here" }, () => "opens on this host")
+                        .with({ kind: "viewer" }, () => "on your machine")
+                        .with({ kind: "none" }, () => "not reachable")
+                        .exhaustive()}
+                      <span class="text-fg-3 font-normal font-mono">
+                        {" "}
+                        · {joined().info.name}
+                      </span>
+                    </span>
+                  </div>
+                  <p class="text-fg-3 text-[11px] mb-2">{prose()}</p>
                   <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Show when={primaryLabel()}>
                       {(label) => (
@@ -341,15 +421,19 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                         </button>
                       )}
                     </Show>
-                    <button
-                      type="button"
-                      class="text-fg-3 hover:text-fg disabled:opacity-50"
-                      data-testid="printed-url-copy-door"
-                      disabled={busy() || action()?.kind === "none"}
-                      onClick={() => void copyDoorUrl()}
-                    >
-                      ⧉ copy door URL
-                    </button>
+                    <Show when={copyLabel()}>
+                      {(label) => (
+                        <button
+                          type="button"
+                          class="text-fg-3 hover:text-fg disabled:opacity-50"
+                          data-testid="printed-url-copy-door"
+                          disabled={busy()}
+                          onClick={() => void copyDoorUrl()}
+                        >
+                          {label()}
+                        </button>
+                      )}
+                    </Show>
                   </div>
                 </>
               );

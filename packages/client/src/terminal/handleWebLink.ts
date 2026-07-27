@@ -10,17 +10,22 @@
 
 import { parseLoopbackUrl } from "@kolu/url-shape";
 import type { TerminalId } from "kolu-common/surface";
+import { toast } from "solid-sonner";
 import { closePrintedUrlCard, openPrintedUrlCard } from "./printedUrlCardState";
 
 /** Open a URL the way the default WebLinksAddon would — new tab, opener severed. */
 export function openRawUrl(uri: string): void {
   const tab = window.open(uri, "_blank");
-  if (tab !== null) {
-    try {
-      tab.opener = null;
-    } catch {
-      // Electron can throw; ignore.
-    }
+  if (tab === null) {
+    toast.info("Your browser blocked the new tab.", {
+      description: uri,
+    });
+    return;
+  }
+  try {
+    tab.opener = null;
+  } catch {
+    // Electron can throw; ignore.
   }
 }
 
@@ -46,6 +51,7 @@ export function handleWebLink(
     terminalId,
     uri,
     port: loopback.port,
+    protocol: loopback.protocol,
     pathname: loopback.pathname,
     search: loopback.search,
     hash: loopback.hash,

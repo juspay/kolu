@@ -54,6 +54,8 @@ export type LoopbackUrl = {
   /** Hostname as the URL parser reports it (IPv6 bare, no brackets). */
   host: string;
   port: number;
+  /** Scheme the printout used — carried so a door/open can keep TLS intact. */
+  protocol: "http:" | "https:";
   /** Pathname including a leading `/` (URL always has one). */
   pathname: string;
   /** Search including the leading `?`, or `""`. */
@@ -87,6 +89,7 @@ export function parseLoopbackUrl(text: string): LoopbackUrl | null {
   return {
     host,
     port,
+    protocol: url.protocol === "https:" ? "https:" : "http:",
     pathname: url.pathname,
     search: url.search,
     hash: url.hash,

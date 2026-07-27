@@ -69,8 +69,14 @@ export const PortRow: Component<{
     if (opening()) return;
     setOpening(true);
     const tab = window.open("", "_blank");
-    if (tab !== null) tab.opener = null;
     try {
+      if (tab !== null) {
+        try {
+          tab.opener = null;
+        } catch {
+          // Electron can throw; ignore.
+        }
+      }
       const localPort = await ensureDoor({
         host: props.host,
         port: props.row.port,

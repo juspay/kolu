@@ -27,7 +27,15 @@ export function portAuthority(hostname: string, port: number): string {
 
 /** The URL a port answers on: the host the page was served from, which IS the
  *  kolu server's host. Exported for the unit test — the whole point of this
- *  function is the hostname it does NOT use. */
-export function portUrl(hostname: string, port: number): string {
-  return `http://${portAuthority(hostname, port)}`;
+ *  function is the hostname it does NOT use.
+ *
+ *  Scheme defaults to `http:` (dev-server doors and wildcard chips). Pass
+ *  `https:` when the printed URL (or the listener) is TLS — a TCP door carries
+ *  bytes, so the browser still has to speak the right scheme. */
+export function portUrl(
+  hostname: string,
+  port: number,
+  protocol: "http:" | "https:" = "http:",
+): string {
+  return `${protocol}//${portAuthority(hostname, port)}`;
 }
