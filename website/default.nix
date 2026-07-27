@@ -49,7 +49,7 @@ let
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu-website";
     inherit version src;
-    pnpm = pkgs.pnpm_10;
+    pnpm = pkgs.pnpm-build;
     # Determinism guard (juspay/kolu#1097). The fetcher runs `pnpm install
     # --force`, which pulls every platform's optional binaries (so Darwin and
     # Linux share one hash) — but `--force` treats those cross-platform
@@ -103,7 +103,7 @@ let
 
     nativeBuildInputs = [
       pkgs.nodejs
-      pkgs.pnpm_10
+      pkgs.pnpm-build
       pkgs.pnpmConfigHook
     ];
 

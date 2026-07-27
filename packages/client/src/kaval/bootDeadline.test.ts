@@ -21,14 +21,16 @@ import {
 
 const LOCAL_MS = LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS;
 // Typed with the accrue variant's own field types (F4) — a leg/ceiling typo, or a future
-// union change, fails at compile time instead of being cast away. `phase` is irrelevant to
-// the anchor mechanics this file pins (it only drives the escape surface's rendered copy,
-// pinned in canvasModeResolver.test.ts instead), so every fixture here fixes it `undefined`.
+// union change, fails at compile time instead of being cast away. `phase` and `log` are
+// irrelevant to the anchor mechanics this file pins (they only feed the escape surface's
+// rendered copy and tail, pinned in canvasModeResolver.test.ts instead), so every fixture
+// here fixes both `undefined`.
 const boot = (leg: StalledLeg, ceiling: CeilingClass): BootTag => ({
   accrual: "accrue",
   leg,
   ceiling,
   phase: undefined,
+  log: undefined,
 });
 /** A settled surface (workspace/empty/down/host-failed) — releases the anchor. */
 const cleared: BootTag = { accrual: "clear" };

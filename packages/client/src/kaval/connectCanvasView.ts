@@ -1,5 +1,3 @@
-import type { ConnectionInfo } from "kolu-common/surfacesWithPadi";
-
 /** How many trailing `log` lines the live connect tail shows — a tail, not the whole Nix
  *  firehose (the reassurance is "named phase + real output + elapsed", not a scroll of every
  *  line). */
@@ -10,12 +8,20 @@ export const TAIL_LINES = 6;
  *  "`probing` narrates its log the instant it arrives / no 0s flash on the brief handshake"
  *  behaviour is unit-pinnable without mounting a DOM. */
 
-/** The live log tail — the last {@link TAIL_LINES} lines of the frame's `log`. A non-empty
+/** The last `lines` lines of a frame's `log` — the ONE "take a tail" rule every surface that
+ *  shows raw host output calls, rather than re-spelling a `.slice(-n)` per site. A non-empty
  *  result renders the tail, so a `probing` frame's "<host>: checking for a cached agent…"
  *  shows immediately (no silent probing window); the pre-frame gap has an empty log, so it
- *  renders title-only BY CONSTRUCTION (data absence, not policy). */
-export function tailOf(log: ConnectionInfo["log"]): ConnectionInfo["log"] {
-  return log.slice(-TAIL_LINES);
+ *  renders title-only BY CONSTRUCTION (data absence, not policy). Depth defaults to the
+ *  connect overlay's {@link TAIL_LINES}; the host-diagnostics popover asks for a shallower
+ *  one, because it is a popover and not a canvas. Generic in the line shape: the connect
+ *  overlay hands it the wire's `LogEntry`, the failure surfaces the structural `LogLine`, and
+ *  taking a tail cares about neither. */
+export function tailOf<Line>(
+  log: readonly Line[],
+  lines: number = TAIL_LINES,
+): readonly Line[] {
+  return log.slice(-lines);
 }
 
 /** Whether the elapsed timer renders: only once the episode duration reaches 1s — so a

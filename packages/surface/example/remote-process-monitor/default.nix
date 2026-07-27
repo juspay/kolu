@@ -46,7 +46,7 @@ let
     pname = "process-monitor-client";
     version = "0.1.0";
     inherit src;
-    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm_10 pkgs.pnpmConfigHook ];
+    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm-build pkgs.pnpmConfigHook ];
     inherit pnpmDeps;
     dontFixup = true;
     buildPhase = ''
