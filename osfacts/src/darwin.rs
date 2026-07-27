@@ -25,7 +25,6 @@ const PROC_PIDFDSOCKETINFO: c_int = 3;
 const PROX_FDTYPE_SOCKET: u32 = 2;
 const SOCKINFO_TCP: c_int = 2;
 const TSI_S_LISTEN: c_int = 1;
-const AF_LINK: u8 = 18;
 const XSO_INPCB: u32 = 0x010;
 const XSO_TCPCB: u32 = 0x020;
 const INP_IPV6: u8 = 0x2;
@@ -702,39 +701,17 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
 }
 
 fn read_networks() -> Result<Vec<Network>, i32> {
-    unsafe {
-        let mut head = std::ptr::null_mut();
-        if libc::getifaddrs(&mut head) != 0 {
-            return Err(errno());
-        }
-        let mut rows = HashMap::<String, (u64, u64)>::new();
-        let mut cursor = head;
-        while !cursor.is_null() {
-            let ifa = &*cursor;
-            if !ifa.ifa_addr.is_null()
-                && (*ifa.ifa_addr).sa_family == AF_LINK
-                && !ifa.ifa_data.is_null()
-            {
-                let data = std::slice::from_raw_parts(ifa.ifa_data.cast::<u8>(), 80);
-                let rx = u64::from_ne_bytes(data[64..72].try_into().unwrap());
-                let tx = u64::from_ne_bytes(data[72..80].try_into().unwrap());
-                let name = CStr::from_ptr(ifa.ifa_name).to_string_lossy().into_owned();
-                rows.insert(name, (rx, tx));
-            }
-            cursor = ifa.ifa_next;
-        }
-        libc::freeifaddrs(head);
-        let mut out: Vec<_> = rows
-            .into_iter()
-            .map(|(name, (rx_bytes, tx_bytes))| Network {
-                name,
-                rx_bytes,
-                tx_bytes,
-            })
-            .collect();
-        out.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(out)
-    }
+    let networks = sysinfo::Networks::new_with_refreshed_list();
+    let mut out: Vec<_> = networks
+        .iter()
+        .map(|(name, data)| Network {
+            name: name.clone(),
+            rx_bytes: data.total_received(),
+            tx_bytes: data.total_transmitted(),
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
 }
 
 fn read_root_disk() -> Result<Disk, i32> {
