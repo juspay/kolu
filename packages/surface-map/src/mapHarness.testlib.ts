@@ -17,6 +17,7 @@ import { connectSurfaceMap } from "./client";
 import {
   defineSurfaceMap,
   type FailureEvidence,
+  type FailureRecord,
   type KeyCodec,
 } from "./define";
 import {
@@ -177,7 +178,7 @@ export function makeRegistry() {
     HostKey,
     {
       session: EntrySession<"copying", TestFailure> | null;
-      fault?: { failure: TestFailure; evidence: FailureEvidence };
+      fault?: TestFailure;
     }
   >();
   const listeners = new Set<() => void>();
@@ -199,11 +200,8 @@ export function makeRegistry() {
         return {
           kind: "fault",
           failure: { cause: "unknown", reason: "unknown key" },
-          // An unknown key produced no output at all — `[]` is the honest fact,
-          // stated at the seam that knows it (never a framework default).
-          evidence: [],
         };
-      if (e.fault !== undefined) return { kind: "fault", ...e.fault };
+      if (e.fault !== undefined) return { kind: "fault", failure: e.fault };
       return e.session as EntrySession<"copying", TestFailure>;
     },
   };
@@ -218,14 +216,13 @@ export function makeRegistry() {
       fire();
     },
     // PR4: a structural fault carries a schema-valid domain `failure` (the mock's
-    // stand-in for the real classifier), never a fabricated catch-all — plus that
-    // failure's `evidence`. Both are REQUIRED, with no `[]` default: `EntryFault`'s
-    // contract is that every mint site STATES its evidence (see `server.ts`), and a
-    // helper that quietly supplies one is precisely the framework-side default that
-    // contract exists to forbid. A test with no output to report writes `[]` itself —
-    // that is the honest fact, spelled by the seam that knows it.
-    addFault(k: HostKey, failure: TestFailure, evidence: FailureEvidence) {
-      entries.set(k, { session: null, fault: { failure, evidence } });
+    // stand-in for the real classifier), never a fabricated catch-all. It carries no
+    // evidence — a fault has no session (see `EntryFault`), so `statusOf` states the
+    // structural `[]` once. A test that needs a real retained tail drives a
+    // SESSION-backed entry (`addSession` + `setState(k, failed(failure, tail))`), which
+    // is the shape production actually produces.
+    addFault(k: HostKey, failure: TestFailure) {
+      entries.set(k, { session: null, fault: failure });
       fire();
     },
     setState(k: HostKey, state: EntryConnectionState<"copying", TestFailure>) {
@@ -276,11 +273,11 @@ export const connected = (
 });
 
 /** A terminal `failed` connection state carrying a domain `failure` (PR4) and its
- *  `evidence` — the arm REQUIRES both, so this helper cannot construct either
- *  illegal state (failed-without-failure, or a reason without its evidence; see
- *  `entryConnectionState.test-d.ts`). Neither has a default, for the same reason
- *  `addFault` has none: the caller is the seam that knows what the episode printed,
- *  and `[]` is a fact it states rather than one the helper invents. */
+ *  `evidence` — the arm IS a {@link FailureRecord}, so this helper cannot construct
+ *  either illegal state (failed-without-failure, or a reason without its evidence; see
+ *  `entryConnectionState.test-d.ts`). `evidence` has no default: the caller is the seam
+ *  that knows what the episode printed, and `[]` is a fact it states rather than one the
+ *  helper invents. */
 export const failed = (
   failure: TestFailure,
   evidence: FailureEvidence,
@@ -292,18 +289,12 @@ export const failed = (
 
 /** A `disconnected` connection state — TRANSIENT when the argument is omitted (the
  *  classifier returned nothing → projects to warming), STANDING when a refuse is
- *  supplied (→ projects to failed, carrying its `evidence`).
- *
- *  ONE paired argument, not two positionals: the arm itself pairs `failure` with
- *  `evidence` (both, or neither), and a `(failure?, evidence)` signature can be
- *  called with an evidence tail and no failure — which the helper would then have to
- *  silently DISCARD, degrading at the harness exactly the both-or-neither invariant
- *  the type spends a two-member union to encode. As one object the two travel
- *  together or not at all, and the illegal call no longer type-checks. */
-export const disconnected = (refuse?: {
-  failure: TestFailure;
-  evidence: FailureEvidence;
-}): EntryConnectionState<"copying", TestFailure> =>
-  refuse === undefined
-    ? { kind: "disconnected" }
-    : { kind: "disconnected", ...refuse };
+ *  supplied (→ projects to failed, carrying its `evidence`). A pass-through of the
+ *  arm's own optional {@link FailureRecord}: one value, so the reason and its evidence
+ *  travel together or not at all. */
+export const disconnected = (
+  refuse?: FailureRecord<TestFailure>,
+): EntryConnectionState<"copying", TestFailure> => ({
+  kind: "disconnected",
+  refuse,
+});

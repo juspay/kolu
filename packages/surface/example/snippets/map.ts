@@ -266,9 +266,6 @@ export function serveMap(hosts: string[], agentDrv: string) {
         return {
           kind: "fault",
           failure: { reason: `unknown host: ${k}` },
-          // A fault has no session, so no retained tail — `[]` is the honest
-          // "produced no output", stated explicitly at the mint site.
-          evidence: [],
         };
       return { kind: "session", link: b.link, state: b.state() };
     },

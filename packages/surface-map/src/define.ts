@@ -119,6 +119,22 @@ export interface EvidenceLine {
  *  "we couldn't see it": there is no such state on a failed arm any more. */
 export type FailureEvidence = readonly EvidenceLine[];
 
+/** A domain failure and the EVIDENCE for it — ONE record, with ONE name. Wherever a
+ *  down state carries a reason it carries this whole record, so the pairing rule is a
+ *  TYPE rather than a convention restated at each site: "a reason whose evidence went
+ *  missing" (juspay/kolu#2007) has no spelling anywhere the record is used.
+ *
+ *  This is the type every site the pair travels through refers to — the session's
+ *  `EntryConnectionState` (`failed`, and `disconnected`'s optional `refuse`), the
+ *  published {@link EntryStatus} `failed` arm, and the test harness's helpers. Making
+ *  its PRESENCE the discriminant on `disconnected` is what removes the old two-same-tag-
+ *  member union and its hand-written narrowing predicate: one optional field has no pair
+ *  to leave uncorrelated. */
+export interface FailureRecord<Failure = unknown> {
+  readonly failure: Failure;
+  readonly evidence: FailureEvidence;
+}
+
 /** The wire/zod schema for {@link FailureEvidence}. A module const (not a function
  *  of a domain schema like the failure value): evidence is a fixed structural type
  *  this package owns, so there is exactly one schema for it.
@@ -194,27 +210,10 @@ export type EntryStatus<Failure = unknown, Conn = unknown> =
       clockOffset: number | null;
       connection?: Conn;
     }
-  | {
-      kind: "failed";
-      membershipId: MembershipId;
-      failure: Failure;
-      // The reason's EVIDENCE, co-produced with it at the classification seam and
-      // REQUIRED — a failed entry can no more be published without its retained
-      // output tail than without its domain failure. See {@link FailureEvidence}.
-      //
-      // And note what this arm does NOT carry: there is no `connection` here. A failed
-      // entry's live word is the SAME `raw` frame its evidence was pinned from, so
-      // publishing both put a byte-identical tail on the arm twice — once as a
-      // post-mortem record, once as a live payload the liveness floor drops. That left
-      // `entry.connection?.log` still spellable, still compiling, and still WRONG on
-      // exactly this arm: it is the read that lost the tail for a year
-      // (juspay/kolu#2007). Removing the field makes it a compile error instead of a
-      // documented hazard — unspellable beats discouraged. A consumer that wants the
-      // failed entry's output reads `evidence`; one that wants a LIVE phase has, by
-      // definition, no live phase to read here. The up arms keep `connection` because
-      // there the live word is the only word there is.
-      evidence: FailureEvidence;
-    };
+  // The whole {@link FailureRecord} — reason AND evidence, or neither. And note what
+  // this arm does NOT carry: there is no `connection` here (see {@link FailureEvidence}
+  // for why the tail rides the record instead).
+  | ({ kind: "failed"; membershipId: MembershipId } & FailureRecord<Failure>);
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It

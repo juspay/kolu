@@ -373,13 +373,16 @@ export function serveHostMap<
         // evidence pipe. `[]` here means the episode genuinely retained no lines.
         state = { kind: "failed", failure, evidence: down.log };
       } else {
-        // `disconnected`: `null` = transient drop → keep `failure` ABSENT (→ warming); a
-        // domain failure → attach it (a standing refuse → failed) TOGETHER with its
-        // evidence, which the type pairs with it — a standing refuse is published as
+        // `disconnected`: `null` = transient drop → keep the `refuse` record ABSENT
+        // (→ warming); a domain failure → attach the whole record (a standing refuse →
+        // failed), reason and evidence in one value. A standing refuse is published as
         // `failed`, so it gets exactly the same stapling as a terminal give-up.
         state =
           failure !== null
-            ? { kind: "disconnected", failure, evidence: down.log }
+            ? {
+                kind: "disconnected",
+                refuse: { failure, evidence: down.log },
+              }
             : { kind: "disconnected" };
       }
     } else {

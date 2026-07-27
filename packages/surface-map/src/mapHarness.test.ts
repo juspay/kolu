@@ -201,7 +201,7 @@ describe("surface-map mock-entry e2e harness", () => {
       await settle();
       expect(stC).toMatchObject({ kind: "connected", clockOffset: null });
 
-      addFault(D, { cause: "drv-missing", reason: "no drv for arch" }, []);
+      addFault(D, { cause: "drv-missing", reason: "no drv for arch" });
       await settle();
       // A structural fault (no live session) publishes the SAME schema-valid domain
       // `failure` a session-backed failed entry does (PR4 — no `"other"` fabrication).
@@ -769,13 +769,17 @@ describe("surface-map mock-entry e2e harness", () => {
     // The companion to (15). That test pins the gate's SUPPRESSING half (an unchanged
     // member must not re-emit); this pins the half a hand-enumerated comparison
     // silently breaks — a field the gate was never told about. `evidence` is exactly
-    // that field: it joined the `failed` arm after the gate was written, and a fault
-    // publishes NO `connection`, so an evidence-only change moves nothing else. With
+    // that field: it joined the `failed` arm after the gate was written. With
     // `evidence` missing from the comparison the two statuses below look identical and
     // the new tail is never published — the failure is silent, which is why it is
     // pinned here rather than left to review.
+    //
+    // Driven through a SESSION-backed `failed` entry whose retained tail GREW — the
+    // shape production actually produces (`serveHostMap` stapling `down.log` at the
+    // classification seam). A structural fault has no session and therefore no tail to
+    // grow, so it cannot vehicle this test.
     await createRoot(async (dispose) => {
-      const { served, addFault } = setup();
+      const { served, addSession, setState } = setup();
       const raw = directLink<AnyContractRouter>(
         served.router as Parameters<typeof createRouterClient>[0],
       ) as unknown as {
@@ -788,10 +792,15 @@ describe("surface-map mock-entry e2e harness", () => {
           };
         };
       };
-      // ONE failure value, reused by reference across both mints — so `failure` is
+      // ONE failure value, reused by reference across both frames — so `failure` is
       // `Object.is`-equal and `evidence` is the only field that moves.
       const failure: TestFailure = { cause: "c", reason: "r" };
-      addFault(A, failure, [{ source: "local", line: "first" }]);
+      addSession(
+        A,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        connected(0),
+      );
+      setState(A, failed(failure, [{ source: "local", line: "first" }]));
 
       const ac = new AbortController();
       const emits: EntryStatus<TestFailure>[] = [];
@@ -810,10 +819,13 @@ describe("surface-map mock-entry e2e harness", () => {
       expect(emits.length).toBe(1);
 
       // The episode printed one more line. Nothing else about the entry changed.
-      addFault(A, failure, [
-        { source: "local", line: "first" },
-        { source: "remote", line: "second" },
-      ]);
+      setState(
+        A,
+        failed(failure, [
+          { source: "local", line: "first" },
+          { source: "remote", line: "second" },
+        ]),
+      );
       await settle();
       expect(emits.length).toBe(2);
       expect(
@@ -917,7 +929,7 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).link, {
         kind: "connecting",
       }); // → warming
-      addFault(B, { cause: "drv-missing", reason: "no drv" }, []); // → failed
+      addFault(B, { cause: "drv-missing", reason: "no drv" }); // → failed
       await settle();
       expect(stA?.kind).toBe("warming");
       expect(stA?.membershipId).toEqual(expect.any(String));

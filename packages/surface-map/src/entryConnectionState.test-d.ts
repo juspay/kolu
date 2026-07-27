@@ -13,6 +13,7 @@
  * `@ts-expect-error` lines below compile and fail the pin.
  */
 
+import type { FailureEvidence } from "./define";
 import type { EntryConnectionState, EntrySession, MapRegistry } from "./server";
 
 // The default (provisioning / mixed) arm still admits "copying" — unchanged.
@@ -83,33 +84,47 @@ const disconnectedTransient: EntryConnectionState<
 > = { kind: "disconnected" };
 void disconnectedTransient;
 
-// ── The `disconnected` arm PAIRS `failure` with `evidence` ───────────────────────
+// ── A standing refuse is ONE `FailureRecord`, carried on `disconnected.refuse` ────
 // A standing refuse publishes the `failed` status, so it gets the same stapling as a
-// terminal give-up: a refuse whose reason arrived WITHOUT its evidence is a compile
-// error, not a runtime surprise.
-// @ts-expect-error — a `disconnected` failure must arrive WITH its evidence.
+// terminal give-up. Because the pair is ONE optional value rather than two correlated
+// fields, "a reason without its evidence" is unspellable at the shape level.
 const refuseNoEvidence: EntryConnectionState<"copying", { reason: string }> = {
   kind: "disconnected",
-  failure: { reason: "contract skew — refused" },
+  // @ts-expect-error — a refuse record must carry BOTH halves; `evidence` is missing.
+  refuse: { failure: { reason: "contract skew — refused" } },
 };
 void refuseNoEvidence;
 
 // The paired form is the only constructible standing refuse.
 const refuseOk: EntryConnectionState<"copying", { reason: string }> = {
   kind: "disconnected",
-  failure: { reason: "contract skew — refused" },
-  evidence: [{ source: "local", line: "padi: refusing, version skew" }],
+  refuse: {
+    failure: { reason: "contract skew — refused" },
+    evidence: [{ source: "local", line: "padi: refusing, version skew" }],
+  },
 };
 void refuseOk;
 
-// And evidence cannot ride a transient drop ALONE either — the pair is both-or-neither,
-// so "evidence without a reason" is as unspellable as its mirror.
-// @ts-expect-error — evidence without a `failure` is not a state this arm can hold.
+// And evidence cannot ride a transient drop ALONE either — same record, same rule.
 const evidenceNoRefuse: EntryConnectionState<"copying", { reason: string }> = {
   kind: "disconnected",
-  evidence: [{ source: "local", line: "dropped" }],
+  // @ts-expect-error — a refuse record must carry BOTH halves; `failure` is missing.
+  refuse: { evidence: [{ source: "local", line: "dropped" }] },
 };
 void evidenceNoRefuse;
+
+// The RECORD's presence is what narrows — no dependence on `Failure` being a usable
+// discriminant, which a bare `failure === undefined` test on the old two-same-tag-member
+// spelling did NOT give (`tsc` on that spelling left `evidence` as
+// `FailureEvidence | undefined`, contradicting the rationale it was written under).
+declare const someDisconnected: Extract<
+  EntryConnectionState<"copying", undefined>,
+  { kind: "disconnected" }
+>;
+if (someDisconnected.refuse !== undefined) {
+  const pinned: FailureEvidence = someDisconnected.refuse.evidence;
+  void pinned;
+}
 
 // The same split, one layer up: an `EntrySession<never>` (a LOCAL entry's
 // resolved session) cannot carry a "copying" `state` either.

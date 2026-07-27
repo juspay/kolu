@@ -67,9 +67,6 @@ const registry: MapRegistry<string, "copying", HostFailure> = {
       return {
         kind: "fault",
         failure: { reason: `unknown host: ${k}` },
-        // A fault has no session, so no retained tail — `[]` says "produced no
-        // output", stated explicitly at the mint site rather than defaulted.
-        evidence: [],
       };
     return { kind: "session", link: b.link, state: b.state() };
   },

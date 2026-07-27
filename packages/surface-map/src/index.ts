@@ -15,6 +15,7 @@ export {
   entryStatusSchema,
   type EvidenceLine,
   type FailureEvidence,
+  type FailureRecord,
   type Key,
   type KeyCodec,
   type MembershipId,
