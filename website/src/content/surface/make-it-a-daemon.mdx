@@ -43,6 +43,12 @@ from part 1, served verbatim. (`forever` is one of three lifetimes — the
 [Reference](/surface/ref-surface-daemon) lists `idleTimeout` for a quiet
 coordinator and `boundToPid` for a daemon a test/smoke run wants to die with it.)
 
+`anchor` is the one required field with no default: the directory whose deletion
+makes the daemon garbage (its state root), polled by the spine so the daemon
+[reaps itself](/surface/ref-surface-daemon#the-anchor-self-reap) instead of
+outliving a deleted workspace. fleet-top keeps no on-disk state, so it is
+honestly, visibly unanchored — `() => undefined`.
+
 <Steps>
 
 1. Start the daemon.

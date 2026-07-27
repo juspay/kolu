@@ -17,7 +17,8 @@ point, no subpaths.
 
 `daemonMain(spec)` is the gate → serve → teardown skeleton. It claims a
 single-instance gate, serves the router over a unix socket, waits for the
-lifetime to end, then closes the socket, releases the gate, and **returns** a
+lifetime to end — or for the daemon's [anchor](#the-anchor-self-reap) to be
+proven gone — then closes the socket, releases the gate, and **returns** a
 `DaemonExit` — it never calls `process.exit`, so the whole lifecycle is drivable
 in-process from a test.
 
@@ -44,6 +45,7 @@ rest of the process's life.
 | `stderrLogger()` · `Logger` · `DaemonExit` | the structural logging contract and the exit record `daemonMain` resolves (its exit-code classification lives inside `daemonProcessMain`) |
 | `daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV` | resolve the lifetime from `KOLU_DAEMON_BIND_PID` — a valid pid → `boundToPid`, unset → `fallback`, any present-but-invalid value (incl. `""`) throws |
 | `lifetimeInfo(lifetime)` · `DaemonLifetimeInfo` | the serializable projection of a `DaemonLifetime` — the three kinds with the non-wire members dropped (`idleTimeout`'s `isIdle`, `boundToPid`'s `pollMs`); what a daemon publishes about itself for a UI to read |
+| `anchorGone(path)` · `DaemonShutdownReason` | the ENOENT-only "proven absent" probe both ends of the anchor invariant share, and the full shutdown-reason union (`signal` · `abort` · `idle` · `pid-gone` · `anchor-gone`) |
 
 `lifetime` is the policy that distinguishes tenants — three honest constructors,
 not `forever` plus flags:
@@ -77,6 +79,28 @@ broken expansion, distinct from unset), non-canonical decimal, fractional, or ou
 `pid_t` range — throws (fail-fast), never silently degrades to `fallback`. A
 `boundToPid` shutdown resolves `{ kind: "shutdown", reason: "pid-gone" }`, exit code
 0. Pid reuse inside the poll window is a documented residual, not engineered around.
+
+## The anchor self-reap
+
+`anchor: () => string | undefined` is a **required** `DaemonSpec` field, armed
+under **every** lifetime (it is an independent trigger, not a lifetime arm —
+`forever ∧ anchored` and `boundToPid ∧ anchored` both occur): the thunk resolves
+the directory the daemon's existence is anchored to — its identity/state root,
+the path whose deletion makes the daemon garbage. Once that directory has been
+**proven** gone for two consecutive polls (5s apart in production;
+`anchorPollMs?` is the test seam), the daemon reaps itself through the normal
+teardown — socket unlinked, gate released, `{ kind: "shutdown", reason:
+"anchor-gone" }`, exit code 0 — instead of lingering as a zombie holding its
+sockets and RSS forever after a `git worktree remove`.
+
+Proof is ENOENT-only (`anchorGone(path)`): any other `lstat` failure — EACCES,
+EIO, ENOTDIR — means "I could not read whether it exists", which never counts
+toward a reap. The thunk is re-evaluated every tick, so an anchor learned after
+boot self-corrects (kaval reads the `state-root` manifest its padi writes around
+kaval's own boot), and `undefined` means "not anchored right now" — never
+reaped, and also the honest, visible spelling (`() => undefined`) for a daemon
+with genuinely no on-disk identity. There is deliberately no opt-out knob: a
+daemon author must answer "what is my anchor?" to compile.
 
 ## Serving the surface
 

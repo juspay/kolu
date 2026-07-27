@@ -73,8 +73,9 @@ import {
   localPadiDriver,
   PADI_HOST_ID,
   PadiAdoptionRefusedError,
+  PadiStateRootGoneError,
   padiConnectFailure,
-  reportAdoptionRefusal,
+  reportFatalBindingError,
   resolvePadiLaunch,
 } from "./padiBinding.ts";
 // padi's convergence declaration + probe moved to `./padiConvergence.ts` in L6.
@@ -1017,27 +1018,34 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
   });
 });
 
-describe("reportAdoptionRefusal — a refusal reported on EVERY dial, not just the first (delta-re-review finding 2)", () => {
+describe("reportFatalBindingError — a refusal reported on EVERY dial, not just the first (delta-re-review finding 2)", () => {
   it("invokes the hook for a genuine PadiAdoptionRefusedError", () => {
     const err = new PadiAdoptionRefusedError(
       "a padi is already serving this workspace",
     );
     const seen: PadiAdoptionRefusedError[] = [];
-    reportAdoptionRefusal(err, (e) => seen.push(e));
+    reportFatalBindingError(err, (e) => seen.push(e));
     expect(seen).toEqual([err]);
   });
 
   it("does NOT invoke the hook for a non-fatal (retryable) classification", () => {
     const err = new ConnectError("padi did not come up", "network");
     const seen: unknown[] = [];
-    reportAdoptionRefusal(err, (e) => seen.push(e));
+    reportFatalBindingError(err, (e) => seen.push(e));
     expect(seen).toEqual([]);
   });
 
   it("is a no-op when no hook is supplied (the option is optional)", () => {
     expect(() =>
-      reportAdoptionRefusal(new PadiAdoptionRefusedError("x"), undefined),
+      reportFatalBindingError(new PadiAdoptionRefusedError("x"), undefined),
     ).not.toThrow();
+  });
+
+  it("invokes the hook for a PadiStateRootGoneError too — the #2010 gone-root verdict is the same fatal class", () => {
+    const err = new PadiStateRootGoneError("/gone/worktree/.kolu-dev/padi");
+    const seen: unknown[] = [];
+    reportFatalBindingError(err, (e) => seen.push(e));
+    expect(seen).toEqual([err]);
   });
 
   // THE PIN: session.ts's own reconnect loop (`@kolu/surface-remote`'s
@@ -1045,22 +1053,22 @@ describe("reportAdoptionRefusal — a refusal reported on EVERY dial, not just t
   // FIRST dial's rejection — every dial after that is fire-and-forget, silently
   // swallowing whatever `connectOnce` throws. Before this fix, a refusal reached on
   // a LATER (reconnect) dial was retried as "network" forever — the exact silent
-  // spinner the boot-time fail-fast was meant to kill. `reportAdoptionRefusal` is
+  // spinner the boot-time fail-fast was meant to kill. `reportFatalBindingError` is
   // called directly at the connector's throw site (not left to whichever dial's
   // promise happens to be awaited), so calling it a SECOND time — simulating a
   // reconnect dial that now hits a refusal a first dial didn't — must report just
   // as loudly as the first ever would.
   it("PIN: a refuse reached on a SIMULATED RECONNECT dial (a second, later call) still reports — never silently swallowed", () => {
     const seen: PadiAdoptionRefusedError[] = [];
-    const onAdoptionRefused = (e: PadiAdoptionRefusedError): void => {
+    const onFatalBindingError = (e: PadiAdoptionRefusedError): void => {
       seen.push(e);
     };
 
     // Dial 1: a transient, retryable hiccup — no report (matches today's fail-open
     // reconnect stance for everything except a genuine refusal).
-    reportAdoptionRefusal(
+    reportFatalBindingError(
       padiConnectFailure({ kind: "not-adopted" }, "/sr", "/sock"),
-      onAdoptionRefused,
+      onFatalBindingError,
     );
     expect(seen).toHaveLength(0);
 
@@ -1072,7 +1080,7 @@ describe("reportAdoptionRefusal — a refusal reported on EVERY dial, not just t
       "/sr",
       "/sock",
     );
-    reportAdoptionRefusal(err, onAdoptionRefused);
+    reportFatalBindingError(err, onFatalBindingError);
     expect(seen).toEqual([err]);
   });
 });
@@ -1092,6 +1100,21 @@ describe("handlePadiBootFailure — the composition root's boot-pin catch (exits
     });
     expect(fatal).toHaveBeenCalledTimes(1);
     expect(fatal.mock.calls[0]?.[1]).toContain("KOLU_STATE_DIR");
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("a PadiStateRootGoneError (#2010) logs FATAL and exits non-zero — a deleted workspace is terminal, never a retry", () => {
+    const err = new PadiStateRootGoneError("/gone/worktree/.kolu-dev/padi");
+    const fatal = vi.fn();
+    const error = vi.fn();
+    const exit = vi.fn();
+    handlePadiBootFailure(err, {
+      log: { fatal, error },
+      exit: exit as unknown as (code: number) => void,
+    });
+    expect(fatal).toHaveBeenCalledTimes(1);
+    expect(fatal.mock.calls[0]?.[1]).toContain("/gone/worktree/.kolu-dev/padi");
     expect(exit).toHaveBeenCalledWith(1);
     expect(error).not.toHaveBeenCalled();
   });

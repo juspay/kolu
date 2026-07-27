@@ -325,12 +325,14 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
                 legacyKavalSocket: legacyKavalSocketPath(flags.port),
                 spawnVersion: serverVersion,
                 verbose: flags.verbose,
-                // A genuine adoption refusal is fatal on ANY dial, not just the boot
-                // pin's first one below — a reconnect's own fire-and-forget loop would
-                // otherwise swallow a LATER refusal silently (see the option's doc in
-                // padiBinding.ts). Wired to the SAME handler the boot pin's catch uses,
-                // so a first-dial and a later-dial refusal fail identically.
-                onAdoptionRefused: (err) =>
+                // A structurally-unresolvable verdict — an adoption refusal, or the
+                // state root deleted under a live server (#2010) — is fatal on ANY
+                // dial, not just the boot pin's first one below: a reconnect's own
+                // fire-and-forget loop would otherwise swallow a LATER verdict
+                // silently (see the option's doc in padiBinding.ts). Wired to the
+                // SAME handler the boot pin's catch uses, so a first-dial and a
+                // later-dial verdict fail identically.
+                onFatalBindingError: (err) =>
                   handlePadiBootFailure(err, { log, exit: process.exit }),
               })
             : ensureRemotePadiBinding({
