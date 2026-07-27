@@ -419,7 +419,19 @@ function abortedDuring(host: string, step: string): ProvisionResult {
  *
  *  It fills the LOCAL store and has nothing to say to any host, so it takes a
  *  pre-bound `narrate` rather than the target's name: the progress prefix is
- *  the caller's concern. */
+ *  the caller's concern.
+ *
+ *  WHY a per-URL `nix copy --from` loop, and not one
+ *  `nix build --max-jobs 0 --substituters "<all>"` letting Nix own the
+ *  ordering: `substituters` is a TRUSTED setting. Nix honors a client-supplied
+ *  one only when the caller is in `trusted-users` or the URL is already in
+ *  `trusted-substituters` — otherwise it is silently dropped and the build
+ *  queries the daemon's own list instead, which is exactly the configuration
+ *  this whole feature exists to stop depending on. `--from` names a store to
+ *  read directly rather than proposing a substituter, so it is not subject to
+ *  that filter (verified: a `--from` copy fetched a path from a cache absent
+ *  from the local `substituters`). The loop is the price of naming each store
+ *  ourselves. */
 async function prefetchAgentClosure(opts: {
   outPath: string;
   binaryCache: AgentBinaryCache;

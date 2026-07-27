@@ -90,9 +90,18 @@ export function agentBinaryCache(raw: {
  * wrapper, not a transport fact — provisioning refuses to run cache-blind
  * rather than silently compiling on the target. */
 export class AgentBinaryCacheUnbakedError extends ResolveDrvError {
-  constructor(flakeRef: string, detail: string) {
+  /** `remedy` travels with the fault because the two ways to reach it have
+   * DIFFERENT fixes: a sidecar that is missing or malformed means the binder is
+   * stale (rebuild it), while a ref that is not a readable directory means the
+   * caller handed over the wrong KIND of ref (bake/point at a local source).
+   * Defaulting one remedy onto both is how a true error grows a false fix. */
+  constructor(
+    flakeRef: string,
+    detail: string,
+    remedy = "rebuild the binder with a current @kolu/surface-daemon mkProvenAgentSource",
+  ) {
     super(
-      `agent source ${flakeRef} has no usable ${AGENT_BINARY_CACHE_FILE} (${detail}) — rebuild the binder with a current @kolu/surface-daemon mkProvenAgentSource; provisioning refuses a cache-blind agent source`,
+      `agent source ${flakeRef} has no usable ${AGENT_BINARY_CACHE_FILE} (${detail}) — ${remedy}; provisioning refuses a cache-blind agent source`,
       {
         kind: "binary-cache-unbaked",
         failureCause: "remote",
@@ -117,9 +126,24 @@ export class AgentBinaryCacheUnbakedError extends ResolveDrvError {
 export function readBakedBinaryCache(
   flakeRef: string,
 ): Result<AgentBinaryCache, AgentBinaryCacheUnbakedError> {
-  // Baked refs are bare store paths; tolerate the equivalent explicit
-  // `path:`-prefixed spelling since both evaluate identically.
-  const file = `${flakeRef.replace(/^path:/, "")}/${AGENT_BINARY_CACHE_FILE}`;
+  // Baked refs are bare local paths (a store path, or a consumer's own baked
+  // directory); tolerate the equivalent explicit `path:` spelling since both
+  // evaluate identically. Any OTHER flake-ref scheme (`github:`, `git+https:`,
+  // `tarball:`…) is not a directory this can read, and letting it reach
+  // `readFileSync` would report a fetchable ref as a wrapper that "predates the
+  // contract" — a true error with a false remedy. Name the real fault instead.
+  const local = flakeRef.replace(/^path:/, "");
+  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(local);
+  if (scheme) {
+    return err(
+      new AgentBinaryCacheUnbakedError(
+        flakeRef,
+        `'${scheme[1]}:' refs are not readable as a directory`,
+        "pass the baked LOCAL source (the store path the Nix wrapper bakes), not a fetchable flake ref",
+      ),
+    );
+  }
+  const file = `${local}/${AGENT_BINARY_CACHE_FILE}`;
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(file, "utf8"));

@@ -390,6 +390,21 @@ describe("readBakedBinaryCache", () => {
     expect(cache.trustedPublicKeys).toHaveLength(1);
   });
 
+  it("names the real fault for a non-local flake ref, never 'predates the contract'", () => {
+    for (const ref of [
+      "github:juspay/kolu",
+      "git+https://example.invalid/x",
+      "tarball:https://example.invalid/x.tar.gz",
+    ]) {
+      const failure = readBakedBinaryCache(ref)._unsafeUnwrapErr();
+      expect(failure.message).toMatch(/not readable as a directory/);
+      // The misleading remedy must NOT appear for this fault.
+      expect(failure.message).not.toMatch(/rebuild the binder/);
+    }
+    // No read is attempted for a ref that isn't a directory.
+    expect(h.readFile).not.toHaveBeenCalled();
+  });
+
   it("errs with the typed unbaked fault when the sidecar is unreadable", () => {
     h.readFile.mockImplementation(() => {
       throw Object.assign(new Error("ENOENT: no such file"), {
