@@ -80,8 +80,8 @@ grandchild listener walks back to its root.</li>
 instead of parsing a half-understood shape into zero rows.</li>
 <li><strong>Fast</strong> — cost tracks the ask: 6.5 ms for the one-process port shape, 24.3
 ms for every process facet across about 450 Linux processes. Interactive
-callers poll at seconds scale, and the live lane guards the large shape at a
-deliberately loose 40 ms median.</li>
+callers poll at seconds scale, and the live lane guards the large shape with
+a process-count-scaled child-CPU budget that ignores scheduler contention.</li>
 </ul>
 <h2 id="the-contract">The contract</h2>
 <p><strong>One verb, composable facets, first-class scoping</strong> — every user story is the
@@ -442,9 +442,12 @@ interleaved run. Every kept cycle cleared the 3% noise bar.</p>
 reads, reuses the cached <code>stat</code> RSS in combined snapshots, buffers stdout, and
 parallelizes only large fd walks. Ordered collection keeps attribution stable;
 small scopes never spawn a worker. A live-lane smoke takes 11 warm all-facet
-samples and requires a median under 40 ms. It failed first on the pinned old
-binary at 47.37 ms across 450 processes, then passed with the current binary.
-One rejected version read RSS from <code>stat</code> even for <code>--mem</code> alone; that slowed
+samples and requires median child CPU below 85 µs per live process. It failed
+first on the pinned old binary at 49.86 ms across 480 processes, over its 40.80
+ms budget, then passed with the current binary. Child CPU makes this a generous
+CI smoke rather than a wall-clock benchmark: other jobs can delay osfacts
+without manufacturing a regression. One rejected version read RSS from <code>stat</code>
+even for <code>--mem</code> alone; that slowed
 the narrow shape from 5.46 to 6.87 ms, so the final reader keeps <code>statm</code> unless
 another requested facet has already paid for <code>stat</code>. Combining Drishti’s two
 subprocesses was not worth a new command shape: the host half costs only 2.6 ms.</p>

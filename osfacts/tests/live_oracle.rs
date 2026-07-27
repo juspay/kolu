@@ -19,9 +19,9 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-const LINUX_ALL_FACETS_MEDIAN_LIMIT_MS: u128 = 40;
+const LINUX_ALL_FACETS_CPU_BUDGET_US_PER_PROCESS: u128 = 85;
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -124,6 +124,23 @@ impl LiveWorld {
         );
         String::from_utf8(out.stdout).expect("utf8")
     }
+}
+
+#[cfg(target_os = "linux")]
+fn child_cpu_time() -> Duration {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    // SAFETY: getrusage initializes the pointed-to rusage on success.
+    let result = unsafe { libc::getrusage(libc::RUSAGE_CHILDREN, usage.as_mut_ptr()) };
+    assert_eq!(result, 0, "getrusage(RUSAGE_CHILDREN) failed");
+    // SAFETY: the successful call above initialized the value.
+    let usage = unsafe { usage.assume_init() };
+    let micros = |time: libc::timeval| {
+        u64::try_from(time.tv_sec)
+            .expect("non-negative child CPU seconds")
+            .saturating_mul(1_000_000)
+            .saturating_add(u64::try_from(time.tv_usec).expect("non-negative child CPU micros"))
+    };
+    Duration::from_micros(micros(usage.ru_utime).saturating_add(micros(usage.ru_stime)))
 }
 
 impl Drop for LiveWorld {
@@ -601,9 +618,9 @@ fn time_complete_process_snapshots(_world: &mut LiveWorld) {
         );
         world.linux_perf_samples = (0..11)
             .map(|_| {
-                let started = Instant::now();
+                let started = child_cpu_time();
                 world.run_osfacts(&args);
-                started.elapsed()
+                child_cpu_time().saturating_sub(started)
             })
             .collect();
     }
@@ -616,10 +633,15 @@ fn complete_process_snapshot_is_fast(_world: &mut LiveWorld) {
         let world = _world;
         world.linux_perf_samples.sort_unstable();
         let median = world.linux_perf_samples[world.linux_perf_samples.len() / 2];
+        let process_count = world.linux_perf_process_count.expect("process count");
+        let limit_micros = LINUX_ALL_FACETS_CPU_BUDGET_US_PER_PROCESS
+            .saturating_mul(process_count as u128);
+        eprintln!(
+            "Linux all-facets child CPU median: {median:?} across {process_count} processes ({LINUX_ALL_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process budget, {limit_micros}us total)"
+        );
         assert!(
-            median.as_millis() < LINUX_ALL_FACETS_MEDIAN_LIMIT_MS,
-            "Linux all-facets median was {median:?} across {} processes; live smoke limit is {LINUX_ALL_FACETS_MEDIAN_LIMIT_MS}ms (samples={:?})",
-            world.linux_perf_process_count.expect("process count"),
+            median.as_micros() < limit_micros,
+            "Linux all-facets child CPU median was {median:?} across {process_count} processes; live smoke budget is {LINUX_ALL_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process ({limit_micros}us total; samples={:?})",
             world.linux_perf_samples,
         );
     }
