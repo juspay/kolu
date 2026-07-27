@@ -352,14 +352,14 @@ fn subtree_with(
     let mut seen = HashSet::new();
     let mut queue = Vec::new();
     for &root in roots {
+        if !listed.contains(&root) {
+            push_unreadable(snap, root, "proc", libc::ESRCH);
+            continue;
+        }
         if !readable.contains(&root) {
-            let err = if listed.contains(&root) {
-                read(root).err().unwrap_or(libc::EIO)
-            } else {
-                libc::ESRCH
-            };
-            push_unreadable(snap, root, "proc", err);
-        } else if seen.insert(root) {
+            push_unreadable(snap, root, "proc", read(root).err().unwrap_or(libc::EIO));
+        }
+        if seen.insert(root) {
             queue.push(root);
         }
     }
