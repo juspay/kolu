@@ -113,6 +113,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       };
     });
     const terminals = rows.filter((r) => r !== null);
+    // Terminals padi COUNTS that this list never even examined. The client
+    // enumerates top-level terminals; padi's urgency folds every terminal
+    // record, INCLUDING split children — so an agent working in a split is
+    // counted by the host tab and has no row here at all. Without this the
+    // section cheerfully reports "paint and counts agree on every terminal"
+    // while an entire working agent is missing from its own audit (that false
+    // green is exactly how a 4-vs-3 mismatch reached a user).
+    const seen = new Set(terminals.map((t) => t.id));
+    const uncounted = [
+      ...urgency.workingIds.map((id) => ({ id, as: "working" })),
+      ...urgency.askingIds.map((id) => ({ id, as: "awaiting" })),
+    ].filter((u) => !seen.has(u.id as TerminalId));
     return {
       host: encHost,
       hostLive: urgency.live,
@@ -120,7 +132,12 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         working: urgency.workingIds.length,
         asking: urgency.askingIds.length,
       },
-      disagreements: terminals.filter((t) => t.disagreement !== null).length,
+      // A terminal this list can't see is a disagreement too — the count says
+      // it exists and every visible surface says it doesn't.
+      disagreements:
+        terminals.filter((t) => t.disagreement !== null).length +
+        uncounted.length,
+      uncounted,
       terminals,
     };
   });
@@ -370,15 +387,27 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               when={attention().disagreements > 0}
               fallback={
                 <div class="text-[10px] text-fg-3/60 italic">
-                  paint and counts agree on every terminal
+                  paint and counts agree on every terminal this list can see
                 </div>
               }
             >
               <div class="text-[10px] text-danger font-semibold">
-                {attention().disagreements} terminal(s) where the pip and the
-                counts disagree — details below
+                {attention().disagreements} disagreement(s) — details below
               </div>
             </Show>
+            {/* Counted-but-invisible: the host tab includes these, no row in
+             *  this list (or the dock) does. A split child running an agent is
+             *  the known case. */}
+            <For each={attention().uncounted}>
+              {(u) => (
+                <div class="border-l-2 border-danger pl-2 text-[10px] text-danger">
+                  {u.id.slice(0, 8)} — padi counts this as{" "}
+                  <span class="font-semibold">{u.as}</span>, but it has no row
+                  here: the host count includes a terminal no visible surface
+                  shows (a split child holds its own agent).
+                </div>
+              )}
+            </For>
             <For each={attention().terminals}>
               {(t) => (
                 <div
