@@ -21,7 +21,7 @@ import {
   viewLabel,
 } from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
-import { FileTree } from "@kolu/solid-pierre";
+import { FileTree, ignoredPathsCss } from "@kolu/solid-pierre";
 import { isDirectoryPath } from "@kolu/solid-pierre/paths";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
@@ -57,6 +57,7 @@ import { resolveRef } from "../ui/lineRef";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
 import {
   pierreIconConfig,
+  pierreTreesIgnoredRowDecl,
   pierreTreesShadowCss,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
@@ -617,6 +618,18 @@ const CodeTab: Component<{
     return ignored.filter((p) => inTree.has(p));
   });
 
+  // Everything kolu paints inside Pierre's shadow root, as ONE string on the
+  // one channel the wrapper exposes. Memoized so the sheet is re-parsed only
+  // when the CSS actually differs: both listings tick in place on every repo
+  // pulse (a file save, a git op), which re-derives an identical dimming set,
+  // and string equality makes that a no-op instead of re-parsing hundreds of
+  // selectors inside the shadow root on a hot path.
+  const treeShadowCss = createMemo(() => {
+    const ignored = treeIgnoredPaths();
+    if (!ignored?.length) return pierreTreesShadowCss;
+    return `${pierreTreesShadowCss}\n${ignoredPathsCss(ignored, pierreTreesIgnoredRowDecl)}`;
+  });
+
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.
   // Gate on the inventory's OWN readiness — taken from the same value as the
@@ -1022,7 +1035,6 @@ const CodeTab: Component<{
                     <FileTree
                       paths={treeSearch().projectedPaths}
                       gitStatus={treeGitStatus()}
-                      ignoredPaths={treeIgnoredPaths()}
                       selectedPath={selectedPath()}
                       onSelect={handleSelect}
                       // Terminal folder-link front door: a folder ref reveals
@@ -1034,7 +1046,7 @@ const CodeTab: Component<{
                       search={false}
                       expandPaths={treeSearch().expandedAncestors}
                       icons={pierreIconConfig}
-                      shadowCss={pierreTreesShadowCss}
+                      shadowCss={treeShadowCss()}
                       contextMenu={{
                         enabled: true,
                         triggerMode: "both",

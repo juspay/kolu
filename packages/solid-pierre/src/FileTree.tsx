@@ -23,7 +23,6 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { ignoredPathsCss } from "./ignoredCss";
 import { safeApply } from "./safeApply";
 import {
   ancestorDirectoryPaths,
@@ -46,20 +45,6 @@ export type FileTreeProps = {
    *  `isDirectoryPath` in `@kolu/solid-pierre/paths`. */
   paths: string[];
   gitStatus?: GitStatusEntry[];
-  /** Paths to render dimmed as gitignored.
-   *
-   *  Deliberately its OWN channel rather than `gitStatus` entries carrying
-   *  Pierre's `"ignored"` status, even though that status exists: Pierre rolls
-   *  EVERY `gitStatus` entry up into its ancestors' change counters
-   *  (`incrementAncestorChangeCounts` runs unguarded by status), which sets
-   *  `data-item-contains-git-change` on every ancestor. Routing the ignored
-   *  overlay through that channel therefore paints each ancestor of an ignored
-   *  entry as "contains changes" — on the kolu repo, 47 extra directories on top
-   *  of a real 77, and 68 on an otherwise-clean checkout. "Contains a change"
-   *  and "contains something git ignores" are different facts; this prop keeps
-   *  them apart, so the roll-up stays honest and the dimming is applied by a
-   *  dedicated stylesheet keyed on `data-item-path`. */
-  ignoredPaths?: readonly string[];
   /** The host-owned selection to reflect in the tree. Writes here are
    *  effectively **one-way**: applied silently (marking `aria-selected`,
    *  scrolling the row into view), and the #1841 provenance gate normally
@@ -127,13 +112,16 @@ export type FileTreeProps = {
   contextMenu?: FileTreeContextMenu;
   /** Extra CSS injected into Pierre's shadow root, for styling Pierre
    *  exposes no `--trees-*` theme variable for — e.g. tinting a directory
-   *  that contains a change, which Pierre only renders as a half-opacity dot.
-   *  Pierre owns its shadow DOM, so a host stylesheet can't reach inside;
-   *  this is the escape hatch. Snapshot at mount via a constructable sheet
-   *  appended to the shadow root's `adoptedStyleSheets` (so Pierre's own row
-   *  re-renders never wipe it) — **not reactive**, re-mount to change it. The
-   *  rule's selectors are Pierre's internal row anatomy, so the rule belongs
-   *  to the host theme, not here. */
+   *  that contains a change (which Pierre only renders as a half-opacity dot),
+   *  or dimming the Code tab's gitignored rows. Pierre owns its shadow DOM, so
+   *  a host stylesheet can't reach inside; this is the ONE escape hatch —
+   *  every host-side row decoration composes into this string rather than
+   *  earning its own prop. **Reactive**: carried by a single constructable
+   *  sheet adopted at mount (so Pierre's own row re-renders never wipe it) and
+   *  rewritten in place on change, which touches no Pierre state — expansion,
+   *  scroll and the git-change roll-up are undisturbed. The rule's selectors
+   *  are Pierre's internal row anatomy, so the rule belongs to the host theme,
+   *  not here. */
   shadowCss?: string;
   /** Surface construction or render throws to the host. Required because
    *  silent failure produces a blank pane indistinguishable from "no
@@ -157,24 +145,14 @@ function findShadowRoot(el: Element): ShadowRoot | null {
   return null;
 }
 
-/** Append `css` to Pierre's shadow root as a constructable stylesheet —
- *  `adoptedStyleSheets` survives Pierre's row re-renders (a `<style>` child
- *  could be cleared by a virtualizer pass) and stacks after Pierre's own
- *  sheet, so the host rule wins on equal specificity. No-op if the shadow
- *  root isn't found (defensive — Pierre always mounts one). */
-function injectShadowCss(container: HTMLElement, css: string): void {
-  const shadowRoot = findShadowRoot(container);
-  if (!shadowRoot) return;
-  const sheet = new CSSStyleSheet();
-  sheet.replaceSync(css);
-  shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet];
-}
-
-/** Adopt ONE stylesheet into the shadow root and hand it back so a caller can
- *  keep rewriting it (`replaceSync`) as its content changes. Distinct from
- *  {@link injectShadowCss}, which adopts a fresh sheet per call — re-injecting
- *  through that on every change would stack a new sheet each time and leak. */
-function adoptLiveShadowSheet(container: HTMLElement): CSSStyleSheet | null {
+/** Adopt ONE constructable stylesheet into Pierre's shadow root and hand it
+ *  back so the host's CSS can be rewritten in place (`replaceSync`) as it
+ *  changes. `adoptedStyleSheets` survives Pierre's row re-renders (a `<style>`
+ *  child could be cleared by a virtualizer pass) and stacks after Pierre's own
+ *  sheet, so the host rule wins on equal specificity. ONE sheet per mount —
+ *  adopting a fresh one per change would stack sheets and leak. No-op if the
+ *  shadow root isn't found (defensive — Pierre always mounts one). */
+function adoptShadowSheet(container: HTMLElement): CSSStyleSheet | null {
   const shadowRoot = findShadowRoot(container);
   if (!shadowRoot) return null;
   const sheet = new CSSStyleSheet();
@@ -213,9 +191,9 @@ function revealDirectory(tree: FileTreeClass, dirKey: string): void {
 export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTreeClass | undefined;
-  // The one adopted sheet carrying the gitignored dimming rules, rewritten in
-  // place whenever `ignoredPaths` changes. Dies with the shadow root on cleanup.
-  let ignoredSheet: CSSStyleSheet | undefined | null;
+  // The one adopted sheet carrying the host's CSS, rewritten in place whenever
+  // `shadowCss` changes. Dies with the shadow root on cleanup.
+  let hostSheet: CSSStyleSheet | undefined | null;
   // The path inventory Pierre's tree currently holds. Seeded at mount and
   // updated after every `batch`, so the next path change can be applied as
   // an in-place delta. Tracked here rather than via `on`'s `prevInput`
@@ -375,13 +353,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // scroll). The folder is already expanded via `initialExpandedPaths`.
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
       appliedPaths = props.paths;
-      if (props.shadowCss) injectShadowCss(container, props.shadowCss);
-      // Adopted once, rewritten in place by the effect below — see
-      // `adoptLiveShadowSheet` for why this can't reuse `injectShadowCss`.
-      ignoredSheet = adoptLiveShadowSheet(container);
-      if (ignoredSheet && props.ignoredPaths?.length) {
-        ignoredSheet.replaceSync(ignoredPathsCss(props.ignoredPaths));
-      }
+      // Adopted empty; the (non-deferred) shadow-CSS effect below runs right
+      // after this one in creation order and is what writes the content — one
+      // call site for the rule, so the mount case can't drift from the change
+      // case.
+      hostSheet = adoptShadowSheet(container);
     }, props.onError);
     // Deliberately do NOT clear the request here: it stays standing so this
     // exact application repeats on every remount (the host clears it on a real
@@ -452,20 +428,18 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
-  // The gitignored overlay is pure styling — rewriting the one adopted sheet
-  // touches no Pierre state, so toggling it never disturbs expansion, scroll,
-  // or the git-change roll-up (the reason it isn't a `gitStatus` channel; see
-  // the `ignoredPaths` prop doc).
+  // The host's CSS is pure styling — rewriting the one adopted sheet touches no
+  // Pierre state, so a change never disturbs expansion, scroll, or the
+  // git-change roll-up. NOT deferred: this effect is created after `onMount`
+  // above, so Solid runs it later in the same flush, with the sheet already
+  // adopted — its first run IS the mount-time application, and there is no
+  // second call site to keep in sync.
   createEffect(
     on(
-      () => props.ignoredPaths,
-      (paths) => {
-        safeApply(
-          () => ignoredSheet?.replaceSync(ignoredPathsCss(paths ?? [])),
-          props.onError,
-        );
+      () => props.shadowCss,
+      (css) => {
+        safeApply(() => hostSheet?.replaceSync(css ?? ""), props.onError);
       },
-      { defer: true },
     ),
   );
 

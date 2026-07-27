@@ -90,6 +90,14 @@ export const pierreTreesShadowCss = `
   }
 `;
 
+/** How kolu paints a gitignored row in the browse tree — the declaration body
+ *  `ignoredPathsCss` wraps in its per-row selectors. It lives HERE with every
+ *  other decision about how kolu paints Pierre, so one edit changes the
+ *  treatment; the selector construction (and its escaping) stays the pure leaf
+ *  in `@kolu/solid-pierre`. A literal, not a `var(--…, fallback)`: a custom
+ *  property nothing sets is an override knob with no configurator. */
+export const pierreTreesIgnoredRowDecl = "opacity: 0.5;";
+
 /** Rendered code-row height (px) for Pierre `CodeView` hosts. It drives both
  *  the CSS row height (`--diffs-line-height` below) and the numeric metric
  *  Pierre's virtualizer needs (`itemMetrics.lineHeight`, via the wrapper's
