@@ -115,8 +115,8 @@ function parseBool(raw: string): boolean {
 }
 
 /** The default `onInvalid` a {@link perHostPref} or {@link boolPref} installs when
- *  the caller supplies
- *  none: a `console.warn` naming the offending key and the fallback it degraded to,
+ *  the caller supplies none: a `console.warn` naming the offending key and the
+ *  fallback it degraded to,
  *  so a corrupt value is a visible diagnostic rather than a silent reset (without it
  *  a bad value would collapse to the fallback with zero signal). `warn` — not `error`
  *  + a toast — is deliberate and matches the repo's calibration for this class: a
@@ -140,16 +140,20 @@ function defaultInvalidWarning<T>(
 /** Strict-boolean {@link persistedPref}, device-global (the per-host variant is
  *  {@link perHostBoolPref}). Reuses the one boolean-parse seam ({@link parseBool})
  *  and the warn-on-corrupt default, so a global boolean pref re-hand-rolls
- *  neither. */
+ *  neither. `onInvalid` defaults to the warn-only surface but — mirroring
+ *  {@link perHostPref} — a caller can override it (e.g. a toast) instead of
+ *  being hard-wired to console-only with no escape hatch. */
 export function boolPref(opts: {
   name: string;
   fallback: boolean;
+  onInvalid?: (err: unknown, raw: string) => void;
 }): [Accessor<boolean>, Setter<boolean>] {
   return persistedPref<boolean>({
     name: opts.name,
     fallback: opts.fallback,
     parse: parseBool,
-    onInvalid: defaultInvalidWarning(opts.name, opts.fallback),
+    onInvalid:
+      opts.onInvalid ?? defaultInvalidWarning(opts.name, opts.fallback),
   });
 }
 
