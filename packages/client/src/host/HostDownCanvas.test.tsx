@@ -3,27 +3,61 @@
  * the regression `HostDownCanvas.tsx`'s header tells in full.
  *
  * SCOPE (the `BootStalledCanvas.test.tsx` idiom): a COMPONENT render pin, not an App-`<Switch>`
- * integration test — `../wire` is mocked so the surface stack never boots. That App reads the
- * whole failed episode as one value is one accessor of wiring, deliberately not
- * integration-tested here (rendering App.tsx drags the whole live socket stack).
+ * integration test — `../wire` is mocked so the surface stack never boots. `HostDownCanvas`
+ * takes no props (it reads its own episode off `activeEntryState()`/`failedEpisode()`, like
+ * `HostDiagnosticsPopover`), so `../kaval/useDaemonStatus` is mocked too, the same way
+ * `kaval/useCanvasMode.test.ts` already stubs that module — rendering the REAL App.tsx (or
+ * importing the real `useDaemonStatus.ts`, whose top level opens several app-lifetime
+ * subscriptions) drags the whole live socket stack.
  */
 
 import type { HostKey } from "kolu-common/hostKey";
+import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { LogLine } from "../ui/logTailChrome";
+
+type FailedEntry = {
+  kind: "failed";
+  failure: { cause: EntryFailedCause; reason: string };
+  connection: { log: readonly LogLine[] } | undefined;
+};
+// The one non-`failed` shape these tests need — `HostDownCanvas` only ever mounts from
+// App.tsx's `host-failed` <Match> arm, so any other kind here is a routing bug, not a real
+// UI state; see the "throws" test below.
+type OtherEntry = { kind: "not-a-member" };
 
 const h = vi.hoisted(() => ({
   host: { kind: "ssh", host: "zest" } as unknown as HostKey,
+  entry: {
+    kind: "failed",
+    failure: { cause: "link-failed", reason: "" },
+    connection: undefined,
+  } as FailedEntry | OtherEntry,
 }));
 vi.mock("../wire", () => ({
   activeHost: () => h.host,
   setActiveHost: () => {},
   client: { hosts: { reconnect: () => Promise.resolve() } },
 }));
+// Mirrors the real `failedEpisode` (`kaval/useDaemonStatus.ts`) exactly — `undefined` for any
+// non-`failed` entry, or when `connection` itself is absent ("we cannot see the output"); `[]`
+// when `connection` is present with nothing retained ("the failure produced none"). Kept in
+// lockstep with the production distinction rather than a placeholder, since that distinction
+// is exactly what these tests pin.
+vi.mock("../kaval/useDaemonStatus", () => ({
+  activeEntryState: () => h.entry,
+  failedEpisode: (entry: FailedEntry | OtherEntry) =>
+    entry.kind !== "failed"
+      ? undefined
+      : {
+          cause: entry.failure.cause,
+          reason: entry.failure.reason,
+          log: entry.connection?.log,
+        },
+}));
 
-import type { LogLine } from "../ui/logTailChrome";
-
-// Imported AFTER the mock so it binds the mocked `../wire`.
+// Imported AFTER the mocks so it binds them.
 const { default: HostDownCanvas } = await import("./HostDownCanvas");
 
 let dispose: (() => void) | undefined;
@@ -38,15 +72,14 @@ const TAIL = '[data-testid="host-down-log"]';
 const mount = (props: {
   reason: string;
   log: readonly LogLine[] | undefined;
+  cause?: EntryFailedCause;
 }): void => {
-  dispose = render(
-    () => (
-      <HostDownCanvas
-        failure={{ cause: "link-failed", reason: props.reason, log: props.log }}
-      />
-    ),
-    document.body,
-  );
+  h.entry = {
+    kind: "failed",
+    failure: { cause: props.cause ?? "link-failed", reason: props.reason },
+    connection: props.log === undefined ? undefined : { log: props.log },
+  };
+  dispose = render(() => <HostDownCanvas />, document.body);
 };
 
 describe("HostDownCanvas surfaces the failed episode's output", () => {
@@ -115,5 +148,18 @@ describe("HostDownCanvas surfaces the failed episode's output", () => {
     const cls = document.querySelector(TAIL)?.className ?? "";
     expect(cls).toContain("max-h-40");
     expect(cls).toContain("overflow-y-auto");
+  });
+
+  it("throws if mounted while the active entry isn't failed (fail loud, same as requireKind)", () => {
+    // Unrepresentable in the real app — App.tsx only ever mounts this card from the
+    // `host-failed` <Match> arm, which is keyed on the active entry actually being `failed`.
+    // Pinned here (never via App.tsx, which this file deliberately doesn't mount) because
+    // it's the one behavior a props-only render pin couldn't have exercised, and the one
+    // that a `createMemo` misplaced at App.tsx's top level (instead of here) turned into an
+    // eager crash on every ordinary boot.
+    h.entry = { kind: "not-a-member" };
+    expect(() => render(() => <HostDownCanvas />, document.body)).toThrowError(
+      /HostDownCanvas: entry is not-a-member/,
+    );
   });
 });

@@ -31,18 +31,18 @@ const RESOLVER_SRC = readFileSync(
 );
 
 /** Reactive primitives the shell is allowed to hold. At the #1340 thin-shell
- *  baseline App.tsx held two: `closeConfirmTarget` (the one dialog whose
+ *  baseline App.tsx holds two: `closeConfirmTarget` (the one dialog whose
  *  open-state it owns) and the `canvasMode` memo — layout / command wiring.
  *  `workspaceEntries` left with the retired WorkspaceGrid switcher. Domain
- *  state goes in a singleton, not here.
- *
- *  The third is `hostFailure` — a MEMO over `failedEpisode(activeEntryState())`,
- *  not shell-owned state: it derives nothing App.tsx keeps, and the domain read it
- *  wraps lives in `kaval/useDaemonStatus.ts`. It is a memo rather than a plain
- *  accessor because the `host-failed` arm has ~6 consumers and each bare call
- *  re-folds the padi map entry (a fresh `Entry` + clock closure, a host-key
- *  re-encode, an O(hosts) scan) and allocates a fresh wrapper. */
-const REACTIVE_PRIMITIVE_BUDGET = 3;
+ *  state goes in a singleton, not here. The `host-failed` arm's failed episode is
+ *  read by `HostDownCanvas` itself (mirroring `HostDiagnosticsPopover`'s own-component
+ *  read of the same `activeEntryState`/`failedEpisode` pair) rather than hoisted into
+ *  a shell-owned memo and re-threaded down as a prop — that shape was tried and
+ *  reverted: besides re-threading a domain read through the shell, a memo created
+ *  unconditionally in the component body runs its (throwing) callback eagerly at
+ *  MOUNT, not on first read, which crashed every boot where the active host wasn't
+ *  already `failed` — i.e. almost every boot. */
+const REACTIVE_PRIMITIVE_BUDGET = 2;
 
 describe("App.tsx thin-shell invariant (#1340)", () => {
   it(`holds at most ${REACTIVE_PRIMITIVE_BUDGET} reactive primitives`, () => {

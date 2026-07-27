@@ -14,19 +14,24 @@
  * from the pure {@link hostDownCopy} map; this component wires that copy + the two
  * buttons into the shared {@link CanvasFailureCard} shell.
  *
- * The whole failed episode arrives as ONE `failure` prop, read through the shared
- * `failedEpisode` (`kaval/useDaemonStatus.ts`, which owns that rationale). The copy is
- * looked up by cause, the raw `reason` is shown verbatim as a small detail beneath
- * it, and the tail is shown below that. Before the tail was rendered it was
- * collected, shipped to the browser, and then dropped unread at exactly the moment
- * it mattered: the card showed `'nix build' exited with code 1` and nothing else,
- * sending operators to check ssh for what was a compile error.
+ * Takes NO props: this card is unconditionally the ACTIVE host's (App.tsx only ever
+ * mounts it from the `host-failed` arm, which is keyed on the active entry — see the
+ * module doc above), so it reads its own failed episode off `activeEntryState()`
+ * through the shared `failedEpisode` (`kaval/useDaemonStatus.ts`, which owns that
+ * rationale) — mirroring `HostDiagnosticsPopover`'s own-component read, rather than
+ * having `App.tsx` re-thread the episode down as a prop (`app-shell-stays-thin`: the
+ * child reads the domain singleton itself). The copy is looked up by cause, the raw
+ * `reason` is shown verbatim as a small detail beneath it, and the tail is shown below
+ * that. Before the tail was rendered it was collected, shipped to the browser, and
+ * then dropped unread at exactly the moment it mattered: the card showed `'nix build'
+ * exited with code 1` and nothing else, sending operators to check ssh for what was a
+ * compile error.
  */
 
-import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
+import { createMemo } from "solid-js";
+import { activeEntryState, failedEpisode } from "../kaval/useDaemonStatus";
 import DocLink from "../ui/DocLink";
-import type { LogLine } from "../ui/logTailChrome";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
@@ -35,17 +40,22 @@ import {
 } from "./CanvasFailureCard";
 import { hostDownCopy } from "./hostDownCopy";
 
-const HostDownCanvas: Component<{
-  /** The failed episode, as ONE value from `failedEpisode`. `log` is its retained output
-   *  tail, oldest first; `undefined` vs `[]` is the distinction `CanvasFailureCard`'s `log`
-   *  prop doc owns, and this card passes it through untouched. */
-  failure: {
-    readonly cause: EntryFailedCause;
-    readonly reason: string;
-    readonly log: readonly LogLine[] | undefined;
-  };
-}> = (props) => {
-  const copy = () => hostDownCopy(props.failure.cause);
+const HostDownCanvas: Component = () => {
+  // The failed episode as ONE value, through the ONE reader every failure surface shares
+  // (`failedEpisode`). A MEMO so the several reads below (`cause`/`reason`/`log`, each its
+  // own JSX binding) share ONE fold of the map entry rather than three. Safe to be eager
+  // here (unlike a hoisted-to-App.tsx memo would be): this whole component only ever
+  // mounts from the `host-failed` <Match> arm, so its body — and this memo's creation —
+  // never runs while the active entry is anything other than `failed`. Unrepresentable
+  // otherwise — fail loud, same as `App.tsx`'s `requireKind`.
+  const failure = createMemo(() => {
+    const episode = failedEpisode(activeEntryState());
+    if (episode === undefined) {
+      throw new Error(`HostDownCanvas: entry is ${activeEntryState().kind}`);
+    }
+    return episode;
+  });
+  const copy = () => hostDownCopy(failure().cause);
   const actions = (): CanvasFailureAction[] => [
     // The RECOVERY verb. A standing refuse (cross-supervisor / skew / unconverged)
     // HOLDS degraded WITHOUT auto-reconnecting — so once the operator clears the cause
@@ -58,11 +68,11 @@ const HostDownCanvas: Component<{
   return (
     <CanvasFailureCard
       dataTestid="host-down-canvas"
-      dataAttrs={{ "data-entry-cause": props.failure.cause }}
+      dataAttrs={{ "data-entry-cause": failure().cause }}
       title={copy().title}
       body={copy().body}
-      detail={props.failure.reason}
-      log={props.failure.log}
+      detail={failure().reason}
+      log={failure().log}
       logTestid="host-down-log"
       footer={<DocLink slug="remote-hosts">Learn more →</DocLink>}
       actions={actions()}

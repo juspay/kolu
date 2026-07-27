@@ -55,7 +55,6 @@ import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
-import { activeEntryState, failedEpisode } from "./kaval/useDaemonStatus";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import MobileTileView from "./MobileTileView";
@@ -317,22 +316,6 @@ const App: Component = () => {
     return pick(m as Extract<CanvasMode, { kind: K }>);
   };
   const downState = () => requireKind("down", (m) => m.down, "down");
-  // The failed episode as ONE value, through the ONE reader every failure surface shares
-  // (`failedEpisode` — see its doc for why cause/reason/log travel together). A MEMO, not a
-  // plain accessor like its neighbours, so the card keeps ONE stable episode object across
-  // the ~1Hz `mode()` re-resolve the monotonic boot clock drives: without it every tick
-  // re-folds the map entry and hands the card a fresh wrapper for an unchanged failure.
-  // Unrepresentable if the arm is active without the episode — fail loud, same as
-  // `requireKind`.
-  const hostFailure = createMemo(() => {
-    const episode = failedEpisode(activeEntryState());
-    if (episode === undefined) {
-      throw new Error(
-        `canvas Match host-failed: entry is ${activeEntryState().kind}`,
-      );
-    }
-    return episode;
-  });
   const bootStalledRecovery = () =>
     requireKind("boot-stalled", (m) => m.recovery, "boot-stalled");
   // Warming arm's kaval restart state (undefined while a remote provision
@@ -493,7 +476,7 @@ const App: Component = () => {
             {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,
                 cause-typed) — distinct from `down` (a connected host's dead kaval).
                 Its own surface: cause-typed copy + [Switch to local], no Retry. */}
-            <HostDownCanvas failure={hostFailure()} />
+            <HostDownCanvas />
           </Match>
           <Match when={mode().kind === "boot-stalled"}>
             {/* #1763 + #1908 D2: a boot overlay held past its per-host ceiling, rendered off the
