@@ -114,7 +114,8 @@ function parseBool(raw: string): boolean {
   throw new Error(`expected boolean pref "true"/"false", got: ${raw}`);
 }
 
-/** The default `onInvalid` a {@link perHostPref} installs when the caller supplies
+/** The default `onInvalid` a {@link perHostPref} or {@link boolPref} installs when
+ *  the caller supplies
  *  none: a `console.warn` naming the offending key and the fallback it degraded to,
  *  so a corrupt value is a visible diagnostic rather than a silent reset (without it
  *  a bad value would collapse to the fallback with zero signal). `warn` — not `error`
@@ -131,9 +132,25 @@ function defaultInvalidWarning<T>(
 ): (err: unknown, raw: string) => void {
   return (err, raw) =>
     console.warn(
-      `[perHostPref] ignoring invalid stored value for "${name}": ${JSON.stringify(raw)} — falling back to ${JSON.stringify(fallback)}`,
+      `[persistedPref] ignoring invalid stored value for "${name}": ${JSON.stringify(raw)} — falling back to ${JSON.stringify(fallback)}`,
       err,
     );
+}
+
+/** Strict-boolean {@link persistedPref}, device-global (the per-host variant is
+ *  {@link perHostBoolPref}). Reuses the one boolean-parse seam ({@link parseBool})
+ *  and the warn-on-corrupt default, so a global boolean pref re-hand-rolls
+ *  neither. */
+export function boolPref(opts: {
+  name: string;
+  fallback: boolean;
+}): [Accessor<boolean>, Setter<boolean>] {
+  return persistedPref<boolean>({
+    name: opts.name,
+    fallback: opts.fallback,
+    parse: parseBool,
+    onInvalid: defaultInvalidWarning(opts.name, opts.fallback),
+  });
 }
 
 /** Compose a per-host `localStorage` key: `<base>:<encoded host>`. The ONE place

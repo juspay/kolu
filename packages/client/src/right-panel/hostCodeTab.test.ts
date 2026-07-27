@@ -92,7 +92,7 @@ vi.mock("../wire", async () => {
       getDiff: async () => ({ hunks: [] }),
     },
     fs: {
-      listAll: async () => ({ paths: [] }),
+      listAll: async () => ({ paths: [], ignoredPaths: [] }),
       readFile: async () => ({ content: "", truncated: false }),
       filePreviewTag: async (input: { repoPath: string; filePath: string }) => {
         bag.previewTagInputs.push(input);

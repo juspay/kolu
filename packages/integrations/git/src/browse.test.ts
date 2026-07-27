@@ -3,7 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAll, readFile, filePreviewTag } from "./browse.ts";
+import {
+  listAll,
+  listIgnored,
+  listIgnoredPaths,
+  readFile,
+  filePreviewTag,
+} from "./browse.ts";
 
 describe("listAll", () => {
   let tmpDir: string;
@@ -40,6 +46,54 @@ describe("listAll", () => {
       expect(p).not.toContain('"');
       expect(p).not.toContain("\\3");
     }
+  });
+});
+
+describe("listIgnored", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listignored-test-"));
+    execFileSync("git", ["init", "-q"], { cwd: tmpDir });
+    fs.writeFileSync(path.join(tmpDir, ".gitignore"), "secret.log\nbuild/\n");
+    fs.writeFileSync(path.join(tmpDir, "kept.md"), "kept\n");
+    fs.writeFileSync(path.join(tmpDir, "secret.log"), "shh\n");
+    fs.mkdirSync(path.join(tmpDir, "build"));
+    fs.writeFileSync(path.join(tmpDir, "build", "out.js"), "artifact\n");
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("lists ignored entries collapsed — a fully-ignored directory is ONE trailing-slash entry, never its contents", async () => {
+    const result = await listIgnored(tmpDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The slash is the directory marker downstream consumers key on (Pierre's
+    // childless dimmed folder row; the watcher strips it).
+    expect(result.value).toContain("secret.log");
+    expect(result.value).toContain("build/");
+    expect(result.value).not.toContain("build/out.js");
+    expect(result.value).not.toContain("kept.md");
+  });
+
+  it("is the exact complement of listAll", async () => {
+    const all = await listAll(tmpDir);
+    expect(all.ok).toBe(true);
+    if (!all.ok) return;
+    expect(all.value).toContain("kept.md");
+    expect(all.value).toContain(".gitignore");
+    expect(all.value).not.toContain("secret.log");
+    expect(all.value.some((p) => p.startsWith("build"))).toBe(false);
+  });
+
+  it("listIgnoredPaths strips the directory slash — the watcher's parcel-ignore shape", async () => {
+    const result = await listIgnoredPaths(tmpDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain("build");
+    expect(result.value).not.toContain("build/");
   });
 });
 

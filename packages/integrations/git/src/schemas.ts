@@ -216,11 +216,19 @@ export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
 export const FsListAllInputSchema = z.object({
   /** Absolute path to the repo root. */
   repoPath: z.string(),
+  /** Also enumerate gitignored entries into `ignoredPaths` (the Code tab's
+   *  "show ignored files" toggle). Off by default — the extra `git ls-files`
+   *  spawn only runs when a consumer asked for the ignored set. */
+  includeIgnored: z.boolean().optional(),
 });
 
 export const FsListAllOutputSchema = z.object({
   /** Flat list of all repo-relative file paths (tracked + untracked, respecting .gitignore). */
   paths: z.array(z.string()),
+  /** Gitignored entries, collapsed: a fully-ignored directory is ONE entry
+   *  with a trailing slash (`node_modules/`), never its contents. Empty unless
+   *  `includeIgnored` was set. */
+  ignoredPaths: z.array(z.string()),
 });
 export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
 

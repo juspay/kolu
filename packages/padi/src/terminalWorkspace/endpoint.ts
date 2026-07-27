@@ -21,6 +21,7 @@ import {
   getStatus,
   type GitResult,
   listAll,
+  listIgnored,
   readFile,
   filePreviewTag,
   subscribeFileChange,
@@ -41,7 +42,7 @@ import { match } from "ts-pattern";
  *  one-shot reads AND watcher subscriptions — same volatility axis ("where the
  *  FS lives"), one place the surface binds. */
 export interface TerminalEndpointFs {
-  listAll(repoPath: string): Promise<FsListAllOutput>;
+  listAll(repoPath: string, includeIgnored?: boolean): Promise<FsListAllOutput>;
   readFile(
     repoPath: string,
     filePath: string,
@@ -127,8 +128,21 @@ export function createTerminalWorkspaceEndpoint(
   log: Logger,
 ): TerminalWorkspaceEndpoint {
   const fs: TerminalEndpointFs = {
-    async listAll(repoPath: string): Promise<FsListAllOutput> {
-      return { paths: unwrapGit(await listAll(repoPath, log)) };
+    async listAll(
+      repoPath: string,
+      includeIgnored?: boolean,
+    ): Promise<FsListAllOutput> {
+      // Two independent `git ls-files` spawns, run concurrently. Both resolve
+      // to a GitResult (never reject), so the unwrap throws happen only after
+      // both settle — no stranded rejection.
+      const [pathsResult, ignoredResult] = await Promise.all([
+        listAll(repoPath, log),
+        includeIgnored ? listIgnored(repoPath, log) : null,
+      ]);
+      return {
+        paths: unwrapGit(pathsResult),
+        ignoredPaths: ignoredResult ? unwrapGit(ignoredResult) : [],
+      };
     },
     async readFile(repoPath, filePath) {
       return unwrapGit(await readFile(repoPath, filePath, log));

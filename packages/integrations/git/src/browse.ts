@@ -68,15 +68,34 @@ export async function listAll(
   );
 }
 
-/** Repo-relative paths git *ignores* — the exact complement of `listAll`'s
+/** Repo-relative entries git *ignores* — the exact complement of `listAll`'s
  *  `--cached --others --exclude-standard` (union the two and you have the whole
  *  working tree). `--directory` collapses a fully-ignored directory to its name
- *  (so `node_modules/` is one entry, not thousands), and any trailing slash is
- *  stripped here. The working-tree watcher feeds these to parcel's `ignore`, so
- *  it watches exactly what the browse tree shows — committed build outputs
- *  (Atlas's `docs/atlas/dist/`) included, gitignored ones excluded. Note: this
- *  does NOT list `.git` (git never reports its own dir); callers that need it
- *  ignored must add it themselves.
+ *  (so `node_modules/` is one entry, not thousands); a directory entry KEEPS
+ *  git's trailing slash, which is the marker both consumers key on: the Code
+ *  tab hands the slash straight to Pierre (its directory marker for a
+ *  childless dimmed row), and the watcher strips it. Note: this does NOT list
+ *  `.git` (git never reports its own dir); callers that need it ignored must
+ *  add it themselves.
+ *
+ *  @param repoPath  Absolute path to the repo root.
+ *  @param log       Optional logger. */
+export async function listIgnored(
+  repoPath: string,
+  log?: Logger,
+): Promise<GitResult<string[]>> {
+  return gitLsFiles(
+    repoPath,
+    ["--others", "--ignored", "--exclude-standard", "--directory"],
+    "Failed to list ignored files",
+    log,
+  );
+}
+
+/** {@link listIgnored} with the directory slashes stripped — the shape the
+ *  working-tree watcher feeds to parcel's `ignore`, so it watches exactly what
+ *  the browse tree shows by default — committed build outputs (Atlas's
+ *  `docs/atlas/dist/`) included, gitignored ones excluded.
  *
  *  @param repoPath  Absolute path to the repo root.
  *  @param log       Optional logger. */
@@ -84,12 +103,7 @@ export async function listIgnoredPaths(
   repoPath: string,
   log?: Logger,
 ): Promise<GitResult<string[]>> {
-  const result = await gitLsFiles(
-    repoPath,
-    ["--others", "--ignored", "--exclude-standard", "--directory"],
-    "Failed to list ignored files",
-    log,
-  );
+  const result = await listIgnored(repoPath, log);
   if (!result.ok) return result;
   return ok(result.value.map((l) => l.replace(/\/+$/, "")));
 }

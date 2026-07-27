@@ -65,6 +65,7 @@ import { windowedSub } from "../hostScope/windowedSub.ts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
+import { showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";
 
 /** The client-side text|binary partition, off the wire (moved verbatim from the old
@@ -164,11 +165,16 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
-  // The whole-repo file list — browse mode only (the diff modes read the status files).
+  // The whole-repo file list — browse mode only (the diff modes read the status
+  // files). `includeIgnored` rides in the input so it participates in the query's
+  // value key: flipping the toolbar toggle re-queries, and the ignored overlay
+  // appears/disappears atomically with the fresh list.
   const allPaths = repoQuery({
     input: () => {
       const p = shownRepoPath();
-      return p && codeView() === "browse" ? { repoPath: p } : null;
+      return p && codeView() === "browse"
+        ? { repoPath: p, includeIgnored: showIgnoredFiles() }
+        : null;
     },
     query: (i, signal) => activePadiRpc.fs.listAll(i, { signal }),
     onError: (err) => toast.error(`File list stream: ${err.message}`),

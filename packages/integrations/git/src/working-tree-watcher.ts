@@ -37,6 +37,13 @@
  * snapshot at install time — a `.gitignore` edit mid-watch isn't reflected
  * until the next (re)subscribe.
  *
+ * One DELIBERATE exception to "shown ⇒ watched": the Code tab's "show ignored
+ * files" toggle overlays gitignored entries onto the tree WITHOUT widening
+ * this watch — recursively watching `node_modules` is exactly the inotify
+ * storm the ignore set exists to prevent. Ignored rows therefore don't
+ * live-update; the overlay refreshes when any watched change pulses or when
+ * the toggle re-queries.
+ *
  * Subscribers can pass a `filePath` to receive only events for that exact file
  * (the `BrowseFileView` case — one selected file, not the whole tree) or omit
  * it to receive every event (the `subscribeRepoChange` case). The filter

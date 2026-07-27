@@ -47,6 +47,7 @@ import { realSizes } from "../ui/corvuResizable";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import {
   ChevronRightIcon,
+  EyeIcon,
   FileBrowseIcon,
   FileDiffIcon,
   GitBranchIcon,
@@ -81,6 +82,7 @@ import {
   pendingOpen,
 } from "./openInCodeTab";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
+import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
 import { type BrowserLocation, useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
@@ -526,7 +528,15 @@ const CodeTab: Component<{
     // element + length and mints a fresh reference, matching the diff
     // branch's `.map()` below. See `createReactiveSubscription` /
     // `writeValue.ts` for the reconcile strategy.
-    if (view() === "browse") return [...(allPaths()?.paths ?? [])];
+    //
+    // `ignoredPaths` is the gitignored overlay (empty unless the show-ignored
+    // toggle asked the query for it): collapsed entries whose trailing slash
+    // marks a fully-ignored directory — Pierre renders it as one childless
+    // dimmed folder row, so `node_modules` never enumerates.
+    if (view() === "browse") {
+      const v = allPaths();
+      return [...(v?.paths ?? []), ...(v?.ignoredPaths ?? [])];
+    }
     return status()?.files.map((f) => f.path) ?? [];
   });
 
@@ -575,7 +585,18 @@ const CodeTab: Component<{
     if (view() === "browse") {
       const local = localStatus()?.files ?? [];
       const branch = branchStatus()?.files ?? [];
-      return mergeGitStatusEntries(local, branch);
+      const merged = mergeGitStatusEntries(local, branch);
+      // The gitignored overlay rows are dimmed via Pierre's native `ignored`
+      // status; a trailing-slash entry marks a directory, which Pierre also
+      // propagates to any descendants. No collision with the status layers —
+      // git status never reports an ignored path.
+      const ignored = allPaths()?.ignoredPaths ?? [];
+      return ignored.length === 0
+        ? merged
+        : [
+            ...merged,
+            ...ignored.map((path) => ({ path, status: "ignored" as const })),
+          ];
     }
     const s = status();
     return s ? mergeGitStatusEntries(s.files, []) : undefined;
@@ -824,6 +845,30 @@ const CodeTab: Component<{
             onChange={setSearchQuery}
             touch={isTouch()}
           />
+          {/* Show-ignored toggle — browse only (the diff modes list changed
+           *  files, where gitignored paths can't appear). Device-local pref;
+           *  flipping it re-keys the fs.listAll query in `hostCodeTab`. */}
+          <Show when={view() === "browse"}>
+            <button
+              type="button"
+              data-testid="code-tab-show-ignored-toggle"
+              aria-label="Show gitignored files"
+              aria-pressed={showIgnoredFiles()}
+              title={
+                showIgnoredFiles()
+                  ? "Hide gitignored files"
+                  : "Show gitignored files"
+              }
+              onClick={() => setShowIgnoredFiles((v) => !v)}
+              class={`grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 ${
+                showIgnoredFiles()
+                  ? "text-accent hover:text-accent"
+                  : "text-fg-3/70 hover:text-fg"
+              }`}
+            >
+              <EyeIcon class="h-3.5 w-3.5" />
+            </button>
+          </Show>
         </div>
 
         {/* Vertical split between tree and content. Mirrors the horizontal

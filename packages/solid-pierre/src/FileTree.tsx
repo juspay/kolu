@@ -230,9 +230,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
-  // don't appear in `paths` (Pierre infers them from path prefixes), so
-  // membership in this set is a reliable file-vs-folder discriminator.
-  const fileSet = createMemo(() => new Set(props.paths));
+  // mostly don't appear in `paths` (Pierre infers them from path prefixes) —
+  // but a host MAY pass explicit trailing-slash directory entries (the Code
+  // tab's collapsed gitignored dirs, `node_modules/`), and Pierre reports a
+  // click on such a row with the slash intact. Exclude them so membership
+  // stays a reliable file-vs-folder discriminator.
+  const fileSet = createMemo(
+    () => new Set(props.paths.filter((p) => !p.endsWith("/"))),
+  );
 
   onMount(() => {
     // Arm the provenance gate on real user input. Capture phase so it is set
