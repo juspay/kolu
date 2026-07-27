@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { rowPathsCss } from "./rowPathsCss.ts";
 
@@ -20,9 +21,9 @@ describe("rowPathsCss", () => {
   });
 
   it("targets each path by the data-item-path Pierre stamps on the row", () => {
-    const css = rowPathsCss(["node_modules/", ".env"], DECL);
-    expect(css).toContain('[data-item-path="node_modules/"]');
-    expect(css).toContain('[data-item-path=".env"]');
+    const css = rowPathsCss(["src/app.ts", ".env"], DECL);
+    expect(css).toContain(`[data-item-path=${CSS.escape("src/app.ts")}]`);
+    expect(css).toContain(`[data-item-path=${CSS.escape(".env")}]`);
     // One rule body for the whole selector list, not one rule per path.
     expect(css.match(/\{/g)).toHaveLength(1);
   });
@@ -30,73 +31,49 @@ describe("rowPathsCss", () => {
   it("keeps a collapsed directory's trailing slash — it IS the row's key", () => {
     // The collapsed listing is what keeps this sheet small: `node_modules/` is
     // one row, so one selector, never one per contained file. Stripping the
-    // slash would target a non-existent row and silently dim nothing.
+    // slash would target a row that does not exist and silently dim nothing.
+    // Asserted on the ESCAPED form, since that is what reaches the sheet.
     expect(rowPathsCss(["node_modules/"], DECL)).toContain(
-      '[data-item-path="node_modules/"]',
+      `[data-item-path=${CSS.escape("node_modules/")}]`,
     );
+    expect(CSS.escape("node_modules/")).toContain("node_modules");
   });
 
-  it("escapes a quote in a filename so it cannot terminate the selector", () => {
-    // git hands paths through verbatim under `-z`, so `"` is legal in a name.
-    const css = rowPathsCss(['weird".log'], DECL);
-    expect(css).toContain('[data-item-path="weird\\".log"]');
-    // The raw, unescaped form must not appear — that would close the string
-    // early and turn the rest of the path into malformed selector syntax.
-    expect(css).not.toContain('[data-item-path="weird".log"]');
+  it("leaves no raw value-terminating character in the selector", () => {
+    // Delegated to `CSS.escape`, so this pins the INTEGRATION (that escaping
+    // happens at all, on the value, for every path) rather than re-deriving the
+    // CSS Syntax escape table the platform already owns. Each of these
+    // characters is legal in a filename and would otherwise end the attribute
+    // value — and because the caller concatenates this output with its other
+    // rules into one `replaceSync` payload, one raw path would drop every
+    // sibling rule in that sheet, not just its own selector.
+    const nasty = ['a"b.log', "a\\b.log", "a\nb.log", "a\rb.log", "a\fb.log"];
+    const css = rowPathsCss(nasty, DECL);
+    // Per SELECTOR, not over the whole list: the list is joined with `,\n`, so
+    // its newlines are this function's own formatting. Asserting over the joined
+    // string would be asserting something false.
+    const selectors = css.slice(0, css.indexOf("{")).split(",\n");
+    expect(selectors).toHaveLength(nasty.length);
+    for (const sel of selectors) {
+      // Line terminators cannot appear literally inside a value at all —
+      // `CSS.escape` emits them as numeric escapes (`\a `, `\d `, `\c `).
+      for (const raw of ["\n", "\r", "\f"]) expect(sel).not.toContain(raw);
+      // A quote CAN appear, but only backslash-escaped. Assert that shape
+      // rather than banning the character, which would be stricter than CSS
+      // requires and would fail against correct output.
+      expect(sel).not.toMatch(/(^|[^\\])"/);
+    }
+    // And every path is still represented — escaped, not dropped.
+    for (const p of nasty) expect(css).toContain(CSS.escape(p));
   });
 
-  it("escapes a backslash before escaping quotes, so the two can't combine", () => {
-    // A trailing backslash would otherwise escape the closing quote.
-    const css = rowPathsCss(["dir\\"], DECL);
-    expect(css).toContain('[data-item-path="dir\\\\"]');
-  });
-
-  it("escapes a raw newline, which would otherwise break the whole sheet", () => {
-    // Every byte but `/` and NUL is a legal filename character, and a `-z`
-    // listing hands a newline through verbatim. The blast radius is wider than
-    // the one bad row: callers concatenate this output with their other rules
-    // into ONE replaceSync payload, so an unescaped newline drops every sibling
-    // rule in that sheet, not just this selector.
-    const css = rowPathsCss(["we\nird.log"], DECL);
-    expect(css).not.toContain("we\nird.log");
-    expect(css).toContain('[data-item-path="we\\A ird.log"]');
-  });
-
-  it("terminates a numeric escape so a following hex digit isn't swallowed", () => {
-    // A CSS numeric escape runs until the first non-hex character, so `\A`
-    // butted against a hex digit would parse as one larger code point. The
-    // space after `\A` is what ends it — this pins that it is emitted.
-    const css = rowPathsCss(["a\nbc.log"], DECL);
-    expect(css).toContain('[data-item-path="a\\A bc.log"]');
-    expect(css).not.toContain('[data-item-path="a\\Abc.log"]');
-  });
-
-  it("escapes a carriage return too", () => {
-    const css = rowPathsCss(["a\rb.log"], DECL);
-    expect(css).not.toContain("a\rb.log");
-    expect(css).toContain('[data-item-path="a\\D b.log"]');
-  });
-
-  it("escapes a form feed — CSS counts it as a string newline as well", () => {
-    // Rarer than LF/CR but identical in consequence: an unescaped FF closes the
-    // string and takes the rest of the sheet with it.
-    const css = rowPathsCss(["a\fb.log"], DECL);
-    expect(css).not.toContain("a\fb.log");
-    expect(css).toContain('[data-item-path="a\\C b.log"]');
-  });
-
-  it("leaves no raw terminator INSIDE the attribute value, whatever the mix", () => {
-    // The set-level property: one path carrying every escapable character at
-    // once, so a future addition to the escape list can't be half-applied.
-    //
-    // Scoped to the attribute value deliberately — the sheet itself contains
-    // newlines as rule FORMATTING (`sel {\n  decl\n}`), so asserting the whole
-    // string is terminator-free would be asserting something false.
-    const css = rowPathsCss(['x\n\r\f\\"y.log'], DECL);
-    const value = css.match(
-      /\[data-item-path="((?:[^"\\]|\\.|\\\n)*)"\]/s,
-    )?.[1];
-    expect(value).toBeDefined();
-    for (const raw of ["\n", "\r", "\f"]) expect(value).not.toContain(raw);
+  it("escapes a leading digit, which a hand-rolled quote/newline pass misses", () => {
+    // The case that motivated delegating: `2024/report.log` starts with a digit,
+    // which is invalid at the head of an ident and needs a numeric escape. A
+    // hand-rolled escaper written around quotes and newlines has no reason to
+    // think of it.
+    const css = rowPathsCss(["2024/report.log"], DECL);
+    expect(css).toContain(`[data-item-path=${CSS.escape("2024/report.log")}]`);
+    expect(css).not.toContain("[data-item-path=2024/report.log]");
   });
 });

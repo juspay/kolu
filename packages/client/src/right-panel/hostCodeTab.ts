@@ -166,31 +166,31 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
-  // The whole-repo file list — browse mode only (the diff modes read the status files).
+  // "The browse tree is live" — spelled once, so the two listings that feed it
+  // cannot drift into querying for different views (a new view mode added to one
+  // and not the other would silently fetch an overlay for a tree that isn't
+  // mounted). The diff modes read the status files instead of either listing.
+  const browseInput = (): { repoPath: string } | null => {
+    const p = shownRepoPath();
+    return p && codeView() === "browse" ? { repoPath: p } : null;
+  };
+
+  // The whole-repo file list.
   const allPaths = repoQuery({
-    input: () => {
-      const p = shownRepoPath();
-      return p && codeView() === "browse" ? { repoPath: p } : null;
-    },
+    input: browseInput,
     query: (i, signal) => activePadiRpc.fs.listAll(i, { signal }),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
   });
 
   // The gitignored overlay — a SEPARATE query, idle (null input) unless the
   // show-ignored toggle is on. Keeping it off `allPaths` is what lets the toggle
-  // flip without disturbing the main file list: were `includeIgnored` a field on
-  // that query's input it would join its value key, so every flip would blank the
-  // list, unmount `<FileTree>`, and remount it with `initialExpansion: "closed"` —
-  // losing every hand-expanded folder and the scroll position. Idling the input
-  // instead means the toggle costs the extra `git ls-files` spawn only while the
-  // user actually wants the overlay.
+  // flip without disturbing the main file list: as a field on that query's input
+  // it would join its value key, so every flip would blank the list, unmount
+  // `<FileTree>`, and remount it collapsed — losing every hand-expanded folder
+  // and the scroll position. Idling the input instead means the toggle costs the
+  // extra `git ls-files` spawn only while the user actually wants the overlay.
   const ignoredPaths = repoQuery({
-    input: () => {
-      const p = shownRepoPath();
-      return p && codeView() === "browse" && showIgnoredFiles()
-        ? { repoPath: p }
-        : null;
-    },
+    input: () => (showIgnoredFiles() ? browseInput() : null),
     query: (i, signal) => activePadiRpc.fs.listIgnored(i, { signal }),
     onError: (err) => toast.error(`Ignored file list: ${err.message}`),
   });

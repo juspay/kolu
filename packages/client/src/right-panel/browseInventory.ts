@@ -44,8 +44,14 @@ export function mergeBrowseInventory(
     (readiness.showIgnored && readiness.ignoredPending);
   // Rule 1 — no tracked authority, no partition, so no overlay either.
   if (!tracked) return { paths: [], ignored: [], pending };
+  // Nothing to subtract against: skip building the membership set, which would
+  // otherwise cost ~10x the rest of this function over a whole repo's file list
+  // — paid on every inventory tick by every user with the toggle OFF, which is
+  // the default. The spread stays: callers depend on a fresh reference (see
+  // `treeInventory`'s note on the reconciled store's in-place mutation).
+  if (!ignored?.length) return { paths: [...tracked], ignored: [], pending };
   // Rule 2 — the overlap belongs to the tracked listing.
   const seen = new Set(tracked);
-  const overlay = (ignored ?? []).filter((p) => !seen.has(p));
+  const overlay = ignored.filter((p) => !seen.has(p));
   return { paths: [...tracked, ...overlay], ignored: overlay, pending };
 }

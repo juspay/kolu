@@ -22,7 +22,7 @@ import {
 } from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
-import { isDirectoryPath } from "@kolu/solid-pierre/paths";
+
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
@@ -46,6 +46,7 @@ import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { realSizes } from "../ui/corvuResizable";
+import { filterChipAccent } from "../ui/filterChip";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import {
   ChevronRightIcon,
@@ -70,7 +71,7 @@ import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
-import { mergeBrowseInventory } from "./browseInventory";
+import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
 import {
   codeActiveStatus,
   codeAllPaths,
@@ -147,10 +148,10 @@ const ToolbarIconButton: Component<{
     disabled={props.disabled}
     onClick={props.onClick}
     class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
-    classList={{
-      "text-accent hover:text-accent": props.pressed === true,
-      "text-fg-3/70 hover:text-fg": props.pressed !== true,
-    }}
+    // The repo's one accent-vs-neutral toggle grammar, shared with the dock's
+    // activity-window and ☾ chips — so a change to what "actively filtering"
+    // looks like is one edit, not three that drift apart.
+    classList={filterChipAccent(props.pressed === true)}
   >
     {props.children}
   </button>
@@ -449,7 +450,7 @@ const CodeTab: Component<{
     on(
       () => {
         const req = pendingOpen();
-        const paths = treeFilePaths();
+        const paths = treePaths();
         const isPending = treeInventory().pending;
         return { req, repo: repoPath(), paths, isPending };
       },
@@ -486,7 +487,7 @@ const CodeTab: Component<{
           // branch. The reveal isn't a content navigation, so it's not
           // recorded in back/forward history.
           //
-          // Resolution ran against the full `treeFilePaths()`, but the mounted
+          // Resolution ran against the full `treePaths()`, but the mounted
           // tree shows `treeSearch().projectedPaths` — a *filtered* set when a
           // browse search is active. A folder outside the current filter has no
           // row to reveal, so the request would be silently consumed with
@@ -564,15 +565,7 @@ const CodeTab: Component<{
    *  The overlay's `pending` leg is gated on the toggle because an idle query
    *  reports `pending` forever (`createPolledQuery`'s `blank()` on a null
    *  input) — with the toggle off it is idle by design, not loading. */
-  const treeInventory = createMemo<{
-    paths: string[];
-    /** The overlay's contribution: gitignored entries the tracked listing did
-     *  not already claim. The ONE subtraction — the merged inventory and the
-     *  dimming set MUST partition identically, or a row is added without being
-     *  dimmed (or dimmed while absent). */
-    ignored: readonly string[];
-    pending: boolean;
-  }>(() => {
+  const treeInventory = createMemo<BrowseInventory>(() => {
     // Copy `paths` out rather than returning the store proxy directly:
     // `fsListAll` lands in a reconciled store whose `paths` array is
     // mutated in place, so the proxy's reference is stable across an
@@ -607,56 +600,34 @@ const CodeTab: Component<{
 
   const treePaths = () => treeInventory().paths;
 
-  // Resolution targets — `resolveRef` and the wikilink vault document that they
-  // take FILES only and derive directories from path prefixes. The collapsed
-  // gitignored directory rows would poison their basename index with an empty
-  // key (`basename("node_modules/")` is `""`), so the tree's directory rows are
-  // dropped here, once, rather than at each consumer.
-  const treeFilePaths = createMemo(() =>
-    treeInventory().paths.filter((p) => !isDirectoryPath(p)),
-  );
-
   const treeSearch = createMemo(() =>
     projectFileTreeSearch(treePaths(), searchQuery()),
   );
 
-  // The gitignored rows to dim.
+  // Everything kolu paints inside Pierre's shadow root, as ONE string on the one
+  // channel the wrapper exposes.
   //
-  // These are painted by a stylesheet rather than handed to Pierre as
+  // The gitignored rows are dimmed by this sheet rather than handed to Pierre as
   // `gitStatus` entries carrying its own `"ignored"` status, even though that
   // status exists. Pierre rolls EVERY `gitStatus` entry up into its ancestors'
   // change counters (`incrementAncestorChangeCounts` runs unguarded by status),
   // setting `data-item-contains-git-change` on each ancestor — which the theme
-  // below paints as modified. Routing the overlay through that channel
-  // therefore marks every ancestor of an ignored entry as "contains changes":
-  // measured on the kolu repo, 47 extra directories on top of a real 77, and 68
-  // on an otherwise-clean checkout. "Contains a change" and "contains something
-  // git ignores" are different facts, so the overlay keys on `data-item-path`
-  // instead and the roll-up stays honest.
+  // paints as modified. Routing the overlay through that channel therefore marks
+  // every ancestor of an ignored entry as "contains changes": measured on the
+  // kolu repo, 47 extra directories on top of a real 77, and 68 on an
+  // otherwise-clean checkout. "Contains a change" and "contains something git
+  // ignores" are different facts, so the overlay keys on `data-item-path` and
+  // the roll-up stays honest.
   //
-  // Filtered by what the tree ACTUALLY renders — the search projection, not the
-  // whole inventory — so the claim holds with a filter active too, instead of
-  // emitting selectors for absent rows.
-  const treeIgnoredPaths = createMemo(() => {
-    const ignored = treeInventory().ignored;
-    if (ignored.length === 0) return undefined;
-    const shown = treeSearch().projectedPaths;
-    // Identity means "no query" — `projectFileTreeSearch` hands the same array
-    // straight back — so the whole inventory is on screen and nothing to filter.
-    if (shown === treeInventory().paths) return ignored;
-    const inTree = new Set(shown);
-    return ignored.filter((p) => inTree.has(p));
-  });
-
-  // Everything kolu paints inside Pierre's shadow root, as ONE string on the
-  // one channel the wrapper exposes. Memoized so the sheet is re-parsed only
-  // when the CSS actually differs: both listings tick in place on every repo
-  // pulse (a file save, a git op), which re-derives an identical dimming set,
-  // and string equality makes that a no-op instead of re-parsing hundreds of
-  // selectors inside the shadow root on a hot path.
+  // Deliberately NOT narrowed to the search projection: a `[data-item-path=…]`
+  // selector matching no row is inert (the browser buckets by attribute name and
+  // only tests rows that exist), so filtering by the visible set would buy
+  // nothing and put a full sheet rebuild + shadow-root re-parse on the
+  // per-keystroke path. Memoized on the string, so the identical sheet a repo
+  // pulse re-derives never reaches `replaceSync`.
   const treeShadowCss = createMemo(() => {
-    const ignored = treeIgnoredPaths();
-    if (!ignored?.length) return pierreTreesShadowCss;
+    const ignored = treeInventory().ignored;
+    if (ignored.length === 0) return pierreTreesShadowCss;
     return `${pierreTreesShadowCss}\n${rowPathsCss(ignored, pierreTreesIgnoredRowDecl)}`;
   });
 
@@ -1236,7 +1207,7 @@ const CodeTab: Component<{
                           // pair (a stream resubscribe briefly empties it, and
                           // the overlay lands on its own clock).
                           repoVault={{
-                            paths: treeFilePaths(),
+                            paths: treePaths(),
                             pending: treeInventory().pending,
                           }}
                           theme={diffTheme()}

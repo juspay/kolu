@@ -250,9 +250,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // tab's collapsed gitignored dirs, `node_modules/`), and Pierre reports a
   // click on such a row with the slash intact. Exclude them so membership
   // stays a reliable file-vs-folder discriminator.
-  const fileSet = createMemo(
-    () => new Set(props.paths.filter((p) => !isDirectoryPath(p))),
-  );
+  // Built in one pass, no intermediate array: this recomputes on every `paths`
+  // change (each search keystroke, each file add/remove) but is read only
+  // inside `onSelectionChange`, i.e. on a click.
+  const fileSet = createMemo(() => {
+    const files = new Set<string>();
+    for (const p of props.paths) if (!isDirectoryPath(p)) files.add(p);
+    return files;
+  });
 
   onMount(() => {
     // Arm the provenance gate on real user input. Capture phase so it is set

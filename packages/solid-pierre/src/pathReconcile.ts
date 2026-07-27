@@ -21,8 +21,11 @@ export function isDirectoryPath(path: string): boolean {
 }
 
 /** Strip Pierre's directory marker. Idempotent, and tolerates a repeated
- *  separator so a caller never has to know how many slashes arrived. */
-export function stripDirectoryMarker(path: string): string {
+ *  separator so a caller never has to know how many slashes arrived. Module
+ *  private: `isDirectoryPath` is the marker's public face (every consumer asks
+ *  whether a path IS a directory, never to un-mark one), so exporting this too
+ *  would publish surface with no caller. */
+function stripDirectoryMarker(path: string): string {
   return path.replace(/\/+$/, "");
 }
 
