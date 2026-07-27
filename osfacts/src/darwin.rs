@@ -12,7 +12,7 @@ use osfacts::{
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
 use std::mem;
-use std::os::raw::{c_char, c_int, c_uint, c_void};
+use std::os::raw::{c_int, c_uint, c_void};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -627,7 +627,7 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
         }
         if count < cores.saturating_mul(4) {
             let _ = libc::vm_deallocate(
-                libc::mach_task_self(),
+                libc::mach_task_self_,
                 info as libc::vm_address_t,
                 count as libc::vm_size_t * mem::size_of::<c_int>(),
             );
@@ -637,7 +637,7 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
         let hz = libc::sysconf(libc::_SC_CLK_TCK);
         if hz <= 0 {
             let _ = libc::vm_deallocate(
-                libc::mach_task_self(),
+                libc::mach_task_self_,
                 info as libc::vm_address_t,
                 count as libc::vm_size_t * mem::size_of::<c_int>(),
             );
@@ -657,7 +657,7 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
             })
             .collect();
         let status = libc::vm_deallocate(
-            libc::mach_task_self(),
+            libc::mach_task_self_,
             info as libc::vm_address_t,
             count as libc::vm_size_t * mem::size_of::<c_int>(),
         );
@@ -710,8 +710,8 @@ fn read_root_disk() -> Result<Disk, i32> {
         }
         Ok(Disk {
             mount: "/".into(),
-            total_bytes: stat.f_blocks.saturating_mul(stat.f_frsize),
-            available_bytes: stat.f_bavail.saturating_mul(stat.f_frsize),
+            total_bytes: u64::from(stat.f_blocks).saturating_mul(stat.f_frsize),
+            available_bytes: u64::from(stat.f_bavail).saturating_mul(stat.f_frsize),
         })
     }
 }
