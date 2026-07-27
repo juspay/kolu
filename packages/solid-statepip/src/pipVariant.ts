@@ -251,12 +251,19 @@ export const DOCK_ROW_PIP_BOX = "w-[20px] h-[20px] rounded-full";
  *  `DOCK_ROW_PIP_BOX`. */
 export const TITLE_PIP_BOX = "w-[16px] h-[16px] rounded-full";
 
-/** Working count — agents in flight. Bare rust text beside a small spinner,
- *  deliberately NOT a capsule: the capsule silhouette is reserved for the two
- *  ACTIONABLE counts (needs-you violet, unread amber) so a number in a pill
- *  always means "click me / act on this" and a bare number never reads as a
- *  notification. Same hue family as the working pip (`text-busy`). */
-export const WORKING_COUNT_CLASS =
+/** ACTIVE count — agents in flight, agents still settling after a turn, and
+ *  shells that are printing. Named `active`, not `working`: the leg
+ *  deliberately counts more than working agents, and calling it `working` in
+ *  the class, the test id and the prose re-taught the old narrower concept at
+ *  every one of those sites — the first person to "fix the working count, it
+ *  includes shells" would have been fixing the name into the behaviour.
+ *
+ *  Bare rust text beside a small spinner, deliberately NOT a capsule: the
+ *  capsule silhouette is reserved for the two ACTIONABLE counts (needs-you
+ *  violet, unread amber) so a number in a pill always means "click me / act on
+ *  this" and a bare number never reads as a notification. Same hue family as
+ *  the working pip (`text-busy`). */
+export const ACTIVE_COUNT_CLASS =
   "inline-flex items-center gap-0.5 text-[10px] font-semibold text-busy tabular-nums";
 
 /** Needs-you / awaiting-you count pill — agents blocked on your input

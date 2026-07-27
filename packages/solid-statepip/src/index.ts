@@ -5,5 +5,5 @@ export {
   pipForPaintClass,
   pipGlyph,
 } from "./pipVariant.ts";
-export { AttentionTriplet } from "./AttentionTriplet.tsx";
+export { AttentionTriplet, NeedsYouCapsule } from "./AttentionTriplet.tsx";
 export { StatePip } from "./StatePip.tsx";

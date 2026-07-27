@@ -244,7 +244,8 @@ const HostChip: Component<{
         <AttentionTriplet
           active={marks.active()}
           asking={marks.asking()}
-          unseen={isActive() ? 0 : marks.unseenFinished()}
+          unseen={marks.unseenFinished()}
+          viewing={isActive()}
           sizeClass="min-w-4 px-1 h-4"
           scopeLabel={name()}
           onAsking={() => jumpToAsking(encKey)}
@@ -349,7 +350,8 @@ const HostSwitcherRow: Component<{
       <AttentionTriplet
         active={marks.active()}
         asking={marks.asking()}
-        unseen={isActive() ? 0 : marks.unseenFinished()}
+        unseen={marks.unseenFinished()}
+        viewing={isActive()}
         sizeClass="min-w-4 px-1 h-4"
         scopeLabel={hostLabel(host)}
         onAsking={() => {

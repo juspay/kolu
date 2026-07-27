@@ -29,12 +29,31 @@
  *  the same discipline the retired pills followed. Segments hide at zero; the
  *  whole triplet renders nothing when all three are zero. */
 
-import { type Component, Show } from "solid-js";
+import { type Component, type JSX, Show } from "solid-js";
 import {
+  ACTIVE_COUNT_CLASS,
   NEEDS_YOU_PILL_CLASS,
   UNSEEN_COUNT_CLASS,
-  WORKING_COUNT_CLASS,
 } from "./pipVariant.ts";
+
+/** The needs-you capsule as an ELEMENT — the violet silhouette with something
+ *  in it. Exported so a surface that wants the shape (the dock's wait chip,
+ *  which carries a duration instead of a count) reaches for the component
+ *  rather than hand-composing this package's raw token beside its own padding,
+ *  which is how a fourth spelling of one silhouette gets written. */
+export const NeedsYouCapsule: Component<{
+  title?: string;
+  testid?: string;
+  children: JSX.Element;
+}> = (props) => (
+  <span
+    class={`${NEEDS_YOU_PILL_CLASS} px-1.5 h-4 whitespace-nowrap`}
+    title={props.title}
+    data-testid={props.testid}
+  >
+    {props.children}
+  </span>
+);
 
 /** The working spinner — a bare arc that rides the shared statepip spin
  *  cadence (`--motion-spin-duration`), so "in flight" moves at the same tempo
@@ -110,6 +129,13 @@ export const AttentionTriplet: Component<{
   asking: number;
   /** Finished terminals you have not opened. */
   unseen: number;
+  /** You are LOOKING at this scope — unseen suppresses, because arriving is
+   *  what clears it. The rule lives here, once, taking the surface's own
+   *  `active` flag: as an `active ? 0 : count` ternary at the call site it was
+   *  re-spelled at three of them and silently skipped at a fourth that had no
+   *  `active` notion, which is the same fabricate-the-facts shape the one-value
+   *  `TerminalAttention` closed one file over. */
+  viewing?: boolean;
   /** The pill geometry — the only per-surface pixel (e.g. `min-w-4 px-1 h-4`). */
   sizeClass: string;
   /** Navigate to the next blocked terminal. Omit inside interactive parents. */
@@ -123,8 +149,9 @@ export const AttentionTriplet: Component<{
   class?: string;
 }> = (props) => {
   const scope = () => (props.scopeLabel ? ` on ${props.scopeLabel}` : "");
+  const unseen = () => (props.viewing ? 0 : props.unseen);
   return (
-    <Show when={props.active > 0 || props.asking > 0 || props.unseen > 0}>
+    <Show when={props.active > 0 || props.asking > 0 || unseen() > 0}>
       <span
         class={`inline-flex shrink-0 items-center gap-1${props.class ? ` ${props.class}` : ""}`}
         data-testid="attention-triplet"
@@ -132,10 +159,10 @@ export const AttentionTriplet: Component<{
         <Show when={props.active > 0}>
           <span
             role="img"
-            class={WORKING_COUNT_CLASS}
+            class={ACTIVE_COUNT_CLASS}
             title={`${props.active} active${scope()}`}
             aria-label={`${props.active} terminals active${scope()}`}
-            data-testid="attention-working"
+            data-testid="attention-active"
           >
             <WorkingArc />
             {props.active}
@@ -150,10 +177,10 @@ export const AttentionTriplet: Component<{
           onJump={props.onAsking}
         />
         <CountCapsule
-          count={props.unseen}
+          count={unseen()}
           class={`${UNSEEN_COUNT_CLASS} shrink-0 ${props.sizeClass}`}
-          title={`${props.unseen} finished, unseen${scope()}${props.onUnseen ? " — click to jump" : ""}`}
-          ariaLabel={`${props.unseen} finished terminals you haven't seen${scope()}`}
+          title={`${unseen()} finished, unseen${scope()}${props.onUnseen ? " — click to jump" : ""}`}
+          ariaLabel={`${unseen()} finished terminals you haven't seen${scope()}`}
           testid="attention-unseen"
           onJump={props.onUnseen}
         />

@@ -17,7 +17,7 @@ the *attention summary* both surfaces roll up into.
   Callers should use kolu's `bindStatePip` so surfaces cannot drift. A bare
   `<StatePip variant={…} />` is still valid.
 
-- **`<AttentionTriplet active asking unseen sizeClass onAsking onUnseen>`** —
+- **`<AttentionTriplet active asking unseen viewing sizeClass onAsking onUnseen>`** —
   the attention summary every altitude renders identically (host tab, host
   switcher row, mobile host chip, dock repo-section header), so one fact cannot
   grow four dialects. Its rule: the two **actionable** counts wear a capsule and
@@ -26,13 +26,21 @@ the *attention summary* both surfaces roll up into.
   wherever its surface has nowhere to send you — a caller inside an
   already-interactive parent omits the handlers (valid HTML, same vocabulary),
   and a host tab passes no `onUnseen` because switching to the machine is what
-  clears that count. `sizeClass` is the only per-surface pixel.
+  clears that count. `viewing` says the caller is LOOKING at the scope, and the
+  unseen suppression lives here rather than as an `active ? 0 : count` ternary
+  re-spelled at every call site. `sizeClass` is the only per-surface pixel.
+
+- **`<NeedsYouCapsule>`** — the violet silhouette with arbitrary content, for a
+  surface that wants the shape carrying something other than a count (the dock
+  wait chip carries a duration). Reach for it instead of composing
+  `NEEDS_YOU_PILL_CLASS` with your own padding.
 
 - **`PipVariant`**, **`pipForPaintClass`**, box sizes, and the count classes on
   `./pipVariant` — `NEEDS_YOU_PILL_CLASS` (violet, blocked on you),
-  `UNSEEN_COUNT_CLASS` (amber, finished and unopened), and `WORKING_COUNT_CLASS`
-  (rust, informational). The two pills share geometry and split by hue; neither
-  is the deliberately-quiet one.
+  `UNSEEN_COUNT_CLASS` (amber, finished and unopened), and `ACTIVE_COUNT_CLASS`
+  (rust, informational — `active`, not `working`: the leg counts settling agents
+  and printing shells too). The two pills share geometry and split by hue;
+  neither is the deliberately-quiet one.
 
 ## What it knows nothing about
 

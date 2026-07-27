@@ -134,7 +134,8 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       <AttentionTriplet
         active={marks.active()}
         asking={marks.asking()}
-        unseen={isActive() ? 0 : marks.unseenFinished()}
+        unseen={marks.unseenFinished()}
+        viewing={isActive()}
         sizeClass="h-5 min-w-5 px-1.5"
         scopeLabel={hostLabel(props.host)}
       />
