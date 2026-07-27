@@ -96,7 +96,8 @@ let
       && !(pkgs.lib.hasSuffix "/dist" s);
   };
 
-  default = pkgs.stdenv.mkDerivation {
+  # See ../nix/pnpm-build-env.nix.
+  default = pkgs.stdenv.mkDerivation ((import ../nix/pnpm-build-env.nix) // {
     pname = "kolu-website";
     inherit version;
     inherit src pnpmDeps;
@@ -110,10 +111,6 @@ let
     # Astro build is pure JS — skip the fixupPhase (strip/patchShebangs) which
     # would traverse node_modules for no benefit.
     dontFixup = true;
-
-    # Keep a failing `astro build` readable in `nix log` — pnpm's progress tree
-    # would otherwise redraw over it. See ../nix/pnpm-reporter.nix.
-    inherit (import ../nix/pnpm-reporter.nix) npm_config_reporter;
 
     buildPhase = ''
       runHook preBuild
@@ -150,7 +147,7 @@ let
       cp -r ${../docs/atlas/dist} $out/atlas
       runHook postInstall
     '';
-  };
+  });
 
   # The type gate for website/ (juspay/kolu#1049): `astro sync && tsc --noEmit`.
   # `pnpm build` (astro build) transpiles TS without typechecking, exactly like

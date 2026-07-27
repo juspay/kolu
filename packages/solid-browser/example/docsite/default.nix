@@ -14,7 +14,8 @@
 #   pnpmDeps — the workspace pnpm fetch.
 { pkgs, src, pnpmDeps }:
 let
-  docsiteClient = pkgs.stdenv.mkDerivation {
+  # See ../../../../nix/pnpm-build-env.nix.
+  docsiteClient = pkgs.stdenv.mkDerivation ((import ../../../../nix/pnpm-build-env.nix) // {
     pname = "solid-browser-example-docsite";
     version = "0.1.0";
     inherit src;
@@ -31,7 +32,7 @@ let
       cp -r packages/solid-browser/example/docsite/dist $out
       runHook postInstall
     '';
-  };
+  });
 in
 {
   solid-browser-example-docsite = docsiteClient;

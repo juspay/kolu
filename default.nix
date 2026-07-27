@@ -323,11 +323,8 @@ let
       npm_config_nodedir = pkgs.nodejs;
       NIX_NODEJS_BUILDNPMPACKAGE = "1";
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
-      # Keep a failing `pnpm --filter kolu-client build` readable in `nix log` —
-      # pnpm's progress tree would otherwise redraw over the vite error. See
-      # ./nix/pnpm-reporter.nix.
-      inherit (import ./nix/pnpm-reporter.nix) npm_config_reporter;
-    } // koluEnv;
+      # See ./nix/pnpm-build-env.nix.
+    } // (import ./nix/pnpm-build-env.nix) // koluEnv;
 
     # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
     # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green

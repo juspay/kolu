@@ -14,7 +14,8 @@
 # Callers: default.nix (workspace `tsc --noEmit`, required input of `kolu`)
 # and website/default.nix (`astro check`).
 { pkgs, pname, src, pnpmDeps, version }:
-pkgs.stdenv.mkDerivation {
+# See ./pnpm-build-env.nix.
+pkgs.stdenv.mkDerivation ((import ./pnpm-build-env.nix) // {
   inherit pname src pnpmDeps version;
 
   nativeBuildInputs = [
@@ -24,11 +25,6 @@ pkgs.stdenv.mkDerivation {
   ];
 
   dontFixup = true;
-
-  # Without this a `tsc` error is drawn over by pnpm's progress tree and never
-  # reaches `nix log` — the whole point of this gate is to REPORT the error it
-  # catches. See ./pnpm-reporter.nix.
-  inherit (import ./pnpm-reporter.nix) npm_config_reporter;
 
   buildPhase = ''
     runHook preBuild
@@ -42,4 +38,4 @@ pkgs.stdenv.mkDerivation {
     touch $out
     runHook postInstall
   '';
-}
+})
