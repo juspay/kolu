@@ -19,7 +19,9 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+const LINUX_ALL_FACETS_MEDIAN_LIMIT_MS: u128 = 40;
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -42,6 +44,8 @@ struct LiveWorld {
     cpu_time_second: Option<u64>,
     cpu_time_oracle_delta: Option<u64>,
     foreign_processes: Vec<ForeignProcessOracle>,
+    linux_perf_samples: Vec<Duration>,
+    linux_perf_process_count: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -566,6 +570,59 @@ fn host_facts_are_sane(world: &mut LiveWorld) {
         available <= free && free <= total,
         "bad disk gauges: {disk:?}"
     );
+}
+
+#[when("I time warm complete process snapshots")]
+fn time_complete_process_snapshots(_world: &mut LiveWorld) {
+    #[cfg(target_os = "linux")]
+    {
+        let world = _world;
+        let args = [
+            "snapshot",
+            "--procs",
+            "--ports",
+            "--mem",
+            "--start-time",
+            "--cpu-time",
+            "--uid",
+            "--cwd",
+            "--status",
+            "--argv",
+        ];
+        for _ in 0..3 {
+            world.run_osfacts(&args);
+        }
+        world.linux_perf_process_count = Some(
+            std::fs::read_dir("/proc")
+                .expect("read /proc")
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().parse::<u32>().is_ok())
+                .count(),
+        );
+        world.linux_perf_samples = (0..11)
+            .map(|_| {
+                let started = Instant::now();
+                world.run_osfacts(&args);
+                started.elapsed()
+            })
+            .collect();
+    }
+}
+
+#[then("the Linux all-facets median stays below the live smoke bound")]
+fn complete_process_snapshot_is_fast(_world: &mut LiveWorld) {
+    #[cfg(target_os = "linux")]
+    {
+        let world = _world;
+        world.linux_perf_samples.sort_unstable();
+        let median = world.linux_perf_samples[world.linux_perf_samples.len() / 2];
+        assert!(
+            median.as_millis() < LINUX_ALL_FACETS_MEDIAN_LIMIT_MS,
+            "Linux all-facets median was {median:?} across {} processes; live smoke limit is {LINUX_ALL_FACETS_MEDIAN_LIMIT_MS}ms (samples={:?})",
+            world.linux_perf_process_count.expect("process count"),
+            world.linux_perf_samples,
+        );
+    }
 }
 
 #[derive(Debug)]

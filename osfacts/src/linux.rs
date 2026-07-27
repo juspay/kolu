@@ -42,8 +42,25 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     };
 
     for &pid in &pids {
+        // One snapshot should observe one copy of each proc file. Several
+        // facets share stat/cmdline; reopening them per facet multiplies I/O
+        // and can mix observations from different instants.
+        let stat = (args.procs || args.start_time || args.cpu_time || args.status)
+            .then(|| read_string(&format!("/proc/{pid}/stat")));
+        let cmdline = (args.procs || args.argv)
+            .then(|| fs::read(format!("/proc/{pid}/cmdline")).map_err(|err| raw_errno(&err)));
         if args.procs {
-            match read_proc(pid) {
+            let stat = stat
+                .as_ref()
+                .expect("stat is loaded for process rows")
+                .as_deref()
+                .map_err(|err| *err);
+            let cmdline = cmdline
+                .as_ref()
+                .expect("cmdline is loaded for process rows")
+                .as_deref()
+                .map_err(|err| *err);
+            match stat.and_then(|stat| read_proc(pid, stat, cmdline)) {
                 Ok(row) => snap.procs.push(Proc {
                     pid,
                     ppid: row.ppid,
@@ -59,13 +76,23 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             }
         }
         if let Some(boot_us) = boot_us {
-            match read_start_time(pid, boot_us) {
+            let stat = stat
+                .as_ref()
+                .expect("stat is loaded for start time")
+                .as_deref()
+                .map_err(|err| *err);
+            match stat.and_then(|stat| read_start_time(stat, boot_us)) {
                 Ok(start_unix_us) => snap.start_times.push(StartTime { pid, start_unix_us }),
                 Err(err) => push_unreadable(&mut snap, pid, "start_time", err),
             }
         }
         if let Some(cpu_hz) = cpu_hz {
-            match read_cpu_time(pid, cpu_hz) {
+            let stat = stat
+                .as_ref()
+                .expect("stat is loaded for CPU time")
+                .as_deref()
+                .map_err(|err| *err);
+            match stat.and_then(|stat| read_cpu_time(stat, cpu_hz)) {
                 Ok(cpu_time_us) => snap.cpu_times.push(ProcessCpuTime { pid, cpu_time_us }),
                 Err(err) => push_unreadable(&mut snap, pid, "cpu_time", err),
             }
@@ -83,7 +110,12 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             }
         }
         if args.status {
-            match read_status(pid) {
+            let stat = stat
+                .as_ref()
+                .expect("stat is loaded for status")
+                .as_deref()
+                .map_err(|err| *err);
+            match stat.and_then(read_status) {
                 Ok((state, nice, threads)) => snap.statuses.push(ProcessStatus {
                     pid,
                     state,
@@ -94,7 +126,12 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             }
         }
         if args.argv {
-            match read_argv(pid) {
+            let cmdline = cmdline
+                .as_ref()
+                .expect("cmdline is loaded for argv")
+                .as_deref()
+                .map_err(|err| *err);
+            match cmdline.map(read_argv) {
                 Ok(argv) => snap.argv.push(ProcessArgv { pid, argv }),
                 Err(err) => push_unreadable(&mut snap, pid, "argv", err),
             }
@@ -262,18 +299,16 @@ struct ProcRow {
     ppid: u32,
     name: String,
 }
-fn read_proc(pid: u32) -> Result<ProcRow, i32> {
-    let stat = read_string(&format!("/proc/{pid}/stat"))?;
-    let ppid = parse_stat_field(&stat, 1)?
-        .parse()
-        .map_err(|_| libc::EINVAL)?;
+fn read_proc(pid: u32, stat: &str, cmdline: Result<&[u8], i32>) -> Result<ProcRow, i32> {
+    let ppid =
+        parse_stat_field(stat, 1).and_then(|value| value.parse().map_err(|_| libc::EINVAL))?;
     Ok(ProcRow {
         ppid,
-        name: process_name(pid, &stat),
+        name: process_name(pid, stat, cmdline),
     })
 }
-fn process_name(pid: u32, stat: &str) -> String {
-    if let Ok(cmdline) = fs::read(format!("/proc/{pid}/cmdline")) {
+fn process_name(pid: u32, stat: &str, cmdline: Result<&[u8], i32>) -> String {
+    if let Ok(cmdline) = cmdline {
         if let Some(argv0) = cmdline.split(|&b| b == 0).next() {
             if !argv0.is_empty() {
                 let s = String::from_utf8_lossy(argv0);
@@ -331,20 +366,18 @@ fn clock_ticks() -> Result<u64, i32> {
         Ok(v as u64)
     }
 }
-fn read_start_time(pid: u32, boot_us: u64) -> Result<u64, i32> {
-    let stat = read_string(&format!("/proc/{pid}/stat"))?;
-    let ticks = parse_stat_field(&stat, 19)?
+fn read_start_time(stat: &str, boot_us: u64) -> Result<u64, i32> {
+    let ticks = parse_stat_field(stat, 19)?
         .parse::<u64>()
         .map_err(|_| libc::EINVAL)?;
     Ok(boot_us + ticks.saturating_mul(1_000_000) / clock_ticks()?)
 }
 
-fn read_cpu_time(pid: u32, hz: u64) -> Result<u64, i32> {
-    let stat = read_string(&format!("/proc/{pid}/stat"))?;
-    let user = parse_stat_field(&stat, 11)?
+fn read_cpu_time(stat: &str, hz: u64) -> Result<u64, i32> {
+    let user = parse_stat_field(stat, 11)?
         .parse::<u64>()
         .map_err(|_| libc::EINVAL)?;
-    let system = parse_stat_field(&stat, 12)?
+    let system = parse_stat_field(stat, 12)?
         .parse::<u64>()
         .map_err(|_| libc::EINVAL)?;
     Ok(ticks_us(user.saturating_add(system), hz))
@@ -367,28 +400,26 @@ fn read_cwd(pid: u32) -> Result<String, i32> {
         .map_err(|err| raw_errno(&err))
 }
 
-fn read_status(pid: u32) -> Result<(char, i32, u32), i32> {
-    let stat = read_string(&format!("/proc/{pid}/stat"))?;
-    let state = parse_stat_field(&stat, 0)?
+fn read_status(stat: &str) -> Result<(char, i32, u32), i32> {
+    let state = parse_stat_field(stat, 0)?
         .chars()
         .next()
         .ok_or(libc::EINVAL)?;
-    let nice = parse_stat_field(&stat, 16)?
+    let nice = parse_stat_field(stat, 16)?
         .parse()
         .map_err(|_| libc::EINVAL)?;
-    let threads = parse_stat_field(&stat, 17)?
+    let threads = parse_stat_field(stat, 17)?
         .parse()
         .map_err(|_| libc::EINVAL)?;
     Ok((state, nice, threads))
 }
 
-fn read_argv(pid: u32) -> Result<Vec<String>, i32> {
-    let bytes = fs::read(format!("/proc/{pid}/cmdline")).map_err(|err| raw_errno(&err))?;
-    Ok(bytes
+fn read_argv(cmdline: &[u8]) -> Vec<String> {
+    cmdline
         .split(|byte| *byte == 0)
         .filter(|arg| !arg.is_empty())
         .map(|arg| String::from_utf8_lossy(arg).into_owned())
-        .collect())
+        .collect()
 }
 
 struct Listener {

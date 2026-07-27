@@ -38,3 +38,7 @@ Feature: Live-host oracle (lane 2 — never gates)
   Scenario: Host telemetry preserves gauge and cumulative semantics
     When I take two complete host snapshots
     Then host gauges are sane and cumulative counters do not decrease
+
+  Scenario: Linux whole-host process polling stays within its smoke budget
+    When I time warm complete process snapshots
+    Then the Linux all-facets median stays below the live smoke bound
