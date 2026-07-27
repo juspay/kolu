@@ -19,7 +19,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -40,6 +40,7 @@ struct LiveWorld {
     host_second: Option<String>,
     cpu_time_first: Option<u64>,
     cpu_time_second: Option<u64>,
+    cpu_time_oracle_delta: Option<u64>,
     foreign_processes: Vec<ForeignProcessOracle>,
 }
 
@@ -253,16 +254,32 @@ fn memory_and_start_are_real(world: &mut LiveWorld) {
     );
 }
 
-#[when("I take two CPU-time snapshots of this process")]
-fn two_process_cpu_time_snapshots(world: &mut LiveWorld) {
+#[when("I burn a measured amount of CPU between two process snapshots")]
+fn measured_process_cpu_time_snapshots(world: &mut LiveWorld) {
     let pid = std::process::id();
-    let until = Instant::now() + Duration::from_millis(25);
-    while Instant::now() < until {
-        std::hint::spin_loop();
-    }
     world.cpu_time_first = Some(read_process_cpu_time(world, pid));
-    thread::sleep(Duration::from_millis(20));
+    let oracle_first = self_cpu_time_us();
+    let target = oracle_first.saturating_add(500_000);
+    let mut oracle_second = oracle_first;
+    while oracle_second < target {
+        std::hint::spin_loop();
+        oracle_second = self_cpu_time_us();
+    }
+    world.cpu_time_oracle_delta = Some(oracle_second.saturating_sub(oracle_first));
     world.cpu_time_second = Some(read_process_cpu_time(world, pid));
+}
+
+fn self_cpu_time_us() -> u64 {
+    unsafe {
+        let mut usage = std::mem::zeroed::<libc::rusage>();
+        assert_eq!(libc::getrusage(libc::RUSAGE_SELF, &mut usage), 0);
+        let timeval_us = |value: libc::timeval| {
+            (value.tv_sec as u64)
+                .saturating_mul(1_000_000)
+                .saturating_add(value.tv_usec as u64)
+        };
+        timeval_us(usage.ru_utime).saturating_add(timeval_us(usage.ru_stime))
+    }
 }
 
 fn read_process_cpu_time(world: &LiveWorld, pid: u32) -> u64 {
@@ -273,14 +290,22 @@ fn read_process_cpu_time(world: &LiveWorld, pid: u32) -> u64 {
         .unwrap_or_else(|| panic!("C row for current process missing: {body}"))
 }
 
-#[then("process CPU time is positive and does not decrease")]
-fn process_cpu_time_is_cumulative(world: &mut LiveWorld) {
+#[then("the osfacts CPU-time delta matches getrusage")]
+fn process_cpu_time_matches_getrusage(world: &mut LiveWorld) {
     let first = world.cpu_time_first.expect("first cpu time");
     let second = world.cpu_time_second.expect("second cpu time");
-    assert!(first > 0, "process CPU time must be positive: {first}");
+    let expected = world
+        .cpu_time_oracle_delta
+        .expect("getrusage CPU-time delta");
     assert!(
         second >= first,
         "process CPU time decreased: first={first}, second={second}"
+    );
+    let observed = second - first;
+    let tolerance = expected / 5;
+    assert!(
+        observed.abs_diff(expected) <= tolerance,
+        "osfacts CPU-time units diverged from getrusage: observed={observed}us expected={expected}us tolerance={tolerance}us"
     );
 }
 

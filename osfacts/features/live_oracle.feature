@@ -23,9 +23,9 @@ Feature: Live-host oracle (lane 2 — never gates)
     When I snapshot this process's memory and start time
     Then osfacts reports positive RSS and a past start instant
 
-  Scenario: Process CPU time is cumulative
-    When I take two CPU-time snapshots of this process
-    Then process CPU time is positive and does not decrease
+  Scenario: Process CPU time uses real microseconds
+    When I burn a measured amount of CPU between two process snapshots
+    Then the osfacts CPU-time delta matches getrusage
 
   Scenario: Process identity and launch details are live OS facts
     When I snapshot this process's identity and launch details
