@@ -25,7 +25,7 @@
  * dev-containers on bind-mounted filesystems). Latency degrades but
  * correctness is preserved.
  *
- * The ignore set is derived from git, not a hardcoded list: `listIgnoredPaths`
+ * The ignore set is derived from git, not a hardcoded list: `listIgnored`
  * runs the exact complement of the browse tree's `git ls-files --cached
  * --others --exclude-standard`, so *anything the Code-tab tree shows is
  * watched* and anything git ignores is skipped. That single source of truth is
@@ -36,6 +36,13 @@
  * never lists its own dir; the git-dir watchers cover it). The set is a
  * snapshot at install time — a `.gitignore` edit mid-watch isn't reflected
  * until the next (re)subscribe.
+ *
+ * One DELIBERATE exception to "shown ⇒ watched": the Code tab's "show ignored
+ * files" toggle overlays gitignored entries onto the tree WITHOUT widening
+ * this watch — recursively watching `node_modules` is exactly the inotify
+ * storm the ignore set exists to prevent. Ignored rows therefore don't
+ * live-update; the overlay refreshes when any watched change pulses or when
+ * the toggle re-queries.
  *
  * Subscribers can pass a `filePath` to receive only events for that exact file
  * (the `BrowseFileView` case — one selected file, not the whole tree) or omit
@@ -51,7 +58,7 @@ import {
   subscribe as parcelSubscribe,
 } from "@parcel/watcher";
 import type { Logger } from "kolu-shared";
-import { listIgnoredPaths } from "./browse.ts";
+import { listIgnored } from "./browse.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
 /** The one backend we must never hand parcel: `"watchman"` is the leaking one,
@@ -110,17 +117,22 @@ const ALWAYS_IGNORE_RELS = [".git"];
  *  Keeps `node_modules` — the one unbounded recursive subtree whose watch
  *  actually threatens the inotify budget — out of the watch, so a git hiccup
  *  can't unleash a watch storm. The healthy path derives the full set from
- *  git via `listIgnoredPaths`. */
+ *  git via `listIgnored`. */
 const FALLBACK_IGNORE_RELS = ["node_modules"];
 
 /** Absolute paths parcel must not emit events for. parcel treats a non-glob
  *  path entry as "ignore this file/dir and all its children", so absolute
- *  directory paths prune whole subtrees. */
-async function computeIgnore(
+ *  directory paths prune whole subtrees.
+ *
+ *  Exported under this file's `_` test-visibility convention (see
+ *  {@link _sharedWorkingTreeWatcherCount}) so the parcel-ignore SHAPE is pinned
+ *  where it is actually observable, rather than at a listing variant no
+ *  consumer can tell apart. */
+export async function _computeIgnore(
   repoRoot: string,
   log?: Logger,
 ): Promise<string[]> {
-  const ignored = await listIgnoredPaths(repoRoot, log);
+  const ignored = await listIgnored(repoRoot, log);
   let rels: string[];
   if (ignored.ok) {
     rels = [...ALWAYS_IGNORE_RELS, ...ignored.value];
@@ -131,6 +143,10 @@ async function computeIgnore(
     );
     rels = [...ALWAYS_IGNORE_RELS, ...FALLBACK_IGNORE_RELS];
   }
+  // `path.resolve` normalizes git's trailing directory slash away, so the
+  // collapsed `node_modules/` entry and a bare `node_modules` prune
+  // identically. That erasure is why the watcher needs no slash-stripped
+  // listing of its own — it reads the same `listIgnored` the Code tab does.
   return rels.map((rel) => path.resolve(repoRoot, rel));
 }
 
@@ -186,7 +202,7 @@ function installSharedWorkingTreeWatcher(
   // view that no future event would correct on its own. Fire a synthetic tick
   // once parcel is ready so consumers re-read state and reconcile.
   void (async () => {
-    const ignore = await computeIgnore(repoRoot, log);
+    const ignore = await _computeIgnore(repoRoot, log);
     if (cancelled) return;
     try {
       const sub = await parcelSubscribe(

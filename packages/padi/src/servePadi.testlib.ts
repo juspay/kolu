@@ -25,6 +25,7 @@ export const stubLog = {
 export const fakeEndpoint = {
   fs: {
     listAll: async () => [],
+    listIgnored: async () => [],
     readFile: async () => ({ content: "", truncated: false }),
     filePreviewTag: async () => "tag",
     subscribeRepoChange: () => () => {},
