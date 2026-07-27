@@ -197,6 +197,7 @@ extern "C" {
 
 pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     let mut snap = Snapshot::new();
+    let timebase = args.cpu_time.then(read_mach_timebase);
     let process_table = match read_process_table() {
         Ok(rows) => rows,
         Err(err) => {
@@ -251,13 +252,21 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             }
         }
         if args.cpu_time {
-            match task.as_ref().expect("task requested") {
-                Ok(row) => snap.cpu_times.push(ProcessCpuTime {
+            match (
+                task.as_ref().expect("task requested"),
+                timebase.as_ref().expect("timebase requested"),
+            ) {
+                (Ok(row), Ok(timebase)) => snap.cpu_times.push(ProcessCpuTime {
                     pid,
-                    // XNU's proc_taskinfo totals are nanoseconds.
-                    cpu_time_us: row.pti_total_user.saturating_add(row.pti_total_system) / 1_000,
+                    cpu_time_us: mach_ticks_to_us(
+                        row.pti_total_user,
+                        row.pti_total_system,
+                        *timebase,
+                    ),
                 }),
-                Err(err) => push_unreadable(&mut snap, pid, "cpu_time", *err),
+                (Err(err), _) | (_, Err(err)) => {
+                    push_unreadable(&mut snap, pid, "cpu_time", *err)
+                }
             }
         }
         if args.uid {
@@ -398,6 +407,33 @@ struct BsdRow {
     uid: u32,
     status: u32,
     nice: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MachTimebase {
+    numer: u32,
+    denom: u32,
+}
+
+fn read_mach_timebase() -> Result<MachTimebase, i32> {
+    unsafe {
+        let mut info = libc::mach_timebase_info { numer: 0, denom: 0 };
+        if libc::mach_timebase_info(&mut info) != libc::KERN_SUCCESS || info.denom == 0 {
+            return Err(libc::EIO);
+        }
+        Ok(MachTimebase {
+            numer: info.numer,
+            denom: info.denom,
+        })
+    }
+}
+
+fn mach_ticks_to_us(user: u64, system: u64, timebase: MachTimebase) -> u64 {
+    let ticks = u128::from(user).saturating_add(u128::from(system));
+    let nanoseconds = ticks
+        .saturating_mul(u128::from(timebase.numer))
+        / u128::from(timebase.denom);
+    u64::try_from(nanoseconds / 1_000).unwrap_or(u64::MAX)
 }
 
 fn select_pids(
@@ -1134,5 +1170,28 @@ mod tests {
 
         assert_eq!(selected, vec![1, 2, 3]);
         assert!(snap.unreadable.is_empty());
+    }
+
+    #[test]
+    fn mach_ticks_use_the_apple_silicon_timebase() {
+        assert_eq!(
+            mach_ticks_to_us(
+                9_000,
+                3_000,
+                MachTimebase {
+                    numer: 125,
+                    denom: 3,
+                },
+            ),
+            500
+        );
+    }
+
+    #[test]
+    fn mach_ticks_keep_the_intel_one_to_one_timebase() {
+        assert_eq!(
+            mach_ticks_to_us(750_000, 250_000, MachTimebase { numer: 1, denom: 1 }),
+            1_000
+        );
     }
 }
