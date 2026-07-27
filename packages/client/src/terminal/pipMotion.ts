@@ -5,7 +5,7 @@
  *
  *  Axis contract:
  *    identity → glyph shape
- *    state    → glyph paint (agentPaintClass → PipVariant)
+ *    state    → glyph paint (attentionClass → PipVariant)
  *    activity → glyph MOTION (this module)
  *    obligation → amber badge
  *    dormancy → row recedes (caller)

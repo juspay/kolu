@@ -276,7 +276,18 @@ function attentionClassOfState(
  *  `live` is raw byte motion (kaval's meaningful-output edge). It is what makes
  *  a plain shell running a build count as active — it has no agent to ask — and
  *  what keeps a terminal that has gone `finished` counted while its last output
- *  is still printing. */
+ *  is still printing.
+ *
+ *  That byte edge closes after `TERMINAL_IDLE_AFTER_MS` (~1 s), so a terminal
+ *  that prints intermittently — a dev server logging a line every few seconds —
+ *  enters and leaves the live set on every gap, and a count containing it ticks
+ *  with it. That is deliberate, and it is not flicker between two disagreeing
+ *  answers: the mark's own motion runs off the SAME edge, so the number and the
+ *  marks it summarises start and stop together. Giving the count its own
+ *  hysteresis would buy a calmer tab by making it disagree with the dock
+ *  beneath it, which is the whole class of defect this vocabulary exists to
+ *  end. If the tab should be calmer, lengthen the one idle window — do not give
+ *  counting a second notion of activity. */
 export function attentionActive(klass: AttentionClass, live: boolean): boolean {
   switch (klass) {
     // An agent that is thinking, blocked on you, or still settling is active

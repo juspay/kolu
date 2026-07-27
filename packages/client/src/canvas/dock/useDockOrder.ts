@@ -11,7 +11,9 @@
  *  would freeze the memo for every later consumer with no error to
  *  point at. */
 
+import { encodeHostKey } from "kolu-common/hostKey";
 import { type Accessor, createMemo } from "solid-js";
+import { useAttentionFacts } from "../../attention/useAttentionFacts";
 import { createSharedRoot } from "../../createSharedRoot";
 import { showSleeping } from "../../terminal/showSleeping";
 import { useStaleCheck } from "../../terminal/staleness";
@@ -19,11 +21,13 @@ import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import { rankDockRows } from "./dockRowRanking";
 import { buildDockTree, type DockTree } from "./dockTree";
+import { activeHost } from "../../wire";
 
 export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   const store = useTerminalStore();
   const tileStore = useTileStore();
   const isStale = useStaleCheck();
+  const facts = useAttentionFacts();
   // The dock ranks TILES (today every tile is a terminal, so the id set equals
   // terminalIds()); per-row metadata + display still come off the terminal,
   // its content. PR 2's sleeping tiles join `tileIds()` and become dock rows
@@ -42,11 +46,17 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   // Splits ride along: `getSubTerminalIds` lets a row carry an indented entry
   // for each agent running in one of its splits, so an agent the host tab
   // counts is never invisible in the dock.
+  // A row's PAINT is its attention class — the same value its motion and every
+  // count read — so the dock reads it from the mirror rather than re-deriving a
+  // colour from metadata that arrives on a different subscription. `classOf`
+  // deliberately does not read the live set: row order and colour move on agent
+  // transitions, not on the ~1 s byte tick.
   const ranked = createMemo(() =>
     rankDockRows(
       tileStore.tileIds(),
       store.getMetadata,
       isStale,
+      (id) => facts.classOf(encodeHostKey(activeHost()), id),
       store.getSubTerminalIds,
     ),
   );

@@ -29,7 +29,7 @@ import {
 } from "@kolu/padi/surface";
 import {
   type AgentPaintClass,
-  agentPaintClass,
+  type AttentionClass,
   agentUrgency,
   type TerminalId,
   URGENCY_RANK,
@@ -111,33 +111,56 @@ function classifyDockRow(
 
 /** The PIP bucket a row paints — separate from the ORDER bucket above so a row's
  *  pip COLOUR is decided once and reads identically across the dock row and the
- *  tile title (both render through `StatePip`). For a live-agent row it is the
- *  shared `agentPaintClass` — the SAME fold title / switcher use via
- *  `bindStatePip`. A fresh `waiting` agent paints `linger` (the lingering
- *  dim-alert) even though `classifyDockRow` ranks it `idle` for ORDERING.
- *  Dock-only triage: `sleeping` / `parked` / plain shells → idle paint (shell
- *  glyph) when order ranks `none`. `parked` defaults false for non-windowed
+ *  tile title (both render through `StatePip`).
+ *
+ *  It paints the terminal's ATTENTION CLASS — the same value its motion, its
+ *  wash and every count read — rather than re-deriving a paint class from the
+ *  terminal's own metadata. Those are two different sources with independent
+ *  timing: a terminal's metadata and its host's urgency frame arrive on
+ *  separate subscriptions, so before the first frame lands (and for as long as
+ *  a stale or errored urgency cell holds), painting from metadata put a rust
+ *  mark on screen that did not move and no count included — the exact
+ *  disagreement this vocabulary exists to make unspellable, surviving in the
+ *  one channel nobody had moved over. One value, one arrival, four surfaces.
+ *
+ *  A quiet host therefore paints quiet: if the frame has not arrived, every
+ *  mark reads idle rather than confidently colouring from a fact no count
+ *  agrees with. That is the honest reading, and it is the same fact the host
+ *  tab already shows by dimming.
+ *
+ *  A fresh `waiting` agent paints `linger` (the lingering dim-alert) even
+ *  though `classifyDockRow` ranks it `idle` for ORDERING — order≠colour, still
+ *  deliberately. Dock-only triage: `sleeping` / `parked` come off the metadata
+ *  overlay, which is where they live. `parked` defaults false for non-windowed
  *  surfaces (title/switcher). */
 export function paintDockRow(
   meta: TerminalMetadata,
+  klass: AttentionClass,
   parked: boolean = false,
 ): DockRowBucket {
   // The overlay also runs in the paint fold so the two folds stay aligned by
   // construction — even though a parked pip never paints (`dockTree` drops the
-  // row before it can reach a pip).
+  // row before it can reach a pip). Dormancy is a property of the TILE, not of
+  // any agent inside it, so it stays a metadata read.
   const overlay = dockOverlayBucket(meta, parked);
   if (overlay) return overlay;
-  const agent = activeArm(meta)?.agent;
-  // No live agent → shell identity glyph (`idle` paint: fg-3, still). Every
-  // dock row core is an identity mark (Option C); never-touched shells still
-  // ORDER as `none` via `classifyDockRow`, but they PAINT as idle so
-  // `PIP_BODY.empty` does not swallow the shell glyph. `parked` stays empty
-  // via the overlay above (and never reaches a visible row).
-  if (!agent) return "idle";
-  const paint = agentPaintClass(agent.state);
-  // An unknown state paints `none`; surface it as `idle` (shell mark) when the
-  // row has activity rather than an empty cell, matching the order fold.
-  return paint === "none" && meta.lastActivityAt !== null ? "idle" : paint;
+  switch (klass) {
+    case "asking":
+      return "awaiting";
+    case "working":
+      return "working";
+    // The post-turn lull keeps its dimmed glow whether or not EF2 has closed —
+    // the row parks on recency, not on the quiet timer.
+    case "linger":
+    case "finished":
+      return "linger";
+    // No agent, or one in a state the vocabulary does not recognise: the shell
+    // identity glyph. Every dock row core is an identity mark (Option C), so
+    // this paints `idle` rather than `none` — `PIP_BODY.empty` would swallow
+    // the glyph.
+    case "idle":
+      return "idle";
+  }
 }
 
 /** A split's entry — a row that cannot itself carry splits, because splits do
@@ -151,8 +174,10 @@ export type SubDockRow = {
    *  is `idle` here (it does not float into the needs-you order). */
   bucket: DockRowBucket;
   /** The PIP bucket — drives the row's `StatePip` colour, decoupled from order
-   *  so it reads identically to the tile title's pip. Reads `agentPaintClass`,
-   *  so a fresh `waiting` agent is `linger` here (it keeps a dim glow). */
+   *  so it reads identically to the tile title's pip. Reads the terminal's
+   *  ATTENTION CLASS (the same value its motion and every count read), so a
+   *  fresh `waiting` agent is `linger` here — it keeps a dim glow while the
+   *  ORDER bucket ranks it idle. */
   pip: DockRowBucket;
   ts: number | null;
 };
@@ -226,6 +251,7 @@ export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   isStale: (lastActivityAt: number | null) => boolean,
+  classOf: (id: TerminalId) => AttentionClass,
   getSubIds: (parentId: TerminalId) => readonly TerminalId[] = () => [],
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
@@ -235,14 +261,14 @@ export function rankDockRows(
     const recencyAt = rowRecencyAt(meta);
     const parked = isStale(recencyAt);
     const bucket = classifyDockRow(meta, parked);
-    const pip = paintDockRow(meta, parked);
+    const pip = paintDockRow(meta, classOf(id), parked);
     const subIds = getSubIds(id);
     rows.push({
       id,
       bucket,
       pip,
       ts: recencyAt,
-      subRows: rankSubRows(subIds, getMeta),
+      subRows: rankSubRows(subIds, getMeta, classOf),
       subIds,
     });
   }
@@ -262,6 +288,7 @@ export function rankDockRows(
 function rankSubRows(
   subIds: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+  classOf: (id: TerminalId) => AttentionClass,
 ): SubDockRow[] {
   const rows: SubDockRow[] = [];
   for (const id of subIds) {
@@ -272,7 +299,7 @@ function rankSubRows(
     rows.push({
       id,
       bucket: classifyDockRow(meta, false),
-      pip: paintDockRow(meta, false),
+      pip: paintDockRow(meta, classOf(id), false),
       ts: rowRecencyAt(meta),
     });
   }

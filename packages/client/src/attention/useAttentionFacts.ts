@@ -37,12 +37,16 @@
  *  attach sink. */
 
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
-import type { TerminalId } from "kolu-common/surface";
+import type { AttentionClass, TerminalId } from "kolu-common/surface";
 import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 import type { TerminalAttention } from "./attentionFacts";
-import { terminalAttention, writeHostMarks } from "./attentionMarks";
+import {
+  terminalAttention,
+  terminalClass,
+  writeHostMarks,
+} from "./attentionMarks";
 
 export const useAttentionFacts = createSharedRoot(() => {
   // One eager root per host, holding BOTH of that host's attention members.
@@ -135,6 +139,10 @@ export const useAttentionFacts = createSharedRoot(() => {
      *  Deliberately the module's ONLY export: every ingredient it offered
      *  beside the value (`isLive`, `isFinished`) was a route back to the loose
      *  booleans shape a call site could assemble wrongly. */
+    /** A terminal's class WITHOUT its live flag — the dock's rank/paint read.
+     *  Kept separate so the row order does not re-sort on every byte tick. */
+    classOf: (encHost: string, id: TerminalId): AttentionClass =>
+      terminalClass(encHost, id),
     attentionOf: (encHost: string, id: TerminalId): TerminalAttention =>
       terminalAttention(encHost, id),
   };

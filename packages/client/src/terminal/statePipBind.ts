@@ -60,7 +60,13 @@ export function bindStatePip(input: {
   pipBucket?: DockRowBucket;
 }): StatePipBind {
   const agent = activeArm(input.meta)?.agent;
-  const bucket = input.pipBucket ?? paintDockRow(input.meta);
+  // Paint comes off the SAME attention value as motion, wash and every count —
+  // never re-derived from the metadata, which arrives on its own subscription
+  // and would put a rust mark on screen that does not move and no count
+  // includes. The dock hands in a bucket it already computed from this same
+  // class; every other surface folds it here.
+  const bucket =
+    input.pipBucket ?? paintDockRow(input.meta, input.attention.klass);
   const variant = pipVariant(bucket);
   // The ONE activity predicate — the same function every host tab and section
   // header counts with, so a still mark is never counted and a moving one never

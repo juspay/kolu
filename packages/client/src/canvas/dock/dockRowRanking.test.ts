@@ -1,11 +1,14 @@
 import {
   type ActiveTerminal,
+  activeArm,
   LOCAL_LOCATION,
   type TerminalMetadata,
 } from "@kolu/padi/surface";
 import {
   type AgentInfo,
+  type AttentionClass,
   agentUrgency,
+  attentionClass,
   type TerminalId,
   URGENCY_RANK,
 } from "kolu-common/surface";
@@ -76,11 +79,20 @@ function pip(meta: TerminalMetadata, stale: boolean): DockRowBucket {
   return rankOne(meta, stale).pip;
 }
 
+/** Stand-in for the attention mirror: fold the fixture's own agent through the
+ *  shared partition, which is what padi publishes and the dock reads back. */
+function classOfMeta(
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+): (id: TerminalId) => AttentionClass {
+  return (id) => attentionClass(activeArm(getMeta(id))?.agent, false);
+}
+
 function rankOne(meta: TerminalMetadata, stale: boolean) {
   const rows = rankDockRows(
     ["t1"] as TerminalId[],
     () => meta,
     () => stale,
+    classOfMeta(() => meta),
   );
   const row = rows[0];
   if (!row) throw new Error("no row returned");
@@ -157,6 +169,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => makeSleepingMeta(1),
       () => true,
+      classOfMeta(() => makeSleepingMeta(1)),
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -183,6 +196,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => meta,
       realStale(NOW, WINDOW),
+      classOfMeta(() => meta),
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -199,6 +213,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => meta,
       realStale(NOW, WINDOW),
+      classOfMeta(() => meta),
     );
     expect(rows[0]?.bucket).toBe("sleeping");
   });
@@ -214,6 +229,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => meta,
       () => true,
+      classOfMeta(() => meta),
     );
     expect(meta.agent).toBe(agentBefore); // identity preserved — same object reference
     expect(meta.agent?.state).toBe("waiting");
@@ -343,6 +359,7 @@ describe("rankDockRows — split sub-entries", () => {
       [PARENT],
       getMeta,
       () => false,
+      classOfMeta(getMeta),
       () => subIds,
     );
   }

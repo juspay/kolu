@@ -59,10 +59,13 @@ export function recomputeUrgency(
     // discriminant.
     if (terminal.state !== "active") continue;
     // The ONE shared partition (`attentionClass`) decides which list an id
-    // lands in — the same function the client folds a terminal's own metadata
-    // through to decide that terminal's pip, so a wire list and a pip can't
-    // mean different things. Every terminal lands in exactly one list (or
-    // none), which is what lets a consumer add the lists without de-duplicating.
+    // lands in, and it is computed HERE, once. The client does not re-run it:
+    // it reads the answer back off these lists for a terminal's colour, its
+    // motion and every count, so a wire list and a mark can't mean different
+    // things — not because two switches agree, but because there is one
+    // computation with one arrival time. Every terminal lands in exactly one
+    // list (or none), which is what lets a consumer add the lists without
+    // de-duplicating.
     // A waiting agent splits on effective quiet + sticky-per-episode (EF2):
     // still lingering until it closes, finished after. Asking is ungated.
     switch (attentionClass(terminal.agent, isEpisodeFinished(id))) {

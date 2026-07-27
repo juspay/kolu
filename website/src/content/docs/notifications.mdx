@@ -44,6 +44,13 @@ plain shell that is printing. That last one matters: a terminal running a build
 has no agent to ask, and its output is the only evidence there is. If three marks
 are moving, the count above them says three.
 
+One consequence worth knowing: a terminal that prints *intermittently* — a dev
+server logging a line every few seconds — counts while it prints and stops
+counting a second after it goes quiet, so the number pulses. It is doing exactly
+what the mark in the dock does, at the same moment, because both read the same
+signal. A count that held steady while the marks beneath it blinked would be the
+older, worse behaviour wearing a calmer face.
+
 An agent that finishes in the background washes its whole dock row amber — tinted
 background, lit leading stripe, bold title. A blocked one washes violet and floats
 to the top of its repo section. The vocabulary of states is

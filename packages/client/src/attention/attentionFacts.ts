@@ -109,20 +109,25 @@ export function frameClassOf(
 export function hostActiveIds(
   frame: HostAttentionFrame,
 ): readonly TerminalId[] {
+  // Index the frame ONCE. Asking `frameClassOf` per id would rescan every
+  // class list for every id — quadratic in a host's terminals, re-run on each
+  // reactive read of the tab's count, which the ~1 s activity tick already
+  // invalidates. The membership rule still comes from `attentionCounted`;
+  // only the lookup is indexed.
+  const klassOf = new Map<TerminalId, FrameClass>();
+  for (const klass of FRAME_CLASSES) {
+    for (const id of frame.byClass[klass]) klassOf.set(id, klass);
+  }
+  const live = new Set(frame.liveIds);
   const out: TerminalId[] = [];
   const seen = new Set<TerminalId>();
-  for (const id of [
-    ...FRAME_CLASSES.flatMap((klass) => frame.byClass[klass]),
-    ...frame.liveIds,
-  ]) {
-    // `liveIds` overlaps the class lists freely (a thinking agent usually IS
-    // printing), so this union — unlike the class lists among themselves —
-    // genuinely needs the de-dup.
+  // `liveIds` overlaps the class lists freely (a thinking agent usually IS
+  // printing), so this union — unlike the class lists among themselves —
+  // genuinely needs the de-dup.
+  for (const id of [...klassOf.keys(), ...frame.liveIds]) {
     if (seen.has(id)) continue;
     seen.add(id);
-    if (attentionCounted(frameClassOf(frame, id), frame.liveIds.includes(id))) {
-      out.push(id);
-    }
+    if (attentionCounted(klassOf.get(id) ?? "idle", live.has(id))) out.push(id);
   }
   return out;
 }

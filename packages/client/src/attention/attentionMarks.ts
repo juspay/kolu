@@ -20,13 +20,12 @@
  *  rule maintained by two matching comments rather than by the structure. */
 
 import {
-  EMPTY_FRAME,
   type HostAttentionFrame,
   hostActiveIds,
   frameClassOf,
   type TerminalAttention,
 } from "./attentionFacts";
-import type { TerminalId } from "kolu-common/surface";
+import type { AttentionClass, TerminalId } from "kolu-common/surface";
 import { createStore, produce } from "solid-js/store";
 
 export interface HostMarks extends HostAttentionFrame {
@@ -58,13 +57,15 @@ function emptyMarks(): HostMarks {
   };
 }
 
-/** The reading for a host with no record at all — returned, never stored. */
-const NO_MARKS: HostMarks = {
-  ...EMPTY_FRAME,
-  unseenFinished: 0,
-  live: false,
-  reported: false,
-};
+/** The reading for a host with no record at all — returned, never stored.
+ *
+ *  Built through `emptyMarks()` rather than spread from a shared literal: a
+ *  spread copies the OUTER object and leaves `byClass` pointing at the very
+ *  node every other empty reading uses, so one accidental push into a
+ *  "host we haven't heard from" frame would corrupt the seed for all of them.
+ *  The same "fresh per host, never one shared object" discipline the store's
+ *  own seed follows. */
+const NO_MARKS: HostMarks = emptyMarks();
 
 const [marks, setMarks] = createStore<Record<string, HostMarks>>({});
 
@@ -162,6 +163,18 @@ export function terminalAttention(
     klass: frameClassOf(frame, id),
     live: frame.liveIds.includes(id),
   };
+}
+
+/** A terminal's attention CLASS alone, without reading the live set.
+ *
+ *  The dock's rank-and-paint memo needs the class and nothing else, and the
+ *  separation is load-bearing rather than tidy: `liveIds` churns on kaval's
+ *  ~1 s idle window, so a reader that took the whole `TerminalAttention` would
+ *  re-sort and re-group every dock row every time any terminal on the host
+ *  printed a line. The class moves on agent transitions, which is the cadence
+ *  the row order already follows. */
+export function terminalClass(encHost: string, id: TerminalId): AttentionClass {
+  return frameClassOf(hostFrame(encHost), id);
 }
 
 /** The app-badge fold: Σ `asking` over LIVE hosts — read reactively inside the

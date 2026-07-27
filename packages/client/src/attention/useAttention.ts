@@ -12,12 +12,15 @@
  *  are staring at is "seen"). Everything else is host-agnostic.
  *
  *  ── The rules ──────────────────────────────────────────────────────────────
- *  Two attention states, read cross-host off each host's tiny `urgency` cell
- *  (`{ awaitingIds, finishedIds }`, the deliberately-small member kept hot on
- *  every bound host — never a full terminals mirror):
+ *  Two attention states, read cross-host off the per-host attention frame
+ *  `useAttentionFacts` mirrors — padi's `attentionClass` partition as four
+ *  disjoint id lists (asking · working · linger · finished), the
+ *  deliberately-small member kept hot on every bound host, never a full
+ *  terminals mirror. This module consumes that store rather than opening its
+ *  own subscription, and reads two of the four:
  *    • ASKING (`awaiting_user`) — blocked on your input.
- *    • FINISHED (`waiting`) — just ended its turn.
- *  For each host we diff that cell frame-to-frame and, per terminal:
+ *    • FINISHED (EF2 quiet) — just ended its turn.
+ *  For each host we diff those two lists frame-to-frame and, per terminal:
  *    • fire the loud channels (sound + OS popup) ONCE per attention episode, only
  *      if the terminal isn't currently `watched` and the pref allows it;
  *    • an escalation FINISHED→ASKING re-arms a fire (a real gate over an idle
