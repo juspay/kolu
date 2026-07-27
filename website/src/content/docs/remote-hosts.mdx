@@ -292,6 +292,23 @@ to whichever terminal you happen to be looking at.
 Everything dies with the kolu server, guaranteed by the kernel rather than by a
 timer, so a deploy or a crash never leaves an orphaned door open.
 
+### A printed `localhost` URL uses the same door
+
+Agents constantly print `http://localhost:5173/` (and `127.*`, `[::1]`,
+`0.0.0.0`). In your browser that hostname is the **wrong machine** — the laptop
+you are reading kolu from, not the host running the server. Click a loopback URL
+in the terminal and a small card appears at the cursor: when the scanner already
+sees that port on this terminal it offers **forward &amp; open** (and copy), with
+the printed path carried through the door; when nothing is listening yet it says
+so instead of inventing a forward from text. ⌘/Ctrl-click opens the raw URL with
+no card. Non-loopback links keep the usual open behaviour.
+
+The card is **live** — leave it open while a server starts and it upgrades the
+moment the listener is real. Printed text never creates a port fact of its own;
+it only looks up what observation already established. The [Inspector's Ports
+section](/right-panel#ports-the-terminal-is-serving) documents the same card
+from the tile side.
+
 <Aside type="caution" title="A forwarded port is unauthenticated">
 The door kolu opens is plain TCP on **every interface** of the machine running
 kolu — the same exposure as starting the dev server on `0.0.0.0` yourself.

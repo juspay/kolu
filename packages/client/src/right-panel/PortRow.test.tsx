@@ -19,6 +19,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../forwards/useForwards", () => ({
   cancelForward: () => Promise.resolve(),
+  createForward: () =>
+    Promise.resolve({
+      key: "local:8080",
+      host: { kind: "local" },
+      remotePort: 8080,
+      localPort: 61003,
+      origin: "manual",
+      createdAt: 0,
+    }),
 }));
 
 const { PortRow } = await import("./PortRow");
@@ -50,10 +59,9 @@ function mountOrphan(serving?: { name: string; jump: () => void }) {
       <PortRow
         row={{ kind: "orphan", port: 8080, forward }}
         action={{ kind: "forward" }}
-        openAt={{ host: "pureintent", port: 61003 }}
+        host={{ kind: "local" }}
         forwardReason={undefined}
         serving={serving}
-        onForward={() => Promise.resolve(61003)}
       />
     ),
     host,
