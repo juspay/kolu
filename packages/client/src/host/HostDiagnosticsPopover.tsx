@@ -40,6 +40,7 @@ import {
   padiMap,
   setActiveHost,
 } from "../wire";
+import type { LogLine } from "./CanvasFailureCard";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
 import { reconnectHost } from "./reconnectHost";
@@ -232,7 +233,7 @@ export const HostDiagnosticsPopover: Component<{
     const s = state();
     return s.kind === "failed" ? s.failure.reason : undefined;
   };
-  const failureLog = (): readonly { readonly line: string }[] => {
+  const failureLog = (): readonly LogLine[] => {
     const s = state();
     if (s.kind !== "failed") return [];
     return (s.connection?.log ?? []).slice(-POPOVER_TAIL_LINES);

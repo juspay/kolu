@@ -38,6 +38,7 @@ import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
+  type LogLine,
   reconnectAction,
   switchToLocalAction,
 } from "./CanvasFailureCard";
@@ -50,7 +51,7 @@ const BootStalledCanvas: Component<{
    *  narration of the work the card is asking about. The `client` arm is a connected
    *  host's own session/daemon/membership stall, where the same tail is a settled
    *  connect log with nothing to say about the wedge, so it is not shown. */
-  log: readonly { readonly line: string }[] | undefined;
+  log: readonly LogLine[] | undefined;
 }> = (props) => {
   // The two recovery verbs, built ONCE per instance so their identity is stable across every
   // 1s canvas re-resolve (see the REACTIVITY note above) — the connector recycles the SERVER

@@ -30,6 +30,7 @@ import DocLink from "../ui/DocLink";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
+  type LogLine,
   reconnectAction,
   switchToLocalAction,
 } from "./CanvasFailureCard";
@@ -44,7 +45,7 @@ const HostDownCanvas: Component<{
   failure: {
     readonly cause: EntryFailedCause;
     readonly reason: string;
-    readonly log: readonly { readonly line: string }[] | undefined;
+    readonly log: readonly LogLine[] | undefined;
   };
 }> = (props) => {
   const copy = () => hostDownCopy(props.failure.cause);

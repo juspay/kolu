@@ -26,6 +26,12 @@ import { WarningIcon } from "../ui/Icons";
 import { activeHost, setActiveHost } from "../wire";
 import { reconnectHost } from "./reconnectHost";
 
+/** One line of retained output, structurally. Deliberately NOT the domain `LogEntry`
+ *  (`@kolu/surface-remote`'s `{ source, line }`): this shell carries no domain knowledge,
+ *  and a caller hands it whatever tail it kept. Named once here rather than re-spelled
+ *  longhand at each of the four places that pass or take a tail. */
+export type LogLine = { readonly line: string };
+
 /** One action button in the card's vertical stack. `tone: "primary"` is the warning-accented
  *  recovery verb (Reconnect / Reload); `"secondary"` is the neutral escape hatch (Switch to
  *  local). `testid` keeps the existing e2e handles (`host-reconnect`, `switch-to-local`, …). */
@@ -104,7 +110,7 @@ export function CanvasFailureCard(props: {
    *  (a post-mortem you have to be able to read). Same pixels, opposite jobs — unifying
    *  them would parameterize two independently-changing behaviours for a class-string
    *  saving, the same trade this card already declined for `DangerCard`. */
-  log: readonly { readonly line: string }[] | undefined;
+  log: readonly LogLine[] | undefined;
   /** Test handle for the tail block, supplied by the caller like every other handle on this
    *  shell (`dataTestid` / `dataAttrs` / `action.testid`) — two callers now render a tail, so
    *  a selector has to be able to say WHICH card's it found. */
@@ -132,12 +138,6 @@ export function CanvasFailureCard(props: {
                 </p>
               )}
             </Show>
-            {/* The retained output of the episode that failed. Rendered whenever the caller
-                HAS lines — data presence, not a per-cause flag — so the diagnostic that was
-                already collected stops dying at the card (a caught error must surface, never
-                collapse to a one-line summary). Wraps rather than truncates: a Nix store path
-                or a `tsc` diagnostic is only useful whole. Bounded height + scroll so a full
-                tail can't push the recovery buttons off-screen. */}
             <Show when={(props.log ?? []).length > 0}>
               <div
                 data-testid={props.logTestid}

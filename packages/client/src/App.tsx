@@ -46,6 +46,7 @@ import ExportSessionDialog, {
   exportSessionDialog,
 } from "./ExportSessionDialog";
 import BootStalledCanvas from "./host/BootStalledCanvas";
+import type { LogLine } from "./host/CanvasFailureCard";
 import { ConnectCanvas } from "./host/ConnectCanvas";
 import HostDownCanvas from "./host/HostDownCanvas";
 import { hostHue, hostLabel } from "./host/hostChipTone";
@@ -337,7 +338,7 @@ const App: Component = () => {
   const hostFailure = (): {
     cause: EntryFailedCause;
     reason: string;
-    log: readonly { readonly line: string }[] | undefined;
+    log: readonly LogLine[] | undefined;
   } => {
     const s = activeEntryState();
     if (s.kind !== "failed") {

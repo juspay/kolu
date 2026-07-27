@@ -28,6 +28,8 @@ vi.mock("../wire", () => ({
   client: { hosts: { reconnect: () => Promise.resolve() } },
 }));
 
+import type { LogLine } from "./CanvasFailureCard";
+
 // Imported AFTER the mock so it binds the mocked `../wire`.
 const { default: HostDownCanvas } = await import("./HostDownCanvas");
 
@@ -42,7 +44,7 @@ const TAIL = '[data-testid="host-down-log"]';
 
 const mount = (props: {
   reason: string;
-  log: readonly { readonly line: string }[] | undefined;
+  log: readonly LogLine[] | undefined;
 }): void => {
   dispose = render(
     () => (
