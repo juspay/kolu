@@ -22,6 +22,7 @@ const SAMPLE = [
   "L\tclaimed\t4242\t1000\t5173\t7f000001",
   `L\tunclaimed\t-\t0\t8081\t${V4_MAPPED_LOOPBACK}`,
   "U\t991\tports\tEACCES",
+  "E\tdarwin_tcp_pcblist\tBLIND_OR_EMPTY",
   "",
 ].join("\n");
 
@@ -54,6 +55,9 @@ describe("parseOsfactsOutput", () => {
     ]);
     expect(r.unreadable).toEqual([
       { pid: 991, facet: "ports", errno: "EACCES" },
+    ]);
+    expect(r.errors).toEqual([
+      { source: "darwin_tcp_pcblist", code: "BLIND_OR_EMPTY" },
     ]);
   });
 

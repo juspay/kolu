@@ -56,7 +56,12 @@ fn run_snapshot(args: SnapshotArgs) -> ExitCode {
 }
 
 fn snapshot_exit_code(snap: &Snapshot) -> ExitCode {
-    if snap.errors.is_empty() {
+    let has_facts = !snap.procs.is_empty()
+        || !snap.memory.is_empty()
+        || !snap.start_times.is_empty()
+        || !snap.ports.is_empty()
+        || !snap.unreadable.is_empty();
+    if snap.errors.is_empty() || has_facts {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -91,7 +96,18 @@ fn run_host(args: HostArgs) -> ExitCode {
         let _ = writeln!(io::stderr(), "osfacts: write failed: {e}");
         return ExitCode::from(1);
     }
-    if host.errors.is_empty() {
+    host_exit_code(&host)
+}
+
+fn host_exit_code(host: &HostSnapshot) -> ExitCode {
+    let has_facts = host.load.is_some()
+        || host.memory.is_some()
+        || host.swap.is_some()
+        || host.uptime_us != 0
+        || !host.cpus.is_empty()
+        || !host.networks.is_empty()
+        || !host.disks.is_empty();
+    if host.errors.is_empty() || has_facts {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -137,5 +153,28 @@ mod tests {
         });
 
         assert_eq!(snapshot_exit_code(&snap), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn source_failure_without_any_facts_is_fatal() {
+        let mut snap = Snapshot::new();
+        snap.errors.push(SourceError {
+            source: "proc_listpids".into(),
+            code: "EPERM".into(),
+        });
+
+        assert_eq!(snapshot_exit_code(&snap), ExitCode::from(1));
+    }
+
+    #[test]
+    fn partial_host_source_failure_does_not_discard_good_facts() {
+        let mut host = HostSnapshot::new();
+        host.uptime_us = 1;
+        host.errors.push(SourceError {
+            source: "getifaddrs".into(),
+            code: "EPERM".into(),
+        });
+
+        assert_eq!(host_exit_code(&host), ExitCode::SUCCESS);
     }
 }

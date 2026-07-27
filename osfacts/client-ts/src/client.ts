@@ -92,6 +92,7 @@ export interface OsfactsReading {
   startTimes: StartTimeRow[];
   ports: ListenerRow[];
   unreadable: UnreadableRow[];
+  /** Requested sources that were blind. Partial output still exits successfully. */
   errors: SourceErrorRow[];
   load?: LoadRow;
   hostMemory?: HostMemoryRow;

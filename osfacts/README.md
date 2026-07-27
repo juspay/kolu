@@ -60,6 +60,13 @@ diff between two snapshots on your clock. A one-shot sampler should never
 sleep; one tool we measured sleeps ~30 ms per call to compute a rate nobody
 asked it for.
 
+Source blindness is an `E` row, not an instruction to discard facts that did
+arrive. A partial snapshot exits successfully and leaves reject-versus-render
+policy to the consumer; an `E`-only result remains a total failure and exits
+nonzero, as do usage and output failures. This distinction keeps a blind port
+source from erasing valid process rows while making a completely blind probe
+fail loudly.
+
 ## Who uses it
 
 [kolu](https://github.com/juspay/kolu) — its terminal port sensor polls this

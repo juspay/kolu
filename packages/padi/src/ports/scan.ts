@@ -11,6 +11,7 @@ import {
   type ListenerRow,
   type OsfactsReading,
   type ProcessRow,
+  type SourceErrorRow,
   type UnreadableRow,
   OsfactsClientError,
   snapshotSubtree,
@@ -40,6 +41,15 @@ export class PortScanError extends Error {
 // ── Process table + subtree partition ───────────────────────────────────
 
 export type { ProcessRow };
+
+/** Render explicit source blindness for padi's fail-loud port policy. */
+export function sourceErrorsMessage(
+  errors: readonly SourceErrorRow[],
+): string | null {
+  return errors.length === 0
+    ? null
+    : errors.map(({ source, code }) => `${source}=${code}`).join(", ");
+}
 
 /** Partition the process table into one pid SET per requested ROOT pid. */
 export function partitionSubtrees(
@@ -266,6 +276,14 @@ export async function scanSubtreePorts(
       });
     }
     throw err;
+  }
+
+  const sourceFailure = sourceErrorsMessage(reading.errors);
+  if (sourceFailure !== null) {
+    throw new PortScanError(
+      "blind",
+      `port scan: osfacts source failure (${sourceFailure})`,
+    );
   }
 
   const rootSet = new Set(rootPids);

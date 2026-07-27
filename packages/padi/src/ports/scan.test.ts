@@ -10,6 +10,7 @@ import {
   decodeNetworkAddress,
   partitionSubtrees,
   PortScanError,
+  sourceErrorsMessage,
   type ProcessRow,
   unreadablePolicy,
 } from "./scan.ts";
@@ -161,6 +162,17 @@ describe("unreadablePolicy", () => {
     );
     expect(fatal).toBeNull();
     expect(skipPids.size).toBe(0);
+  });
+});
+
+describe("sourceErrorsMessage", () => {
+  it("keeps explicit partial-source failure fatal for padi", () => {
+    expect(
+      sourceErrorsMessage([
+        { source: "darwin_tcp_pcblist", code: "BLIND_OR_EMPTY" },
+      ]),
+    ).toBe("darwin_tcp_pcblist=BLIND_OR_EMPTY");
+    expect(sourceErrorsMessage([])).toBeNull();
   });
 });
 

@@ -14,6 +14,10 @@ supply, refuse a schema version you do not speak, and hand back typed
 import { snapshotSubtree } from "osfacts-client";
 
 const reading = await snapshotSubtree(process.env.OSFACTS_BIN!, [4242]);
+if (reading.errors.length > 0) {
+  // This consumer rejects partial source failures; another may render them.
+  throw new Error(JSON.stringify(reading.errors));
+}
 // reading.procs · reading.ports · reading.unreadable
 ```
 
@@ -29,6 +33,9 @@ the next (replacing a hand-rolled `lsof` path). Policy about what a bind
   supplied absolute binary path.
 - Gate on `V 2` — a mismatched format fails loudly.
 - Parse every row; a line it cannot read is an error, never a skip.
+- Return partial facts when one requested source is blind. The process exits
+  successfully when other facts survived, keeps the source failure in
+  `reading.errors`, and leaves reject-versus-render policy to the caller.
 - Return the raw tables: process identity and RSS, listener rows with explicit
   claimed/unclaimed status and network-order hex addresses, host gauges and
   cumulative counters, unreadable facets, and source errors.
