@@ -62,9 +62,10 @@ struct ForeignProcessOracle {
 
 #[cfg(target_os = "macos")]
 fn parse_ps_elapsed(value: &str) -> Option<u64> {
-    let (days, clock) = value
-        .split_once('-')
-        .map_or((0, value), |(days, clock)| (days.parse().ok()?, clock));
+    let (days, clock) = match value.split_once('-') {
+        Some((days, clock)) => (days.parse::<u64>().ok()?, clock),
+        None => (0, value),
+    };
     let parts = clock
         .split(':')
         .map(str::parse::<u64>)
