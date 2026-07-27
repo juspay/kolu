@@ -32,7 +32,7 @@ import { dirname, join } from "node:path";
 // Reach padi ONLY through its `/assembly` barrel — the package-boundary seal
 // (`seal.test.ts`) forbids a deep `@kolu/padi/stateRoot` import from kolu-server.
 import { padiSocketPath, residentPadiSocket } from "@kolu/padi/assembly";
-import { acquirePidGate, type GateAcquisition } from "@kolu/surface-daemon";
+import { acquirePidGate } from "@kolu/surface-daemon";
 import { processIdentity } from "osfacts-client";
 
 /** The supervisor gate filename — sits BESIDE padi's own `padi.pid` in the
