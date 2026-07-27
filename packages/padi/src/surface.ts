@@ -531,6 +531,13 @@ export const PadiUrgencySchema = z.object({
    *  than failing validation and breaking the whole cell — asking keeps working,
    *  and finishes light up the moment that host's padi catches up. */
   finishedIds: z.array(TerminalIdSchema).default([]),
+  /** The ids of the terminals whose agent is WORKING (thinking / tools /
+   *  background) — the third leg of the host-tab attention summary (working ·
+   *  needs-you · unseen), carried so a background host's tab can say "3 agents
+   *  in flight" without mirroring its full terminals collection. Ids, not a
+   *  count, per the no-second-source law above (`.length` at the consumer).
+   *  `.default([])` for the same rolling-deploy safety as `finishedIds`. */
+  workingIds: z.array(TerminalIdSchema).default([]),
 });
 export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 
@@ -548,7 +555,8 @@ export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 export function urgencyEqual(a: PadiUrgency, b: PadiUrgency): boolean {
   return (
     sameIds(a.awaitingIds, b.awaitingIds) &&
-    sameIds(a.finishedIds, b.finishedIds)
+    sameIds(a.finishedIds, b.finishedIds) &&
+    sameIds(a.workingIds, b.workingIds)
   );
 }
 
@@ -784,7 +792,11 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  (waiting ∧ !finishTracker.isLive), not raw waiting. */
     urgency: {
       schema: PadiUrgencySchema,
-      default: { awaitingIds: [], finishedIds: [] } satisfies PadiUrgency,
+      default: {
+        awaitingIds: [],
+        finishedIds: [],
+        workingIds: [],
+      } satisfies PadiUrgency,
       equals: urgencyEqual,
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "urgency" } },

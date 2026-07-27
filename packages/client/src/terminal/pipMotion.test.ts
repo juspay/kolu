@@ -67,13 +67,9 @@ describe("pipIsActive", () => {
         isFinished: true,
       }),
     ).toBe(true);
-    expect(
-      pipMotionKind({
-        variant: "awaiting",
-        agent: waitingAgent,
-        active: true,
-      }),
-    ).toBe("spin");
+    // A waiting agent paints `linger` now (the awaiting/linger split), and an
+    // active linger spins — needs-you glow is the `awaiting` variant's alone.
+    expect(pipMotionKind({ variant: "linger", active: true })).toBe("spin");
     expect(
       pipIsActive({
         agent: waitingAgent,
@@ -86,70 +82,30 @@ describe("pipIsActive", () => {
 
 describe("pipMotionKind", () => {
   it("working always spins", () => {
-    expect(
-      pipMotionKind({
-        variant: "working",
-        agent: agent("thinking"),
-        active: true,
-      }),
-    ).toBe("spin");
+    expect(pipMotionKind({ variant: "working", active: true })).toBe("spin");
   });
 
-  it("awaiting_user always glows", () => {
-    expect(
-      pipMotionKind({
-        variant: "awaiting",
-        agent: agent("awaiting_user"),
-        active: true,
-      }),
-    ).toBe("glow");
+  it("needs-you (awaiting variant) always glows", () => {
+    expect(pipMotionKind({ variant: "awaiting", active: true })).toBe("glow");
   });
 
-  it("waiting spins while active, still when finished", () => {
-    expect(
-      pipMotionKind({
-        variant: "awaiting",
-        agent: agent("waiting"),
-        active: true,
-      }),
-    ).toBe("spin");
-    expect(
-      pipMotionKind({
-        variant: "awaiting",
-        agent: agent("waiting"),
-        active: false,
-      }),
-    ).toBe("none");
+  it("linger (post-turn waiting) spins while active, still when finished", () => {
+    expect(pipMotionKind({ variant: "linger", active: true })).toBe("spin");
+    expect(pipMotionKind({ variant: "linger", active: false })).toBe("none");
   });
 
   it("shell idles still, spins when active", () => {
-    expect(pipMotionKind({ variant: "idle", agent: null, active: false })).toBe(
-      "none",
-    );
-    expect(pipMotionKind({ variant: "idle", agent: null, active: true })).toBe(
-      "spin",
-    );
+    expect(pipMotionKind({ variant: "idle", active: false })).toBe("none");
+    expect(pipMotionKind({ variant: "idle", active: true })).toBe("spin");
   });
 
   it("agentless working paint only spins while active", () => {
-    expect(
-      pipMotionKind({ variant: "working", agent: null, active: false }),
-    ).toBe("none");
-    expect(
-      pipMotionKind({ variant: "working", agent: null, active: true }),
-    ).toBe("spin");
+    expect(pipMotionKind({ variant: "working", active: false })).toBe("none");
+    expect(pipMotionKind({ variant: "working", active: true })).toBe("spin");
   });
 
   it("sleeping / empty never move", () => {
-    expect(
-      pipMotionKind({
-        variant: "sleeping",
-        agent: null,
-        active: true,
-      }),
-    ).toBe("none");
-    expect(pipMotionKind({ variant: "empty", agent: null, active: true })).toBe(
-      "none",
-    );
+    expect(pipMotionKind({ variant: "sleeping", active: true })).toBe("none");
+    expect(pipMotionKind({ variant: "empty", active: true })).toBe("none");
   });
 });

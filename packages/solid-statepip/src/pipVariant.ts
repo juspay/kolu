@@ -47,7 +47,8 @@ import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import type { AgentPaintClass } from "@kolu/terminal-vocab/agentProjection";
 
 export type PipVariant =
-  | "awaiting" // awaiting, already seen: quiet dim (lingering)
+  | "awaiting" // blocked on you (`awaiting_user`): full needs-you violet + glow
+  | "linger" // post-turn lull (`waiting`): quiet dim violet
   | "working" // busy orange + spin
   | "idle" // muted shell / none-agent
   | "sleeping" // dormant: moonlit paint + still
@@ -69,6 +70,8 @@ export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
       return "working";
     case "awaiting":
       return "awaiting";
+    case "linger":
+      return "linger";
     case "none":
       return "empty";
     default:
@@ -188,14 +191,16 @@ export const PIP_MOTION_CLASS: Record<PipMotionKind, string | null> = {
   none: null,
 };
 
-/** Post-turn linger violet — pip awaiting paint and AgentIndicator `waiting`. */
+/** Post-turn linger violet — pip `linger` paint and AgentIndicator `waiting`. */
 export const AWAITING_LINGER_CLASS = "text-alert/55";
 
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
-  // lingering violet — post-turn (`waiting`) and `awaiting_user` share this
-  // paint via agentPaintClass. Needs-you is still full `text-alert` on
-  // AgentIndicator words + glow motion + host pill.
-  awaiting: { class: AWAITING_LINGER_CLASS },
+  // Needs-you: FULL alert violet — same strength as the AgentIndicator words
+  // and the host pill, never the half-alpha linger (that dimming was how an
+  // agent blocked for 20 h read like background noise).
+  awaiting: { class: "text-alert" },
+  // lingering violet — the post-turn (`waiting`) just-finished cue only.
+  linger: { class: AWAITING_LINGER_CLASS },
   // rust/orange busy — machine in flight (thinking / tools / background).
   // Deliberately NOT teal accent: accent is chrome selection, not agent work.
   working: { class: "text-busy" },
@@ -213,7 +218,8 @@ export const SHELL_LIVE_CLASS = PIP_BODY.working!.class;
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */
 export const PIP_TITLES: Record<PipVariant, string> = {
-  awaiting: "Awaiting input",
+  awaiting: "Awaiting your input",
+  linger: "Turn finished",
   working: "Working",
   idle: "Idle",
   sleeping: "Sleeping",
@@ -245,9 +251,17 @@ export const DOCK_ROW_PIP_BOX = "w-[20px] h-[20px] rounded-full";
  *  `DOCK_ROW_PIP_BOX`. */
 export const TITLE_PIP_BOX = "w-[16px] h-[16px] rounded-full";
 
+/** Working count — agents in flight. Bare rust text beside a small spinner,
+ *  deliberately NOT a capsule: the capsule silhouette is reserved for the two
+ *  ACTIONABLE counts (needs-you violet, unread amber) so a number in a pill
+ *  always means "click me / act on this" and a bare number never reads as a
+ *  notification. Same hue family as the working pip (`text-busy`). */
+export const WORKING_COUNT_CLASS =
+  "inline-flex items-center gap-0.5 text-[10px] font-semibold text-busy tabular-nums";
+
 /** Needs-you / awaiting-you count pill — agents blocked on your input
  *  (`awaiting_user`). Cool violet (`bg-alert`), same family as StatePip
- *  awaiting paint/glow. Host tab (`HostAwaitingPill`) uses THIS.
+ *  awaiting paint/glow. Host tab (`AttentionTriplet`) uses THIS.
  *
  *  Distinct from unread (amber):
  *    · needs-you  → violet  (state: blocked on you; host pill; pip glow)
@@ -273,7 +287,7 @@ export const UNSEEN_COUNT_CLASS =
  *  (`--color-attention`) — deliberately a different hue from needs-you
  *  violet so "state is awaiting" and "you have an unopened notification"
  *  never collapse into one mark. The host tab's finished-unseen mark
- *  (`HostUnseenPill`) uses `UNSEEN_COUNT_CLASS`. */
+ *  (`AttentionTriplet`) uses `UNSEEN_COUNT_CLASS`. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";
 
 /** Glyph size inside the 20 px dock pip box — 16 px mark, 2 px inset each side.

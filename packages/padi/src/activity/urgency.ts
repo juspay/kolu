@@ -1,6 +1,7 @@
 /**
  * `@kolu/padi/urgency` — the recency-FREE urgency fold off the composed
- * `terminals` collection: how many terminals await the user, and which. Backs
+ * `terminals` collection: which terminals await the user, which just finished,
+ * and which are working (the host-tab attention summary's three counts). Backs
  * the `padiSurface.cells.urgency` cell, which is a DERIVED member —
  * `derived.cell(($) => { finish.track(); …; return recomputeUrgency(...) })` in
  * `servePadi.ts`. The graph tracks the `terminals → urgency` edge AND the
@@ -42,6 +43,7 @@ export function recomputeUrgency(
 ): PadiUrgency {
   const awaitingIds: TerminalId[] = [];
   const finishedIds: TerminalId[] = [];
+  const workingIds: TerminalId[] = [];
   for (const [id, terminal] of terminals) {
     // Only LIVE (active) terminals can await the user. Gating on the composed
     // record's `active` discriminant is the collection-side twin of the old
@@ -62,7 +64,7 @@ export function recomputeUrgency(
     if (bucket === "awaiting") awaitingIds.push(id);
     else if (bucket === "waiting" && isEpisodeFinished(id)) {
       finishedIds.push(id);
-    }
+    } else if (bucket === "working") workingIds.push(id);
   }
-  return { awaitingIds, finishedIds };
+  return { awaitingIds, finishedIds, workingIds };
 }

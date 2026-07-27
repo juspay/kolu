@@ -56,7 +56,7 @@ export function bindStatePip(input: {
     isLive: input.isLive,
     isFinished: input.isFinished,
   });
-  const motion = pipMotionKind({ variant, agent, active });
+  const motion = pipMotionKind({ variant, active });
   // Live shell keeps idle *variant* (title/a11y stay "Idle") but busy-orange
   // paint via shellLive — not agent "Working".
   const shellLive = !agent && input.isLive && variant === "idle";

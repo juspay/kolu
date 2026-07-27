@@ -10,8 +10,8 @@
  *  It is the mobile TWIN of `HostSelectorStrip`, not a restyle: a chip consumes
  *  the EXACT desktop vocabulary — always-on connection status pip (green /
  *  amber pulse / red), Home glyph for local or hostname for remote, `hostHue`
- *  for the per-host identity accent, `HostAwaitingPill` (violet needs-you
- *  count) and `HostUnseenPill` (amber unseen-finished) — so a signal means
+ *  for the per-host identity accent, and the shared `AttentionTriplet`
+ *  (working · needs-you violet · unseen amber) — so a signal means
  *  the same thing on a phone as on a laptop. A tap calls `setActiveHost` (the
  *  identical write the desktop strip makes; W9 makes the switch instant).
  *  Adding a host reuses the shared `addHost` mechanism; only the CONTAINER
@@ -30,13 +30,12 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
-import { HostAwaitingPill } from "./HostAwaitingPill";
-import { HostUnseenPill } from "./HostUnseenPill";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import {
   chipStatusDot,
@@ -127,16 +126,17 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
         glyphClass="h-4 w-4"
         labelClass={`max-w-[10rem] truncate font-medium${glance().labelDecoration}`}
       />
-      {/* Needs-you pill — shared violet `HostAwaitingPill` (roomier mobile).
-       *  Unseen-finished is the amber `HostUnseenPill` beside it. */}
-      <HostAwaitingPill count={marks.asking()} sizeClass="h-5 min-w-5 px-1.5" />
-      {/* Finished-work count — amber unseen-finished (suppressed on the
-       *  active host). */}
-      <HostUnseenPill
-        count={marks.unseenFinished()}
-        active={isActive()}
-        hostLabel={hostLabel(props.host)}
+      {/* The attention summary — the same triplet the desktop tab renders
+       *  (roomier touch geometry). No jump handlers: this chip is itself one
+       *  big <button> (tap = switch host), so the capsules stay plain spans
+       *  and the HTML stays valid — the tap already lands you on the host
+       *  whose dock carries the per-terminal marks. */}
+      <AttentionTriplet
+        working={marks.working()}
+        asking={marks.asking()}
+        unseen={isActive() ? 0 : marks.unseenFinished()}
         sizeClass="h-5 min-w-5 px-1.5"
+        scopeLabel={hostLabel(props.host)}
       />
     </button>
   );

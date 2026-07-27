@@ -16,7 +16,7 @@
  *  the drawer dismisses on select, the rail does not. */
 
 import { activeArm } from "@kolu/padi/surface";
-import { StatePip } from "@kolu/solid-statepip";
+import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
@@ -33,7 +33,7 @@ import {
   SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
-import type { DockGroup } from "./dockTree";
+import { type DockGroup, sectionAttention } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
@@ -77,6 +77,11 @@ function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
 }) {
+  const store = useTerminalStore();
+  // Same shared fold as the desktop header — the two headers cannot count
+  // differently. Capsules stay plain spans here (no jump handlers): the rows
+  // they summarize are directly below on a touch surface.
+  const attn = () => sectionAttention(props.group.rows, store.isUnread);
   // Subgrid container — same shape as the desktop dock (the shared
   // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
   // The leading 20px indicator track is fixed (not `auto`) holding
@@ -107,9 +112,20 @@ function DockListSection(props: {
         >
           {props.group.name}
         </span>
-        <span class="dock-cards-section-count font-mono text-[0.6rem]">
+        <span
+          class="dock-cards-section-count font-mono text-[0.6rem]"
+          title={`${props.group.rows.length} terminals`}
+        >
           {props.group.rows.length}
         </span>
+        <AttentionTriplet
+          working={attn().working}
+          asking={attn().asking}
+          unseen={attn().unseen}
+          sizeClass="min-w-4 px-1 h-4"
+          scopeLabel={props.group.name}
+          class="ml-auto"
+        />
       </div>
       <For each={props.group.rows}>
         {(row) => (
@@ -168,6 +184,9 @@ function DockListRow(props: {
             data-terminal-id={props.id}
             data-bucket={props.bucket}
             data-active={rowActive() ? "" : undefined}
+            // Attention washes (index.css `[data-asking]` / `[data-unread]`):
+            // violet needs-you dominates amber unread when both hold.
+            data-asking={props.bucket === "awaiting" ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
@@ -207,11 +226,13 @@ function DockListRow(props: {
               />
             </span>
             <SubCountCell subCount={c().info.subCount} />
-            {/* Recency — hidden while active; width reserved. */}
+            {/* Recency — hidden while active; width reserved. Blocked rows
+             *  show the violet wait chip instead (see RecencyCell). */}
             <RecencyCell
               recencyAt={rowRecencyAt(c().meta)}
               textSize="text-[0.65rem]"
               hidden={pip().active}
+              asking={props.bucket === "awaiting"}
             />
             {/* Second line — flex row spanning the branch column → end.
              *  PR pip on the left (anchored to the branch column's left

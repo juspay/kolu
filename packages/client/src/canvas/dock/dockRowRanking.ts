@@ -36,7 +36,7 @@ import {
 } from "kolu-common/surface";
 
 /** Per-row render variant. Declared as an EXTENSION of the shared
- *  `AgentPaintClass` (awaiting | working | none) plus the dock's own triage tail,
+ *  `AgentPaintClass` (awaiting | linger | working | none) plus the dock's own triage tail,
  *  so `DockRowBucket` CONTAINS `AgentPaintClass` by declaration — the paint class
  *  the row pip and the tile title both feed into `StatePip` is then a declared
  *  subset of this union, not a literal coincidence. `parked` is its own bucket
@@ -59,6 +59,10 @@ export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
 export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: URGENCY_RANK.need,
   working: URGENCY_RANK.work,
+  // `linger` is a PAINT-only bucket (`classifyDockRow` never emits it — a
+  // post-turn `waiting` agent ORDERS as idle), listed here only because the
+  // priority table is total over the union; it ranks with idle, honestly.
+  linger: URGENCY_RANK.idle,
   idle: URGENCY_RANK.idle,
   sleeping: 3,
   parked: 4,
@@ -109,7 +113,7 @@ function classifyDockRow(
  *  pip COLOUR is decided once and reads identically across the dock row and the
  *  tile title (both render through `StatePip`). For a live-agent row it is the
  *  shared `agentPaintClass` — the SAME fold title / switcher use via
- *  `bindStatePip`. A fresh `waiting` agent paints `awaiting` (the lingering
+ *  `bindStatePip`. A fresh `waiting` agent paints `linger` (the lingering
  *  dim-alert) even though `classifyDockRow` ranks it `idle` for ORDERING.
  *  Dock-only triage: `sleeping` / `parked` / plain shells → idle paint (shell
  *  glyph) when order ranks `none`. `parked` defaults false for non-windowed
@@ -144,7 +148,7 @@ export type RankedDockRow = {
   bucket: DockRowBucket;
   /** The PIP bucket — drives the row's `StatePip` colour, decoupled from order
    *  so it reads identically to the tile title's pip. Reads `agentPaintClass`,
-   *  so a fresh `waiting` agent is `awaiting` here (it keeps its glow). */
+   *  so a fresh `waiting` agent is `linger` here (it keeps a dim glow). */
   pip: DockRowBucket;
   ts: number | null;
 };

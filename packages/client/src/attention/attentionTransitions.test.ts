@@ -13,6 +13,7 @@ import {
 const u = (awaiting: string[], finished: string[] = []): PadiUrgency => ({
   awaitingIds: awaiting as TerminalId[],
   finishedIds: finished as TerminalId[],
+  workingIds: [],
 });
 
 describe("attentionTransitions", () => {

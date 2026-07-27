@@ -101,13 +101,16 @@ export function agentStatusLabel(state: AgentInfo["state"]): string {
 
 /** The coarse PAINT class an agent's state glows as — the canvas tile aura, the
  *  minimap badge, the expanded-switcher columns, and the title pip all read it.
- *  A *different* partition from urgency: the paint vocabulary has no quiet-agent
- *  slot, so the post-turn lull (`waiting`) folds to `awaiting` — a just-finished
- *  agent keeps its glow until it parks — whereas `agentUrgency` ranks `waiting`
- *  as idle. The two legitimately disagree on `waiting`; they are co-located here
- *  (one schema-fenced file) but stay separate functions. `none` is the absent /
+ *  A *different* partition from urgency: it distinguishes the two quiet-violet
+ *  states urgency folds together — `awaiting` is the agent BLOCKED on you
+ *  (`awaiting_user`, full-strength needs-you paint), `linger` is the post-turn
+ *  lull (`waiting`, the dimmed just-finished cue) — whereas `agentUrgency`
+ *  ranks `waiting` as idle. "awaiting" therefore means the SAME thing here as
+ *  in `agentBucket`: blocked on you, nothing else (the old conflation of the
+ *  two violet states under one paint name was exactly how needs-you ended up
+ *  rendered at linger strength — the fucknotif defect). `none` is the absent /
  *  unknown class (no glow). */
-export type AgentPaintClass = "awaiting" | "working" | "none";
+export type AgentPaintClass = "awaiting" | "linger" | "working" | "none";
 
 /** Map an agent's state to its PAINT class. Switches exhaustively over the
  *  closed `AgentInfo['state']` set with a `state satisfies never` fence on the
@@ -121,12 +124,14 @@ export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
     case "tool_use":
     case "running_background":
       return "working";
-    // The post-turn lull keeps its glow: a just-finished agent paints
-    // `awaiting` until it parks (contrast `agentUrgency`, where `waiting` is
-    // idle — paint and rank deliberately disagree here).
+    // Blocked on you — the full-strength needs-you paint.
     case "awaiting_user":
-    case "waiting":
       return "awaiting";
+    // The post-turn lull keeps a dimmed glow until it parks (contrast
+    // `agentUrgency`, where `waiting` is idle — paint and rank deliberately
+    // disagree here).
+    case "waiting":
+      return "linger";
     default:
       // Exhaustiveness fence: a new `AgentInfo["state"]` literal stops this
       // compiling, forcing a paint decision here rather than falling to `none`.

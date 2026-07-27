@@ -10,6 +10,7 @@ import { type AttentionHooks, createAttentionCore } from "./attentionCore";
 const u = (awaiting: string[] = [], finished: string[] = []): PadiUrgency => ({
   awaitingIds: awaiting as TerminalId[],
   finishedIds: finished as TerminalId[],
+  workingIds: [],
 });
 
 function harness(over: Partial<AttentionHooks> = {}) {

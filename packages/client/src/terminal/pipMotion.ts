@@ -12,11 +12,11 @@
  *
  *  Motion kinds (derived from `pipIsActive`, not re-encoded per bucket):
  *    - empty / sleeping / inactive → none
- *    - awaiting_user (active) → glow
+ *    - awaiting (needs-you variant) → glow
  *    - everything else active → spin
  *
  *  Paint stays decoupled: waiting keeps lingering violet via PipVariant
- *  `awaiting` even when motion holds still. */
+ *  `linger` even when motion holds still. */
 
 import type {
   PipMotionKind,
@@ -50,10 +50,11 @@ export function pipIsActive(input: {
 }
 
 /** Which motion class the glyph should run. Collapsed: inactive/empty/sleeping
- *  → none; active needs-you → glow; active otherwise → spin. */
+ *  → none; active needs-you → glow; active otherwise → spin. The needs-you test
+ *  is the VARIANT itself — `awaiting` now means exactly `awaiting_user` (the
+ *  `linger` split), so motion no longer re-derives the state from the agent. */
 export function pipMotionKind(input: {
   variant: PipVariant;
-  agent: AgentInfo | null | undefined;
   active: boolean;
 }): PipMotionKind {
   if (
@@ -63,9 +64,7 @@ export function pipMotionKind(input: {
   ) {
     return "none";
   }
-  // Needs-you (awaiting_user) glows; working / waiting-until-EF2 / live shell spin.
-  if (input.agent && agentBucket(input.agent.state) === "awaiting") {
-    return "glow";
-  }
+  // Needs-you glows; working / linger-until-EF2 / live shell spin.
+  if (input.variant === "awaiting") return "glow";
   return "spin";
 }

@@ -225,13 +225,13 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
   // state must paint the SAME pip colour in both. Order (rank) is a separate
   // axis: a fresh `waiting` agent sorts as `idle` (it doesn't float into the
   // needs-you order) yet keeps its `awaiting` glow, exactly as the title does.
-  it("a fresh waiting agent ranks idle but its pip stays awaiting (glow lingers)", () => {
+  it("a fresh waiting agent ranks idle but its pip lingers (dim violet stays)", () => {
     const meta = makeMeta({
       agent: makeAgent("waiting"),
       lastActivityAt: Date.now(),
     });
     expect(bucket(meta, false)).toBe("idle"); // ORDER: not needs-you
-    expect(pip(meta, false)).toBe("awaiting"); // COLOUR: still glowing
+    expect(pip(meta, false)).toBe("linger"); // COLOUR: the dim just-finished cue
   });
 
   it("the row pip equals the tile-title paint fold for every fresh agent state", () => {

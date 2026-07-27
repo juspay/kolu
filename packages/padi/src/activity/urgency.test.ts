@@ -101,9 +101,17 @@ describe("recomputeUrgency", () => {
       finished,
     );
 
-    expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [] });
+    expect(urgency).toEqual({
+      awaitingIds: [ID_A],
+      finishedIds: [],
+      workingIds: [ID_B],
+    });
     // Each count is derived at the read site (`.length`), never carried on the value.
-    expect(Object.keys(urgency).sort()).toEqual(["awaitingIds", "finishedIds"]);
+    expect(Object.keys(urgency).sort()).toEqual([
+      "awaitingIds",
+      "finishedIds",
+      "workingIds",
+    ]);
   });
 
   it("folds episode-finished (`waiting`) agents into finishedIds, separate from awaiting", () => {
@@ -115,8 +123,13 @@ describe("recomputeUrgency", () => {
       ]),
       finished,
     );
-    // `awaiting_user` → asking (ungated); episode-finished `waiting` → finished.
-    expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [ID_B] });
+    // `awaiting_user` → asking (ungated); episode-finished `waiting` → finished;
+    // `thinking` → working.
+    expect(urgency).toEqual({
+      awaitingIds: [ID_A],
+      finishedIds: [ID_B],
+      workingIds: ["urg-c"],
+    });
   });
 
   it("holds a still-debouncing waiting agent OUT of finishedIds (first-finish quiet)", () => {
@@ -128,7 +141,11 @@ describe("recomputeUrgency", () => {
       stillDebouncing,
     );
     // Asking still ungated; waiting gated by isEpisodeFinished.
-    expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [] });
+    expect(urgency).toEqual({
+      awaitingIds: [ID_A],
+      finishedIds: [],
+      workingIds: [],
+    });
   });
 
   it("gates finish per-id: only episode-finished waiting ids land in finishedIds", () => {
@@ -140,7 +157,11 @@ describe("recomputeUrgency", () => {
       ]),
       (id) => done.has(id),
     );
-    expect(urgency).toEqual({ awaitingIds: [], finishedIds: [ID_A] });
+    expect(urgency).toEqual({
+      awaitingIds: [],
+      finishedIds: [ID_A],
+      workingIds: [],
+    });
   });
 
   it("folds ids in the map's insertion order, and an agentless entry contributes 0", () => {
@@ -152,13 +173,20 @@ describe("recomputeUrgency", () => {
       ]),
       finished,
     );
-    expect(urgency).toEqual({ awaitingIds: [ID_B, ID_A], finishedIds: [] });
+    expect(urgency).toEqual({
+      awaitingIds: [ID_B, ID_A],
+      finishedIds: [],
+      workingIds: [],
+    });
   });
 
   it("is empty for a map with no attention-worthy agents", () => {
     expect(
-      recomputeUrgency(terminalsMap([[ID_A, makeAgent("thinking")]]), finished),
-    ).toEqual({ awaitingIds: [], finishedIds: [] });
+      recomputeUrgency(
+        terminalsMap([[ID_A, makeAgent("waiting")]]),
+        stillDebouncing,
+      ),
+    ).toEqual({ awaitingIds: [], finishedIds: [], workingIds: [] });
   });
 
   it("EXCLUDES a SLEEPING terminal even when its agent reads as awaiting_user", () => {
@@ -176,6 +204,7 @@ describe("recomputeUrgency", () => {
     expect(recomputeUrgency(map, finished)).toEqual({
       awaitingIds: [ID_B],
       finishedIds: [],
+      workingIds: [],
     });
   });
 });
@@ -184,8 +213,8 @@ describe("urgencyEqual", () => {
   it("is true for two readings with the same ids in the same order", () => {
     expect(
       urgencyEqual(
-        { awaitingIds: ["a", "b"], finishedIds: ["c"] },
-        { awaitingIds: ["a", "b"], finishedIds: ["c"] },
+        { awaitingIds: ["a", "b"], finishedIds: ["c"], workingIds: ["d"] },
+        { awaitingIds: ["a", "b"], finishedIds: ["c"], workingIds: ["d"] },
       ),
     ).toBe(true);
   });
@@ -193,8 +222,8 @@ describe("urgencyEqual", () => {
   it("is false when the awaiting set differs", () => {
     expect(
       urgencyEqual(
-        { awaitingIds: ["a"], finishedIds: [] },
-        { awaitingIds: ["a", "b"], finishedIds: [] },
+        { awaitingIds: ["a"], finishedIds: [], workingIds: [] },
+        { awaitingIds: ["a", "b"], finishedIds: [], workingIds: [] },
       ),
     ).toBe(false);
   });
@@ -202,8 +231,8 @@ describe("urgencyEqual", () => {
   it("is false when ONLY the finished set differs — a finish must still publish", () => {
     expect(
       urgencyEqual(
-        { awaitingIds: ["a"], finishedIds: [] },
-        { awaitingIds: ["a"], finishedIds: ["b"] },
+        { awaitingIds: ["a"], finishedIds: [], workingIds: [] },
+        { awaitingIds: ["a"], finishedIds: ["b"], workingIds: [] },
       ),
     ).toBe(false);
   });

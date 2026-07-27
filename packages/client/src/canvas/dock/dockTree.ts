@@ -4,13 +4,15 @@
  *  this module rearranges that into repo-bucketed sections so the user
  *  sees `repo → branches` as the primary structure.
  *
- *  **Pure recency at every layer.** Sections sort by their newest row's
- *  `ts`. Clusters (same-branch siblings) sort by their newest row's
- *  `ts`. Rows inside a cluster sort by `ts`. The bucket no longer
- *  promotes a row's position — "needs attention" is carried by the
- *  state pip's color and animation (`RowPips.tsx`), not by where it
- *  sits in the list. This keeps the order's mental model consistent
- *  with how the user thinks about it: "what did I just touch?"
+ *  **Blocked-on-you first, then pure recency.** Within a section, rows whose
+ *  agent is genuinely blocked on the user (`bucket === "awaiting"`, i.e.
+ *  `awaiting_user` — the post-turn `waiting` linger ranks idle, per the
+ *  order≠colour law) sort ABOVE everything else; recency decides the rest.
+ *  An agent that has waited 20 hours must not hide under fresher busy rows —
+ *  colour and animation alone demonstrably failed to surface it (fucknotif).
+ *  Sections themselves still sort by pure recency: the section header's
+ *  attention triplet + the host tab capsule carry cross-section discovery,
+ *  so the macro-order keeps the "what did I just touch?" mental model.
  *
  *  Inside a section, rows are **clustered by branch/intent label** so
  *  two terminals on the same branch stay adjacent even when an
@@ -141,11 +143,13 @@ export function buildDockTree(
   };
 }
 
-/** Sort rows inside each label cluster by `-ts`, then order clusters
- *  by their already-sorted top row using the same key — so the same-
+/** Sort rows inside each label cluster (blocked-first, then `-ts`), then order
+ *  clusters by their already-sorted top row using the same key — so the same-
  *  branch sibling of a recent row stays adjacent to it even when
  *  another branch in the same repo has activity falling between the
- *  pair in pure-recency time. */
+ *  pair in pure-recency time, and a cluster holding a blocked row
+ *  floats to the top of its section (siblings ride along — the cluster
+ *  is the grouping primitive). */
 function flattenLabelClusters(
   byLabel: Map<string, RankedDockRow[]>,
 ): RankedDockRow[] {
@@ -162,12 +166,21 @@ function flattenLabelClusters(
 }
 
 function compareRows(a: RankedDockRow, b: RankedDockRow): number {
+  // Blocked-on-you floats first — `awaiting` is exactly `awaiting_user`
+  // (the ORDER bucket; linger ranks idle), so only genuinely blocked rows
+  // promote. Everything else stays pure recency.
+  const blocked = askingRank(a) - askingRank(b);
+  if (blocked !== 0) return blocked;
   const ra = tsRank(a.ts);
   const rb = tsRank(b.ts);
   // Guard the subtraction: `tsRank` can return `-Infinity` (never-active), and
   // `-Infinity - -Infinity` is `NaN`. Equal ranks (including two never-active
   // rows) short-circuit to the explicit tie before that can happen.
   return ra === rb ? 0 : rb - ra;
+}
+
+function askingRank(row: RankedDockRow): number {
+  return row.bucket === "awaiting" ? 0 : 1;
 }
 
 /** Sections sort by recency too — the most recently-active row in the
@@ -190,4 +203,26 @@ function groupRecency(g: DockGroup): number {
     if (rank > max) max = rank;
   }
   return max;
+}
+
+/** A section's attention summary — the counts the header's `AttentionTriplet`
+ *  renders. The SAME three-way vocabulary the host tab shows (working ·
+ *  needs-you · unread), folded over the section's already-classified rows:
+ *  `bucket` is the ORDER bucket, so `awaiting` here is exactly `awaiting_user`
+ *  and a post-turn linger contributes nothing. Defined ONCE for both dock
+ *  surfaces (desktop `Dock.tsx`, touch `DockList.tsx`) so the two headers
+ *  cannot count differently. */
+export function sectionAttention(
+  rows: readonly RankedDockRow[],
+  isUnread: (id: TerminalId) => boolean,
+): { working: number; asking: number; unseen: number } {
+  let working = 0;
+  let asking = 0;
+  let unseen = 0;
+  for (const row of rows) {
+    if (row.bucket === "awaiting") asking++;
+    else if (row.bucket === "working") working++;
+    if (isUnread(row.id)) unseen++;
+  }
+  return { working, asking, unseen };
 }

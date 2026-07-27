@@ -62,7 +62,7 @@
  *  canvas as well as the populated one. */
 
 import { activeArm } from "@kolu/padi/surface";
-import { StatePip } from "@kolu/solid-statepip";
+import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
@@ -107,8 +107,12 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
-import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
-import type { DockGroup, DockTree } from "./dockTree";
+import {
+  type DockRowBucket,
+  type RankedDockRow,
+  rowRecencyAt,
+} from "./dockRowRanking";
+import { type DockGroup, type DockTree, sectionAttention } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
@@ -484,16 +488,35 @@ const DockHeader: Component<{
 };
 
 /** Repo section — a small header (uppercase name + colored swatch +
- *  row count) over the group's rows. Always rendered, even for
- *  single-repo workspaces — a consistent structure beats a
- *  degenerate-case collapse. */
+ *  quiet row tally + attention triplet) over the group's rows. Always
+ *  rendered, even for single-repo workspaces — a consistent structure
+ *  beats a degenerate-case collapse. */
 const RepoSection: Component<{
   group: DockGroup;
   /** Pre-built `id → flat position` lookup so each row's `Cmd+N` hint
    *  index is an O(1) read instead of an O(rows) `findIndex` scan per
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
-}> = (props) => (
+}> = (props) => {
+  const store = useTerminalStore();
+  const tileStore = useTileStore();
+  // The header's attention summary — the SAME triplet the host tab renders,
+  // folded over this section's rows by the shared `sectionAttention`.
+  const attn = createMemo(() =>
+    sectionAttention(props.group.rows, store.isUnread),
+  );
+  // Capsule click = navigate to the next matching row in this section,
+  // cycling past the active one — the same never-dismiss law as the host
+  // pill (violet clears only when the agent stops waiting; amber clears
+  // because activating the terminal marks it read).
+  const jumpTo = (match: (row: RankedDockRow) => boolean) => {
+    const ids = props.group.rows.filter(match).map((r) => r.id);
+    if (ids.length === 0) return;
+    const cur = tileStore.activeId();
+    const curIdx = cur === null ? -1 : ids.indexOf(cur);
+    const next = ids[(curIdx + 1) % ids.length];
+    if (next !== undefined) tileStore.activate(next);
+  };
   // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
   // template): indicator · branch · sub-count · time. The leading
   // indicator column is a fixed 20px reserved track holding `StatePip`
@@ -506,45 +529,61 @@ const RepoSection: Component<{
   // and gives its width back to the branch. Each DockRow is a subgrid
   // item that inherits these columns, keeping the icons aligned
   // vertically across rows in one section.
-  <section
-    data-testid="dock-section"
-    data-repo={props.group.name}
-    style={{ "--repo-color": props.group.color }}
-    class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
-  >
-    {/* Sticky repo header — tinted band + colour swatch + uppercase name
-     *  + quiet count capsule (styles in `index.css`). Spine + swatch +
-     *  wash are three scales of the same `--repo-color`. Content inset
-     *  matches the rows (`pl-3`) so the status indicator lines up under
-     *  the name. */}
-    <div
-      data-testid="dock-section-header"
-      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-2`}
+  return (
+    <section
+      data-testid="dock-section"
+      data-repo={props.group.name}
+      style={{ "--repo-color": props.group.color }}
+      class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
     >
-      <span class="dock-cards-section-swatch" aria-hidden="true" />
-      <span
-        data-testid="dock-section-name"
-        class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
-        title={props.group.name}
+      {/* Sticky repo header — tinted band + colour swatch + uppercase name
+       *  + quiet row tally + attention triplet (styles in `index.css`).
+       *  The tally is deliberately BARE text, not a capsule: the capsule
+       *  silhouette is reserved for actionable attention counts, so a
+       *  number in a pill always means "act on this" (fucknotif — the old
+       *  count capsule read as six decoy notification badges). */}
+      <div
+        data-testid="dock-section-header"
+        class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-2`}
       >
-        {props.group.name}
-      </span>
-      <span class="dock-cards-section-count font-mono text-[0.6rem]">
-        {props.group.rows.length}
-      </span>
-    </div>
-    <For each={props.group.rows}>
-      {(row) => (
-        <DockRow
-          id={row.id}
-          bucket={row.bucket}
-          pip={row.pip}
-          flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+        <span class="dock-cards-section-swatch" aria-hidden="true" />
+        <span
+          data-testid="dock-section-name"
+          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
+          title={props.group.name}
+        >
+          {props.group.name}
+        </span>
+        <span
+          class="dock-cards-section-count font-mono text-[0.6rem]"
+          title={`${props.group.rows.length} terminals`}
+        >
+          {props.group.rows.length}
+        </span>
+        <AttentionTriplet
+          working={attn().working}
+          asking={attn().asking}
+          unseen={attn().unseen}
+          sizeClass="min-w-4 px-1 h-4"
+          scopeLabel={props.group.name}
+          onAsking={() => jumpTo((r) => r.bucket === "awaiting")}
+          onUnseen={() => jumpTo((r) => store.isUnread(r.id))}
+          class="ml-auto"
         />
-      )}
-    </For>
-  </section>
-);
+      </div>
+      <For each={props.group.rows}>
+        {(row) => (
+          <DockRow
+            id={row.id}
+            bucket={row.bucket}
+            pip={row.pip}
+            flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+          />
+        )}
+      </For>
+    </section>
+  );
+};
 
 /** A row in cards mode — two lines:
  *
@@ -619,6 +658,9 @@ const DockRow: Component<{
             data-bucket={props.bucket}
             data-agent-state={agent()?.state}
             data-active={rowActive() ? "" : undefined}
+            // Attention washes (index.css `[data-asking]` / `[data-unread]`):
+            // violet needs-you dominates amber unread when both hold.
+            data-asking={props.bucket === "awaiting" ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
@@ -650,11 +692,14 @@ const DockRow: Component<{
               />
             </span>
             <SubCountCell subCount={c().info.subCount} />
-            {/* Recency — hidden while active; width reserved. */}
+            {/* Recency — hidden while active; width reserved. On a blocked
+             *  row it flips to the violet WAIT chip: how long the agent has
+             *  waited on you IS the signal (a 20 h wait must be legible). */}
             <RecencyCell
               recencyAt={rowRecencyAt(c().meta)}
               textSize="text-[0.6rem]"
               hidden={pip().active}
+              asking={props.bucket === "awaiting"}
             />
             <Show when={showShortcutHint()}>
               <span
