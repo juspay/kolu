@@ -1,4 +1,5 @@
-//! Lane 2 — live-host oracle. Runs every full `/ci`; never a merge gate.
+//! Lane 2 — live-host oracle. Runs every full `/ci`, and gates like every
+//! other lane: `ci::osfacts-live` is branch-protected on both platforms.
 //!
 //! Invoked only when `OSFACTS_LIVE=1` (see `scripts/live-oracle.sh`). The
 //! binary under test is `$OSFACTS_BIN` (the nix-built osfacts), never a
