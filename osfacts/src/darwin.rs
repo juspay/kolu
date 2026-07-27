@@ -1116,7 +1116,7 @@ mod tests {
 
     #[test]
     fn subtree_uses_the_host_process_table() {
-        let row = |ppid, name| BsdRow {
+        let row = |ppid: u32, name: &str| BsdRow {
             ppid,
             name: name.into(),
             start_unix_us: 1,
