@@ -11,7 +11,9 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { processIdentity } from "osfacts-client";
 import { runPadiDaemon } from "./daemonMain.ts";
+import { osfactsBinPath } from "../ports/scan.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
@@ -54,7 +56,12 @@ describe("runPadiDaemon — gate claimed FIRST (B1)", () => {
     // keeps it that way and clears CodeQL js/insecure-temporary-file (same
     // remediation as saveTerminalFile in terminalScratch.ts).
     mkdirSync(dirname(gatePath), { recursive: true, mode: 0o700 });
-    writeFileSync(gatePath, String(process.pid), { mode: 0o600 });
+    const self = processIdentity(osfactsBinPath(), process.pid);
+    if (self === undefined)
+      throw new Error(`osfacts could not resolve test pid ${process.pid}`);
+    writeFileSync(gatePath, `${self.pid}\t${self.startUnixUs}\n`, {
+      mode: 0o600,
+    });
 
     // A legacy config the one-shot import WOULD read if it ran — its `.bak` copy is
     // our tripwire that the import fired.

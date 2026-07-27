@@ -67,7 +67,7 @@ describe("claimLocalSupervisor", () => {
 
   it("a SAME-LINEAGE restart (dead predecessor pid) reaps the stale gate and claims `self`", () => {
     // A crashed supervisor left its pid in the gate; the process is gone.
-    writeFileSync(gatePath(), `${deadPid()}\n`);
+    writeFileSync(gatePath(), `${deadPid()}\t1\n`);
     const claim = claimLocalSupervisor("ignored", { resolveGatePath });
     // The stale gate is reaped and the restart claims it — so it can still adopt /
     // drain its padi; only a LIVE foreign holder blocks.

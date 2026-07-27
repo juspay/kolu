@@ -371,7 +371,10 @@ describe("discoverKavalDaemons + candidate kind", () => {
     simulateNoUidPlatform(); // hermetic: don't let real off-XDG /tmp daemons leak in
     const runtime = seed(["kaval-7692", "kaval"]);
     // Write a gate holding a pid for one, leave the other gate-less.
-    writeFileSync(join(runtime, "kaval-7692", KAVAL_GATE_FILE), "4242\n");
+    writeFileSync(
+      join(runtime, "kaval-7692", KAVAL_GATE_FILE),
+      "4242\t123456789\n",
+    );
     process.env.XDG_RUNTIME_DIR = runtime;
     const byGate = new Map(
       discoverKavalDaemons().map((d) => [d.socket, d.gatePid] as const),

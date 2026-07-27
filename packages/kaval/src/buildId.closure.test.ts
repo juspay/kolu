@@ -64,6 +64,10 @@ const ALLOWED_EXTERNAL = [
   "@xterm/",
   "@orpc/",
   "@kolu/surface",
+  // osfacts-client is the version-fenced reader for host observations. kaval's
+  // own choice to use process identity is hashed in daemonMain.ts; compatible
+  // reader internals are a stable leaf and must not fire the PTY-costing nudge.
+  "osfacts-client",
   // @kolu/heap-diag is the shared opt-in heap-instrumentation receptacle (no wire/
   // behaviour) — a stable leaf, not a hashed root.
   "@kolu/heap-diag",

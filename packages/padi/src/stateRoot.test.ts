@@ -56,7 +56,9 @@ function liveChild(): ChildProcess {
 
 /** Write a `padi.pid` gate file naming `pid`, beside a socket at `socketDir`. */
 function writeGate(socketDir: string, pid: number): void {
-  writeFileSync(join(socketDir, PADI_GATE_FILE), `${pid}\n`);
+  // Discovery projects the pid from the strict pid+start identity record. The
+  // liveness-only path under test does not compare the start instant itself.
+  writeFileSync(join(socketDir, PADI_GATE_FILE), `${pid}\t1\n`);
 }
 
 /** Bind a real `net.Server` at `path`, leaving a genuine socket inode behind —
