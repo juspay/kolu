@@ -41,6 +41,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     } else {
         None
     };
+    let page_size = args.mem.then(page_size);
 
     for &pid in &pids {
         // One snapshot should observe one copy of each proc file. Several
@@ -71,7 +72,15 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             }
         }
         if args.mem {
-            match read_rss(pid) {
+            let page_size = page_size.expect("page size is loaded for memory");
+            let rss = match stat.as_ref() {
+                Some(stat) => stat
+                    .as_deref()
+                    .map_err(|err| *err)
+                    .and_then(|stat| page_size.and_then(|page| read_rss_from_stat(stat, page))),
+                None => page_size.and_then(|page| read_rss_from_statm(pid, page)),
+            };
+            match rss {
                 Ok(rss_bytes) => snap.memory.push(Memory { pid, rss_bytes }),
                 Err(err) => push_unreadable(&mut snap, pid, "mem", err),
             }
@@ -327,7 +336,7 @@ fn parse_comm(stat: &str) -> Option<String> {
     let close = stat.rfind(')')?;
     (close > open).then(|| stat[open + 1..close].to_string())
 }
-/// `after_comm_index`: 0=state, 1=ppid, …, 19=starttime.
+/// `after_comm_index`: 0=state, 1=ppid, …, 19=starttime, 21=rss.
 fn parse_stat_field(stat: &str, after_comm_index: usize) -> Result<&str, i32> {
     let close = stat.rfind(')').ok_or(libc::EINVAL)?;
     stat[close + 1..]
@@ -335,7 +344,13 @@ fn parse_stat_field(stat: &str, after_comm_index: usize) -> Result<&str, i32> {
         .nth(after_comm_index)
         .ok_or(libc::EINVAL)
 }
-fn read_rss(pid: u32) -> Result<u64, i32> {
+fn read_rss_from_stat(stat: &str, page_size: u64) -> Result<u64, i32> {
+    let pages = parse_stat_field(stat, 21)?
+        .parse::<u64>()
+        .map_err(|_| libc::EINVAL)?;
+    pages.checked_mul(page_size).ok_or(libc::EOVERFLOW)
+}
+fn read_rss_from_statm(pid: u32, page_size: u64) -> Result<u64, i32> {
     let body = read_string(&format!("/proc/{pid}/statm"))?;
     let pages = body
         .split_whitespace()
@@ -343,11 +358,14 @@ fn read_rss(pid: u32) -> Result<u64, i32> {
         .ok_or(libc::EINVAL)?
         .parse::<u64>()
         .map_err(|_| libc::EINVAL)?;
-    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-    if page <= 0 {
+    pages.checked_mul(page_size).ok_or(libc::EOVERFLOW)
+}
+fn page_size() -> Result<u64, i32> {
+    let value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if value <= 0 {
         return Err(libc::EIO);
     }
-    pages.checked_mul(page as u64).ok_or(libc::EOVERFLOW)
+    Ok(value as u64)
 }
 fn boot_time_us() -> Result<u64, i32> {
     let body = read_string("/proc/stat")?;
