@@ -11,6 +11,11 @@ use osfacts::{
 };
 use proptest::prelude::*;
 
+fn arbitrary_string() -> impl Strategy<Value = String> {
+    prop::collection::vec(any::<char>(), 0..128)
+        .prop_map(|characters| characters.into_iter().collect())
+}
+
 // ── (a) address decode ──────────────────────────────────────────────────
 
 proptest! {
@@ -94,7 +99,7 @@ proptest! {
 
 
     #[test]
-    fn cwd_json_field_roundtrips_hostile_text(value in ".*") {
+    fn cwd_json_field_roundtrips_hostile_text(value in arbitrary_string()) {
         let encoded = encode_tsv_string(&value);
         let row = format!("CWD\t1\t{encoded}");
         let fields: Vec<&str> = row.split('\t').collect();
@@ -104,7 +109,7 @@ proptest! {
     }
 
     #[test]
-    fn argv_json_field_roundtrips_hostile_text(values in prop::collection::vec(".*", 0..20)) {
+    fn argv_json_field_roundtrips_hostile_text(values in prop::collection::vec(arbitrary_string(), 0..20)) {
         let encoded = encode_tsv_strings(&values);
         let row = format!("ARGV\t1\t{encoded}");
         let fields: Vec<&str> = row.split('\t').collect();

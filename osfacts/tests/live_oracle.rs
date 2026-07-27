@@ -234,12 +234,7 @@ fn two_process_cpu_time_snapshots(world: &mut LiveWorld) {
 }
 
 fn read_process_cpu_time(world: &LiveWorld, pid: u32) -> u64 {
-    let body = world.run_osfacts(&[
-        "snapshot",
-        "--pids",
-        &pid.to_string(),
-        "--cpu-time",
-    ]);
+    let body = world.run_osfacts(&["snapshot", "--pids", &pid.to_string(), "--cpu-time"]);
     body.lines()
         .find_map(|line| line.strip_prefix(&format!("C\t{pid}\t")))
         .and_then(|raw| raw.parse::<u64>().ok())
@@ -254,6 +249,49 @@ fn process_cpu_time_is_cumulative(world: &mut LiveWorld) {
     assert!(
         second >= first,
         "process CPU time decreased: first={first}, second={second}"
+    );
+}
+
+#[when("I snapshot this process's identity and launch details")]
+fn snapshot_process_details(world: &mut LiveWorld) {
+    let pid = std::process::id().to_string();
+    world.snapshot = Some(world.run_osfacts(&[
+        "snapshot", "--pids", &pid, "--uid", "--cwd", "--status", "--argv",
+    ]));
+}
+
+#[then("uid cwd status and argv match this process")]
+fn process_details_are_real(world: &mut LiveWorld) {
+    let pid = std::process::id();
+    let body = world.snapshot.as_ref().expect("snapshot");
+    let fields = |tag: &str| {
+        body.lines()
+            .find(|line| line.starts_with(&format!("{tag}\t{pid}\t")))
+            .unwrap_or_else(|| panic!("{tag} row for current process missing: {body}"))
+            .split('\t')
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let uid = fields("UID");
+    assert_eq!(uid[2].parse::<u32>().expect("uid"), unsafe {
+        libc::getuid()
+    });
+    let cwd = fields("CWD");
+    let cwd: String = serde_json::from_str(&cwd[2]).expect("cwd JSON");
+    assert_eq!(
+        cwd,
+        std::env::current_dir()
+            .expect("current directory")
+            .to_string_lossy()
+    );
+    let status = fields("STAT");
+    assert_eq!(status[2].chars().count(), 1);
+    status[3].parse::<i32>().expect("nice");
+    let argv = fields("ARGV");
+    let argv: Vec<String> = serde_json::from_str(&argv[2]).expect("argv JSON");
+    assert!(
+        argv.iter().any(|value| value.contains("live_oracle")),
+        "live harness missing from argv: {argv:?}"
     );
 }
 
@@ -344,7 +382,12 @@ fn host_facts_are_sane(world: &mut LiveWorld) {
                 if fields.first().copied() != Some(tag) {
                     return None;
                 }
-                let values = fields[2..]
+                let numeric = if tag == "HCPU" {
+                    &fields[2..6]
+                } else {
+                    &fields[2..]
+                };
+                let values = numeric
                     .iter()
                     .map(|raw| raw.parse::<u64>().expect("counter"))
                     .collect();
@@ -365,6 +408,26 @@ fn host_facts_are_sane(world: &mut LiveWorld) {
             }
         }
     }
+    for line in second.lines().filter(|line| line.starts_with("HCPU\t")) {
+        let fields: Vec<&str> = line.split('\t').collect();
+        assert_eq!(fields.len(), 8, "bad HCPU row: {line}");
+        let model: String = serde_json::from_str(fields[6]).expect("CPU model JSON");
+        assert!(!model.is_empty(), "empty CPU model: {line}");
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        assert_eq!(fields[7], "-", "Apple Silicon MHz must be null: {line}");
+    }
+    let disk = second
+        .lines()
+        .find(|line| line.starts_with("HDISK\t"))
+        .expect("root disk row");
+    let disk: Vec<&str> = disk.split('\t').collect();
+    let total = disk[2].parse::<u64>().expect("disk total");
+    let available = disk[3].parse::<u64>().expect("disk available");
+    let free = disk[4].parse::<u64>().expect("disk free");
+    assert!(
+        available <= free && free <= total,
+        "bad disk gauges: {disk:?}"
+    );
 }
 
 #[derive(Debug)]

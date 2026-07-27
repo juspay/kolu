@@ -41,6 +41,24 @@ export interface ProcessCpuTimeRow {
   pid: number;
   cpuTimeUs: number;
 }
+export interface ProcessUidRow {
+  pid: number;
+  uid: number;
+}
+export interface ProcessCwdRow {
+  pid: number;
+  cwd: string;
+}
+export interface ProcessStatusRow {
+  pid: number;
+  state: string;
+  nice: number;
+  threads: number | null;
+}
+export interface ProcessArgvRow {
+  pid: number;
+  argv: string[];
+}
 interface ListenerFact {
   port: number;
   address: string;
@@ -54,7 +72,11 @@ export type UnreadableFacet =
   | "ports"
   | "mem"
   | "start_time"
-  | "cpu_time";
+  | "cpu_time"
+  | "uid"
+  | "cwd"
+  | "status"
+  | "argv";
 export interface UnreadableRow {
   pid: number;
   facet: UnreadableFacet;
@@ -83,6 +105,8 @@ export interface CpuRow {
   systemUs: number;
   idleUs: number;
   otherUs: number;
+  model: string;
+  frequencyMhz: number | null;
 }
 export interface NetworkRow {
   name: string;
@@ -93,6 +117,7 @@ export interface DiskRow {
   mount: string;
   totalBytes: number;
   availableBytes: number;
+  freeBytes: number;
 }
 
 export interface OsfactsReading {
@@ -100,6 +125,10 @@ export interface OsfactsReading {
   memory: MemoryRow[];
   startTimes: StartTimeRow[];
   cpuTimes: ProcessCpuTimeRow[];
+  uids: ProcessUidRow[];
+  cwds: ProcessCwdRow[];
+  statuses: ProcessStatusRow[];
+  argv: ProcessArgvRow[];
   ports: ListenerRow[];
   unreadable: UnreadableRow[];
   /** Requested sources that were blind. Partial output still exits successfully. */
@@ -119,6 +148,10 @@ export interface SnapshotFacets {
   mem?: boolean;
   startTime?: boolean;
   cpuTime?: boolean;
+  uid?: boolean;
+  cwd?: boolean;
+  status?: boolean;
+  argv?: boolean;
 }
 export interface HostFacets {
   load?: boolean;
@@ -151,6 +184,50 @@ function float(raw: string | undefined, what: string): number {
     );
   return value;
 }
+function signedInteger(raw: string | undefined, what: string): number {
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value))
+    throw new OsfactsClientError(
+      "parse",
+      `osfacts ${what} is not a safe integer: ${raw}`,
+    );
+  return value;
+}
+function positiveInteger(raw: string | undefined, what: string): number {
+  const value = integer(raw, what);
+  if (value === 0)
+    throw new OsfactsClientError("parse", `osfacts ${what} must be positive`);
+  return value;
+}
+function jsonString(raw: string | undefined, what: string): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw ?? "");
+  } catch (cause) {
+    throw new OsfactsClientError("parse", `osfacts ${what} is not JSON`, {
+      cause,
+    });
+  }
+  if (typeof value !== "string")
+    throw new OsfactsClientError("parse", `osfacts ${what} is not a string`);
+  return value;
+}
+function jsonStrings(raw: string | undefined, what: string): string[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw ?? "");
+  } catch (cause) {
+    throw new OsfactsClientError("parse", `osfacts ${what} is not JSON`, {
+      cause,
+    });
+  }
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string"))
+    throw new OsfactsClientError(
+      "parse",
+      `osfacts ${what} is not a string array`,
+    );
+  return value;
+}
 function arity(f: string[], n: number, row: string): void {
   if (f.length !== n)
     throw new OsfactsClientError("parse", `unreadable osfacts row: ${row}`);
@@ -176,6 +253,10 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
     memory: [],
     startTimes: [],
     cpuTimes: [],
+    uids: [],
+    cwds: [],
+    statuses: [],
+    argv: [],
     ports: [],
     unreadable: [],
     errors: [],
@@ -214,6 +295,43 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         out.cpuTimes.push({
           pid: integer(f[1], "cpu-time pid"),
           cpuTimeUs: integer(f[2], "cumulative cpu time"),
+        });
+        break;
+      case "UID":
+        arity(f, 3, line);
+        out.uids.push({
+          pid: integer(f[1], "uid pid"),
+          uid: integer(f[2], "uid"),
+        });
+        break;
+      case "CWD":
+        arity(f, 3, line);
+        out.cwds.push({
+          pid: integer(f[1], "cwd pid"),
+          cwd: jsonString(f[2], "cwd"),
+        });
+        break;
+      case "STAT": {
+        arity(f, 5, line);
+        const state = f[2]!;
+        if ([...state].length !== 1)
+          throw new OsfactsClientError(
+            "parse",
+            `osfacts process state is not one character: ${line}`,
+          );
+        out.statuses.push({
+          pid: integer(f[1], "status pid"),
+          state,
+          nice: signedInteger(f[3], "nice value"),
+          threads: f[4] === "-" ? null : positiveInteger(f[4], "thread count"),
+        });
+        break;
+      }
+      case "ARGV":
+        arity(f, 3, line);
+        out.argv.push({
+          pid: integer(f[1], "argv pid"),
+          argv: jsonStrings(f[2], "argv"),
         });
         break;
       case "L": {
@@ -264,7 +382,17 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         arity(f, 4, line);
         const facet = f[2];
         if (
-          !["proc", "ports", "mem", "start_time", "cpu_time"].includes(facet!)
+          ![
+            "proc",
+            "ports",
+            "mem",
+            "start_time",
+            "cpu_time",
+            "uid",
+            "cwd",
+            "status",
+            "argv",
+          ].includes(facet!)
         )
           throw new OsfactsClientError(
             "parse",
@@ -315,13 +443,19 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         out.uptimeUs = integer(f[1], "uptime");
         break;
       case "HCPU":
-        arity(f, 6, line);
+        arity(f, 8, line);
+        const model = jsonString(f[6], "cpu model");
+        if (model.length === 0)
+          throw new OsfactsClientError("parse", "osfacts CPU model is empty");
         out.cpus.push({
           core: integer(f[1], "cpu core"),
           userUs: integer(f[2], "cpu user"),
           systemUs: integer(f[3], "cpu system"),
           idleUs: integer(f[4], "cpu idle"),
           otherUs: integer(f[5], "cpu other"),
+          model,
+          frequencyMhz:
+            f[7] === "-" ? null : positiveInteger(f[7], "cpu frequency MHz"),
         });
         break;
       case "HNET":
@@ -333,11 +467,12 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         });
         break;
       case "HDISK":
-        arity(f, 4, line);
+        arity(f, 5, line);
         out.disks.push({
           mount: f[1]!,
           totalBytes: integer(f[2], "disk total"),
           availableBytes: integer(f[3], "disk available"),
+          freeBytes: integer(f[4], "disk free"),
         });
         break;
       default:
@@ -398,18 +533,27 @@ function runOsfactsSync(bin: string, args: string[]): OsfactsReading {
   }
   return parseOsfactsOutput(stdout);
 }
-function snapshotArgs(
-  scopeFlag: "--roots" | "--pids",
-  pids: readonly number[],
+function appendSnapshotFacets(
+  args: string[],
   facets: SnapshotFacets,
 ): string[] {
-  const args = ["snapshot", scopeFlag, pids.join(",")];
   if (facets.procs) args.push("--procs");
   if (facets.ports) args.push("--ports");
   if (facets.mem) args.push("--mem");
   if (facets.startTime) args.push("--start-time");
   if (facets.cpuTime) args.push("--cpu-time");
+  if (facets.uid) args.push("--uid");
+  if (facets.cwd) args.push("--cwd");
+  if (facets.status) args.push("--status");
+  if (facets.argv) args.push("--argv");
   return args;
+}
+function snapshotArgs(
+  scopeFlag: "--roots" | "--pids",
+  pids: readonly number[],
+  facets: SnapshotFacets,
+): string[] {
+  return appendSnapshotFacets(["snapshot", scopeFlag, pids.join(",")], facets);
 }
 const DEFAULT_SNAPSHOT: SnapshotFacets = { procs: true, ports: true };
 function emptyReading(): OsfactsReading {
@@ -418,6 +562,10 @@ function emptyReading(): OsfactsReading {
     memory: [],
     startTimes: [],
     cpuTimes: [],
+    uids: [],
+    cwds: [],
+    statuses: [],
+    argv: [],
     ports: [],
     unreadable: [],
     errors: [],
@@ -434,6 +582,12 @@ export function snapshotSubtree(
   return rootPids.length === 0
     ? Promise.resolve(emptyReading())
     : runOsfacts(bin, snapshotArgs("--roots", rootPids, facets));
+}
+export function snapshotHost(
+  bin: string,
+  facets: SnapshotFacets = DEFAULT_SNAPSHOT,
+): Promise<OsfactsReading> {
+  return runOsfacts(bin, appendSnapshotFacets(["snapshot"], facets));
 }
 export function snapshotPids(
   bin: string,

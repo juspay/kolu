@@ -846,11 +846,13 @@ fn read_cpus() -> Result<Vec<Cpu>, (&'static str, i32)> {
         Ok(bytes) if bytes.is_empty() => None,
         Ok(bytes) if bytes.len() >= 8 => {
             let hz = u64::from_ne_bytes(bytes[0..8].try_into().unwrap());
-            (hz > 0).then_some(hz / 1_000_000)
+            let mhz = hz / 1_000_000;
+            (mhz > 0).then_some(mhz)
         }
         Ok(bytes) if bytes.len() >= 4 => {
             let hz = u32::from_ne_bytes(bytes[0..4].try_into().unwrap()) as u64;
-            (hz > 0).then_some(hz / 1_000_000)
+            let mhz = hz / 1_000_000;
+            (mhz > 0).then_some(mhz)
         }
         Ok(_) => return Err(("hw_cpufrequency", libc::EINVAL)),
         Err(err) => return Err(("hw_cpufrequency", err)),
