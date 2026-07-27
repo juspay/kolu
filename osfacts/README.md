@@ -80,6 +80,29 @@ publish the frequency sysctl, so absence is `null` / `-`, never a fabricated
 zero. Disk rows keep both meanings the kernel exposes: free bytes from `bfree`
 and unprivileged-available bytes from `bavail`, alongside total bytes.
 
+## Known limitation
+
+Darwin draws its privilege line through a process, not around it. `kern.proc`
+gives an ordinary caller the pid, ppid, real uid, state, nice value, start time,
+and short command name for every process. `proc_pidpath` gives the executable
+path too, so osfacts uses its basename when it is longer than `kern.proc`'s
+16-byte command field. Those facts must not come back as `U` rows merely because
+the process belongs to another uid.
+
+But foreign-process RSS and cumulative CPU time are different. The task APIs
+that supply them return `EPERM` without privilege, so `--mem` and `--cpu-time`
+still emit honest `U` rows for those pids. The same can happen for cwd, argv,
+and fd/socket attribution.
+
+`ps` looks like a counterexample: an ordinary shell can run it and see foreign
+RSS and CPU time. The file tells the other half of the story. On macOS it is
+setuid root, and Apple signs it with the private
+`com.apple.system-task-ports.read` entitlement. Apple's own source then calls
+`task_read_for_pid` to fetch the task data ([reader](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c),
+[entitlement](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/entitlements.plist)).
+osfacts deliberately has neither. A privileged helper would make the numbers
+less blind by making the program more privileged, which is a different product.
+
 Source blindness is an `E` row, not an instruction to discard facts that did
 arrive. A partial snapshot exits successfully and leaves reject-versus-render
 policy to the consumer; an `E`-only result remains a total failure and exits

@@ -227,6 +227,19 @@ same.</span></span></span></li>
 </tr>
 </tbody>
 </table>
+<p>Darwin’s process table is public even when its task accounting is not.
+<code>kern.proc</code> gives an ordinary caller pid, ppid, real uid, state, nice, start
+time, and a short command name for foreign processes; <code>proc_pidpath</code> adds the
+executable path, whose basename keeps long names from being cut to <code>p_comm</code>’s
+16 bytes. RSS and cumulative CPU time still come from task APIs that return
+<code>EPERM</code> across uid boundaries.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>/bin/ps</code> looks unprivileged from the
+shell, but the binary is setuid root and Apple signs it with the private
+<code>com.apple.system-task-ports.read</code> entitlement. Its source calls
+<code>task_read_for_pid</code> for the protected half (<a href="https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c">reader</a>,
+<a href="https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/entitlements.plist">entitlement</a>).
+So foreign <code>U mem</code> and <code>U cpu_time</code> rows are real blindness for an ordinary
+osfacts binary, while <code>U proc</code>, <code>U uid</code>, and <code>U start_time</code> rows would be false
+blindness.</span></span></span></p>
 <p>Host <code>HCPU</code> rows add a nonempty model name and nullable MHz to the cumulative
 per-core counters. The frequency is honestly absent on Apple Silicon rather
 than represented by zero. <code>HDISK</code> carries both <code>freeBytes</code> (<code>bfree</code>) and

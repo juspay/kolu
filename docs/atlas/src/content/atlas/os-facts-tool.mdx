@@ -94,6 +94,20 @@ same verb with different facets, never a consumer-shaped flag or mode:
 | `--status` | `STAT pid state nice threads` | `statuses` | `status` | one-character state, signed nice, nullable thread count (`-` in TSV) |
 | `--argv` | `ARGV pid argv_json` | `argv` | `argv` | the full vector, distinct from the short name; JSON preserves tabs, newlines, and NULs |
 
+Darwin's process table is public even when its task accounting is not.
+`kern.proc` gives an ordinary caller pid, ppid, real uid, state, nice, start
+time, and a short command name for foreign processes; `proc_pidpath` adds the
+executable path, whose basename keeps long names from being cut to `p_comm`'s
+16 bytes. RSS and cumulative CPU time still come from task APIs that return
+`EPERM` across uid boundaries.<Footnote>`/bin/ps` looks unprivileged from the
+shell, but the binary is setuid root and Apple signs it with the private
+`com.apple.system-task-ports.read` entitlement. Its source calls
+`task_read_for_pid` for the protected half ([reader](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c),
+[entitlement](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/entitlements.plist)).
+So foreign `U mem` and `U cpu_time` rows are real blindness for an ordinary
+osfacts binary, while `U proc`, `U uid`, and `U start_time` rows would be false
+blindness.</Footnote>
+
 Host `HCPU` rows add a nonempty model name and nullable MHz to the cumulative
 per-core counters. The frequency is honestly absent on Apple Silicon rather
 than represented by zero. `HDISK` carries both `freeBytes` (`bfree`) and
