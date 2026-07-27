@@ -51,7 +51,6 @@ export function bindStatePip(input: {
   const agent = activeArm(input.meta)?.agent;
   const bucket = input.pipBucket ?? paintDockRow(input.meta);
   const variant = pipVariant(bucket);
-  const glyph = pipGlyphFor(input.meta);
   const active = pipIsActive({
     agent,
     isLive: input.isLive,
@@ -60,22 +59,10 @@ export function bindStatePip(input: {
   const motion = pipMotionKind({ variant, active });
   // Live shell keeps idle *variant* (title/a11y stay "Idle") but busy-orange
   // paint via shellLive — not agent "Working".
-  //
-  // Gated on the GLYPH, not on `!agent`: the two axes must agree about what
-  // this terminal is. `pipGlyphFor` falls back to the persisted `restoreTarget`
-  // identity, so a terminal whose live agent state is momentarily absent still
-  // wears its agent's brand mark — and `!agent` alone would then paint that
-  // mark busy-orange, i.e. "codex is working", on the one surface that has no
-  // agent state to justify it. No attention count can corroborate that (they
-  // fold a live agent state, which is exactly what's missing), so the pip would
-  // be the sole voice claiming work — the disagreement a user reads as "3
-  // agents working, tab says 2" (#2019 review). Busy paint therefore requires
-  // the plain shell mark; an agent-marked terminal with no live state paints
-  // its honest `idle`.
-  const shellLive = glyph === "shell" && input.isLive && variant === "idle";
+  const shellLive = !agent && input.isLive && variant === "idle";
   return {
     variant,
-    glyph,
+    glyph: pipGlyphFor(input.meta),
     motion,
     active,
     bytesLive: input.isLive,
