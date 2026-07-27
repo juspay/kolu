@@ -42,12 +42,14 @@ fn main() -> ExitCode {
 
 fn run_snapshot(args: SnapshotArgs) -> ExitCode {
     let snap = take_snapshot(&args);
-    let mut out = io::stdout().lock();
+    let stdout = io::stdout();
+    let mut out = io::BufWriter::new(stdout.lock());
     let written = if args.json {
         snap.write_json(&mut out)
     } else {
         snap.write_tsv(&mut out)
-    };
+    }
+    .and_then(|()| out.flush());
     if let Err(e) = written {
         let _ = writeln!(io::stderr(), "osfacts: write failed: {e}");
         return ExitCode::from(1);
@@ -91,12 +93,14 @@ fn take_snapshot(args: &SnapshotArgs) -> Snapshot {
 
 fn run_host(args: HostArgs) -> ExitCode {
     let host = take_host(&args);
-    let mut out = io::stdout().lock();
+    let stdout = io::stdout();
+    let mut out = io::BufWriter::new(stdout.lock());
     let written = if args.json {
         host.write_json(&mut out)
     } else {
         host.write_tsv(&mut out)
-    };
+    }
+    .and_then(|()| out.flush());
     if let Err(e) = written {
         let _ = writeln!(io::stderr(), "osfacts: write failed: {e}");
         return ExitCode::from(1);
@@ -136,7 +140,11 @@ fn take_host(args: &HostArgs) -> HostSnapshot {
 }
 
 fn write_version_only() -> io::Result<()> {
-    Snapshot::new().write_tsv(&mut io::stdout().lock())
+    let stdout = io::stdout();
+    let mut out = io::BufWriter::new(stdout.lock());
+    Snapshot::new()
+        .write_tsv(&mut out)
+        .and_then(|()| out.flush())
 }
 
 #[cfg(test)]
