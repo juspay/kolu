@@ -129,17 +129,48 @@ function rendezvousDir(socketPath: string): string {
   return dirname(socketPath);
 }
 
-/** SIGKILL whatever pid holds this rendezvous' gate (the daemon, INCLUDING a
- *  forked grandchild), then remove the dir. ESRCH-safe — a cleanly-exited daemon
+/** SIGKILL a single pid, tolerating "already gone" (ESRCH). */
+function sigkillQuietly(pid: number): void {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // Already gone — nothing to kill.
+  }
+}
+
+/** How long the graceful-first reap below waits for a SIGTERM'd daemon to run
+ *  its shutdown (which disposes every PTY it owns) before escalating. Leaders
+ *  die by SIGKILL inside that shutdown, so a healthy daemon is gone in well
+ *  under a second; the bound only matters for a wedged one. */
+const GRACEFUL_REAP_MS = 4_000;
+
+/** Reap whatever pid holds this rendezvous' gate (the daemon, INCLUDING a
+ *  forked grandchild), then remove the dir. GRACEFUL-FIRST: SIGTERM, wait for
+ *  the daemon to die running its shutdown — `daemonMain`'s `.finally` awaits
+ *  `ptyHost.close()`, which SIGKILLs every PTY leader it owns — and only then
+ *  SIGKILL a daemon that would not go. A SIGKILL-first reap strands those
+ *  leaders: node-pty `setsid`s each into its OWN session, so no kill aimed at
+ *  the daemon (or its group) ever reaches them, and the OS backstop — the
+ *  master closing hangs up the leader — misses on darwin whenever the
+ *  `spawn-helper` launcher has not yet exec'd (it acquires the controlling tty
+ *  only inside its own slave `open()`, so pre-exec there is nobody to hang
+ *  up). The aged ppid-1 `spawn-helper <kaval-e2e-cwd-*> /bin/sh` orphans found
+ *  on rasam are exactly that residue. ESRCH-safe — a cleanly-exited daemon
  *  left a dead/absent gate, so there's simply nothing to kill. */
-function reapRendezvous(dir: string): void {
+async function reapRendezvous(dir: string): Promise<void> {
   const pid = gatePid(join(dir, KAVAL_GATE_FILE));
-  if (pid !== undefined) {
+  if (pid !== undefined && isAlive(pid)) {
     try {
-      process.kill(pid, "SIGKILL");
+      process.kill(pid, "SIGTERM");
     } catch {
-      // Already gone — nothing to reap.
+      // Raced its own exit — already gone.
     }
+    const deadline = Date.now() + GRACEFUL_REAP_MS;
+    while (isAlive(pid) && Date.now() < deadline) await sleep(50);
+    // A daemon that sat out the whole window is wedged; SIGKILL is the honest
+    // last resort (any leaders it still owned are then visibly leaked to the
+    // file-level afterAll assertion, never silently accepted).
+    if (isAlive(pid)) sigkillQuietly(pid);
   }
   rmSync(dir, { recursive: true, force: true });
 }
@@ -187,12 +218,12 @@ function launch(socketPath: string): Daemon {
 // gate. Compute the verdict first, then sweep every rendezvous unconditionally,
 // so a green OR a red run leaves the box clean (a failing test can't strand a
 // daemon), and finally assert.
-afterAll(() => {
+afterAll(async () => {
   const leaked = allRendezvous.filter((dir) => {
     const pid = gatePid(join(dir, KAVAL_GATE_FILE));
     return pid !== undefined && isAlive(pid);
   });
-  for (const dir of allRendezvous.splice(0)) reapRendezvous(dir);
+  for (const dir of allRendezvous.splice(0)) await reapRendezvous(dir);
   expect(leaked).toEqual([]);
 });
 
@@ -299,11 +330,17 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   // gate pid (which reaches a forked GRANDCHILD the child handle can't). Runs
   // after EVERY test, pass or fail, so a failing assertion can't strand a daemon.
   // Scoped to THIS describe, so it never touches the corpus's shared daemon.
-  afterEach(() => {
+  afterEach(async () => {
+    // Rendezvous reap FIRST: the tracked child handles include these very
+    // daemons, and SIGKILL-ing a handle before its rendezvous reap would
+    // forfeit the graceful window in which the daemon disposes its PTY
+    // leaders — recreating the exact strand the graceful-first reap exists to
+    // prevent. The handle sweep after is the backstop for non-daemon children
+    // (kaval-tui runs) and for a daemon the graceful reap already escalated on.
+    for (const dir of trackedRendezvous.splice(0)) await reapRendezvous(dir);
     for (const c of trackedChildren.splice(0)) {
       if (c.exitCode === null) c.kill("SIGKILL");
     }
-    for (const dir of trackedRendezvous.splice(0)) reapRendezvous(dir);
   });
 
   it("single-instance gate: a second kaval yields (exit 0); a SIGKILL'd one leaves a stale gate the next reaps", async () => {
@@ -369,7 +406,7 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
 
     try {
       // Graceful stop — daemonMain's shutdown `.finally` awaits the host close,
-      // which must dispose (SIGHUP) the PTY leader before the process exits.
+      // which must dispose (SIGKILL) the PTY leader before the process exits.
       await reap(d);
 
       // Reaping is async; poll briefly. RED before the fix: the leader stays
@@ -379,13 +416,45 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     } finally {
       // Never let THIS test strand the leader (e.g. on a RED assertion) — that
       // would leak exactly the process the test guards against.
-      if (isAlive(pid)) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // Already gone.
-        }
-      }
+      sigkillQuietly(pid);
+    }
+  }, 30000);
+
+  it("the rendezvous backstop reaps a daemon's PTY leaders — even one the master-close hangup cannot kill", async () => {
+    // The backstop (afterEach/afterAll → `reapRendezvous`) reaps daemons a
+    // failing test left behind. Reaping the DAEMON alone is not enough: each
+    // PTY leader lives in its own session, so only the daemon's own graceful
+    // shutdown (dispose → SIGKILL per leader) reaches it. The leader here
+    // ignores SIGHUP before exec'ing — modelling the class the OS cannot reap
+    // for us. On darwin that class includes every spawn-helper still pre-exec
+    // (no controlling tty yet, so the dying master hangs up nobody): the aged
+    // ppid-1 orphans found on rasam. A SIGKILL-first backstop leaks this
+    // leader on EVERY platform (verified red on linux); the graceful-first
+    // backstop reaps it deterministically.
+    const d = track(await startDaemon());
+    const conn = await connect(d.socketPath);
+    const { pid } = await conn.client.surface.terminal.spawn({
+      argv: ["/bin/sh", "-c", "trap '' HUP; exec sleep 100000"],
+      cwd: makeCwd(),
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm" },
+      initFiles: [],
+    });
+    await conn.dispose();
+    expect(isAlive(pid)).toBe(true);
+
+    try {
+      // The exact call the afterEach/afterAll backstops make on a rendezvous
+      // whose daemon is still alive.
+      await reapRendezvous(rendezvousDir(d.socketPath));
+
+      // Graceful-first: the daemon died by running its shutdown (exit 0, not a
+      // SIGKILL's null), and that shutdown took the HUP-immune leader with it.
+      expect(await d.exited).toBe(0);
+      for (let i = 0; i < 50 && isAlive(pid); i++) await sleep(100);
+      expect(isAlive(pid)).toBe(false);
+    } finally {
+      // Never let THIS test strand the leader it built to be unreapable.
+      sigkillQuietly(pid);
     }
   }, 30000);
 
@@ -494,30 +563,41 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   it("SIGKILL mid-attach: the client's stream errors or ends — it does not hang", async () => {
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
-    const { id } = await conn.client.surface.terminal.spawn(
+    const { id, pid } = await conn.client.surface.terminal.spawn(
       spawnInput(makeCwd()),
     );
-    const iterator = (await conn.client.surface.terminalAttach.get({ id }))[
-      Symbol.asyncIterator
-    ]();
-    await iterator.next(); // the snapshot frame
-
-    // Kill the daemon outright; the next pull must settle (reject or end), not hang.
-    d.child.kill("SIGKILL");
-    await d.exited;
-
-    const outcome = await Promise.race([
-      iterator
-        .next()
-        .then(() => "settled" as const)
-        .catch(() => "errored" as const),
-      sleep(6000).then(() => "hung" as const),
-    ]);
-    expect(outcome).not.toBe("hung");
     try {
-      conn.dispose();
-    } catch {
-      // The socket is already gone (daemon SIGKILL'd) — nothing to dispose.
+      const iterator = (await conn.client.surface.terminalAttach.get({ id }))[
+        Symbol.asyncIterator
+      ]();
+      await iterator.next(); // the snapshot frame
+
+      // Kill the daemon outright; the next pull must settle (reject or end), not hang.
+      d.child.kill("SIGKILL");
+      await d.exited;
+
+      const outcome = await Promise.race([
+        iterator
+          .next()
+          .then(() => "settled" as const)
+          .catch(() => "errored" as const),
+        sleep(6000).then(() => "hung" as const),
+      ]);
+      expect(outcome).not.toBe("hung");
+      try {
+        conn.dispose();
+      } catch {
+        // The socket is already gone (daemon SIGKILL'd) — nothing to dispose.
+      }
+    } finally {
+      // This test SIGKILLs the daemon ON PURPOSE, so nothing ever disposes the
+      // PTY it just spawned: the leader sits in its own session (setsid) where
+      // no kill aimed at the daemon reaches it, and the OS backstop (the dying
+      // master hanging up the leader) misses on darwin whenever the
+      // spawn-helper launcher hasn't exec'd yet — the ppid-1
+      // `spawn-helper <kaval-e2e-cwd-*> /bin/sh` orphans aged days on rasam
+      // came from this very spawn. The strander reaps what it strands.
+      sigkillQuietly(pid);
     }
   }, 30000);
 
