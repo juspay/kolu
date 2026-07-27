@@ -254,8 +254,22 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  other shape, and the reshape needs no compatibility arm — which is the point:
  *  a `wildcard`-or-`scope` union in the schema would be a permanent fallback path
  *  bought to smooth over a window the convergence machinery already closes. The
- *  reshape itself is in `@kolu/terminal-vocab` ports vocabulary, with the reason. */
-export const PADI_SURFACE_VERSION = "4.3";
+ *  reshape itself is in `@kolu/terminal-vocab` ports vocabulary, with the reason.
+ *
+ *  4.4 (additive · minor): `fs.listAll`'s output gains a REQUIRED `ignoredPaths` —
+ *  the gitignored entries behind the Code tab's show-ignored toggle — alongside an
+ *  OPTIONAL `includeIgnored` on its input. The input alone would need no bump (an
+ *  old padi ignores an unknown input field), but the OUTPUT gains a required field,
+ *  which is 4.2's rule verbatim: the shape a padi emits changed, therefore the
+ *  version says so. Required rather than optional, for 4.2's reason too — an absent
+ *  `ignoredPaths` ("this padi predates the toggle") and an empty one ("nothing is
+ *  ignored, or you didn't ask") are different facts, and spelling them the same
+ *  would make the second unfalsifiable. The minor suffices exactly as at 4.2: a
+ *  newer binder against an old 4.3 padi fails `isContractVersionCompatible`'s minor
+ *  rule and DRAINS it before consuming its surface — so the new client's schema
+ *  never meets a 4.3 frame missing the field, which would otherwise fail the
+ *  `fs.listAll` parse and error the Code tab's whole file list. */
+export const PADI_SURFACE_VERSION = "4.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
