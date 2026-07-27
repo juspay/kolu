@@ -97,6 +97,18 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     extraColumns: () => ({ terminals: terminalCount() }),
   });
 
+  // Once the manifest resolves to a real path, it never changes again for this
+  // process's lifetime (padi writes it once, around kaval's own boot) — so cache
+  // it after the first successful read. Two properties ride on this, not one:
+  // it stops the spine's anchor poll `readFileSync`-ing the same answer every
+  // tick for a `forever` daemon's whole life, AND it PINS the anchor against
+  // later manifest loss — a rendezvous dir deleted after resolution would
+  // otherwise reset the thunk to `undefined` ("never anchored") and silently
+  // disarm the self-reap for a daemon that unambiguously should still reap.
+  // Retry (uncached) only while it's still unresolved, which is exactly the
+  // startup race this thunk exists to survive.
+  let resolvedStateRoot: string | undefined;
+
   return daemonMain({
     gatePath,
     socketPath,
@@ -111,7 +123,7 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     // it around kaval's boot (a one-shot startup read could race it), and a
     // STANDALONE kaval has no manifest at all — the thunk stays `undefined` and
     // it is simply never reaped, its reason to exist untied to any state-root.
-    anchor: () => readStateRootManifest(dir),
+    anchor: () => (resolvedStateRoot ??= readStateRootManifest(dir)),
     anchorPollMs: opts.stateRootPollMs,
     log,
     signal: opts.signal,

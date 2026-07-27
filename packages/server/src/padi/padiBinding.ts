@@ -644,7 +644,12 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     // anchor-gone self-reap just collected; reported through the same hook a
     // reconnect-dial adoption refusal uses, so the composition root exits loud
     // no matter which dial discovers it. Same ENOENT-only proof as the daemon
-    // side (`anchorGone`, single-sourced in `@kolu/surface-daemon`).
+    // side (`anchorGone`, single-sourced in `@kolu/surface-daemon`). A deletion
+    // landing in the check→spawn window is a DOCUMENTED RESIDUAL, not
+    // engineered around (the `boundToPid` pid-reuse stance): the spawned padi
+    // recreates the dir, its own anchor poll reaps it within two ticks, and the
+    // reconnect dial that follows lands back here — one bounded extra cycle,
+    // never a leaked class.
     if (anchorGone(stateRoot)) {
       const gone = new PadiStateRootGoneError(stateRoot);
       reportFatalBindingError(gone, opts.onFatalBindingError);

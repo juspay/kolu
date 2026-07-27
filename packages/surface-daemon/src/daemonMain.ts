@@ -198,7 +198,16 @@ const ANCHOR_MISSES_TO_EXIT = 2;
  *  means "I could not read whether it exists", which is the opposite of proof
  *  and must never count toward a self-reap. Exported for the supervisor side
  *  (kolu-server's padi binder) so both ends of the anchor invariant share one
- *  definition of "gone" and can't drift. */
+ *  definition of "gone" and can't drift.
+ *
+ *  SYNC on the serving loop is deliberate (the
+ *  `no-sync-blocking-on-the-serving-loop` carve-out, same shape as the padi
+ *  binder's `processAlive` gate read): one `lstat` of a single dirent, fired
+ *  once per {@link ANCHOR_POLL_MS} tick inside a daemon and once per
+ *  (boot/reconnect) dial in the binder — never per request — and identical in
+ *  cost to the `existsSync` kaval's #1713 watcher ran on the same cadence in
+ *  production. Promoting the anchor thunk to `Promise` for that read would
+ *  spread async through every trigger site for no observable gain. */
 export function anchorGone(path: string): boolean {
   try {
     lstatSync(path);
@@ -390,7 +399,7 @@ function waitForShutdown(opts: {
    *  meet the kernel's default disposition (observed as exit 143). */
   alreadyOver: boolean;
 } {
-  const { lifetime, anchor, external, log } = opts;
+  const { lifetime, anchor, anchorPollMs, external, log } = opts;
   // Fail fast at CONSUMPTION, not only at the env boundary: a direct caller can
   // construct `{ kind: "boundToPid", pid }` with any number, and an invalid pid
   // (0, negative, fractional, out of range) would be silently reclassified — a
@@ -459,9 +468,9 @@ function waitForShutdown(opts: {
     // an anchor learned after boot (kaval's manifest, written by its padi
     // around kaval's own boot) self-corrects, and `undefined` — "not
     // anchored right now" — resets the count rather than counting either way.
-    {
+    const registerAnchorTrigger = (): void => {
       let misses = 0;
-      registerPoll(opts.anchorPollMs ?? ANCHOR_POLL_MS, () => {
+      registerPoll(anchorPollMs ?? ANCHOR_POLL_MS, () => {
         const path = anchor();
         if (path === undefined || !anchorGone(path)) {
           misses = 0;
@@ -475,7 +484,8 @@ function waitForShutdown(opts: {
         );
         finish("anchor-gone");
       });
-    }
+    };
+    registerAnchorTrigger();
 
     // Lifetime-specific shutdown trigger, dispatched EXHAUSTIVELY over the union
     // (mirroring `daemonExitCode`'s fence) — the signal + external-abort triggers
