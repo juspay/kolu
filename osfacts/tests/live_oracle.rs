@@ -4,11 +4,11 @@
 //! binary under test is `$OSFACTS_BIN` (the nix-built osfacts), never a
 //! target-dir debug build.
 //!
-//! Host-wide agreement is privilege-honest: osfacts only emits L rows for
-//! sockets it can attribute through readable pids. The platform oracle may
-//! list sockets owned by other uids (ss without pid, root listeners). Those
-//! are not failures — Oracle→osfacts only requires match when the oracle
-//! attributes a pid that is not in the snapshot's unreadable set.
+//! Host-wide agreement is privilege-honest. osfacts reads the kernel listener
+//! table and emits unclaimed rows even when it cannot inspect the owner. Linux
+//! `ss` sees those same kernel rows, while unprivileged Darwin `lsof` omits
+//! listeners owned by unreadable processes. Therefore Darwin osfacts→lsof
+//! agreement covers claimed rows; lsof→osfacts still covers every oracle row.
 //!
 //! Cucumber MSRV is 1.88 (crate 0.23, edition 2024); our pin is ≥1.93 — cleared.
 
@@ -174,7 +174,7 @@ fn read_oracle(world: &mut LiveWorld) {
     world.oracle_listeners = platform_oracle();
 }
 
-#[then("every osfacts listener has a canonical match in the oracle")]
+#[then("every osfacts listener visible to the platform oracle has a canonical match")]
 fn osfacts_subset_of_oracle(world: &mut LiveWorld) {
     agree_with_retry(world, Direction::OsfactsInOracle);
 }
@@ -278,7 +278,13 @@ fn agree_with_retry(world: &mut LiveWorld, dir: Direction) {
     for attempt in 0..2 {
         let missing = match dir {
             Direction::OsfactsInOracle => {
-                missing_from(&world.osfacts_listeners, &world.oracle_listeners)
+                let visible: Vec<ListenerRow> = world
+                    .osfacts_listeners
+                    .iter()
+                    .filter(|row| visible_to_platform_oracle(row))
+                    .cloned()
+                    .collect();
+                missing_from(&visible, &world.oracle_listeners)
             }
             Direction::OracleInOsfacts => {
                 missing_from(&world.oracle_listeners, &world.osfacts_listeners)
@@ -299,6 +305,20 @@ fn agree_with_retry(world: &mut LiveWorld, dir: Direction) {
             "canonical mismatch ({dir:?}), missing={missing:?}\nosfacts={:?}\noracle={:?}\nunreadable={:?}",
             world.osfacts_listeners, world.oracle_listeners, world.unreadable_pids
         );
+    }
+}
+
+fn visible_to_platform_oracle(row: &ListenerRow) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // `lsof` run as the CI user cannot enumerate root-owned descriptors.
+        // pcblist_n still exposes those sockets, correctly as unclaimed rows.
+        row.pid.is_some()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = row.pid;
+        true
     }
 }
 

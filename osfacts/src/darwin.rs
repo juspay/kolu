@@ -693,7 +693,11 @@ fn read_cpus() -> Result<Vec<Cpu>, i32> {
             info as libc::vm_address_t,
             count as libc::vm_size_t * mem::size_of::<c_int>(),
         );
-        if status == 0 { Ok(rows) } else { Err(status) }
+        if status == 0 {
+            Ok(rows)
+        } else {
+            Err(status)
+        }
     }
 }
 

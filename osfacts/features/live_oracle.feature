@@ -12,7 +12,7 @@ Feature: Live-host oracle (lane 2 — never gates)
   Scenario: Host-wide snapshot agrees with the platform oracle
     When I take a host-wide osfacts snapshot of listening ports
     And I read the platform oracle's listening ports
-    Then every osfacts listener has a canonical match in the oracle
+    Then every osfacts listener visible to the platform oracle has a canonical match
     And every oracle listener has a canonical match in osfacts
     # Appear/vanish races between the two reads are tolerated structurally:
     # the step functions re-read once on mismatch before failing.
