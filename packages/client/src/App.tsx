@@ -319,10 +319,11 @@ const App: Component = () => {
   const downState = () => requireKind("down", (m) => m.down, "down");
   // The failed episode as ONE value, through the ONE reader every failure surface shares
   // (`failedEpisode` — see its doc for why cause/reason/log travel together). A MEMO, not a
-  // plain accessor like its neighbours: the `host-failed` arm's ~6 consumers would each
-  // re-fold the map entry (a fresh `Entry` + clock closure, a host-key re-encode, an
-  // O(hosts) scan) and allocate a fresh wrapper. Unrepresentable if the arm is active
-  // without the episode — fail loud, same as `requireKind`.
+  // plain accessor like its neighbours, so the card keeps ONE stable episode object across
+  // the ~1Hz `mode()` re-resolve the monotonic boot clock drives: without it every tick
+  // re-folds the map entry and hands the card a fresh wrapper for an unchanged failure.
+  // Unrepresentable if the arm is active without the episode — fail loud, same as
+  // `requireKind`.
   const hostFailure = createMemo(() => {
     const episode = failedEpisode(activeEntryState());
     if (episode === undefined) {

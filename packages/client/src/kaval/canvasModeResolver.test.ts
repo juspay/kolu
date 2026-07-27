@@ -27,9 +27,11 @@ const liveness = {
 
 /** The NOT-YET-CONNECTED arms' base: liveness plus the connection cell's retained output
  *  tail, which only those arms carry (the connected arm has neither it nor `connectPhase`).
- *  Every pin below leaves the tail empty — it is payload the boot-stalled connector card
- *  renders, not an input to any precedence decision, and `BootStalledCanvas.test.tsx` pins
- *  the rendering. */
+ *  The tail is payload the boot-stalled connector card renders, never an input to a
+ *  precedence decision — so every PRECEDENCE pin leaves it empty and overrides only the
+ *  fact under test. The one exception is deliberate: "the connector card carries the
+ *  episode's LOG" sets a non-empty tail, because a base that only ever supplies `undefined`
+ *  cannot tell a working thread-through from a severed one. */
 const notYetConnected = { ...liveness, connectLog: undefined } as const;
 
 /** A fully "ready" CONNECTED-arm snapshot — one terminal — that resolves to
@@ -327,6 +329,41 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
       kind: "boot-stalled",
       recovery: { via: "connector", phase: "provisioning" },
     });
+  });
+
+  it("D2 — the connector card carries the episode's LOG, not just its phase", () => {
+    // The pin that the rest of the D2 cases cannot provide: every other fixture leaves
+    // `connectLog` undefined, and vitest treats a missing key as `undefined`, so a
+    // regression that stopped threading `f.connectLog` through the accrue tag into the
+    // recovery would still typecheck AND stay green — while the stalled-provisioning card
+    // silently went back to showing a phase with no evidence, which is the whole defect
+    // this change exists to close. Assert the tail arrives by REFERENCE, so a future
+    // copy/slice at the seam has to be a deliberate edit here too.
+    const connectLog = [
+      {
+        source: "local" as const,
+        line: "zest: provisioning '/nix/store/…drv' on remote…",
+      },
+      {
+        source: "remote" as const,
+        line: "error: builder for '…kolu-typecheck.drv' failed",
+      },
+    ];
+    const m = mode(
+      {
+        ...notYetConnected,
+        entry: "warming",
+        connectPhase: "provisioning",
+        isLocalHost: false,
+        connectLog,
+      },
+      true,
+    );
+    expect(m).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "connector", phase: "provisioning", log: connectLog },
+    });
+    expect((m as { recovery: { log: unknown } }).recovery.log).toBe(connectLog);
   });
 
   it("D2 — ANY warming-remote phase escapes to the CONNECTOR card", () => {

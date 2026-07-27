@@ -37,7 +37,13 @@ symlinkJoin {
   postBuild = ''
     wrapProgram $out/bin/pnpm --set-default npm_config_reporter append-only
   '';
-  # `fetchPnpmDeps` reads `pnpm.version` (lockfile-major check) and
-  # `pnpm.nodejs`; `configHook` keeps the wrapper a drop-in for `pnpm_10`.
-  passthru = { inherit (pnpm_10) version majorVersion nodejs configHook; };
+  # Forward the WHOLE passthru rather than the three attributes today's callers
+  # happen to read (`fetchPnpmDeps` wants `version` + `nodejs`; the config hook
+  # wants `configHook`). Enumerating them made the "drop-in for `pnpm_10`" claim
+  # false the moment nixpkgs grew one we hadn't listed — `fetchDeps` was already
+  # `false` here while `pnpm_10.fetchDeps` was `true`, so a future consumer
+  # reaching for the package-level fetcher API would have silently got the wrong
+  # answer. Forwarding wholesale keeps the wrapper attribute-compatible as
+  # nixpkgs evolves; `symlinkJoin` does not carry `version`, so re-add it.
+  passthru = pnpm_10.passthru // { inherit (pnpm_10) version; };
 }
