@@ -53,6 +53,15 @@ comment can reference a local-only commit.
 - **Commit first.** Reviewers review *committed* code — commit/stash any
   outstanding work before starting (in `/be` this is automatic: §2/§3 commit and
   push before §4).
+- **Verify `<base>` is a remote-tracking ref — mechanically, not by eyeballing the
+  diff stat.** A caller's `--base master` names the **local** `master`, which on a
+  long-lived worktree is routinely tens of commits behind origin, so the merge-base
+  lands in the base branch's own past and the "diff" swells with history nobody wrote:
+  one run resolved a base 40 commits stale and handed the reviewers 377 files instead
+  of 9. After `git fetch origin`, run
+  `git -C "$repoPath" rev-parse --verify --quiet "refs/remotes/$base"` — if it fails,
+  retry once as `origin/$base` and use that; if *that* fails too, **stop and say so**
+  rather than resolving a local ref. Never accept a bare branch name as given.
 - **Resolve the scope once.** `git fetch origin`, then
   `MB=$(git merge-base <base> HEAD)` and `START=$(git rev-parse HEAD)`. Pass `MB`
   as the `base` to every step (their own merge-base resolution is idempotent on a

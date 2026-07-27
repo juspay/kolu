@@ -54,6 +54,10 @@ export default defineConfig({
   ],
   vite: {
     plugins: [tailwindcss()],
+    // The dev server stays bound to loopback; this is the tailnet name a
+    // `tailscale serve` proxy fronts it with, which Vite otherwise rejects on
+    // the Host header.
+    server: { allowedHosts: ["pureintent.rooster-blues.ts.net"] },
     define: {
       "import.meta.env.PUBLIC_KOLU_VERSION": JSON.stringify(KOLU_VERSION),
     },

@@ -27,11 +27,13 @@ import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
 import type {
   ConnectionInfo,
+  EntryFailedCause,
   PadiEntryFailure,
 } from "kolu-common/surfacesWithPadi";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
+import type { LogLine } from "../ui/logTailChrome";
 import { activeScope } from "../hostScope/hostScopes";
 import { persistedPref } from "../persistedPref";
 import { activeHost, app, padiMap } from "../wire";
@@ -120,6 +122,42 @@ export type PadiEntry = EntryState<PadiEntryFailure, ConnectionInfo>;
  *  A reactive accessor; read it inside a tracking scope. */
 export function activeEntryState(): PadiEntry {
   return padiMap.entry(activeHost()).state();
+}
+
+/** THE failed episode, as ONE value — every surface that shows a host's failure reads it
+ *  through here, so they cannot disagree about what "no evidence" means.
+ *
+ *  `cause`, `reason` and the retained output tail are three fields of ONE `EntryStatus`
+ *  (`padiMap.entry(host).state()`), so they are unpacked together, under one guard, by one
+ *  reader — never two accessors with two policies over the same value, which is exactly how
+ *  the tail came to be dropped unread while the reason was shown (`HostDownCanvas.tsx`'s
+ *  header tells that story). The two consumers today are the host-down card (App.tsx's `host-failed` arm) and the
+ *  host-diagnostics popover (the only failure surface reachable for a host WITHOUT switching
+ *  to it).
+ *
+ *  `log` stays `undefined` rather than collapsing to `[]` — see the `log` prop doc on
+ *  `host/CanvasFailureCard.tsx`, which owns that distinction. `undefined` when this reader
+ *  cannot see the output at all, and every consumer must pass that through unchanged.
+ *
+ *  Takes the entry rather than reading the active one, because the popover asks about a host
+ *  that is NOT the active one. `undefined` when the entry is in any other state — the caller
+ *  decides whether that is a normal absence (the popover) or unrepresentable (the card's
+ *  arm, which throws). The session carries the tail FORWARD into its `failed` arm (see
+ *  `surface-remote/session.ts`'s `setDown`), so these are the lines of the episode that
+ *  actually gave up. */
+export function failedEpisode(entry: PadiEntry):
+  | {
+      cause: EntryFailedCause;
+      reason: string;
+      log: readonly LogLine[] | undefined;
+    }
+  | undefined {
+  if (entry.kind !== "failed") return undefined;
+  return {
+    cause: entry.failure.cause,
+    reason: entry.failure.reason,
+    log: entry.connection?.log,
+  };
 }
 
 /** True while the ACTIVE host is the unremovable LOCAL default — it selects the boot

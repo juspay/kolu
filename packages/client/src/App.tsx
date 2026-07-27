@@ -316,10 +316,6 @@ const App: Component = () => {
     return pick(m as Extract<CanvasMode, { kind: K }>);
   };
   const downState = () => requireKind("down", (m) => m.down, "down");
-  const hostFailedCause = () =>
-    requireKind("host-failed", (m) => m.cause, "host-failed");
-  const hostFailedReason = () =>
-    requireKind("host-failed", (m) => m.reason, "host-failed");
   const bootStalledRecovery = () =>
     requireKind("boot-stalled", (m) => m.recovery, "boot-stalled");
   // Warming arm's kaval restart state (undefined while a remote provision
@@ -480,10 +476,7 @@ const App: Component = () => {
             {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,
                 cause-typed) — distinct from `down` (a connected host's dead kaval).
                 Its own surface: cause-typed copy + [Switch to local], no Retry. */}
-            <HostDownCanvas
-              cause={hostFailedCause()}
-              reason={hostFailedReason()}
-            />
+            <HostDownCanvas />
           </Match>
           <Match when={mode().kind === "boot-stalled"}>
             {/* #1763 + #1908 D2: a boot overlay held past its per-host ceiling, rendered off the

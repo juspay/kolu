@@ -63,18 +63,22 @@ export function canvasMode(deps: {
     daemonPending: daemonStatusPending(),
     isLocalHost: isActiveHostLocal(),
   };
-  // The ACTIVE host's OWN connection-cell phase — the SAME channel `ConnectCanvas`
-  // narrates off, so the connect-overlay routing reads it too (no cross-channel skew). Fed
-  // ONLY into the not-yet-connected arms (warming/not-a-member): the `connected` arm carries
-  // no `connectPhase`, so a stale/lagging cell can never route the overlay over a connected
-  // host (A'). `connectionInfo()` is floored on the map's transport liveness (C'), so a
-  // stale cell already demotes before it reaches here. NARROW to the framework's `ConnectPhase`
-  // (the narrated subset) at THIS boundary: a `connected`/`disconnected`/`failed` cell phase is
-  // not a connect phase → `undefined` (no overlay), so the resolver's arm can carry only a real
-  // connect phase and its routing is a plain `!== undefined`.
-  const phase = connectionInfo()?.phase;
+  // The ACTIVE host's OWN connection cell — the SAME channel `ConnectCanvas` narrates off, so
+  // the connect-overlay routing reads it too (no cross-channel skew). ONE read yields BOTH the
+  // phase and the output tail: they are two fields of one cell frame, and the boot-stalled
+  // card's connector arm shows them together. Fed ONLY into the not-yet-connected arms
+  // (warming/not-a-member): the `connected` arm carries neither, so a stale/lagging cell can
+  // never route the overlay over a connected host (A'). `connectionInfo()` is floored on the
+  // map's transport liveness (C'), so a stale cell already demotes before it reaches here.
+  // NARROW the phase to the framework's `ConnectPhase` (the narrated subset) at THIS boundary:
+  // a `connected`/`disconnected`/`failed` cell phase is not a connect phase → `undefined` (no
+  // overlay), so the resolver's arm can carry only a real connect phase and its routing is a
+  // plain `!== undefined`.
+  const info = connectionInfo();
+  const phase = info?.phase;
   const connectPhase: ConnectPhase | undefined =
     phase !== undefined && isConnectPhase(phase) ? phase : undefined;
+  const connectLog = info?.log;
   // The active entry's connection state is the discriminant. A non-`connected`
   // host's re-served daemonStatus is frozen stale, so the kaval-derived facts are
   // gathered ONLY on the `connected` arm.
@@ -82,20 +86,15 @@ export function canvasMode(deps: {
   let facts: CanvasFacts;
   switch (state.kind) {
     case "warming":
-      facts = { ...liveness, entry: "warming", connectPhase };
+      facts = { ...liveness, entry: "warming", connectPhase, connectLog };
       break;
     case "failed":
-      // PR4: the failed arm carries a schema-valid domain `failure` value; the
-      // resolver's flat `cause`/`reason` (all the host-down card needs) unpack from it.
-      facts = {
-        ...liveness,
-        entry: "failed",
-        cause: state.failure.cause,
-        reason: state.failure.reason,
-      };
+      // The failed arm feeds the resolver the DISCRIMINANT only — the episode itself is read
+      // by `failedEpisode` at the surfaces that show it (see its doc in `useDaemonStatus.ts`).
+      facts = { ...liveness, entry: "failed" };
       break;
     case "not-a-member":
-      facts = { ...liveness, entry: "not-a-member", connectPhase };
+      facts = { ...liveness, entry: "not-a-member", connectPhase, connectLog };
       break;
     case "connected":
       facts = {
