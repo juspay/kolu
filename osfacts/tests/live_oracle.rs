@@ -56,7 +56,31 @@ struct ForeignProcessOracle {
     pid: u32,
     uid: u32,
     ppid: u32,
+    elapsed_seconds: u64,
     name: String,
+}
+
+#[cfg(target_os = "macos")]
+fn parse_ps_elapsed(value: &str) -> Option<u64> {
+    let (days, clock) = value
+        .split_once('-')
+        .map_or((0, value), |(days, clock)| (days.parse().ok()?, clock));
+    let parts = clock
+        .split(':')
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let (hours, minutes, seconds) = match parts.as_slice() {
+        [minutes, seconds] => (0, *minutes, *seconds),
+        [hours, minutes, seconds] => (*hours, *minutes, *seconds),
+        _ => return None,
+    };
+    Some(
+        days.saturating_mul(86_400)
+            .saturating_add(hours.saturating_mul(3_600))
+            .saturating_add(minutes.saturating_mul(60))
+            .saturating_add(seconds),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -310,7 +334,7 @@ fn snapshot_foreign_processes(_world: &mut LiveWorld) {
         let own_uid = unsafe { libc::geteuid() };
         assert_ne!(own_uid, 0, "fixture requires a non-root user");
         let output = Command::new("ps")
-            .args(["-axo", "pid=,uid=,ppid=,comm="])
+            .args(["-axo", "pid=,uid=,ppid=,etime=,comm="])
             .output()
             .expect("ps must be on PATH for the live oracle");
         assert!(output.status.success(), "ps failed: {}", output.status);
@@ -322,12 +346,14 @@ fn snapshot_foreign_processes(_world: &mut LiveWorld) {
                 let pid = fields.next()?.parse::<u32>().ok()?;
                 let uid = fields.next()?.parse::<u32>().ok()?;
                 let ppid = fields.next()?.parse::<u32>().ok()?;
+                let elapsed_seconds = parse_ps_elapsed(fields.next()?)?;
                 let command = fields.collect::<Vec<_>>().join(" ");
                 let name = PathBuf::from(command).file_name()?.to_str()?.to_owned();
                 (pid > 0 && pid < 10_000 && uid != own_uid).then_some(ForeignProcessOracle {
                     pid,
                     uid,
                     ppid,
+                    elapsed_seconds,
                     name,
                 })
             })
@@ -410,7 +436,13 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
                 .find(|row| row.get(1) == Some(&pid.as_str()))
                 .unwrap_or_else(|| panic!("missing S row for {}:\n{body}", expected.pid));
             let start = start[2].parse::<u64>().expect("start time");
-            assert!(start > 0 && start <= now, "bad start row: {start}");
+            let elapsed = now.saturating_sub(start) / 1_000_000;
+            assert!(
+                elapsed.abs_diff(expected.elapsed_seconds) <= 3,
+                "start time for {} differs from ps: osfacts elapsed={elapsed}s, ps elapsed={}s",
+                expected.pid,
+                expected.elapsed_seconds
+            );
             for facet in ["proc", "uid", "start_time"] {
                 assert!(
                     !unreadable
