@@ -580,8 +580,11 @@ describe("cache prefetch (2a)", () => {
       trustedPublicKeys: ["k:0000000000000000000000000000000000000000000="],
     };
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
+      // The substituter URL is exactly the `--from` value (args[2]) — an exact
+      // compare, not a substring scan (which CodeQL would flag as URL
+      // sanitization).
       if (args[0] === "copy")
-        return args.includes("https://a.test.invalid") ? failOut : okOut("");
+        return args[2] === "https://a.test.invalid" ? failOut : okOut("");
       if (args.includes("--outputs")) return okOut(`${STORE}\n`);
       if (args.includes("--check-validity")) return failOut;
       if (args.includes("--add-root")) return okOut("/home/u/link\n");
