@@ -293,7 +293,7 @@ let
 
     nativeBuildInputs = [
       pkgs.nodejs
-      pkgs.pnpm_10
+      pkgs.pnpm-build
       pkgs.pnpmConfigHook
       pkgs.python3
       pkgs.node-gyp

@@ -23,6 +23,11 @@
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
 import { WarningIcon } from "../ui/Icons";
+import {
+  LOG_TAIL_LINE,
+  LOG_TAIL_SURFACE,
+  type LogLine,
+} from "../ui/logTailChrome";
 import { activeHost, setActiveHost } from "../wire";
 import { reconnectHost } from "./reconnectHost";
 
@@ -89,6 +94,27 @@ export function CanvasFailureCard(props: {
   title: string;
   body: string;
   detail?: string;
+  /** The failing episode's retained output, newest last — rendered verbatim in a bounded
+   *  scroll beneath `detail`. Structural ({@link LogLine} — `{ line }` only, no domain type,
+   *  no `source` provenance): the shell stays pure presentation, and a caller hands it
+   *  whatever tail it retained. REQUIRED, though it accepts `undefined`: an optional prop is
+   *  how one of two callers silently dropped the evidence, so "this surface has no tail" must
+   *  be said out loud.
+   *
+   *  THE HOME of the `undefined` vs `[]` distinction every surface that carries a tail
+   *  preserves: `undefined` means WE CANNOT SEE the output — the padi map's liveness floor
+   *  DROPS the `connection` word over a dead link while keeping `failure`, so the reason
+   *  survives and the evidence does not — while `[]` means the failure genuinely produced
+   *  none. Both render nothing here, but only the caller can tell them apart, so no reader
+   *  upstream may collapse one into the other.
+   *
+   *  Chrome shared with the other tails is named in `ui/logTailChrome.ts`; everything else
+   *  stays local, because the three differ by decision rather than by accident. */
+  log: readonly LogLine[] | undefined;
+  /** Test handle for the tail block, supplied by the caller like every other handle on this
+   *  shell (`dataTestid` / `dataAttrs` / `action.testid`) — two callers now render a tail, so
+   *  a selector has to be able to say WHICH card's it found. */
+  logTestid: string;
   /** Optional footer line under the body (e.g. a docs link). */
   footer?: JSX.Element;
   actions: CanvasFailureAction[];
@@ -111,6 +137,16 @@ export function CanvasFailureCard(props: {
                   {detail()}
                 </p>
               )}
+            </Show>
+            <Show when={(props.log?.length ?? 0) > 0}>
+              <div
+                data-testid={props.logTestid}
+                class={`mt-2 max-h-40 overflow-y-auto px-3 py-2 text-[11px] leading-relaxed ${LOG_TAIL_SURFACE}`}
+              >
+                <For each={props.log}>
+                  {(entry) => <div class={LOG_TAIL_LINE}>{entry.line}</div>}
+                </For>
+              </div>
             </Show>
             <Show when={props.footer}>
               {(footer) => (

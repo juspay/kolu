@@ -69,17 +69,25 @@ const blog = defineCollection({
 const changelog = defineCollection({
   loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/changelog" }),
   // Release identity is one strict pair: the perpetual Unreleased entry is
-  // dateless, while every numbered release is dated. Keeping the pair as a
-  // union prevents malformed metadata from becoming a vUnreleased URL or an
-  // unpinned numbered release.
+  // dateless and summary-less, while every numbered release is dated and
+  // opens with a summary. Keeping the pair as a union prevents malformed
+  // metadata from becoming a vUnreleased URL or an unpinned numbered release
+  // — and makes a shipped release with nothing to say about itself
+  // unwritable, rather than merely discouraged.
   schema: z.union([
     z.object({
       version: z.literal("Unreleased"),
       date: z.never().optional(),
+      // Unreleased accumulates entry-by-entry and has no editorial shape to
+      // summarize yet; it earns its summary when `/release` stamps a version.
+      summary: z.never().optional(),
     }),
     z.object({
       version: z.string().regex(/^\d+\.\d+\.\d+$/),
       date: z.coerce.date(),
+      // One paragraph of inline markdown — what this version gives the
+      // reader — rendered inside the release masthead.
+      summary: z.string().min(1),
     }),
   ]),
 });

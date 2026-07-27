@@ -1,6 +1,6 @@
 import { FileTree as PierreFileTree } from "@pierre/trees";
 import { describe, expect, it } from "vitest";
-import { directoryRemovalOps } from "./pathReconcile";
+import { ancestorDirectoryPaths, directoryRemovalOps } from "./pathReconcile";
 
 const remove = (path: string) => ({ type: "remove", path, recursive: true });
 
@@ -135,5 +135,32 @@ describe("directoryRemovalOps applied to a Pierre tree", () => {
     // directory — its hand-collapsed state is preserved.
     expect(dirHandle(tree, "docs/plans/")?.isExpanded()).toBe(false);
     tree.cleanUp();
+  });
+});
+
+describe("ancestorDirectoryPaths — the directory-marker scan", () => {
+  it("tolerates a repeated separator without quadratic backtracking", () => {
+    // The marker strip used `/\/+$/`, which CodeQL flagged as
+    // `js/polynomial-redos`: the engine retries `\/+$` from each slash in the
+    // run and rescans it before failing the anchor. Paths arrive from
+    // `git ls-files` — from disk, not from us — so their shape is not ours to
+    // bound. A 100k-slash tail finishes instantly under the linear scan and
+    // would take quadratic time under the old pattern.
+    const pathological = `a/b${"/".repeat(100_000)}`;
+    const started = performance.now();
+    expect(ancestorDirectoryPaths(pathological)).toEqual(["a/"]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it("strips one or many trailing slashes identically", () => {
+    for (const p of ["a/b/c/", "a/b/c//", "a/b/c///"]) {
+      expect(ancestorDirectoryPaths(p)).toEqual(["a/", "a/b/"]);
+    }
+  });
+
+  it("leaves a slash-free path untouched", () => {
+    expect(ancestorDirectoryPaths("a/b/c.ts")).toEqual(["a/", "a/b/"]);
+    expect(ancestorDirectoryPaths("top.ts")).toEqual([]);
+    expect(ancestorDirectoryPaths("")).toEqual([]);
   });
 });

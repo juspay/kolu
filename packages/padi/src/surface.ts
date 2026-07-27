@@ -69,6 +69,8 @@ import {
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
+  FsListIgnoredInputSchema,
+  FsListIgnoredOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
   GitStatusInputSchema,
@@ -254,8 +256,21 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  other shape, and the reshape needs no compatibility arm — which is the point:
  *  a `wildcard`-or-`scope` union in the schema would be a permanent fallback path
  *  bought to smooth over a window the convergence machinery already closes. The
- *  reshape itself is in `@kolu/terminal-vocab` ports vocabulary, with the reason. */
-export const PADI_SURFACE_VERSION = "4.3";
+ *  reshape itself is in `@kolu/terminal-vocab` ports vocabulary, with the reason.
+ *
+ *  4.4 (additive · minor): a NEW `fs.listIgnored` procedure — git's collapsed
+ *  gitignored listing, behind the Code tab's show-ignored toggle. `fs.listAll` is
+ *  UNTOUCHED: an earlier draft grew it an `includeIgnored` flag and a required
+ *  `ignoredPaths` output, which would have been a required-field emit change (4.2's
+ *  rule) — but it also put a display toggle inside the main file-list query's value
+ *  key, blanking the tree and remounting it collapsed on every flip. A separate
+ *  procedure is both the better client architecture and the smaller wire change: a
+ *  purely ADDITIVE procedure, the plainest minor there is. The minor suffices for
+ *  the usual reason — a newer binder against an old 4.3 padi fails
+ *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
+ *  surface, so a 4.4 client never calls `fs.listIgnored` on a padi that lacks it
+ *  (which would be a missing-procedure error, not a graceful absence). */
+export const PADI_SURFACE_VERSION = "4.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -991,6 +1006,10 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     /** Filesystem reads scoped to a repo on the serving host. */
     fs: {
       listAll: { input: FsListAllInputSchema, output: FsListAllOutputSchema },
+      listIgnored: {
+        input: FsListIgnoredInputSchema,
+        output: FsListIgnoredOutputSchema,
+      },
       readFile: {
         input: FsFileInputSchema,
         output: FsReadFileTextOutputSchema,

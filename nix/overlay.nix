@@ -4,4 +4,6 @@
 final: _prev:
 {
   kolu-fonts = final.callPackage ./packages/fonts { };
+  # The pnpm every Nix builder must run (reporter wrapped). See ./pnpm.nix.
+  pnpm-build = final.callPackage ./pnpm.nix { };
 }

@@ -1,8 +1,11 @@
 /** File tree browsing — git-filtered file listing and file reading.
  *
- *  Uses `git ls-files --cached --others --exclude-standard` to enumerate
- *  tracked + untracked-but-not-ignored paths in one shot. This avoids
- *  listing `node_modules/`, `.git/`, build artifacts, etc. */
+ *  `listAll` uses `git ls-files --cached --others --exclude-standard` to
+ *  enumerate tracked + untracked-but-not-ignored paths in one shot, so it never
+ *  walks `node_modules/`, `.git/`, build artifacts, etc. `listIgnored` is its
+ *  exact complement — the same enumeration for what git DOES ignore, collapsed
+ *  so a fully-ignored directory costs one entry rather than its whole subtree.
+ *  Union the two and you have the working tree. */
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -68,30 +71,29 @@ export async function listAll(
   );
 }
 
-/** Repo-relative paths git *ignores* — the exact complement of `listAll`'s
+/** Repo-relative entries git *ignores* — the exact complement of `listAll`'s
  *  `--cached --others --exclude-standard` (union the two and you have the whole
  *  working tree). `--directory` collapses a fully-ignored directory to its name
- *  (so `node_modules/` is one entry, not thousands), and any trailing slash is
- *  stripped here. The working-tree watcher feeds these to parcel's `ignore`, so
- *  it watches exactly what the browse tree shows — committed build outputs
- *  (Atlas's `docs/atlas/dist/`) included, gitignored ones excluded. Note: this
+ *  (so `node_modules/` is one entry, not thousands); a directory entry KEEPS
+ *  git's trailing slash, which is Pierre's own folder-key format — the Code tab
+ *  hands it straight through as the marker for a childless dimmed row. The
+ *  watcher needs no stripped variant: it resolves every entry to an absolute
+ *  path, and `path.resolve` normalizes the trailing separator away. Note: this
  *  does NOT list `.git` (git never reports its own dir); callers that need it
  *  ignored must add it themselves.
  *
  *  @param repoPath  Absolute path to the repo root.
  *  @param log       Optional logger. */
-export async function listIgnoredPaths(
+export async function listIgnored(
   repoPath: string,
   log?: Logger,
 ): Promise<GitResult<string[]>> {
-  const result = await gitLsFiles(
+  return gitLsFiles(
     repoPath,
     ["--others", "--ignored", "--exclude-standard", "--directory"],
     "Failed to list ignored files",
     log,
   );
-  if (!result.ok) return result;
-  return ok(result.value.map((l) => l.replace(/\/+$/, "")));
 }
 
 /** Max file size to read (1 MB). Larger files get a truncation notice. */

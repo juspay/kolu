@@ -1,4 +1,5 @@
 ---
+import { createMarkdownProcessor } from "@astrojs/markdown-remark";
 import { type CollectionEntry, getCollection, render } from "astro:content";
 import {
   changelogInstallCommand,
@@ -30,12 +31,25 @@ type UnreleasedEntry = ChangelogEntry & {
   data: ChangelogEntry["data"] & { version: "Unreleased"; date?: undefined };
 };
 type ReleasedEntry = ChangelogEntry & {
-  data: ChangelogEntry["data"] & { version: string; date: Date };
+  data: ChangelogEntry["data"] & {
+    version: string;
+    date: Date;
+    summary: string;
+  };
 };
 const isUnreleased = (entry: ChangelogEntry): entry is UnreleasedEntry =>
   entry.data.version === "Unreleased";
 const isReleased = (entry: ChangelogEntry): entry is ReleasedEntry =>
-  entry.data.version !== "Unreleased" && entry.data.date instanceof Date;
+  entry.data.version !== "Unreleased" &&
+  entry.data.date instanceof Date &&
+  typeof entry.data.summary === "string";
+
+// The masthead summary is authored as inline markdown (bold, `code`, links),
+// so it renders through the same markdown engine the rest of the site uses
+// rather than a hand-rolled formatter.
+const summaryProcessor = await createMarkdownProcessor({});
+const renderSummary = async (summary: string) =>
+  (await summaryProcessor.render(summary)).code;
 
 const all = await getCollection("changelog");
 const unreleasedEntries = all.filter(isUnreleased);
@@ -87,6 +101,7 @@ const releases = await Promise.all(
       installCommand: changelogInstallCommand(tag),
       changeCount: stats.reduce((total, section) => total + section.count, 0),
       stats,
+      summaryHtml: await renderSummary(entry.data.summary),
       Body: rendered.Content,
     };
   }),
@@ -266,6 +281,8 @@ const previousVersion = releases[0]?.version;
                 <strong>{release.changeCount}</strong>
                 <span>changes</span>
               </div>
+
+              <div class="release-summary" set:html={release.summaryHtml} />
 
               <InstallCommand command={release.installCommand} />
 
@@ -515,6 +532,54 @@ const previousVersion = releases[0]?.version;
     font-family: var(--font-mono);
     font-size: 0.7rem;
     letter-spacing: 0.08em;
+  }
+
+  /* The release summary — a full-width band under the version and the change
+     count, so a paragraph never has to share a row with the count column (on a
+     phone that leaves it a sliver). Its inner nodes come from set:html and so
+     cannot carry the scoped attribute — hence :global below. */
+  .release-summary {
+    grid-column: 1 / -1;
+    max-width: 58rem;
+    padding: 0 1.6rem 1.35rem;
+    color: var(--color-ink-dim);
+    font-size: 0.88rem;
+    line-height: 1.55;
+  }
+
+  .release-summary :global(p) {
+    margin: 0;
+  }
+
+  .release-summary :global(p + p) {
+    margin-top: 0.5rem;
+  }
+
+  .release-summary :global(strong) {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  .release-summary :global(code) {
+    padding: 0.08rem 0.36rem;
+    white-space: nowrap;
+    border: 1px solid var(--color-rule);
+    border-radius: 4px;
+    color: var(--color-kolu-top-strong);
+    background: var(--color-void-raised);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+  }
+
+  .release-summary :global(a) {
+    color: var(--color-kolu-primary);
+    text-decoration: none;
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--color-kolu-primary) 35%, transparent);
+  }
+
+  .release-summary :global(a:hover) {
+    border-bottom-color: var(--color-kolu-primary);
   }
 
   .release-version-link {
@@ -926,8 +991,10 @@ const previousVersion = releases[0]?.version;
     box-shadow: 0 18px 55px -48px var(--color-kolu-bottom);
   }
 
+  /* The summary band carries the block's bottom padding, so the intro above it
+     closes tight against it. */
   .release-masthead-past .release-intro {
-    padding-block: 1.25rem;
+    padding-block: 1.25rem 0.85rem;
   }
 
   .release-masthead-past .release-intro h2 {
@@ -998,6 +1065,14 @@ const previousVersion = releases[0]?.version;
 
     .release-intro {
       padding: 1.2rem 1.25rem 1.25rem;
+    }
+
+    .release-masthead-past .release-intro {
+      padding-block: 1.2rem 0.8rem;
+    }
+
+    .release-summary {
+      padding: 0 1.25rem 1.2rem;
     }
 
     .release-total strong {
