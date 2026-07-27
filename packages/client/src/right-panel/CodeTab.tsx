@@ -31,6 +31,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  type JSX,
   Match,
   on,
   onCleanup,
@@ -121,10 +122,41 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
   </div>
 );
 
-// Browser-style back/forward toolbar button. The back and forward variants are
-// identical save for direction, so the shared hit-target class string (and its
-// touch sizing, driven by the toolbar row's `data-touch` via the group variant)
-// lives here once rather than in two hand-synced copies.
+// The Code-tab toolbar's icon button — ONE chrome for every toolbar affordance
+// (the nav arrows, the show-ignored eye), so the shared hit target and its
+// touch sizing (driven by the toolbar row's `data-touch` via the group variant)
+// live here rather than in hand-synced copies. `pressed` paints via `classList`
+// so the ARIA fact and the paint share one source, per the convention
+// `KavalAttachSection` documents.
+const ToolbarIconButton: Component<{
+  testId: string;
+  label: string;
+  title: string;
+  disabled?: boolean;
+  pressed?: boolean;
+  onClick: () => void;
+  children: JSX.Element;
+}> = (props) => (
+  <button
+    type="button"
+    data-testid={props.testId}
+    aria-label={props.label}
+    aria-pressed={props.pressed}
+    title={props.title}
+    disabled={props.disabled}
+    onClick={props.onClick}
+    class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+    classList={{
+      "text-accent hover:text-accent": props.pressed === true,
+      "text-fg-3/70 hover:text-fg": props.pressed !== true,
+    }}
+  >
+    {props.children}
+  </button>
+);
+
+// Browser-style back/forward toolbar button — the two variants differ only by
+// direction.
 const NavButton: Component<{
   direction: "back" | "forward";
   disabled: boolean;
@@ -132,17 +164,15 @@ const NavButton: Component<{
 }> = (props) => {
   const back = props.direction === "back";
   return (
-    <button
-      type="button"
-      data-testid={`code-tab-${props.direction}-button`}
-      aria-label={back ? "Go back" : "Go forward"}
+    <ToolbarIconButton
+      testId={`code-tab-${props.direction}-button`}
+      label={back ? "Go back" : "Go forward"}
       title={back ? "Go back (Alt+←)" : "Go forward (Alt+→)"}
       disabled={props.disabled}
       onClick={props.onClick}
-      class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
     >
       <ChevronRightIcon class={`h-3.5 w-3.5${back ? " rotate-180" : ""}`} />
-    </button>
+    </ToolbarIconButton>
   );
 };
 
@@ -933,25 +963,19 @@ const CodeTab: Component<{
            *  `hostCodeTab` — fs.listAll is untouched, so the mounted tree keeps
            *  its expansion and scroll. */}
           <Show when={view() === "browse"}>
-            <button
-              type="button"
-              data-testid="code-tab-show-ignored-toggle"
-              aria-label="Show gitignored files"
-              aria-pressed={showIgnoredFiles()}
+            <ToolbarIconButton
+              testId="code-tab-show-ignored-toggle"
+              label="Show gitignored files"
               title={
                 showIgnoredFiles()
                   ? "Hide gitignored files"
                   : "Show gitignored files"
               }
+              pressed={showIgnoredFiles()}
               onClick={() => setShowIgnoredFiles((v) => !v)}
-              class={`grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 ${
-                showIgnoredFiles()
-                  ? "text-accent hover:text-accent"
-                  : "text-fg-3/70 hover:text-fg"
-              }`}
             >
               <EyeIcon class="h-3.5 w-3.5" />
-            </button>
+            </ToolbarIconButton>
           </Show>
         </div>
 

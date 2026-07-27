@@ -94,7 +94,7 @@ vi.mock("../wire", async () => {
     fs: {
       listAll: async () => {
         bag.counts.listAll = (bag.counts.listAll ?? 0) + 1;
-        return { paths: ["src/app.ts"], n: bag.counts.listAll };
+        return { paths: ["src/app.ts"] };
       },
       listIgnored: async () => ({ paths: ["node_modules/"] }),
       readFile: async () => ({ content: "", truncated: false }),

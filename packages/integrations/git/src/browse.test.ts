@@ -73,14 +73,21 @@ describe("listIgnored", () => {
     expect(result.value).not.toContain("kept.md");
   });
 
-  it("is the exact complement of listAll", async () => {
+  it("is the exact complement of listAll — disjoint, and together the whole tree", async () => {
     const all = await listAll(tmpDir);
-    expect(all.ok).toBe(true);
-    if (!all.ok) return;
+    const ignored = await listIgnored(tmpDir);
+    expect(all.ok && ignored.ok).toBe(true);
+    if (!all.ok || !ignored.ok) return;
     expect(all.value).toContain("kept.md");
     expect(all.value).toContain(".gitignore");
-    expect(all.value).not.toContain("secret.log");
-    expect(all.value.some((p) => p.startsWith("build"))).toBe(false);
+    // Disjoint: no entry is claimed by both listings.
+    const tracked = new Set(all.value);
+    expect(ignored.value.filter((p) => tracked.has(p))).toEqual([]);
+    // Together, the whole working tree — with the ignored side COLLAPSED, so
+    // `build/` stands in for its contents.
+    expect([...all.value, ...ignored.value].sort()).toEqual(
+      [".gitignore", "build/", "kept.md", "secret.log"].sort(),
+    );
   });
 
   it("feeds the watcher's parcel ignore as absolute, slash-free paths", async () => {
