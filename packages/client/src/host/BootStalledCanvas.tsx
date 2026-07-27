@@ -79,8 +79,15 @@ const BootStalledCanvas: Component<{
   // The connector campaign's own output tail — the narration of the work the card is asking
   // about. A memo like the two above, so the `<For>` inside the card sees a stable array
   // across every 1s re-resolve instead of a fresh reference per tick.
+  //
+  //  The two arms hand the card DIFFERENT absences, and the difference is load-bearing.
+  //  A `client` leg has no connector campaign at all, so there is no output and we KNOW
+  //  it: that is `[]`. A `connector` leg whose `log` is `undefined` is the floor having
+  //  dropped the live word — output exists, we just cannot see it — and the card says so
+  //  out loud. Collapsing the client arm to `undefined` would make the card claim a link
+  //  problem for a stall that has none.
   const connectorLog = createMemo(() =>
-    props.recovery.via === "connector" ? props.recovery.log : undefined,
+    props.recovery.via === "connector" ? props.recovery.log : [],
   );
 
   const actions = createMemo<CanvasFailureAction[]>(() => [

@@ -106,8 +106,11 @@ export function CanvasFailureCard(props: {
    *  DROPS the live `connection` word over a dead link, so a caller reading its tail off
    *  `connection` (today just `BootStalledCanvas`, a WARMING-arm surface where flooring a
    *  stale in-progress narration is exactly right) can legitimately have nothing to show.
-   *  `[]` means the episode genuinely produced no output. Both render nothing here, but only
-   *  the caller can tell them apart, so no reader upstream may collapse one into the other.
+   *  `[]` means the episode genuinely produced no output. The two RENDER DIFFERENTLY — that
+   *  is what earns the distinction its place in the type: `undefined` draws a short note
+   *  saying the output is unavailable, `[]` draws nothing at all (there is nothing to say
+   *  about a step that printed nothing). A distinction no reader can observe is dead weight;
+   *  this one is observable, so no reader upstream may collapse one into the other.
    *
    *  A FAILED-arm caller (`HostDownCanvas`, and the diagnostics popover off the same reader)
    *  can never be in the `undefined` case: its tail is the failure record's own `evidence`,
@@ -143,6 +146,18 @@ export function CanvasFailureCard(props: {
                   {detail()}
                 </p>
               )}
+            </Show>
+            {/* `undefined` — the live-tail caller's word was floored away, so we cannot SEE
+                this step's output. Say so, rather than rendering the same nothing an
+                actually-silent step renders: the whole point of keeping the two apart in
+                the type is that a reader can tell which one they are looking at. */}
+            <Show when={props.log === undefined}>
+              <p
+                data-testid={`${props.logTestid}-unavailable`}
+                class="mt-2 text-xs leading-relaxed text-fg-4 italic"
+              >
+                Output unavailable — kolu's link to this browser went quiet.
+              </p>
             </Show>
             <Show when={(props.log?.length ?? 0) > 0}>
               <div

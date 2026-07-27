@@ -167,3 +167,41 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     expect(document.body.textContent).toContain("connecting");
   });
 });
+
+describe("the two absences render differently (lens valve-2 adjudication)", () => {
+  it("a connector leg whose live tail was floored says the output is unavailable", () => {
+    // `undefined` on the connector arm = the map's liveness floor dropped the live
+    // `connection` word. Output exists; we cannot see it. The card must SAY that — a
+    // distinction no reader can observe is dead weight, which is the whole argument for
+    // keeping `undefined` and `[]` apart in the prop's type.
+    dispose = render(
+      () => (
+        <BootStalledCanvas
+          recovery={{ via: "connector", phase: "provisioning", log: undefined }}
+        />
+      ),
+      document.body,
+    );
+    expect(
+      document.querySelector('[data-testid="boot-stalled-log-unavailable"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="boot-stalled-log"]'),
+    ).toBeNull();
+  });
+
+  it("a client leg renders neither a tail nor the unavailable note", () => {
+    // A client-side stall has no connector campaign, so there is no output and we KNOW
+    // it — `[]`, not `undefined`. Claiming a link problem here would be a lie.
+    dispose = render(
+      () => <BootStalledCanvas recovery={{ via: "client", leg: "session" }} />,
+      document.body,
+    );
+    expect(
+      document.querySelector('[data-testid="boot-stalled-log-unavailable"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="boot-stalled-log"]'),
+    ).toBeNull();
+  });
+});
