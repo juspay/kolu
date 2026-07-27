@@ -34,7 +34,14 @@ const RESOLVER_SRC = readFileSync(
  *  baseline App.tsx holds two: `closeConfirmTarget` (the one dialog whose
  *  open-state it owns) and the `canvasMode` memo — layout / command wiring.
  *  `workspaceEntries` left with the retired WorkspaceGrid switcher. Domain
- *  state goes in a singleton, not here. */
+ *  state goes in a singleton, not here. The `host-failed` arm's failed episode is
+ *  read by `HostDownCanvas` itself (mirroring `HostDiagnosticsPopover`'s own-component
+ *  read of the same `activeEntryState`/`failedEpisode` pair) rather than hoisted into
+ *  a shell-owned memo and re-threaded down as a prop — that shape was tried and
+ *  reverted: besides re-threading a domain read through the shell, a memo created
+ *  unconditionally in the component body runs its (throwing) callback eagerly at
+ *  MOUNT, not on first read, which crashed every boot where the active host wasn't
+ *  already `failed` — i.e. almost every boot. */
 const REACTIVE_PRIMITIVE_BUDGET = 2;
 
 describe("App.tsx thin-shell invariant (#1340)", () => {
@@ -87,8 +94,10 @@ describe("App canvas <Switch> covers every CanvasMode kind (#1763 — no blank f
 
   it.each(kinds)("App wires a <Match>/narrowing for the %s kind", (kind) => {
     // Every arm keys on `mode().kind === "X"` (direct) or a narrowing helper's
-    // `m.kind === "X"` (down/warming/host-failed/boot-stalled) — either way the
-    // kind literal appears in an equality against the mode. A missing kind = blank.
+    // `m.kind === "X"` (down/warming/boot-stalled go through `requireKind`;
+    // `host-failed` carries no mode payload and reads its episode off the entry
+    // instead) — either way the kind literal appears in an equality against the
+    // mode. A missing kind = blank.
     expect(APP_SRC).toContain(`=== "${kind}"`);
   });
 

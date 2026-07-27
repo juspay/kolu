@@ -25,6 +25,15 @@ const liveness = {
   isLocalHost: true,
 } as const;
 
+/** The NOT-YET-CONNECTED arms' base: liveness plus the connection cell's retained output
+ *  tail, which only those arms carry (the connected arm has neither it nor `connectPhase`).
+ *  The tail is payload the boot-stalled connector card renders, never an input to a
+ *  precedence decision — so every PRECEDENCE pin leaves it empty and overrides only the
+ *  fact under test. The one exception is deliberate: "the connector card carries the
+ *  episode's LOG" sets a non-empty tail, because a base that only ever supplies `undefined`
+ *  cannot tell a working thread-through from a severed one. */
+const notYetConnected = { ...liveness, connectLog: undefined } as const;
+
 /** A fully "ready" CONNECTED-arm snapshot — one terminal — that resolves to
  *  `workspace`. Each test overrides only the connected-arm facts under test. */
 function connected(
@@ -114,7 +123,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     // deadline it narrates warming, not an escape.
     expect(
       mode({
-        ...liveness,
+        ...notYetConnected,
         entry: "warming",
         connectPhase: "provisioning",
         daemonPending: true,
@@ -130,7 +139,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     expect(
       mode(
         {
-          ...liveness,
+          ...notYetConnected,
           entry: "warming",
           connectPhase: "connecting",
           daemonPending: true,
@@ -153,7 +162,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     // The cell flipped to `connected` but EntryStatus still says `warming` → the neutral
     // warming surface shows (its copy derived at render), no overlay.
     expect(
-      mode({ ...liveness, entry: "warming", connectPhase: undefined }),
+      mode({ ...notYetConnected, entry: "warming", connectPhase: undefined }),
     ).toEqual({
       kind: "warming",
       daemonState: undefined,
@@ -169,74 +178,40 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
         {
           ...liveness,
           entry: "failed",
-          cause: "cross-supervisor",
-          reason: "another kolu owns this host",
           daemonPending: true,
           isLocalHost: false,
         },
         true,
       ),
-    ).toEqual({
-      kind: "host-failed",
-      cause: "cross-supervisor",
-      reason: "another kolu owns this host",
-    });
-    expect(
-      mode(
-        {
-          ...liveness,
-          entry: "failed",
-          cause: "link-failed",
-          reason: "host unreachable",
-          daemonPending: true,
-          isLocalHost: false,
-        },
-        true,
-      ),
-    ).toEqual({
-      kind: "host-failed",
-      cause: "link-failed",
-      reason: "host unreachable",
-    });
+    ).toEqual({ kind: "host-failed" });
   });
 });
 
 describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
   it("a warming entry (host binding coming up) shows the warming surface with no kaval daemonState", () => {
     expect(
-      mode({ ...liveness, entry: "warming", connectPhase: undefined }),
+      mode({ ...notYetConnected, entry: "warming", connectPhase: undefined }),
     ).toEqual({
       kind: "warming",
       daemonState: undefined,
     });
   });
 
-  it("a failed entry resolves to host-failed carrying the typed cause + reason (never `down`, which is a dead KAVAL)", () => {
-    expect(
-      mode({
-        ...liveness,
-        entry: "failed",
-        cause: "contract-skew-refused",
-        reason: "remote padi contract skew",
-      }),
-    ).toEqual({
+  it("a failed entry resolves to host-failed (never `down`, which is a dead KAVAL) — a ROUTING verdict with no failure payload", () => {
+    // The episode the card renders is read as one value by `failedEpisode` — so the
+    // resolver decides only WHICH surface, and this arm carries nothing to go stale.
+    expect(mode({ ...liveness, entry: "failed" })).toEqual({
       kind: "host-failed",
-      cause: "contract-skew-refused",
-      reason: "remote padi contract skew",
     });
-    expect(
-      mode({
-        ...liveness,
-        entry: "failed",
-        cause: "cross-supervisor",
-        reason: "another supervisor owns this host",
-      }),
-    ).toMatchObject({ kind: "host-failed", cause: "cross-supervisor" });
   });
 
   it("a not-a-member entry (mid host-switch) holds the neutral connecting surface", () => {
     expect(
-      mode({ ...liveness, entry: "not-a-member", connectPhase: undefined }),
+      mode({
+        ...notYetConnected,
+        entry: "not-a-member",
+        connectPhase: undefined,
+      }),
     ).toEqual({
       kind: "connecting",
     });
@@ -330,7 +305,7 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
   it("Hole A — a NOT-A-MEMBER active host past the boot deadline escapes to boot-stalled(client/membership)", () => {
     expect(
       mode(
-        { ...liveness, entry: "not-a-member", connectPhase: undefined },
+        { ...notYetConnected, entry: "not-a-member", connectPhase: undefined },
         true,
       ),
     ).toEqual({
@@ -343,7 +318,7 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
     expect(
       mode(
         {
-          ...liveness,
+          ...notYetConnected,
           entry: "warming",
           connectPhase: "provisioning",
           isLocalHost: false,
@@ -356,6 +331,41 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
     });
   });
 
+  it("D2 — the connector card carries the episode's LOG, not just its phase", () => {
+    // The pin that the rest of the D2 cases cannot provide: every other fixture leaves
+    // `connectLog` undefined, and vitest treats a missing key as `undefined`, so a
+    // regression that stopped threading `f.connectLog` through the accrue tag into the
+    // recovery would still typecheck AND stay green — while the stalled-provisioning card
+    // silently went back to showing a phase with no evidence, which is the whole defect
+    // this change exists to close. Assert the tail arrives by REFERENCE, so a future
+    // copy/slice at the seam has to be a deliberate edit here too.
+    const connectLog = [
+      {
+        source: "local" as const,
+        line: "zest: provisioning '/nix/store/…drv' on remote…",
+      },
+      {
+        source: "remote" as const,
+        line: "error: builder for '…kolu-typecheck.drv' failed",
+      },
+    ];
+    const m = mode(
+      {
+        ...notYetConnected,
+        entry: "warming",
+        connectPhase: "provisioning",
+        isLocalHost: false,
+        connectLog,
+      },
+      true,
+    );
+    expect(m).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "connector", phase: "provisioning", log: connectLog },
+    });
+    expect((m as { recovery: { log: unknown } }).recovery.log).toBe(connectLog);
+  });
+
   it("D2 — ANY warming-remote phase escapes to the CONNECTOR card", () => {
     // Pre-D2 a warming-remote handshake phase mislabeled `daemon` and rendered the TERMINAL
     // "agent isn't responding — Reload" card over a connector still retrying. Now every warming
@@ -363,7 +373,12 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
     for (const connectPhase of ["probing", "connecting"] as const) {
       expect(
         mode(
-          { ...liveness, entry: "warming", connectPhase, isLocalHost: false },
+          {
+            ...notYetConnected,
+            entry: "warming",
+            connectPhase,
+            isLocalHost: false,
+          },
           true,
         ),
       ).toEqual({
@@ -393,7 +408,11 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
     // A not-a-member with a defined connectPhase reaches the `bindingUp` warming return in the
     // shared block; its leg must stay `membership`, not `provisioning`/`daemon`.
     expect(
-      tag({ ...liveness, entry: "not-a-member", connectPhase: "connecting" }),
+      tag({
+        ...notYetConnected,
+        entry: "not-a-member",
+        connectPhase: "connecting",
+      }),
     ).toEqual({
       accrual: "accrue",
       leg: "membership",
@@ -402,7 +421,11 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
     });
     expect(
       mode(
-        { ...liveness, entry: "not-a-member", connectPhase: "connecting" },
+        {
+          ...notYetConnected,
+          entry: "not-a-member",
+          connectPhase: "connecting",
+        },
         true,
       ),
     ).toEqual({
@@ -415,7 +438,10 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
     // A local daemon.restart drain drops the entry out of connected → it rides the warming arm
     // (leg `daemon`, ceiling local). A hung one escapes to the byte-identical down/dead card.
     expect(
-      mode({ ...liveness, entry: "warming", connectPhase: undefined }, true),
+      mode(
+        { ...notYetConnected, entry: "warming", connectPhase: undefined },
+        true,
+      ),
     ).toEqual({ kind: "down", down: { state: "dead" } });
   });
 });
@@ -449,14 +475,9 @@ describe("resolveCanvasMode — #1763 R2 exclusions (retain overlays never escap
   it("a settled workspace / empty / host-failed is `clear`", () => {
     expect(tag(connected({ terminalCount: 3 }))).toEqual({ accrual: "clear" });
     expect(tag(connected({ terminalCount: 0 }))).toEqual({ accrual: "clear" });
-    expect(
-      tag({
-        ...liveness,
-        entry: "failed",
-        cause: "link-failed",
-        reason: "x",
-      }),
-    ).toEqual({ accrual: "clear" });
+    expect(tag({ ...liveness, entry: "failed" })).toEqual({
+      accrual: "clear",
+    });
   });
 });
 
@@ -464,14 +485,18 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
   // Every FINITE cell of the ceiling table, plus the leg each boot overlay declares.
   it("local boot overlays accrue against the `local` cell", () => {
     expect(
-      tag({ ...liveness, entry: "not-a-member", connectPhase: undefined }),
+      tag({
+        ...notYetConnected,
+        entry: "not-a-member",
+        connectPhase: undefined,
+      }),
     ).toEqual({
       accrual: "accrue",
       leg: "membership",
       ceiling: "local",
     });
     expect(
-      tag({ ...liveness, entry: "warming", connectPhase: undefined }),
+      tag({ ...notYetConnected, entry: "warming", connectPhase: undefined }),
     ).toEqual({
       accrual: "accrue",
       leg: "daemon",
@@ -492,7 +517,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
   it("a remote provisioning binding accrues against the remote-provisioning ceiling", () => {
     expect(
       tag({
-        ...liveness,
+        ...notYetConnected,
         entry: "warming",
         connectPhase: "provisioning",
         isLocalHost: false,
@@ -511,7 +536,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       // (its ceiling still keys on the phase → remote-handshake outside provisioning).
       expect(
         tag({
-          ...liveness,
+          ...notYetConnected,
           entry: "warming",
           connectPhase,
           isLocalHost: false,
@@ -524,7 +549,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
     }
     expect(
       tag({
-        ...liveness,
+        ...notYetConnected,
         entry: "not-a-member",
         connectPhase: undefined,
         isLocalHost: false,

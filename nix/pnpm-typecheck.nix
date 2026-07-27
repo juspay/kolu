@@ -19,7 +19,7 @@ pkgs.stdenv.mkDerivation {
 
   nativeBuildInputs = [
     pkgs.nodejs
-    pkgs.pnpm_10
+    pkgs.pnpm-build
     pkgs.pnpmConfigHook
   ];
 
