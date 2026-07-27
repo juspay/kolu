@@ -42,9 +42,16 @@ import {
   switchToLocalAction,
 } from "./CanvasFailureCard";
 
-const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
-  props,
-) => {
+const BootStalledCanvas: Component<{
+  recovery: BootStalledRecovery;
+  /** The active host's LIVE connection tail (`undefined` when the map's liveness floor
+   *  dropped the connection word). Shown only on the `connector` arm — that card is a
+   *  remote provisioning campaign wedged past its ceiling, so the tail is exactly the
+   *  narration of the work the card is asking about. The `client` arm is a connected
+   *  host's own session/daemon/membership stall, where the same tail is a settled
+   *  connect log with nothing to say about the wedge, so it is not shown. */
+  log: readonly { readonly line: string }[] | undefined;
+}> = (props) => {
   // The two recovery verbs, built ONCE per instance so their identity is stable across every
   // 1s canvas re-resolve (see the REACTIVITY note above) — the connector recycles the SERVER
   // connector (PR1's recheck()), the client one reloads the browser.
@@ -97,6 +104,8 @@ const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
       title={copy().title}
       body={copy().body}
       detail={detail()}
+      log={clientLeg() === undefined ? props.log : undefined}
+      logTestid="boot-stalled-log"
       actions={actions()}
     />
   );

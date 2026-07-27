@@ -169,35 +169,12 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
         {
           ...liveness,
           entry: "failed",
-          cause: "cross-supervisor",
-          reason: "another kolu owns this host",
           daemonPending: true,
           isLocalHost: false,
         },
         true,
       ),
-    ).toEqual({
-      kind: "host-failed",
-      cause: "cross-supervisor",
-      reason: "another kolu owns this host",
-    });
-    expect(
-      mode(
-        {
-          ...liveness,
-          entry: "failed",
-          cause: "link-failed",
-          reason: "host unreachable",
-          daemonPending: true,
-          isLocalHost: false,
-        },
-        true,
-      ),
-    ).toEqual({
-      kind: "host-failed",
-      cause: "link-failed",
-      reason: "host unreachable",
-    });
+    ).toEqual({ kind: "host-failed" });
   });
 });
 
@@ -211,27 +188,13 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
     });
   });
 
-  it("a failed entry resolves to host-failed carrying the typed cause + reason (never `down`, which is a dead KAVAL)", () => {
-    expect(
-      mode({
-        ...liveness,
-        entry: "failed",
-        cause: "contract-skew-refused",
-        reason: "remote padi contract skew",
-      }),
-    ).toEqual({
+  it("a failed entry resolves to host-failed (never `down`, which is a dead KAVAL) — a ROUTING verdict with no failure payload", () => {
+    // The cause/reason/log the card renders are three fields of ONE entry status, read
+    // together at the render arm (App.tsx's `hostFailure`) — so the resolver decides only
+    // WHICH surface, and this arm carries nothing to go stale against that value.
+    expect(mode({ ...liveness, entry: "failed" })).toEqual({
       kind: "host-failed",
-      cause: "contract-skew-refused",
-      reason: "remote padi contract skew",
     });
-    expect(
-      mode({
-        ...liveness,
-        entry: "failed",
-        cause: "cross-supervisor",
-        reason: "another supervisor owns this host",
-      }),
-    ).toMatchObject({ kind: "host-failed", cause: "cross-supervisor" });
   });
 
   it("a not-a-member entry (mid host-switch) holds the neutral connecting surface", () => {
@@ -449,14 +412,9 @@ describe("resolveCanvasMode — #1763 R2 exclusions (retain overlays never escap
   it("a settled workspace / empty / host-failed is `clear`", () => {
     expect(tag(connected({ terminalCount: 3 }))).toEqual({ accrual: "clear" });
     expect(tag(connected({ terminalCount: 0 }))).toEqual({ accrual: "clear" });
-    expect(
-      tag({
-        ...liveness,
-        entry: "failed",
-        cause: "link-failed",
-        reason: "x",
-      }),
-    ).toEqual({ accrual: "clear" });
+    expect(tag({ ...liveness, entry: "failed" })).toEqual({
+      accrual: "clear",
+    });
   });
 });
 

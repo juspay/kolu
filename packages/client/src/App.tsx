@@ -17,6 +17,7 @@ import { activeArm, sleepingArm } from "@kolu/padi/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { TerminalId } from "kolu-common/surface";
+import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import {
   type Component,
   createMemo,
@@ -55,6 +56,7 @@ import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
+import { activeEntryState } from "./kaval/useDaemonStatus";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import MobileTileView from "./MobileTileView";
@@ -322,15 +324,31 @@ const App: Component = () => {
     return pick(m as Extract<CanvasMode, { kind: K }>);
   };
   const downState = () => requireKind("down", (m) => m.down, "down");
-  const hostFailedCause = () =>
-    requireKind("host-failed", (m) => m.cause, "host-failed");
-  const hostFailedReason = () =>
-    requireKind("host-failed", (m) => m.reason, "host-failed");
-  // The failed episode's retained output — read off the fine `connection` payload, NOT
-  // off the CanvasMode: the mode recomputes every monotonic tick, so a log array folded
-  // into it would mint a fresh mode object per line. The session carries `log` forward
-  // into its `failed` arm, so this is the tail of the episode that actually gave up.
-  const hostFailedLog = () => connectionInfo()?.log ?? [];
+  // The failed episode as ONE value. `cause`, `reason` and the retained output tail are
+  // three fields of ONE `EntryStatus` (`padiMap.entry(activeHost()).state()`), so they are
+  // read together, under one guard, at the arm that renders them — never two accessors with
+  // two policies over the same value (which is how the tail came to be collected, shipped,
+  // and then dropped unread while the reason was shown). `log` stays `undefined` rather
+  // than collapsing to `[]`: the map's liveness floor DROPS `connection` over a dead link
+  // while keeping `failure`, and "we cannot see the output" must not render as "the failure
+  // produced none". The session carries the tail FORWARD into its `failed` arm
+  // (see surface-remote/session.ts's `setDown`), so these are the lines of the episode that
+  // actually gave up.
+  const hostFailure = (): {
+    cause: EntryFailedCause;
+    reason: string;
+    log: readonly { readonly line: string }[] | undefined;
+  } => {
+    const s = activeEntryState();
+    if (s.kind !== "failed") {
+      throw new Error(`canvas Match host-failed: entry is ${s.kind}`);
+    }
+    return {
+      cause: s.failure.cause,
+      reason: s.failure.reason,
+      log: s.connection?.log,
+    };
+  };
   const bootStalledRecovery = () =>
     requireKind("boot-stalled", (m) => m.recovery, "boot-stalled");
   // Warming arm's kaval restart state (undefined while a remote provision
@@ -491,11 +509,7 @@ const App: Component = () => {
             {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,
                 cause-typed) — distinct from `down` (a connected host's dead kaval).
                 Its own surface: cause-typed copy + [Switch to local], no Retry. */}
-            <HostDownCanvas
-              cause={hostFailedCause()}
-              reason={hostFailedReason()}
-              log={hostFailedLog()}
-            />
+            <HostDownCanvas failure={hostFailure()} />
           </Match>
           <Match when={mode().kind === "boot-stalled"}>
             {/* #1763 + #1908 D2: a boot overlay held past its per-host ceiling, rendered off the
@@ -504,7 +518,10 @@ const App: Component = () => {
                 vs a genuinely client-side leg ([Reload]). A hung LOCAL kaval takes the down/dead
                 arm above instead (byte-identical #1713). Boolean kind key so focus/action
                 identity on BootStalledCanvas survives monotonic mode() thrash. */}
-            <BootStalledCanvas recovery={bootStalledRecovery()} />
+            <BootStalledCanvas
+              recovery={bootStalledRecovery()}
+              log={connectionInfo()?.log}
+            />
           </Match>
           <Match when={mode().kind === "warming"}>
             {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold

@@ -85,14 +85,12 @@ export function canvasMode(deps: {
       facts = { ...liveness, entry: "warming", connectPhase };
       break;
     case "failed":
-      // PR4: the failed arm carries a schema-valid domain `failure` value; the
-      // resolver's flat `cause`/`reason` (all the host-down card needs) unpack from it.
-      facts = {
-        ...liveness,
-        entry: "failed",
-        cause: state.failure.cause,
-        reason: state.failure.reason,
-      };
+      // The failed arm feeds the resolver the DISCRIMINANT only. Its `failure` value
+      // (cause + reason) and the retained `connection.log` are three fields of this one
+      // `EntryStatus`, so the host-down card reads them together at the render arm
+      // (App.tsx's `hostFailure`) rather than having the resolver split them across a
+      // routing payload and a second accessor.
+      facts = { ...liveness, entry: "failed" };
       break;
     case "not-a-member":
       facts = { ...liveness, entry: "not-a-member", connectPhase };

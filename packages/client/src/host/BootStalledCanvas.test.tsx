@@ -44,7 +44,12 @@ afterEach(() => {
 describe("BootStalledCanvas renders non-blank (component render pin)", () => {
   it("a local client session-leg stall shows its copy + a Reload verb, no Switch-to-local", () => {
     dispose = render(
-      () => <BootStalledCanvas recovery={{ via: "client", leg: "session" }} />,
+      () => (
+        <BootStalledCanvas
+          recovery={{ via: "client", leg: "session" }}
+          log={undefined}
+        />
+      ),
       document.body,
     );
     expect(
@@ -71,6 +76,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       () => (
         <BootStalledCanvas
           recovery={{ via: "connector", phase: "provisioning" }}
+          log={undefined}
         />
       ),
       document.body,
@@ -101,7 +107,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       phase: "provisioning",
     });
     dispose = render(
-      () => <BootStalledCanvas recovery={rec()} />,
+      () => <BootStalledCanvas recovery={rec()} log={undefined} />,
       document.body,
     );
     const btn = document.querySelector<HTMLButtonElement>(

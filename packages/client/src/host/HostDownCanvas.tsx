@@ -14,20 +14,14 @@
  * from the pure {@link hostDownCopy} map; this component wires that copy + the two
  * buttons into the shared {@link CanvasFailureCard} shell.
  *
- * `cause` + `reason` arrive as props from the resolved `host-failed` CanvasMode
- * (App.tsx reads them off the active entry's `state()`); the copy is looked up by
- * cause and the raw `reason` is shown verbatim as a small detail beneath it.
- *
- * `log` is the failing episode's retained output tail, and it does NOT ride the
- * CanvasMode: the mode is a ROUTING decision that already recomputes on every
- * monotonic tick, so folding a per-line-churning array into it would mint a fresh
- * mode object per log line. It comes straight off the same fine `connection`
- * payload `ConnectCanvas` narrates from — which the session deliberately carries
- * FORWARD into the `failed` arm (`setDown`'s `log: prev.log`) precisely so the
- * lines stay readable after the give-up. Before this it was collected, shipped to
- * the browser, and then dropped unread at exactly the moment it mattered: the card
- * showed `'nix build' exited with code 1` and nothing else, sending operators to
- * check ssh for what was a compile error.
+ * The whole failed episode arrives as ONE `failure` prop — cause, reason, and the
+ * retained output tail are three fields of one entry status, read together at the
+ * render arm (see App.tsx's `hostFailure`, which owns that rationale). The copy is
+ * looked up by cause, the raw `reason` is shown verbatim as a small detail beneath
+ * it, and the tail is shown below that. Before the tail was rendered it was
+ * collected, shipped to the browser, and then dropped unread at exactly the moment
+ * it mattered: the card showed `'nix build' exited with code 1` and nothing else,
+ * sending operators to check ssh for what was a compile error.
  */
 
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
@@ -42,13 +36,18 @@ import {
 import { hostDownCopy } from "./hostDownCopy";
 
 const HostDownCanvas: Component<{
-  cause: EntryFailedCause;
-  reason: string;
-  /** The failed episode's retained output tail (oldest first). Empty for a cause that
-   *  never produced any — the card then renders exactly as before. */
-  log: readonly { readonly line: string }[];
+  /** The failed episode, as ONE value read once at the arm (App.tsx's `hostFailure`).
+   *  `log` is its retained output tail, oldest first — `undefined` when the map's
+   *  liveness floor dropped the connection word (we cannot see the output), empty for a
+   *  cause that never produced any. Both render no tail block; only the first is a
+   *  claim the card must not make. */
+  failure: {
+    readonly cause: EntryFailedCause;
+    readonly reason: string;
+    readonly log: readonly { readonly line: string }[] | undefined;
+  };
 }> = (props) => {
-  const copy = () => hostDownCopy(props.cause);
+  const copy = () => hostDownCopy(props.failure.cause);
   const actions = (): CanvasFailureAction[] => [
     // The RECOVERY verb. A standing refuse (cross-supervisor / skew / unconverged)
     // HOLDS degraded WITHOUT auto-reconnecting — so once the operator clears the cause
@@ -61,11 +60,12 @@ const HostDownCanvas: Component<{
   return (
     <CanvasFailureCard
       dataTestid="host-down-canvas"
-      dataAttrs={{ "data-entry-cause": props.cause }}
+      dataAttrs={{ "data-entry-cause": props.failure.cause }}
       title={copy().title}
       body={copy().body}
-      detail={props.reason}
-      log={props.log}
+      detail={props.failure.reason}
+      log={props.failure.log}
+      logTestid="host-down-log"
       footer={<DocLink slug="remote-hosts">Learn more →</DocLink>}
       actions={actions()}
     />

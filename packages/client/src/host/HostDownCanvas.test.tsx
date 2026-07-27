@@ -4,14 +4,15 @@
  * The regression this pins: `'nix build' exited with code 1` was the ENTIRE diagnostic the
  * card showed for a remote host whose provisioning failed. The build's real error (a `tsc`
  * failure) had been collected by the session, retained in its bounded tail, deliberately
- * carried forward into the `failed` arm (`setDown`'s `log: prev.log`), and shipped to the
- * browser — and then dropped unread at the card, which took only `{cause, reason}`. So the
- * copy sent operators to check ssh reachability for what was a compile error.
+ * carried forward into the `failed` arm (see surface-remote/session.ts's `setDown`), and
+ * shipped to the browser — and then dropped unread at the card, which took only
+ * `{cause, reason}`. So the copy sent operators to check ssh reachability for what was a
+ * compile error.
  *
  * SCOPE (the `BootStalledCanvas.test.tsx` idiom): a COMPONENT render pin, not an App-`<Switch>`
- * integration test — `../wire` is mocked so the surface stack never boots. That App passes the
- * connection cell's `log` down is one line of wiring, deliberately not integration-tested here
- * (rendering App.tsx drags the whole live socket stack).
+ * integration test — `../wire` is mocked so the surface stack never boots. That App reads the
+ * whole failed episode as one value is one accessor of wiring, deliberately not
+ * integration-tested here (rendering App.tsx drags the whole live socket stack).
  */
 
 import type { HostKey } from "kolu-common/hostKey";
@@ -37,16 +38,16 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+const TAIL = '[data-testid="host-down-log"]';
+
 const mount = (props: {
   reason: string;
-  log: readonly { readonly line: string }[];
+  log: readonly { readonly line: string }[] | undefined;
 }): void => {
   dispose = render(
     () => (
       <HostDownCanvas
-        cause="link-failed"
-        reason={props.reason}
-        log={props.log}
+        failure={{ cause: "link-failed", reason: props.reason, log: props.log }}
       />
     ),
     document.body,
@@ -65,7 +66,7 @@ describe("HostDownCanvas surfaces the failed episode's output", () => {
         { line: "  nix log /nix/store/25f3nqdl-kolu-typecheck-2.0.0.drv" },
       ],
     });
-    const tail = document.querySelector('[data-testid="failure-log"]');
+    const tail = document.querySelector(TAIL);
     expect(tail).not.toBeNull();
     // Every line, not a truncated head — the useful one is usually last.
     expect(tail?.textContent).toContain("ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL");
@@ -88,14 +89,25 @@ describe("HostDownCanvas surfaces the failed episode's output", () => {
     // Data absence, not a flag: a cause that never ran a build (a contract refusal)
     // renders exactly the pre-fix card.
     mount({ reason: "zest: another kolu owns this host", log: [] });
-    expect(document.querySelector('[data-testid="failure-log"]')).toBeNull();
+    expect(document.querySelector(TAIL)).toBeNull();
+    expect(
+      document.querySelector('[data-testid="host-down-canvas"]'),
+    ).not.toBeNull();
+  });
+
+  it("renders no tail block when the output is UNKNOWN (connection floored on a dead link)", () => {
+    // `undefined` reaches the card intact rather than being collapsed to `[]` upstream:
+    // the map's liveness floor drops `connection` while keeping `failure`, so this is
+    // "we cannot see the output", not "there was none". Same pixels today — the point is
+    // that the card, not App, gets to decide that.
+    mount({ reason: "zest: 'nix build' exited with code 1", log: undefined });
+    expect(document.querySelector(TAIL)).toBeNull();
     expect(
       document.querySelector('[data-testid="host-down-canvas"]'),
     ).not.toBeNull();
   });
 
   it("keeps the recovery verbs reachable below a full tail", () => {
-    // The tail is bounded + scrollable precisely so it can never push these off-screen.
     mount({
       reason: "zest: 'nix build' exited with code 1",
       log: Array.from({ length: 20 }, (_, i) => ({ line: `line ${i}` })),
@@ -106,5 +118,11 @@ describe("HostDownCanvas surfaces the failed episode's output", () => {
     expect(
       document.querySelector('[data-testid="switch-to-local"]'),
     ).not.toBeNull();
+    // happy-dom does no layout, so "below" is not observable — assert the CLASSES that
+    // encode the invariant instead, which is what actually keeps a 20-line tail from
+    // pushing the verbs off-screen.
+    const cls = document.querySelector(TAIL)?.className ?? "";
+    expect(cls).toContain("max-h-40");
+    expect(cls).toContain("overflow-y-auto");
   });
 });

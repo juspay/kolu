@@ -37,10 +37,7 @@
  *      (terminal creation must wait for `connected`). */
 
 import type { DaemonState } from "@kolu/padi/surface";
-import type {
-  ConnectPhase,
-  EntryFailedCause,
-} from "kolu-common/surfacesWithPadi";
+import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import { match, P } from "ts-pattern";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
 import type { DaemonDownState } from "./daemonPresentation";
@@ -112,11 +109,15 @@ export type BootTag =
     };
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
- *  the down sub-state, the warming label, and the host-failure cause travel WITH
- *  the choice — the renderer reads no accessor a second time. `host-failed` is
- *  the Skew-UX addition: the ACTIVE host's map-membership entry itself failed
- *  (an ssh/contract-level fault, cause-typed), distinct from `down` (a CONNECTED
- *  host whose kaval daemon died). `boot-stalled` is the #1763 boot-deadline escape:
+ *  the down sub-state and the warming label travel WITH the choice — the renderer
+ *  reads no accessor a second time for THOSE. `host-failed` is the Skew-UX addition:
+ *  the ACTIVE host's map-membership entry itself failed (an ssh/contract-level fault),
+ *  distinct from `down` (a CONNECTED host whose kaval daemon died). It carries NO
+ *  payload deliberately: `cause`, `reason` and the failed episode's retained `log` are
+ *  three fields of ONE `EntryStatus` value, so the card reads that value ONCE at the arm
+ *  (App.tsx's `hostFailure`) instead of having two of the three ride this routing decision
+ *  and the third arrive by a second accessor with its own guard regime. `boot-stalled` is
+ *  the #1763 boot-deadline escape:
  *  a boot overlay held past its ceiling, carrying its honest {@link BootStalledRecovery}
  *  verdict — a `connector` arm (a warming-remote campaign, with its live phase) or a `client`
  *  arm (a client-side leg), never both. */
@@ -126,7 +127,7 @@ export type CanvasMode =
   // restartable DegradedCanvas; `incompatible` renders the skew card with both
   // versions and the renew action — the affordance is a total function of it.
   | { kind: "down"; down: DaemonDownState }
-  | { kind: "host-failed"; cause: EntryFailedCause; reason: string }
+  | { kind: "host-failed" }
   // The #1763 boot-deadline escape: a boot overlay wedged past its ceiling, carrying its
   // honest {@link BootStalledRecovery} — `connector` (a warming-remote campaign the server ssh
   // connector still owns → recycle it, non-terminal copy, phase narrated) vs `client` (a
@@ -192,11 +193,11 @@ export type CanvasFacts =
     })
   | (EntryLivenessFacts & {
       /** The active entry `failed` — an ssh dial/handshake or contract-level fault
-       *  the map reported, cause-typed. Carries NO kaval facts (the host never
-       *  connected, so there is no daemon to describe). */
+       *  the map reported. Carries NO kaval facts (the host never connected, so there
+       *  is no daemon to describe) and NO failure payload: `cause`/`reason`/`log` are
+       *  three fields of the SAME `EntryStatus` value, read once at the render arm
+       *  (App.tsx's `hostFailure`), so the precedence decision stays a routing decision. */
       entry: "failed";
-      cause: EntryFailedCause;
-      reason: string;
     })
   | (NotYetConnectedFacts & {
       /** The active host is transiently not in the membership pool (mid-switch,
@@ -275,9 +276,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
       // The host BINDING itself failed (cause-typed) — the Skew-UX host-down card ([Reconnect] /
       // [Switch to local]), distinct from `down` (a connected host's dead kaval). Not a boot
       // overlay: it is already a terminal, escape-bearing surface.
-      .with({ entry: "failed" }, (f) =>
-        clear({ kind: "host-failed", cause: f.cause, reason: f.reason }),
-      )
+      .with({ entry: "failed" }, () => clear({ kind: "host-failed" }))
       .with(
         { entry: "warming" },
         { entry: "not-a-member" },

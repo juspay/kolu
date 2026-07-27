@@ -92,8 +92,11 @@ export function CanvasFailureCard(props: {
   /** The failing episode's retained output, newest last — rendered verbatim in a bounded
    *  scroll beneath `detail`. Structural (`{ line }` only, no domain type, no `source`
    *  provenance): the shell stays pure presentation, and a caller hands it whatever tail it
-   *  retained. Omit — or pass empty — and nothing renders, so "no output" is data absence
-   *  rather than a flag the caller has to set.
+   *  retained. REQUIRED, though it accepts `undefined`: an optional prop is how one of two
+   *  callers silently dropped the evidence, so "this surface has no tail" must be said out
+   *  loud. `undefined` (we cannot see the output) and `[]` (the failure produced none) both
+   *  render nothing today, but only the caller can tell them apart, so the distinction
+   *  survives the trip instead of being collapsed upstream.
    *
    *  Deliberately NOT shared with `ConnectCanvas`'s live `connect-tail`, despite the same
    *  chrome: that one shows the last 6 lines TRUNCATED to one row each (a rolling
@@ -101,7 +104,11 @@ export function CanvasFailureCard(props: {
    *  (a post-mortem you have to be able to read). Same pixels, opposite jobs — unifying
    *  them would parameterize two independently-changing behaviours for a class-string
    *  saving, the same trade this card already declined for `DangerCard`. */
-  log?: readonly { readonly line: string }[];
+  log: readonly { readonly line: string }[] | undefined;
+  /** Test handle for the tail block, supplied by the caller like every other handle on this
+   *  shell (`dataTestid` / `dataAttrs` / `action.testid`) — two callers now render a tail, so
+   *  a selector has to be able to say WHICH card's it found. */
+  logTestid: string;
   /** Optional footer line under the body (e.g. a docs link). */
   footer?: JSX.Element;
   actions: CanvasFailureAction[];
@@ -133,7 +140,7 @@ export function CanvasFailureCard(props: {
                 tail can't push the recovery buttons off-screen. */}
             <Show when={(props.log ?? []).length > 0}>
               <div
-                data-testid="failure-log"
+                data-testid={props.logTestid}
                 class="mt-2 max-h-40 overflow-y-auto rounded border border-bd-1/50 bg-bg-2/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-fg-4"
               >
                 <For each={props.log}>

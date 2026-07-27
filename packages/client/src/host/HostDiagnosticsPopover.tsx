@@ -18,6 +18,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  For,
   Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -221,9 +222,20 @@ export const HostDiagnosticsPopover: Component<{
     isInside: isOwnedNestedPortal,
   });
 
+  // The failed entry's reason AND its retained output, off the SAME one read — the popover
+  // is the only failure surface you can reach for a host WITHOUT switching to it (the
+  // host-down card only ever renders for the active host), so the reason must not arrive
+  // here without the evidence that says whether "unreachable" or "the build failed" is the
+  // right story. Popover-sized: the last few lines, not the whole post-mortem.
+  const POPOVER_TAIL_LINES = 4;
   const failureReason = (): string | undefined => {
     const s = state();
     return s.kind === "failed" ? s.failure.reason : undefined;
+  };
+  const failureLog = (): readonly { readonly line: string }[] => {
+    const s = state();
+    if (s.kind !== "failed") return [];
+    return (s.connection?.log ?? []).slice(-POPOVER_TAIL_LINES);
   };
 
   return (
@@ -260,6 +272,21 @@ export const HostDiagnosticsPopover: Component<{
                 {reason()}
               </p>
             )}
+          </Show>
+
+          <Show when={failureLog().length > 0}>
+            <div
+              data-testid="host-diagnostics-log"
+              class="mt-1 max-h-20 overflow-y-auto rounded border border-bd-1/50 bg-bg-2/40 px-1.5 py-1 font-mono text-[10px] leading-4 text-fg-4"
+            >
+              <For each={failureLog()}>
+                {(entry) => (
+                  <div class="whitespace-pre-wrap break-words">
+                    {entry.line}
+                  </div>
+                )}
+              </For>
+            </div>
           </Show>
 
           {/* #1962 drop-in: when progress facts exist, render them here.
