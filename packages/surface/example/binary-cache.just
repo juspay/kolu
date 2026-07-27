@@ -9,9 +9,11 @@
 # (`run: install binary-cache`), visible to `just --dry-run` and impossible for
 # a new dev entry point to forget by not copying a line.
 
-# Write the sidecar every agent dial reads, DERIVED from the example flake's own
-# nixConfig (the single source of truth — see surface-daemon/nix/binary-cache.nix,
-# which owns the serialization too). Generated, hence gitignored — never hand-edited.
+# DERIVED from the example flake's own nixConfig by surface-daemon/nix/binary-cache.nix
+# (the single source of truth, which owns the serialization too). Generated into
+# packages/surface/example, hence gitignored — never hand-edited.
+
+# Write the binary-cache sidecar every agent dial reads
 [no-cd]
 binary-cache:
     #!/usr/bin/env bash

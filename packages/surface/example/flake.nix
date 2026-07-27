@@ -28,24 +28,22 @@
           };
 
           # The flake-shaped source the example binders bake as
-          # SURFACE_AGENT_FLAKE_REF. It is THIS flake's source plus the
-          # `binary-cache.json` sidecar every dial reads (the same file
-          # `mkProvenAgentSource` writes for Kolu's own agents, from the same
-          # shared recipe — one implementation, so the two can't drift). Baking
-          # the raw source instead would resolve agents fine and then fail at
-          # dial time on a missing sidecar.
-          agent-source = pkgs.runCommand "surface-example-agent-source" { } ''
-            mkdir -p "$out"
-            cp -a ${self.outPath}/. "$out/"
-            chmod -R u+w "$out"
-            printf '%s' ${
-              pkgs.lib.escapeShellArg (builtins.toJSON (
-                import ../../surface-daemon/nix/binary-cache.nix
-                  { inherit (pkgs) lib; }
-                  { flakeNix = ./flake.nix; label = "surface examples"; }
-              ))
-            } > "$out/binary-cache.json"
-          '';
+          # SURFACE_AGENT_FLAKE_REF: THIS flake's source plus the binary-cache
+          # sidecar every dial reads. Assembled by the SAME shared recipe
+          # `mkProvenAgentSource` uses for Kolu's own agents, so the layout has
+          # one implementation and the two can't drift. (The examples skip the
+          # prove half — they have no agent attrs to force from a fileset.)
+          # Baking the raw source instead would resolve agents fine and then
+          # fail at dial time on a missing sidecar.
+          agent-source = import ../../surface-daemon/nix/agent-source-tree.nix
+            { inherit (pkgs) lib; }
+            {
+              inherit pkgs;
+              name = "surface-example-agent-source";
+              src = self.outPath;
+              flakeNix = ./flake.nix;
+              label = "surface examples";
+            };
 
           remote = shared // {
             agentFlakeRef = "${agent-source}";

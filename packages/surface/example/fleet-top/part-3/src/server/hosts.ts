@@ -21,6 +21,7 @@ import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { directLink } from "@kolu/surface/links/direct";
 import {
   type AgentClient,
+  agentBinaryCache,
   directAgentDerivation,
   makeSession,
   pumpRemoteSurface,
@@ -87,6 +88,21 @@ function projectState(
     .exhaustive();
 }
 
+/** Where provisioning may PREFETCH this agent's binaries from — REQUIRED on
+ *  every derivation, since a cache-blind provisioning path is unspellable.
+ *
+ *  A real deployment does NOT hand-write this: `mkProvenAgentSource` bakes the
+ *  declaration into the agent source from the flake's own `nixConfig`, and
+ *  `readBakedBinaryCache(source)` hands back exactly that — so the TypeScript
+ *  and the Nix cannot disagree about where the binaries are. This tutorial
+ *  takes a bare `.drv` from the environment rather than a baked source, so it
+ *  states one inline: ONCE, and against a RESERVED-INVALID host (RFC 2606) so
+ *  the placeholder can never read as a real endpoint. */
+const EXAMPLE_BINARY_CACHE = agentBinaryCache({
+  substituters: ["https://cache.test.invalid/fleet-top"],
+  trustedPublicKeys: ["fleet-top:0000000000000000000000000000000000000000000="],
+});
+
 export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   // #region dial
   const session: Session<
@@ -109,17 +125,8 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
       // Constant resolver — this demo takes the already-selected agent .drv from
       // the environment. Source-based consumers call `ctx.resolveAgentDrv`
       // instead; the connector owns system selection and evaluation policy.
-      // Every derivation names where its binaries may be prefetched from — a
-      // demo cache here; a real deployment states its own.
       resolveDrvPath: () =>
-        Promise.resolve(
-          directAgentDerivation(agentDrv, {
-            substituters: ["https://cache.example.org/fleet-top"],
-            trustedPublicKeys: [
-              "fleet-top:0000000000000000000000000000000000000000000=",
-            ],
-          }),
-        ),
+        Promise.resolve(directAgentDerivation(agentDrv, EXAMPLE_BINARY_CACHE)),
     }),
     label: `host:${host}`,
   });
