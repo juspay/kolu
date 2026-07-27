@@ -367,7 +367,16 @@ describe("rankDockRows — split sub-entries", () => {
     expect(rows.map((r) => r.id)).toEqual([PARENT]);
   });
 
-  it("never nests — a sub-entry carries no sub-entries of its own", () => {
-    expect(rank([AGENT_SPLIT])[0]?.subRows[0]?.subRows).toEqual([]);
+  // "Splits do not nest" is now carried by the TYPE (`SubDockRow` has no
+  // `subRows`), so there is no shape left for a test to assert about — the
+  // illegal structure cannot be built.
+
+  it("counts every split, agent or not — what a scope count quantifies over", () => {
+    // The rendered sub-entries stay agent-only, but a plain shell printing in a
+    // split is counted by the host tab, so the section header must be able to
+    // fold it too or the two altitudes count different populations.
+    const row = rank([AGENT_SPLIT, PLAIN_SPLIT])[0];
+    expect(row?.subRows.map((s) => s.id)).toEqual([AGENT_SPLIT]);
+    expect(row?.subIds).toEqual([AGENT_SPLIT, PLAIN_SPLIT]);
   });
 });

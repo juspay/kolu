@@ -33,11 +33,13 @@ import {
   SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
+import { encodeHostKey } from "kolu-common/hostKey";
+import { activeHost } from "../../wire";
 import type { DockGroup } from "./dockTree";
 import { SubAgentRow } from "./SubAgentRow";
 import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell from "./RecencyCell";
+import RecencyCell, { recencyMode } from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -120,9 +122,9 @@ function DockListSection(props: {
           {props.group.rows.length}
         </span>
         <AttentionTriplet
-          active={attn().active}
-          asking={attn().asking}
-          unseen={attn().unseen}
+          active={attn().activeIds.length}
+          asking={attn().askingIds.length}
+          unseen={attn().unseenIds.length}
           sizeClass="min-w-4 px-1 h-4"
           scopeLabel={props.group.name}
           class="ml-auto"
@@ -182,6 +184,7 @@ function DockListRow(props: {
     <Show when={combined()}>
       {(c) => {
         const pip = useStatePip(
+          () => encodeHostKey(activeHost()),
           () => props.id,
           () => c().meta,
           unread,
@@ -199,12 +202,14 @@ function DockListRow(props: {
             role="button"
             tabIndex={0}
             data-testid="mobile-dock-row"
+            data-dock-row=""
             data-terminal-id={props.id}
             data-bucket={props.bucket}
             data-active={rowActive() ? "" : undefined}
             // Attention washes (index.css `[data-asking]` / `[data-unread]`):
-            // violet needs-you dominates amber unread when both hold.
-            data-asking={props.bucket === "awaiting" ? "" : undefined}
+            // violet needs-you dominates amber unread when both hold. Keyed on
+            // the ATTENTION class, not the ORDER bucket — see `Dock.tsx`.
+            data-asking={pip().asking ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
@@ -249,8 +254,7 @@ function DockListRow(props: {
             <RecencyCell
               recencyAt={rowRecencyAt(c().meta)}
               textSize="text-[0.65rem]"
-              hidden={pip().active}
-              asking={props.bucket === "awaiting"}
+              mode={recencyMode(pip())}
             />
             {/* Second line — flex row spanning the branch column → end.
              *  PR pip on the left (anchored to the branch column's left

@@ -43,10 +43,6 @@
  *  so the dock's "what counts as one repo" agrees with the canvas. */
 
 import type { TerminalId } from "kolu-common/surface";
-import {
-  isActive,
-  type TerminalAttention,
-} from "../../attention/attentionFacts";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { type RankedDockRow, tsRank } from "./dockRowRanking";
 
@@ -227,39 +223,4 @@ function groupRecency(g: DockGroup): number {
     if (rank > max) max = rank;
   }
   return max;
-}
-
-/** A section's attention summary — the counts the header's `AttentionTriplet`
- *  renders. The SAME vocabulary, and the same PREDICATE, the host tab shows
- *  (active · needs-you · unread): `attentionActive` decides the rust count here
- *  exactly as it does on the tab and in each row's pip motion, so a section can
- *  never report a different number of busy terminals than the marks beneath it.
- *
- *  Asking and active are mutually exclusive — they answer the same question
- *  (what state is this terminal in) and a row paints one or the other. Unread
- *  is counted INDEPENDENTLY, because it is a different axis: state is the pip's
- *  colour, unread is the amber badge riding on top of it (the StatePip axis
- *  contract), and a row genuinely wears both. Rolling it into the state legs
- *  would make the header disagree with the row right beneath it.
- *
- *  Defined ONCE for both dock surfaces (desktop `Dock.tsx`, touch
- *  `DockList.tsx`) so the two headers cannot count differently. */
-export function sectionAttention(
-  rows: readonly RankedDockRow[],
-  isUnread: (id: TerminalId) => boolean,
-  attentionOf: (id: TerminalId) => TerminalAttention,
-): { active: number; asking: number; unseen: number } {
-  let active = 0;
-  let asking = 0;
-  let unseen = 0;
-  // Sub-entries count too: an agent in a split is an agent, and the host tab
-  // has always counted it. Leaving it out here is what had a section header
-  // reporting one fewer than the tab above it.
-  for (const row of rows.flatMap((r) => [r, ...r.subRows])) {
-    const attention = attentionOf(row.id);
-    if (attention.klass === "asking") asking++;
-    else if (isActive(attention)) active++;
-    if (isUnread(row.id)) unseen++;
-  }
-  return { active, asking, unseen };
 }

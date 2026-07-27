@@ -107,17 +107,16 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
-import {
-  type DockRowBucket,
-  type RankedDockRow,
-  rowRecencyAt,
-} from "./dockRowRanking";
+import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
-import { nextAfter } from "../../attention/attentionNav";
+import { nextAfter } from "../../ui/nextAfter";
+import { encodeHostKey } from "kolu-common/hostKey";
+import { activeHost } from "../../wire";
 import { SubAgentRow } from "./SubAgentRow";
+import { useDockFocus } from "./useDockFocus";
 import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell from "./RecencyCell";
+import RecencyCell, { recencyMode } from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -501,21 +500,23 @@ const RepoSection: Component<{
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => {
-  const store = useTerminalStore();
   const tileStore = useTileStore();
+  const focus = useDockFocus();
   // The header's attention summary — the SAME triplet, on the SAME activity
   // predicate, the host tab renders.
   const attn = useSectionAttention(() => props.group);
-  // Capsule click = navigate to the next matching row in this section,
-  // cycling past the active one — the same never-dismiss law as the host
-  // pill (violet clears only when the agent stops waiting; amber clears
-  // because activating the terminal marks it read).
-  const jumpTo = (match: (row: RankedDockRow) => boolean) => {
-    const next = nextAfter(
-      props.group.rows.filter(match).map((r) => r.id),
-      tileStore.activeId(),
-    );
-    if (next !== undefined) tileStore.activate(next);
+  // Capsule click = navigate to the next terminal IN THE SET THE CAPSULE
+  // COUNTED, cycling past the active one — the same never-dismiss law as the
+  // host pill (violet clears only when the agent stops waiting; amber clears
+  // because activating the terminal marks it read). It walks the counted ids
+  // rather than re-filtering the visible rows: the count deliberately includes
+  // rows the activity window parked and agents living in splits, and both were
+  // exactly the cases the old click could not reach — a capsule reading "1"
+  // that did nothing.
+  const jumpTo = (ids: readonly TerminalId[]) => {
+    const next = nextAfter(ids, tileStore.activeId());
+    if (next === undefined) return;
+    focus(next, attn().parentOf.get(next));
   };
   // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
   // template): indicator · branch · sub-count · time. The leading
@@ -561,13 +562,13 @@ const RepoSection: Component<{
           {props.group.rows.length}
         </span>
         <AttentionTriplet
-          active={attn().active}
-          asking={attn().asking}
-          unseen={attn().unseen}
+          active={attn().activeIds.length}
+          asking={attn().askingIds.length}
+          unseen={attn().unseenIds.length}
           sizeClass="min-w-4 px-1 h-4"
           scopeLabel={props.group.name}
-          onAsking={() => jumpTo((r) => r.bucket === "awaiting")}
-          onUnseen={() => jumpTo((r) => store.isUnread(r.id))}
+          onAsking={() => jumpTo(attn().askingIds)}
+          onUnseen={() => jumpTo(attn().unseenIds)}
           class="ml-auto"
         />
       </div>
@@ -649,6 +650,7 @@ const DockRow: Component<{
       {(c) => {
         const agent = () => activeArm(c().meta)?.agent;
         const pip = useStatePip(
+          () => encodeHostKey(activeHost()),
           () => props.id,
           () => c().meta,
           unread,
@@ -669,13 +671,16 @@ const DockRow: Component<{
             role="button"
             tabIndex={0}
             data-testid="dock-row"
+            data-dock-row=""
             data-terminal-id={props.id}
             data-bucket={props.bucket}
             data-agent-state={agent()?.state}
             data-active={rowActive() ? "" : undefined}
             // Attention washes (index.css `[data-asking]` / `[data-unread]`):
-            // violet needs-you dominates amber unread when both hold.
-            data-asking={props.bucket === "awaiting" ? "" : undefined}
+            // violet needs-you dominates amber unread when both hold. Keyed on
+            // the ATTENTION class, not the ORDER bucket — the wash, the chip,
+            // the header count and its jump are one fact rendered four ways.
+            data-asking={pip().asking ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
@@ -713,8 +718,7 @@ const DockRow: Component<{
             <RecencyCell
               recencyAt={rowRecencyAt(c().meta)}
               textSize="text-[0.6rem]"
-              hidden={pip().active}
-              asking={props.bucket === "awaiting"}
+              mode={recencyMode(pip())}
             />
             <Show when={showShortcutHint()}>
               <span
@@ -820,6 +824,7 @@ const RailChip: Component<{
         const labels = () => chipInitials(c().meta, c().info);
         // Same hook as cards StatePip — motion/active drive rail glow.
         const pip = useStatePip(
+          () => encodeHostKey(activeHost()),
           () => props.id,
           () => c().meta,
           unread,

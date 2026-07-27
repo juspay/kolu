@@ -22,22 +22,24 @@
 import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { encodeHostKey } from "kolu-common/hostKey";
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { annotationLine } from "../../intent/text";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { useStatePip } from "../../terminal/statePipBind";
-import { useSubPanel } from "../../terminal/useSubPanel";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { useTileStore } from "../../tile/useTileStore";
+import { activeHost } from "../../wire";
 import type { DockRowBucket } from "./dockRowRanking";
+import { useDockFocus } from "./useDockFocus";
 
 export const SubAgentRow: Component<{
   id: TerminalId;
   /** The terminal whose split this is — the tile a click activates first. */
   parentId: TerminalId;
-  /** ORDER bucket — `data-bucket` for the attention wash and ordering tests. */
+  /** ORDER bucket — `data-bucket`, for ordering tests. The attention wash is
+   *  keyed on the attention class off the bound pip, not on this. */
   bucket: DockRowBucket;
   /** PAINT bucket — the same fold the parent row's pip reads. */
   pip: DockRowBucket;
@@ -48,9 +50,13 @@ export const SubAgentRow: Component<{
   onSelected?: () => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const tileStore = useTileStore();
-  const subPanel = useSubPanel();
+  const focus = useDockFocus();
   const meta = () => store.getMetadata(props.id);
+  // A split agent that finished while you were away is unread exactly as a
+  // tile's agent is — the whole justification for this row is that an agent in
+  // a split IS an agent. Hard-coding `false` here had the section header count
+  // an amber 1 while the row directly beneath it wore no badge at all.
+  const unread = () => store.isUnread(props.id);
   // A sub-terminal has no `TerminalDisplayInfo` (that projection covers
   // top-level terminals only), so the label comes off its own metadata: its
   // intent when it has one, else the directory it sits in.
@@ -60,30 +66,35 @@ export const SubAgentRow: Component<{
     return annotationLine(m.intent, cwdBasename(m.cwd));
   };
   const open = () => {
-    tileStore.activate(props.parentId);
-    subPanel.expandPanel(props.parentId);
-    subPanel.setActiveSubTab(props.parentId, props.id);
-    subPanel.setFocusTarget(props.parentId, "sub");
+    focus(props.id, props.parentId);
     props.onSelected?.();
   };
   return (
     <Show when={meta()}>
       {(m) => {
         const pip = useStatePip(
+          () => encodeHostKey(activeHost()),
           () => props.id,
           m,
-          () => false,
+          unread,
           () => props.pip,
         );
         return (
           <button
             type="button"
             data-testid="dock-sub-agent-row"
+            // The shared wash hook (index.css). All three row surfaces carry
+            // it, so a new row type is washed by construction instead of being
+            // enumerated positionally into a selector list — this row set
+            // `data-asking` and got no wash at all, which is the one row type
+            // that represents "an agent nobody could see".
+            data-dock-row=""
             data-terminal-id={props.id}
             data-parent-id={props.parentId}
             data-bucket={props.bucket}
             data-agent-state={activeArm(m())?.agent?.state}
-            data-asking={props.bucket === "awaiting" ? "" : undefined}
+            data-asking={pip().asking ? "" : undefined}
+            data-unread={unread() ? "" : undefined}
             class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.padClass ?? "py-1"} text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
             onClick={(e) => {
               // The parent row underneath activates the terminal; this entry

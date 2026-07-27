@@ -2,16 +2,19 @@ import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
-import {
-  NO_ATTENTION,
-  type TerminalAttention,
-} from "../../attention/attentionFacts";
-import { buildDockTree, sectionAttention } from "./dockTree";
+import { buildDockTree } from "./dockTree";
 
 function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
   // dockTree only reads `bucket`/`ts`; the pip is exercised in dockRowRanking's
   // own tests, so mirror the order bucket here.
-  return { id: id as TerminalId, bucket, pip: bucket, ts, subRows: [] };
+  return {
+    id: id as TerminalId,
+    bucket,
+    pip: bucket,
+    ts,
+    subRows: [],
+    subIds: [],
+  };
 }
 
 function makeGetInfo(
@@ -226,71 +229,6 @@ describe("buildDockTree", () => {
     const tree = buildDockTree(ranked, getInfo, false);
     expect(tree.sleepingCount).toBe(1);
     expect(tree.parkedCount).toBe(1);
-  });
-});
-
-describe("sectionAttention", () => {
-  const attention =
-    (map: Record<string, TerminalAttention>) => (id: TerminalId) =>
-      map[id as string] ?? NO_ATTENTION;
-
-  it("counts activity on the same predicate the pips move on", () => {
-    // A working agent, an agent still lingering after its turn, and a plain
-    // shell that is printing: three moving marks, so three counted. Counting
-    // only `working` here is what made a host tab read 1 beside three moving
-    // pips.
-    const rows = [
-      row("a", "working", 3),
-      row("b", "linger", 2),
-      row("c", "idle", 1),
-    ];
-    const attn = sectionAttention(
-      rows,
-      () => false,
-      attention({
-        a: { klass: "working", live: true },
-        b: { klass: "linger", live: false },
-        c: { klass: "idle", live: true },
-      }),
-    );
-    expect(attn).toEqual({ active: 3, asking: 0, unseen: 0 });
-  });
-
-  it("puts a blocked agent in the violet leg, never also in the rust one", () => {
-    const attn = sectionAttention(
-      [row("a", "awaiting", 1)],
-      () => false,
-      attention({ a: { klass: "asking", live: true } }),
-    );
-    expect(attn).toEqual({ active: 0, asking: 1, unseen: 0 });
-  });
-
-  it("counts an agent living in a split — the row it hangs under is not the only agent there", () => {
-    // The 4-vs-3 bug in the header's terms: the host tab counted the split's
-    // agent and the section header did not, because it folded top-level rows
-    // only.
-    const parent = row("p", "idle", 2);
-    parent.subRows = [row("s", "working", 1)];
-    const attn = sectionAttention(
-      [parent],
-      () => false,
-      attention({
-        p: { klass: "idle", live: false },
-        s: { klass: "working", live: true },
-      }),
-    );
-    expect(attn).toEqual({ active: 1, asking: 0, unseen: 0 });
-  });
-
-  it("counts unread independently — it is the badge axis, not the colour axis", () => {
-    // A row genuinely wears both: a rust pip with an amber corner badge. The
-    // header must say what the row says.
-    const attn = sectionAttention(
-      [row("a", "working", 1)],
-      () => true,
-      attention({ a: { klass: "working", live: true } }),
-    );
-    expect(attn).toEqual({ active: 1, asking: 0, unseen: 1 });
   });
 });
 

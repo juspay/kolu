@@ -695,23 +695,21 @@ body {
  * Read rows are deliberately NOT dimmed to push the contrast further: the dock
  * already spends opacity on sleeping (`SLEEPING_RECEDE_CLASS`, 55%), and a
  * second opacity channel at a neighbouring value would make "read" and
- * "asleep" the same mark. */
-.dock-cards-section
-> :is([data-testid="dock-row"], [data-testid="mobile-dock-row"])[data-unread] {
+ * "asleep" the same mark.
+ *
+ * `[data-dock-row]` is the shared hook every row surface carries — desktop
+ * row, touch row, and the indented split sub-entry. Enumerating the row types
+ * by test id meant a new one was silently outside the wash: the sub-entry set
+ * `data-asking` and lit up nowhere, and it is the ONE row type that exists
+ * because its agent was invisible. */
+.dock-cards-section > [data-dock-row][data-unread] {
   --attn: var(--color-attention);
 }
-.dock-cards-section
-  > :is(
-    [data-testid="dock-row"],
-    [data-testid="mobile-dock-row"]
-  )[data-asking] {
+.dock-cards-section > [data-dock-row][data-asking] {
   --attn: var(--color-alert);
 }
 .dock-cards-section
-  > :is([data-testid="dock-row"], [data-testid="mobile-dock-row"]):is(
-    [data-unread],
-    [data-asking]
-  ):not([data-active]) {
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
   background: color-mix(in oklab, var(--attn) 13%, transparent);
   border-left-color: var(--attn);
 }
@@ -719,37 +717,24 @@ body {
  * `hover:bg-surface-2/40`, so a washed row would otherwise go dead under the
  * pointer. Deepen the hue instead of replacing it with the neutral hover. */
 .dock-cards-section
-> :is([data-testid="dock-row"], [data-testid="mobile-dock-row"]):is(
-  [data-unread],
-  [data-asking]
-):not([data-active]):hover {
+> [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
   background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
 /* Dark mode: the same mix over near-black reads as sludge — lift it, exactly
  * as the host tab does. */
 :root.dark
   .dock-cards-section
-  > :is([data-testid="dock-row"], [data-testid="mobile-dock-row"]):is(
-    [data-unread],
-    [data-asking]
-  ):not([data-active]) {
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
   background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
 :root.dark
   .dock-cards-section
-  > :is([data-testid="dock-row"], [data-testid="mobile-dock-row"]):is(
-    [data-unread],
-    [data-asking]
-  ):not([data-active]):hover {
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
   background: color-mix(in oklab, var(--attn) 27%, transparent);
 }
 /* The label leans in with the row — weight is the one contrast channel that
  * survives both the squint test and a greyscale display. */
-:is([data-testid="dock-row"], [data-testid="mobile-dock-row"]):is(
-    [data-unread],
-    [data-asking]
-  )
-  .dock-cards-row-label {
+[data-dock-row]:is([data-unread], [data-asking]) .dock-cards-row-label {
   font-weight: 700;
 }
 /* A blocked row's subline speaks needs-you violet — the words ("Awaiting

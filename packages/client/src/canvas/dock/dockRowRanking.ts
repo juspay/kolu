@@ -140,7 +140,11 @@ export function paintDockRow(
   return paint === "none" && meta.lastActivityAt !== null ? "idle" : paint;
 }
 
-export type RankedDockRow = {
+/** A split's entry — a row that cannot itself carry splits, because splits do
+ *  not nest. The invariant lives in the TYPE rather than in a comment and a
+ *  unit test: a recursive `subRows` made the illegal shape spellable, and every
+ *  consumer's one-level flatten was then correct only by convention. */
+export type SubDockRow = {
   id: TerminalId;
   /** The ORDER bucket — drives sort priority (`DOCK_ROW_BUCKET_PRIORITY`) and
    *  the `data-bucket` attribute / rail-glow. Reads `agentUrgency`, so `waiting`
@@ -151,6 +155,9 @@ export type RankedDockRow = {
    *  so a fresh `waiting` agent is `linger` here (it keeps a dim glow). */
   pip: DockRowBucket;
   ts: number | null;
+};
+
+export type RankedDockRow = SubDockRow & {
   /** Agents running in this terminal's SPLITS, as indented sub-entries.
    *
    *  A split is a whole second terminal that the dock had no row for, so an
@@ -161,11 +168,20 @@ export type RankedDockRow = {
    *  row: it IS subordinate, and flattening it would break the correspondence
    *  between a top-level row and a `Cmd+N` shortcut.
    *
-   *  Only splits with an agent appear. A plain `bash` split is what the `⊟ N`
+   *  Only splits with an agent RENDER. A plain `bash` split is what the `⊟ N`
    *  chip already says, and giving every one a line would bury the signal this
    *  exists to surface. Empty for a terminal with no agent-bearing splits —
    *  which is nearly all of them. */
-  subRows: RankedDockRow[];
+  subRows: readonly SubDockRow[];
+  /** EVERY split's id, agent or not — what a scope COUNT quantifies over.
+   *
+   *  What gets a row and what gets counted are different questions, and folding
+   *  them together left the two altitudes counting different populations: a
+   *  host tab counts every terminal padi published, including a plain shell
+   *  running a build in a split, so a section header folding `subRows` alone
+   *  reported one fewer than the tab directly above it. Rendering stays
+   *  agent-only; counting quantifies over all of them. */
+  subIds: readonly TerminalId[];
 };
 
 /** The recency timestamp the dock keys a row on — WHEN YOU PUT IT TO SLEEP
@@ -220,12 +236,14 @@ export function rankDockRows(
     const parked = isStale(recencyAt);
     const bucket = classifyDockRow(meta, parked);
     const pip = paintDockRow(meta, parked);
+    const subIds = getSubIds(id);
     rows.push({
       id,
       bucket,
       pip,
       ts: recencyAt,
-      subRows: rankSubRows(getSubIds(id), getMeta),
+      subRows: rankSubRows(subIds, getMeta),
+      subIds,
     });
   }
   rows.sort(byRecencyThenBucket);
@@ -244,8 +262,8 @@ export function rankDockRows(
 function rankSubRows(
   subIds: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
-): RankedDockRow[] {
-  const rows: RankedDockRow[] = [];
+): SubDockRow[] {
+  const rows: SubDockRow[] = [];
   for (const id of subIds) {
     const meta = getMeta(id);
     if (!meta) continue;
@@ -256,15 +274,13 @@ function rankSubRows(
       bucket: classifyDockRow(meta, false),
       pip: paintDockRow(meta, false),
       ts: rowRecencyAt(meta),
-      // Splits do not nest, so a sub-entry never has sub-entries of its own.
-      subRows: [],
     });
   }
   rows.sort(byRecencyThenBucket);
   return rows;
 }
 
-function byRecencyThenBucket(a: RankedDockRow, b: RankedDockRow): number {
+function byRecencyThenBucket(a: SubDockRow, b: SubDockRow): number {
   if (a.ts !== b.ts) return tsRank(b.ts) - tsRank(a.ts);
   return (
     DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket]
