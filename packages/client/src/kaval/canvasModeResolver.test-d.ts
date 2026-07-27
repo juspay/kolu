@@ -115,8 +115,7 @@ const warmingConnectedPhase: CanvasFacts = {
 void warmingConnectedPhase;
 
 // The `failed` arm is the DISCRIMINANT only — no kaval facts, no connectPhase, and no
-// failure payload (cause/reason/log are read together off the one entry status at the
-// render arm, so they cannot ride this routing decision and go stale against it).
+// failure payload (that is `failedEpisode`'s one value, not a routing payload).
 const failed: CanvasFacts = {
   ...liveness,
   entry: "failed",
@@ -140,6 +139,7 @@ const warmingArm: Extract<CanvasFacts, { entry: "warming" }> = {
   ...liveness,
   entry: "warming",
   connectPhase: undefined,
+  connectLog: undefined,
 };
 // @ts-expect-error — `terminalCount` does not exist on the `warming` arm.
 void warmingArm.terminalCount;

@@ -14,9 +14,8 @@
  * from the pure {@link hostDownCopy} map; this component wires that copy + the two
  * buttons into the shared {@link CanvasFailureCard} shell.
  *
- * The whole failed episode arrives as ONE `failure` prop — cause, reason, and the
- * retained output tail are three fields of one entry status, read together at the
- * render arm (see App.tsx's `hostFailure`, which owns that rationale). The copy is
+ * The whole failed episode arrives as ONE `failure` prop, read through the shared
+ * `failedEpisode` (`kaval/useDaemonStatus.ts`, which owns that rationale). The copy is
  * looked up by cause, the raw `reason` is shown verbatim as a small detail beneath
  * it, and the tail is shown below that. Before the tail was rendered it was
  * collected, shipped to the browser, and then dropped unread at exactly the moment
@@ -27,21 +26,19 @@
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
 import DocLink from "../ui/DocLink";
+import type { LogLine } from "../ui/logTailChrome";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
-  type LogLine,
   reconnectAction,
   switchToLocalAction,
 } from "./CanvasFailureCard";
 import { hostDownCopy } from "./hostDownCopy";
 
 const HostDownCanvas: Component<{
-  /** The failed episode, as ONE value read once at the arm (App.tsx's `hostFailure`).
-   *  `log` is its retained output tail, oldest first — `undefined` when the map's
-   *  liveness floor dropped the connection word (we cannot see the output), empty for a
-   *  cause that never produced any. Both render no tail block; only the first is a
-   *  claim the card must not make. */
+  /** The failed episode, as ONE value from `failedEpisode`. `log` is its retained output
+   *  tail, oldest first; `undefined` vs `[]` is the distinction `CanvasFailureCard`'s `log`
+   *  prop doc owns, and this card passes it through untouched. */
   failure: {
     readonly cause: EntryFailedCause;
     readonly reason: string;

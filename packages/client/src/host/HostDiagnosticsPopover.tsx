@@ -31,7 +31,9 @@ import { selectFleetTerminal } from "../palette/fleetActions";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { forwardsForHost } from "../forwards/useForwards";
 import { formatTimeAgo } from "../terminal/staleness";
-import { LOG_TAIL_SURFACE } from "../ui/logTailChrome";
+import { tailOf } from "../kaval/connectCanvasView";
+import { failedEpisode } from "../kaval/useDaemonStatus";
+import { LOG_TAIL_LINE, LOG_TAIL_SURFACE } from "../ui/logTailChrome";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
@@ -41,11 +43,14 @@ import {
   padiMap,
   setActiveHost,
 } from "../wire";
-import type { LogLine } from "./CanvasFailureCard";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
 import { reconnectHost } from "./reconnectHost";
 import { removeHost } from "./removeHost";
+
+/** How many trailing lines of a failed episode this popover shows — the last few, not the
+ *  whole post-mortem the host-down card renders: this is a popover anchored to a status pip. */
+const POPOVER_TAIL_LINES = 4;
 
 const popoverChrome = surface({
   radius: "lg",
@@ -224,21 +229,21 @@ export const HostDiagnosticsPopover: Component<{
     isInside: isOwnedNestedPortal,
   });
 
-  // The failed entry's reason AND its retained output, off the SAME one read — the popover
-  // is the only failure surface you can reach for a host WITHOUT switching to it (the
-  // host-down card only ever renders for the active host), so the reason must not arrive
-  // here without the evidence that says whether "unreachable" or "the build failed" is the
-  // right story. Popover-sized: the last few lines, not the whole post-mortem.
-  const POPOVER_TAIL_LINES = 4;
-  const failureReason = (): string | undefined => {
-    const s = state();
-    return s.kind === "failed" ? s.failure.reason : undefined;
-  };
-  const failureLog = (): readonly LogLine[] => {
-    const s = state();
-    if (s.kind !== "failed") return [];
-    return (s.connection?.log ?? []).slice(-POPOVER_TAIL_LINES);
-  };
+  // The failed episode, through the ONE shared reader (`failedEpisode`) — the popover is the
+  // only failure surface you can reach for a host WITHOUT switching to it (the host-down card
+  // only ever renders for the active host), so the reason must not arrive here without the
+  // evidence that says whether "unreachable" or "the build failed" is the right story, and it
+  // must not disagree with the card about what a missing tail means.
+  const failure = createMemo(() => failedEpisode(state()));
+  // A MEMO because both the `Show` guard and the `For` read it: called twice per render it
+  // folded the entry twice and handed `For` a fresh array each time, so the tail's rows tore
+  // down and rebuilt on every unrelated repaint (the same `Show`+`For` pairing ConnectCanvas
+  // already memoizes). `undefined` — no failure, or a failure whose output we cannot see —
+  // renders no block at all, which is NOT the same claim as an empty one.
+  const failureLog = createMemo(() => {
+    const log = failure()?.log;
+    return log === undefined ? undefined : tailOf(log, POPOVER_TAIL_LINES);
+  });
 
   return (
     <Show when={props.open()}>
@@ -264,7 +269,7 @@ export const HostDiagnosticsPopover: Component<{
             {glance().short}
           </PopoverRow>
 
-          <Show when={failureReason()}>
+          <Show when={failure()?.reason}>
             {(reason) => (
               <p
                 class="mt-0.5 break-words font-mono text-[10px] leading-4 text-danger/90"
@@ -276,17 +281,13 @@ export const HostDiagnosticsPopover: Component<{
             )}
           </Show>
 
-          <Show when={failureLog().length > 0}>
+          <Show when={(failureLog()?.length ?? 0) > 0}>
             <div
               data-testid="host-diagnostics-log"
               class={`mt-1 max-h-20 overflow-y-auto px-1.5 py-1 text-[10px] leading-4 ${LOG_TAIL_SURFACE}`}
             >
               <For each={failureLog()}>
-                {(entry) => (
-                  <div class="whitespace-pre-wrap break-words">
-                    {entry.line}
-                  </div>
-                )}
+                {(entry) => <div class={LOG_TAIL_LINE}>{entry.line}</div>}
               </For>
             </div>
           </Show>

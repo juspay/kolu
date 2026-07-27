@@ -1,13 +1,6 @@
 // @vitest-environment happy-dom
-/** The host-down card SURFACES the failed episode's retained output instead of dropping it.
- *
- * The regression this pins: `'nix build' exited with code 1` was the ENTIRE diagnostic the
- * card showed for a remote host whose provisioning failed. The build's real error (a `tsc`
- * failure) had been collected by the session, retained in its bounded tail, deliberately
- * carried forward into the `failed` arm (see surface-remote/session.ts's `setDown`), and
- * shipped to the browser — and then dropped unread at the card, which took only
- * `{cause, reason}`. So the copy sent operators to check ssh reachability for what was a
- * compile error.
+/** The host-down card SURFACES the failed episode's retained output instead of dropping it —
+ * the regression `HostDownCanvas.tsx`'s header tells in full.
  *
  * SCOPE (the `BootStalledCanvas.test.tsx` idiom): a COMPONENT render pin, not an App-`<Switch>`
  * integration test — `../wire` is mocked so the surface stack never boots. That App reads the
@@ -28,7 +21,7 @@ vi.mock("../wire", () => ({
   client: { hosts: { reconnect: () => Promise.resolve() } },
 }));
 
-import type { LogLine } from "./CanvasFailureCard";
+import type { LogLine } from "../ui/logTailChrome";
 
 // Imported AFTER the mock so it binds the mocked `../wire`.
 const { default: HostDownCanvas } = await import("./HostDownCanvas");
@@ -87,26 +80,22 @@ describe("HostDownCanvas surfaces the failed episode's output", () => {
     );
   });
 
-  it("renders no tail block at all when the failure produced no output", () => {
+  it("renders no tail block when there is no output to show", () => {
     // Data absence, not a flag: a cause that never ran a build (a contract refusal)
-    // renders exactly the pre-fix card.
-    mount({ reason: "zest: another kolu owns this host", log: [] });
-    expect(document.querySelector(TAIL)).toBeNull();
-    expect(
-      document.querySelector('[data-testid="host-down-canvas"]'),
-    ).not.toBeNull();
-  });
-
-  it("renders no tail block when the output is UNKNOWN (connection floored on a dead link)", () => {
-    // `undefined` reaches the card intact rather than being collapsed to `[]` upstream:
-    // the map's liveness floor drops `connection` while keeping `failure`, so this is
-    // "we cannot see the output", not "there was none". Same pixels today — the point is
-    // that the card, not App, gets to decide that.
-    mount({ reason: "zest: 'nix build' exited with code 1", log: undefined });
-    expect(document.querySelector(TAIL)).toBeNull();
-    expect(
-      document.querySelector('[data-testid="host-down-canvas"]'),
-    ).not.toBeNull();
+    // renders exactly the pre-fix card. `[]` and `undefined` are ONE case here — they
+    // differ in MEANING ("there was none" vs "we cannot see it") but not in pixels, and
+    // happy-dom can observe only the pixels. The distinction itself is pinned where it is
+    // real: the card's `log` prop type, which forbids collapsing one into the other.
+    for (const log of [[], undefined] as const) {
+      mount({ reason: "zest: another kolu owns this host", log });
+      expect(document.querySelector(TAIL)).toBeNull();
+      expect(
+        document.querySelector('[data-testid="host-down-canvas"]'),
+      ).not.toBeNull();
+      dispose?.();
+      dispose = undefined;
+      document.body.innerHTML = "";
+    }
   });
 
   it("keeps the recovery verbs reachable below a full tail", () => {

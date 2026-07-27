@@ -17,7 +17,6 @@ import { activeArm, sleepingArm } from "@kolu/padi/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { TerminalId } from "kolu-common/surface";
-import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import {
   type Component,
   createMemo,
@@ -46,7 +45,6 @@ import ExportSessionDialog, {
   exportSessionDialog,
 } from "./ExportSessionDialog";
 import BootStalledCanvas from "./host/BootStalledCanvas";
-import type { LogLine } from "./host/CanvasFailureCard";
 import { ConnectCanvas } from "./host/ConnectCanvas";
 import HostDownCanvas from "./host/HostDownCanvas";
 import { hostHue, hostLabel } from "./host/hostChipTone";
@@ -57,7 +55,7 @@ import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
-import { activeEntryState } from "./kaval/useDaemonStatus";
+import { activeEntryState, failedEpisode } from "./kaval/useDaemonStatus";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import MobileTileView from "./MobileTileView";
@@ -88,13 +86,7 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import {
-  activeHost,
-  activePadiRpc,
-  connectionInfo,
-  hostKeys,
-  setActiveHost,
-} from "./wire";
+import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, getSubject } = useTerminals();
@@ -325,31 +317,21 @@ const App: Component = () => {
     return pick(m as Extract<CanvasMode, { kind: K }>);
   };
   const downState = () => requireKind("down", (m) => m.down, "down");
-  // The failed episode as ONE value. `cause`, `reason` and the retained output tail are
-  // three fields of ONE `EntryStatus` (`padiMap.entry(activeHost()).state()`), so they are
-  // read together, under one guard, at the arm that renders them — never two accessors with
-  // two policies over the same value (which is how the tail came to be collected, shipped,
-  // and then dropped unread while the reason was shown). `log` stays `undefined` rather
-  // than collapsing to `[]`: the map's liveness floor DROPS `connection` over a dead link
-  // while keeping `failure`, and "we cannot see the output" must not render as "the failure
-  // produced none". The session carries the tail FORWARD into its `failed` arm
-  // (see surface-remote/session.ts's `setDown`), so these are the lines of the episode that
-  // actually gave up.
-  const hostFailure = (): {
-    cause: EntryFailedCause;
-    reason: string;
-    log: readonly LogLine[] | undefined;
-  } => {
-    const s = activeEntryState();
-    if (s.kind !== "failed") {
-      throw new Error(`canvas Match host-failed: entry is ${s.kind}`);
+  // The failed episode as ONE value, through the ONE reader every failure surface shares
+  // (`failedEpisode` — see its doc for why cause/reason/log travel together). A MEMO, not a
+  // plain accessor like its neighbours: the `host-failed` arm's ~6 consumers would each
+  // re-fold the map entry (a fresh `Entry` + clock closure, a host-key re-encode, an
+  // O(hosts) scan) and allocate a fresh wrapper. Unrepresentable if the arm is active
+  // without the episode — fail loud, same as `requireKind`.
+  const hostFailure = createMemo(() => {
+    const episode = failedEpisode(activeEntryState());
+    if (episode === undefined) {
+      throw new Error(
+        `canvas Match host-failed: entry is ${activeEntryState().kind}`,
+      );
     }
-    return {
-      cause: s.failure.cause,
-      reason: s.failure.reason,
-      log: s.connection?.log,
-    };
-  };
+    return episode;
+  });
   const bootStalledRecovery = () =>
     requireKind("boot-stalled", (m) => m.recovery, "boot-stalled");
   // Warming arm's kaval restart state (undefined while a remote provision
@@ -519,10 +501,7 @@ const App: Component = () => {
                 vs a genuinely client-side leg ([Reload]). A hung LOCAL kaval takes the down/dead
                 arm above instead (byte-identical #1713). Boolean kind key so focus/action
                 identity on BootStalledCanvas survives monotonic mode() thrash. */}
-            <BootStalledCanvas
-              recovery={bootStalledRecovery()}
-              log={connectionInfo()?.log}
-            />
+            <BootStalledCanvas recovery={bootStalledRecovery()} />
           </Match>
           <Match when={mode().kind === "warming"}>
             {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold

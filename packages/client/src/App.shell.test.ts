@@ -31,11 +31,18 @@ const RESOLVER_SRC = readFileSync(
 );
 
 /** Reactive primitives the shell is allowed to hold. At the #1340 thin-shell
- *  baseline App.tsx holds two: `closeConfirmTarget` (the one dialog whose
+ *  baseline App.tsx held two: `closeConfirmTarget` (the one dialog whose
  *  open-state it owns) and the `canvasMode` memo — layout / command wiring.
  *  `workspaceEntries` left with the retired WorkspaceGrid switcher. Domain
- *  state goes in a singleton, not here. */
-const REACTIVE_PRIMITIVE_BUDGET = 2;
+ *  state goes in a singleton, not here.
+ *
+ *  The third is `hostFailure` — a MEMO over `failedEpisode(activeEntryState())`,
+ *  not shell-owned state: it derives nothing App.tsx keeps, and the domain read it
+ *  wraps lives in `kaval/useDaemonStatus.ts`. It is a memo rather than a plain
+ *  accessor because the `host-failed` arm has ~6 consumers and each bare call
+ *  re-folds the padi map entry (a fresh `Entry` + clock closure, a host-key
+ *  re-encode, an O(hosts) scan) and allocates a fresh wrapper. */
+const REACTIVE_PRIMITIVE_BUDGET = 3;
 
 describe("App.tsx thin-shell invariant (#1340)", () => {
   it(`holds at most ${REACTIVE_PRIMITIVE_BUDGET} reactive primitives`, () => {
@@ -87,8 +94,10 @@ describe("App canvas <Switch> covers every CanvasMode kind (#1763 — no blank f
 
   it.each(kinds)("App wires a <Match>/narrowing for the %s kind", (kind) => {
     // Every arm keys on `mode().kind === "X"` (direct) or a narrowing helper's
-    // `m.kind === "X"` (down/warming/host-failed/boot-stalled) — either way the
-    // kind literal appears in an equality against the mode. A missing kind = blank.
+    // `m.kind === "X"` (down/warming/boot-stalled go through `requireKind`;
+    // `host-failed` carries no mode payload and reads its episode off the entry
+    // instead) — either way the kind literal appears in an equality against the
+    // mode. A missing kind = blank.
     expect(APP_SRC).toContain(`=== "${kind}"`);
   });
 
