@@ -19,6 +19,21 @@ default:
 install:
     cd {{ repo_root }} && {{ nix_shell }} pnpm install
 
+# Write the binary-cache.json every agent dial reads, DERIVED from this flake's
+# own nixConfig (the single source of truth — see nix/binary-cache.nix). The
+# Nix-built example binders get it baked into their agent-source; a `just run`
+# from the working tree points the agent ref at this directory instead, so the
+# sidecar has to exist here too. Generated, hence gitignored — never hand-edited.
+binary-cache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{ justfile_directory() }}
+    nix eval --impure --raw --expr \
+      "builtins.toJSON (import ../../surface-daemon/nix/binary-cache.nix \
+         { lib = (import ../../../nix/nixpkgs.nix {}).lib; } \
+         { flakeNix = ./flake.nix; label = \"surface examples\"; })" \
+      > binary-cache.json
+
 # Boot server (:7700) + Vite client (:5174). Open http://localhost:5174
 dev *args: install
     cd {{ justfile_directory() }} && {{ nix_shell }} pnpm run dev {{ args }}

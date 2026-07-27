@@ -19,6 +19,18 @@ export type ResolveDrvFailure =
       failureCause: "remote";
       terminal: false;
     }
+  // The source ref IS baked, but the tree it names carries no usable
+  // binary-cache declaration — a binder built before that contract, or a
+  // hand-assembled tree. A DISTINCT kind from `source-unbaked` because the
+  // remedy is different (rebuild/update the binder, vs. run through the Nix
+  // wrapper at all) and consumers render the remedy verbatim: sharing a kind
+  // would make a host-down card assert a fact ("the source ref is unset")
+  // that is false for this fault.
+  | {
+      kind: "binary-cache-unbaked";
+      failureCause: "remote";
+      terminal: false;
+    }
   | {
       kind: "unavailable";
       failureCause: "remote";

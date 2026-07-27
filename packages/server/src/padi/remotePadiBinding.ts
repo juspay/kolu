@@ -163,6 +163,7 @@ export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
 type DrvFaultCause = Extract<
   EntryFailedCause,
   | "agent-source-unbaked"
+  | "agent-cache-unbaked"
   | "agent-drv-unavailable"
   | "auth-required"
   | "host-key-unverified"
@@ -229,6 +230,15 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
             throw new PadiDrvFault(
               `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
               "agent-source-unbaked",
+              resolution,
+            );
+          })
+          // Its own arm, not `source-unbaked`'s: the ref IS baked here, so the
+          // card must not tell the operator to launch through the wrapper.
+          .with({ kind: "binary-cache-unbaked" }, (resolution) => {
+            throw new PadiDrvFault(
+              `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
+              "agent-cache-unbaked",
               resolution,
             );
           })

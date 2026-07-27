@@ -58,10 +58,13 @@ function mockNix(over?: {
   realise?: CaptureResult;
   pin?: CaptureResult;
   copy?: CaptureResult;
+  ship?: CaptureResult;
 }): void {
   vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
-    // Cache prefetch (2a) — default MISS, so the suites written before the
-    // prefetch existed keep exercising the narrated source-realise fallback.
+    // Cache prefetch (2a) / ship (2b) — default MISS/refusal, so the suites
+    // written before these steps existed keep exercising the narrated
+    // source-realise fallback.
+    if (args[0] === "copy" && args[1] === "--to") return over?.ship ?? failOut;
     if (args[0] === "copy") return over?.copy ?? failOut;
     if (args.includes("--outputs")) return over?.outputs ?? okOut(`${STORE}\n`);
     if (args.includes("--check-validity"))
@@ -523,7 +526,7 @@ describe("agentGcRootPath", () => {
   });
 });
 
-describe("cache prefetch (2a)", () => {
+describe("cache prefetch + ship (2a/2b)", () => {
   const flakeDrv = () =>
     flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
@@ -583,6 +586,7 @@ describe("cache prefetch (2a)", () => {
       // The substituter URL is exactly the `--from` value (args[2]) — an exact
       // compare, not a substring scan (which CodeQL would flag as URL
       // sanitization).
+      if (args[0] === "copy" && args[1] === "--to") return okOut("");
       if (args[0] === "copy")
         return args[2] === "https://a.test.invalid" ? failOut : okOut("");
       if (args.includes("--outputs")) return okOut(`${STORE}\n`);
@@ -600,7 +604,9 @@ describe("cache prefetch (2a)", () => {
     expect(res.ok).toBe(true);
     const froms = vi
       .mocked(runCapture)
-      .mock.calls.filter(([, args]) => args[0] === "copy")
+      .mock.calls.filter(
+        ([, args]) => args[0] === "copy" && args[1] === "--from",
+      )
       .map(([, args]) => args[2]);
     expect(froms).toEqual(["https://a.test.invalid", "https://b.test.invalid"]);
   });
@@ -617,6 +623,117 @@ describe("cache prefetch (2a)", () => {
     expect(
       vi.mocked(runCapture).mock.calls.some(([, args]) => args[0] === "copy"),
     ).toBe(true);
+  });
+
+  it("SHIPS the local closure to the remote store — the build alone never would", async () => {
+    mockNix({ copy: okOut(""), ship: okOut("") });
+    await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    const calls = vi.mocked(runCapture).mock.calls;
+    const shipIdx = calls.findIndex(
+      ([, args]) => args[0] === "copy" && args[1] === "--to",
+    );
+    const buildIdx = calls.findIndex(([, args]) =>
+      args.includes("--print-out-paths"),
+    );
+    expect(shipIdx).toBeGreaterThanOrEqual(0);
+    expect(shipIdx).toBeLessThan(buildIdx);
+    expect(calls[shipIdx]?.[1]).toEqual([
+      "copy",
+      "--to",
+      "ssh-ng://build-host",
+      STORE,
+    ]);
+    // The ship rides the ControlMaster like every other remote-store command.
+    expect(calls[shipIdx]?.[2]?.env?.NIX_SSHOPTS).toContain(
+      "-o ControlMaster=auto",
+    );
+  });
+
+  it("ships even when every cache missed — a warm binder store still has the closure", async () => {
+    mockNix({ ship: okOut("") }); // copy (--from) defaults to failure
+    await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(
+      vi
+        .mocked(runCapture)
+        .mock.calls.some(
+          ([, args]) => args[0] === "copy" && args[1] === "--to",
+        ),
+    ).toBe(true);
+  });
+
+  it("localhost never ships — the prefetch already filled the store the build realises in", async () => {
+    mockNix({ copy: okOut(""), ship: okOut("") });
+    await provisionAgent({
+      host: "localhost",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    const calls = vi.mocked(runCapture).mock.calls;
+    expect(
+      calls.some(([, args]) => args[0] === "copy" && args[1] === "--from"),
+    ).toBe(true);
+    expect(
+      calls.some(([, args]) => args[0] === "copy" && args[1] === "--to"),
+    ).toBe(false);
+  });
+
+  it("a ship refusal narrates the real levers and the dial still succeeds", async () => {
+    mockNix({ copy: okOut("") }); // ship defaults to failure
+    const onProgress = vi.fn();
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress,
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    expect(
+      onProgress.mock.calls.some(([line]) =>
+        /could not ship the agent closure.*host will realise it itself/s.test(
+          String(line),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("speculative-step network noise never reclassifies the required build's failure", async () => {
+    // The regression: an unreachable CACHE (or an untrusting host refusing the
+    // ship) emits connection stderr; if that fed the cause scanner, a genuine
+    // REMOTE rejection of the build below would read as retryable "network"
+    // and the session would retry a deterministic fault forever.
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args[0] === "copy") {
+        opts.onProgress?.(
+          "error: unable to download: Couldn't connect to server",
+        );
+        return failOut;
+      }
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--check-validity")) return failOut;
+      // The required build fails for a genuinely REMOTE reason: a plain
+      // non-255 exit with no transport words anywhere in its output.
+      if (args.includes("--print-out-paths"))
+        return { ok: false, kind: "exit", code: 1, stdout: "" };
+      return failOut;
+    });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res).toMatchObject({ ok: false, cause: "remote" });
   });
 
   it("an abort mid-prefetch settles the standard aborted result", async () => {

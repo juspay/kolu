@@ -25,6 +25,7 @@ run host='localhost' *args: install
     set -euo pipefail
     cd {{ justfile_directory() }}
     agent_env=$({{ nix_shell }} node -p "require('{{ repo_root }}/packages/surface-remote/agent-env.json').flakeRef")
+    just --justfile {{ justfile_directory() }}/../justfile binary-cache
     echo "» host: {{ host }}" >&2
     env "$agent_env={{ repo_root }}/packages/surface/example" \
       {{ nix_shell }} pnpm start -- {{ host }} {{ args }}

@@ -69,30 +69,12 @@ let
   provenTree = builtins.seq (builtins.deepSeq provenDrvPaths null) tree;
 
   # The binary-cache declaration, derived from the agent flake's own nixConfig
-  # (see the header). Values may be a space-separated string (the common flake
-  # spelling) or a list; both normalize to a non-empty list here. Absence is an
-  # eval-time error — never a silently cache-blind agent source.
-  binaryCache =
-    let
-      cfg = (import flakeNix).nixConfig or null;
-      asList = v:
-        if builtins.isList v
-        then v
-        else builtins.filter (s: s != "") (lib.splitString " " v);
-      require = name:
-        if cfg == null || !(cfg ? ${name}) || asList cfg.${name} == [ ]
-        then
-          throw
-            ("mkProvenAgentSource: ${toString flakeNix} must declare a non-empty "
-              + "nixConfig.${name} — @kolu/surface-remote provisioning prefetches the "
-              + "agent closure from the caches baked into binary-cache.json and refuses "
-              + "an agent source without them")
-        else asList cfg.${name};
-    in
-    {
-      substituters = require "extra-substituters";
-      trustedPublicKeys = require "extra-trusted-public-keys";
-    };
+  # by the shared recipe (see the header, and `binary-cache.nix` for why
+  # absence is an eval-time error rather than a default).
+  binaryCache = import ./binary-cache.nix { inherit lib; } {
+    inherit flakeNix;
+    label = "mkProvenAgentSource";
+  };
 
   # Flake-shaped store path for SURFACE_AGENT_FLAKE_REF. Built from the already-
   # proven pure tree; never the place the prove happens. Store sources are

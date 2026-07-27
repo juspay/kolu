@@ -71,7 +71,7 @@ export class AgentBinaryCacheUnbakedError extends ResolveDrvError {
     super(
       `agent source ${flakeRef} has no usable ${AGENT_BINARY_CACHE_FILE} (${detail}) — rebuild the binder with a current @kolu/surface-daemon mkProvenAgentSource; provisioning refuses a cache-blind agent source`,
       {
-        kind: "source-unbaked",
+        kind: "binary-cache-unbaked",
         failureCause: "remote",
         terminal: false,
       },

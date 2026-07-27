@@ -24,8 +24,13 @@
  *      output closure into the sender's LOCAL store — the one seat where the
  *      derivation's REQUIRED `binaryCache` can act (a remote realisation
  *      substitutes per the REMOTE daemon's own nix.conf; client settings never
- *      participate), so step 2 ships binaries instead of compiling on the
- *      target, cross-arch included. A miss/refusal narrates and falls back.
+ *      participate). A miss/refusal narrates and falls back.
+ *   2b. Ship: `nix copy --to ssh-ng://$host <out>` moves the locally-valid
+ *      closure to the target — step 2's build would NOT (it copies only the
+ *      .drv closure; locally-valid outputs are never consulted, verified
+ *      live). Lands cross-arch (fetching/copying executes nothing); the
+ *      remote daemon must trust the ssh user or the NAR signatures — a
+ *      refusal narrates the real levers and step 2 realises on the host.
  *   2. One `nix build --eval-store auto --store ssh-ng://$host` evaluates
  *      locally, transfers the derivation, and realises it remotely. One Nix
  *      process owns the temporary roots across that whole handoff, so a
@@ -205,14 +210,16 @@ const agentDerivationBrand = Symbol("AgentDerivation");
 /** The binary caches an agent derivation is provisioned against.
  *
  * Provisioning PREFETCHES the agent's output closure from these caches into
- * the binder's LOCAL store (`nix copy --from`) before realising on the
- * target. The local store is the only seat where a declared cache can act:
- * a remote-store realisation substitutes with the REMOTE daemon's own
- * nix.conf — client-side substituter settings never participate (proven by
- * an ssh-ng provisioning run that rebuilt, on the host, a padi that sat in
- * the declared cache) — while locally-valid outputs are shipped to the
- * target by the same `nix build`. Cross-arch included: fetching a NAR
- * executes nothing.
+ * the binder's LOCAL store (`nix copy --from`), then SHIPS it to the target
+ * store (`nix copy --to ssh-ng://…`) before realising there. Both copies are
+ * needed: the local store is the only seat where a declared cache can act (a
+ * remote-store realisation substitutes with the REMOTE daemon's own nix.conf
+ * — client-side substituter settings never participate), and the cold build
+ * ships only the .drv closure, never locally-valid outputs (both facts
+ * verified live). Cross-arch included: fetching and copying execute nothing.
+ * The ship lands only when the target trusts it (trusted ssh user, or NAR
+ * signatures the host trusts) — otherwise a narrated fallback realises on
+ * the host, where the quickstart's remote nix.conf advice applies.
  *
  * The declaration is REQUIRED on every {@link AgentDerivation} arm so no
  * consumer of this package can assemble a cache-blind provisioning path.
@@ -458,8 +465,9 @@ async function pinGcRoot(
 
 /** Prefetch `outPath`'s closure from the derivation's declared caches into the
  *  binder's LOCAL store — the seat where the declaration can act (see
- *  {@link AgentBinaryCache}); the cold build then ships the locally-valid
- *  outputs to the target. Tries each substituter in order until one delivers.
+ *  {@link AgentBinaryCache}). Tries each substituter in order until one
+ *  delivers; a success means the closure is now VALID LOCALLY (freshly copied
+ *  or already present — `nix copy` is validity-driven).
  *
  *  This step is OPTIONAL-BY-OUTCOME, never silently optional: a miss (the
  *  commit was just built and not yet pushed), a signature refusal (the local
@@ -502,7 +510,9 @@ async function prefetchAgentClosure(opts: {
       },
     );
     if (res.ok) {
-      opts.onProgress(`${opts.host}: agent closure prefetched from ${url}`);
+      opts.onProgress(
+        `${opts.host}: agent closure available locally (via ${url})`,
+      );
       return false;
     }
     if (res.kind === "aborted") return true;
@@ -510,6 +520,50 @@ async function prefetchAgentClosure(opts: {
       `${opts.host}: cache prefetch from ${url} ${describeExit(res)} — falling back to realising from source`,
     );
   }
+  return false;
+}
+
+/** Ship the locally-valid agent closure to the REMOTE store (`nix copy --to
+ *  ssh-ng://…`). This is the step that actually moves binaries to the target:
+ *  the cold `nix build --store ssh-ng://` copies ONLY the derivation closure
+ *  and the remote daemon substitutes per ITS OWN nix.conf — locally-valid
+ *  outputs are never consulted (verified live with a nondeterministic
+ *  derivation: the remote REBUILT an output that sat valid in the local
+ *  store). So without this explicit copy the prefetch would help only the
+ *  localhost arm.
+ *
+ *  The remote daemon accepts the copied paths only when it trusts them: the
+ *  ssh user is in its `trusted-users`, or the NARs carry a signature it
+ *  already trusts. A refusal is NARRATED with the real levers (trust the
+ *  key on the host, or configure the cache there per the quickstart) and the
+ *  cold build falls back to realising on the host, exactly as before this
+ *  step existed. Returns `true` only on a mid-copy abort. */
+async function shipAgentClosure(opts: {
+  host: string;
+  outPath: string;
+  onProgress: (line: string) => void;
+  policy: LifetimePolicy;
+  signal: AbortSignal | undefined;
+}): Promise<boolean> {
+  opts.onProgress(`${opts.host}: shipping agent closure to the host's store…`);
+  const res = await runCapture(
+    "nix",
+    ["copy", "--to", `ssh-ng://${opts.host}`, opts.outPath],
+    {
+      onProgress: opts.onProgress,
+      policy: opts.policy,
+      env: { NIX_SSHOPTS: nixSshOpts() },
+      signal: opts.signal,
+    },
+  );
+  if (res.ok) {
+    opts.onProgress(`${opts.host}: agent closure shipped`);
+    return false;
+  }
+  if (res.kind === "aborted") return true;
+  opts.onProgress(
+    `${opts.host}: could not ship the agent closure (${describeExit(res)}) — the host will realise it itself. If this keeps compiling on the host: trust the declared cache key there, or add the cache to the host's nix.conf.`,
+  );
   return false;
 }
 
@@ -641,22 +695,43 @@ export async function provisionAgent(
   // a speculative warm-probe miss poison the classification of this operation.
   sawNetworkError = false;
   opts.onProvisioning?.();
-  // 2a. Cache prefetch — pull the agent closure into the LOCAL store from the
-  //     derivation's declared caches, so the cold build below ships binaries
-  //     the target could never substitute itself (its nix.conf owns remote
-  //     substitution; see {@link AgentBinaryCache}). Skipped only when the
-  //     output path is unknown (0 fell through) — then the build alone owns
-  //     realisation, exactly as before this step existed.
+  // 2a/2b. Cache prefetch + ship — pull the agent closure into the LOCAL
+  //     store from the derivation's declared caches, then explicitly copy it
+  //     to the target store (the cold build alone would NOT: it copies only
+  //     the .drv closure and the remote substitutes per ITS nix.conf — see
+  //     {@link shipAgentClosure}). Skipped only when the output path is
+  //     unknown (0 fell through) — then the build alone owns realisation,
+  //     exactly as before these steps existed.
+  //
+  //     Both steps are SPECULATIVE, so they narrate via the RAW opts.onProgress
+  //     — never the scanning wrapper: an unreachable cache's stderr must not
+  //     set `sawNetworkError` and misclassify the required build's failure as
+  //     retryable "network" (the same poisoning the reset above exists to
+  //     prevent for the warm probe).
   if (localAgentPath !== undefined) {
-    const aborted = await prefetchAgentClosure({
+    const prefetchAborted = await prefetchAgentClosure({
       host: opts.host,
       outPath: localAgentPath,
       binaryCache: opts.derivation.binaryCache,
-      onProgress,
+      onProgress: opts.onProgress,
       policy: budgets.provisioning.policy(),
       signal,
     });
-    if (aborted) {
+    // Ship regardless of the prefetch VERDICT (the closure may already be
+    // valid locally — a warm binder store — even when every cache missed), but
+    // never after an abort, and never for localhost (the prefetch already
+    // filled the very store the build realises in).
+    const shipAborted =
+      !prefetchAborted && !isLocal
+        ? await shipAgentClosure({
+            host: opts.host,
+            outPath: localAgentPath,
+            onProgress: opts.onProgress,
+            policy: budgets.provisioning.policy(),
+            signal,
+          })
+        : false;
+    if (prefetchAborted || shipAborted) {
       return {
         ok: false,
         reason: `${opts.host}: provisioning aborted during cache prefetch`,

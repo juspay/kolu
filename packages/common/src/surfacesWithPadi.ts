@@ -109,6 +109,10 @@ export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
  *   - `cross-supervisor`      — a DIFFERENT LIVE supervisor owns the state root —
  *     never drains (`remotePadiBinding`'s `crossSupervisor` verdict).
  *   - `agent-source-unbaked`  — the source ref isn't baked (a non-Nix-wrapper run).
+ *   - `agent-cache-unbaked`   — the source ref IS baked, but the tree it names
+ *     carries no binary-cache declaration: a binder built before that contract.
+ *     Distinct from `agent-source-unbaked` because the remedy differs (update
+ *     this kolu build, rather than launch it through its wrapper).
  *   - `agent-drv-unavailable` — that source cannot resolve padi for the probed arch.
  *   - `unconverged`           — a newer-contract drain never provably took.
  *   - `auth-required`         — the host refused kolu's ssh credentials. kolu
@@ -145,6 +149,7 @@ export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
   }),
   z.object({ cause: z.literal("cross-supervisor"), reason: z.string() }),
   z.object({ cause: z.literal("agent-source-unbaked"), reason: z.string() }),
+  z.object({ cause: z.literal("agent-cache-unbaked"), reason: z.string() }),
   z.object({ cause: z.literal("agent-drv-unavailable"), reason: z.string() }),
   z.object({ cause: z.literal("unconverged"), reason: z.string() }),
   z.object({ cause: z.literal("auth-required"), reason: z.string() }),
