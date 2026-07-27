@@ -1283,7 +1283,18 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getHistory,
     handle,
     dispose: () => {
-      for (const entry of [...entries.values()]) entry.proc.kill();
+      // Host shutdown is a REAP, not a hangup: SIGKILL, the same choice (for
+      // the same reason) as the `kill` RPC's terminate — node-pty's default
+      // SIGHUP is only advisory. A leader that ignores/traps SIGHUP survives
+      // it, and so does darwin's `spawn-helper` launcher in its pre-exec
+      // window (it acquires the controlling tty only inside its own slave
+      // `open()`, so until then no hangup — from this kill or from the master
+      // closing — reaches it). Each leader also sits in its OWN session
+      // (setsid), where the daemon dying can never take it along. The aged
+      // ppid-1 `spawn-helper <cwd> /bin/sh` orphans found on rasam are what
+      // the advisory path leaks; a host going away must leave no child to
+      // init.
+      for (const entry of [...entries.values()]) entry.proc.kill("SIGKILL");
       // Host shutdown — end every inventory subscription gracefully. The async
       // `onExit` → teardown `exited` publishes from the kills above land on a
       // closed channel (a no-op), which is fine: the host is going away.
