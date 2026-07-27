@@ -544,8 +544,9 @@ let
   # Runs from the SAME built workspace closure as `kolu` (so kaval + @kolu/surface
   # + @kolu/surface-daemon resolve identically). Carries its OWN identity env
   # (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH) so a standalone kaval reports a real
-  # `system.version`. In B1 kolu still embeds the host in-process; this bin is the
-  # runnable program the daemon flip (B2) will spawn.
+  # `system.version`, plus the required osfacts path used to establish the
+  # pid+start identity written to its gate. In B1 kolu still embeds the host
+  # in-process; this bin is the runnable program the daemon flip (B2) will spawn.
   #
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: tsx's CLI
   # forks a child, and that fork does NOT relay SIGTERM to the daemon's
@@ -574,6 +575,7 @@ let
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
       ${kavalIdentity.bakeArgs} \
+      ${osfactsBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
