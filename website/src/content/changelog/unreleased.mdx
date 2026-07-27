@@ -2,6 +2,10 @@
 version: Unreleased
 ---
 
+### [Padi](/padi)
+
+- <Change kind="fixed" title="Deleting a workspace no longer strands its daemons" pr={2012}>padi and kaval deliberately outlive the kolu that spawned them — that is what keeps your terminals alive across restarts. But when the workspace itself was deleted (removing a git worktree that ran a dev kolu, or an ephemeral test dir), the daemons anchored to it had nothing left to serve and no way to notice: they sat idle forever, each holding a socket, its shells, and a few hundred MB — machines accumulated a dozen-plus ghost daemons this way. Every daemon now watches the directory that is its reason to exist and shuts itself down cleanly, within seconds, once that directory is verifiably gone — no cleanup command to remember, nothing to run by hand. And a kolu still running when its workspace vanishes now exits with a message naming what was deleted, instead of silently respawning a daemon into a recreated empty directory.</Change>
+
 ### [The Right Panel](/right-panel)
 
 - <Change kind="added" title="See what a terminal is serving" pr={1982}>When something in a terminal starts listening on a TCP port, a **Ports** section appears in the Inspector listing it — the number and the program holding it — usually within a second. No more scrolling back through a wall of agent output hunting for a URL that went by ten minutes ago. It is not a guess at printed text: kolu reads the machine's own socket table every few seconds (and immediately whenever the terminal produces output), and attributes each listener to the terminal whose processes hold it. So a port appears because something genuinely is listening, and it disappears when that stops. Splits count as the same terminal, which matters because a dev server is usually where you put it — in the split. A port bound to **all interfaces** on the machine running kolu already answers at the address you are viewing kolu at, so it simply opens in a new tab; a loopback-only port, or one on a remote host, needs a door — see Port forwarding below.</Change>

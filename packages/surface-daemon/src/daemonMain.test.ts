@@ -8,7 +8,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -43,6 +43,10 @@ const silentLog: Logger = {
 // The router is never invoked in these tests (no RPC is made) — only bound —
 // so an empty object stands in for a real surface router.
 const noRouter = {} as DaemonSpec["router"];
+
+// The honest "no on-disk identity" anchor for tests exercising OTHER triggers:
+// `undefined` means "not anchored right now", which never counts toward a reap.
+const unanchored = (): undefined => undefined;
 
 const children: ChildProcess[] = [];
 afterEach(() => {
@@ -89,6 +93,7 @@ describeDaemon("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
+      anchor: unanchored,
       lifetime: { kind: "forever" },
       log: silentLog,
     });
@@ -117,6 +122,7 @@ describeDaemon("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
+      anchor: unanchored,
       lifetime: { kind: "forever" },
       log: silentLog,
       signal: ac.signal,
@@ -142,6 +148,7 @@ describeDaemon("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
+      anchor: unanchored,
       lifetime: { kind: "idleTimeout", ms: 30, isIdle: () => true },
       log: silentLog,
     });
@@ -162,6 +169,7 @@ describeDaemon("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
+      anchor: unanchored,
       lifetime: { kind: "idleTimeout", ms: 20, isIdle: () => !busy },
       log: silentLog,
       signal: ac.signal,
@@ -188,6 +196,7 @@ describeDaemon("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
+      anchor: unanchored,
       lifetime: { kind: "boundToPid", pid: watched.pid, pollMs: 20 },
       log: silentLog,
       onReady: () => ready(),
@@ -209,6 +218,7 @@ describeDaemon("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
+      anchor: unanchored,
       // A large poll would prove nothing here: the immediate check must fire
       // BEFORE the first tick, so a slow poll must not be able to mask it.
       lifetime: { kind: "boundToPid", pid: await deadPid(), pollMs: 60_000 },
@@ -236,6 +246,7 @@ describeDaemon("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
+      anchor: unanchored,
       lifetime: { kind: "forever" },
       log: silentLog,
       signal: ac.signal,
@@ -259,6 +270,7 @@ describeDaemon("daemonMain", () => {
           gatePath,
           socketPath,
           router: noRouter,
+          anchor: unanchored,
           lifetime: { kind: "boundToPid", pid },
           log: silentLog,
         }),
@@ -286,6 +298,7 @@ describeDaemon("daemonMain", () => {
         gatePath,
         socketPath,
         router: noRouter,
+        anchor: unanchored,
         lifetime: { kind: "forever" },
         log: silentLog,
         onReady: () => {
@@ -311,6 +324,7 @@ describeDaemon("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
+      anchor: unanchored,
       lifetime: { kind: "forever" },
       log: silentLog,
       signal: ac.signal,
@@ -323,6 +337,124 @@ describeDaemon("daemonMain", () => {
     await exitP;
 
     expect(seen).toEqual([{ socketPath, pid: process.pid }]);
+  });
+});
+
+// ── The anchor self-reap (juspay/kolu#2010) ────────────────────────────────
+// Migrated from kaval's private `watchStateRoot` (#1713), now the spine's own
+// required invariant: a daemon whose anchor dir is PROVEN gone (ENOENT) for two
+// consecutive polls reaps itself through the normal teardown. A PLAIN describe,
+// not `describeDaemon`: nothing here forks — the daemon runs in-process against
+// a tmpdir socket (kaval's own self-exit test's precedent) — so the unit lane
+// runs these everywhere, not just the gated daemon lane.
+describe("daemonMain — anchor self-reap", () => {
+  it("reaps itself once its anchor dir has been gone two consecutive polls (anchor-gone)", async () => {
+    const { gatePath, socketPath } = paths();
+    const anchorDir = mkdtempSync(join(tmpdir(), "daemon-anchor-"));
+    let ready!: () => void;
+    const readyP = new Promise<void>((r) => {
+      ready = r;
+    });
+
+    const exitP = daemonMain({
+      gatePath,
+      socketPath,
+      router: noRouter,
+      anchor: () => anchorDir,
+      anchorPollMs: 20,
+      lifetime: { kind: "forever" },
+      log: silentLog,
+      onReady: () => ready(),
+    });
+
+    await readyP;
+    expect(liveHolder(gatePath)).toBe(process.pid); // serving while anchored
+    rmSync(anchorDir, { recursive: true, force: true }); // the worktree removal
+
+    expect(await exitP).toEqual({ kind: "shutdown", reason: "anchor-gone" });
+    expect(liveHolder(gatePath)).toBeUndefined(); // gate released
+    expect(existsSync(socketPath)).toBe(false); // socket removed
+  });
+
+  it("a returning anchor resets the miss count — a single transient miss never reaps", async () => {
+    const { gatePath, socketPath, dir } = paths();
+    const gone = join(dir, "never-existed");
+    // First poll sees the anchor missing (one miss), every later poll sees the
+    // live dir — deterministic via the thunk, no fs race: the count must reset,
+    // so the daemon stays up well past many polls.
+    let calls = 0;
+    const ac = new AbortController();
+    const exitP = daemonMain({
+      gatePath,
+      socketPath,
+      router: noRouter,
+      anchor: () => {
+        calls += 1;
+        return calls === 1 ? gone : dir;
+      },
+      anchorPollMs: 10,
+      lifetime: { kind: "forever" },
+      log: silentLog,
+      signal: ac.signal,
+    });
+
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(4));
+    expect(liveHolder(gatePath)).toBe(process.pid); // still serving
+    ac.abort();
+    expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
+  });
+
+  it("only ENOENT is proof — an unreadable anchor (ENOTDIR) never counts toward a reap", async () => {
+    const { gatePath, socketPath, dir } = paths();
+    // `<regular file>/child` lstats to ENOTDIR: "I could not read whether it
+    // exists", the opposite of proof — the daemon must keep serving.
+    const file = join(dir, "a-file");
+    writeFileSync(file, "x");
+    const unreadable = join(file, "child");
+    let polls = 0;
+    const ac = new AbortController();
+    const exitP = daemonMain({
+      gatePath,
+      socketPath,
+      router: noRouter,
+      anchor: () => {
+        polls += 1;
+        return unreadable;
+      },
+      anchorPollMs: 10,
+      lifetime: { kind: "forever" },
+      log: silentLog,
+      signal: ac.signal,
+    });
+
+    await vi.waitFor(() => expect(polls).toBeGreaterThan(4));
+    expect(liveHolder(gatePath)).toBe(process.pid); // still serving
+    ac.abort();
+    expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
+  });
+
+  it("an undefined anchor — 'not anchored right now' — is never reaped", async () => {
+    const { gatePath, socketPath } = paths();
+    let polls = 0;
+    const ac = new AbortController();
+    const exitP = daemonMain({
+      gatePath,
+      socketPath,
+      router: noRouter,
+      anchor: () => {
+        polls += 1;
+        return undefined;
+      },
+      anchorPollMs: 10,
+      lifetime: { kind: "forever" },
+      log: silentLog,
+      signal: ac.signal,
+    });
+
+    await vi.waitFor(() => expect(polls).toBeGreaterThan(4));
+    expect(liveHolder(gatePath)).toBe(process.pid); // still serving
+    ac.abort();
+    expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
   });
 });
 
