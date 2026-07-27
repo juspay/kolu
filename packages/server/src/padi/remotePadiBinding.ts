@@ -54,7 +54,7 @@ import {
   type HostKey,
   LOCAL_HOST,
 } from "kolu-common/surfacesWithPadi";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { log } from "../log.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
@@ -169,6 +169,24 @@ type DrvFaultCause = Extract<
   | "nix-unavailable"
 >;
 
+/** The pass-through `resolveDrvPath` faults: each maps 1:1 to a
+ *  {@link DrvFaultCause}, with no message rewrite (unlike `source-unbaked`,
+ *  which is handled separately below). Two of the four RENAME the resolver's
+ *  `kind` (`unavailable` → `agent-drv-unavailable`, `auth-refused` →
+ *  `auth-required`); the other two pass the literal straight through. This
+ *  table is the ONE place that rename happens — spelling it as data, not as
+ *  four structurally-identical `match` arms, makes the asymmetry visible
+ *  instead of requiring a reader to diff arm bodies to notice it. */
+const PASS_THROUGH_FAULT_CAUSE: Record<
+  "unavailable" | "auth-refused" | "host-key-unverified" | "nix-unavailable",
+  DrvFaultCause
+> = {
+  unavailable: "agent-drv-unavailable",
+  "auth-refused": "auth-required",
+  "host-key-unverified": "host-key-unverified",
+  "nix-unavailable": "nix-unavailable",
+};
+
 /** A {@link ResolveDrvError} subclass that additionally carries the D1 domain
  *  `cause` — the source-ref/arch faults (`"agent-source-unbaked"` /
  *  `"agent-drv-unavailable"`), the ssh refusals (`"auth-required"` /
@@ -214,32 +232,28 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
               resolution,
             );
           })
-          .with({ kind: "unavailable" }, (resolution) => {
-            throw new PadiDrvFault(
-              err.message,
-              "agent-drv-unavailable",
-              resolution,
-            );
-          })
-          // The ssh refusals (probe classified them terminal — see `resolveSystem`):
-          // enrich with the padi domain cause so the host-down card can name the
-          // actual remedy (set up key auth / accept the host key) instead of the
-          // generic "can't reach this host".
-          .with({ kind: "auth-refused" }, (resolution) => {
-            throw new PadiDrvFault(err.message, "auth-required", resolution);
-          })
-          .with({ kind: "host-key-unverified" }, (resolution) => {
-            throw new PadiDrvFault(
-              err.message,
-              "host-key-unverified",
-              resolution,
-            );
-          })
-          // The second unmet prerequisite (after ssh): the host has no runnable
-          // Nix, which is what provisions padi there.
-          .with({ kind: "nix-unavailable" }, (resolution) => {
-            throw new PadiDrvFault(err.message, "nix-unavailable", resolution);
-          })
+          // The remaining pass-through faults: an unresolvable baked drv, and
+          // (probe-classified terminal — see `resolveSystem`) the two ssh
+          // refusals plus an unrunnable remote Nix. Enrich each with its
+          // padi domain cause via `PASS_THROUGH_FAULT_CAUSE` so the
+          // host-down card can name the actual remedy (set up key auth,
+          // accept the host key, install Nix) instead of the generic
+          // "can't reach this host".
+          .with(
+            P.union(
+              { kind: "unavailable" },
+              { kind: "auth-refused" },
+              { kind: "host-key-unverified" },
+              { kind: "nix-unavailable" },
+            ),
+            (resolution) => {
+              throw new PadiDrvFault(
+                err.message,
+                PASS_THROUGH_FAULT_CAUSE[resolution.kind],
+                resolution,
+              );
+            },
+          )
           .with({ kind: "network-exhausted" }, () => {
             throw err;
           })
