@@ -22,12 +22,9 @@
  *  that certainly isn't running the dev server. The host in the address bar is the
  *  one name that is reachable by construction: the page loaded from it.
  *
- *  The port/scheme pair is deliberately fixed at `http` — a dev server on a
- *  wildcard port is overwhelmingly http, and guessing https from a port number
- *  would produce a broken tab more often than a working one.
- *
- *  The DECISION each row rests on is `forwards/portAction.ts`; this file is the
- *  section, and `PortRow.tsx` is the row.
+ *  The DECISION each row rests on is `forwards/portAction.ts`; the open flow is
+ *  the three-layer composition in `forwards/openPort.ts` (decision · act ·
+ *  effect at the row edge). This file is the section; `PortRow.tsx` is the row.
  */
 
 import { activeArm } from "@kolu/padi/surface";
@@ -38,15 +35,10 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
-import { match } from "ts-pattern";
 import { rowAction } from "../forwards/portAction";
 import { portRows } from "../forwards/portRows";
 import { servingLink } from "../forwards/terminalServingPort";
-import {
-  createForward,
-  forwardsForHost,
-  viewerHost,
-} from "../forwards/useForwards";
+import { forwardsForHost, viewerHost } from "../forwards/useForwards";
 import { sameHost } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -159,52 +151,15 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                   onKoluHost: isActiveHostLocal(),
                   viewerOnHost: viewerOnHost(),
                 });
-              /** WHERE the row's link points, exhaustively over `PortAction` via
-               *  `match(...).exhaustive()` so a fifth arm is a REAL compile error
-               *  — a bare `switch` here type-checked fine without one (this
-               *  function's return type already allows `undefined`, so a
-               *  fall-through with no matching case would silently return
-               *  `undefined` rather than fail to build). */
-              const openAt = (): { host: string; port: number } | undefined =>
-                match(decided().action)
-                  .with({ kind: "here" }, () => ({
-                    host: window.location.hostname,
-                    port: row.port,
-                  }))
-                  .with({ kind: "viewer" }, () => ({
-                    host: "localhost",
-                    port: row.port,
-                  }))
-                  .with({ kind: "none" }, () => undefined)
-                  .with({ kind: "forward" }, () => {
-                    const local = row.forward?.localPort;
-                    return local === undefined
-                      ? undefined
-                      : { host: window.location.hostname, port: local };
-                  })
-                  .exhaustive();
               return (
                 <PortRow
                   row={row}
+                  host={host()}
                   serving={
                     row.kind === "orphan" ? servingFor(row.port) : undefined
                   }
                   action={decided().action}
-                  openAt={openAt()}
                   forwardReason={decided().reason}
-                  onForward={async () => {
-                    // LAZY — this is the first click on this port, so the door is
-                    // opened now rather than eagerly for every port the scanner
-                    // ever saw. `auto`, because the user asked to open a chip, not
-                    // to keep a forward: when the scanner sees the listener go, the
-                    // door has nothing behind it and closes itself.
-                    const created = await createForward({
-                      host: host(),
-                      port: row.port,
-                      origin: "auto",
-                    });
-                    return created.localPort;
-                  }}
                 />
               );
             }}

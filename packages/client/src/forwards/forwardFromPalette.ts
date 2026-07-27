@@ -21,7 +21,7 @@ import {
   parseHostInput,
 } from "kolu-common/hostKey";
 import { toast } from "solid-sonner";
-import { createForward } from "./useForwards";
+import { ensureDoor } from "./openPort";
 
 /** A parsed palette target, or why it could not be one. */
 export type ForwardInput =
@@ -110,14 +110,16 @@ export function forwardFromPalette(
     toast.error(parsed.message);
     return;
   }
-  createForward({
+  // Compose the shared act layer — same `ensureDoor` the chip and the card use.
+  // No `window.open`: the palette only opens a door, it does not load a page.
+  ensureDoor({
     host: parsed.host,
     port: parsed.port,
     origin: "manual",
   }).then(
-    (forward) =>
+    (localPort) =>
       toast.success(
-        `Forwarding ${labelOf(parsed.host)}:${parsed.port} on port ${forward.localPort}`,
+        `Forwarding ${labelOf(parsed.host)}:${parsed.port} on port ${localPort}`,
       ),
     (err: Error) =>
       toast.error(
