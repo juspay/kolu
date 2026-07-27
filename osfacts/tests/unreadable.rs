@@ -34,7 +34,7 @@ fn pid_one_ports_yields_u_row() {
         .stdout
         .clone();
     let stdout = String::from_utf8(out).unwrap();
-    let (v, _procs, _ports, unreadable) = parse_tsv(&stdout);
+    let (v, _procs, _ports, unreadable, _errors) = parse_tsv(&stdout);
     assert_eq!(v, 2);
     assert!(
         unreadable.iter().any(|u| {
@@ -62,7 +62,7 @@ fn vanished_pid_yields_u_row() {
         .stdout
         .clone();
     let stdout = String::from_utf8(out).unwrap();
-    let (v, procs, _, unreadable) = parse_tsv(&stdout);
+    let (v, procs, _, unreadable, _errors) = parse_tsv(&stdout);
     assert_eq!(v, 2);
     assert!(
         procs

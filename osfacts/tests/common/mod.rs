@@ -2,8 +2,10 @@
 //!
 //! Both platforms use the same strategy: bind port 0 in a parked
 //! `osfacts-listener` child, snapshot that child's subtree (or exact pid),
-//! assert *our* fixture appears exactly. Pid and port are redacted for
-//! insta; nothing claims the host port table is empty. There is no
+//! assert *our* fixture appears exactly when the kernel exposes its listener
+//! table. A Darwin sandbox may instead report that source as explicitly blind;
+//! the process fact must still survive. Pid and port are redacted for insta;
+//! nothing claims the host port table is empty. There is no
 //! `unshare` / netns path — hermeticity is scoped assertions, not an
 //! isolated network namespace.
 
@@ -149,7 +151,15 @@ pub fn redact_tsv(tsv: &str) -> String {
     out
 }
 
-pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>) {
+pub fn parse_tsv(
+    stdout: &str,
+) -> (
+    u32,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+) {
     let mut lines = stdout.lines();
     let first = lines.next().expect("stdout must have a version line");
     let version = first
@@ -160,6 +170,7 @@ pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>) {
     let mut procs = Vec::new();
     let mut ports = Vec::new();
     let mut unreadable = Vec::new();
+    let mut errors = Vec::new();
     for line in lines {
         if line.is_empty() {
             continue;
@@ -168,10 +179,15 @@ pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>) {
             Some(b'P') => procs.push(line.to_string()),
             Some(b'L') => ports.push(line.to_string()),
             Some(b'U') => unreadable.push(line.to_string()),
+            Some(b'E') => errors.push(line.to_string()),
             other => panic!("unexpected row tag {other:?} in {line}"),
         }
     }
-    (version, procs, ports, unreadable)
+    (version, procs, ports, unreadable, errors)
+}
+
+pub fn darwin_pcblist_is_blind(errors: &[String]) -> bool {
+    errors == ["E\tdarwin_tcp_pcblist\tBLIND_OR_EMPTY"]
 }
 
 pub fn l_addr_for_port(ports: &[String], port: u16) -> String {

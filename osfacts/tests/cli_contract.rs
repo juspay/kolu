@@ -7,8 +7,8 @@
 mod common;
 
 use common::{
-    hermetic_snapshot, hex_of_v4, hex_of_v6, l_addr_for_port, l_rows_for_port, osfacts, parse_tsv,
-    redact_tsv, snapshot_pids,
+    darwin_pcblist_is_blind, hermetic_snapshot, hex_of_v4, hex_of_v6, l_addr_for_port,
+    l_rows_for_port, osfacts, parse_tsv, redact_tsv, snapshot_pids,
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -17,7 +17,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 #[test]
 fn fixture_loopback_v4() {
     let h = hermetic_snapshot("127.0.0.1");
-    let (v, procs, ports, _) = parse_tsv(&h.tsv);
+    let (v, procs, ports, _, errors) = parse_tsv(&h.tsv);
     assert_eq!(v, 2);
     assert!(
         procs
@@ -25,6 +25,11 @@ fn fixture_loopback_v4() {
             .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))),
         "helper pid must appear: {procs:?}"
     );
+    if darwin_pcblist_is_blind(&errors) {
+        assert!(ports.is_empty(), "a blind source cannot emit L rows: {h:?}", h = h.tsv);
+        return;
+    }
+    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -40,7 +45,13 @@ fn fixture_loopback_v4() {
 #[test]
 fn fixture_any_v4() {
     let h = hermetic_snapshot("0.0.0.0");
-    let (_, _, ports, _) = parse_tsv(&h.tsv);
+    let (_, procs, ports, _, errors) = parse_tsv(&h.tsv);
+    assert!(procs.iter().any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
+    if darwin_pcblist_is_blind(&errors) {
+        assert!(ports.is_empty());
+        return;
+    }
+    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -62,7 +73,13 @@ fn fixture_loopback_v6() {
             return;
         }
     };
-    let (_, _, ports, _) = parse_tsv(&h.tsv);
+    let (_, procs, ports, _, errors) = parse_tsv(&h.tsv);
+    assert!(procs.iter().any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
+    if darwin_pcblist_is_blind(&errors) {
+        assert!(ports.is_empty());
+        return;
+    }
+    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -84,7 +101,13 @@ fn fixture_any_v6() {
             return;
         }
     };
-    let (_, _, ports, _) = parse_tsv(&h.tsv);
+    let (_, procs, ports, _, errors) = parse_tsv(&h.tsv);
+    assert!(procs.iter().any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
+    if darwin_pcblist_is_blind(&errors) {
+        assert!(ports.is_empty());
+        return;
+    }
+    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -107,7 +130,13 @@ fn fixture_v4_mapped_loopback() {
             return;
         }
     };
-    let (_, _, ports, _) = parse_tsv(&h.tsv);
+    let (_, procs, ports, _, errors) = parse_tsv(&h.tsv);
+    assert!(procs.iter().any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
+    if darwin_pcblist_is_blind(&errors) {
+        assert!(ports.is_empty());
+        return;
+    }
+    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,
@@ -140,11 +169,15 @@ fn pid_without_listener_has_no_claimed_listener() {
         tsv.starts_with("V\t2\n") || tsv == "V\t2",
         "must begin with version line, got {tsv:?}"
     );
-    let (v, procs, ports, _) = parse_tsv(&tsv);
+    let (v, procs, ports, _, errors) = parse_tsv(&tsv);
     assert_eq!(v, 2);
     assert!(
         procs.iter().any(|p| p.starts_with(&format!("P\t{pid}\t"))),
         "asked pid must appear so empty L is 'no listeners', not 'saw nothing'"
+    );
+    assert!(
+        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        "unexpected source errors: {errors:?}"
     );
     // OSF6 emits unrelated host rows as unclaimed. It must not claim one for
     // this exact pid, which holds no listener.
@@ -210,10 +243,29 @@ fn json_mirrors_tsv_on_same_snapshot() {
 
     let tsv = String::from_utf8(tsv_out).unwrap();
     let json_s = String::from_utf8(json_out).unwrap();
-    let (v, _, ports, _) = parse_tsv(&tsv);
+    let (v, procs, ports, _, errors) = parse_tsv(&tsv);
     assert_eq!(v, 2);
     let val: serde_json::Value = serde_json::from_str(&json_s).expect("json");
     assert_eq!(val["version"], 2);
+    assert!(
+        procs
+            .iter()
+            .any(|p| p.starts_with(&format!("P\t{}\t", listener.pid))),
+        "partial snapshot must preserve process facts: {tsv}"
+    );
+    if darwin_pcblist_is_blind(&errors) {
+        assert!(ports.is_empty());
+        assert_eq!(
+            val["errors"][0],
+            serde_json::json!({
+                "source": "darwin_tcp_pcblist",
+                "code": "BLIND_OR_EMPTY"
+            })
+        );
+        assert!(val["ports"].as_array().is_some_and(Vec::is_empty));
+        return;
+    }
+    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     let tsv_addr = l_addr_for_port(&ports, listener.port);
     let json_ports = val["ports"].as_array().expect("ports");
     assert!(
@@ -230,7 +282,7 @@ fn json_mirrors_tsv_on_same_snapshot() {
 #[test]
 fn roots_includes_helper_process() {
     let h = hermetic_snapshot("127.0.0.1");
-    let (v, procs, ports, _) = parse_tsv(&h.tsv);
+    let (v, procs, ports, _, errors) = parse_tsv(&h.tsv);
     assert_eq!(v, 2);
     assert!(
         procs
@@ -238,6 +290,11 @@ fn roots_includes_helper_process() {
             .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))),
         "root pid must appear; procs={procs:?}"
     );
+    if darwin_pcblist_is_blind(&errors) {
+        assert!(ports.is_empty());
+        return;
+    }
+    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     assert_eq!(
         l_rows_for_port(&ports, h.port),
         1,

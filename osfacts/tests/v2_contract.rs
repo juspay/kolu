@@ -58,13 +58,25 @@ fn narrow_scope_emits_unclaimed_host_listener() {
     let outside = Listener::spawn("127.0.0.1");
     let out = osfacts()
         .args(["snapshot", "--pids", &claimed.pid.to_string(), "--ports"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let stdout = String::from_utf8(out).expect("utf8");
+        .output()
+        .expect("run osfacts");
+    let stdout = String::from_utf8(out.stdout).expect("utf8");
     let listeners = rows(&stdout, "L");
+    let errors = rows(&stdout, "E");
+
+    if errors
+        == [vec![
+            "E".to_owned(),
+            "darwin_tcp_pcblist".to_owned(),
+            "BLIND_OR_EMPTY".to_owned(),
+        ]]
+    {
+        assert!(!out.status.success(), "an E-only total failure must exit 1");
+        assert!(listeners.is_empty(), "a blind source cannot emit L rows: {stdout}");
+        return;
+    }
+    assert!(out.status.success(), "osfacts failed: {stdout}");
+    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
 
     let claimed_row = listeners
         .iter()
