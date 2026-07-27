@@ -59,6 +59,7 @@ fn snapshot_exit_code(snap: &Snapshot) -> ExitCode {
     let has_facts = !snap.procs.is_empty()
         || !snap.memory.is_empty()
         || !snap.start_times.is_empty()
+        || !snap.cpu_times.is_empty()
         || !snap.ports.is_empty()
         || !snap.unreadable.is_empty();
     if snap.errors.is_empty() || has_facts {

@@ -38,6 +38,8 @@ struct LiveWorld {
     unreadable_pids: HashSet<u32>,
     host_first: Option<String>,
     host_second: Option<String>,
+    cpu_time_first: Option<u64>,
+    cpu_time_second: Option<u64>,
     #[cfg(target_os = "macos")]
     ps_process_count: Option<usize>,
 }
@@ -216,6 +218,38 @@ fn memory_and_start_are_real(world: &mut LiveWorld) {
     assert!(
         start > 0 && start <= now,
         "start instant must be in the past: {body}"
+    );
+}
+
+#[when("I take two CPU-time snapshots of this process")]
+fn two_process_cpu_time_snapshots(world: &mut LiveWorld) {
+    let pid = std::process::id();
+    world.cpu_time_first = Some(read_process_cpu_time(world, pid));
+    thread::sleep(Duration::from_millis(20));
+    world.cpu_time_second = Some(read_process_cpu_time(world, pid));
+}
+
+fn read_process_cpu_time(world: &LiveWorld, pid: u32) -> u64 {
+    let body = world.run_osfacts(&[
+        "snapshot",
+        "--pids",
+        &pid.to_string(),
+        "--cpu-time",
+    ]);
+    body.lines()
+        .find_map(|line| line.strip_prefix(&format!("C\t{pid}\t")))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("C row for current process missing: {body}"))
+}
+
+#[then("process CPU time is positive and does not decrease")]
+fn process_cpu_time_is_cumulative(world: &mut LiveWorld) {
+    let first = world.cpu_time_first.expect("first cpu time");
+    let second = world.cpu_time_second.expect("second cpu time");
+    assert!(first > 0, "process CPU time must be positive: {first}");
+    assert!(
+        second >= first,
+        "process CPU time decreased: first={first}, second={second}"
     );
 }
 

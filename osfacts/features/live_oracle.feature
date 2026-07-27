@@ -23,6 +23,10 @@ Feature: Live-host oracle (lane 2 — never gates)
     When I snapshot this process's memory and start time
     Then osfacts reports positive RSS and a past start instant
 
+  Scenario: Process CPU time is cumulative
+    When I take two CPU-time snapshots of this process
+    Then process CPU time is positive and does not decrease
+
   Scenario: An unreadable launchd does not hide its readable descendants on darwin
     When I snapshot launchd's subtree as an unprivileged darwin user
     Then the snapshot reports launchd's readable process tree without hiding its blindness

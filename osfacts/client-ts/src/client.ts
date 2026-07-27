@@ -37,6 +37,10 @@ export interface StartTimeRow {
   pid: number;
   startUnixUs: number;
 }
+export interface ProcessCpuTimeRow {
+  pid: number;
+  cpuTimeUs: number;
+}
 interface ListenerFact {
   port: number;
   address: string;
@@ -45,7 +49,12 @@ interface ListenerFact {
 export type ListenerRow =
   | (ListenerFact & { status: "claimed"; pid: number })
   | (ListenerFact & { status: "unclaimed" });
-export type UnreadableFacet = "proc" | "ports" | "mem" | "start_time";
+export type UnreadableFacet =
+  | "proc"
+  | "ports"
+  | "mem"
+  | "start_time"
+  | "cpu_time";
 export interface UnreadableRow {
   pid: number;
   facet: UnreadableFacet;
@@ -90,6 +99,7 @@ export interface OsfactsReading {
   procs: ProcessRow[];
   memory: MemoryRow[];
   startTimes: StartTimeRow[];
+  cpuTimes: ProcessCpuTimeRow[];
   ports: ListenerRow[];
   unreadable: UnreadableRow[];
   /** Requested sources that were blind. Partial output still exits successfully. */
@@ -108,6 +118,7 @@ export interface SnapshotFacets {
   ports?: boolean;
   mem?: boolean;
   startTime?: boolean;
+  cpuTime?: boolean;
 }
 export interface HostFacets {
   load?: boolean;
@@ -164,6 +175,7 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
     procs: [],
     memory: [],
     startTimes: [],
+    cpuTimes: [],
     ports: [],
     unreadable: [],
     errors: [],
@@ -195,6 +207,13 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         out.startTimes.push({
           pid: integer(f[1], "start-time pid"),
           startUnixUs: integer(f[2], "start time"),
+        });
+        break;
+      case "C":
+        arity(f, 3, line);
+        out.cpuTimes.push({
+          pid: integer(f[1], "cpu-time pid"),
+          cpuTimeUs: integer(f[2], "cumulative cpu time"),
         });
         break;
       case "L": {
@@ -244,7 +263,9 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
       case "U": {
         arity(f, 4, line);
         const facet = f[2];
-        if (!["proc", "ports", "mem", "start_time"].includes(facet!))
+        if (
+          !["proc", "ports", "mem", "start_time", "cpu_time"].includes(facet!)
+        )
           throw new OsfactsClientError(
             "parse",
             `unknown unreadable facet: ${line}`,
@@ -387,6 +408,7 @@ function snapshotArgs(
   if (facets.ports) args.push("--ports");
   if (facets.mem) args.push("--mem");
   if (facets.startTime) args.push("--start-time");
+  if (facets.cpuTime) args.push("--cpu-time");
   return args;
 }
 const DEFAULT_SNAPSHOT: SnapshotFacets = { procs: true, ports: true };
@@ -395,6 +417,7 @@ function emptyReading(): OsfactsReading {
     procs: [],
     memory: [],
     startTimes: [],
+    cpuTimes: [],
     ports: [],
     unreadable: [],
     errors: [],

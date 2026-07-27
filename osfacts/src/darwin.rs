@@ -6,8 +6,8 @@
 use crate::cli::{HostArgs, Scope, SnapshotArgs};
 use osfacts::{
     errno_name, hex_bytes, sanitize_name, slot_from_vflag, AddressSlot, Attribution, Cpu, Disk,
-    HostMemory, HostSnapshot, Load, Memory, Network, Port, Proc, Snapshot, SourceError, StartTime,
-    Swap, Unreadable,
+    HostMemory, HostSnapshot, Load, Memory, Network, Port, Proc, ProcessCpuTime, Snapshot,
+    SourceError, StartTime, Swap, Unreadable,
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
@@ -63,6 +63,28 @@ struct ProcBsdInfo {
     pbi_nice: i32,
     pbi_start_tvsec: u64,
     pbi_start_tvusec: u64,
+}
+
+#[repr(C)]
+struct ProcTaskInfo {
+    _pti_virtual_size: u64,
+    pti_resident_size: u64,
+    pti_total_user: u64,
+    pti_total_system: u64,
+    _pti_threads_user: u64,
+    _pti_threads_system: u64,
+    _pti_policy: i32,
+    _pti_faults: i32,
+    _pti_pageins: i32,
+    _pti_cow_faults: i32,
+    _pti_messages_sent: i32,
+    _pti_messages_received: i32,
+    _pti_syscalls_mach: i32,
+    _pti_syscalls_unix: i32,
+    _pti_csw: i32,
+    _pti_threadnum: i32,
+    _pti_numrunning: i32,
+    _pti_priority: i32,
 }
 
 #[repr(C)]
@@ -156,6 +178,7 @@ const _: () = assert!(mem::size_of::<TcpSockInfo>() == 120);
 const _: () = assert!(mem::size_of::<SocketInfo>() == 768);
 const _: () = assert!(mem::size_of::<SocketFdInfo>() == 792);
 const _: () = assert!(mem::size_of::<ProcBsdInfo>() == 136);
+const _: () = assert!(mem::size_of::<ProcTaskInfo>() == 96);
 
 extern "C" {
     fn proc_listpids(type_: u32, typeinfo: u32, buffer: *mut c_void, buffersize: c_int) -> c_int;
@@ -212,10 +235,18 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 Err(err) => push_unreadable(&mut snap, pid, "proc", *err),
             }
         }
+        let task = if args.mem || args.cpu_time {
+            Some(read_task(pid))
+        } else {
+            None
+        };
         if args.mem {
-            match read_rss(pid) {
-                Ok(rss_bytes) => snap.memory.push(Memory { pid, rss_bytes }),
-                Err(err) => push_unreadable(&mut snap, pid, "mem", err),
+            match task.as_ref().expect("task requested") {
+                Ok(row) => snap.memory.push(Memory {
+                    pid,
+                    rss_bytes: row.pti_resident_size,
+                }),
+                Err(err) => push_unreadable(&mut snap, pid, "mem", *err),
             }
         }
         if args.start_time {
@@ -225,6 +256,19 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                     start_unix_us: row.start_unix_us,
                 }),
                 Err(err) => push_unreadable(&mut snap, pid, "start_time", *err),
+            }
+        }
+        if args.cpu_time {
+            match task.as_ref().expect("task requested") {
+                Ok(row) => snap.cpu_times.push(ProcessCpuTime {
+                    pid,
+                    // XNU's proc_taskinfo totals are nanoseconds.
+                    cpu_time_us: row
+                        .pti_total_user
+                        .saturating_add(row.pti_total_system)
+                        / 1_000,
+                }),
+                Err(err) => push_unreadable(&mut snap, pid, "cpu_time", *err),
             }
         }
     }
@@ -267,6 +311,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     snap.procs.sort_by_key(|row| row.pid);
     snap.memory.sort_by_key(|row| row.pid);
     snap.start_times.sort_by_key(|row| row.pid);
+    snap.cpu_times.sort_by_key(|row| row.pid);
     snap.ports.sort_by_key(|row| row.port);
     snap.unreadable
         .sort_by_key(|row| (row.pid, row.facet.clone()));
@@ -428,22 +473,20 @@ fn read_bsd(pid: u32) -> Result<BsdRow, i32> {
     }
 }
 
-fn read_rss(pid: u32) -> Result<u64, i32> {
+fn read_task(pid: u32) -> Result<ProcTaskInfo, i32> {
     unsafe {
-        let mut task = [0u8; 96];
+        let mut task = mem::zeroed::<ProcTaskInfo>();
         let n = proc_pidinfo(
             pid as c_int,
             PROC_PIDTASKINFO,
             0,
-            task.as_mut_ptr().cast(),
-            task.len() as c_int,
+            (&raw mut task).cast(),
+            mem::size_of::<ProcTaskInfo>() as c_int,
         );
-        if n < 16 {
+        if n < mem::size_of::<ProcTaskInfo>() as c_int {
             return Err(errno());
         }
-        Ok(u64::from_ne_bytes(
-            task[8..16].try_into().expect("fixed slice"),
-        ))
+        Ok(task)
     }
 }
 

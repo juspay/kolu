@@ -101,9 +101,9 @@ same verb with different facets, never a consumer-shaped flag or mode:</p>
 </tr>
 <tr>
 <td>drishti’s inspector</td>
-<td>the process tree under a service, with memory and age</td>
-<td><code>osfacts snapshot --roots 991 --procs --mem --start-time</code></td>
-<td>one row per descendant with RSS and start time</td>
+<td>the process tree under a service, with memory, age, and CPU%</td>
+<td><code>osfacts snapshot --roots 991 --procs --mem --start-time --cpu-time</code></td>
+<td>one row per descendant with RSS, start time, and cumulative CPU microseconds; CPU% is a consumer-side diff</td>
 </tr>
 <tr>
 <td>kolu’s daemon supervisor</td>
@@ -137,9 +137,9 @@ same verb with different facets, never a consumer-shaped flag or mode:</p>
 <em>ask</em>, not the host — the property no surveyed tool has and the one the
 measurements say matters most.</li>
 <li><strong>Facets</strong> so a consumer pays only for what it reads: <code>--procs</code>, <code>--ports</code>,
-<code>--mem</code>, <code>--start-time</code>. <code>socket-holders</code> and <code>host</code> are separate verbs
-because they answer different questions (a path, not a pid set; the machine,
-not a process).</li>
+<code>--mem</code>, <code>--start-time</code>, <code>--cpu-time</code>. <code>socket-holders</code> and <code>host</code> are
+separate verbs because they answer different questions (a path, not a pid
+set; the machine, not a process).</li>
 <li><strong>One versioned schema.</strong> TSV on the hot path (<code>V&lt;TAB&gt;1</code> first, tagged rows),
 <code>--json</code> for humans and one-offs.</li>
 <li><strong>Raw address bytes, never a <code>wildcard</code> boolean.</strong> Consumers keep exactly one
@@ -279,8 +279,8 @@ gauges, <code>vm_stat</code>, <code>sysctl</code>, <code>netstat -ib</code>, Nod
 <td>OSF1</td>
 </tr>
 <tr>
-<td><strong>OSF3 — memory &amp; age facets</strong></td>
-<td><code>--mem</code> + <code>--start-time</code>: kolu’s <code>memorySampler</code> gains a true per-pid read and the supervisor gains start-time identity; drishti’s process detail gains RSS and age (absent from #122 by contract, never fabricated) — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong></td>
+<td><strong>OSF3 — process detail facets</strong></td>
+<td><code>--mem</code> + <code>--start-time</code> + <code>--cpu-time</code>: kolu’s <code>memorySampler</code> gains a true per-pid read and the supervisor gains start-time identity; drishti’s process detail gains RSS, age, and cumulative user-plus-system CPU microseconds so its CPU% column can be restored as a consumer-side diff — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong></td>
 <td>OSF1</td>
 </tr>
 <tr>

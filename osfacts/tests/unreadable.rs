@@ -55,6 +55,7 @@ fn vanished_pid_yields_u_row() {
             &gone.to_string(),
             "--procs",
             "--ports",
+            "--cpu-time",
         ])
         .assert()
         .success()
@@ -73,7 +74,7 @@ fn vanished_pid_yields_u_row() {
     assert!(
         unreadable
             .iter()
-            .any(|u| u.starts_with(&format!("U\t{gone}\t"))),
-        "expected a U row for pid {gone}; unreadable={unreadable:?}"
+            .any(|u| u.starts_with(&format!("U\t{gone}\tcpu_time\t"))),
+        "expected a cpu_time U row for pid {gone}; unreadable={unreadable:?}"
     );
 }

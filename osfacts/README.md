@@ -13,7 +13,7 @@ way through seven of them before concluding we had to write this one.
 
 ```sh
 osfacts snapshot --roots 4242 --procs --ports     # this subtree: procs + listening ports
-osfacts snapshot --pids 991 --mem --start-time    # exactly these pids: RSS + start time
+osfacts snapshot --pids 991 --mem --start-time --cpu-time # exact pids: RSS + start + cumulative CPU µs
 osfacts host --load --mem --cpu --net --disk      # machine gauges + cumulative counters
 osfacts snapshot --procs --json | jq              # same facts, readable
 ```
@@ -59,6 +59,11 @@ how they come to disagree. And CPU time is cumulative per row, so CPU% is a
 diff between two snapshots on your clock. A one-shot sampler should never
 sleep; one tool we measured sleeps ~30 ms per call to compute a rate nobody
 asked it for.
+
+`--cpu-time` emits `C <pid> <cpu_time_us>`: user plus system CPU time since
+process start, normalized to microseconds on both platforms. An unreadable pid
+emits `U <pid> cpu_time <errno>` instead. The tool never computes CPU%; a
+consumer differences two `cpu_time_us` values over its own wall-clock interval.
 
 Source blindness is an `E` row, not an instruction to discard facts that did
 arrive. A partial snapshot exits successfully and leaves reject-versus-render
@@ -139,8 +144,9 @@ worth keeping readable.
 ## Status
 
 OSF1, OSF2, OSF3, OSF6, and OSF7 are in: the binary's process, listener,
-RSS, start-time, and host-telemetry facts on both platforms, plus kolu's port
-and memory sensors and start-qualified daemon ownership. The contract is
+RSS, start-time, per-process cumulative CPU-time, and host-telemetry facts on
+both platforms, plus kolu's port and memory sensors and start-qualified daemon
+ownership. The contract is
 versioned TSV + `--json`, with mandatory `unreadable` and source-error rows,
 and kolu spawns the baked store path
 (`KOLU_OSFACTS_BIN`). The TypeScript client lives at `client-ts/` as the

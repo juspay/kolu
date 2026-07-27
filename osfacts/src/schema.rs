@@ -27,6 +27,13 @@ pub struct StartTime {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ProcessCpuTime {
+    pub pid: u32,
+    #[serde(rename = "cpuTimeUs")]
+    pub cpu_time_us: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum Attribution {
     Claimed { pid: u32 },
@@ -63,6 +70,8 @@ pub struct Snapshot {
     pub memory: Vec<Memory>,
     #[serde(rename = "startTimes")]
     pub start_times: Vec<StartTime>,
+    #[serde(rename = "cpuTimes")]
+    pub cpu_times: Vec<ProcessCpuTime>,
     pub ports: Vec<Port>,
     pub unreadable: Vec<Unreadable>,
     pub errors: Vec<SourceError>,
@@ -86,6 +95,9 @@ impl Snapshot {
         }
         for s in &self.start_times {
             writeln!(out, "S\t{}\t{}", s.pid, s.start_unix_us)?;
+        }
+        for c in &self.cpu_times {
+            writeln!(out, "C\t{}\t{}", c.pid, c.cpu_time_us)?;
         }
         for l in &self.ports {
             let (status, pid) = match l.attribution {

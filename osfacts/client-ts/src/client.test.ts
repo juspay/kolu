@@ -19,6 +19,7 @@ const SAMPLE = [
   "P\t4242\t4200\tnode",
   "M\t4242\t12345678",
   "S\t4242\t1710000000123456",
+  "C\t4242\t987654",
   "L\tclaimed\t4242\t1000\t5173\t7f000001",
   `L\tunclaimed\t-\t0\t8081\t${V4_MAPPED_LOOPBACK}`,
   "U\t991\tports\tEACCES",
@@ -27,7 +28,7 @@ const SAMPLE = [
 ].join("\n");
 
 describe("parseOsfactsOutput", () => {
-  it("reads the v2 P/M/S/L/U contract", () => {
+  it("reads the v2 P/M/S/C/L/U/E contract", () => {
     const r = parseOsfactsOutput(SAMPLE);
     expect(r.procs).toEqual([
       { pid: 1, ppid: 0, name: "launchd" },
@@ -38,6 +39,7 @@ describe("parseOsfactsOutput", () => {
     expect(r.startTimes).toEqual([
       { pid: 4242, startUnixUs: 1710000000123456 },
     ]);
+    expect(r.cpuTimes).toEqual([{ pid: 4242, cpuTimeUs: 987654 }]);
     expect(r.ports).toEqual([
       {
         status: "claimed",
@@ -83,6 +85,7 @@ describe("parseOsfactsOutput", () => {
       "V\t2\nP\tnotapid\t0\tlaunchd\n",
       "V\t2\nM\t1\t0\textra\n",
       "V\t2\nS\t1\t9999999999999999\n",
+      "V\t2\nC\t1\tnot-a-time\n",
       "V\t2\nL\towned\t1\t-\t8080\t00000000\n",
       "V\t2\nL\tclaimed\t-\t-\t8080\t00000000\n",
       "V\t2\nL\tunclaimed\t1\t-\t8080\t00000000\n",

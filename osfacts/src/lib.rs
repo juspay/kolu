@@ -13,6 +13,7 @@ pub use decode::{slot_from_vflag, AddressSlot, AF_INET, AF_INET6, INI_IPV4, INI_
 pub use proc_addr::{decode_network_hex, decode_proc_hex, encode_hex, encode_proc_hex};
 pub use schema::{
     errno_name, hex_bytes, sanitize_name, Attribution, Cpu, Disk, HostMemory, HostSnapshot, Load,
-    Memory, Network, Port, Proc, Snapshot, SourceError, StartTime, Swap, Unreadable,
+    Memory, Network, Port, Proc, ProcessCpuTime, Snapshot, SourceError, StartTime, Swap,
+    Unreadable,
     SCHEMA_VERSION,
 };

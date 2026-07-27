@@ -4,8 +4,8 @@
 use crate::cli::{HostArgs, Scope, SnapshotArgs};
 use osfacts::{
     decode_proc_hex, errno_name, hex_bytes, sanitize_name, Attribution, Cpu, Disk, HostMemory,
-    HostSnapshot, Load, Memory, Network, Port, Proc, Snapshot, SourceError, StartTime, Swap,
-    Unreadable,
+    HostSnapshot, Load, Memory, Network, Port, Proc, ProcessCpuTime, Snapshot, SourceError,
+    StartTime, Swap, Unreadable,
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
@@ -23,6 +23,17 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             Ok(value) => Some(value),
             Err(err) => {
                 snap.errors.push(source_error("proc_stat_btime", err));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let cpu_hz = if args.cpu_time {
+        match clock_ticks() {
+            Ok(value) => Some(value),
+            Err(err) => {
+                snap.errors.push(source_error("sysconf_clk_tck", err));
                 None
             }
         }
@@ -51,6 +62,12 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             match read_start_time(pid, boot_us) {
                 Ok(start_unix_us) => snap.start_times.push(StartTime { pid, start_unix_us }),
                 Err(err) => push_unreadable(&mut snap, pid, "start_time", err),
+            }
+        }
+        if let Some(cpu_hz) = cpu_hz {
+            match read_cpu_time(pid, cpu_hz) {
+                Ok(cpu_time_us) => snap.cpu_times.push(ProcessCpuTime { pid, cpu_time_us }),
+                Err(err) => push_unreadable(&mut snap, pid, "cpu_time", err),
             }
         }
     }
@@ -88,6 +105,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     snap.procs.sort_by_key(|row| row.pid);
     snap.memory.sort_by_key(|row| row.pid);
     snap.start_times.sort_by_key(|row| row.pid);
+    snap.cpu_times.sort_by_key(|row| row.pid);
     snap.ports.sort_by_key(|row| {
         let pid = match row.attribution {
             Attribution::Claimed { pid } => pid,
@@ -286,6 +304,17 @@ fn read_start_time(pid: u32, boot_us: u64) -> Result<u64, i32> {
         .parse::<u64>()
         .map_err(|_| libc::EINVAL)?;
     Ok(boot_us + ticks.saturating_mul(1_000_000) / clock_ticks()?)
+}
+
+fn read_cpu_time(pid: u32, hz: u64) -> Result<u64, i32> {
+    let stat = read_string(&format!("/proc/{pid}/stat"))?;
+    let user = parse_stat_field(&stat, 11)?
+        .parse::<u64>()
+        .map_err(|_| libc::EINVAL)?;
+    let system = parse_stat_field(&stat, 12)?
+        .parse::<u64>()
+        .map_err(|_| libc::EINVAL)?;
+    Ok(ticks_us(user.saturating_add(system), hz))
 }
 
 struct Listener {

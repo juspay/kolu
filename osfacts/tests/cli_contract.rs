@@ -26,7 +26,11 @@ fn fixture_loopback_v4() {
         "helper pid must appear: {procs:?}"
     );
     if darwin_pcblist_is_blind(&errors) {
-        assert!(ports.is_empty(), "a blind source cannot emit L rows: {h:?}", h = h.tsv);
+        assert!(
+            ports.is_empty(),
+            "a blind source cannot emit L rows: {h:?}",
+            h = h.tsv
+        );
         return;
     }
     assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
@@ -46,7 +50,9 @@ fn fixture_loopback_v4() {
 fn fixture_any_v4() {
     let h = hermetic_snapshot("0.0.0.0");
     let (_, procs, ports, _, errors) = parse_tsv(&h.tsv);
-    assert!(procs.iter().any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
+    assert!(procs
+        .iter()
+        .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
     if darwin_pcblist_is_blind(&errors) {
         assert!(ports.is_empty());
         return;
@@ -74,7 +80,9 @@ fn fixture_loopback_v6() {
         }
     };
     let (_, procs, ports, _, errors) = parse_tsv(&h.tsv);
-    assert!(procs.iter().any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
+    assert!(procs
+        .iter()
+        .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
     if darwin_pcblist_is_blind(&errors) {
         assert!(ports.is_empty());
         return;
@@ -102,7 +110,9 @@ fn fixture_any_v6() {
         }
     };
     let (_, procs, ports, _, errors) = parse_tsv(&h.tsv);
-    assert!(procs.iter().any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
+    assert!(procs
+        .iter()
+        .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
     if darwin_pcblist_is_blind(&errors) {
         assert!(ports.is_empty());
         return;
@@ -131,7 +141,9 @@ fn fixture_v4_mapped_loopback() {
         }
     };
     let (_, procs, ports, _, errors) = parse_tsv(&h.tsv);
-    assert!(procs.iter().any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
+    assert!(procs
+        .iter()
+        .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
     if darwin_pcblist_is_blind(&errors) {
         assert!(ports.is_empty());
         return;

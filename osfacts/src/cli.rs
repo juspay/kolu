@@ -16,6 +16,7 @@ pub struct SnapshotArgs {
     pub ports: bool,
     pub mem: bool,
     pub start_time: bool,
+    pub cpu_time: bool,
     pub json: bool,
 }
 
@@ -53,7 +54,7 @@ const HELP: &str = "\
 osfacts — scoped, honest OS process & socket facts
 
 Usage:
-  osfacts snapshot [--roots PIDS|--pids PIDS] [--procs] [--ports] [--mem] [--start-time] [--json]
+  osfacts snapshot [--roots PIDS|--pids PIDS] [--procs] [--ports] [--mem] [--start-time] [--cpu-time] [--json]
   osfacts host [--load] [--mem] [--cpu] [--net] [--disk] [--json]
 ";
 
@@ -76,8 +77,8 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
 
 fn parse_snapshot(parser: &mut lexopt::Parser) -> Result<SnapshotArgs, CliError> {
     let (mut roots, mut pids) = (None, None);
-    let (mut procs, mut ports, mut mem, mut start_time, mut json) =
-        (false, false, false, false, false);
+    let (mut procs, mut ports, mut mem, mut start_time, mut cpu_time, mut json) =
+        (false, false, false, false, false, false);
     while let Some(arg) = parser.next().map_err(lex)? {
         match arg {
             Long("roots") => {
@@ -100,12 +101,13 @@ fn parse_snapshot(parser: &mut lexopt::Parser) -> Result<SnapshotArgs, CliError>
             Long("ports") => ports = true,
             Long("mem") => mem = true,
             Long("start-time") => start_time = true,
+            Long("cpu-time") => cpu_time = true,
             Long("json") => json = true,
             Short('h') | Long("help") => return Err(CliError::Help(HELP.into())),
             _ => return Err(CliError::Usage(format!("unexpected argument\n\n{HELP}"))),
         }
     }
-    if !procs && !ports && !mem && !start_time {
+    if !procs && !ports && !mem && !start_time && !cpu_time {
         return Err(CliError::Usage(format!(
             "at least one snapshot facet required\n\n{HELP}"
         )));
@@ -122,6 +124,7 @@ fn parse_snapshot(parser: &mut lexopt::Parser) -> Result<SnapshotArgs, CliError>
         ports,
         mem,
         start_time,
+        cpu_time,
         json,
     })
 }
