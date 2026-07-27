@@ -68,6 +68,9 @@ export async function resolveSystem(
   host: string,
   opts: ResolveSystemOptions,
 ): Promise<string> {
+  // Which arm we are on decides how a missing executable surfaces, and which
+  // executable a spawn fault is even ABOUT — see the failure classification below.
+  const local = isLocalHost(host);
   const { command, args } = buildSshProbeCommand(
     host,
     "nix-instantiate",
@@ -101,7 +104,10 @@ export async function resolveSystem(
     // ssh's stderr. ssh exits 255 for its OWN failures, so require both: the
     // refusal text AND the ssh-255 exit. (A localhost probe never sshs, so its
     // stderr can't match; a refusal that slips this guard merely stays an
-    // untyped, retried error — the safe default, never a wrong terminal verdict.)
+    // untyped, retried error — the safe default, never a wrong terminal verdict.
+    // NB 255 is ssh's CONVENTION for its own failures, not a guarantee — a remote
+    // command may legitimately exit 255 too. The text match is what carries the
+    // classification; the code is the corroborating guard.)
     if (refusal !== null && res.kind === "exit" && res.code === 255) {
       const { kind, line } = refusal;
       throw new ResolveDrvError(
@@ -111,20 +117,48 @@ export async function resolveSystem(
         { kind, failureCause: "remote", terminal: true },
       );
     }
+    // A missing Nix reaches us in two DIFFERENT shapes, because the two arms run
+    // the probe two different ways — and the exit-code shape alone would miss the
+    // local one entirely (it reported "host unreachable" and retried forever):
+    //
+    //   remote    → we spawn `ssh`, which exists; the REMOTE shell can't find
+    //               `nix-instantiate` and exits 127.
+    //   localhost → we spawn `nix-instantiate` DIRECTLY (no shell). An absent
+    //               executable never runs, so there is no exit code at all: Node
+    //               raises ENOENT as a spawn `error` event.
+    //
     // Exit 127 is POSIX for "the shell could not find the command" — every shell
     // honours the code even though each words its message differently (bash
     // "command not found", dash "not found", fish "Unknown command"), so the CODE
     // is the reliable signal and matching prose would only add ways to miss.
     // Unlike the ssh refusals above this needs no 255 companion: 127 IS the remote
     // command's own exit status, not text that could have come from elsewhere.
-    if (res.kind === "exit" && res.code === 127) {
+    // ENOENT is the same fact for the direct arm, and equally structural — hence
+    // `spawn-error.code`, never a scrape of the message text.
+    const absentExecutable =
+      (res.kind === "exit" && res.code === 127) ||
+      (res.kind === "spawn-error" && res.code === "ENOENT");
+    if (absentExecutable) {
+      // WHICH executable was absent depends on the arm: the direct arm was trying
+      // to run Nix itself, so ENOENT there IS the missing Nix. On the ssh arm the
+      // binary we spawned is `ssh`, so an ENOENT means THIS machine has no ssh —
+      // a local setup fault, not a statement about the far end.
+      if (res.kind === "spawn-error" && !local) {
+        // Bounded rather than terminal, matching how the sibling resolver treats a
+        // spawn fault (`agentDrv`'s `evaluationError`): it ends instead of
+        // retrying forever, without claiming a verdict about the remote host.
+        throw new ResolveDrvError(
+          `${host}: could not run \`ssh\` on THIS machine (${res.message}) — a remote host is reached by spawning ssh locally, so it cannot be dialled until ssh is installed and on kolu's PATH.`,
+          { kind: "unavailable", failureCause: "remote", terminal: false },
+        );
+      }
       throw new ResolveDrvError(
         `${host}: could not run \`nix-instantiate\` — ${
-          isLocalHost(host)
+          local
             ? "Nix is not installed, or not on this process's PATH"
             : "Nix is either not installed there, or not on the PATH of a NON-INTERACTIVE ssh session (a common single-user Nix install, whose profile only gets sourced by a login shell)"
         }. This agent is provisioned using the host's own Nix, so it cannot proceed without it — check with \`${
-          isLocalHost(host)
+          local
             ? "nix-instantiate --version"
             : `ssh ${host} nix-instantiate --version`
         }\`, and install Nix from https://nixos.asia/en/install if it is missing.`,

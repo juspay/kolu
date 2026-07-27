@@ -109,6 +109,13 @@ export function looksLikeNetworkError(line: string): boolean {
  *  classifier and the typed failure can never spell the same fact twice. */
 export type SshRefusal = "auth-refused" | "host-key-unverified";
 
+// Compiled once, not per line: `sshRefusalOf` runs on every stderr line of
+// every probe/dial, so a fresh RegExp literal per call would re-compile on
+// each of those invocations.
+const HOST_KEY_UNVERIFIED_RE = /host key verification failed/i;
+const AUTH_REFUSED_RE =
+  /permission denied \(|too many authentication failures/i;
+
 /** Heuristic sibling of {@link looksLikeNetworkError}: does an ssh stderr line
  *  prove a {@link SshRefusal}? Matched against the exact text OpenSSH emits —
  *  `Permission denied (publickey,…)` (the parenthesised auth-method list keeps
@@ -118,9 +125,8 @@ export type SshRefusal = "auth-refused" | "host-key-unverified";
  *  only means the failure stays an untyped transport error (retried) — never a
  *  wrong terminal verdict. */
 export function sshRefusalOf(line: string): SshRefusal | null {
-  if (/host key verification failed/i.test(line)) return "host-key-unverified";
-  if (/permission denied \(|too many authentication failures/i.test(line))
-    return "auth-refused";
+  if (HOST_KEY_UNVERIFIED_RE.test(line)) return "host-key-unverified";
+  if (AUTH_REFUSED_RE.test(line)) return "auth-refused";
   return null;
 }
 
