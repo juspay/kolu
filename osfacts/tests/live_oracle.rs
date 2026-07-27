@@ -478,10 +478,7 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
                     expected.pid
                 );
             }
-            for (tag, facet, facts) in [
-                ("M", "mem", &memory),
-                ("C", "cpu_time", &cpu_times),
-            ] {
+            for (tag, facet, facts) in [("M", "mem", &memory), ("C", "cpu_time", &cpu_times)] {
                 let has_fact = facts.iter().any(|row| row.get(1) == Some(&pid.as_str()));
                 let has_unreadable = unreadable
                     .iter()

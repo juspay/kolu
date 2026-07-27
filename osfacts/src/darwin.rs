@@ -209,12 +209,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
 
     for &pid in &wanted {
         let bsd = if args.procs || args.start_time || args.uid || args.status {
-            Some(
-                process_table
-                    .get(&pid)
-                    .cloned()
-                    .ok_or(libc::ESRCH),
-            )
+            Some(process_table.get(&pid).cloned().ok_or(libc::ESRCH))
         } else {
             None
         };
@@ -264,9 +259,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                         *timebase,
                     ),
                 }),
-                (Err(err), _) | (_, Err(err)) => {
-                    push_unreadable(&mut snap, pid, "cpu_time", *err)
-                }
+                (Err(err), _) | (_, Err(err)) => push_unreadable(&mut snap, pid, "cpu_time", *err),
             }
         }
         if args.uid {
@@ -430,9 +423,7 @@ fn read_mach_timebase() -> Result<MachTimebase, i32> {
 
 fn mach_ticks_to_us(user: u64, system: u64, timebase: MachTimebase) -> u64 {
     let ticks = u128::from(user).saturating_add(u128::from(system));
-    let nanoseconds = ticks
-        .saturating_mul(u128::from(timebase.numer))
-        / u128::from(timebase.denom);
+    let nanoseconds = ticks.saturating_mul(u128::from(timebase.numer)) / u128::from(timebase.denom);
     u64::try_from(nanoseconds / 1_000).unwrap_or(u64::MAX)
 }
 
@@ -452,11 +443,7 @@ fn select_pids(
     }
 }
 
-fn subtree(
-    roots: &[u32],
-    process_table: &HashMap<u32, BsdRow>,
-    snap: &mut Snapshot,
-) -> Vec<u32> {
+fn subtree(roots: &[u32], process_table: &HashMap<u32, BsdRow>, snap: &mut Snapshot) -> Vec<u32> {
     let mut children = HashMap::<u32, Vec<u32>>::new();
     for (&pid, row) in process_table {
         children.entry(row.ppid).or_default().push(pid);
@@ -778,6 +765,10 @@ fn listener_claims(pid: u32) -> Result<Vec<(u16, String)>, i32> {
 
 fn host_listeners() -> Result<Vec<(u16, String)>, i32> {
     let bytes = sysctl_bytes("net.inet.tcp.pcblist_n")?;
+    decode_host_listeners(&bytes)
+}
+
+fn decode_host_listeners(bytes: &[u8]) -> Result<Vec<(u16, String)>, i32> {
     if bytes.len() < 4 {
         return Ok(Vec::new());
     }
@@ -1123,14 +1114,11 @@ mod tests {
         bytes[KINFO_START_USEC_OFFSET..KINFO_START_USEC_OFFSET + 4]
             .copy_from_slice(&123_456i32.to_ne_bytes());
         bytes[KINFO_STATUS_OFFSET] = 3;
-        bytes[KINFO_PID_OFFSET..KINFO_PID_OFFSET + 4]
-            .copy_from_slice(&4242i32.to_ne_bytes());
+        bytes[KINFO_PID_OFFSET..KINFO_PID_OFFSET + 4].copy_from_slice(&4242i32.to_ne_bytes());
         bytes[KINFO_NICE_OFFSET] = (-5i8) as u8;
         bytes[KINFO_COMM_OFFSET..KINFO_COMM_OFFSET + 7].copy_from_slice(b"foreign");
-        bytes[KINFO_RUID_OFFSET..KINFO_RUID_OFFSET + 4]
-            .copy_from_slice(&501u32.to_ne_bytes());
-        bytes[KINFO_PPID_OFFSET..KINFO_PPID_OFFSET + 4]
-            .copy_from_slice(&42i32.to_ne_bytes());
+        bytes[KINFO_RUID_OFFSET..KINFO_RUID_OFFSET + 4].copy_from_slice(&501u32.to_ne_bytes());
+        bytes[KINFO_PPID_OFFSET..KINFO_PPID_OFFSET + 4].copy_from_slice(&42i32.to_ne_bytes());
 
         let decoded = decode_kinfo_proc(&bytes).expect("decode");
 
@@ -1192,6 +1180,30 @@ mod tests {
         assert_eq!(
             mach_ticks_to_us(750_000, 250_000, MachTimebase { numer: 1, denom: 1 }),
             1_000
+        );
+    }
+
+    #[test]
+    fn macos_27_platform_pcblist_decodes_every_netstat_listener() {
+        let bytes = include_bytes!("../tests/fixtures/darwin/macos27-pcblist-platform.bin");
+        let rows = decode_host_listeners(bytes).expect("decode platform-signed capture");
+
+        assert_eq!(bytes.len(), 54_872);
+        assert_eq!(rows.len(), 29);
+        assert!(rows
+            .iter()
+            .all(|(port, address)| *port != 0 && !address.is_empty()));
+    }
+
+    #[test]
+    fn macos_27_adhoc_pcblist_is_the_detectable_empty_shape() {
+        let bytes = include_bytes!("../tests/fixtures/darwin/macos27-pcblist-adhoc.bin");
+        let rows = decode_host_listeners(bytes).expect("decode ad-hoc capture");
+
+        assert_eq!(bytes.len(), 48);
+        assert!(
+            rows.is_empty(),
+            "the empty table must reach BLIND_OR_EMPTY detection"
         );
     }
 }
