@@ -82,6 +82,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "right-panel",
   },
   {
+    id: "amb-printed-localhost-url",
+    text: "Click a localhost URL the agent printed — a card offers forward & open through the same door as the Ports chips (⌘/Ctrl-click opens the raw URL with no card)",
+    doc: "remote-hosts",
+  },
+  {
     id: "amb-shuffle-theme",
     text: `${formatKeybind(ACTIONS.shuffleTheme.keybind)} shuffles the terminal color theme`,
     doc: "theming",

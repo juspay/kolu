@@ -82,6 +82,21 @@ to the machine rather than to any one terminal.
 Each of those rows also **names the terminal serving the port**, and the name is
 a link: click it and you land on the agent that started the thing.
 
+### A printed `localhost` URL is the same door
+
+Agents constantly print `http://localhost:5173/` (and `127.*`, `[::1]`,
+`0.0.0.0`). In your browser that hostname is the **wrong machine** — the laptop
+you are reading kolu from, not the host running the server. Click a loopback URL
+in the terminal and a small card appears at the cursor: when the scanner already
+sees that port on this terminal it offers **forward & open** (and copy), with
+the printed path carried through the door; when nothing is listening yet it says
+so instead of inventing a forward from text. ⌘/Ctrl-click opens the raw URL with
+no card. Non-loopback links keep the usual open behaviour.
+
+The card is **live** — leave it open while a server starts and it upgrades the
+moment the listener is real. Printed text never creates a port fact of its own;
+it only looks up what observation already established.
+
 [**Port forwarding**](/remote-hosts#port-forwarding) is documented in full under
 Remote Hosts — the two mechanisms, the one case that has no door at all, the
 `⌘K` → **Forward a port…** path for a port kolu never saw, and the security
