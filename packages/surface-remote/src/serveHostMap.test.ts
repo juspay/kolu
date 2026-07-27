@@ -442,6 +442,48 @@ describe("serveHostMap — failure EVIDENCE is minted at the classification seam
   });
 });
 
+describe("serveHostMap — a classified failure is per-frame REFERENCE-stable", () => {
+  it("does NOT re-publish a failed member on a SIBLING's session frame", async () => {
+    // The map's republish gate (`samePublished`) compares per field with `Object.is`, so
+    // it can only suppress if the producer hands back the SAME `failure` reference for an
+    // unchanged frame. A domain classifier does not: `padiFailureOf` — and `classify`
+    // here, deliberately the same shape — mints a FRESH object per call, and nothing
+    // downstream memoises (`derived.registry.resolve` re-runs the projection, and the
+    // republish loop calls `statusOf` for every member on every member's frame). Without
+    // `serveHostMap` holding the classification against its frame, a failed member
+    // re-published a wire frame on EVERY sibling's tick — O(M²) across a pool, on the arm
+    // most likely to sit occupied for hours.
+    const pf = fakePool();
+    const served = serveHostMap(map, pf.pool, {
+      linkFor: () => ({ surface: {} }),
+      failureOf: classify,
+      connection,
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    pf.add(
+      "a",
+      fakeSession(
+        st("failed", "ssh gave up", [{ source: "local", line: "dial 1" }]),
+      ),
+    );
+    const b = fakeSession(connected(0));
+    pf.add("b", b);
+
+    const iter = await entriesGet(link, "a");
+    expect((await iter.next()).value).toMatchObject({ kind: "failed" });
+
+    // A sibling's own session frame fires the family: every member is re-resolved and
+    // re-classified. `a` did not change, so it must publish nothing.
+    b.setState(connected(5));
+    const verdict = await Promise.race([
+      iter.next().then(() => "re-published" as const),
+      new Promise<"quiet">((r) => setTimeout(() => r("quiet"), 25)),
+    ]);
+    expect(verdict).toBe("quiet");
+    served.dispose();
+  });
+});
+
 describe("serveHostMap — the fail-loud seam (PR4: no fabricated failure)", () => {
   it("throws UnclassifiedHostSessionError for a member with no session (the has()/getSession() race)", async () => {
     // A pool that reports a member but hands back no session — the unreachable-in-

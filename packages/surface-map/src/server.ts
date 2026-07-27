@@ -684,14 +684,19 @@ export function serveSurfaceMap<
   // republishing (exactly what happened when the `failed` arm gained `evidence`). Over
   // the key union the gate cannot miss a field it was never told about.
   //
-  // `Object.is` is the right per-field test because every published field is
-  // reference- or value-stable per frame: `connection` is the cached `SessionState`
+  // `Object.is` is the right per-field test, but it only SUPPRESSES for a producer that
+  // hands back stable references: `connection` is the cached `SessionState`
   // (`projectConnection` is identity), `evidence` is that same frame's retained `log`,
-  // `failure` is the classifier's own value, and `kind`/`membershipId`/`clockOffset`
-  // are primitives. So `Object.is` is exactly "did the source hand a new value", and a
-  // rebuilt-but-equal value merely RE-emits (safe) — the gate still never MISSES a
-  // real change, which is the only direction that matters. A differing key COUNT (an
-  // arm gaining or losing an optional field) also re-emits, same safe direction.
+  // `kind`/`membershipId`/`clockOffset` are primitives, and a structural fault's
+  // evidence is the shared `NO_EVIDENCE`. `failure` is the one field a DOMAIN builds,
+  // so its stability is the producer's to provide, not this gate's to assume: kolu's
+  // `padiFailureOf` mints a fresh literal per call, and `serveHostMap` holds the
+  // classification against the frame it classified from precisely so this compare can
+  // suppress. A producer that rebuilds an equal `failure` per tick merely RE-emits —
+  // safe, but it re-emits every failed member on every sibling's frame, which is the
+  // O(M²) the gate exists to avoid. The gate still never MISSES a real change, which is
+  // the only direction that matters for correctness. A key present on one side only
+  // (an arm gaining or losing an optional field) also re-emits, same safe direction.
   const samePublished = (
     a: EntryStatus<Failure, Conn>,
     b: EntryStatus<Failure, Conn>,

@@ -143,6 +143,14 @@ terminal `failed` state that yields `null` fails loud with `UnclassifiedHostFail
 (unknown-host) race fails loud with `UnclassifiedHostSessionError`. There is no `"other"`
 fallback cause.
 
+`failureOf` is invoked **at most once per session frame per host**: `serveHostMap` holds
+each member's verdict against the frame it was classified from and reuses it until a new
+frame lands. That is not a cache in the staleness sense — the same frame classifies to the
+same value by definition — but it is load-bearing. A classifier is free to mint a fresh
+object per call (kolu's does), and the map's republish gate compares per field by
+reference; without the hold, every failed member re-published a wire frame on every
+*sibling's* tick.
+
 At that same classification seam, `serveHostMap` mints the failure's **evidence**: the
 session frame's retained `log` tail — the very frame `failureOf` just classified — is
 stapled onto the published failure record as `evidence` (see `@kolu/surface-map`'s

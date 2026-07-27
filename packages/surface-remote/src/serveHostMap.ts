@@ -262,6 +262,40 @@ export function serveHostMap<
   // survives the reshape — its eviction now rides the family's `onEvict`.
   const links = new Map<string, unknown>();
 
+  // Per-member classification cache, keyed by the FRAME the value was classified from.
+  //
+  // `failureOf` is a domain classifier this transport-only adapter does not control, and
+  // the real one (kolu's `padiFailureOf`) mints a FRESH object literal per call. Nothing
+  // downstream memoises: `derived.registry.resolve` re-runs `resolveEntry` on every read,
+  // and `serveSurfaceMap`'s republish loop calls `statusOf` for EVERY member on EVERY
+  // member's session frame. So without this the map's republish gate (`samePublished`,
+  // `Object.is` per field) saw a new `failure` reference every tick and re-published every
+  // failed member on every sibling's frame — O(M) wire frames per frame, O(M²) across a
+  // pool, on the arm most likely to sit occupied for hours (a standing refuse redialing).
+  //
+  // Keyed by the frame itself, so this is identity-preserving rather than a staleness
+  // window: the same `raw` classifies to the same value by definition, and a new frame
+  // re-classifies by construction. That gives `failure` exactly the per-frame reference
+  // stability `evidence` (`raw.log`) and `connection` (`project`, identity on the frame)
+  // already had — which is what the gate's comment claims and, before this, only assumed.
+  const classified = new Map<
+    string,
+    { frame: DownSessionState; failure: Failure }
+  >();
+  const classifyOnce = (
+    enc: string,
+    k: K,
+    session: S,
+    down: DownSessionState,
+  ): Failure | null => {
+    const hit = classified.get(enc);
+    if (hit !== undefined && Object.is(hit.frame, down)) return hit.failure;
+    const failure = opts.failureOf(k, session, down);
+    if (failure !== null) classified.set(enc, { frame: down, failure });
+    else classified.delete(enc);
+    return failure;
+  };
+
   // The ONE membership+state source. `reactiveFamily` fuses the pool's membership
   // `subscribe` with each session's own `onState` and owns — once, for the framework —
   // the membership diff, the last-frame hold (it caches the frames each session's `onState`
@@ -294,6 +328,7 @@ export function serveHostMap<
     // never left behind.
     onEvict: (enc) => {
       links.delete(enc);
+      classified.delete(enc);
     },
   });
 
@@ -354,7 +389,7 @@ export function serveHostMap<
             "defect; failing loud rather than publishing a malformed down state as warming.",
         );
       }
-      const failure = opts.failureOf(k, session, down);
+      const failure = classifyOnce(enc, k, session, down);
       if (projected.kind === "failed") {
         // A terminal `failed` session that yields NO domain failure is a producer
         // defect: the map's `failed` arm cannot exist without a schema-valid domain
