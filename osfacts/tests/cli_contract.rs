@@ -2,8 +2,7 @@
 //!
 //! Both platforms: self-referential bind-in-child (`osfacts-listener`) +
 //! scoped snapshot. Assertions pin *our* fixtures — never "the host table is
-//! empty". One optional empty-table check exists only inside the nix
-//! sandbox's private netns (see `host_ports_empty_in_sandbox_netns`).
+//! empty". Host-wide state is never an oracle: OSF6 deliberately reports it.
 
 mod common;
 
@@ -243,33 +242,5 @@ fn roots_includes_helper_process() {
         l_rows_for_port(&ports, h.port),
         1,
         "fixture port must appear exactly once; ports={ports:?}"
-    );
-}
-
-/// The one remaining "table is empty" pin: host-wide `--ports` with zero L
-/// rows. Exists only when positively inside a nix build sandbox
-/// (`NIX_BUILD_TOP` is set — the builder's private netns starts empty). On a
-/// noisy dev box this test does not exist (returns without asserting).
-/// nextest runs it alone so sibling bind fixtures cannot race the empty claim.
-#[cfg(target_os = "linux")]
-#[test]
-fn host_ports_empty_in_sandbox_netns() {
-    if std::env::var_os("NIX_BUILD_TOP").is_none() {
-        // Outside the sandbox: no claim, no fail — the test does not exist.
-        return;
-    }
-    let out = osfacts()
-        .args(["snapshot", "--ports"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let stdout = String::from_utf8(out).unwrap();
-    let (v, _, ports, _) = parse_tsv(&stdout);
-    assert_eq!(v, 2);
-    assert!(
-        ports.is_empty(),
-        "nix sandbox netns must start with zero listeners; ports={ports:?}"
     );
 }

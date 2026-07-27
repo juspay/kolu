@@ -96,13 +96,10 @@ Assertions are self-referential ("my fixture appears exactly"), never
 "the whole host table is empty", so a noisy dev box and a clean sandbox
 exercise the same code path. There is no `unshare` / private-netns trick:
 depending on a host kernel knob for user namespaces contradicted the
-hermetic claim (and broke ubuntu-latest CI). The two fields no test can
-pin — the real pid, the kernel-chosen port — are redacted to stable
+hermetic claim (and broke ubuntu-latest CI). The three fields no test can
+pin — the real pid, owning uid, and kernel-chosen port — are redacted to stable
 placeholders; everything else is byte-exact. The unreadable path is
 tested against pid 1, which is always present and always forbidden.
-One optional host-wide empty-table pin exists only inside the nix
-sandbox (`NIX_BUILD_TOP` set) and runs alone under nextest so sibling
-binds cannot race it.
 
 The second lane asks "did the OS break osfacts?" It runs the nix-built binary
 on a real, noisy host and diffs its answers against tools that don't share

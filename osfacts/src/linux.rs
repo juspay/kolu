@@ -305,6 +305,12 @@ fn load_listeners() -> Result<Vec<Listener>, (&'static str, i32)> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(("proc_net_tcp6", raw_errno(&e))),
     }
+    // A proc snapshot can transiently repeat the same socket while its row is
+    // moving between kernel tables. The inode is the socket identity used by
+    // fd attribution, so collapse only exact identity repeats; distinct
+    // SO_REUSEPORT sockets keep their distinct inodes and rows.
+    let mut seen = HashSet::new();
+    out.retain(|listener| seen.insert(listener.inode));
     Ok(out)
 }
 fn parse_proc_net(body: &str, out: &mut Vec<Listener>) -> io::Result<()> {
