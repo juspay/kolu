@@ -639,9 +639,6 @@ const DockRow: Component<{
   const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
   // Active-tile highlight follows the TILE registry (so a focused sleeping tile
-  // reads as the active row in PR 2); unread is terminal-attention, stays on
-  // the terminal store.
-  const rowActive = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
@@ -679,7 +676,6 @@ const DockRow: Component<{
               id: props.id,
               bucket: props.bucket,
               agentState: agent()?.state,
-              active: rowActive(),
               asking: pip().asking,
               unread: unread(),
             })}

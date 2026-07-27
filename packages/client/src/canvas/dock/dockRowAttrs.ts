@@ -22,6 +22,7 @@
  *  the wash reads. */
 
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import { useFocusedTerminal } from "../../terminal/useFocusedTerminal";
 import type { DockRowBucket } from "./dockRowRanking";
 
 export type DockRowAttrs = {
@@ -36,15 +37,21 @@ export type DockRowAttrs = {
 
 /** Build one row's shared attribute bag. Booleans render as the empty-string
  *  attribute or as `undefined` (absent) — CSS tests presence, so a `"false"`
- *  string would MATCH `[data-asking]` and wash a row that is not asking. */
+ *  string would MATCH `[data-asking]` and wash a row that is not asking.
+ *
+ *  There is deliberately NO `active` parameter. It used to take one, and every
+ *  row worked the answer out for itself — so the split entry, the one row type
+ *  that exists *because* its agent was invisible, handed in a hardcoded
+ *  `false` and stayed unlit when you clicked into it. Reading the shared
+ *  `useFocusedTerminal` derivation instead means a caller cannot supply a
+ *  wrong answer, because there is no longer an answer to supply. Called from a
+ *  component body, like every other reactive read here. */
 export function dockRowAttrs(row: {
   id: TerminalId;
   /** The ORDER bucket (`data-bucket`) — ordering tests and the rail glow. */
   bucket: DockRowBucket;
   /** The agent state verbatim, for debugging and e2e assertions. */
   agentState: AgentInfo["state"] | undefined;
-  /** Is this the row you are looking at — the wash's suppression. */
-  active: boolean;
   /** Blocked on you. Comes off the ATTENTION class (the bound pip's `asking`),
    *  never the ORDER bucket: those are different folds that agreed only by
    *  luck. Violet needs-you dominates amber unread when both hold, which the
@@ -58,7 +65,7 @@ export function dockRowAttrs(row: {
     "data-terminal-id": row.id,
     "data-bucket": row.bucket,
     "data-agent-state": row.agentState,
-    "data-active": row.active ? "" : undefined,
+    "data-active": useFocusedTerminal().isFocused(row.id) ? "" : undefined,
     "data-asking": row.asking ? "" : undefined,
     "data-unread": row.unread ? "" : undefined,
   };

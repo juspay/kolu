@@ -92,11 +92,6 @@ export const SubAgentRow: Component<{
               id: props.id,
               bucket: props.bucket,
               agentState: activeArm(m())?.agent?.state,
-              // A sub-entry is never the active row — activating it activates
-              // the PARENT tile and then focuses the split, so the highlight
-              // (and the wash's `:not([data-active])` suppression) belongs to
-              // the row above. Said out loud rather than omitted.
-              active: false,
               asking: pip().asking,
               unread: unread(),
             })}

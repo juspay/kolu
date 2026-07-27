@@ -24,7 +24,6 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { useTileStore } from "../../tile/useTileStore";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
@@ -176,9 +175,7 @@ function DockListRow(props: {
   onSelect: (id: TerminalId) => void;
 }) {
   const store = useTerminalStore();
-  const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  const rowActive = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   return (
     <Show when={combined()}>
@@ -208,7 +205,6 @@ function DockListRow(props: {
               id: props.id,
               bucket: props.bucket,
               agentState: activeArm(c().meta)?.agent?.state,
-              active: rowActive(),
               asking: pip().asking,
               unread: unread(),
             })}
