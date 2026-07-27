@@ -76,4 +76,27 @@ describe("rowPathsCss", () => {
     expect(css).not.toContain("a\rb.log");
     expect(css).toContain('[data-item-path="a\\D b.log"]');
   });
+
+  it("escapes a form feed — CSS counts it as a string newline as well", () => {
+    // Rarer than LF/CR but identical in consequence: an unescaped FF closes the
+    // string and takes the rest of the sheet with it.
+    const css = rowPathsCss(["a\fb.log"], DECL);
+    expect(css).not.toContain("a\fb.log");
+    expect(css).toContain('[data-item-path="a\\C b.log"]');
+  });
+
+  it("leaves no raw terminator INSIDE the attribute value, whatever the mix", () => {
+    // The set-level property: one path carrying every escapable character at
+    // once, so a future addition to the escape list can't be half-applied.
+    //
+    // Scoped to the attribute value deliberately — the sheet itself contains
+    // newlines as rule FORMATTING (`sel {\n  decl\n}`), so asserting the whole
+    // string is terminator-free would be asserting something false.
+    const css = rowPathsCss(['x\n\r\f\\"y.log'], DECL);
+    const value = css.match(
+      /\[data-item-path="((?:[^"\\]|\\.|\\\n)*)"\]/s,
+    )?.[1];
+    expect(value).toBeDefined();
+    for (const raw of ["\n", "\r", "\f"]) expect(value).not.toContain(raw);
+  });
 });

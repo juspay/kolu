@@ -22,6 +22,29 @@ describe("mergeBrowseInventory", () => {
       expect(out.pending).toBe(true);
     });
 
+    it("admits NO overlay when tracked is absent and NOT pending — the error path", () => {
+      // The case that makes rule 1 independent of readiness, and the one a
+      // pending-only gate (`if (trackedPending) …; else tracked ?? []`) would
+      // pass every other test in this file while getting wrong.
+      //
+      // It is reachable, not hypothetical: `createPolledQuery`'s `surfaceError`
+      // runs `setError(err); if (pending()) setPending(false)` — it clears
+      // pending WITHOUT ever writing a value. So after a failed first
+      // `fs.listAll` the tracked listing is `undefined` while `trackedPending`
+      // is already `false`, and a readiness-based gate would admit the whole
+      // overlay: a tree of nothing but dimmed rows, on the exact screen where
+      // the file list just failed to load.
+      const out = mergeBrowseInventory(undefined, ["node_modules/", ".env"], {
+        trackedPending: false,
+        ignoredPending: false,
+        showIgnored: true,
+      });
+      expect(out.paths).toEqual([]);
+      expect(out.ignored).toEqual([]);
+      // Asserted so readiness can't be smuggled in as the reason for the blank.
+      expect(out.pending).toBe(false);
+    });
+
     it("distinguishes that from a genuinely EMPTY tracked listing", () => {
       // An empty repo IS an authority — it says "nothing is tracked" — so the
       // overlay is admitted in full. This is the case `undefined` was being
@@ -50,7 +73,11 @@ describe("mergeBrowseInventory", () => {
 
     it("keeps the overlay a strict subset of the rendered paths", () => {
       const out = mergeBrowseInventory(["a.ts"], ["b.log", "a.ts"], settled);
-      for (const p of out.ignored) expect(out.paths).toContain(p);
+      // The concrete expectation, not a loop over `out.ignored` — an empty
+      // overlay would satisfy a loop vacuously, which is the failure mode this
+      // case exists to catch.
+      expect(out.ignored).toEqual(["b.log"]);
+      expect(out.paths).toEqual(["a.ts", "b.log"]);
     });
   });
 
