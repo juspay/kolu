@@ -319,18 +319,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 code: "BLIND_OR_EMPTY".into(),
             }),
             Ok(rows) => {
-                snap.ports = rows
-                    .into_iter()
-                    .map(|(port, address)| Port {
-                        attribution: claims
-                            .get(&(port, address.clone()))
-                            .and_then(|pids| pids.first())
-                            .map_or(Attribution::Unclaimed, |&pid| Attribution::Claimed { pid }),
-                        uid: None,
-                        port,
-                        address,
-                    })
-                    .collect();
+                snap.ports = attribute_host_listeners(rows, &claims);
             }
             Err(err) => snap.errors.push(source_error("darwin_tcp_pcblist", err)),
         }
@@ -818,6 +807,23 @@ fn decode_host_listeners(bytes: &[u8]) -> Result<Vec<(u16, String)>, i32> {
     Ok(out)
 }
 
+fn attribute_host_listeners(
+    rows: Vec<(u16, String)>,
+    claims: &HashMap<(u16, String), Vec<u32>>,
+) -> Vec<Port> {
+    rows.into_iter()
+        .map(|(port, address)| Port {
+            attribution: claims
+                .get(&(port, address.clone()))
+                .and_then(|pids| pids.first())
+                .map_or(Attribution::Unclaimed, |&pid| Attribution::Claimed { pid }),
+            uid: None,
+            port,
+            address,
+        })
+        .collect()
+}
+
 fn read_load() -> Result<Load, i32> {
     unsafe {
         let mut values = [0.0; 3];
@@ -1205,5 +1211,22 @@ mod tests {
             rows.is_empty(),
             "the empty table must reach BLIND_OR_EMPTY detection"
         );
+    }
+
+    #[test]
+    fn macos_27_gate_keeps_same_uid_fd_claims() {
+        let bytes = include_bytes!("../tests/fixtures/darwin/macos27-pcblist-adhoc.bin");
+        let host_rows = decode_host_listeners(bytes).expect("decode ad-hoc capture");
+        let claims = HashMap::from([((54314, "7f000001".into()), vec![4242])]);
+
+        let rows = attribute_host_listeners(host_rows, &claims);
+
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(
+            rows[0].attribution,
+            Attribution::Claimed { pid: 4242 }
+        ));
+        assert_eq!(rows[0].port, 54314);
+        assert_eq!(rows[0].address, "7f000001");
     }
 }
