@@ -97,7 +97,16 @@ async function seedPadi(
   writeStateRootManifest(dirname(socket), stateRoot);
   servers.push(await listenSocket(socket));
   if (gateHolder !== undefined) {
-    writeFileSync(join(dirname(socket), PADI_GATE_FILE), `${gateHolder}\n`);
+    // `wx` + 0600: create EXCLUSIVELY, never open an existing inode. The drawer is
+    // already a private `mkdtempSync` 0700 dir, so this cannot collide in practice
+    // — but writing into a path rooted at the shared os temp dir without exclusive
+    // creation is a symlink-swap shape (CodeQL `js/insecure-temporary-file`), and
+    // the honest fix is to make the create exclusive rather than to argue the
+    // drawer is safe.
+    writeFileSync(join(dirname(socket), PADI_GATE_FILE), `${gateHolder}\n`, {
+      flag: "wx",
+      mode: 0o600,
+    });
   }
   return { drawer, socket };
 }
