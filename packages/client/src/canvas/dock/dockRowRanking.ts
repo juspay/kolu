@@ -151,6 +151,21 @@ export type RankedDockRow = {
    *  so a fresh `waiting` agent is `linger` here (it keeps a dim glow). */
   pip: DockRowBucket;
   ts: number | null;
+  /** Agents running in this terminal's SPLITS, as indented sub-entries.
+   *
+   *  A split is a whole second terminal that the dock had no row for, so an
+   *  agent working in one was counted by its host's tab and visible nowhere in
+   *  the dock — a tab reading 4 above three rows, with the fourth agent
+   *  reachable only by clicking into the split. It gets a mark of its own now,
+   *  indented under the terminal it lives in rather than promoted to a peer
+   *  row: it IS subordinate, and flattening it would break the correspondence
+   *  between a top-level row and a `Cmd+N` shortcut.
+   *
+   *  Only splits with an agent appear. A plain `bash` split is what the `⊟ N`
+   *  chip already says, and giving every one a line would bury the signal this
+   *  exists to surface. Empty for a terminal with no agent-bearing splits —
+   *  which is nearly all of them. */
+  subRows: RankedDockRow[];
 };
 
 /** The recency timestamp the dock keys a row on — WHEN YOU PUT IT TO SLEEP
@@ -195,6 +210,7 @@ export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   isStale: (lastActivityAt: number | null) => boolean,
+  getSubIds: (parentId: TerminalId) => readonly TerminalId[] = () => [],
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {
@@ -204,13 +220,53 @@ export function rankDockRows(
     const parked = isStale(recencyAt);
     const bucket = classifyDockRow(meta, parked);
     const pip = paintDockRow(meta, parked);
-    rows.push({ id, bucket, pip, ts: recencyAt });
+    rows.push({
+      id,
+      bucket,
+      pip,
+      ts: recencyAt,
+      subRows: rankSubRows(getSubIds(id), getMeta),
+    });
   }
-  rows.sort((a, b) => {
-    if (a.ts !== b.ts) return tsRank(b.ts) - tsRank(a.ts);
-    return (
-      DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket]
-    );
-  });
+  rows.sort(byRecencyThenBucket);
   return rows;
+}
+
+/** Rank a terminal's SPLITS into the sub-entries its row carries, keeping only
+ *  the ones running an agent.
+ *
+ *  Deliberately not filtered by the activity window: a sub-entry belongs to its
+ *  parent row and shares its fate, so a split whose agent has been blocked for
+ *  hours stays visible as long as the terminal holding it does. Ranking a split
+ *  independently would let the dock hide the agent while still showing the
+ *  terminal it is running in — the exact invisibility this feature exists to
+ *  end. Sorted the same way peers are, so a blocked split leads its siblings. */
+function rankSubRows(
+  subIds: readonly TerminalId[],
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+): RankedDockRow[] {
+  const rows: RankedDockRow[] = [];
+  for (const id of subIds) {
+    const meta = getMeta(id);
+    if (!meta) continue;
+    // No agent, no entry — the `⊟ N` chip already accounts for plain splits.
+    if (!activeArm(meta)?.agent) continue;
+    rows.push({
+      id,
+      bucket: classifyDockRow(meta, false),
+      pip: paintDockRow(meta, false),
+      ts: rowRecencyAt(meta),
+      // Splits do not nest, so a sub-entry never has sub-entries of its own.
+      subRows: [],
+    });
+  }
+  rows.sort(byRecencyThenBucket);
+  return rows;
+}
+
+function byRecencyThenBucket(a: RankedDockRow, b: RankedDockRow): number {
+  if (a.ts !== b.ts) return tsRank(b.ts) - tsRank(a.ts);
+  return (
+    DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket]
+  );
 }

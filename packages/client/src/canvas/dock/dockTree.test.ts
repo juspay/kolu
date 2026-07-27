@@ -11,7 +11,7 @@ import { buildDockTree, sectionAttention } from "./dockTree";
 function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
   // dockTree only reads `bucket`/`ts`; the pip is exercised in dockRowRanking's
   // own tests, so mirror the order bucket here.
-  return { id: id as TerminalId, bucket, pip: bucket, ts };
+  return { id: id as TerminalId, bucket, pip: bucket, ts, subRows: [] };
 }
 
 function makeGetInfo(
@@ -263,6 +263,23 @@ describe("sectionAttention", () => {
       attention({ a: { klass: "asking", live: true } }),
     );
     expect(attn).toEqual({ active: 0, asking: 1, unseen: 0 });
+  });
+
+  it("counts an agent living in a split — the row it hangs under is not the only agent there", () => {
+    // The 4-vs-3 bug in the header's terms: the host tab counted the split's
+    // agent and the section header did not, because it folded top-level rows
+    // only.
+    const parent = row("p", "idle", 2);
+    parent.subRows = [row("s", "working", 1)];
+    const attn = sectionAttention(
+      [parent],
+      () => false,
+      attention({
+        p: { klass: "idle", live: false },
+        s: { klass: "working", live: true },
+      }),
+    );
+    expect(attn).toEqual({ active: 1, asking: 0, unseen: 0 });
   });
 
   it("counts unread independently — it is the badge axis, not the colour axis", () => {

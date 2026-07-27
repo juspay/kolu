@@ -39,8 +39,16 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   // memoized on its own. Flipping `showSleeping` invalidates only the outer
   // `buildDockTree` pass (an O(n) filter+group over the already-ranked rows),
   // not the sort.
+  // Splits ride along: `getSubTerminalIds` lets a row carry an indented entry
+  // for each agent running in one of its splits, so an agent the host tab
+  // counts is never invisible in the dock.
   const ranked = createMemo(() =>
-    rankDockRows(tileStore.tileIds(), store.getMetadata, isStale),
+    rankDockRows(
+      tileStore.tileIds(),
+      store.getMetadata,
+      isStale,
+      store.getSubTerminalIds,
+    ),
   );
   return createMemo(() =>
     buildDockTree(ranked(), store.getDisplayInfo, !showSleeping()),

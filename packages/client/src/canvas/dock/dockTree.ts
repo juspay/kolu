@@ -252,7 +252,10 @@ export function sectionAttention(
   let active = 0;
   let asking = 0;
   let unseen = 0;
-  for (const row of rows) {
+  // Sub-entries count too: an agent in a split is an agent, and the host tab
+  // has always counted it. Leaving it out here is what had a section header
+  // reporting one fewer than the tab above it.
+  for (const row of rows.flatMap((r) => [r, ...r.subRows])) {
     const attention = attentionOf(row.id);
     if (attention.klass === "asking") asking++;
     else if (isActive(attention)) active++;

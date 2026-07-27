@@ -322,3 +322,52 @@ describe("rowRecencyAt — the one recency the window and the row display share"
     expect(rowRecencyAt(meta)).toBe(999_000);
   });
 });
+
+describe("rankDockRows — split sub-entries", () => {
+  const PARENT = "parent" as TerminalId;
+  const AGENT_SPLIT = "split-agent" as TerminalId;
+  const PLAIN_SPLIT = "split-bash" as TerminalId;
+
+  const metas: Record<string, TerminalMetadata> = {
+    [PARENT]: makeMeta({ lastActivityAt: 100 }),
+    [AGENT_SPLIT]: makeMeta({
+      agent: makeAgent("thinking"),
+      lastActivityAt: 50,
+    }),
+    [PLAIN_SPLIT]: makeMeta({ lastActivityAt: 40 }),
+  };
+  const getMeta = (id: TerminalId) => metas[id as string];
+
+  function rank(subIds: TerminalId[]) {
+    return rankDockRows(
+      [PARENT],
+      getMeta,
+      () => false,
+      () => subIds,
+    );
+  }
+
+  it("gives an agent in a split its own entry under its parent", () => {
+    // The 4-vs-3 bug: padi counted an agent working in a split, the dock had
+    // no row for it anywhere, and it was reachable only by clicking into
+    // terminals one at a time.
+    const row = rank([AGENT_SPLIT])[0];
+    expect(row?.subRows.map((s) => s.id)).toEqual([AGENT_SPLIT]);
+    expect(row?.subRows[0]?.bucket).toBe("working");
+  });
+
+  it("leaves a plain shell split folded into the ⊟ chip", () => {
+    // Every split earning a line would bury the one that matters.
+    expect(rank([PLAIN_SPLIT])[0]?.subRows).toEqual([]);
+  });
+
+  it("keeps the parent row out of the flat shortcut order it does not belong in", () => {
+    // `Cmd+1..9` numbers top-level rows; a sub-entry must not shift them.
+    const rows = rank([AGENT_SPLIT]);
+    expect(rows.map((r) => r.id)).toEqual([PARENT]);
+  });
+
+  it("never nests — a sub-entry carries no sub-entries of its own", () => {
+    expect(rank([AGENT_SPLIT])[0]?.subRows[0]?.subRows).toEqual([]);
+  });
+});

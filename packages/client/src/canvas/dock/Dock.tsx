@@ -113,6 +113,7 @@ import {
   rowRecencyAt,
 } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
+import { SubAgentRow } from "./SubAgentRow";
 import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
@@ -572,12 +573,27 @@ const RepoSection: Component<{
       </div>
       <For each={props.group.rows}>
         {(row) => (
-          <DockRow
-            id={row.id}
-            bucket={row.bucket}
-            pip={row.pip}
-            flatIndex={props.flatIndexOf.get(row.id) ?? -1}
-          />
+          <>
+            <DockRow
+              id={row.id}
+              bucket={row.bucket}
+              pip={row.pip}
+              flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+            />
+            {/* Agents living in this terminal's splits, indented beneath it.
+             *  Empty for nearly every row — only agent-bearing splits earn a
+             *  line, so the signal stays rare enough to mean something. */}
+            <For each={row.subRows}>
+              {(sub) => (
+                <SubAgentRow
+                  id={sub.id}
+                  parentId={row.id}
+                  bucket={sub.bucket}
+                  pip={sub.pip}
+                />
+              )}
+            </For>
+          </>
         )}
       </For>
     </section>

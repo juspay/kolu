@@ -34,6 +34,7 @@ import {
 } from "../../ui/chromeSpacing";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
+import { SubAgentRow } from "./SubAgentRow";
 import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
@@ -129,12 +130,29 @@ function DockListSection(props: {
       </div>
       <For each={props.group.rows}>
         {(row) => (
-          <DockListRow
-            id={row.id}
-            bucket={row.bucket}
-            pip={row.pip}
-            onSelect={props.onSelect}
-          />
+          <>
+            <DockListRow
+              id={row.id}
+              bucket={row.bucket}
+              pip={row.pip}
+              onSelect={props.onSelect}
+            />
+            {/* Same indented sub-entries as the desktop dock, at touch
+             *  density — an agent in a split is no less invisible on a
+             *  phone. */}
+            <For each={row.subRows}>
+              {(sub) => (
+                <SubAgentRow
+                  id={sub.id}
+                  parentId={row.id}
+                  bucket={sub.bucket}
+                  pip={sub.pip}
+                  padClass="py-2"
+                  onSelected={() => props.onSelect(row.id)}
+                />
+              )}
+            </For>
+          </>
         )}
       </For>
     </section>
