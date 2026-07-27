@@ -5,6 +5,8 @@
 mod common;
 
 use common::{osfacts, Listener};
+use std::thread;
+use std::time::Duration;
 
 fn rows(stdout: &str, tag: &str) -> Vec<Vec<String>> {
     stdout
@@ -53,6 +55,33 @@ fn mem_and_start_time_are_independent_pid_facets() {
 }
 
 #[test]
+fn busy_process_cpu_time_increases_between_snapshots() {
+    let busy = Listener::spawn_busy();
+    let read = || {
+        let out = osfacts()
+            .args(["snapshot", "--pids", &busy.pid.to_string(), "--cpu-time"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let stdout = String::from_utf8(out).expect("utf8");
+        let cpu = rows(&stdout, "C");
+        assert_eq!(cpu.len(), 1, "{stdout}");
+        assert_eq!(cpu[0][1], busy.pid.to_string());
+        cpu[0][2].parse::<u64>().expect("cumulative cpu us")
+    };
+
+    let first = read();
+    thread::sleep(Duration::from_millis(50));
+    let second = read();
+    assert!(
+        second > first,
+        "cpu time did not increase: first={first}, second={second}"
+    );
+}
+
+#[test]
 fn narrow_scope_emits_unclaimed_host_listener() {
     let claimed = Listener::spawn("127.0.0.1");
     let outside = Listener::spawn("127.0.0.1");
@@ -72,7 +101,10 @@ fn narrow_scope_emits_unclaimed_host_listener() {
         ]]
     {
         assert!(!out.status.success(), "an E-only total failure must exit 1");
-        assert!(listeners.is_empty(), "a blind source cannot emit L rows: {stdout}");
+        assert!(
+            listeners.is_empty(),
+            "a blind source cannot emit L rows: {stdout}"
+        );
         return;
     }
     assert!(out.status.success(), "osfacts failed: {stdout}");

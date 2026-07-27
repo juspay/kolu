@@ -52,9 +52,18 @@ pub struct Listener {
 
 impl Listener {
     pub fn spawn(bind: &str) -> Self {
+        Self::spawn_with_args(bind, &[])
+    }
+
+    pub fn spawn_busy() -> Self {
+        Self::spawn_with_args("127.0.0.1", &["--spin"])
+    }
+
+    fn spawn_with_args(bind: &str, extra: &[&str]) -> Self {
         let bin = env!("CARGO_BIN_EXE_osfacts-listener");
         let mut child = StdCommand::new(bin)
             .arg(bind)
+            .args(extra)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -151,15 +160,7 @@ pub fn redact_tsv(tsv: &str) -> String {
     out
 }
 
-pub fn parse_tsv(
-    stdout: &str,
-) -> (
-    u32,
-    Vec<String>,
-    Vec<String>,
-    Vec<String>,
-    Vec<String>,
-) {
+pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let mut lines = stdout.lines();
     let first = lines.next().expect("stdout must have a version line");
     let version = first
