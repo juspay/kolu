@@ -4,7 +4,7 @@ description: A shared @kolu/port-forward library, the standalone vazhi TUI that 
 parents: [feature]
 status: accepted
 maturity: seedling
-updated: 2026-07-25
+updated: 2026-07-27
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -379,10 +379,11 @@ release note:
 | PRT1 ✅ | padi port sensor · Ports section · direct open — <PrLink pr={1982} /> | — | e2e: spawned listener's chip appears + opens |
 | PRT2 ✅ | kolu embeds the library — <PrLink pr={1991} />: lazy forward · merged Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
 | PRT3 | embedded in-kolu preview | PRT2 | parked — <PrLink pr={2001} /> closed at the HTTPS-page × HTTP-door browser wall |
+| PRT4 ✅ | printed URLs join the scanner — click `localhost:5173`, get the door — <PrLink pr={2004} /> | PRT2 | e2e: printed URL → door → path preserved; live card upgrade; join unit table |
 
 PRT0 shipped in <PrLink pr={1975} /> and PRT1 in <PrLink pr={1982} />;
 PRT2 shipped in <PrLink pr={1991} />; **PRT3 is parked** at a browser
-wall recorded in its section below.
+wall recorded in its section below; **PRT4 shipped** in <PrLink pr={2004} />.
 
 ### PRT0 — the library, proven by vazhi (shipped: <PrLink pr={1975} />)
 
@@ -547,6 +548,79 @@ server-side no-raw-URLs validation, the MCP door-verbs with
 navigate-on-repeat, and the pane components. The wall is only the framing
 scheme. Parked until a design exists that is not a compromise; when one
 does, this section is rewritten, not layered.
+
+### PRT4 — the printed URL joins the scanner (shipped: <PrLink pr={2004} />)
+
+export const Prt4Mockup = () => (
+  <div style="font-family:ui-monospace,monospace;max-width:26rem;margin:1.2rem auto;border-radius:12px;overflow:hidden;background:#14171e;box-shadow:0 2px 12px rgba(0,0,0,.25);font-size:.75rem;line-height:1.8;color:#d6dae2">
+    <div style="padding:.8rem 1rem .2rem"><span style="color:#7fd18c;font-weight:700">VITE</span> v8.1.0 <span style="color:#8b93a3">ready in 450 ms</span></div>
+    <div style="padding:0 1rem .6rem"><span style="color:#8b93a3">➜ Local:</span> <span style="color:#4da3ff;text-decoration:underline;text-underline-offset:3px">http://localhost:5173/</span></div>
+    <div style="margin:0 1rem 1rem 2.2rem;background:#1d2026;border:1px solid #2e323a;border-radius:8px;padding:.55rem .8rem;font-family:ui-sans-serif,system-ui;font-size:.72rem;line-height:1.6">
+      <div><span style="background:rgba(14,117,105,.25);color:#5eead4;border-radius:999px;padding:.05rem .5rem;font-weight:600">⇄ 5173</span> <b style="color:#e8e6e1">this terminal serves it</b> <span style="color:#8b93a3">· node</span></div>
+      <div style="color:#9aa0a9">"localhost" here means naiveintent — opens via a door on pureintent, path included.</div>
+      <div style="margin-top:.3rem"><span style="color:#5eead4;font-weight:700">⇄ forward &amp; open ↗</span>&nbsp;&nbsp;<span style="color:#8b93a3">⧉ copy door URL</span></div>
+    </div>
+  </div>
+);
+
+<Prt4Mockup />
+
+Agents print `http://localhost:5173/` constantly, and "localhost" in the
+viewer's browser is the wrong machine — the fact this whole note opened on.
+Clicking such a URL now raises a small card at the cursor that answers
+through the door machinery. **The printed URL is an entry point, never a
+fact**: every affordance is earned by a click-time JOIN against the
+scanner's observations and the live forwards — nothing is created from
+text.<Footnote>VS Code's regex-created forwards are this note's standing
+cautionary tale (see the cadence footnote in the detection section): its
+terminal-URL regex creates forwards with no liveness check, and its knob
+matrix exists to walk that back. The join inverts the direction — text may
+only ever LOOK UP what observation already established.</Footnote> This
+lands what PRT3 died reaching for — the printed URL becomes one correct
+click — with zero iframes, so the HTTPS wall never enters the picture.
+
+- **Entry.** Click a loopback URL (`localhost` · `127.*` · `[::1]` ·
+  `0.0.0.0`) → the card, anchored at the cursor. <Kbd keys="⌘" />-click
+  opens the raw URL with no card. Non-loopback URLs keep today's behavior
+  untouched.
+- **Three honest card states.** Joined (the scanner sees the port on this
+  terminal → "forward & open", copy, and the "localhost here means…"
+  sentence); unbacked (recognized but unobserved → "nothing is listening
+  yet", open-raw only); blind (the scan could not look → "can't tell right
+  now" — `unknown` is never "no").<Footnote>An open card is LIVE, not a
+  snapshot: the join is a reactive derivation over the ports and forwards
+  stores, evaluated only while a card is open — so a card upgrades itself
+  the tick a listener becomes real, and degrades when auto-cancel closes
+  the door behind it. Computing it frozen-at-click would have been the
+  displaySuffix mistake: inputs on the scan and act clocks, output pinned
+  to a moment.</Footnote>
+- **One open-flow, three layers.** The chip's inline forward-and-open logic
+  is extracted and split by kind: `urlForPort` (decision), `ensureDoor`
+  (act), `window.open` at the component edge — chip, ⌘K, and the card all
+  compose the same pieces, and "copy door URL" is the first two without the
+  third.<Footnote>The extraction must NET-DELETE: the chip's inline flow in
+  `PortsSection` is replaced, not wrapped. Braiding decide/act/effect into
+  one `openPort` was caught in design review as a complection — the copy
+  action would have re-implemented half of it.</Footnote>
+- **Homes, by volatility — no new packages.** The loopback-URL grammar (a
+  web fact) joins the existing `@kolu/url-shape` leaf; the join policy
+  (kolu's opinions about scans and doors) is a client module beside
+  `useForwards`; `xterm-kit` gains only an injected handler seam, kolu
+  policy never leaks into the generic terminal package — the
+  `fileRefLinkProvider` precedent exactly.<Footnote>xterm's link API can
+  toggle underlines but not style them per-link, so the artifact's
+  solid-vs-dotted underline is not implementable; the join state lives in
+  the card instead. Recorded as the one fidelity deviation from the
+  approved mockup.</Footnote>
+
+**Done-criteria — met in <PrLink pr={2004} />.** (1) e2e
+`printed-url.feature`: a real PTY prints a real URL, the click lands the
+page's own body through the door, path preserved (coordinate click on the
+xterm link held). (2) open card upgrades live when the listener appears
+after the card opened. (3) join decision table in unit, including
+blind-vs-unbacked. (4) <Kbd keys="⌘" />-click bypasses. (5) the chip's
+e2e passes through the extracted flow; `PortsSection` net-negative after
+extraction.
 
 ## What this track sent upstream
 

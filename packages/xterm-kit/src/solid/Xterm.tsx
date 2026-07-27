@@ -89,6 +89,10 @@ interface XtermOwnProps {
   onTap: (clientX: number, clientY: number) => boolean;
   /** Optional GPU-context lifecycle hooks (diagnostics). */
   webglHooks?: WebglLifecycleHooks;
+  /** Injected web-link click handler — generic seam only (see
+   *  {@link XtermLifecycleOptions.webLinkHandler}). When absent, the addon's
+   *  default open runs. */
+  webLinkHandler?: (event: MouseEvent, uri: string) => void;
 }
 
 /** Props consumed by the component; everything else is spread onto the mount div. */
@@ -105,6 +109,7 @@ const OWN_KEYS = [
   "onReady",
   "onTap",
   "webglHooks",
+  "webLinkHandler",
 ] as const satisfies readonly (keyof XtermOwnProps)[];
 
 export const Xterm: Component<
@@ -156,6 +161,7 @@ export const Xterm: Component<
         fontSize: own.fontSize,
         fontFamily: own.fontFamily,
       },
+      webLinkHandler: own.webLinkHandler,
     }),
     (c: XtermCore) => {
       core = c;

@@ -178,6 +178,9 @@ describe("resolveSystem ssh-refusal classification", () => {
     // the session log tail the connect canvas renders.
     probeEmitting(PERMISSION_DENIED, 255);
     const onProgress = vi.fn();
+    // The rejection is asserted by its own case above; this one is only about
+    // what reached the progress sink, so the (known, deliberate) rejection is
+    // swallowed rather than re-asserted.
     await resolveSystem("petit", {
       signal: new AbortController().signal,
       onProgress,
@@ -226,6 +229,62 @@ describe("resolveSystem ssh-refusal classification", () => {
     // wrong; that is not this cause and must not be made terminal.
     probeEmitting("error: some transient nix failure", 1);
     expect(await failureOf("petit")).not.toBeInstanceOf(ResolveDrvError);
+  });
+
+  /** Mock one probe whose spawn FAILS (no exit code is ever produced). */
+  const probeSpawnFailing = (message: string, code?: string): void => {
+    vi.mocked(runCapture).mockImplementationOnce(
+      async (): Promise<CaptureResult> => ({
+        ok: false,
+        kind: "spawn-error",
+        message,
+        code,
+        stdout: "",
+      }),
+    );
+  };
+
+  it("a LOCALHOST probe with no nix reaches the same terminal cause — via ENOENT, not 127", async () => {
+    // The localhost arm spawns `nix-instantiate` DIRECTLY, so an absent binary
+    // never runs and never yields an exit code — Node raises ENOENT instead.
+    // Classifying only on 127 left this case falling through to the untyped
+    // error, i.e. retrying forever while narrating "host unreachable" — the very
+    // defect the 127 arm exists to end.
+    probeSpawnFailing("spawn nix-instantiate ENOENT", "ENOENT");
+    const err = await failureOf("localhost");
+    expect((err as ResolveDrvError).resolution).toEqual({
+      kind: "nix-unavailable",
+      failureCause: "remote",
+      terminal: true,
+    });
+    // Phrased for the LOCAL arm — no "ssh session" talk, and a local check command.
+    expect((err as Error).message).toContain("nix-instantiate --version");
+    expect((err as Error).message).not.toMatch(/NON-INTERACTIVE ssh session/);
+  });
+
+  it("a missing local `ssh` is about THIS machine, not the far end — and is bounded", async () => {
+    // On the ssh arm the binary we spawn is `ssh`, so ENOENT says nothing about
+    // the remote host's Nix. Bounded rather than terminal: it must stop retrying
+    // without asserting a verdict about a host we never reached.
+    probeSpawnFailing("spawn ssh ENOENT", "ENOENT");
+    const err = await failureOf("petit");
+    expect((err as ResolveDrvError).resolution).toEqual({
+      kind: "unavailable",
+      failureCause: "remote",
+      terminal: false,
+    });
+    expect((err as Error).message).toMatch(
+      /could not run `ssh` on THIS machine/,
+    );
+    expect((err as Error).message).not.toMatch(/nix-instantiate/);
+  });
+
+  it("a TRANSIENT spawn fault stays retryable — only ENOENT means absent", async () => {
+    // EMFILE/EAGAIN are local resource exhaustion, which a later dial may well
+    // clear. Terminalising every spawn fault would strand a recoverable host, so
+    // the errno — not merely `kind: "spawn-error"` — is what decides.
+    probeSpawnFailing("spawn nix-instantiate EMFILE", "EMFILE");
+    expect(await failureOf("localhost")).not.toBeInstanceOf(ResolveDrvError);
   });
 
   it("keeps a refusal PER DIAL — a later clean probe resolves normally", async () => {

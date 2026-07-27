@@ -53,7 +53,11 @@ The package graduated to a **process**: `package = process = restart-hash`.
   (`$XDG_RUNTIME_DIR/padi-<digest>/`, `kaval-<digest>/`), so a stale gate can never
   outlive a reboot and two padis at distinct state-roots never touch each other's
   kaval (the #1313 property). A `state-root` manifest maps the digest back, so a
-  flag-less `kaval-tui` keeps labelling what it discovers.
+  flag-less `kaval-tui` keeps labelling what it discovers. The state-root is also
+  padi's **anchor** (#2010): delete it — `git worktree remove` on a dev
+  workspace — and the daemon reaps itself (the spine's `anchor-gone` self-exit,
+  kaval alike via its manifest) instead of leaking forever, and the kolu-server
+  binder treats the gone root as terminal rather than respawning into it.
 - **The frozen control core** (`./surface`'s `padiControlSurface`, served in
   `./controlCore`) — hello · version · drain · clock.now — is served BESIDE
   `padiSurface` (sibling key `control`), so a binder reaches it even when
