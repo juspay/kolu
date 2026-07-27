@@ -279,7 +279,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // the two would drain-and-respawn it in a livelock (the two-local-kolu war). Claim
   // a `supervisor.pid` gate BEFORE building the pool (so a foreign owner fails fast
   // before we touch padi at all); a LIVE foreign holder is structurally unresolvable
-  // (retrying can't make it go away), so — exactly like a `PadiAdoptionRefusedError`
+  // (retrying can't make it go away), so — exactly like a `PadiBindingFatalError`
+  // (adoption refusal #1313, vanished state root #2010)
   // — exit loud with the remedy rather than fight. A same-lineage restart (dead
   // predecessor pid) reaps the stale gate and claims `self`, so it still drains. The
   // REMOTE arm's twin is `remotePadiBinding.ts`'s anti-livelock fight-detection →
@@ -359,11 +360,13 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // its warming-chip UX, exactly as it does for a remote host). Fail-OPEN: a boot
   // failure surfaces on the connection cell and the loop retries, so don't crash boot.
   //
-  // ONE exception, handled by `handlePadiBootFailure`: a `PadiAdoptionRefusedError` is
-  // structurally UNRESOLVABLE (a resident padi owns this state root at a contract skew
-  // #1313 forbids touching) — retrying forever would just be a silent spinner behind
-  // the fail-open UI, which the boot acceptance bar forbids, so THAT one case exits
-  // loudly instead, naming the conflict + the remedy the error already composed.
+  // ONE exception class, handled by `handlePadiBootFailure`: a `PadiBindingFatalError`
+  // is structurally UNRESOLVABLE — an adoption refusal (a resident padi owns this
+  // state root at a contract skew #1313 forbids touching) or a vanished state root
+  // (the workspace deleted out from under this server, #2010) — retrying forever
+  // would just be a silent spinner behind the fail-open UI, which the boot acceptance
+  // bar forbids, so those exit loudly instead, naming the conflict + the remedy the
+  // error already composed.
   pool
     .getSession(encodeHostKey(LOCAL_HOST))
     ?.pin()

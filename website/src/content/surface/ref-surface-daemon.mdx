@@ -52,9 +52,13 @@ not `forever` plus flags:
 
 | `lifetime` | Shuts down when | Tenant |
 | --- | --- | --- |
-| `{ kind: "forever" }` | a signal or external abort only | [kaval](/kaval) / padi in production |
+| `{ kind: "forever" }` | a signal or external abort | [kaval](/kaval) / padi in production |
 | `{ kind: "idleTimeout", ms, isIdle }` | `ms` of continuous idleness | `odu serve` |
 | `{ kind: "boundToPid", pid, pollMs? }` | the watched `pid` is gone (poll `kill(pid, 0)`); an already-dead pid exits at once | a test/smoke-spawned kaval/padi — dies with its run |
+
+Every lifetime is additionally subject to the
+[anchor self-reap](#the-anchor-self-reap) — the table lists only each
+lifetime's *own* trigger.
 
 `pollMs?` is a **test-only** seam (the liveness-poll interval); production omits it
 and uses the fixed two-second `PID_WATCH_POLL_MS`. The `pid` must be a single-process

@@ -1133,6 +1133,54 @@ describe("handlePadiBootFailure — the composition root's boot-pin catch (exits
   });
 });
 
+describe("ensurePadiBinding — the #2010 gone-root gate (fork-free: the gate throws before any converge/spawn)", () => {
+  it("creates a missing state root at boot; a dial after its deletion reports PadiStateRootGoneError — never a respawn", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "padi-goneroot-"));
+    // Deliberately NESTED and missing at construct time — pins that the binder
+    // OWNS creation (mkdir recursive), the premise that makes "missing later"
+    // always proof of deletion rather than a fresh-machine first boot.
+    const stateRoot = join(parent, "nested", "padi-state");
+    const seen: unknown[] = [];
+    let firstVerdict!: (e: unknown) => void;
+    const verdictP = new Promise<unknown>((r) => {
+      firstVerdict = r;
+    });
+    let session: PadiSession | undefined;
+    try {
+      session = ensurePadiBinding({
+        stateRoot,
+        nixShellWhitelist: "default",
+        reconnectDelayMs: 50,
+        onFatalBindingError: (e) => {
+          seen.push(e);
+          firstVerdict(e);
+        },
+      });
+      expect(existsSync(stateRoot)).toBe(true); // the binder created it
+      // Delete it BEFORE the first dial (the session dials lazily, on `pin()`),
+      // so that dial must hit the gone-root gate at the top of the connector.
+      // If the gate ever regressed, the dial would instead reach converge →
+      // spawn and surface as the vitest daemon-spawn leash's refusal — a
+      // different error class than the one asserted here — so "never a
+      // respawn" is observable, not assumed.
+      rmSync(parent, { recursive: true, force: true });
+      const pinP = session.pin();
+      pinP.catch(() => {}); // observed via `verdictP` + the rejects assertion below
+      // The hook is the load-bearing reporting path (a RECONNECT dial's verdict
+      // is otherwise swallowed by the session's fire-and-forget loop) — assert
+      // it fired with the typed error, exactly as the composition root wires it.
+      const err = await verdictP;
+      expect(err).toBeInstanceOf(PadiStateRootGoneError);
+      expect((err as Error).message).toContain(stateRoot);
+      // And the boot pin's own await observes the same verdict.
+      await expect(pinP).rejects.toBeInstanceOf(PadiStateRootGoneError);
+    } finally {
+      session?.destroy();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  }, 15000);
+});
+
 describeDaemon(
   "ensurePadiBinding — ADOPTS a resident registered under a MISMATCHED drawer (#1713 adopt-path sibling, the live repro)",
   () => {

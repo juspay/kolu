@@ -421,8 +421,9 @@ function waitForShutdown(opts: {
     };
     // The poll-timer scaffold, single-sourced: create the interval, unref it so it
     // never keeps the event loop alive on its own, and register a clearInterval
-    // cleanup. Both poll sites (idleTimeout, boundToPid) supply only their period +
-    // predicate; the register/unref/cleanup idiom lives here once.
+    // cleanup. Every poll site (idleTimeout, boundToPid, the anchor trigger)
+    // supplies only its period + predicate; the register/unref/cleanup idiom
+    // lives here once.
     const registerPoll = (period: number, tick: () => void): void => {
       const t = setInterval(tick, period);
       t.unref?.();
