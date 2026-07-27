@@ -35,6 +35,17 @@ segments carry a **change-count badge**, so you can see you have, say, 3
 uncommitted files and 12 changes versus your branch base without switching into
 either.
 
+**All files** shows what git tracks plus anything untracked, and leaves out what
+your `.gitignore` hides — so the tree is your project, not your `node_modules`.
+When you do want to see the hidden ones, the **eye toggle** beside the filter box
+brings them back as dimmed rows, and a fully-ignored directory arrives as a
+single collapsed entry rather than thousands of files. Ignored files open and
+preview like any other. The toggle remembers itself per browser, and only appears
+in **All files** — the diff views list changed files, where an ignored path can't
+appear. One caveat worth knowing: ignored rows don't repaint live the way the
+rest of the tree does, because kolu deliberately doesn't watch inside ignored
+directories; flip the toggle to refresh them.
+
 The changed-file list and its diffs repaint **live** the instant a file changes
 on disk — a payload-free repo-change pulse re-running `git status`, with no
 polling — and the same loop works when the Code tab is pointed at
