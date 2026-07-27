@@ -101,6 +101,7 @@ export {
   padiStderrLogPath,
   residentPadiSocket,
   resolvePadiStateRoot,
+  SUPERVISOR_GATE_FILE,
 } from "./stateRoot.ts";
 export type {
   ActiveTerminalProcess,

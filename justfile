@@ -58,76 +58,34 @@ dev-auto:
     # to the param, not the value.
     exec just dev "$SERVER_PORT" "$CLIENT_PORT"
 
-# Default slot = bare `just dev`; pass a port for `just dev PORT …` (e.g. 7780).
-# Shared across worktrees on the same slot — clears a foreign holder so the next
-# `just dev` spawns a padi from THIS tree. Never touches production.
-# Kill padi/kaval for a `just dev` slot and wipe its state dir.
-dev-clean SERVER_PORT="":
+# Reset THIS worktree's dev instance: drop its state, then sweep the daemons that
+# state anchored.
+#
+# padi's identity IS its state-root, and `pnpm dev` anchors it per-worktree at
+# `<worktree>/.kolu-dev/padi` — never per-port. So there is nothing to select and
+# no digest to recompute here: delete the dir, and the padi it belonged to becomes
+# stale BY DEFINITION, which is exactly what `padi --reap-stale` collects (see
+# packages/padi/src/reapStale.ts). One rule, no second spelling of the identity.
+#
+# The sweep is host-wide, so it also collects any ghost left by a worktree that was
+# removed WITHOUT running this — the leak that made this recipe necessary. A padi
+# whose state-root still exists is never a candidate, so production is never
+# touched, whatever slot or port it runs on.
+dev-clean:
     #!/usr/bin/env bash
     set -euo pipefail
-    runtime="${XDG_RUNTIME_DIR:-/tmp}"
-    slot="${KOLU_DEV_SERVER_PORT:-{{ SERVER_PORT }}}"
-    slot="${slot:-default}"
-    dev_dir="$runtime/kolu-dev-$slot"
-    # Match padiDigest(): sha256 of path.resolve(stateRoot), first 16 hex chars.
-    # realpath -m keeps a stable absolute path even if the dir is already gone.
-    state_root="$(realpath -m "$dev_dir/padi-state")"
-    digest="$(printf '%s' "$state_root" | sha256sum | cut -c1-16)"
-    padi_rt="$runtime/padi-$digest"
-    kaval_rt="$runtime/kaval-$digest"
+    root="$(git rev-parse --show-toplevel)"
+    echo "dev-clean: rm -rf $root/.kolu-dev"
+    rm -rf "$root/.kolu-dev"
+    just dev-reap
+    echo "dev-clean: done — next \`just dev\` spawns a fresh padi for this worktree"
 
-    kill_pidfile() {
-      local f="$1" label="$2"
-      if [ ! -f "$f" ]; then
-        return 0
-      fi
-      local pid
-      pid="$(tr -d '[:space:]' <"$f" || true)"
-      if [ -z "$pid" ] || ! [[ "$pid" =~ ^[0-9]+$ ]]; then
-        echo "dev-clean: ignore junk $label pidfile $f"
-        return 0
-      fi
-      if ! kill -0 "$pid" 2>/dev/null; then
-        echo "dev-clean: $label pid $pid already dead"
-        return 0
-      fi
-      # Safety: only kill if the runtime dir's state-root manifest (when present)
-      # still names THIS state root — never a production / foreign digest collision.
-      local manifest
-      manifest="$(dirname "$f")/state-root"
-      if [ -f "$manifest" ]; then
-        local claimed
-        claimed="$(tr -d '[:space:]' <"$manifest" || true)"
-        if [ -n "$claimed" ] && [ "$claimed" != "$state_root" ]; then
-          echo "dev-clean: REFUSING to kill $label pid $pid — $manifest claims $claimed (expected $state_root)" >&2
-          return 1
-        fi
-      fi
-      echo "dev-clean: SIGTERM $label pid $pid"
-      kill -TERM "$pid" 2>/dev/null || true
-      for _ in 1 2 3 4 5 6 7 8 9 10; do
-        kill -0 "$pid" 2>/dev/null || return 0
-        sleep 0.1
-      done
-      if kill -0 "$pid" 2>/dev/null; then
-        echo "dev-clean: SIGKILL $label pid $pid"
-        kill -KILL "$pid" 2>/dev/null || true
-      fi
-    }
-
-    echo "dev-clean: slot=$slot state-root=$state_root digest=$digest"
-    # Order: padi first (it owns/supervises kaval), then kaval, then dirs.
-    kill_pidfile "$padi_rt/supervisor.pid" "padi-supervisor" || true
-    kill_pidfile "$padi_rt/padi.pid" "padi" || true
-    kill_pidfile "$kaval_rt/kaval.pid" "kaval" || true
-
-    for dir in "$padi_rt" "$kaval_rt" "$dev_dir"; do
-      if [ -e "$dir" ]; then
-        echo "dev-clean: rm -rf $dir"
-        rm -rf "$dir"
-      fi
-    done
-    echo "dev-clean: done — next bare \`just dev\` will spawn a fresh padi for this worktree"
+# Sweep every padi on this host whose state-root is gone (with its supervisor and
+# kaval). Safe to run at any time; a padi still anchored to a live state-root is
+# never a candidate. Run from `dev-clean`, or on its own to collect the ghosts a
+# `git worktree remove` stranded.
+dev-reap:
+    {{ nix_shell }} bash -c 'cd packages/padi && node --import tsx src/daemonBoot/bin.ts --reap-stale'
 
 [private]
 _dev: install _dev-parallel
@@ -153,18 +111,19 @@ lint: install
 
 # Run server with auto-reload. Honors KOLU_DEV_SERVER_PORT if set (e.g. by
 # `just dev`), otherwise the server CLI falls back to its default port.
-# KOLU_KAVAL_SOCKET isolates this dev instance's kaval daemon in a private,
-# per-port 0700 dir so the always-recycle boot policy never SIGTERMs a production
-# kolu.service's daemon (which holds the default $XDG_RUNTIME_DIR/kaval socket)
-# — and a second worktree's dev server (its own port) likewise gets its own.
-# KOLU_PADI_STATE_DIR isolates this dev instance's PADI state root the same way:
-# without it, dev would share the default `~/.local/state/padi` with production,
-# and the P0 supervisor gate (one supervisor per padi state root) would refuse to
-# boot beside a live `kolu.service` (its padi is already supervised). A per-port
-# dev state root gives each dev instance its OWN padi to supervise — the local
-# twin of the KOLU_REMOTE_PADI_STATE_DIR isolation the remote arm uses.
+#
+# Isolation from production is real but it is NOT set here: kolu-cli's own `dev`
+# script pins KOLU_STATE_DIR and KOLU_PADI_STATE_DIR to `<worktree>/.kolu-dev`,
+# and an assignment on the `node` command line beats anything this recipe exports.
+# This recipe used to export a per-port KOLU_PADI_STATE_DIR and KOLU_KAVAL_SOCKET
+# of its own; both were silently dead — the padi state root was overridden, and
+# nothing ever reads KOLU_KAVAL_SOCKET from the env (`padiKavalSocketPath` takes an
+# override argument no caller passes). The isolation they claimed to provide is
+# supplied by the per-worktree state root instead: a distinct state root is a
+# distinct digest, hence its own padi, its own kaval, and its own supervisor gate,
+# so a dev instance can never contend with a live kolu.service.
 server:
-    {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
+    {{ nix_shell }} bash -c 'cd packages/kolu-cli && pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
 # Run client with Vite dev server (HMR)
 client:

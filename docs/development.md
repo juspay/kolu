@@ -39,30 +39,41 @@ This serves kolu on `127.0.0.1:7681` and the Vite client on
 just dev 7700 5180
 ```
 
-Each server port owns an isolated development slot: its own padi state, kaval
-daemon, and runtime directory. A development instance cannot adopt or stop the
+Each **worktree** owns an isolated development instance. Its padi anchors at
+`<worktree>/.kolu-dev/padi`, and that path is padi's identity: the socket, the
+kaval, and the supervisor gate are all keyed by a digest of it. So two worktrees
+never share daemons, and a development instance can neither adopt nor stop the
 daemons used by a production service.
 
-The default `just dev` slot is shared across worktrees. If another worktree
-already owns it, this checkout connects to that slot's existing daemons. Prefer
-`just dev-auto` when working in parallel.
+The port is a separate axis, and it is not what isolates you: two worktrees on
+the same port collide on the port alone. Use `just dev-auto` when working in
+parallel — it picks two free ports.
 
-## Reset a development slot
+## Reset a development instance
 
-Stop the slot's padi and kaval processes and remove its development state:
+Remove this worktree's development state and stop the daemons it anchored:
 
 ```sh
 just dev-clean
 ```
 
-For a custom server port:
+Because the state root *is* the identity, deleting it makes those daemons stale
+by definition, and the sweep below collects them. `dev-clean` never touches a
+packaged or home-manager kolu service, whose state root is still present.
+
+## Collect stranded daemons
+
+padi is detached: it outlives the `just dev` that spawned it and has no idle
+timeout. Removing a worktree with `git worktree remove` therefore strands its
+padi and kaval forever — they hold PTYs and a few hundred MB each, and nothing
+notices. To sweep every padi on this host whose state root is gone:
 
 ```sh
-just dev-clean 7700
+just dev-reap
 ```
 
-This permanently removes only the selected development slot. It does not touch
-a packaged or home-manager kolu service.
+A padi whose state root still exists is never a candidate, so this is safe to
+run at any time.
 
 ## Run checks
 

@@ -14,6 +14,8 @@
  *   padi --state-root PATH        anchor to an explicit state-root (dev/e2e); the
  *                                 digest (and so the socket + its kaval) follow it
  *   padi --socket PATH            serve at an explicit socket (gate sits beside it)
+ *   padi --reap-stale             serve nothing: stop every padi whose state-root
+ *                                 is gone (see `reapStale.ts`) and exit
  *
  * This file is the executable, never an import target — it runs the daemon on
  * load. `daemonProcessMain` owns the process exit (code + crash arm); the
@@ -25,6 +27,7 @@ import { parseArgs } from "node:util";
 import { daemonProcessMain, stderrLogger } from "@kolu/surface-daemon";
 import { runPadiDaemon } from "./daemonMain.ts";
 import { log as padiDaemonLog } from "../log.ts";
+import { reapPadi, stalePadis } from "../reapStale.ts";
 import { runPadiStdioBridge } from "./stdioBridge.ts";
 import { installUnhandledRejectionBoundary } from "./unhandledRejectionBoundary.ts";
 
@@ -63,6 +66,13 @@ Options:
                       If padi has no digest kaval yet but a compatible pre-W2.2 kaval
                       is alive here, it is ADOPTED (its PTYs survive the upgrade), not
                       leaked. Standalone (no flag), padi never adopts a stray port kaval.
+  --reap-stale        stop every padi on this host whose STATE-ROOT no longer exists
+                      (with its kaval), then clear their runtime dirs. Serves no
+                      daemon — it sweeps and exits. A dev worktree anchors its padi
+                      at <worktree>/.kolu-dev/padi, so \`git worktree remove\` strands
+                      one forever; this collects them. A daemon whose state-root is
+                      still present is NEVER touched, so production is never a
+                      candidate. Exits non-zero if a holder survived SIGKILL.
   -h, --help          show this help
 
 Bind a running padi from kolu-server, or drive its kaval with \`kaval-tui\`.`;
@@ -75,6 +85,7 @@ const { values } = parseArgs({
     "allow-nix-shell-with-env-whitelist": { type: "string" },
     "spawn-version": { type: "string" },
     "legacy-kaval-socket": { type: "string" },
+    "reap-stale": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -84,7 +95,27 @@ if (values.help) {
   process.exit(0);
 }
 
-if (values.stdio) {
+if (values["reap-stale"]) {
+  // A one-shot sweep, not a daemon boot: no state-root bind (there is nothing to
+  // anchor to — every target's state-root is by definition gone), no gate, no
+  // surface. Reports each daemon it collected so a `just dev-clean` shows its work.
+  Promise.all(stalePadis().map(reapPadi))
+    .then((reaped) => {
+      for (const r of reaped) {
+        process.stdout.write(
+          `reaped supervisor ${r.supervisorPid ?? "(none)"} + ` +
+            `padi ${r.padiPid ?? "(no gate)"} + kaval ${r.kavalPid ?? "(no gate)"} ` +
+            `@ ${r.stateRoot}\n`,
+        );
+      }
+      if (reaped.length === 0) process.stdout.write("no stale padis\n");
+      process.exit(0);
+    })
+    .catch((err: unknown) => {
+      process.stderr.write(`padi --reap-stale: ${(err as Error).message}\n`);
+      process.exit(1);
+    });
+} else if (values.stdio) {
   // Front the durable daemon over stdin/stdout (the ssh transport). NEVER log to
   // stdout here — it is the wire. Resolves when the link ends; the daemon it
   // fronts (padi + its kaval + PTYs) keeps running.

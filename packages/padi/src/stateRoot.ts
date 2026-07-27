@@ -56,6 +56,17 @@ export const PADI_SOCK_FILE = "padi.sock";
 /** The gate filename padi's single-instance lock claims, beside the socket. */
 export const PADI_GATE_FILE = "padi.pid";
 
+/** The SUPERVISOR's gate filename — a third tenant of this same runtime dir,
+ *  claimed by whoever supervises the padi here (kolu-server; see
+ *  `server/src/padi/supervisorClaim.ts` for the P0 "never two supervisors on one
+ *  state root" fence that acquires it). The CONSTANT lives with padi because this
+ *  module owns the runtime dir's layout — the same reason `PADI_SOCK_FILE` and
+ *  `PADI_GATE_FILE` do — and because padi's own reaper (`reapStale.ts`) must stop
+ *  a supervisor before the padi it would otherwise respawn. The dependency arrow
+ *  stays server → padi: the supervisor imports this name through
+ *  `@kolu/padi/assembly`, padi never imports from the server. */
+export const SUPERVISOR_GATE_FILE = "supervisor.pid";
+
 /** The well-known **production** state-root formula ON the host —
  *  `$HOME/.local/state/padi` (the OS passwd home if `$HOME` is unset). Persistent
  *  (survives reboots), distinct from kolu-server's `~/.config/kolu` config (session

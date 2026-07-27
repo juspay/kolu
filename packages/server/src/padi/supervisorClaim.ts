@@ -31,15 +31,24 @@
 import { dirname, join } from "node:path";
 // Reach padi ONLY through its `/assembly` barrel — the package-boundary seal
 // (`seal.test.ts`) forbids a deep `@kolu/padi/stateRoot` import from kolu-server.
-import { padiSocketPath, residentPadiSocket } from "@kolu/padi/assembly";
+import {
+  padiSocketPath,
+  residentPadiSocket,
+  SUPERVISOR_GATE_FILE,
+} from "@kolu/padi/assembly";
 import { acquirePidGate, type GateAcquisition } from "@kolu/surface-daemon";
 
 /** The supervisor gate filename — sits BESIDE padi's own `padi.pid` in the
  *  ephemeral `$XDG_RUNTIME_DIR/padi-<digest>/` runtime dir, so it is boot-wiped
  *  the same way (a stale supervisor pid never outlives its process) and is keyed
  *  by the SAME state-root digest padi is (two supervisors at one state root
- *  contend for the one gate). */
-export const SUPERVISOR_GATE_FILE = "supervisor.pid";
+ *  contend for the one gate).
+ *
+ *  DEFINED by padi (`stateRoot.ts`), which owns that dir's layout, and re-exported
+ *  here so this module stays the one place the supervisor concept is spelled.
+ *  padi's reaper needs the same name — a supervisor left alive would respawn the
+ *  padi it just collected — and only one definition may exist for that to hold. */
+export { SUPERVISOR_GATE_FILE };
 
 /** The `supervisor.pid` path for a state root — co-located with the padi it
  *  guards. Uses the SAME `residentPadiSocket(stateRoot) ?? padiSocketPath(...)`
