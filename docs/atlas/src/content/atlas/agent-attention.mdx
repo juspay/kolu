@@ -57,7 +57,7 @@ at a host only changes one thing: whether the terminal counts as already **seen*
 | --- | --- | --- | --- |
 | **Asking you** (waiting for input) | if not already seen | violet count pill · violet-washed row + tab · full-strength glowing pip · a chip counting how long it has waited | **you answer** — nothing else |
 | **Just finished** (no input needed) | if not already seen | amber count pill · amber-washed row + tab · amber pip badge | you look at it |
-| **Working** | — | a plain rust count + spinner | the agent finishes |
+| **Working** (or settling, or a shell that is printing) | — | a plain rust ACTIVE count + spinner | it stops moving |
 | Idle | — | — | — |
 
 The counts share **one** shape — identical geometry — and split by **hue**, not by
@@ -68,10 +68,12 @@ the quiet one.<Footnote>The amber count reads the cross-host **unseen-finished**
 Two rules keep the vocabulary honest, and both are about **what a mark promises**:
 
 - **A pill means you can act on it.** The two actionable counts wear a capsule and
-  are real buttons — clicking one jumps to the next terminal it counts. Working is
-  informational, so it is a bare number. A number that *looks* like a badge and
-  does nothing teaches you to ignore badges, which is the failure mode the whole
-  system exists to avoid.
+  are real buttons — clicking one jumps to the next terminal it counts, *literally*
+  that set: the section fold returns the ids it counted and the click walks them,
+  so a capsule cannot promise a target the click can't reach.<Footnote>It could: the count deliberately folded rows the activity window had parked and agents living in splits, while the click re-filtered the visible top-level rows — so the flagship case, an agent blocked long enough to fall out of the window, rendered a violet "1" that did nothing at all.</Footnote>
+  Active is informational, so it is a bare number. A number that *looks* like a
+  badge and does nothing teaches you to ignore badges, which is the failure mode
+  the whole system exists to avoid.
 - **A count clears only when its fact does.** Clicking a violet pill navigates; it
   never dismisses. Needs-you is a live reading of what is blocked, so only the
   agent leaving `awaiting_user` can clear it — an acknowledgement button would let
@@ -163,14 +165,21 @@ old spellings deleted so drift cannot recur (<PrLink pr={2019} />):
   *motion* read a third rule, and padi's urgency fold a fourth — and every bug
   filed against 2019 was two of them disagreeing.<Footnote>A tab reading 2 beside three moving marks (a working agent kolu held no state for); a violet mark spinning beside a tab counting nothing (an agent still settling after its turn); a ⌘K palette showing every background host's terminals as idle (it fabricated `isLive:false` on the belief that activity was an active-host-only fact — it never was).</Footnote>
   `attentionClass` now partitions a terminal (asking · working · linger ·
-  finished · idle) and `attentionActive` answers over that class plus raw byte
-  motion — both in the shared vocabulary, so padi builds the wire's id-lists with
-  the same function the client decides pip motion with. That the host-level fold
-  and the per-terminal predicate agree is a test, not a convention. Two
-  consequences worth stating: `lingerIds` joins the wire (the turn is over but
-  output is still landing, and the mark is still moving), and a **printing shell
-  with no agent counts** — it has no agent to ask, and its bytes are the only
-  evidence there is.
+  finished · idle), and two predicates answer over that class plus raw byte
+  motion: `attentionActive` (does the mark MOVE — the pip) and `attentionCounted`
+  (does a scope COUNT it — every tab and header, which is `active` minus
+  `asking`, since asking has its own violet leg). The class is derived **once**,
+  by padi; the client reads it back off the wire's id-lists (`frameClassOf`)
+  rather than recomputing it from a terminal's own metadata, and
+  `agentPaintClass` is that same partition renamed for the paint vocabulary —
+  so there is one switch over the agent-state literals in the whole stack, and
+  the tab, the pip and the section header cannot be reading two answers that
+  arrived on two subscriptions a tick apart. That the host-level fold and the
+  per-terminal predicate agree is a test, not a convention. Two consequences
+  worth stating: `lingerIds` joins the wire (the turn is over but output is
+  still landing, and the mark is still moving), and a **printing shell with no
+  agent counts** — it has no agent to ask, and its bytes are the only evidence
+  there is.
 - **An agent in a split gets a row.** A split is a whole second terminal and the
   dock had none for it, so an agent working in one was counted by its host tab
   and visible nowhere — reachable only by clicking into terminals one at a time.

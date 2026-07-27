@@ -116,10 +116,10 @@ at a host only changes one thing: whether the terminal counts as already <strong
 <td>you look at it</td>
 </tr>
 <tr>
-<td><strong>Working</strong></td>
+<td><strong>Working</strong> (or settling, or a shell that is printing)</td>
 <td>—</td>
-<td>a plain rust count + spinner</td>
-<td>the agent finishes</td>
+<td>a plain rust ACTIVE count + spinner</td>
+<td>it stops moving</td>
 </tr>
 <tr>
 <td>Idle</td>
@@ -136,10 +136,12 @@ the quiet one.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="but
 <p>Two rules keep the vocabulary honest, and both are about <strong>what a mark promises</strong>:</p>
 <ul>
 <li><strong>A pill means you can act on it.</strong> The two actionable counts wear a capsule and
-are real buttons — clicking one jumps to the next terminal it counts. Working is
-informational, so it is a bare number. A number that <em>looks</em> like a badge and
-does nothing teaches you to ignore badges, which is the failure mode the whole
-system exists to avoid.</li>
+are real buttons — clicking one jumps to the next terminal it counts, <em>literally</em>
+that set: the section fold returns the ids it counted and the click walks them,
+so a capsule cannot promise a target the click can’t reach.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>It could: the count deliberately folded rows the activity window had parked and agents living in splits, while the click re-filtered the visible top-level rows — so the flagship case, an agent blocked long enough to fall out of the window, rendered a violet “1” that did nothing at all.</span></span></span>
+Active is informational, so it is a bare number. A number that <em>looks</em> like a
+badge and does nothing teaches you to ignore badges, which is the failure mode
+the whole system exists to avoid.</li>
 <li><strong>A count clears only when its fact does.</strong> Clicking a violet pill navigates; it
 never dismisses. Needs-you is a live reading of what is blocked, so only the
 agent leaving <code>awaiting_user</code> can clear it — an acknowledgement button would let
@@ -218,14 +220,21 @@ counts read <code>agentBucket</code>, the pip’s colour read <code>agentPaintCl
 <em>motion</em> read a third rule, and padi’s urgency fold a fourth — and every bug
 filed against 2019 was two of them disagreeing.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A tab reading 2 beside three moving marks (a working agent kolu held no state for); a violet mark spinning beside a tab counting nothing (an agent still settling after its turn); a ⌘K palette showing every background host’s terminals as idle (it fabricated <code>isLive:false</code> on the belief that activity was an active-host-only fact — it never was).</span></span></span>
 <code>attentionClass</code> now partitions a terminal (asking · working · linger ·
-finished · idle) and <code>attentionActive</code> answers over that class plus raw byte
-motion — both in the shared vocabulary, so padi builds the wire’s id-lists with
-the same function the client decides pip motion with. That the host-level fold
-and the per-terminal predicate agree is a test, not a convention. Two
-consequences worth stating: <code>lingerIds</code> joins the wire (the turn is over but
-output is still landing, and the mark is still moving), and a <strong>printing shell
-with no agent counts</strong> — it has no agent to ask, and its bytes are the only
-evidence there is.</li>
+finished · idle), and two predicates answer over that class plus raw byte
+motion: <code>attentionActive</code> (does the mark MOVE — the pip) and <code>attentionCounted</code>
+(does a scope COUNT it — every tab and header, which is <code>active</code> minus
+<code>asking</code>, since asking has its own violet leg). The class is derived <strong>once</strong>,
+by padi; the client reads it back off the wire’s id-lists (<code>frameClassOf</code>)
+rather than recomputing it from a terminal’s own metadata, and
+<code>agentPaintClass</code> is that same partition renamed for the paint vocabulary —
+so there is one switch over the agent-state literals in the whole stack, and
+the tab, the pip and the section header cannot be reading two answers that
+arrived on two subscriptions a tick apart. That the host-level fold and the
+per-terminal predicate agree is a test, not a convention. Two consequences
+worth stating: <code>lingerIds</code> joins the wire (the turn is over but output is
+still landing, and the mark is still moving), and a <strong>printing shell with no
+agent counts</strong> — it has no agent to ask, and its bytes are the only evidence
+there is.</li>
 <li><strong>An agent in a split gets a row.</strong> A split is a whole second terminal and the
 dock had none for it, so an agent working in one was counted by its host tab
 and visible nowhere — reachable only by clicking into terminals one at a time.

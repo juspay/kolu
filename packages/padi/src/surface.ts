@@ -542,7 +542,7 @@ export const PadiUrgencySchema = z.object({
    *  effectively quiet (`waiting` ∧ ¬EF2) — the lingering tail an agent leaves
    *  while its last output is still landing. Carried because ACTIVITY, not
    *  `working`, is what every attention surface actually means: the pip keeps
-   *  MOVING through this window (`pipIsActive`'s EF2 leg), so a host tab that
+   *  MOVING through this window (`attentionActive`'s `linger` leg), so a host tab that
    *  counted only `workingIds` would show nothing beside a terminal visibly
    *  still going — the exact paint/count disagreement this cell exists to
    *  prevent. Disjoint from `finishedIds` by construction (a waiting agent is

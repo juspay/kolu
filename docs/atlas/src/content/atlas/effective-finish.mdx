@@ -232,7 +232,7 @@ dot. Old wiretaps and the browser’s 600ms mute hack are gone.
 | --- | --- | --- |
 | **kaval** | Host-global `activity` edges (`{ id }`); emit from `onData`; resize mute **before** `proc.resize`; throttle; pure `shouldEmitActivityEdge` + tests; contract **5.3** | — |
 | **padi** | `liveActivity` folds the edge through the short idle tracker | Per-terminal activity byte taps / dirty reconcile for taps |
-| **client** | `useTerminalActivity` mirrors per-host `streams.activity`; **plain array copies** for frame/`prev` | `noteOutput`, `suppress`, `RESIZE_ACTIVITY_SUPPRESS_MS`, attach-sink lighting |
+| **client** | `useAttentionFacts` mirrors per-host `streams.activity`; **plain array copies** for frame/`prev` | `noteOutput`, `suppress`, `RESIZE_ACTIVITY_SUPPRESS_MS`, attach-sink lighting |
 
 Finish policy (`finishedIds`) was deliberately **not** changed here — that is **EF2**.
 

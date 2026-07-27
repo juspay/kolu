@@ -50,17 +50,3 @@ export function jumpToAsking(encHost: string): void {
   }
   impl(encHost);
 }
-
-/** The id after `current` in `ids`, wrapping — the "cycle past the one you are
- *  already on" rule every attention jump follows, so repeated clicks walk the
- *  whole set instead of bouncing on the first. `current` absent (or not in the
- *  list) starts at the beginning. Shared by the host-tab jump and the dock
- *  section header's, which had spelled the same modular arithmetic twice. */
-export function nextAfter<T>(
-  ids: readonly T[],
-  current: T | null,
-): T | undefined {
-  if (ids.length === 0) return undefined;
-  const at = current === null ? -1 : ids.indexOf(current);
-  return ids[(at + 1) % ids.length];
-}
