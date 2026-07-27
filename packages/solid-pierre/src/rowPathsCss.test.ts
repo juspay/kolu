@@ -50,4 +50,30 @@ describe("rowPathsCss", () => {
     const css = rowPathsCss(["dir\\"], DECL);
     expect(css).toContain('[data-item-path="dir\\\\"]');
   });
+
+  it("escapes a raw newline, which would otherwise break the whole sheet", () => {
+    // Every byte but `/` and NUL is a legal filename character, and a `-z`
+    // listing hands a newline through verbatim. The blast radius is wider than
+    // the one bad row: callers concatenate this output with their other rules
+    // into ONE replaceSync payload, so an unescaped newline drops every sibling
+    // rule in that sheet, not just this selector.
+    const css = rowPathsCss(["we\nird.log"], DECL);
+    expect(css).not.toContain("we\nird.log");
+    expect(css).toContain('[data-item-path="we\\A ird.log"]');
+  });
+
+  it("terminates a numeric escape so a following hex digit isn't swallowed", () => {
+    // A CSS numeric escape runs until the first non-hex character, so `\A`
+    // butted against a hex digit would parse as one larger code point. The
+    // space after `\A` is what ends it — this pins that it is emitted.
+    const css = rowPathsCss(["a\nbc.log"], DECL);
+    expect(css).toContain('[data-item-path="a\\A bc.log"]');
+    expect(css).not.toContain('[data-item-path="a\\Abc.log"]');
+  });
+
+  it("escapes a carriage return too", () => {
+    const css = rowPathsCss(["a\rb.log"], DECL);
+    expect(css).not.toContain("a\rb.log");
+    expect(css).toContain('[data-item-path="a\\D b.log"]');
+  });
 });

@@ -10,12 +10,26 @@
  *  Code tab's gitignored overlay is one such caller; the reason it paints
  *  through a stylesheet at all is recorded at that call site, not here. */
 
-/** Escape a path for use inside a double-quoted CSS attribute selector. A
- *  filename may legally contain `"` or `\` (git hands them through verbatim
- *  under `-z`), either of which would otherwise terminate or mangle the
- *  selector string — so both are escaped, backslash first. */
+/** Escape a path for use inside a double-quoted CSS attribute selector.
+ *
+ *  A filename may legally contain `"`, `\`, or a raw newline — the filesystem
+ *  allows every byte but `/` and NUL, and a `-z` listing hands them through
+ *  verbatim. Each would otherwise terminate or mangle the selector string, and
+ *  the blast radius is wider than the one bad row: callers concatenate this
+ *  output with their other rules into a single `replaceSync` payload, so one
+ *  unescaped path silently drops every sibling rule in that sheet.
+ *
+ *  Backslash goes first (or it would double-escape the escapes we add), then
+ *  the quote, then the two line terminators as CSS numeric escapes. The
+ *  trailing space in `\\A ` is REQUIRED and not a typo: a CSS numeric escape
+ *  ends at the first non-hex character, so `\A` immediately followed by a hex
+ *  digit in the filename would swallow it into the code point. */
 function escapeAttrValue(path: string): string {
-  return path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return path
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\A ")
+    .replace(/\r/g, "\\D ");
 }
 
 /** One attribute selector per entry — matched against the `data-item-path`

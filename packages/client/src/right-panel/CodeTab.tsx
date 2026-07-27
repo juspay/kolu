@@ -70,6 +70,7 @@ import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
+import { mergeBrowseInventory } from "./browseInventory";
 import {
   codeActiveStatus,
   codeAllPaths,
@@ -585,30 +586,17 @@ const CodeTab: Component<{
     // `writeValue.ts` for the reconcile strategy.
     //
     // The gitignored overlay rides its own idle-unless-toggled query, so its
-    // entries are appended here: collapsed paths whose trailing slash marks a
+    // entries join here: collapsed paths whose trailing slash marks a
     // fully-ignored directory — one childless row, so `node_modules` never
-    // enumerates.
-    //
-    // Deduped, because the two listings are separate `git ls-files` reads taken
-    // at different instants against a live working tree: a file ignored between
-    // them (an agent editing `.gitignore`) can appear in BOTH, and handing
-    // Pierre a duplicate `add` desyncs the wrapper's `appliedPaths` bookkeeping
-    // for good. The tracked listing wins — it is the authority on what the tree
-    // is actually for.
+    // enumerates. The merge's three rules (absent≠empty, tracked wins the
+    // overlap, readiness covers only the consulted sources) live in
+    // `mergeBrowseInventory`, where a table test pins each one.
     if (view() === "browse") {
-      const tracked = allPaths()?.paths;
-      const pending =
-        allPaths.pending() || (showIgnoredFiles() && ignoredPaths.pending());
-      // ABSENT is not EMPTY. While the tracked listing is blank (a repo/host
-      // switch, first paint) there is no authority to subtract against, so
-      // admitting the overlay unfiltered would paint the tree as nothing but
-      // dimmed `node_modules/` + `.env` rows until `fs.listAll` lands. No
-      // authority ⇒ no partition, which makes "the tracked listing wins" true
-      // at every instant rather than only at settled ones.
-      if (!tracked) return { paths: [], ignored: [], pending };
-      const seen = new Set(tracked);
-      const ignored = (ignoredPaths()?.paths ?? []).filter((p) => !seen.has(p));
-      return { paths: [...tracked, ...ignored], ignored, pending };
+      return mergeBrowseInventory(allPaths()?.paths, ignoredPaths()?.paths, {
+        trackedPending: allPaths.pending(),
+        ignoredPending: ignoredPaths.pending(),
+        showIgnored: showIgnoredFiles(),
+      });
     }
     return {
       paths: status()?.files.map((f) => f.path) ?? [],

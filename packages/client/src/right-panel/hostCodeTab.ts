@@ -1,9 +1,10 @@
 /** `hostCodeTab` — the Code tab's per-host RETAINED query world, for instant
  *  switch-back of the Code tab (padi W9's Code-tab half, completing W7's K1).
  *
- *  It owns the six pulse-then-requery reads the Code tab stands on — the three git
- *  status streams (local / branch / active-view), the browse file list, the diff,
- *  and the browse file-content — as one {@link createPolledQuery} instance PER host,
+ *  It owns the pulse-then-requery reads the Code tab stands on — the three git
+ *  status streams (local / branch / active-view), the browse file list, the
+ *  gitignored overlay, the diff, and the browse file-content — as one
+ *  {@link createPolledQuery} instance PER host,
  *  born inside a `scopedByEntry(padiMap, activeHost, …)` owner: created LAZILY on a
  *  host's first activation, RETAINED across every switch-away (paused, value held),
  *  and DISPOSED only when the host leaves `padiMap.entries`. `CodeTab` and
@@ -79,7 +80,7 @@ export type BrowseFileContent =
   | { kind: "text"; content: string; truncated: boolean }
   | { kind: "binary"; url: string };
 
-/** Build ONE host's six retained Code-tab queries. `ctx.isActive` is this host's
+/** Build ONE host's retained Code-tab queries. `ctx.isActive` is this host's
  *  "am I the shown host" gate — see the isActive contract in the header. The host key
  *  is intentionally unused: every input reads the ACTIVE projection (blessed), so an
  *  instance differs from its siblings only in its retained store and its active gate. */
