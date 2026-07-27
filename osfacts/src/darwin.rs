@@ -1,4 +1,5 @@
-//! Darwin readers. `proc_*` supplies scoped process facts and attribution;
+//! Darwin readers. `kern.proc.all` supplies the unprivileged process table,
+//! `proc_*` supplies protected task/path/fd facts, and
 //! `net.inet.tcp.pcblist_n` is the independent, host-wide listener truth.
 
 #![cfg(target_os = "macos")]
@@ -16,8 +17,6 @@ use std::os::raw::{c_int, c_uint, c_void};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const PROC_ALL_PIDS: u32 = 1;
-const PROC_PIDTBSDINFO: c_int = 3;
 const PROC_PIDTASKINFO: c_int = 4;
 const PROC_PIDVNODEPATHINFO: c_int = 9;
 const PROC_PIDLISTFDS: c_int = 1;
@@ -35,6 +34,16 @@ const VNODE_CDIR_PATH_OFFSET: usize = 152;
 const MAXPATHLEN: usize = 1_024;
 const CTL_KERN: c_int = 1;
 const KERN_PROCARGS2: c_int = 49;
+const KINFO_PROC_SIZE: usize = 648;
+const KINFO_START_SEC_OFFSET: usize = 0;
+const KINFO_START_USEC_OFFSET: usize = 8;
+const KINFO_STATUS_OFFSET: usize = 36;
+const KINFO_PID_OFFSET: usize = 40;
+const KINFO_NICE_OFFSET: usize = 242;
+const KINFO_COMM_OFFSET: usize = 243;
+const KINFO_COMM_SIZE: usize = 17;
+const KINFO_RUID_OFFSET: usize = 392;
+const KINFO_PPID_OFFSET: usize = 560;
 
 // Apple XNU declares `xinpcb_n` under `#pragma pack(4)`. Keep these offsets
 // beside the decoder: lport follows xi_inpp + fport, while vflag and the local
@@ -44,32 +53,6 @@ const XINPCB_LPORT_OFFSET: usize = 18;
 const XINPCB_VFLAG_OFFSET: usize = 44;
 const XINPCB_LADDR_OFFSET: usize = 64;
 const XTCPCB_STATE_OFFSET: usize = 36;
-
-#[repr(C)]
-struct ProcBsdInfo {
-    pbi_flags: u32,
-    pbi_status: u32,
-    pbi_xstatus: u32,
-    pbi_pid: u32,
-    pbi_ppid: u32,
-    pbi_uid: u32,
-    pbi_gid: u32,
-    pbi_ruid: u32,
-    pbi_rgid: u32,
-    pbi_svuid: u32,
-    pbi_svgid: u32,
-    rfu_1: u32,
-    pbi_comm: [u8; 16],
-    pbi_name: [u8; 32],
-    pbi_nfiles: u32,
-    pbi_pgid: u32,
-    pbi_pjobc: u32,
-    e_tdev: u32,
-    e_tpgid: u32,
-    pbi_nice: i32,
-    pbi_start_tvsec: u64,
-    pbi_start_tvusec: u64,
-}
 
 #[repr(C)]
 struct ProcTaskInfo {
@@ -183,11 +166,9 @@ const _: () = assert!(mem::size_of::<InSockInfo>() == 80);
 const _: () = assert!(mem::size_of::<TcpSockInfo>() == 120);
 const _: () = assert!(mem::size_of::<SocketInfo>() == 768);
 const _: () = assert!(mem::size_of::<SocketFdInfo>() == 792);
-const _: () = assert!(mem::size_of::<ProcBsdInfo>() == 136);
 const _: () = assert!(mem::size_of::<ProcTaskInfo>() == 96);
 
 extern "C" {
-    fn proc_listpids(type_: u32, typeinfo: u32, buffer: *mut c_void, buffersize: c_int) -> c_int;
     fn proc_pidinfo(
         pid: c_int,
         flavor: c_int,
@@ -216,18 +197,23 @@ extern "C" {
 
 pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     let mut snap = Snapshot::new();
-    let all = match list_pids() {
-        Ok(pids) => pids,
+    let process_table = match read_process_table() {
+        Ok(rows) => rows,
         Err(err) => {
-            snap.errors.push(source_error("proc_listpids", err));
+            snap.errors.push(source_error("kern_proc_all", err));
             return snap;
         }
     };
-    let wanted = select_pids(&args.scope, &all, &mut snap);
+    let wanted = select_pids(&args.scope, &process_table, &mut snap);
 
     for &pid in &wanted {
         let bsd = if args.procs || args.start_time || args.uid || args.status {
-            Some(read_bsd(pid))
+            Some(
+                process_table
+                    .get(&pid)
+                    .cloned()
+                    .ok_or(libc::ESRCH),
+            )
         } else {
             None
         };
@@ -236,7 +222,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 Ok(row) => snap.procs.push(Proc {
                     pid,
                     ppid: row.ppid,
-                    name: row.name.clone(),
+                    name: process_name(pid, &row.name),
                 }),
                 Err(err) => push_unreadable(&mut snap, pid, "proc", *err),
             }
@@ -404,7 +390,7 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
     out
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct BsdRow {
     ppid: u32,
     name: String,
@@ -414,42 +400,37 @@ struct BsdRow {
     nice: i32,
 }
 
-fn select_pids(scope: &Scope, all: &[u32], snap: &mut Snapshot) -> Vec<u32> {
+fn select_pids(
+    scope: &Scope,
+    process_table: &HashMap<u32, BsdRow>,
+    snap: &mut Snapshot,
+) -> Vec<u32> {
     match scope {
-        Scope::Host => all.to_vec(),
+        Scope::Host => {
+            let mut pids = process_table.keys().copied().collect::<Vec<_>>();
+            pids.sort_unstable();
+            pids
+        }
         Scope::Pids(pids) => pids.clone(),
-        Scope::Roots(roots) => subtree(roots, all, snap),
+        Scope::Roots(roots) => subtree(roots, process_table, snap),
     }
 }
 
-fn subtree(roots: &[u32], all: &[u32], snap: &mut Snapshot) -> Vec<u32> {
-    subtree_with(roots, all, snap, read_bsd)
-}
-
-fn subtree_with(
+fn subtree(
     roots: &[u32],
-    all: &[u32],
+    process_table: &HashMap<u32, BsdRow>,
     snap: &mut Snapshot,
-    mut read: impl FnMut(u32) -> Result<BsdRow, i32>,
 ) -> Vec<u32> {
     let mut children = HashMap::<u32, Vec<u32>>::new();
-    let mut readable = HashSet::new();
-    let listed: HashSet<u32> = all.iter().copied().collect();
-    for &pid in all {
-        if let Ok(row) = read(pid) {
-            children.entry(row.ppid).or_default().push(pid);
-            readable.insert(pid);
-        }
+    for (&pid, row) in process_table {
+        children.entry(row.ppid).or_default().push(pid);
     }
     let mut seen = HashSet::new();
     let mut queue = Vec::new();
     for &root in roots {
-        if !listed.contains(&root) {
+        if !process_table.contains_key(&root) {
             push_unreadable(snap, root, "proc", libc::ESRCH);
             continue;
-        }
-        if !readable.contains(&root) {
-            push_unreadable(snap, root, "proc", read(root).err().unwrap_or(libc::EIO));
         }
         if seen.insert(root) {
             queue.push(root);
@@ -469,58 +450,102 @@ fn subtree_with(
     queue
 }
 
-fn list_pids() -> Result<Vec<u32>, i32> {
+fn read_process_table() -> Result<HashMap<u32, BsdRow>, i32> {
+    decode_process_table(&kern_proc_all()?)
+}
+
+fn kern_proc_all() -> Result<Vec<u8>, i32> {
     unsafe {
-        let bytes = proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0);
-        if bytes <= 0 {
-            return Err(errno());
+        let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_ALL];
+        for _ in 0..3 {
+            let mut len = 0;
+            if libc::sysctl(
+                mib.as_mut_ptr(),
+                mib.len() as c_uint,
+                std::ptr::null_mut(),
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            ) != 0
+            {
+                return Err(errno());
+            }
+            len = len.saturating_add(16 * KINFO_PROC_SIZE);
+            let mut bytes = vec![0u8; len];
+            if libc::sysctl(
+                mib.as_mut_ptr(),
+                mib.len() as c_uint,
+                bytes.as_mut_ptr().cast(),
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            ) == 0
+            {
+                bytes.truncate(len);
+                return Ok(bytes);
+            }
+            if errno() != libc::ENOMEM {
+                return Err(errno());
+            }
         }
-        let size = bytes + 64 * mem::size_of::<c_int>() as c_int;
-        let mut buf = vec![0i32; size as usize / mem::size_of::<c_int>()];
-        let used = proc_listpids(PROC_ALL_PIDS, 0, buf.as_mut_ptr().cast(), size);
-        if used <= 0 {
-            return Err(errno());
-        }
-        let mut out: Vec<u32> = buf[..used as usize / mem::size_of::<c_int>()]
-            .iter()
-            .copied()
-            .filter(|&pid| pid > 0)
-            .map(|pid| pid as u32)
-            .collect();
-        out.sort_unstable();
-        Ok(out)
+        Err(libc::ENOMEM)
     }
 }
 
-fn read_bsd(pid: u32) -> Result<BsdRow, i32> {
-    unsafe {
-        let mut bsd = mem::zeroed::<ProcBsdInfo>();
-        let n = proc_pidinfo(
-            pid as c_int,
-            PROC_PIDTBSDINFO,
-            0,
-            (&raw mut bsd).cast(),
-            mem::size_of::<ProcBsdInfo>() as c_int,
-        );
-        if n < mem::size_of::<ProcBsdInfo>() as c_int {
-            return Err(errno());
-        }
-        let name = path_basename(pid)
-            .or_else(|| cstr_field(&bsd.pbi_name))
-            .or_else(|| cstr_field(&bsd.pbi_comm))
-            .unwrap_or_else(|| pid.to_string());
-        Ok(BsdRow {
-            ppid: bsd.pbi_ppid,
-            name: sanitize_name(&name),
-            start_unix_us: bsd
-                .pbi_start_tvsec
-                .saturating_mul(1_000_000)
-                .saturating_add(bsd.pbi_start_tvusec),
-            uid: bsd.pbi_ruid,
-            status: bsd.pbi_status,
-            nice: bsd.pbi_nice,
-        })
+fn decode_process_table(bytes: &[u8]) -> Result<HashMap<u32, BsdRow>, i32> {
+    if !bytes.len().is_multiple_of(KINFO_PROC_SIZE) {
+        return Err(libc::EINVAL);
     }
+    let mut rows = HashMap::new();
+    for raw in bytes.chunks_exact(KINFO_PROC_SIZE) {
+        let Some((pid, row)) = decode_kinfo_proc(raw)? else {
+            continue;
+        };
+        if rows.insert(pid, row).is_some() {
+            return Err(libc::EINVAL);
+        }
+    }
+    Ok(rows)
+}
+
+fn decode_kinfo_proc(bytes: &[u8]) -> Result<Option<(u32, BsdRow)>, i32> {
+    if bytes.len() != KINFO_PROC_SIZE {
+        return Err(libc::EINVAL);
+    }
+    let pid = read_i32(bytes, KINFO_PID_OFFSET)?;
+    if pid == 0 {
+        return Ok(None);
+    }
+    if pid < 0 {
+        return Err(libc::EINVAL);
+    }
+    let ppid = read_i32(bytes, KINFO_PPID_OFFSET)?;
+    let start_sec = read_i64(bytes, KINFO_START_SEC_OFFSET)?;
+    let start_usec = read_i32(bytes, KINFO_START_USEC_OFFSET)?;
+    if ppid < 0 || start_sec < 0 || !(0..1_000_000).contains(&start_usec) {
+        return Err(libc::EINVAL);
+    }
+    let comm = cstr_field(&bytes[KINFO_COMM_OFFSET..KINFO_COMM_OFFSET + KINFO_COMM_SIZE])
+        .ok_or(libc::EINVAL)?;
+    Ok(Some((
+        pid as u32,
+        BsdRow {
+            ppid: ppid as u32,
+            name: sanitize_name(&comm),
+            start_unix_us: (start_sec as u64)
+                .saturating_mul(1_000_000)
+                .saturating_add(start_usec as u64),
+            uid: read_u32(bytes, KINFO_RUID_OFFSET)?,
+            status: u32::from(bytes[KINFO_STATUS_OFFSET]),
+            nice: i32::from(bytes[KINFO_NICE_OFFSET] as i8),
+        },
+    )))
+}
+
+fn process_name(pid: u32, comm: &str) -> String {
+    path_basename(pid)
+        .map(|name| sanitize_name(&name))
+        .unwrap_or_else(|| comm.to_owned())
 }
 
 fn darwin_state(status: u32) -> Result<char, i32> {
@@ -1005,6 +1030,22 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, i32> {
         .ok_or(libc::EINVAL)
 }
 
+fn read_i32(bytes: &[u8], offset: usize) -> Result<i32, i32> {
+    bytes
+        .get(offset..offset + 4)
+        .and_then(|slice| slice.try_into().ok())
+        .map(i32::from_ne_bytes)
+        .ok_or(libc::EINVAL)
+}
+
+fn read_i64(bytes: &[u8], offset: usize) -> Result<i64, i32> {
+    bytes
+        .get(offset..offset + 8)
+        .and_then(|slice| slice.try_into().ok())
+        .map(i64::from_ne_bytes)
+        .ok_or(libc::EINVAL)
+}
+
 fn round_up_8(value: usize) -> usize {
     value.saturating_add(7) & !7
 }
@@ -1039,33 +1080,59 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unreadable_root_still_selects_readable_descendants() {
+    fn kinfo_proc_fixture_decodes_public_process_identity() {
+        let mut bytes = [0u8; KINFO_PROC_SIZE];
+        bytes[KINFO_START_SEC_OFFSET..KINFO_START_SEC_OFFSET + 8]
+            .copy_from_slice(&1_700_000_000i64.to_ne_bytes());
+        bytes[KINFO_START_USEC_OFFSET..KINFO_START_USEC_OFFSET + 4]
+            .copy_from_slice(&123_456i32.to_ne_bytes());
+        bytes[KINFO_STATUS_OFFSET] = 3;
+        bytes[KINFO_PID_OFFSET..KINFO_PID_OFFSET + 4]
+            .copy_from_slice(&4242i32.to_ne_bytes());
+        bytes[KINFO_NICE_OFFSET] = (-5i8) as u8;
+        bytes[KINFO_COMM_OFFSET..KINFO_COMM_OFFSET + 7].copy_from_slice(b"foreign");
+        bytes[KINFO_RUID_OFFSET..KINFO_RUID_OFFSET + 4]
+            .copy_from_slice(&501u32.to_ne_bytes());
+        bytes[KINFO_PPID_OFFSET..KINFO_PPID_OFFSET + 4]
+            .copy_from_slice(&42i32.to_ne_bytes());
+
+        let decoded = decode_kinfo_proc(&bytes).expect("decode");
+
+        assert_eq!(
+            decoded,
+            Some((
+                4242,
+                BsdRow {
+                    ppid: 42,
+                    name: "foreign".into(),
+                    start_unix_us: 1_700_000_000_123_456,
+                    uid: 501,
+                    status: 3,
+                    nice: -5,
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn subtree_uses_the_host_process_table() {
+        let row = |ppid, name| BsdRow {
+            ppid,
+            name: name.into(),
+            start_unix_us: 1,
+            uid: 501,
+            status: 2,
+            nice: 0,
+        };
+        let process_table = HashMap::from([
+            (1, row(0, "root")),
+            (2, row(1, "child")),
+            (3, row(2, "grandchild")),
+        ]);
         let mut snap = Snapshot::new();
-        let selected = subtree_with(&[1], &[1, 2, 3], &mut snap, |pid| match pid {
-            1 => Err(libc::EPERM),
-            2 => Ok(BsdRow {
-                ppid: 1,
-                name: "child".into(),
-                start_unix_us: 2,
-                uid: 501,
-                status: 2,
-                nice: 0,
-            }),
-            3 => Ok(BsdRow {
-                ppid: 2,
-                name: "grandchild".into(),
-                start_unix_us: 3,
-                uid: 501,
-                status: 2,
-                nice: 0,
-            }),
-            _ => unreachable!(),
-        });
+        let selected = subtree(&[1], &process_table, &mut snap);
 
         assert_eq!(selected, vec![1, 2, 3]);
-        assert!(snap
-            .unreadable
-            .iter()
-            .any(|row| { row.pid == 1 && row.facet == "proc" && row.errno == "EPERM" }));
+        assert!(snap.unreadable.is_empty());
     }
 }
