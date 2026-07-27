@@ -15,14 +15,16 @@ import arch from "../../diagrams/os-facts-tool-arch.svg?raw";
 **osfacts is a product of its own** — its own README, its own CI, its own
 repo-to-be — not a kolu module. One static Rust binary that answers *what does
 the OS say about these processes and their sockets*, scoped to exactly what you
-asked, honest about what it could not read, in about ten milliseconds. The
+asked, honest about what it could not read. On a Linux host with about 450
+processes, its one-process process+port shape takes 6.5 ms and its host-wide
+all-process-facets shape takes 24.3 ms. The flags are part of the number. The
 binary and kolu's port-sensor adoption shipped in <PrLink pr={1996} />;
 drishti's adoption attempt
 ([srid/drishti#122](https://github.com/srid/drishti/pull/122)) is what wrote
-the rest of the phase tree below.<Footnote>Every measurement in this note comes
-from the <PrLink pr={1982} /> candidate sweep — the note is where that week's
-conclusions live on after the scratchpads that produced them are
-gone.</Footnote>
+the rest of the phase tree below.<Footnote>The candidate measurements come from
+the <PrLink pr={1982} /> sweep. The current osfacts numbers come from 31
+interleaved warm runs for <PrLink pr={2011} /> on `naiveintent`, with 450–466
+live processes and stdout captured as a real client captures it.</Footnote>
 
 <Svg
   svg={arch}
@@ -39,9 +41,10 @@ opening:
 - **Honest** — what it could not read is *reported*, never silently dropped.
 - **Versioned** — schema version first; a mismatched consumer fails loudly
   instead of parsing a half-understood shape into zero rows.
-- **Fast** — ~10 ms per snapshot, because interactive callers poll at
-  seconds scale. This budget is the requirement that explains every rejection
-  in the comparison table.
+- **Fast** — cost tracks the ask: 6.5 ms for the one-process port shape, 24.3
+  ms for every process facet across about 450 Linux processes. Interactive
+  callers poll at seconds scale, and the live lane guards the large shape at a
+  deliberately loose 40 ms median.
 
 ## The contract
 
@@ -126,12 +129,12 @@ table:
 
 | candidate            | disqualifier                                                                                                                                                                                                                                              |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `osquery`            | **the wrong operational model**: a resident fleet-telemetry agent with a SQL surface, measured at ~378 ms per query and ~158 MB — built for querying thousands of machines every few minutes, not one machine every five seconds on a 10 ms budget         |
+| `osquery`            | **the wrong operational model**: a resident fleet-telemetry agent with a SQL surface, measured at ~378 ms per query and ~158 MB — built for querying thousands of machines every few minutes, not an interactive poll measured in tens of milliseconds         |
 | `procs`              | **discards the bind address** — loopback and wildcard collapse to one row                                                                                                                                                                                 |
 | `portls`             | no PPID, no process table — a listener cannot be walked back to its root                                                                                                                                                                                  |
 | `rustnet`            | interactive capture TUI, needs packet-capture privilege                                                                                                                                                                                                   |
 | `portview`           | **listener rows only, no process table** — a `shell → npm → node` server cannot be walked back to its terminal. No subtree scoping either: its single-port query is a host-wide scan plus a filter<Footnote>portview is also the strongest evidence *for* building this: it measures **9.9 ms on darwin** against our former C helper's 10.6 ms on the same box by the same method, in Rust, in a single pass. Single-pass Rust matches C — the language was never the constraint, the double enumeration was. That measurement is what settled osfacts on Rust.</Footnote> |
-| `sysinfo`+`listeners` | wrapping the two crates enumerates the process list **twice**: 23 ms darwin / ~100 ms linux against 10 ms for a single pass — and `listeners` shipped the v4-mapped decode bug [we fixed upstream](https://github.com/GyulyVGC/listeners/pull/57)<Footnote>The ~50-line darwin address decode from that fix is vendored into osfacts with its regression fixtures; upstream is pinned in CI as a drift oracle. The repo README's Testing section owns the detail.</Footnote><Footnote>Disqualified as the process/socket *engine* — not banned outright. OSF7's darwin network counters use `sysinfo`'s network module (target-gated to macos, `default-features = false`, `network` feature only): one function, taken to delete an unsafe hand-computed `if_data` byte overlay after CodeQL flagged it — the same remove-a-defect-class clause that admitted `serde`. The measured disqualifier (a host-wide process double-walk) doesn't apply to a single sysctl read, and the live-oracle lane's monotonic-counter check is the drift detector for the dependency.</Footnote> |
+| `sysinfo`+`listeners` | wrapping the two crates enumerates the process list **twice**: 23 ms darwin / ~100 ms linux, while osfacts' current Linux host-wide process+listener pass is 17.8 ms — and `listeners` shipped the v4-mapped decode bug [we fixed upstream](https://github.com/GyulyVGC/listeners/pull/57)<Footnote>The ~50-line darwin address decode from that fix is vendored into osfacts with its regression fixtures; upstream is pinned in CI as a drift oracle. The repo README's Testing section owns the detail.</Footnote><Footnote>Disqualified as the process/socket *engine* — not banned outright. OSF7's darwin network counters use `sysinfo`'s network module (target-gated to macos, `default-features = false`, `network` feature only): one function, taken to delete an unsafe hand-computed `if_data` byte overlay after CodeQL flagged it — the same remove-a-defect-class clause that admitted `serde`. The measured disqualifier (a host-wide process double-walk) doesn't apply to a single sysctl read, and the live-oracle lane's monotonic-counter check is the drift detector for the dependency.</Footnote> |
 | `lsof` / `netstat`   | `lsof` measured 93 ms; macOS `netstat` is **intermittently blind** — success and zero rows in one sampling window, 29 rows in the next, same boot                                                                                                          |
 
 ## Adoption — kolu and drishti
@@ -171,6 +174,44 @@ CPU model/frequency, and `bfree`. PR <PrLink pr={2011} /> closes that set in
 the same V2 contract. `osfacts-client` now exposes `snapshotHost` directly;
 Drishti can delete its native readers without narrowing or sentinelizing the
 facts it used to show.
+
+### Linux cost follows the ask again
+
+Drishti measured the first full Linux migration at 55.8 ms per poll, against
+5.6 ms for its old in-process reader. **The second process was not the
+problem.** The host call cost 2.6 ms. The process snapshot was reopening `stat`
+four times per pid, walking every fd in one long line, growing zero-length proc
+files through repeated reads, and issuing almost one stdout write per row.
+Plain waste.
+
+| warm Linux shape | before | after |
+| --- | ---: | ---: |
+| host-wide, every process facet | 52.56 ms | 24.33 ms |
+| drishti's snapshot + host calls, serial | 55.41 ms | 26.48 ms |
+| one-process `--roots`, process+ports | 7.58 ms | 6.49 ms |
+| 83-process subtree, process+ports | 19.85 ms | 17.27 ms |
+
+Each mutation was timed against the binary immediately before it, in the same
+interleaved run. Every kept cycle cleared the 3% noise bar.
+
+| isolated cycle | before | after | change |
+| --- | ---: | ---: | ---: |
+| share `stat` and `cmdline` reads | 51.34 ms | 39.38 ms | −23.3% |
+| ordered workers for large fd walks | 39.98 ms | 33.58 ms | −16.0% |
+| buffer stdout | 32.03 ms | 27.75 ms | −13.4% |
+| preallocate proc-file reads | 28.72 ms | 26.20 ms | −8.8% |
+| reuse cached `stat` RSS | 26.66 ms | 24.16 ms | −9.4% |
+
+The fix opens shared proc files once, preallocates one page for virtual-file
+reads, reuses the cached `stat` RSS in combined snapshots, buffers stdout, and
+parallelizes only large fd walks. Ordered collection keeps attribution stable;
+small scopes never spawn a worker. A live-lane smoke takes 11 warm all-facet
+samples and requires a median under 40 ms. It failed first on the pinned old
+binary at 47.37 ms across 450 processes, then passed with the current binary.
+One rejected version read RSS from `stat` even for `--mem` alone; that slowed
+the narrow shape from 5.46 to 6.87 ms, so the final reader keeps `statm` unless
+another requested facet has already paid for `stat`. Combining Drishti's two
+subprocesses was not worth a new command shape: the host half costs only 2.6 ms.
 
 ### The phase tree — track prefix `OSF`
 

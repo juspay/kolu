@@ -19,8 +19,10 @@ osfacts host --load --mem --cpu --net --disk      # machine gauges, metadata + c
 osfacts snapshot --procs --json | jq              # same facts, readable
 ```
 
-One verb, composable facets, about ten milliseconds. We know it's ten
-milliseconds because we spent a week timing everything else.
+One verb, composable facets. On a Linux host with about 450 processes, the
+one-process `--procs --ports` shape takes 6.5 ms; every process facet host-wide
+takes 24.3 ms. The flags matter. We know because we time the shapes users run,
+not a toy command that happens to make the number look good.
 
 ## Scoping
 
@@ -35,6 +37,36 @@ walks back to its root. A dev server is usually `shell → npm → node`; if you
 tool only shows you the `node`, you know a port is open but not whose it is.
 That's the question that matters, and it's the one the listener-only tools
 can't answer.
+
+## Performance
+
+One timing for a composable command is usually a lie. `--ports` walks file
+descriptors; `--argv` reads command lines; `--roots` can turn 450 processes
+into one. So these are the useful numbers: 31 interleaved warm runs on
+`naiveintent`, with 450–466 live Linux processes and stdout captured as a real
+client captures it.
+
+| shape | before the Linux pass | current |
+| --- | ---: | ---: |
+| host-wide `--procs` | 10.93 ms | 9.43 ms |
+| host-wide `--procs --ports` | 27.59 ms | 17.80 ms |
+| host-wide, every process facet | 52.56 ms | 24.33 ms |
+| `host --load --mem --cpu --net --disk` | 2.61 ms | 2.61 ms |
+| drishti's two calls, serial | 55.41 ms | 26.48 ms |
+| one-process `--roots`, `--procs --ports` | 7.58 ms | 6.49 ms |
+| 83-process subtree, `--procs --ports` | 19.85 ms | 17.27 ms |
+
+The large win came from mundane waste: the same `stat` file was opened four
+times per pid, output was written a row at a time, and a host-wide fd walk ran
+in one long line. The Linux reader now opens shared proc files once, reads
+virtual files into a page-sized buffer, reuses `stat`'s RSS field in combined
+snapshots, buffers stdout, and splits only large fd walks into ordered workers.
+Small scopes stay on the simple path.
+
+The live lane also times 11 warm all-facet snapshots and requires a median
+below 40 ms. The pinned old binary fails that smoke at 47.37 ms across 450
+processes. The current one passes. The bound is loose enough for a noisy CI
+host and tight enough to catch the old class of bug.
 
 ## Honesty
 
@@ -146,7 +178,7 @@ packaging:
 | `portls` | no PPID, no process table — a listener can't be walked back to its root |
 | `rustnet` | an interactive capture TUI; needs packet-capture privilege |
 | `portview` | listener rows only, no process table, no scoping — its single-port query is a host-wide scan plus a filter |
-| `sysinfo` + `listeners` | composing them enumerates the process list twice: 23 ms darwin / ~100 ms linux, vs 10 ms for one pass |
+| `sysinfo` + `listeners` | composing them enumerates the process list twice: 23 ms darwin / ~100 ms linux; osfacts' current Linux host-wide process+listener pass is 17.8 ms |
 | `lsof` / `netstat` | `lsof` measured 93 ms; macOS `netstat` goes intermittently blind — success and zero rows in one window, 29 rows the next, same boot |
 
 ## Testing
