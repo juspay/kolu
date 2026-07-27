@@ -12,6 +12,7 @@ use std::ffi::CString;
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::thread;
 
 const TCP_LISTEN: &str = "0A";
 
@@ -142,8 +143,8 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
         match load_listeners() {
             Ok(listeners) => {
                 let mut claims = HashMap::<u64, u32>::new();
-                for &pid in &pids {
-                    match socket_inodes(pid) {
+                for (pid, result) in socket_inodes_for_pids(&pids) {
+                    match result {
                         Ok(inodes) => {
                             for inode in inodes {
                                 claims.entry(inode).or_insert(pid);
@@ -497,6 +498,32 @@ fn socket_inodes(pid: u32) -> Result<HashSet<u64>, i32> {
         }
     }
     Ok(out)
+}
+
+fn socket_inodes_for_pids(pids: &[u32]) -> Vec<(u32, Result<HashSet<u64>, i32>)> {
+    const PIDS_PER_WORKER: usize = 64;
+    const MAX_WORKERS: usize = 8;
+
+    let workers = pids.len().div_ceil(PIDS_PER_WORKER).min(MAX_WORKERS);
+    if workers <= 1 {
+        return pids.iter().map(|&pid| (pid, socket_inodes(pid))).collect();
+    }
+    let chunk_len = pids.len().div_ceil(workers);
+    thread::scope(|scope| {
+        pids.chunks(chunk_len)
+            .map(|chunk| {
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|&pid| (pid, socket_inodes(pid)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flat_map(|worker| worker.join().expect("port scan worker panicked"))
+            .collect()
+    })
 }
 
 fn uptime_us() -> Result<u64, i32> {
