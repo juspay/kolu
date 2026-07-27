@@ -13,7 +13,7 @@ import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, For, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { rowSubline } from "../canvas/dock/rowSubline";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
@@ -29,7 +29,7 @@ import { HostIdentityLabel } from "../host/HostIdentityLabel";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
-import { bindStatePip, useStatePip } from "../terminal/statePipBind";
+import { useStatePip } from "../terminal/statePipBind";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { compactDelta } from "../time/duration";
 import Kbd from "../ui/Kbd";
@@ -82,9 +82,16 @@ const KindTag: Component<{ kind: ResultKind }> = (props) => {
   );
 };
 
-/** StatePip lead — live activity when the terminal is on the active host;
- *  pure bind from the row's meta snapshot for other hosts (activity store is
- *  active-host-only). */
+/** StatePip lead — the same mark the dock and the title paint, for a terminal
+ *  on ANY host.
+ *
+ *  It used to fabricate `{isLive:false,isFinished:false,unread:false}` for
+ *  anything off the active host, on the belief that activity was an
+ *  active-host-only fact. It never was: the attention mirror covers every bound
+ *  host, so a background host's agents showed as idle here while its own tab
+ *  showed them working — the palette contradicting the tab about the terminal
+ *  you were about to switch to. UNREAD is the one genuinely active-host fact
+ *  (the dock's per-tile ledger), so it alone is gated. */
 const TerminalLead: Component<{
   id: TerminalId;
   meta: TerminalMetadata;
@@ -93,26 +100,12 @@ const TerminalLead: Component<{
   const store = useTerminalStore();
   const onActiveHost = () =>
     !props.hostKey || sameHost(props.hostKey, activeHost());
-  // Active-host path: full activity/unread bind.
-  const livePip = useStatePip(
+  const pip = useStatePip(
     () => props.id,
     () => props.meta,
-    () => (onActiveHost() ? store.isUnread(props.id) : false),
+    () => onActiveHost() && store.isUnread(props.id),
   );
-  const staticPip = createMemo(() =>
-    bindStatePip({
-      meta: props.meta,
-      isLive: false,
-      isFinished: false,
-      unread: false,
-    }),
-  );
-  return (
-    <StatePip
-      {...(onActiveHost() ? livePip() : staticPip())}
-      class={TITLE_PIP_BOX}
-    />
-  );
+  return <StatePip {...pip()} class={TITLE_PIP_BOX} />;
 };
 
 const HostLead: Component<{ host: HostKey }> = (props) => {

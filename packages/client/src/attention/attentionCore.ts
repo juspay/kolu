@@ -111,8 +111,9 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       awaitingIds: [...cur.awaitingIds],
       finishedIds: [...cur.finishedIds],
       // Carried for type-fidelity only — the engine diffs the two attention
-      // lists; `working` is a mark the per-host root writes directly.
+      // lists; the activity lists are marks the per-host root writes directly.
       workingIds: [...cur.workingIds],
+      lingerIds: [...cur.lingerIds],
     });
   };
 

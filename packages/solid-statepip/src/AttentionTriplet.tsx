@@ -1,4 +1,4 @@
-/** The attention TRIPLET — working · needs-you · unread — the ONE summary
+/** The attention TRIPLET — active · needs-you · unread — the ONE summary
  *  component every altitude renders: the host tab, the host switcher row, the
  *  mobile host chip, and the dock's per-repo section header. One component so
  *  the same fact cannot render four different ways again (the fucknotif
@@ -6,14 +6,18 @@
  *  + a half-alpha pip all spoke different dialects).
  *
  *  Vocabulary (colour law from `@kolu/theme`, shapes from this package):
- *    · working — bare rust count + small spinner. Informational: no capsule,
- *      never clickable.
+ *    · active — bare rust count + small spinner: how many terminals have
+ *      something happening in them. Informational: no capsule, never
+ *      clickable.
  *    · needs-you — VIOLET CAPSULE. Actionable: when `onAsking` is supplied it
  *      renders as a real `<button>` that navigates to the next blocked
  *      terminal. Clicking never dismisses — only the agent leaving
  *      `awaiting_user` clears it.
- *    · unread — AMBER CAPSULE. Actionable the same way via `onUnseen`;
- *      cleared by opening the terminal.
+ *    · unread — AMBER CAPSULE. Actionable via `onUnseen` where a surface has
+ *      somewhere to send you — the dock section header does. A host tab does
+ *      NOT pass one, because arriving at a host is itself what clears the
+ *      count: there is no "next unread" left to jump to once you are there.
+ *      Cleared by opening the terminal, never by clicking.
  *
  *  The capsule rule: a number in a capsule is always an actionable attention
  *  count; a bare number is never a notification. Callers that sit INSIDE an
@@ -97,8 +101,11 @@ const CountCapsule: Component<{
 );
 
 export const AttentionTriplet: Component<{
-  /** Agents in flight (thinking / tools / background). */
-  working: number;
+  /** Terminals with something happening in them — agents in flight, agents
+   *  still settling after a turn, and plain shells that are printing. The one
+   *  activity predicate (`attentionActive`), so this number always equals the
+   *  number of moving marks in the scope it summarises. */
+  active: number;
   /** Agents blocked on your input (`awaiting_user`). */
   asking: number;
   /** Finished terminals you have not opened. */
@@ -117,21 +124,21 @@ export const AttentionTriplet: Component<{
 }> = (props) => {
   const scope = () => (props.scopeLabel ? ` on ${props.scopeLabel}` : "");
   return (
-    <Show when={props.working > 0 || props.asking > 0 || props.unseen > 0}>
+    <Show when={props.active > 0 || props.asking > 0 || props.unseen > 0}>
       <span
         class={`inline-flex shrink-0 items-center gap-1${props.class ? ` ${props.class}` : ""}`}
         data-testid="attention-triplet"
       >
-        <Show when={props.working > 0}>
+        <Show when={props.active > 0}>
           <span
             role="img"
             class={WORKING_COUNT_CLASS}
-            title={`${props.working} working${scope()}`}
-            aria-label={`${props.working} agents working${scope()}`}
+            title={`${props.active} active${scope()}`}
+            aria-label={`${props.active} terminals active${scope()}`}
             data-testid="attention-working"
           >
             <WorkingArc />
-            {props.working}
+            {props.active}
           </span>
         </Show>
         <CountCapsule

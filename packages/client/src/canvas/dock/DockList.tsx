@@ -33,7 +33,8 @@ import {
   SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
-import { type DockGroup, sectionAttention } from "./dockTree";
+import type { DockGroup } from "./dockTree";
+import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
@@ -77,11 +78,10 @@ function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
 }) {
-  const store = useTerminalStore();
   // Same shared fold as the desktop header — the two headers cannot count
   // differently. Capsules stay plain spans here (no jump handlers): the rows
   // they summarize are directly below on a touch surface.
-  const attn = () => sectionAttention(props.group.rows, store.isUnread);
+  const attn = useSectionAttention(() => props.group);
   // Subgrid container — same shape as the desktop dock (the shared
   // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
   // The leading 20px indicator track is fixed (not `auto`) holding
@@ -119,7 +119,7 @@ function DockListSection(props: {
           {props.group.rows.length}
         </span>
         <AttentionTriplet
-          working={attn().working}
+          active={attn().active}
           asking={attn().asking}
           unseen={attn().unseen}
           sizeClass="min-w-4 px-1 h-4"

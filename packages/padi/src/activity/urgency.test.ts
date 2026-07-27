@@ -105,11 +105,13 @@ describe("recomputeUrgency", () => {
       awaitingIds: [ID_A],
       finishedIds: [],
       workingIds: [ID_B],
+      lingerIds: [],
     });
     // Each count is derived at the read site (`.length`), never carried on the value.
     expect(Object.keys(urgency).sort()).toEqual([
       "awaitingIds",
       "finishedIds",
+      "lingerIds",
       "workingIds",
     ]);
   });
@@ -129,6 +131,7 @@ describe("recomputeUrgency", () => {
       awaitingIds: [ID_A],
       finishedIds: [ID_B],
       workingIds: ["urg-c"],
+      lingerIds: [],
     });
   });
 
@@ -140,11 +143,15 @@ describe("recomputeUrgency", () => {
       ]),
       stillDebouncing,
     );
-    // Asking still ungated; waiting gated by isEpisodeFinished.
+    // Asking still ungated; waiting gated by isEpisodeFinished — and the gated
+    // agent is not dropped on the floor, it is LINGERING (still settling), which
+    // is what keeps the host tab's activity count agreeing with its still-moving
+    // pip.
     expect(urgency).toEqual({
       awaitingIds: [ID_A],
       finishedIds: [],
       workingIds: [],
+      lingerIds: [ID_B],
     });
   });
 
@@ -161,6 +168,8 @@ describe("recomputeUrgency", () => {
       awaitingIds: [],
       finishedIds: [ID_A],
       workingIds: [],
+      // The un-finished twin partitions into linger, never into both lists.
+      lingerIds: [ID_B],
     });
   });
 
@@ -177,16 +186,19 @@ describe("recomputeUrgency", () => {
       awaitingIds: [ID_B, ID_A],
       finishedIds: [],
       workingIds: [],
+      lingerIds: [],
     });
   });
 
-  it("is empty for a map with no attention-worthy agents", () => {
+  it("is empty for a map with no agent-bearing terminals", () => {
     expect(
-      recomputeUrgency(
-        terminalsMap([[ID_A, makeAgent("waiting")]]),
-        stillDebouncing,
-      ),
-    ).toEqual({ awaitingIds: [], finishedIds: [], workingIds: [] });
+      recomputeUrgency(terminalsMap([[ID_A, null]]), stillDebouncing),
+    ).toEqual({
+      awaitingIds: [],
+      finishedIds: [],
+      workingIds: [],
+      lingerIds: [],
+    });
   });
 
   it("EXCLUDES a SLEEPING terminal even when its agent reads as awaiting_user", () => {
@@ -205,6 +217,7 @@ describe("recomputeUrgency", () => {
       awaitingIds: [ID_B],
       finishedIds: [],
       workingIds: [],
+      lingerIds: [],
     });
   });
 });
@@ -213,8 +226,18 @@ describe("urgencyEqual", () => {
   it("is true for two readings with the same ids in the same order", () => {
     expect(
       urgencyEqual(
-        { awaitingIds: ["a", "b"], finishedIds: ["c"], workingIds: ["d"] },
-        { awaitingIds: ["a", "b"], finishedIds: ["c"], workingIds: ["d"] },
+        {
+          awaitingIds: ["a", "b"],
+          finishedIds: ["c"],
+          workingIds: ["d"],
+          lingerIds: ["e"],
+        },
+        {
+          awaitingIds: ["a", "b"],
+          finishedIds: ["c"],
+          workingIds: ["d"],
+          lingerIds: ["e"],
+        },
       ),
     ).toBe(true);
   });
@@ -222,8 +245,13 @@ describe("urgencyEqual", () => {
   it("is false when the awaiting set differs", () => {
     expect(
       urgencyEqual(
-        { awaitingIds: ["a"], finishedIds: [], workingIds: [] },
-        { awaitingIds: ["a", "b"], finishedIds: [], workingIds: [] },
+        { awaitingIds: ["a"], finishedIds: [], workingIds: [], lingerIds: [] },
+        {
+          awaitingIds: ["a", "b"],
+          finishedIds: [],
+          workingIds: [],
+          lingerIds: [],
+        },
       ),
     ).toBe(false);
   });
@@ -231,8 +259,26 @@ describe("urgencyEqual", () => {
   it("is false when ONLY the finished set differs — a finish must still publish", () => {
     expect(
       urgencyEqual(
-        { awaitingIds: ["a"], finishedIds: [], workingIds: [] },
-        { awaitingIds: ["a"], finishedIds: ["b"], workingIds: [] },
+        { awaitingIds: ["a"], finishedIds: [], workingIds: [], lingerIds: [] },
+        {
+          awaitingIds: ["a"],
+          finishedIds: ["b"],
+          workingIds: [],
+          lingerIds: [],
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when ONLY the linger set differs — the activity count must move", () => {
+    // working → linger is the same terminal moving lists: the host tab's
+    // activity count stays at 1, but the frame must still publish or a later
+    // linger → finished (which DOES change the count) has no baseline to
+    // diff against.
+    expect(
+      urgencyEqual(
+        { awaitingIds: [], finishedIds: [], workingIds: ["a"], lingerIds: [] },
+        { awaitingIds: [], finishedIds: [], workingIds: [], lingerIds: ["a"] },
       ),
     ).toBe(false);
   });

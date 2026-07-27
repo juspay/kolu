@@ -8,7 +8,7 @@ import { ACTIONS } from "../input/actions";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import LiveActivityDot from "./LiveActivityDot";
-import { useTerminalActivity } from "./useTerminalActivity";
+import { useAttentionFacts } from "../attention/useAttentionFacts";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
@@ -23,7 +23,7 @@ const SubPanelTabBar: Component<{
   // records output under its own `subId` — but the top-level dock/title readers
   // are keyed by the PARENT id and never surface it. This tab bar is the only
   // per-sub UI, so it owns the sub-terminal's live-output reader.
-  const activity = useTerminalActivity();
+  const activity = useAttentionFacts();
   return (
     <div
       data-testid="sub-panel-tab-bar"

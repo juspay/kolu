@@ -242,7 +242,7 @@ const HostChip: Component<{
          *  the 20-hour failure. Unseen still suppresses on the active host
          *  (its dock rows carry that mark). */}
         <AttentionTriplet
-          working={marks.working()}
+          active={marks.active()}
           asking={marks.asking()}
           unseen={isActive() ? 0 : marks.unseenFinished()}
           sizeClass="min-w-4 px-1 h-4"
@@ -347,7 +347,7 @@ const HostSwitcherRow: Component<{
       {/* Attention summary — a sibling grid cell (not inside the switch
        *  button), so the violet jump capsule stays a real `<button>`. */}
       <AttentionTriplet
-        working={marks.working()}
+        active={marks.active()}
         asking={marks.asking()}
         unseen={isActive() ? 0 : marks.unseenFinished()}
         sizeClass="min-w-4 px-1 h-4"

@@ -11,6 +11,7 @@ const u = (awaiting: string[] = [], finished: string[] = []): PadiUrgency => ({
   awaitingIds: awaiting as TerminalId[],
   finishedIds: finished as TerminalId[],
   workingIds: [],
+  lingerIds: [],
 });
 
 function harness(over: Partial<AttentionHooks> = {}) {

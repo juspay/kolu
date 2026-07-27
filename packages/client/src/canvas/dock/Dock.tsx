@@ -112,7 +112,8 @@ import {
   type RankedDockRow,
   rowRecencyAt,
 } from "./dockRowRanking";
-import { type DockGroup, type DockTree, sectionAttention } from "./dockTree";
+import type { DockGroup, DockTree } from "./dockTree";
+import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
@@ -500,11 +501,9 @@ const RepoSection: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileStore = useTileStore();
-  // The header's attention summary — the SAME triplet the host tab renders,
-  // folded over this section's rows by the shared `sectionAttention`.
-  const attn = createMemo(() =>
-    sectionAttention(props.group.rows, store.isUnread),
-  );
+  // The header's attention summary — the SAME triplet, on the SAME activity
+  // predicate, the host tab renders.
+  const attn = useSectionAttention(() => props.group);
   // Capsule click = navigate to the next matching row in this section,
   // cycling past the active one — the same never-dismiss law as the host
   // pill (violet clears only when the agent stops waiting; amber clears
@@ -561,7 +560,7 @@ const RepoSection: Component<{
           {props.group.rows.length}
         </span>
         <AttentionTriplet
-          working={attn().working}
+          active={attn().active}
           asking={attn().asking}
           unseen={attn().unseen}
           sizeClass="min-w-4 px-1 h-4"

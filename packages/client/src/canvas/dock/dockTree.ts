@@ -43,6 +43,10 @@
  *  so the dock's "what counts as one repo" agrees with the canvas. */
 
 import type { TerminalId } from "kolu-common/surface";
+import {
+  isActive,
+  type TerminalAttention,
+} from "../../attention/attentionFacts";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { type RankedDockRow, tsRank } from "./dockRowRanking";
 
@@ -54,6 +58,14 @@ export type DockGroup = {
   /** Rows inside this group, sorted by recency (newest first), with
    *  same-branch siblings kept adjacent via cluster grouping. */
   rows: RankedDockRow[];
+  /** Every row belonging to this repo, INCLUDING the ones the activity window
+   *  parked and the ☾ toggle is hiding — what the header's attention summary
+   *  counts. The counts must not move when you toggle a filter: an agent that
+   *  has been blocked on you long enough to fall out of the activity window is
+   *  the one you most need told about, and folding over the visible rows alone
+   *  reported it as zero — the header quietly agreeing with a dock that had
+   *  hidden the problem. Same order as `rows`, filters not applied. */
+  allRows: RankedDockRow[];
 };
 
 export type DockTree = {
@@ -95,12 +107,26 @@ export function buildDockTree(
 ): DockTree {
   const byName = new Map<
     string,
-    { color: string; byLabel: Map<string, RankedDockRow[]> }
+    {
+      color: string;
+      byLabel: Map<string, RankedDockRow[]>;
+      allRows: RankedDockRow[];
+    }
   >();
   let parkedCount = 0;
   let sleepingCount = 0;
 
   for (const row of ranked) {
+    // Resolve the repo BEFORE the filters, so a hidden row still joins its
+    // group's `allRows` and its attention still reaches the header.
+    const info = getDisplayInfo(row.id);
+    if (!info) continue;
+    let group = byName.get(info.key.group);
+    if (!group) {
+      group = { color: info.repoColor, byLabel: new Map(), allRows: [] };
+      byName.set(info.key.group, group);
+    }
+    group.allRows.push(row);
     if (row.bucket === "parked") {
       parkedCount++;
       continue;
@@ -112,23 +138,21 @@ export function buildDockTree(
       sleepingCount++;
       if (hideSleeping) continue;
     }
-    const info = getDisplayInfo(row.id);
-    if (!info) continue;
-    let group = byName.get(info.key.group);
-    if (!group) {
-      group = { color: info.repoColor, byLabel: new Map() };
-      byName.set(info.key.group, group);
-    }
     const list = group.byLabel.get(info.key.label);
     if (list) list.push(row);
     else group.byLabel.set(info.key.label, [row]);
   }
 
-  const groups: DockGroup[] = [...byName.entries()].map(([name, g]) => ({
-    name,
-    color: g.color,
-    rows: flattenLabelClusters(g.byLabel),
-  }));
+  const groups: DockGroup[] = [...byName.entries()]
+    .map(([name, g]) => ({
+      name,
+      color: g.color,
+      rows: flattenLabelClusters(g.byLabel),
+      allRows: g.allRows,
+    }))
+    // A repo whose every row is filtered out has no header to hang its
+    // attention on; the footer's "N hidden" disclosure is what surfaces it.
+    .filter((g) => g.rows.length > 0);
 
   groups.sort(compareGroups);
 
@@ -206,23 +230,33 @@ function groupRecency(g: DockGroup): number {
 }
 
 /** A section's attention summary — the counts the header's `AttentionTriplet`
- *  renders. The SAME three-way vocabulary the host tab shows (working ·
- *  needs-you · unread), folded over the section's already-classified rows:
- *  `bucket` is the ORDER bucket, so `awaiting` here is exactly `awaiting_user`
- *  and a post-turn linger contributes nothing. Defined ONCE for both dock
- *  surfaces (desktop `Dock.tsx`, touch `DockList.tsx`) so the two headers
- *  cannot count differently. */
+ *  renders. The SAME vocabulary, and the same PREDICATE, the host tab shows
+ *  (active · needs-you · unread): `attentionActive` decides the rust count here
+ *  exactly as it does on the tab and in each row's pip motion, so a section can
+ *  never report a different number of busy terminals than the marks beneath it.
+ *
+ *  Asking and active are mutually exclusive — they answer the same question
+ *  (what state is this terminal in) and a row paints one or the other. Unread
+ *  is counted INDEPENDENTLY, because it is a different axis: state is the pip's
+ *  colour, unread is the amber badge riding on top of it (the StatePip axis
+ *  contract), and a row genuinely wears both. Rolling it into the state legs
+ *  would make the header disagree with the row right beneath it.
+ *
+ *  Defined ONCE for both dock surfaces (desktop `Dock.tsx`, touch
+ *  `DockList.tsx`) so the two headers cannot count differently. */
 export function sectionAttention(
   rows: readonly RankedDockRow[],
   isUnread: (id: TerminalId) => boolean,
-): { working: number; asking: number; unseen: number } {
-  let working = 0;
+  attentionOf: (id: TerminalId) => TerminalAttention,
+): { active: number; asking: number; unseen: number } {
+  let active = 0;
   let asking = 0;
   let unseen = 0;
   for (const row of rows) {
-    if (row.bucket === "awaiting") asking++;
-    else if (row.bucket === "working") working++;
+    const attention = attentionOf(row.id);
+    if (attention.klass === "asking") asking++;
+    else if (isActive(attention)) active++;
     if (isUnread(row.id)) unseen++;
   }
-  return { working, asking, unseen };
+  return { active, asking, unseen };
 }

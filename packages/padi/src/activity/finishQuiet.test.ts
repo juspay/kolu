@@ -91,6 +91,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       awaitingIds: [],
       finishedIds: [],
       workingIds: [],
+      lingerIds: [A],
     });
 
     vi.advanceTimersByTime(QUIET);
@@ -98,6 +99,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       awaitingIds: [],
       finishedIds: [A],
       workingIds: [],
+      lingerIds: [],
     });
     expect(finish.stickySnapshot()).toEqual([A]);
     expect(finish.episodeSnapshot()).toEqual([[A, "finished"]]);
@@ -135,6 +137,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       awaitingIds: [],
       finishedIds: [],
       workingIds: [],
+      lingerIds: [],
     });
     // First non-empty inventory with waiting → discovery sticky, not debounce.
     const terms = terminalsMap([
@@ -145,6 +148,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       awaitingIds: [],
       finishedIds: [A],
       workingIds: [B],
+      lingerIds: [],
     });
     expect(finish.stickySnapshot()).toEqual([A]);
     expect(finish.waitingSnapshot()).toEqual([A]);
@@ -163,6 +167,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       awaitingIds: [],
       finishedIds: [A],
       workingIds: [],
+      lingerIds: [],
     });
     finish.dispose();
   });
@@ -227,6 +232,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       awaitingIds: [],
       finishedIds: [],
       workingIds: [A],
+      lingerIds: [],
     });
     expect(finish.episodeSnapshot()).toEqual([]);
     finish.dispose();
@@ -295,6 +301,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       awaitingIds: [],
       finishedIds: [],
       workingIds: [],
+      lingerIds: [A],
     });
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terminalsMap([[A, "waiting"]])).finishedIds).toEqual([
@@ -314,12 +321,14 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       awaitingIds: [A],
       finishedIds: [],
       workingIds: [],
+      lingerIds: [],
     });
 
     expect(fold(finish, terminalsMap([[A, "waiting"]]))).toEqual({
       awaitingIds: [],
       finishedIds: [],
       workingIds: [],
+      lingerIds: [A],
     });
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terminalsMap([[A, "waiting"]])).finishedIds).toEqual([

@@ -9,11 +9,11 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { attentionDiagnostic } from "./attention/attentionDiagnostics";
-import { hostUrgencyMirror } from "./attention/attentionMarks";
+import { hostActiveIds } from "./attention/attentionFacts";
+import { hostFrame } from "./attention/attentionMarks";
+import { useAttentionFacts } from "./attention/useAttentionFacts";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import { bindStatePip } from "./terminal/statePipBind";
-import { useFinishedQuiet } from "./terminal/useFinishedQuiet";
-import { useTerminalActivity } from "./terminal/useTerminalActivity";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { activeHost } from "./wire";
 import { PAINT_STALL_WARN_MS } from "@kolu/xterm-kit/solid";
@@ -72,8 +72,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
 ) => {
   const browser = browserFacts();
   const store = useTerminalStore();
-  const activity = useTerminalActivity();
-  const finishedQuiet = useFinishedQuiet();
+  const facts = useAttentionFacts();
 
   /** The attention snapshot — every terminal's paint inputs beside the counts'
    *  inputs, plus this host's mirrored urgency frame, so a "why does the tab
@@ -82,24 +81,25 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
    *  a real disagreement and not two reads a second apart. */
   const attention = createMemo(() => {
     const encHost = encodeHostKey(activeHost());
-    const urgency = hostUrgencyMirror(encHost);
+    const urgency = hostFrame(encHost);
     const rows = store.terminalIds().map((id) => {
       const meta = store.getMetadata(id);
       if (!meta) return null;
-      const isLive = activity.isLive(id);
-      const isFinished = finishedQuiet.isFinished(id);
-      // Bind through the REAL binder rather than re-deriving paint here — a
-      // diagnostic that re-spells the rule it is diagnosing can drift from it
-      // and quietly report the wrong thing.
-      const pip = bindStatePip({ meta, isLive, isFinished, unread: false });
+      // Bind through the REAL binder, off the REAL attention value, rather
+      // than re-deriving either here — a diagnostic that re-spells the rule it
+      // is diagnosing can drift from it and quietly report the wrong thing.
+      const attention = facts.attentionOf(meta, id);
+      const pip = bindStatePip({ meta, attention, unread: false });
       const d = attentionDiagnostic({
         id,
         meta,
         glyph: pip.glyph,
         pipVariant: pip.variant,
+        motion: pip.motion,
         shellLive: pip.shellLive,
-        isLive,
-        isFinished,
+        isLive: attention.live,
+        isFinished: facts.isFinished(id),
+        attention,
       });
       return {
         ...d,
@@ -108,6 +108,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         // client/server SYNC gap; both blank while the title spins is a
         // DETECTION gap. The pair is what tells them apart.
         padiSaysWorking: urgency.workingIds.includes(id),
+        padiSaysLingering: urgency.lingerIds.includes(id),
         padiSaysAwaiting: urgency.askingIds.includes(id),
         padiSaysFinished: urgency.finishedIds.includes(id),
       };
@@ -122,14 +123,19 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     // green is exactly how a 4-vs-3 mismatch reached a user).
     const seen = new Set(terminals.map((t) => t.id));
     const uncounted = [
-      ...urgency.workingIds.map((id) => ({ id, as: "working" })),
-      ...urgency.askingIds.map((id) => ({ id, as: "awaiting" })),
-    ].filter((u) => !seen.has(u.id as TerminalId));
+      ...urgency.workingIds.map((id: TerminalId) => ({ id, as: "working" })),
+      ...urgency.lingerIds.map((id: TerminalId) => ({ id, as: "lingering" })),
+      ...urgency.askingIds.map((id: TerminalId) => ({ id, as: "awaiting" })),
+    ].filter((u) => !seen.has(u.id));
     return {
       host: encHost,
       hostLive: urgency.live,
       counts: {
+        // The tab renders ACTIVE (working + lingering + printing shells), so
+        // the dump must show the number the tab shows, not a leg of it.
+        active: hostActiveIds(urgency).length,
         working: urgency.workingIds.length,
+        lingering: urgency.lingerIds.length,
         asking: urgency.askingIds.length,
       },
       // A terminal this list can't see is a disagreement too — the count says

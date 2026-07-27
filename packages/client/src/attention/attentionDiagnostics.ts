@@ -2,13 +2,13 @@
  *  disagreement *self-reporting* instead of something a human has to catch in a
  *  screen recording and a maintainer has to reverse-engineer from pixels.
  *
- *  Why this exists. The attention marks are computed by two independent folds
- *  over what kolu believes about an agent: the COUNTS (host tab, dock section
- *  header) read `agentBucket(agent.state)`, and the PIP reads
- *  `agentPaintClass(agent.state)` — plus a fallback, `shellLive`, that paints
- *  busy-orange purely because bytes are flowing, with no agent state involved.
- *  So the pip can say "busy" when every count says "nothing working", and the
- *  screen gives no clue which of the two is lying or why.
+ *  Why this exists. Paint and counts are now the same predicate
+ *  (`attentionActive`), so the family of bugs where a tab counted fewer than
+ *  the marks beneath it is closed by construction. What remains — and what this
+ *  module reports — is the layer BELOW that: whether kolu holds the right facts
+ *  at all. The pip has one input no count can corroborate (`shellLive`: orange
+ *  purely because bytes are flowing, no agent state involved), and that
+ *  fallback is exactly what lights up when kolu is blind to a working agent.
  *
  *  That happened in the field: a codex terminal painted busy rust with the host
  *  tab counting 2 of 3 visibly-working agents. The pixels alone couldn't
@@ -32,8 +32,11 @@
  *  the dialog stays a renderer. */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
-import { agentBucket } from "kolu-common/surface";
-import type { PipVariant } from "@kolu/solid-statepip/pipVariant";
+import type {
+  PipMotionKind,
+  PipVariant,
+} from "@kolu/solid-statepip/pipVariant";
+import { isActive, type TerminalAttention } from "./attentionFacts";
 
 /** Spinner glyphs a CLI animates into its terminal title while it works: the
  *  braille block (U+2800–U+28FF — codex, claude, and most Node spinners use
@@ -74,13 +77,18 @@ export type AttentionDiagnostic = {
   spinnerInTitle: boolean;
   isLive: boolean;
   isFinished: boolean;
+  /** Which attention list padi's partition put this terminal in. */
+  attentionClass: string;
   pipVariant: PipVariant;
+  /** Does the mark MOVE? The axis a user reads as "something is happening"
+   *  before they read any colour. */
+  motion: PipMotionKind;
   /** The byte-level busy-paint fallback — true means the pip is orange for a
    *  reason no count can corroborate. */
   shellLive: boolean;
   /** Does the pip read as busy/working to a user glancing at it? */
   paintsBusy: boolean;
-  /** Do the attention counts include this terminal as working? */
+  /** Do the attention counts include this terminal as active? */
   countedWorking: boolean;
   /** Set when the axes disagree — the line to paste into a bug report. */
   disagreement: string | null;
@@ -92,9 +100,11 @@ export function attentionDiagnostic(input: {
   meta: TerminalMetadata;
   glyph: string;
   pipVariant: PipVariant;
+  motion: PipMotionKind;
   shellLive: boolean;
   isLive: boolean;
   isFinished: boolean;
+  attention: TerminalAttention;
 }): AttentionDiagnostic {
   const arm = activeArm(input.meta);
   const agent = arm?.agent ?? null;
@@ -106,10 +116,18 @@ export function attentionDiagnostic(input: {
   const spinnerInTitle = titleShowsSpinner(foreground.title);
   // "Busy" as the USER reads it: the working paint, or the byte-level shell
   // fallback that renders in the identical orange.
-  const paintsBusy = input.shellLive || input.pipVariant === "working";
-  // Exactly what every attention count folds — no agent state, no count.
+  // "Busy" as the USER reads it — and that includes the MOTION axis: a mark
+  // that is spinning reads as busy whatever colour it wears, which is how a
+  // violet lingering pip spun beside a host tab counting nothing and the
+  // diagnostic still reported agreement.
+  const paintsBusy =
+    input.shellLive ||
+    input.pipVariant === "working" ||
+    input.motion === "spin";
+  // Exactly what every attention count folds — the ONE shared predicate, read
+  // off the same value the pip was bound from.
   const countedWorking =
-    agentState !== null && agentBucket(agentState) === "working";
+    isActive(input.attention) && input.attention.klass !== "asking";
 
   return {
     id: input.id,
@@ -121,7 +139,9 @@ export function attentionDiagnostic(input: {
     spinnerInTitle,
     isLive: input.isLive,
     isFinished: input.isFinished,
+    attentionClass: input.attention.klass,
     pipVariant: input.pipVariant,
+    motion: input.motion,
     shellLive: input.shellLive,
     paintsBusy,
     countedWorking,
@@ -156,16 +176,19 @@ function describeDisagreement(f: {
         ? `pip paints busy and the terminal's own title is spinning, but kolu holds NO agent state for it (glyph ${f.glyph} came from the restore target) — kolu is blind to a working agent, so no count can include it`
         : `pip paints busy (live bytes) but kolu holds no agent state — no count can include it`;
     }
-    return `pip paints busy but agent state is "${f.agentState}", which no count reads as working`;
+    return `pip paints busy but agent state is "${f.agentState}", which the activity predicate does not read as active`;
   }
   if (!f.paintsBusy && f.countedWorking) {
-    return `counts read this as working (state "${f.agentState}") but the pip does not paint busy`;
+    return `counts read this as active (state "${f.agentState}") but the pip neither paints busy nor moves`;
   }
-  // Agent state absent while the terminal insists it is working — no count can
-  // see it even when the pip happens not to be busy. Worth flagging on its own:
-  // it is the detection/sync gap, caught before it becomes a visible mismatch.
+  // Agent state absent while the terminal insists it is working. The COUNT is
+  // fine — byte motion carries it — but kolu is still blind to the agent
+  // itself, and everything that needs to know WHICH agent and WHAT it is doing
+  // is degraded: no chime when it finishes, no needs-you rank when it asks, no
+  // identity but the restore target's. That is the detection/sync gap, worth
+  // reporting even though nothing on screen looks wrong.
   if (f.agentState === null && f.spinnerInTitle && f.agentKind === null) {
-    return `terminal's title is spinning (it is working) but kolu holds no agent state for it — invisible to every attention count`;
+    return `terminal's title is spinning (it is working) but kolu holds no agent state for it — counted only because bytes are moving, so kolu cannot tell when it finishes or when it needs you`;
   }
   return null;
 }

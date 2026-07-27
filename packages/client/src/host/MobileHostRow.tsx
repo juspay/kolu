@@ -132,7 +132,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
        *  and the HTML stays valid — the tap already lands you on the host
        *  whose dock carries the per-terminal marks. */}
       <AttentionTriplet
-        working={marks.working()}
+        active={marks.active()}
         asking={marks.asking()}
         unseen={isActive() ? 0 : marks.unseenFinished()}
         sizeClass="h-5 min-w-5 px-1.5"

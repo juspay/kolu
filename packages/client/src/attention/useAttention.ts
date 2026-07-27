@@ -214,6 +214,7 @@ export function useAttention(deps: AttentionDeps): {
         writeHostMarks(encHost, {
           askingIds: v?.awaitingIds ?? [],
           workingIds: v?.workingIds ?? [],
+          lingerIds: v?.lingerIds ?? [],
           finishedIds: v?.finishedIds ?? [],
           live: live(),
         });

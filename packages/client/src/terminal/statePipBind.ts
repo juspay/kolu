@@ -14,14 +14,14 @@ import type {
 } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo, type Accessor } from "solid-js";
+import { isActive, type TerminalAttention } from "../attention/attentionFacts";
+import { useAttentionFacts } from "../attention/useAttentionFacts";
 import {
   type DockRowBucket,
   paintDockRow,
 } from "../canvas/dock/dockRowRanking";
 import { pipGlyphFor, pipVariant } from "../canvas/dock/pipVariant";
-import { pipIsActive, pipMotionKind } from "./pipMotion";
-import { useFinishedQuiet } from "./useFinishedQuiet";
-import { useTerminalActivity } from "./useTerminalActivity";
+import { pipMotionKind } from "./pipMotion";
 
 export type StatePipBind = {
   variant: PipVariant;
@@ -39,11 +39,16 @@ export type StatePipBind = {
   alertLabel: string;
 };
 
-/** Pure terminal facts → StatePip props. */
+/** Pure terminal facts → StatePip props.
+ *
+ *  `attention` arrives as ONE value from `terminalAttention` rather than as a
+ *  handful of booleans each call site assembles: the ⌘K palette used to hand
+ *  this function `{isLive:false,isFinished:false}` for every background host,
+ *  and so every terminal on a host you weren't looking at read as idle there.
+ *  With the facts arriving as a value there is nothing to fabricate. */
 export function bindStatePip(input: {
   meta: TerminalMetadata;
-  isLive: boolean;
-  isFinished: boolean;
+  attention: TerminalAttention;
   unread: boolean;
   /** Dock ranking already computed the paint bucket; others omit. */
   pipBucket?: DockRowBucket;
@@ -51,21 +56,20 @@ export function bindStatePip(input: {
   const agent = activeArm(input.meta)?.agent;
   const bucket = input.pipBucket ?? paintDockRow(input.meta);
   const variant = pipVariant(bucket);
-  const active = pipIsActive({
-    agent,
-    isLive: input.isLive,
-    isFinished: input.isFinished,
-  });
+  // The ONE activity predicate — the same function every host tab and section
+  // header counts with, so a still mark is never counted and a moving one never
+  // missed.
+  const active = isActive(input.attention);
   const motion = pipMotionKind({ variant, active });
   // Live shell keeps idle *variant* (title/a11y stay "Idle") but busy-orange
   // paint via shellLive — not agent "Working".
-  const shellLive = !agent && input.isLive && variant === "idle";
+  const shellLive = !agent && input.attention.live && variant === "idle";
   return {
     variant,
     glyph: pipGlyphFor(input.meta),
     motion,
     active,
-    bytesLive: input.isLive,
+    bytesLive: input.attention.live,
     shellLive,
     sleeping: sleepingArm(input.meta) !== undefined,
     alert: input.unread,
@@ -73,7 +77,7 @@ export function bindStatePip(input: {
   };
 }
 
-/** Memoized binder for a reactive terminal row — owns activity + EF2 reads so
+/** Memoized binder for a reactive terminal row — owns the attention read so
  *  call sites do not re-run the fold once per JSX prop. */
 export function useStatePip(
   id: Accessor<TerminalId>,
@@ -81,13 +85,11 @@ export function useStatePip(
   unread: Accessor<boolean>,
   pipBucket?: Accessor<DockRowBucket | undefined>,
 ): Accessor<StatePipBind> {
-  const activity = useTerminalActivity();
-  const finishedQuiet = useFinishedQuiet();
+  const facts = useAttentionFacts();
   return createMemo(() =>
     bindStatePip({
       meta: meta(),
-      isLive: activity.isLive(id()),
-      isFinished: finishedQuiet.isFinished(id()),
+      attention: facts.attentionOf(meta(), id()),
       unread: unread(),
       pipBucket: pipBucket?.(),
     }),

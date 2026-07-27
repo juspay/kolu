@@ -16,13 +16,19 @@
  * viewer, pulam-tui's replacement) draws only the coarse `agentBucket` here; a
  * downstream fleet mirror (drishti) can read the rest. A surface that hasn't
  * adopted a fold yet is a GAP to fill, not a sign the fold is kolu-only. The
- * three folds:
+ * folds:
  *  - `agentUrgency` (→ {need, work, idle}) + `URGENCY_RANK` — the needs-you
  *    ordering. Read by the Dock rows (and any fleet mirror that ranks needs-you).
- *  - `agentPaintClass` (→ {awaiting, working, none}) — the pip/glyph paint
- *    class. Read by the Dock pip (and a fleet mirror's agent glyph). It
+ *  - `agentPaintClass` (→ {awaiting, linger, working, none}) — the pip/glyph
+ *    paint class. Read by the Dock pip (and a fleet mirror's agent glyph). It
  *    deliberately differs from urgency on `waiting`: a just-finished agent
- *    paints `awaiting` (the lingering dot) but RANKS idle — order≠colour.
+ *    paints `linger` (the dimmed lingering dot) but RANKS idle — order≠colour.
+ *  - `attentionClass` (→ {asking, working, linger, finished, idle}) +
+ *    `attentionActive` — WHICH attention list a terminal is in, and whether
+ *    something is happening in it. Unlike the folds above it takes padi's EF2
+ *    finish verdict as well as the agent state; padi builds the urgency cell's
+ *    id-lists with it and every kolu surface decides pip motion and every
+ *    activity count with it, so counts and motion cannot disagree.
  *  - `alertClass` (→ {notify, quiet}) — the fire-a-notification membership.
  *    kolu's attention engine now derives notify membership from `agentBucket`
  *    (awaiting ∪ waiting) directly, so this coarser fold currently has no live
@@ -175,6 +181,76 @@ export function alertClass(state: AgentInfo["state"]): AlertClass {
       // compiling, forcing an alert decision here rather than falling to `quiet`.
       state satisfies never;
       return "quiet";
+  }
+}
+
+/** Which attention list a terminal belongs to, given its agent AND whether its
+ *  post-turn quiet window has closed (padi's EF2 "effective finish"). A closed
+ *  five-way partition — every terminal is in exactly ONE class — so a count over
+ *  the classes needs no de-duplication and a surface can't put the same terminal
+ *  in two places.
+ *
+ *  It is a different question from the three folds above, which read the agent
+ *  state ALONE: `waiting` splits here into `linger` (turn over, output still
+ *  landing) and `finished` (gone quiet), a distinction no state literal carries.
+ *  That split is the whole point — it is the boundary between "still going" and
+ *  "done", and therefore between counted and uncounted. */
+export type AttentionClass =
+  | "asking"
+  | "working"
+  | "linger"
+  | "finished"
+  | "idle";
+
+/** Partition a terminal into its attention class. `finished` is the caller's
+ *  EF2 verdict for this terminal (padi's finish-quiet tracker); it is consulted
+ *  only for a `waiting` agent, where it decides linger-vs-finished.
+ *
+ *  The ONE partition: padi's `recomputeUrgency` folds its terminals through it
+ *  to build the four wire id-lists, and the client folds a terminal's own
+ *  metadata through it to decide that terminal's pip. Both sides therefore agree
+ *  on what a class MEANS by construction rather than by two switches that happen
+ *  to match — the class of defect this whole vocabulary exists to prevent. */
+export function attentionClass(
+  agent: TerminalSnapshot["agent"] | undefined,
+  finished: boolean,
+): AttentionClass {
+  if (!agent) return "idle";
+  switch (agentBucket(agent.state)) {
+    case "awaiting":
+      return "asking";
+    case "working":
+      return "working";
+    case "waiting":
+      return finished ? "finished" : "linger";
+    case "other":
+      return "idle";
+  }
+}
+
+/** Is this terminal ACTIVE — is something happening in it right now? The ONE
+ *  predicate behind every "is something happening" question kolu answers: the
+ *  pip's motion (does the glyph move), and every count that summarises a host or
+ *  a repo section. They are the same question, so they are the same function —
+ *  a host tab reading "2" beside three moving pips is then not a bug you can
+ *  write, which is exactly how it used to happen.
+ *
+ *  `live` is raw byte motion (kaval's meaningful-output edge). It is what makes
+ *  a plain shell running a build count as active — it has no agent to ask — and
+ *  what keeps a terminal that has gone `finished` counted while its last output
+ *  is still printing. */
+export function attentionActive(klass: AttentionClass, live: boolean): boolean {
+  switch (klass) {
+    // An agent that is thinking, blocked on you, or still settling is active
+    // whether or not any byte moved in the last second.
+    case "asking":
+    case "working":
+    case "linger":
+      return true;
+    // Nothing to ask an agent about — the bytes are the only evidence.
+    case "finished":
+    case "idle":
+      return live;
   }
 }
 

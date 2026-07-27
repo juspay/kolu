@@ -2,7 +2,11 @@ import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
-import { buildDockTree } from "./dockTree";
+import {
+  NO_ATTENTION,
+  type TerminalAttention,
+} from "../../attention/attentionFacts";
+import { buildDockTree, sectionAttention } from "./dockTree";
 
 function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
   // dockTree only reads `bucket`/`ts`; the pip is exercised in dockRowRanking's
@@ -221,6 +225,81 @@ describe("buildDockTree", () => {
     });
     const tree = buildDockTree(ranked, getInfo, false);
     expect(tree.sleepingCount).toBe(1);
+    expect(tree.parkedCount).toBe(1);
+  });
+});
+
+describe("sectionAttention", () => {
+  const attention =
+    (map: Record<string, TerminalAttention>) => (id: TerminalId) =>
+      map[id as string] ?? NO_ATTENTION;
+
+  it("counts activity on the same predicate the pips move on", () => {
+    // A working agent, an agent still lingering after its turn, and a plain
+    // shell that is printing: three moving marks, so three counted. Counting
+    // only `working` here is what made a host tab read 1 beside three moving
+    // pips.
+    const rows = [
+      row("a", "working", 3),
+      row("b", "linger", 2),
+      row("c", "idle", 1),
+    ];
+    const attn = sectionAttention(
+      rows,
+      () => false,
+      attention({
+        a: { klass: "working", live: true },
+        b: { klass: "linger", live: false },
+        c: { klass: "idle", live: true },
+      }),
+    );
+    expect(attn).toEqual({ active: 3, asking: 0, unseen: 0 });
+  });
+
+  it("puts a blocked agent in the violet leg, never also in the rust one", () => {
+    const attn = sectionAttention(
+      [row("a", "awaiting", 1)],
+      () => false,
+      attention({ a: { klass: "asking", live: true } }),
+    );
+    expect(attn).toEqual({ active: 0, asking: 1, unseen: 0 });
+  });
+
+  it("counts unread independently — it is the badge axis, not the colour axis", () => {
+    // A row genuinely wears both: a rust pip with an amber corner badge. The
+    // header must say what the row says.
+    const attn = sectionAttention(
+      [row("a", "working", 1)],
+      () => true,
+      attention({ a: { klass: "working", live: true } }),
+    );
+    expect(attn).toEqual({ active: 1, asking: 0, unseen: 1 });
+  });
+});
+
+describe("buildDockTree — allRows", () => {
+  it("keeps a parked row in its repo's attention set even though it is hidden", () => {
+    // The row the activity window dropped is the one that has been waiting
+    // longest — exactly the one whose count must still reach the header.
+    const ranked = [row("a", "working", 5), row("b", "parked", 1)];
+    const getInfo = makeGetInfo({
+      a: { group: "repo", color: "c" },
+      b: { group: "repo", color: "c" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false);
+    const group = tree.groups[0];
+    expect(group?.rows.map((r) => r.id)).toEqual(["a"]);
+    expect(group?.allRows.map((r) => r.id)).toEqual(["a", "b"]);
+    expect(tree.parkedCount).toBe(1);
+  });
+
+  it("drops a repo whose every row is filtered out — no header with no rows", () => {
+    const tree = buildDockTree(
+      [row("b", "parked", 1)],
+      makeGetInfo({ b: { group: "repo", color: "c" } }),
+      false,
+    );
+    expect(tree.groups).toEqual([]);
     expect(tree.parkedCount).toBe(1);
   });
 });
