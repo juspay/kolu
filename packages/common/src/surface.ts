@@ -95,6 +95,7 @@ export {
   attentionClass,
   attentionCounted,
   DASH,
+  paintClassOf,
   URGENCY_RANK,
 } from "@kolu/terminal-vocab/agentProjection";
 export type {

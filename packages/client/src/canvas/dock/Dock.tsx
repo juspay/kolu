@@ -107,11 +107,11 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
+import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { nextAfter } from "../../ui/nextAfter";
-import { encodeHostKey } from "kolu-common/hostKey";
-import { activeHost } from "../../wire";
+import { encActiveHost } from "../../wire";
 import { SubAgentRow } from "./SubAgentRow";
 import { useDockFocus } from "./useDockFocus";
 import { useSectionAttention } from "./useSectionAttention";
@@ -516,7 +516,7 @@ const RepoSection: Component<{
   const jumpTo = (ids: readonly TerminalId[]) => {
     const next = nextAfter(ids, tileStore.activeId());
     if (next === undefined) return;
-    focus(next, attn().parentOf.get(next));
+    focus(next);
   };
   // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
   // template): indicator · branch · sub-count · time. The leading
@@ -650,7 +650,7 @@ const DockRow: Component<{
       {(c) => {
         const agent = () => activeArm(c().meta)?.agent;
         const pip = useStatePip(
-          () => encodeHostKey(activeHost()),
+          encActiveHost,
           () => props.id,
           () => c().meta,
           unread,
@@ -671,17 +671,18 @@ const DockRow: Component<{
             role="button"
             tabIndex={0}
             data-testid="dock-row"
-            data-dock-row=""
-            data-terminal-id={props.id}
-            data-bucket={props.bucket}
-            data-agent-state={agent()?.state}
-            data-active={rowActive() ? "" : undefined}
-            // Attention washes (index.css `[data-asking]` / `[data-unread]`):
-            // violet needs-you dominates amber unread when both hold. Keyed on
-            // the ATTENTION class, not the ORDER bucket — the wash, the chip,
-            // the header count and its jump are one fact rendered four ways.
-            data-asking={pip().asking ? "" : undefined}
-            data-unread={unread() ? "" : undefined}
+            // The shared row contract (`dockRowAttrs`) — wash hook, bucket,
+            // agent state, active/asking/unread. Attention washes key on the
+            // ATTENTION class, not the ORDER bucket: the wash, the chip, the
+            // header count and its jump are one fact rendered four ways.
+            {...dockRowAttrs({
+              id: props.id,
+              bucket: props.bucket,
+              agentState: agent()?.state,
+              active: rowActive(),
+              asking: pip().asking,
+              unread: unread(),
+            })}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
             }
@@ -757,6 +758,15 @@ const DockRow: Component<{
                         ? "dock-agent-subline"
                         : "dock-quiet-foreground"
                     }
+                    // The shared subline hook every row surface carries, so the
+                    // blocked-row colour rule is ONE selector instead of an
+                    // enumeration of test ids per surface — the same
+                    // enumeration that silently left a row type out of the wash.
+                    // Set only on the AGENT subline: a quiet foreground line
+                    // does not speak needs-you.
+                    data-dock-subline={
+                      activeArm(c().meta)?.agent ? "" : undefined
+                    }
                     class="font-mono text-[0.68rem] leading-snug text-fg-3 truncate min-w-0"
                     title={line()}
                   >
@@ -824,7 +834,7 @@ const RailChip: Component<{
         const labels = () => chipInitials(c().meta, c().info);
         // Same hook as cards StatePip — motion/active drive rail glow.
         const pip = useStatePip(
-          () => encodeHostKey(activeHost()),
+          encActiveHost,
           () => props.id,
           () => c().meta,
           unread,

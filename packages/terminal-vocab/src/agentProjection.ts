@@ -120,21 +120,25 @@ export function agentStatusLabel(state: AgentInfo["state"]): string {
  *  unknown class (no glow). */
 export type AgentPaintClass = "awaiting" | "linger" | "working" | "none";
 
-/** Map an agent's state to its PAINT class — the ATTENTION partition with the
- *  EF2 finish distinction dropped and the no-agent class renamed for the paint
- *  vocabulary. It is not a second switch over the state literals: paint and
- *  attention partition the identical `AgentInfo['state']` set into isomorphic
- *  classes (`asking`↔`awaiting`, `idle`↔`none`, `finished` folded back into
- *  `linger`), so spelling them as two independent switches meant a new state
- *  literal forced the same decision twice and the two could agree only by
- *  luck. One switch over the literals lives in `agentBucket`; everything below
- *  is a rename of its answer.
+/** Rename an ATTENTION class into the PAINT vocabulary — the ONE table that
+ *  translates between the two, so no consumer writes its own copy of it.
  *
- *  `finished: false` is what makes this a state-only fold: EF2 is the caller's
- *  verdict, and paint deliberately doesn't consult it — a finished agent keeps
- *  the lingering cue until its row parks. */
-export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
-  switch (attentionClassOfState(state, false)) {
+ *  It is not a second switch over the state literals: paint and attention
+ *  partition the identical `AgentInfo['state']` set into isomorphic classes
+ *  (`asking`↔`awaiting`, `idle`↔`none`, `finished` folded back into `linger`),
+ *  so spelling them as two independent switches meant a new state literal
+ *  forced the same decision twice and the two could agree only by luck. One
+ *  switch over the literals lives in `agentBucket`; this is a rename of its
+ *  answer.
+ *
+ *  Exported because the rename had a SECOND spelling downstream — the dock's
+ *  `paintDockRow` mapped the same five class literals to the same paint
+ *  answers, diverging on one arm — which is exactly the "two switches that
+ *  happen to match" this vocabulary exists to prevent. A consumer that needs a
+ *  different answer for one class maps THAT arm off this result, locally and
+ *  visibly, instead of restating the whole table. */
+export function paintClassOf(klass: AttentionClass): AgentPaintClass {
+  switch (klass) {
     case "working":
       return "working";
     // Blocked on you — the full-strength needs-you paint.
@@ -142,15 +146,22 @@ export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
       return "awaiting";
     // The post-turn lull keeps a dimmed glow until it parks (contrast
     // `agentUrgency`, where `waiting` is idle — paint and rank deliberately
-    // disagree here). `finished` is unreachable with `finished: false`; it is
-    // stated rather than defaulted so a reader sees that EF2 changes nothing
-    // about the paint.
+    // disagree here). EF2's `finished` changes nothing about the paint: a
+    // finished agent keeps the lingering cue until its row parks.
     case "linger":
     case "finished":
       return "linger";
     case "idle":
       return "none";
   }
+}
+
+/** Map an agent's state to its PAINT class — `attentionClassOfState` renamed.
+ *
+ *  `finished: false` is what makes this a state-only fold: EF2 is the caller's
+ *  verdict, and paint deliberately doesn't consult it. */
+export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
+  return paintClassOf(attentionClassOfState(state, false));
 }
 
 /** The agent-state ALERT class — the partition a fire-a-notification layer keys

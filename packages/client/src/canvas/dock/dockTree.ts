@@ -42,9 +42,13 @@
  *  `placementPolicy.ts:getBucketFor` uses for canvas tile clustering,
  *  so the dock's "what counts as one repo" agrees with the canvas. */
 
-import type { TerminalId } from "kolu-common/surface";
+import { type TerminalId, URGENCY_RANK } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { type RankedDockRow, tsRank } from "./dockRowRanking";
+import {
+  DOCK_ROW_BUCKET_PRIORITY,
+  type RankedDockRow,
+  tsRank,
+} from "./dockRowRanking";
 
 export type DockGroup = {
   /** `info.key.group` — git repo name or cwd basename. */
@@ -189,7 +193,7 @@ function compareRows(a: RankedDockRow, b: RankedDockRow): number {
   // Blocked-on-you floats first — `awaiting` is exactly `awaiting_user`
   // (the ORDER bucket; linger ranks idle), so only genuinely blocked rows
   // promote. Everything else stays pure recency.
-  const blocked = askingRank(a) - askingRank(b);
+  const blocked = blockedFirstRank(a) - blockedFirstRank(b);
   if (blocked !== 0) return blocked;
   const ra = tsRank(a.ts);
   const rb = tsRank(b.ts);
@@ -199,8 +203,17 @@ function compareRows(a: RankedDockRow, b: RankedDockRow): number {
   return ra === rb ? 0 : rb - ra;
 }
 
-function askingRank(row: RankedDockRow): number {
-  return row.bucket === "awaiting" ? 0 : 1;
+/** 0 for a row blocked on you, 1 for everything else — the blocked-first leg of
+ *  the top-level order, read OFF the shared `DOCK_ROW_BUCKET_PRIORITY` rather
+ *  than off a one-entry table of its own.
+ *
+ *  `awaiting` is the one bucket carrying the needs-you rank, so membership is a
+ *  lookup in the table that already decides bucket priority everywhere else. It
+ *  was a hand-written `row.bucket === "awaiting" ? 0 : 1` — a SECOND priority
+ *  table for one ordering, sitting beside the shared one and free to disagree
+ *  with it the moment either moved. */
+function blockedFirstRank(row: RankedDockRow): number {
+  return DOCK_ROW_BUCKET_PRIORITY[row.bucket] === URGENCY_RANK.need ? 0 : 1;
 }
 
 /** Sections sort by recency too — the most recently-active row in the

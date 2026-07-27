@@ -28,6 +28,7 @@ import {
 import { Toaster } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
+import { useDockFocus } from "./canvas/dock/useDockFocus";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
@@ -91,11 +92,16 @@ const App: Component = () => {
   const { store, crud, session, worktree, getSubject } = useTerminals();
   // Attention (the ONE owner): every host runs the same rules — sound + OS popup +
   // app badge + host marks + dock unread — off each host's `urgency` cell, with the
-  // active host supplying rich copy / dock unread. `store.activate` focuses a tile
-  // on the (post-switch) active host. See `useAttention`.
+  // active host supplying rich copy / dock unread. See `useAttention`.
+  //
+  // `activate` is the DOCK'S landing seam, not a bare `store.activate`: padi's
+  // urgency counts agents living in splits, so a violet capsule click and a
+  // notification click both have to be able to land on one — and a split has no
+  // tile of its own to activate.
+  const focus = useDockFocus();
   const attention = useAttention({
     activeId: store.activeId,
-    activate: store.activate,
+    activate: focus,
     markUnread: store.markUnread,
     activeSubject: getSubject,
     terminalIds: store.terminalIds,

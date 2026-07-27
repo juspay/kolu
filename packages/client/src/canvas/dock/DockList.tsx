@@ -32,9 +32,9 @@ import {
   DOCK_ROW_GRID,
   SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
+import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
-import { encodeHostKey } from "kolu-common/hostKey";
-import { activeHost } from "../../wire";
+import { encActiveHost } from "../../wire";
 import type { DockGroup } from "./dockTree";
 import { SubAgentRow } from "./SubAgentRow";
 import { useSectionAttention } from "./useSectionAttention";
@@ -184,7 +184,7 @@ function DockListRow(props: {
     <Show when={combined()}>
       {(c) => {
         const pip = useStatePip(
-          () => encodeHostKey(activeHost()),
+          encActiveHost,
           () => props.id,
           () => c().meta,
           unread,
@@ -202,15 +202,16 @@ function DockListRow(props: {
             role="button"
             tabIndex={0}
             data-testid="mobile-dock-row"
-            data-dock-row=""
-            data-terminal-id={props.id}
-            data-bucket={props.bucket}
-            data-active={rowActive() ? "" : undefined}
-            // Attention washes (index.css `[data-asking]` / `[data-unread]`):
-            // violet needs-you dominates amber unread when both hold. Keyed on
-            // the ATTENTION class, not the ORDER bucket — see `Dock.tsx`.
-            data-asking={pip().asking ? "" : undefined}
-            data-unread={unread() ? "" : undefined}
+            // The shared row contract (`dockRowAttrs`) — see `Dock.tsx`. The
+            // washes key on the ATTENTION class, not the ORDER bucket.
+            {...dockRowAttrs({
+              id: props.id,
+              bucket: props.bucket,
+              agentState: activeArm(c().meta)?.agent?.state,
+              active: rowActive(),
+              asking: pip().asking,
+              unread: unread(),
+            })}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
             }
@@ -281,6 +282,11 @@ function DockListRow(props: {
                       activeArm(c().meta)?.agent
                         ? "mobile-dock-agent-subline"
                         : "mobile-dock-foreground"
+                    }
+                    // The shared subline hook — see `Dock.tsx`. Set only on the
+                    // AGENT subline.
+                    data-dock-subline={
+                      activeArm(c().meta)?.agent ? "" : undefined
                     }
                     class="font-mono text-[0.7rem] leading-snug text-fg-3 truncate min-w-0"
                     title={line()}

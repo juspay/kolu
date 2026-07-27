@@ -20,6 +20,7 @@
  *  rule maintained by two matching comments rather than by the structure. */
 
 import {
+  emptyByClass,
   type HostAttentionFrame,
   hostActiveIds,
   frameClassOf,
@@ -44,12 +45,13 @@ export interface HostMarks extends HostAttentionFrame {
 /** A host we have heard nothing about yet. Every `writeHostMarks` merges onto
  *  one of these, so a record in the store is always COMPLETE — a partial write
  *  (the engine touching `unseenFinished` before the first urgency frame lands)
- *  cannot mint a record missing its id lists. FRESH per host, never one shared
- *  object: two hosts seeded from the same literal would share its nested
- *  `byClass` node inside the store, a coupling nothing needs. */
+ *  cannot mint a record missing its id lists. The class map comes from
+ *  `emptyByClass()`, which is fresh per call for the reason stated there: two
+ *  hosts seeded from one literal would share its nested `byClass` node inside
+ *  the store, a coupling nothing needs. */
 function emptyMarks(): HostMarks {
   return {
-    byClass: { asking: [], working: [], linger: [], finished: [] },
+    byClass: emptyByClass(),
     liveIds: [],
     unseenFinished: 0,
     live: false,
@@ -58,13 +60,8 @@ function emptyMarks(): HostMarks {
 }
 
 /** The reading for a host with no record at all — returned, never stored.
- *
- *  Built through `emptyMarks()` rather than spread from a shared literal: a
- *  spread copies the OUTER object and leaves `byClass` pointing at the very
- *  node every other empty reading uses, so one accidental push into a
- *  "host we haven't heard from" frame would corrupt the seed for all of them.
- *  The same "fresh per host, never one shared object" discipline the store's
- *  own seed follows. */
+ *  Built through `emptyMarks()` so it gets its own nested lists rather than a
+ *  spread that would leave `byClass` pointing at another reading's node. */
 const NO_MARKS: HostMarks = emptyMarks();
 
 const [marks, setMarks] = createStore<Record<string, HostMarks>>({});
@@ -141,15 +138,13 @@ export function hostMarks(encHost: string): {
  *
  *  It takes the HOST KEY the store is keyed by, and reads that one record.
  *  Both facts therefore come from ONE snapshot of ONE mirrored frame: padi
- *  computed the class, shipped the answer, and this reads the answer back. The
- *  alternative — re-deriving the class from the terminal's own metadata while
- *  the count read padi's lists — put the tab on one derivation and the pip
- *  beneath it on another, arriving on two subscriptions with independent
- *  timing, which is the disagreement the partition exists to prevent. It also
- *  required scanning every host's arrays for the id, so correctness rested on
- *  "TerminalIds never collide across hosts", a rule written nowhere and
- *  enforced by nothing, and any host's ~1 s activity tick invalidated every pip
- *  memo in the dock rather than only that host's.
+ *  computed the class, shipped the answer, and this reads the answer back (the
+ *  two-subscriptions argument against re-deriving it lives in
+ *  `attentionFacts.ts`'s header). Taking the host key is the site-specific
+ *  half: a reader without it had to scan every host's arrays for the id, so
+ *  correctness rested on "TerminalIds never collide across hosts", a rule
+ *  written nowhere and enforced by nothing, and any host's ~1 s activity tick
+ *  invalidated every pip memo in the dock rather than only that host's.
  *
  *  There is deliberately no way to build a `TerminalAttention` by hand at a
  *  call site: the ⌘K palette used to fabricate one for background hosts, which

@@ -22,7 +22,6 @@
 import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
-import { encodeHostKey } from "kolu-common/hostKey";
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
@@ -30,7 +29,8 @@ import { annotationLine } from "../../intent/text";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { activeHost } from "../../wire";
+import { encActiveHost } from "../../wire";
+import { dockRowAttrs } from "./dockRowAttrs";
 import type { DockRowBucket } from "./dockRowRanking";
 import { useDockFocus } from "./useDockFocus";
 
@@ -66,14 +66,14 @@ export const SubAgentRow: Component<{
     return annotationLine(m.intent, cwdBasename(m.cwd));
   };
   const open = () => {
-    focus(props.id, props.parentId);
+    focus(props.id);
     props.onSelected?.();
   };
   return (
     <Show when={meta()}>
       {(m) => {
         const pip = useStatePip(
-          () => encodeHostKey(activeHost()),
+          encActiveHost,
           () => props.id,
           m,
           unread,
@@ -83,18 +83,24 @@ export const SubAgentRow: Component<{
           <button
             type="button"
             data-testid="dock-sub-agent-row"
-            // The shared wash hook (index.css). All three row surfaces carry
-            // it, so a new row type is washed by construction instead of being
-            // enumerated positionally into a selector list — this row set
-            // `data-asking` and got no wash at all, which is the one row type
-            // that represents "an agent nobody could see".
-            data-dock-row=""
-            data-terminal-id={props.id}
+            // The shared row contract (`dockRowAttrs`) — the wash hook and its
+            // state attributes in ONE bag, so this surface cannot spell five of
+            // six and land silently outside a stylesheet rule. It did exactly
+            // that: it set `data-asking` and got no wash at all, which is the
+            // one row type that represents "an agent nobody could see".
+            {...dockRowAttrs({
+              id: props.id,
+              bucket: props.bucket,
+              agentState: activeArm(m())?.agent?.state,
+              // A sub-entry is never the active row — activating it activates
+              // the PARENT tile and then focuses the split, so the highlight
+              // (and the wash's `:not([data-active])` suppression) belongs to
+              // the row above. Said out loud rather than omitted.
+              active: false,
+              asking: pip().asking,
+              unread: unread(),
+            })}
             data-parent-id={props.parentId}
-            data-bucket={props.bucket}
-            data-agent-state={activeArm(m())?.agent?.state}
-            data-asking={pip().asking ? "" : undefined}
-            data-unread={unread() ? "" : undefined}
             class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.padClass ?? "py-1"} text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
             onClick={(e) => {
               // The parent row underneath activates the terminal; this entry

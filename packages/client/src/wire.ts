@@ -435,6 +435,20 @@ export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
   createMemo(() => groundActiveHost(activeHost(), hostKeys())),
 );
 
+/** The ACTIVE host as its ENCODED key — the string the attention mirror, the
+ *  marks store and every pip binder are keyed by.
+ *
+ *  One memo, not the `() => encodeHostKey(activeHost())` thunk five call sites
+ *  each wrote inline: passed into a per-row memo, that thunk re-encodes the host
+ *  inside EVERY row's binder on every reactive tick — a pure function of one
+ *  signal, recomputed per row per frame. It also gave five surfaces five
+ *  independently-derived spellings of the one key those surfaces must agree on.
+ *  A memo returns the same string reference until the host actually changes, so
+ *  a row's pip memo stops re-running just because something else ticked. */
+export const encActiveHost: Accessor<string> = createRoot(() =>
+  createMemo(() => encodeHostKey(activeHost())),
+);
+
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).procedures`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive
  *  lens already re-keys on switch; its `procedures` face reads the CURRENT key per

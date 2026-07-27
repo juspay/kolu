@@ -94,7 +94,15 @@ export type AttentionDiagnostic = {
   disagreement: string | null;
 };
 
-/** Fold one terminal's live facts into its diagnostic row. */
+/** Fold one terminal's live facts into its diagnostic row.
+ *
+ *  `isLive` and `isFinished` are DERIVED here, never taken as inputs: both are
+ *  functions of `attention` (its `live` flag, and its class being `finished`),
+ *  and taking them alongside it is the fabricable-loose-booleans shape the rest
+ *  of this subsystem abolished (see `attentionFacts.ts`'s header). A caller
+ *  could have handed in `isFinished: false` for a terminal whose class says
+ *  otherwise, and the diagnostic built to catch disagreements would have
+ *  reported the fabrication as fact. */
 export function attentionDiagnostic(input: {
   id: string;
   meta: TerminalMetadata;
@@ -102,8 +110,6 @@ export function attentionDiagnostic(input: {
   pipVariant: PipVariant;
   motion: PipMotionKind;
   shellLive: boolean;
-  isLive: boolean;
-  isFinished: boolean;
   attention: TerminalAttention;
 }): AttentionDiagnostic {
   const arm = activeArm(input.meta);
@@ -136,8 +142,9 @@ export function attentionDiagnostic(input: {
     glyph: input.glyph,
     foreground,
     spinnerInTitle,
-    isLive: input.isLive,
-    isFinished: input.isFinished,
+    isLive: input.attention.live,
+    // padi's sticky EF2 verdict — the `finished` class IS that verdict.
+    isFinished: input.attention.klass === "finished",
     attentionClass: input.attention.klass,
     pipVariant: input.pipVariant,
     motion: input.motion,
@@ -151,7 +158,6 @@ export function attentionDiagnostic(input: {
       spinnerInTitle,
       paintsBusy,
       countedActive,
-      isLive: input.isLive,
     }),
   };
 }
@@ -167,7 +173,6 @@ function describeDisagreement(f: {
   spinnerInTitle: boolean;
   paintsBusy: boolean;
   countedActive: boolean;
-  isLive: boolean;
 }): string | null {
   if (f.paintsBusy && !f.countedActive) {
     if (f.agentState === null) {

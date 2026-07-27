@@ -134,15 +134,15 @@ export const useAttentionFacts = createSharedRoot(() => {
   createEffect(() => void roots());
 
   return {
-    /** The ONE way to obtain a terminal's attention facts — keyed by the host
-     *  the terminal is on, which is the key the mirror itself is keyed by.
-     *  Deliberately the module's ONLY export: every ingredient it offered
-     *  beside the value (`isLive`, `isFinished`) was a route back to the loose
-     *  booleans shape a call site could assemble wrongly. */
     /** A terminal's class WITHOUT its live flag — the dock's rank/paint read.
      *  Kept separate so the row order does not re-sort on every byte tick. */
     classOf: (encHost: string, id: TerminalId): AttentionClass =>
       terminalClass(encHost, id),
+    /** The ONE way to obtain a terminal's attention facts — keyed by the host
+     *  the terminal is on, which is the key the mirror itself is keyed by. It
+     *  hands back the whole value and nothing beside it: every ingredient this
+     *  once offered separately (`isLive`, `isFinished`) was a route back to the
+     *  loose-booleans shape a call site could assemble wrongly. */
     attentionOf: (encHost: string, id: TerminalId): TerminalAttention =>
       terminalAttention(encHost, id),
   };

@@ -93,6 +93,7 @@ function rankOne(meta: TerminalMetadata, stale: boolean) {
     () => meta,
     () => stale,
     classOfMeta(() => meta),
+    () => [],
   );
   const row = rows[0];
   if (!row) throw new Error("no row returned");
@@ -170,6 +171,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => makeSleepingMeta(1),
       () => true,
       classOfMeta(() => makeSleepingMeta(1)),
+      () => [],
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -197,6 +199,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       realStale(NOW, WINDOW),
       classOfMeta(() => meta),
+      () => [],
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -214,6 +217,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       realStale(NOW, WINDOW),
       classOfMeta(() => meta),
+      () => [],
     );
     expect(rows[0]?.bucket).toBe("sleeping");
   });
@@ -230,6 +234,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       () => true,
       classOfMeta(() => meta),
+      () => [],
     );
     expect(meta.agent).toBe(agentBefore); // identity preserved — same object reference
     expect(meta.agent?.state).toBe("waiting");

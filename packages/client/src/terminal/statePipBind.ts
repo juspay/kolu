@@ -61,10 +61,9 @@ export function bindStatePip(input: {
 }): StatePipBind {
   const agent = activeArm(input.meta)?.agent;
   // Paint comes off the SAME attention value as motion, wash and every count —
-  // never re-derived from the metadata, which arrives on its own subscription
-  // and would put a rust mark on screen that does not move and no count
-  // includes. The dock hands in a bucket it already computed from this same
-  // class; every other surface folds it here.
+  // never re-derived from the metadata (see `attention/attentionFacts.ts`'s
+  // header for why). The dock hands in a bucket it already computed from this
+  // same class; every other surface folds it here.
   const bucket =
     input.pipBucket ?? paintDockRow(input.meta, input.attention.klass);
   const variant = pipVariant(bucket);

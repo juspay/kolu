@@ -1,6 +1,10 @@
 /** Pins the attention diagnostic on the three causes it exists to tell apart —
  *  they demand opposite fixes, so a dump that can't distinguish them is worth
- *  nothing. The field case (juspay/kolu#2019 review) is the first test. */
+ *  nothing. The field case (juspay/kolu#2019 review) is the first test.
+ *
+ *  Note what these calls CANNOT pass: `isLive` and `isFinished` are derived from
+ *  `attention` inside the fold, so no test (and no caller) can hand the
+ *  diagnostic a boolean that contradicts the class it is diagnosing. */
 
 import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi/surface";
 import type { AgentInfo } from "kolu-common/surface";
@@ -68,8 +72,6 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       pipVariant: "idle",
       motion: "spin",
       shellLive: true,
-      isLive: true,
-      isFinished: false,
       attention: { klass: "idle", live: true },
     });
 
@@ -95,8 +97,6 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       pipVariant: "working",
       motion: "none",
       shellLive: false,
-      isLive: false,
-      isFinished: true,
       attention: { klass: "finished", live: false },
     });
     expect(d.paintsBusy).toBe(true);
@@ -114,8 +114,6 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       pipVariant: "working",
       motion: "spin",
       shellLive: false,
-      isLive: true,
-      isFinished: false,
       attention: { klass: "working", live: true },
     });
     expect(d.countedActive).toBe(true);
@@ -137,8 +135,6 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       pipVariant: "idle",
       motion: "none",
       shellLive: false,
-      isLive: false,
-      isFinished: false,
       attention: { klass: "idle", live: false },
     });
     expect(d.paintsBusy).toBe(false);
@@ -156,8 +152,6 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       pipVariant: "idle",
       motion: "none",
       shellLive: false,
-      isLive: false,
-      isFinished: false,
       attention: { klass: "idle", live: false },
     });
     expect(d.disagreement).toBeNull();
@@ -177,8 +171,6 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       pipVariant: "linger",
       motion: "spin",
       shellLive: false,
-      isLive: false,
-      isFinished: false,
       attention: { klass: "linger", live: false },
     });
     expect(d.paintsBusy).toBe(true);

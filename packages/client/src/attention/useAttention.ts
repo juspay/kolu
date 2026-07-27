@@ -189,10 +189,10 @@ export function useAttention(deps: AttentionDeps): {
       const frame = hostFrame(encHost);
       // Silence is not an empty frame — see `HostMarks.reported`.
       if (!frame.reported) return;
-      core.observe(encHost, {
-        askingIds: frame.byClass.asking,
-        finishedIds: frame.byClass.finished,
-      });
+      // The frame's own class map, handed straight over — the engine's type is
+      // a `Pick` of it, so there is no adapter object to mint per host per
+      // frame and no second name for the same two lists.
+      core.observe(encHost, frame.byClass);
     });
     onCleanup(() => core.forgetHost(encHost));
     return null;

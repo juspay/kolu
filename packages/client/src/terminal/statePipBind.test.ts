@@ -70,14 +70,11 @@ describe("bindStatePip — colour comes from the same value as motion", () => {
     expect(pip.asking).toBe(true);
   });
 
-  // THE REGRESSION THIS FILE EXISTS FOR. A host's terminals and its attention
-  // frame arrive on two subscriptions with independent timing, so there is a
-  // real window — before the first frame, and for as long as a stale or errored
-  // urgency cell holds — where metadata says "thinking" and the frame says
-  // nothing yet. Colour used to be the one channel that believed the metadata:
-  // the mark went rust while standing still, and no count included it. That is
-  // precisely the tab-says-2-beside-three-moving-marks defect, surviving in the
-  // last channel nobody had moved over.
+  // THE REGRESSION THIS FILE EXISTS FOR. Metadata and the attention frame land
+  // independently (the argument is in `attention/attentionFacts.ts`'s header),
+  // so there is a real window where metadata says "thinking" and the frame has
+  // said nothing yet. Colour was the last channel still believing the metadata:
+  // the mark went rust while standing still, and no count included it.
   it("stays quiet, not confidently wrong, when the frame has not arrived", () => {
     const pip = bindStatePip({
       // Metadata is emphatic that an agent is working here.

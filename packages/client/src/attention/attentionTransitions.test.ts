@@ -11,8 +11,8 @@ import {
 } from "./attentionTransitions";
 
 const u = (asking: string[], finished: string[] = []): AttentionFrame => ({
-  askingIds: asking as TerminalId[],
-  finishedIds: finished as TerminalId[],
+  asking: asking as TerminalId[],
+  finished: finished as TerminalId[],
 });
 
 describe("attentionTransitions", () => {

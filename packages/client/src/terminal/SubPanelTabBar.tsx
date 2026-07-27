@@ -9,8 +9,7 @@ import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import LiveActivityDot from "./LiveActivityDot";
 import { useAttentionFacts } from "../attention/useAttentionFacts";
-import { encodeHostKey } from "kolu-common/hostKey";
-import { activeHost } from "../wire";
+import { encActiveHost } from "../wire";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
@@ -58,9 +57,7 @@ const SubPanelTabBar: Component<{
                 data-active={isActive() || undefined}
                 onClick={() => props.onSelect(id)}
               >
-                <Show
-                  when={facts.attentionOf(encodeHostKey(activeHost()), id).live}
-                >
+                <Show when={facts.attentionOf(encActiveHost(), id).live}>
                   <LiveActivityDot />
                 </Show>
                 <span class="truncate">

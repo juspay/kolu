@@ -72,10 +72,22 @@ export interface HostAttentionFrame {
   readonly liveIds: readonly TerminalId[];
 }
 
-/** An empty frame — every class present and empty, so a partial reader never
- *  meets a missing list. */
+/** A fresh empty class map — every class present and empty, so a partial reader
+ *  never meets a missing list.
+ *
+ *  A FUNCTION, not a shared constant, and the ONE spelling of this node: the
+ *  literal `{asking:[],working:[],linger:[],finished:[]}` was written out at
+ *  three sites, and a shared object would have every "nothing here yet" host
+ *  pointing at the SAME nested arrays — one accidental push corrupts the seed
+ *  for all of them. Fresh per call is the discipline `attentionMarks`' store
+ *  seed already followed; this is where it lives now. */
+export function emptyByClass(): Record<FrameClass, TerminalId[]> {
+  return { asking: [], working: [], linger: [], finished: [] };
+}
+
+/** An empty frame — the reading for a host nothing is known about. */
 export const EMPTY_FRAME: HostAttentionFrame = {
-  byClass: { asking: [], working: [], linger: [], finished: [] },
+  byClass: emptyByClass(),
   liveIds: [],
 };
 
@@ -138,8 +150,8 @@ export function isActive(a: TerminalAttention): boolean {
   return attentionActive(a.klass, a.live);
 }
 
-/** Does a scope COUNT this terminal in its activity leg? `asking` has its own
- *  violet count and must never also swell the rust one. */
+/** Does a scope COUNT this terminal in its activity leg? The membership rule
+ *  (and why `asking` is excluded) is `attentionCounted`'s, in the vocabulary. */
 export function isCounted(a: TerminalAttention): boolean {
   return attentionCounted(a.klass, a.live);
 }
@@ -155,12 +167,10 @@ export function isCounted(a: TerminalAttention): boolean {
  *  the click filtered the VISIBLE rows, so the flagship case rendered a button
  *  reading "1" that did nothing at all.
  *
- *  Asking and active are mutually exclusive — they answer the same question
- *  (what state is this terminal in) and a row paints one or the other, which
- *  `attentionCounted` decides rather than an `else` here. Unread is counted
- *  INDEPENDENTLY, because it is a different axis: state is the pip's colour,
- *  unread is the amber badge riding on top of it (the StatePip axis contract),
- *  and a row genuinely wears both.
+ *  Asking and active are mutually exclusive — `attentionCounted` decides that,
+ *  never an `else` here. Unread is counted INDEPENDENTLY, because it is a
+ *  different axis: state is the pip's colour, unread is the amber badge riding
+ *  on top of it (the StatePip axis contract), and a row genuinely wears both.
  *
  *  Takes bare ids — the third altitude of the same fold belongs beside its two
  *  siblings, not in the dock's grouping module; flattening rows into ids is the

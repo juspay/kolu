@@ -9,7 +9,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { attentionDiagnostic } from "./attention/attentionDiagnostics";
-import { hostActiveIds } from "./attention/attentionFacts";
+import { frameClassOf, hostActiveIds } from "./attention/attentionFacts";
 import { hostFrame } from "./attention/attentionMarks";
 import { useAttentionFacts } from "./attention/useAttentionFacts";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
@@ -90,31 +90,24 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       // is diagnosing can drift from it and quietly report the wrong thing.
       const attention = facts.attentionOf(encHost, id);
       const pip = bindStatePip({ meta, attention, unread: false });
-      const d = attentionDiagnostic({
+      // `attentionClass` on the row IS padi's own verdict for this terminal —
+      // it is read straight back off the mirrored frame's id lists. A blank
+      // `agentState` beside a class of `working` is a client/server SYNC gap;
+      // both blank while the title spins is a DETECTION gap. The pair is what
+      // tells them apart. (This used to carry four `padiSaysX` booleans beside
+      // it, each an `includes()` scan of the SAME frame the class came off, so
+      // each was `attentionClass === "X"` re-derived — a second source in name
+      // only, which could never have disagreed and so could never have caught
+      // anything.)
+      return attentionDiagnostic({
         id,
         meta,
         glyph: pip.glyph,
         pipVariant: pip.variant,
         motion: pip.motion,
         shellLive: pip.shellLive,
-        isLive: attention.live,
-        // padi's sticky EF2 verdict — the `finished` class IS that verdict, so
-        // this reads it off the same one value rather than through a second
-        // accessor beside it.
-        isFinished: attention.klass === "finished",
         attention,
       });
-      return {
-        ...d,
-        // padi's own verdict for the same terminal, from the mirrored urgency
-        // frame. `agentState: null` here while padi lists it working is a
-        // client/server SYNC gap; both blank while the title spins is a
-        // DETECTION gap. The pair is what tells them apart.
-        padiSaysWorking: urgency.byClass.working.includes(id),
-        padiSaysLingering: urgency.byClass.linger.includes(id),
-        padiSaysAwaiting: urgency.byClass.asking.includes(id),
-        padiSaysFinished: urgency.byClass.finished.includes(id),
-      };
     });
     const terminals = rows.filter((r) => r !== null);
     // Terminals padi COUNTS that this list never even examined. The client
@@ -124,21 +117,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     // section cheerfully reports "paint and counts agree on every terminal"
     // while an entire working agent is missing from its own audit (that false
     // green is exactly how a 4-vs-3 mismatch reached a user).
+    //
+    // It folds through `hostActiveIds` — the very function the `active` count
+    // beside it folds through — rather than hand-unioning class lists. Doing
+    // that by hand reproduced the membership rule (and got it wrong): the hand
+    // union ignored `liveIds`, so a PRINTING agentless split, which IS in
+    // `hostActiveIds` and IS in the count, never landed here, and the section
+    // printed a green "paint and counts agree" over exactly the case it exists
+    // to catch. One population, one fold.
     const seen = new Set(terminals.map((t) => t.id));
-    const uncounted = [
-      ...urgency.byClass.working.map((id: TerminalId) => ({
-        id,
-        as: "working",
-      })),
-      ...urgency.byClass.linger.map((id: TerminalId) => ({
-        id,
-        as: "lingering",
-      })),
-      ...urgency.byClass.asking.map((id: TerminalId) => ({
-        id,
-        as: "awaiting",
-      })),
-    ].filter((u) => !seen.has(u.id));
+    const uncounted = hostActiveIds(urgency)
+      .filter((id: TerminalId) => !seen.has(id))
+      .map((id: TerminalId) => ({ id, as: frameClassOf(urgency, id) }));
     return {
       host: encHost,
       hostLive: urgency.live,
@@ -452,11 +442,8 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                     {t.shellLive ? "+shellLive" : ""} glyph={t.glyph} live=
                     {String(t.isLive)} fin={String(t.isFinished)} busy=
                     {String(t.paintsBusy)} counted={String(t.countedActive)}
-                    {t.spinnerInTitle ? " spinner=YES" : ""}
-                    {t.padiSaysWorking ? " padi=working" : ""}
-                    {t.padiSaysLingering ? " padi=lingering" : ""}
-                    {t.padiSaysFinished ? " padi=finished" : ""}
-                    {t.padiSaysAwaiting ? " padi=awaiting" : ""}
+                    {t.spinnerInTitle ? " spinner=YES" : ""} padi=
+                    {t.attentionClass}
                   </div>
                   <Show when={t.disagreement}>
                     {(msg) => (

@@ -104,60 +104,53 @@ body {
     inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
     0 -6px 16px -12px var(--host-hue);
 }
-/* Finished-unseen tab — the AREA channel. The `AttentionTriplet`'s amber
- * capsule carries the count; this washes the whole tab amber so the mark
- * survives peripheral vision. Doubling a dot is a 4× area change and still
- * gets missed; tinting the tab behind it is ~100× (#1990).
+/* Host-tab attention wash — the AREA channel, ONE rule, two hues.
  *
- * Amber `--color-attention` and NOT `--host-hue`: obligation is a fact about
- * work, not about which host it happened on, and the hue-per-host palette
- * already spends colour on identity. The two-hue rule still holds — amber
- * unseen here, violet needs-you below.
+ * The `AttentionTriplet`'s capsule carries the count; this washes the whole tab
+ * so the mark survives peripheral vision. Doubling a dot is a 4× area change and
+ * still gets missed; tinting the tab behind it is ~100× (#1990).
  *
- * Only ever paints an IDLE tab: `data-unseen` is suppressed on the active host
+ * Two states share the one rule through `--attn`, exactly as the dock row's wash
+ * below does — per-state spelling is how needs-you ended up with no wash at all
+ * (fucknotif), and it is also how these two blocks drifted 2-4 percentage points
+ * apart while a comment claimed they carried "the same lift". The numbers below
+ * are the AMBER set: those shipped and were tuned, so they are the ones that win.
+ *   · amber `--color-attention` — unseen (finished, unopened). Amber and NOT
+ *     `--host-hue`: obligation is a fact about work, not about which host it
+ *     happened on, and the hue-per-host palette already spends colour on identity.
+ *   · violet `--color-alert` — asking (blocked on you). Declared AFTER amber so
+ *     violet wins; the two attributes are also mutually exclusive by predicate
+ *     (`HostChip` sets `data-unseen` only when asking is zero), an agent blocked
+ *     on you outranking work you haven't opened.
+ *
+ * Only ever paints an IDLE tab: both attributes are suppressed on the active host
  * (same predicate as the capsule), so this can never fight the active tab's
- * host-hue belly. Placed after `.host-tab-idle:hover` so a hovered unread tab
- * keeps reading as unread. */
+ * host-hue belly. Placed after `.host-tab-idle:hover` so a hovered washed tab
+ * keeps reading as washed. */
 .host-tab[data-unseen] {
-  color: var(--color-fg);
-  background: color-mix(in oklch, var(--color-attention) 18%, transparent);
-  border-color: color-mix(in oklch, var(--color-attention) 45%, transparent);
+  --attn: var(--color-attention);
 }
-.host-tab[data-unseen]:hover {
-  background: color-mix(in oklch, var(--color-attention) 26%, transparent);
-  border-color: color-mix(in oklch, var(--color-attention) 60%, transparent);
+.host-tab[data-asking] {
+  --attn: var(--color-alert);
+}
+.host-tab:is([data-unseen], [data-asking]) {
+  color: var(--color-fg);
+  background: color-mix(in oklch, var(--attn) 18%, transparent);
+  border-color: color-mix(in oklch, var(--attn) 45%, transparent);
+}
+.host-tab:is([data-unseen], [data-asking]):hover {
+  background: color-mix(in oklch, var(--attn) 26%, transparent);
+  border-color: color-mix(in oklch, var(--attn) 60%, transparent);
 }
 /* Dark mode: same reason the active tab needs 32% instead of 13% — a low mix
- * over near-black collapses to muddy grey and the tab stops reading as amber. */
-:root.dark .host-tab[data-unseen] {
-  background: color-mix(in oklch, var(--color-attention) 26%, transparent);
-  border-color: color-mix(in oklch, var(--color-attention) 55%, transparent);
+ * over near-black collapses to muddy grey and the tab stops reading as coloured
+ * at all. */
+:root.dark .host-tab:is([data-unseen], [data-asking]) {
+  background: color-mix(in oklch, var(--attn) 26%, transparent);
+  border-color: color-mix(in oklch, var(--attn) 55%, transparent);
 }
-:root.dark .host-tab[data-unseen]:hover {
-  background: color-mix(in oklch, var(--color-attention) 34%, transparent);
-}
-/* Needs-you tab — the violet twin of the amber unseen wash above, same area
- * channel, same suppression on the active tab. Violet DOMINATES amber: the two
- * data-attributes are mutually exclusive by predicate (`HostChip` sets
- * `data-unseen` only when asking is zero) — an agent blocked on you outranks
- * work you haven't opened. Hue is `--color-alert` per the two-hue law. */
-.host-tab[data-asking] {
-  color: var(--color-fg);
-  background: color-mix(in oklch, var(--color-alert) 14%, transparent);
-  border-color: color-mix(in oklch, var(--color-alert) 42%, transparent);
-}
-.host-tab[data-asking]:hover {
-  background: color-mix(in oklch, var(--color-alert) 22%, transparent);
-  border-color: color-mix(in oklch, var(--color-alert) 58%, transparent);
-}
-/* Dark mode: same lift as the amber wash — a low mix over near-black collapses
- * to muddy grey and the tab stops reading as violet. */
-:root.dark .host-tab[data-asking] {
-  background: color-mix(in oklch, var(--color-alert) 24%, transparent);
-  border-color: color-mix(in oklch, var(--color-alert) 52%, transparent);
-}
-:root.dark .host-tab[data-asking]:hover {
-  background: color-mix(in oklch, var(--color-alert) 32%, transparent);
+:root.dark .host-tab:is([data-unseen], [data-asking]):hover {
+  background: color-mix(in oklch, var(--attn) 34%, transparent);
 }
 /* Unreachable host — desaturate the tab; struck label is classed in JSX.
  * Active+down keeps the host-hue belly so the selected failed host is still
@@ -738,10 +731,14 @@ body {
   font-weight: 700;
 }
 /* A blocked row's subline speaks needs-you violet — the words ("Awaiting
- * input …") wear the same hue as the wash, chip, and pip. */
-[data-testid="dock-row"][data-asking] [data-testid="dock-agent-subline"],
-[data-testid="mobile-dock-row"][data-asking]
-  [data-testid="mobile-dock-agent-subline"] {
+ * input …") wear the same hue as the wash, chip, and pip.
+ *
+ * Keyed on the SHARED `[data-dock-row]` / `[data-dock-subline]` hooks, not on an
+ * enumeration of per-surface test ids: enumerating row types by test id is
+ * exactly what left the split sub-entry outside the wash above, and this rule
+ * had reverted to it two declarations later. Test ids stay on the spans for e2e;
+ * they are not what styling reads. */
+[data-dock-row][data-asking] [data-dock-subline] {
   color: var(--color-alert);
 }
 

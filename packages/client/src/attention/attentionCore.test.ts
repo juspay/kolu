@@ -8,8 +8,8 @@ import { type AttentionHooks, createAttentionCore } from "./attentionCore";
 import type { AttentionFrame } from "./attentionTransitions";
 
 const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({
-  askingIds: asking as TerminalId[],
-  finishedIds: finished as TerminalId[],
+  asking: asking as TerminalId[],
+  finished: finished as TerminalId[],
 });
 
 function harness(over: Partial<AttentionHooks> = {}) {
@@ -102,12 +102,12 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     // ONE object, reused + mutated (reconcile). Spelled mutably here on
     // purpose — `AttentionFrame` is readonly, and the whole point of this test
     // is what happens when the caller's object is not.
-    const frame: { askingIds: TerminalId[]; finishedIds: TerminalId[] } = {
-      askingIds: [],
-      finishedIds: [],
+    const frame: { asking: TerminalId[]; finished: TerminalId[] } = {
+      asking: [],
+      finished: [],
     };
     core.observe("h", frame); // baseline
-    frame.finishedIds = ["B"] as TerminalId[]; // mutate in place
+    frame.finished = ["B"] as TerminalId[]; // mutate in place
     core.observe("h", frame); // same object, now finished
     expect(delivered).toEqual([{ id: "B", asking: false }]);
   });

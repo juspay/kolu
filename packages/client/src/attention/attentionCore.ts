@@ -67,7 +67,7 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     const unseen = nextUnseenFinished(
       unseenByHost.get(encHost) ?? new Set(),
       candidates,
-      cur.finishedIds,
+      cur.finished,
       hooks.isActiveHost(encHost),
     );
     unseenByHost.set(encHost, unseen);
@@ -84,8 +84,8 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     // guarantee. A baseline FINISHED id is deliberately NOT pre-latched, so a later
     // genuine finished→asking gate over it still fires (#1177); and the latch clears
     // when the terminal leaves both sets (`ended`), so a real NEW episode chimes.
-    if (prev === null && cur.askingIds.length > 0) {
-      for (const id of cur.askingIds) latchOf(encHost).add(id);
+    if (prev === null && cur.asking.length > 0) {
+      for (const id of cur.asking) latchOf(encHost).add(id);
     }
 
     // `candidates` is empty on the baseline (a finish already present when a host
@@ -109,8 +109,8 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     // seen and nothing fires. Copy the two id arrays the diff reads — and only
     // those, because `AttentionFrame` carries only what the engine diffs.
     prevByHost.set(encHost, {
-      askingIds: [...cur.askingIds],
-      finishedIds: [...cur.finishedIds],
+      asking: [...cur.asking],
+      finished: [...cur.finished],
     });
   };
 

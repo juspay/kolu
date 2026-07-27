@@ -1,8 +1,17 @@
-/** Dock row ranking — the single source for "what live terminals does
- *  the dock show, in what order".
+/** Dock row ranking — the single source for "what live terminals does the dock
+ *  show, and how is each one classified".
+ *
+ *  It owns the row SET (which terminals earn a row, and each row's order bucket,
+ *  paint bucket and recency key) and the two ordering ingredients every dock
+ *  surface shares: `DOCK_ROW_BUCKET_PRIORITY` and `tsRank`. It does NOT own the
+ *  final painted order of top-level rows: `dockTree.ts` re-sorts them
+ *  blocked-first (`compareRows`, layered on THIS module's priority table) after
+ *  clustering them by branch, so the recency-first order `rankDockRows` returns
+ *  is a baseline the tree refines — not the sequence on screen. Sub-entries
+ *  (`rankSubRows`) keep this module's order all the way to the pixel.
  *
  *  Desktop `Dock.tsx`, the touch `DockList.tsx`, and the `Cmd+1..9`
- *  keyboard shortcut all read the same `rankDockRows` output, so the
+ *  keyboard shortcut all read the same rows, through the same tree, so the
  *  visual row order and the row that a numeric shortcut activates can
  *  never disagree. Without this single source the Alt-held hint chips
  *  can lie about which terminal `Cmd+N` targets — the dock paints rows
@@ -31,6 +40,7 @@ import {
   type AgentPaintClass,
   type AttentionClass,
   agentUrgency,
+  paintClassOf,
   type TerminalId,
   URGENCY_RANK,
 } from "kolu-common/surface";
@@ -114,14 +124,10 @@ function classifyDockRow(
  *  tile title (both render through `StatePip`).
  *
  *  It paints the terminal's ATTENTION CLASS — the same value its motion, its
- *  wash and every count read — rather than re-deriving a paint class from the
- *  terminal's own metadata. Those are two different sources with independent
- *  timing: a terminal's metadata and its host's urgency frame arrive on
- *  separate subscriptions, so before the first frame lands (and for as long as
- *  a stale or errored urgency cell holds), painting from metadata put a rust
- *  mark on screen that did not move and no count included — the exact
- *  disagreement this vocabulary exists to make unspellable, surviving in the
- *  one channel nobody had moved over. One value, one arrival, four surfaces.
+ *  wash and every count read — never a class re-derived from the terminal's own
+ *  metadata; the two-subscriptions argument for that is stated once in
+ *  `attention/attentionFacts.ts`'s header. Colour was the last channel still
+ *  believing the metadata, which is why it is spelled out here.
  *
  *  A quiet host therefore paints quiet: if the frame has not arrived, every
  *  mark reads idle rather than confidently colouring from a fact no count
@@ -144,23 +150,17 @@ export function paintDockRow(
   // any agent inside it, so it stays a metadata read.
   const overlay = dockOverlayBucket(meta, parked);
   if (overlay) return overlay;
-  switch (klass) {
-    case "asking":
-      return "awaiting";
-    case "working":
-      return "working";
-    // The post-turn lull keeps its dimmed glow whether or not EF2 has closed —
-    // the row parks on recency, not on the quiet timer.
-    case "linger":
-    case "finished":
-      return "linger";
-    // No agent, or one in a state the vocabulary does not recognise: the shell
-    // identity glyph. Every dock row core is an identity mark (Option C), so
-    // this paints `idle` rather than `none` — `PIP_BODY.empty` would swallow
-    // the glyph.
-    case "idle":
-      return "idle";
-  }
+  // The class→paint rename is the vocabulary's `paintClassOf`, never restated
+  // here: this switch used to spell the same five arms with the same four
+  // answers, which is precisely the "two switches that happen to match" the
+  // fenced vocabulary exists to prevent — a sixth class would have had to be
+  // decided twice, and the copies could agree only by luck.
+  const paint = paintClassOf(klass);
+  // The ONE arm the dock diverges on. `none` is the vocabulary's absent class
+  // (no glow at all), but every dock row core is an identity mark (Option C):
+  // `PIP_BODY.empty` would swallow the shell's identity glyph, so a classless
+  // row paints the quiet `idle` body instead of nothing.
+  return paint === "none" ? "idle" : paint;
 }
 
 /** A split's entry — a row that cannot itself carry splits, because splits do
@@ -169,9 +169,11 @@ export function paintDockRow(
  *  consumer's one-level flatten was then correct only by convention. */
 export type SubDockRow = {
   id: TerminalId;
-  /** The ORDER bucket — drives sort priority (`DOCK_ROW_BUCKET_PRIORITY`) and
-   *  the `data-bucket` attribute / rail-glow. Reads `agentUrgency`, so `waiting`
-   *  is `idle` here (it does not float into the needs-you order). */
+  /** The ORDER bucket — read through `DOCK_ROW_BUCKET_PRIORITY` by BOTH sorts
+   *  that touch a row: this module's `ts`-tiebreak below, and `dockTree.ts`'s
+   *  blocked-first leg for top-level rows. Also the `data-bucket` attribute /
+   *  rail-glow. Reads `agentUrgency`, so `waiting` is `idle` here (it does not
+   *  float into the needs-you order). */
   bucket: DockRowBucket;
   /** The PIP bucket — drives the row's `StatePip` colour, decoupled from order
    *  so it reads identically to the tile title's pip. Reads the terminal's
@@ -239,20 +241,27 @@ export function tsRank(ts: number | null): number {
   return ts ?? Number.NEGATIVE_INFINITY;
 }
 
-/** Project a terminal id list into the recency-sorted, bucket-classified
- *  row order the dock paints. Secondary key is bucket priority so
- *  never-touched plain shells don't outrank an idle terminal with the
- *  same `ts === null`. `isStale` is a pure-temporal predicate over a recency
- *  timestamp — `rowRecencyAt` (`lastActivityAt` for an active tile, `sleptAt`
- *  for a sleeping one). Identity for stale-but-still-awaiting agents lives at
- *  the render layer (`QuietRowBody` paints `AgentIndicator` when `meta.agent`
- *  is set), not in the bucket decision here. */
+/** Project a terminal id list into the recency-sorted, bucket-classified rows
+ *  the dock renders — the BASELINE order (`dockTree.ts` clusters and re-sorts
+ *  top-level rows blocked-first on top of it; see the module header). Secondary
+ *  key is bucket priority so never-touched plain shells don't outrank an idle
+ *  terminal with the same `ts === null`. `isStale` is a pure-temporal predicate
+ *  over a recency timestamp — `rowRecencyAt` (`lastActivityAt` for an active
+ *  tile, `sleptAt` for a sleeping one). Identity for stale-but-still-awaiting
+ *  agents lives at the render layer (`QuietRowBody` paints `AgentIndicator` when
+ *  `meta.agent` is set), not in the bucket decision here.
+ *
+ *  `getSubIds` is REQUIRED, with no default. It defaulted to `() => []` —
+ *  "this terminal has no splits" — and a caller that simply forgot it rendered
+ *  no split agents at all, silently, which is the exact invisibility the
+ *  sub-entry exists to end. A missing splits reader must fail to compile, not
+ *  degrade into the answer that hides agents. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   isStale: (lastActivityAt: number | null) => boolean,
   classOf: (id: TerminalId) => AttentionClass,
-  getSubIds: (parentId: TerminalId) => readonly TerminalId[] = () => [],
+  getSubIds: (parentId: TerminalId) => readonly TerminalId[],
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {
