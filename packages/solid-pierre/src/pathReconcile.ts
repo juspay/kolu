@@ -12,6 +12,20 @@ export type FileTreeRemoveOperation = Extract<
   { type: "remove" }
 >;
 
+/** Pierre's directory marker is a trailing slash: folder keys carry it
+ *  (`src/`), file entries never do. The ONE place that fact is spelled — every
+ *  site asking "is this row a directory?" reads it here, so the predicate
+ *  can't drift into another ad-hoc `endsWith` at the next call site. */
+export function isDirectoryPath(path: string): boolean {
+  return path.endsWith("/");
+}
+
+/** Strip Pierre's directory marker. Idempotent, and tolerates a repeated
+ *  separator so a caller never has to know how many slashes arrived. */
+export function stripDirectoryMarker(path: string): string {
+  return path.replace(/\/+$/, "");
+}
+
 /** Directory paths that contain `path`, formatted with the trailing
  *  slash Pierre uses for folder keys (`src/`, `src/right-panel/`).
  *  Tolerates an input that already carries a trailing slash (folder
@@ -19,7 +33,7 @@ export type FileTreeRemoveOperation = Extract<
  *  internal `getAncestorDirectoryPaths` walks so the result can be
  *  fed back as `initialExpandedPaths` without surprises. */
 export function ancestorDirectoryPaths(path: string): string[] {
-  const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
+  const normalized = stripDirectoryMarker(path);
   if (normalized.length === 0) return [];
   const segments = normalized.split("/").filter(Boolean);
   const out: string[] = [];

@@ -29,6 +29,7 @@ import {
   ancestorDirectoryPaths,
   directoryRemovalOps,
   type FileTreeRemoveOperation,
+  isDirectoryPath,
   pathDiffOperations,
 } from "./pathReconcile";
 
@@ -41,7 +42,8 @@ export type FileTreeProps = {
    *  directory row that owns no children (the collapsed gitignored directories
    *  the Code tab overlays: one `node_modules/` row, never its contents).
    *  Pierre infers ordinary directories from path prefixes, so a slash-free
-   *  entry is a file — that is the discriminator `onSelect` filters on. */
+   *  entry is a file — the discriminator `onSelect` filters on, spelled once as
+   *  `isDirectoryPath` in `@kolu/solid-pierre/paths`. */
   paths: string[];
   gitStatus?: GitStatusEntry[];
   /** Paths to render dimmed as gitignored.
@@ -271,7 +273,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // click on such a row with the slash intact. Exclude them so membership
   // stays a reliable file-vs-folder discriminator.
   const fileSet = createMemo(
-    () => new Set(props.paths.filter((p) => !p.endsWith("/"))),
+    () => new Set(props.paths.filter((p) => !isDirectoryPath(p))),
   );
 
   onMount(() => {
