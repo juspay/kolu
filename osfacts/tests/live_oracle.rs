@@ -19,7 +19,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -224,6 +224,10 @@ fn memory_and_start_are_real(world: &mut LiveWorld) {
 #[when("I take two CPU-time snapshots of this process")]
 fn two_process_cpu_time_snapshots(world: &mut LiveWorld) {
     let pid = std::process::id();
+    let until = Instant::now() + Duration::from_millis(25);
+    while Instant::now() < until {
+        std::hint::spin_loop();
+    }
     world.cpu_time_first = Some(read_process_cpu_time(world, pid));
     thread::sleep(Duration::from_millis(20));
     world.cpu_time_second = Some(read_process_cpu_time(world, pid));
