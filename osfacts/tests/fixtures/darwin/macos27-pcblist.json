@@ -1,0 +1,30 @@
+{
+  "host": "zest",
+  "os": {
+    "product": "macOS",
+    "version": "27.0",
+    "build": "26A5388g",
+    "kernel": "Darwin 27.0.0 arm64"
+  },
+  "capturedOn": "2026-07-27",
+  "platformSigned": {
+    "fixture": "macos27-pcblist-platform.bin",
+    "caller": "/usr/sbin/sysctl -b net.inet.tcp.pcblist_n",
+    "bytes": 54872,
+    "sha256": "74ce35e53111e0eae0c2bf620e45afbc8659db896e9f084f55d664990081c65a",
+    "pairedNetstatListenerCount": 29,
+    "pairedNetstatSha256": "a4175b2b9c18dc9372a6d3b31818276eb1fe4f72c335ff7909ff79ba1d107065"
+  },
+  "adHocSigned": {
+    "fixture": "macos27-pcblist-adhoc.bin",
+    "caller": "instrumented osfacts at 6b31d4338c082332fdbf520cc7e2712ef2f8dc56",
+    "bytes": 48,
+    "sha256": "a301da7256e6d9f88fab5eb06cc8493516c3f66b248bb7a8fca620ce30c5c149",
+    "observedError": "E darwin_tcp_pcblist BLIND_OR_EMPTY"
+  },
+  "signingEvidence": {
+    "netstatEntitlement": "com.apple.private.network.statistics",
+    "appleToolsPlatformIdentifier": 26,
+    "osfactsSignature": "adhoc"
+  }
+}

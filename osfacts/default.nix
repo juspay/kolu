@@ -23,6 +23,9 @@ pkgs.rustPlatform.buildRustPackage {
       ./Cargo.toml
       ./Cargo.lock
       ./.config
+      # The facet vocabulary contract file — `tests/v2_contract.rs` pins it to
+      # the `Facet` enum, and the TypeScript client pins its unions to it.
+      ./facets.json
       ./src
       ./tests
       ./features

@@ -1,7 +1,7 @@
 /**
  * padi's port scan — osfacts-client + kolu policy.
  *
- * The binary contract (spawn, V1, P/L/U parse) lives in `osfacts-client`.
+ * The binary contract (spawn, V2 record parsing) lives in `osfacts-client`.
  * What lives HERE is kolu's opinion: classify bind addresses, map U rows to
  * blind-vs-empty (the sudo lesson), fold listeners per subtree, and read the
  * baked `KOLU_OSFACTS_BIN` path. The cadence is `./sampler.ts`.
@@ -9,15 +9,18 @@
 
 import {
   type ListenerRow,
-  type OsfactsReading,
   type ProcessRow,
+  type SnapshotFacets,
+  type SnapshotReading,
+  type SnapshotSourceErrorRow,
+  type SnapshotSourceFacet,
   type UnreadableRow,
   OsfactsClientError,
+  snapshotFacetNames,
   snapshotSubtree,
 } from "osfacts-client";
 import {
   foldPorts,
-  isTcpPort,
   type PortFamily,
   type PortInfo,
   type PortScope,
@@ -40,6 +43,54 @@ export class PortScanError extends Error {
 // ── Process table + subtree partition ───────────────────────────────────
 
 export type { ProcessRow };
+
+/**
+ * The ask. A subtree port fold needs the process table and the listeners a pid
+ * claims — nothing else.
+ *
+ * This is the SINGLE statement of what this scan reads: it is passed to
+ * `snapshotSubtree` *and* run through `snapshotFacetNames` to get the wire
+ * facet names the gates below use. Those two used to be one hand-written
+ * literal each, in two vocabularies (camelCase flags vs snake_case wire
+ * names), with nothing keeping them in step — so widening the ask silently
+ * left the gate covering the old set.
+ */
+const SCAN_ASK = { procs: true, ports: true } as const satisfies SnapshotFacets;
+const SCANNED = snapshotFacetNames(SCAN_ASK);
+
+/**
+ * Facets the ask names whose blindness costs this scan no fact.
+ *
+ * Both are darwin listener honesty rows, not lost listeners.
+ * `ports_unclaimed` is what macOS 27 gates when it hides the host-wide socket
+ * table: every claimed listener survives via the same-uid fd walk, so treating
+ * it as blindness would black out port detection on that whole platform while
+ * the facts sat in hand. `ports_uid` says only that darwin cannot name a
+ * socket's owning uid — a field this fold never reads.
+ *
+ * The osfacts contract is explicit: a source error is not an instruction to
+ * discard facts that did arrive.
+ */
+const TOLERATED_SOURCE_FACETS: readonly SnapshotSourceFacet[] = [
+  "ports_unclaimed",
+  "ports_uid",
+];
+
+/** Render explicit source blindness for padi's fail-loud port policy. */
+export function sourceErrorsMessage(
+  errors: readonly SnapshotSourceErrorRow[],
+): string | null {
+  const blinding = errors.filter(
+    ({ facet }) =>
+      SCANNED.source.includes(facet) &&
+      !TOLERATED_SOURCE_FACETS.includes(facet),
+  );
+  return blinding.length === 0
+    ? null
+    : blinding
+        .map(({ source, facet, code }) => `${source}[${facet}]=${code}`)
+        .join(", ");
+}
 
 /** Partition the process table into one pid SET per requested ROOT pid. */
 export function partitionSubtrees(
@@ -72,14 +123,17 @@ export function partitionSubtrees(
 
 // ── Address classification (single judge) ───────────────────────────────
 
-/** Decode a bind address printed in NETWORK order — what osfacts L rows emit. */
+/**
+ * Decode a bind address printed in NETWORK order — what osfacts `L` rows emit.
+ *
+ * No format re-validation here, for the same reason `classifyListeners` does
+ * not re-check the port: `parseSnapshotOutput` already refuses any `L` row
+ * whose address is not exactly 8 or 32 lowercase hex digits, so a second copy
+ * of that rule would be unreachable and would have to be found twice to relax.
+ * It had already drifted — the client narrowed its rule to lowercase and this
+ * copy still accepted uppercase.
+ */
 export function decodeNetworkAddress(hex: string): number[] {
-  if ((hex.length !== 8 && hex.length !== 32) || !/^[0-9A-Fa-f]+$/.test(hex)) {
-    throw new PortScanError(
-      "blind",
-      `port scan: "${hex}" is not a bind address (expected exactly 8 or 32 hex digits)`,
-    );
-  }
   const bytes: number[] = [];
   for (let i = 0; i < hex.length; i += 2) {
     bytes.push(Number.parseInt(hex.slice(i, i + 2), 16));
@@ -139,6 +193,7 @@ export function unreadablePolicy(
   const skipPids = new Set<number>();
   let fatal: UnreadableRow | null = null;
   for (const u of unreadable) {
+    if (!SCANNED.unreadable.includes(u.facet)) continue;
     const exitRace = u.errno === "ENOENT" || u.errno === "ESRCH";
     if (rootPids.has(u.pid)) {
       if (exitRace) {
@@ -172,18 +227,18 @@ export function osfactsBinPath(): string {
 function classifyListeners(
   ports: readonly ListenerRow[],
 ): Array<{ pid: number; port: number; scope: PortScope; family: PortFamily }> {
-  return ports.map((l) => {
-    if (!isTcpPort(l.port)) {
-      throw new PortScanError(
-        "blind",
-        `port scan: listener carries no valid port: ${l.port}`,
-      );
-    }
-    return {
-      pid: l.pid,
-      port: l.port,
-      ...addressBind(decodeNetworkAddress(l.address)),
-    };
+  // No port re-validation here: `parseSnapshotOutput` already refuses any `L`
+  // row whose port is not a TCP port, so a second copy of that rule in the
+  // consumer is unreachable and would have to be found twice to relax.
+  return ports.flatMap((l) => {
+    if (l.status === "unclaimed") return [];
+    return [
+      {
+        pid: l.pid,
+        port: l.port,
+        ...addressBind(decodeNetworkAddress(l.address)),
+      },
+    ];
   });
 }
 
@@ -252,9 +307,9 @@ export async function scanSubtreePorts(
   }
 
   const bin = osfactsBinPath();
-  let reading: OsfactsReading;
+  let reading: SnapshotReading;
   try {
-    reading = await snapshotSubtree(bin, rootPids);
+    reading = await snapshotSubtree(bin, rootPids, SCAN_ASK);
   } catch (err) {
     if (err instanceof OsfactsClientError) {
       throw new PortScanError("blind", `port scan: ${err.message}`, {
@@ -262,6 +317,14 @@ export async function scanSubtreePorts(
       });
     }
     throw err;
+  }
+
+  const sourceFailure = sourceErrorsMessage(reading.errors);
+  if (sourceFailure !== null) {
+    throw new PortScanError(
+      "blind",
+      `port scan: osfacts source failure (${sourceFailure})`,
+    );
   }
 
   const rootSet = new Set(rootPids);
