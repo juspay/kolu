@@ -12,6 +12,7 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "@babel/parser";
 import {
   type ConvergenceIdentity,
   daemonBuild,
@@ -794,96 +795,222 @@ describe("converge — enactment + outcomes", () => {
   // ── W7/W8 named tests ───────────────────────────────────────────────────
 
   /**
-   * W8.1: pin bind-call TOPOLOGY, not identifier spelling. Every
-   * `await ctx.bind()` / `await args.bind()` must be the first argument of
-   * `consumeBindResult(...)`. Assignment / destructuring of a bind call is
-   * banned (the renamed-variable escape of the W7 name-only pin).
-   * `outcome.bind.kind` in outcomeAdopted is an outcome projection — no bind
-   * call — and is out of scope for this checker.
+   * W8.1 / W9 (F28): pin bind-call TOPOLOGY via Babel AST (not regex spelling).
+   *
+   * Every *call* `ctx.bind()` / `args.bind()` must be exactly:
+   *   consumeBindResult(await <receiver>.bind(), …)
+   * (callee MemberExpression → parent CallExpression → grand AwaitExpression →
+   * great CallExpression consumeBindResult with that await as arguments[0]).
+   *
+   * Rejects: un-awaited calls, stored promises (`const p = args.bind()`),
+   * assignments of the awaited result, destructuring, and method aliases
+   * (`const bind = ctx.bind` then `bind()`). Allows structural pass-through
+   * `bind: ctx.bind` into helpers (not a BindResult consumer).
+   * `outcome.bind.kind` is a different chain and is never matched.
    */
-  function assertBindCallTopology(src: string): void {
-    const stripped = src
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/[^\n]*/g, "");
+  type AstNode = { type: string; [key: string]: unknown };
 
-    const assigned = stripped.match(
-      /(?:const|let|var)\s+\w+\s*=\s*await\s+(?:ctx|args)\.bind\(\s*\)/g,
+  const isAstNode = (v: unknown): v is AstNode =>
+    typeof v === "object" &&
+    v !== null &&
+    typeof (v as AstNode).type === "string";
+
+  /** Skip babel location/comment bookkeeping so Object.values walk stays pure. */
+  const SKIP_KEYS = new Set([
+    "loc",
+    "start",
+    "end",
+    "range",
+    "extra",
+    "leadingComments",
+    "trailingComments",
+    "innerComments",
+    "comments",
+    "errors",
+  ]);
+
+  function isCtxOrArgsBindMember(node: AstNode): boolean {
+    if (node.type !== "MemberExpression" || node.computed === true)
+      return false;
+    const prop = node.property;
+    const obj = node.object;
+    return (
+      isAstNode(prop) &&
+      prop.type === "Identifier" &&
+      (prop.name as string) === "bind" &&
+      isAstNode(obj) &&
+      obj.type === "Identifier" &&
+      ((obj.name as string) === "ctx" || (obj.name as string) === "args")
     );
-    if (assigned?.length) {
-      throw new Error(
-        `bind call assigned outside consumeBindResult: ${assigned.join("; ")}`,
+  }
+
+  /** `bind: ctx.bind` / `bind: args.bind` in an object literal — re-pass the fn. */
+  function isBindPassThroughProperty(
+    member: AstNode,
+    parent: AstNode | null,
+  ): boolean {
+    if (!parent || parent.type !== "ObjectProperty") return false;
+    if (parent.value !== member) return false;
+    const key = parent.key;
+    return (
+      isAstNode(key) &&
+      key.type === "Identifier" &&
+      (key.name as string) === "bind"
+    );
+  }
+
+  function assertBindCallTopology(src: string): void {
+    const ast = parse(src, {
+      sourceType: "module",
+      plugins: ["typescript"],
+      errorRecovery: true,
+    }) as unknown as AstNode;
+
+    let bindCallCount = 0;
+    const violations: string[] = [];
+    /** Identifiers bound to a ctx.bind / args.bind method reference (aliases). */
+    const bindAliases = new Set<string>();
+
+    function isConsumeBindResultCall(call: AstNode): boolean {
+      const callee = call.callee;
+      return (
+        isAstNode(callee) &&
+        callee.type === "Identifier" &&
+        (callee.name as string) === "consumeBindResult"
       );
-    }
-    if (
-      /\{[^}]*\bkind\b[^}]*\}\s*=\s*await\s+(?:ctx|args)\.bind\(\s*\)/.test(
-        stripped,
-      )
-    ) {
-      throw new Error("bind call destructured outside consumeBindResult");
     }
 
-    const re = /await\s+(?:ctx|args)\.bind\(\s*\)/g;
-    let m: RegExpExecArray | null;
-    let count = 0;
-    while ((m = re.exec(stripped)) !== null) {
-      count += 1;
-      let i = m.index - 1;
-      while (i >= 0 && /\s/.test(stripped[i]!)) i--;
-      if (stripped[i] !== "(") {
-        throw new Error(
-          `bind call at ${m.index} is not a function argument (found '${stripped[i] ?? "EOF"}')`,
+    function checkBindCallTopology(
+      _callNode: AstNode,
+      parent: AstNode | null,
+      grand: AstNode | null,
+    ): void {
+      bindCallCount += 1;
+      // _callNode is CallExpression(.bind()); parent should be AwaitExpression;
+      // grand should be CallExpression(consumeBindResult) with await as arg0.
+      if (!parent || parent.type !== "AwaitExpression") {
+        violations.push(
+          "ctx/args.bind() call is not directly awaited (stored-promise or bare call)",
         );
+        return;
       }
-      i--;
-      while (i >= 0 && /\s/.test(stripped[i]!)) i--;
-      const end = i + 1;
-      while (i >= 0 && /[\w$]/.test(stripped[i]!)) i--;
-      const name = stripped.slice(i + 1, end);
-      if (name !== "consumeBindResult") {
-        throw new Error(
-          `bind call at ${m.index} is argument of '${name || "?"}', not consumeBindResult`,
+      if (
+        !grand ||
+        grand.type !== "CallExpression" ||
+        !isConsumeBindResultCall(grand) ||
+        !Array.isArray(grand.arguments) ||
+        grand.arguments[0] !== parent
+      ) {
+        violations.push(
+          "awaited ctx/args.bind() is not the first argument of consumeBindResult",
         );
       }
     }
-    if (count === 0) {
+
+    function walk(
+      node: AstNode,
+      parent: AstNode | null,
+      grand: AstNode | null,
+    ): void {
+      // Track aliases: const bind = ctx.bind / let b = args.bind
+      if (
+        node.type === "VariableDeclarator" &&
+        isAstNode(node.id) &&
+        node.id.type === "Identifier" &&
+        isAstNode(node.init) &&
+        isCtxOrArgsBindMember(node.init)
+      ) {
+        bindAliases.add(node.id.name as string);
+        violations.push(
+          "ctx/args.bind extracted or aliased (must only appear as call callee or bind: pass-through)",
+        );
+      }
+
+      // Call of an aliased bind identifier
+      if (
+        node.type === "CallExpression" &&
+        isAstNode(node.callee) &&
+        node.callee.type === "Identifier" &&
+        bindAliases.has(node.callee.name as string)
+      ) {
+        violations.push(
+          "call of bind alias (must call ctx.bind/args.bind only inside consumeBindResult(await …))",
+        );
+      }
+
+      // CallExpression whose callee is ctx.bind / args.bind
+      if (
+        node.type === "CallExpression" &&
+        isAstNode(node.callee) &&
+        isCtxOrArgsBindMember(node.callee)
+      ) {
+        checkBindCallTopology(node, parent, grand);
+      }
+
+      // Non-call use of ctx.bind / args.bind MemberExpression
+      if (isCtxOrArgsBindMember(node)) {
+        const isCallee =
+          parent?.type === "CallExpression" && parent.callee === node;
+        if (!isCallee && !isBindPassThroughProperty(node, parent)) {
+          // VariableDeclarator init already flagged above; other extractions too.
+          if (
+            !(parent?.type === "VariableDeclarator" && parent.init === node)
+          ) {
+            violations.push(
+              "ctx/args.bind extracted outside call/pass-through",
+            );
+          }
+        }
+      }
+
+      for (const [key, value] of Object.entries(node)) {
+        if (SKIP_KEYS.has(key)) continue;
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            if (isAstNode(item)) walk(item, node, parent);
+          }
+        } else if (isAstNode(value)) {
+          walk(value, node, parent);
+        }
+      }
+    }
+
+    walk(ast, null, null);
+
+    if (bindCallCount === 0) {
       throw new Error(
-        "no await (ctx|args).bind() found — topology pin vacuous",
+        "no ctx.bind()/args.bind() calls found — topology pin vacuous",
       );
+    }
+    if (violations.length > 0) {
+      throw new Error(violations.join("; "));
     }
   }
 
-  it("W8.1 confinement: every bind call is first arg of consumeBindResult (topology)", () => {
+  it("W8.1/W9 confinement: every ctx/args.bind site is consumeBindResult(await …)", () => {
     const src = readFileSync(
       fileURLToPath(new URL("./converge.ts", import.meta.url)),
       "utf8",
     );
     expect(() => assertBindCallTopology(src)).not.toThrow();
-    // Still require the consumer exists (sanity).
     expect(src).toMatch(/async function consumeBindResult\b/);
   });
 
   it("W8.1 confinement is red against renamed-variable escape (proven)", () => {
-    // The W7 name pin (`switch (r.kind)`) stays green under this escape; the
-    // topology pin must fail. Actually run the checker on the fixture.
     const renameEscapeFixture = `
-async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHeld: () => void; baseCtx: FoldCtx }) {
-  // Stored under a DIFFERENT name — the old spelling pin never saw this.
+async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHeld: () => void; baseCtx: unknown }) {
   const result = await args.bind();
   if (result.kind === "refused-or-failed") {
     args.releaseHeld();
     return { kind: "refused", adopted: false as const };
   }
-  if (result.kind === "spawned-fresh") {
-    return { kind: "spawned-fresh" };
-  }
   return consumeBindResult(result, args.baseCtx, { kind: "post-drain" });
 }
 `;
     expect(() => assertBindCallTopology(renameEscapeFixture)).toThrow(
-      /bind call assigned outside consumeBindResult/,
+      /not the first argument of consumeBindResult/,
     );
 
-    // Destructuring escape is also red.
     const destructure = `
 async function bad(ctx: { bind: () => Promise<BindResult> }) {
   const { kind } = await ctx.bind();
@@ -891,7 +1018,44 @@ async function bad(ctx: { bind: () => Promise<BindResult> }) {
 }
 `;
     expect(() => assertBindCallTopology(destructure)).toThrow(
-      /bind call (assigned|destructured) outside consumeBindResult/,
+      /not the first argument of consumeBindResult/,
+    );
+  });
+
+  it("W9 confinement is red against stored-promise and alias escapes (proven)", () => {
+    // Finding 28: the W8 regex required literal `await args.bind()`, so storing
+    // the promise first left the pin green. AST pin must go red.
+    const storedPromiseFixture = `
+async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHeld: () => void }) {
+  const pending = args.bind();
+  const result = await pending;
+  if (result.kind === "refused-or-failed") {
+    args.releaseHeld();
+    return { kind: "refused", adopted: false as const };
+  }
+  return consumeBindResult(result, args as never, { kind: "post-drain" });
+}
+// Keep a legitimate call so a count-only pin would stay non-vacuous:
+async function ok(ctx: { bind: () => Promise<BindResult> }, c: unknown) {
+  return consumeBindResult(await ctx.bind(), c, { kind: "plain" });
+}
+`;
+    expect(() => assertBindCallTopology(storedPromiseFixture)).toThrow(
+      /not directly awaited|stored-promise/,
+    );
+
+    const aliasFixture = `
+async function bad(ctx: { bind: () => Promise<BindResult> }, c: unknown) {
+  const bind = ctx.bind;
+  const result = await bind();
+  return result;
+}
+async function ok(ctx: { bind: () => Promise<BindResult> }, c: unknown) {
+  return consumeBindResult(await ctx.bind(), c, { kind: "plain" });
+}
+`;
+    expect(() => assertBindCallTopology(aliasFixture)).toThrow(
+      /extracted or aliased/,
     );
   });
 
