@@ -249,21 +249,19 @@ impl Snapshot {
         }
     }
 
-    /// Record that one pid's facet could not be read. At most one row per
-    /// (pid, facet): several readers share a file, and a shared failure is one
-    /// fact, not N.
+    /// Record that one pid's facet could not be read.
+    ///
+    /// Duplicates are collapsed by `normalize`, not here: scanning the whole
+    /// accumulated vector on every push made this quadratic in the row count,
+    /// and a host-wide all-facets snapshot on a busy box produces thousands of
+    /// rows. `normalize` already sorts on exactly the `(pid, facet)` key the
+    /// dedup needs, so doing it there costs nothing.
     pub fn push_unreadable(&mut self, pid: u32, facet: Facet, err: i32) {
-        if !self
-            .unreadable
-            .iter()
-            .any(|row| row.pid == pid && row.facet == facet)
-        {
-            self.unreadable.push(Unreadable {
-                pid,
-                facet,
-                errno: errno_name(err),
-            });
-        }
+        self.unreadable.push(Unreadable {
+            pid,
+            facet,
+            errno: errno_name(err),
+        });
     }
 
     /// Did this snapshot carry any fact at all? An exhaustive destructure, so
@@ -328,19 +326,21 @@ impl Snapshot {
         // put several rows on one port, and sorting by port alone leaves their
         // order unspecified on whichever platform emits them second.
         ports.sort_by(|a, b| {
-            let key = |row: &Port| {
-                (
-                    row.port,
-                    match row.attribution {
-                        Attribution::Claimed { pid } => pid,
-                        Attribution::Unclaimed => u32::MAX,
-                    },
-                    row.address.clone(),
-                )
+            let claim = |row: &Port| match row.attribution {
+                Attribution::Claimed { pid } => pid,
+                Attribution::Unclaimed => u32::MAX,
             };
-            key(a).cmp(&key(b))
+            (a.port, claim(a))
+                .cmp(&(b.port, claim(b)))
+                .then_with(|| a.address.cmp(&b.address))
         });
+        // One row per (pid, facet). Several readers share a proc file, so a
+        // shared failure is one fact, not N — and a duplicate pid in `--pids`
+        // would otherwise report the same blindness twice. The sort above is
+        // stable and already keys on exactly this pair, so the first row of
+        // each run survives, which is the row the reader saw first.
         unreadable.sort_by_key(|row| (row.pid, row.facet));
+        unreadable.dedup_by_key(|row| (row.pid, row.facet));
     }
 
     pub fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {

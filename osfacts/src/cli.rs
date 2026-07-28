@@ -1,6 +1,7 @@
 //! Flag surface. No OS reads.
 
 use lexopt::prelude::*;
+use osfacts::Facet;
 use std::ffi::OsString;
 
 #[derive(Debug)]
@@ -22,6 +23,38 @@ pub struct SnapshotArgs {
     pub status: bool,
     pub argv: bool,
     pub json: bool,
+}
+
+impl SnapshotArgs {
+    /// The facets this ask names — the answer to "what does a blind source
+    /// cost me".
+    ///
+    /// It lives beside the flags because the flag→facet relation IS the ask,
+    /// and a reader that spells it out for itself is writing that relation a
+    /// second time with nothing keeping the copies in step. Both platform
+    /// readers had one, and they had already drifted: darwin's named four of
+    /// the nine while its sole process table gates all nine, so a `--mem`-only
+    /// ask that lost `kern.proc.all` reported a `proc` row the consumer
+    /// filtered out before reading an empty table as truth.
+    ///
+    /// Never empty — the CLI refuses an ask that names no facet — so a caller
+    /// needs no fallback for "the ask named nothing".
+    pub fn asked_facets(&self) -> Vec<Facet> {
+        [
+            (self.procs, Facet::Proc),
+            (self.ports, Facet::Ports),
+            (self.mem, Facet::Mem),
+            (self.start_time, Facet::StartTime),
+            (self.cpu_time, Facet::CpuTime),
+            (self.uid, Facet::Uid),
+            (self.cwd, Facet::Cwd),
+            (self.status, Facet::Status),
+            (self.argv, Facet::Argv),
+        ]
+        .into_iter()
+        .filter_map(|(asked, facet)| asked.then_some(facet))
+        .collect()
+    }
 }
 
 #[derive(Debug, Default)]

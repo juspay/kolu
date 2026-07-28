@@ -9,7 +9,6 @@
 
 export {
   addressBind,
-  decodeNetworkAddress,
   osfactsBinPath,
   partitionSubtrees,
   PortScanError,

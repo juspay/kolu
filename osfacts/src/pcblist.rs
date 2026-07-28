@@ -123,7 +123,7 @@ pub fn decode_host_listeners(bytes: &[u8]) -> Result<Vec<HostListener>, i32> {
 /// re-derive it.
 pub fn attribute_host_listeners(
     mut rows: Vec<HostListener>,
-    claims: &HashMap<HostListener, Vec<u32>>,
+    claims: &HashMap<HostListener, u32>,
 ) -> Vec<Port> {
     for key in claims.keys() {
         if !rows.contains(key) {
@@ -132,17 +132,21 @@ pub fn attribute_host_listeners(
     }
     rows.sort();
     rows.into_iter()
-        .map(|(port, address)| Port {
-            attribution: claims
-                .get(&(port, address.clone()))
-                .and_then(|pids| pids.first())
-                .map_or(Attribution::Unclaimed, |&pid| Attribution::Claimed { pid }),
-            // Neither darwin listener source carries the socket's owning uid.
-            // `darwin::snapshot` reports that absence as `E … ports_uid`
-            // rather than leaving a consumer to infer it from its own platform.
-            uid: None,
-            port,
-            address,
+        .map(|key| {
+            let attribution = claims
+                .get(&key)
+                .map_or(Attribution::Unclaimed, |&pid| Attribution::Claimed { pid });
+            let (port, address) = key;
+            Port {
+                attribution,
+                // Neither darwin listener source carries the socket's owning
+                // uid. `darwin::snapshot` reports that absence as
+                // `E … ports_uid` rather than leaving a consumer to infer it
+                // from its own platform.
+                uid: None,
+                port,
+                address,
+            }
         })
         .collect()
 }
@@ -238,7 +242,7 @@ mod tests {
     #[test]
     fn macos_27_gate_keeps_same_uid_fd_claims() {
         let host_rows = decode_host_listeners(ADHOC).expect("decode ad-hoc capture");
-        let claims = HashMap::from([((54314, "7f000001".to_owned()), vec![4242])]);
+        let claims = HashMap::from([((54314, "7f000001".to_owned()), 4242)]);
 
         let rows = attribute_host_listeners(host_rows, &claims);
 
@@ -259,7 +263,7 @@ mod tests {
             !host_rows.contains(&claimed),
             "fixture must not already list it"
         );
-        let claims = HashMap::from([(claimed, vec![4242])]);
+        let claims = HashMap::from([(claimed, 4242)]);
 
         let rows = attribute_host_listeners(host_rows, &claims);
 

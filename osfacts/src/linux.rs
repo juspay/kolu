@@ -25,26 +25,8 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             // so its silence costs every facet the ask named — the same shape
             // as darwin's `kern.proc.all`, which is that platform's sole
             // process source.
-            let mut costed = false;
-            for (asked, facet) in [
-                (args.procs, Facet::Proc),
-                (args.ports, Facet::Ports),
-                (args.mem, Facet::Mem),
-                (args.start_time, Facet::StartTime),
-                (args.cpu_time, Facet::CpuTime),
-                (args.uid, Facet::Uid),
-                (args.cwd, Facet::Cwd),
-                (args.status, Facet::Status),
-                (args.argv, Facet::Argv),
-            ] {
-                if asked {
-                    snap.errors.push(source_error("proc_readdir", facet, err));
-                    costed = true;
-                }
-            }
-            if !costed {
-                snap.errors
-                    .push(source_error("proc_readdir", Facet::Proc, err));
+            for facet in args.asked_facets() {
+                snap.errors.push(source_error("proc_readdir", facet, err));
             }
             return snap;
         }

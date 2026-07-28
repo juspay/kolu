@@ -206,31 +206,16 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     let process_table = match read_process_table() {
         Ok(rows) => rows,
         Err(err) => {
-            // `kern.proc.all` is the sole source of FOUR facets, not one, plus
-            // the pid enumeration itself. Naming only `proc` would let a
-            // consumer that correctly scopes source blindness to the facets it
-            // reads conclude it is not blind and take an empty `uids` array as
-            // "this host has no processes with uids" — the collapse-to-empty
-            // the `facet` field exists to prevent. One row per costed facet,
-            // exactly as linux does for `sysconf_clk_tck`.
-            let mut costed = false;
-            for (asked, facet) in [
-                (args.procs, Facet::Proc),
-                (args.start_time, Facet::StartTime),
-                (args.uid, Facet::Uid),
-                (args.status, Facet::Status),
-            ] {
-                if asked {
-                    snap.errors.push(source_error("kern_proc_all", facet, err));
-                    costed = true;
-                }
-            }
-            if !costed {
-                // The ask named none of those four, but the table is still how
-                // this snapshot learns which pids exist. Losing it is never
-                // silent.
-                snap.errors
-                    .push(source_error("kern_proc_all", Facet::Proc, err));
+            // Losing `kern.proc.all` is total: it is the sole source of
+            // identity, start time, uid and state, AND the pid enumeration
+            // every other facet reads from — so it costs the whole ask, not
+            // some named subset. Naming a subset would let a consumer that
+            // correctly scopes source blindness to the facets it reads
+            // conclude it is not blind, and take an empty table as "this host
+            // has none" — the collapse-to-empty the `facet` field exists to
+            // prevent.
+            for facet in args.asked_facets() {
+                snap.errors.push(source_error("kern_proc_all", facet, err));
             }
             return snap;
         }
@@ -355,12 +340,12 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             Facet::PortsUid,
             libc::ENOTSUP,
         ));
-        let mut claims = HashMap::<HostListener, Vec<u32>>::new();
+        let mut claims = HashMap::<HostListener, u32>::new();
         for &pid in &wanted {
             match listener_claims(pid) {
                 Ok(rows) => {
                     for (port, address) in rows {
-                        claims.entry((port, address)).or_default().push(pid);
+                        claims.entry((port, address)).or_insert(pid);
                     }
                 }
                 Err(err) => snap.push_unreadable(pid, Facet::Ports, err),

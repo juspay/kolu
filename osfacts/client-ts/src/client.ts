@@ -257,21 +257,35 @@ export interface HostFacets {
  * still the consumer's call.
  */
 const SNAPSHOT_FACET_NAMES = {
-  procs: { unreadable: ["proc"], source: ["proc"] },
+  procs: { arg: "--procs", unreadable: ["proc"], source: ["proc"] },
   ports: {
+    arg: "--ports",
     unreadable: ["ports"],
     source: ["ports", "ports_unclaimed", "ports_uid"],
   },
-  mem: { unreadable: ["mem"], source: ["mem"] },
-  startTime: { unreadable: ["start_time"], source: ["start_time"] },
-  cpuTime: { unreadable: ["cpu_time"], source: ["cpu_time"] },
-  uid: { unreadable: ["uid"], source: ["uid"] },
-  cwd: { unreadable: ["cwd"], source: ["cwd"] },
-  status: { unreadable: ["status", "status_threads"], source: ["status"] },
-  argv: { unreadable: ["argv"], source: ["argv"] },
+  mem: { arg: "--mem", unreadable: ["mem"], source: ["mem"] },
+  startTime: {
+    arg: "--start-time",
+    unreadable: ["start_time"],
+    source: ["start_time"],
+  },
+  cpuTime: {
+    arg: "--cpu-time",
+    unreadable: ["cpu_time"],
+    source: ["cpu_time"],
+  },
+  uid: { arg: "--uid", unreadable: ["uid"], source: ["uid"] },
+  cwd: { arg: "--cwd", unreadable: ["cwd"], source: ["cwd"] },
+  status: {
+    arg: "--status",
+    unreadable: ["status", "status_threads"],
+    source: ["status"],
+  },
+  argv: { arg: "--argv", unreadable: ["argv"], source: ["argv"] },
 } as const satisfies Record<
   keyof SnapshotFacets,
   {
+    arg: string;
     unreadable: readonly UnreadableFacet[];
     source: readonly SnapshotSourceFacet[];
   }
@@ -703,15 +717,8 @@ function appendSnapshotFacets(
   args: string[],
   facets: SnapshotFacets,
 ): string[] {
-  if (facets.procs) args.push("--procs");
-  if (facets.ports) args.push("--ports");
-  if (facets.mem) args.push("--mem");
-  if (facets.startTime) args.push("--start-time");
-  if (facets.cpuTime) args.push("--cpu-time");
-  if (facets.uid) args.push("--uid");
-  if (facets.cwd) args.push("--cwd");
-  if (facets.status) args.push("--status");
-  if (facets.argv) args.push("--argv");
+  for (const [flag, spec] of Object.entries(SNAPSHOT_FACET_NAMES))
+    if (facets[flag as keyof SnapshotFacets]) args.push(spec.arg);
   return args;
 }
 function snapshotArgs(
@@ -721,8 +728,6 @@ function snapshotArgs(
 ): string[] {
   return appendSnapshotFacets(["snapshot", scopeFlag, pids.join(",")], facets);
 }
-const DEFAULT_SNAPSHOT: SnapshotFacets = { procs: true, ports: true };
-
 async function snapshot(bin: string, args: string[]): Promise<SnapshotReading> {
   return parseSnapshotOutput(await runOsfacts(bin, args));
 }
@@ -730,7 +735,7 @@ async function snapshot(bin: string, args: string[]): Promise<SnapshotReading> {
 export function snapshotSubtree(
   bin: string,
   rootPids: readonly number[],
-  facets: SnapshotFacets = DEFAULT_SNAPSHOT,
+  facets: SnapshotFacets,
 ): Promise<SnapshotReading> {
   return rootPids.length === 0
     ? Promise.resolve(emptySnapshotReading())
@@ -738,14 +743,14 @@ export function snapshotSubtree(
 }
 export function snapshotHost(
   bin: string,
-  facets: SnapshotFacets = DEFAULT_SNAPSHOT,
+  facets: SnapshotFacets,
 ): Promise<SnapshotReading> {
   return snapshot(bin, appendSnapshotFacets(["snapshot"], facets));
 }
 export function snapshotPids(
   bin: string,
   pids: readonly number[],
-  facets: SnapshotFacets = DEFAULT_SNAPSHOT,
+  facets: SnapshotFacets,
 ): Promise<SnapshotReading> {
   return pids.length === 0
     ? Promise.resolve(emptySnapshotReading())

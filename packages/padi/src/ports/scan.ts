@@ -123,14 +123,17 @@ export function partitionSubtrees(
 
 // ── Address classification (single judge) ───────────────────────────────
 
-/** Decode a bind address printed in NETWORK order — what osfacts L rows emit. */
+/**
+ * Decode a bind address printed in NETWORK order — what osfacts `L` rows emit.
+ *
+ * No format re-validation here, for the same reason `classifyListeners` does
+ * not re-check the port: `parseSnapshotOutput` already refuses any `L` row
+ * whose address is not exactly 8 or 32 lowercase hex digits, so a second copy
+ * of that rule would be unreachable and would have to be found twice to relax.
+ * It had already drifted — the client narrowed its rule to lowercase and this
+ * copy still accepted uppercase.
+ */
 export function decodeNetworkAddress(hex: string): number[] {
-  if ((hex.length !== 8 && hex.length !== 32) || !/^[0-9A-Fa-f]+$/.test(hex)) {
-    throw new PortScanError(
-      "blind",
-      `port scan: "${hex}" is not a bind address (expected exactly 8 or 32 hex digits)`,
-    );
-  }
   const bytes: number[] = [];
   for (let i = 0; i < hex.length; i += 2) {
     bytes.push(Number.parseInt(hex.slice(i, i + 2), 16));

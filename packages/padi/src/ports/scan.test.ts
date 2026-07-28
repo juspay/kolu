@@ -9,7 +9,6 @@ import {
   addressBind,
   decodeNetworkAddress,
   partitionSubtrees,
-  PortScanError,
   sourceErrorsMessage,
   type ProcessRow,
   unreadablePolicy,
@@ -39,8 +38,15 @@ describe("decodeNetworkAddress", () => {
     expect(decodeNetworkAddress("7f000001")).toEqual([127, 0, 0, 1]);
   });
 
-  it("refuses a non-address", () => {
-    expect(() => decodeNetworkAddress("00FF")).toThrow(PortScanError);
+  it("leaves the address format rule to the client, which owns it", () => {
+    // padi used to re-check "exactly 8 or 32 hex digits" here. The client
+    // already refuses such an `L` row, and the two copies had drifted — the
+    // client narrowed to lowercase while this one still accepted `[A-F]`.
+    // Same argument as the port rule in `classifyListeners`: a second copy is
+    // unreachable and would have to be found twice to relax.
+    expect(() =>
+      parseSnapshotOutput("V\t2\nL\tclaimed\t1\t-\t8080\t00FF\n"),
+    ).toThrow();
   });
 });
 
