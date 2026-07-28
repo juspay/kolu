@@ -114,10 +114,12 @@ export function CanvasFailureCard(props: {
    *  chain nothing in this type expressed: a second caller passing `undefined` for any
    *  other reason made the card lie confidently.
    *
-   *  A FAILED-arm caller (`HostDownCanvas`, and the diagnostics popover off the same
-   *  reader) always passes `undefined` here: its tail is the failure record's own
-   *  `evidence`, stapled at classification and carried past the floor with the reason
-   *  (juspay/kolu#2007), so "we cannot see it" is not a state that arm can be in.
+   *  A FAILED-arm caller (`HostDownCanvas`) always passes `undefined` here — its tail is
+   *  the failure record's own `evidence`, stapled at classification and carried past the
+   *  floor with the reason (juspay/kolu#2007), so "we cannot see it" is not a state that
+   *  arm can be in. `HostDiagnosticsPopover`, reading the same `failedEpisode`, is under
+   *  the identical guarantee even though it renders its own tail block rather than this
+   *  card (it is not a caller of this prop).
    *  REQUIRED, though it accepts `undefined` — an optional prop is how one of two callers
    *  silently dropped the evidence, so a caller with nothing to declare declares it.
    *
