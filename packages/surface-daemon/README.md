@@ -10,12 +10,20 @@ daemon-identity recipe (`readBakedIdentity`). A zero-`kolu-*`-dependency package
 the client half lives in [`@kolu/surface-daemon-supervisor`](../surface-daemon-supervisor).
 
 ```ts
-import { daemonMain, daemonProcessMain, stderrLogger } from "@kolu/surface-daemon";
+import {
+  daemonHome, daemonMain, daemonProcessMain, stderrLogger,
+} from "@kolu/surface-daemon";
 
+const home = daemonHome({ app: "my-daemon", placement: "state" });
 daemonProcessMain({
   name: "my-daemon",
   run: () => daemonMain({
-    gatePath, socketPath, router, lifetime: { kind: "forever" }, log: stderrLogger(),
+    gatePath: home.gatePath,
+    socketPath: home.socketPath,
+    router,
+    lifetime: { kind: "forever" },
+    anchor: () => home.dir,
+    log: stderrLogger(),
   }),
 });
 ```

@@ -147,6 +147,8 @@ Six PRs. UW0 opens — small and behavior-free. UW1 → UW2 → UW3 → UW4 is a
 
 ### UW0 — daemonHome: where a daemon's files live, decided once
 
+**Status:** implemented in <PrLink pr={2029} />.
+
 **TL;DR:** a daemon's on-disk home — directory, gate, socket, extra files — comes from one framework call instead of per-app path algebra. The call forces the one decision that actually matters (durable state dir vs session-scoped runtime dir) and returns registry entries for every file it names, so the shared-file inventory is fed by construction. No behavior changes anywhere; smallest PR of the plan.
 
 Lands: `daemonHome({ app, placement: "state" | "runtime" })` in `surface-daemon` — creates the dir `0700`, verifies ownership (fail-fast on a non-private dir), returns `dir` / `gatePath` / `socketPath` / `file(name)` / `artifacts`.<Footnote>Placement semantics: `"state"` → `${XDG_STATE_HOME:-~/.local/state}/<app>/`; `"runtime"` → `$XDG_RUNTIME_DIR/<app>/` with the `/tmp/<app>-$UID` fallback. The doc comment carries the rule this API exists to enforce: a daemon that must outlive user sessions — anything supervised over ssh — takes `"state"`, because logind deletes the runtime dir with the user's last session. Multi-instance namespacing (padi's digest-keyed dirs) is deliberately not built: its only would-be consumers keep their hand-rolled paths, and we don't ship knobs with zero callers.</Footnote> The `SharedArtifact` type lands here too (UW2's matcher machinery consumes it). The hello-world snippets and the fleet-top example adopt it, so the API has real (if non-production) consumers on day one; the first production consumer is drishti in UW3 — stated, not hidden.

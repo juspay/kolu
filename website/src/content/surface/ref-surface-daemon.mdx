@@ -1,6 +1,6 @@
 ---
 title: "@kolu/surface-daemon reference"
-description: "The daemon binary half: the single-instance pid gate, the gate→serve→teardown skeleton, fronting over stdio, and baked identity."
+description: "The daemon binary half: the on-disk home, the single-instance pid gate, the gate→serve→teardown skeleton, fronting over stdio, and baked identity."
 order: 320
 section: Daemons · Reference
 ---
@@ -12,6 +12,34 @@ The daemon *binary* half — the code that runs inside the long-lived process. I
 carries no `@kolu/*` app dependency; the client half lives separately in
 [@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Single entry
 point, no subpaths.
+
+## The on-disk home
+
+`daemonHome({ app, placement })` is the one call that decides where a daemon's
+files live. It creates the directory `0700`, verifies it is owner-only (throws
+on a non-private dir), and returns the well-known paths with gate and socket
+side by side — so those two can never drift apart. The returned `artifacts`
+array is a pair of `SharedArtifact` registry entries for the gate and socket, so
+a mixed-version inventory (UW2) is fed by construction.
+
+| `placement` | Directory |
+| --- | --- |
+| `"state"` | `${XDG_STATE_HOME:-~/.local/state}/<app>/` — durable across reboots |
+| `"runtime"` | `$XDG_RUNTIME_DIR/<app>/`, falling back to `/tmp/<app>-$UID/` — boot-wiped |
+
+A daemon that must outlive user sessions (anything supervised over ssh) takes
+`"state"`: logind deletes the runtime dir with the user's last session, leaving
+an orphan process whose socket and gate have vanished. There is deliberately no
+instance-namespacing knob — multi-instance consumers (kaval/padi) keep their
+hand-rolled path modules until a real migration needs it.
+
+<Snippet src="packages/surface/example/snippets/daemon.ts" region="home" />
+
+| Export | Role |
+| --- | --- |
+| `daemonHome({ app, placement })` | create + verify the home; returns `dir` · `gatePath` · `socketPath` · `file(name)` · `artifacts` |
+| `DaemonHome` · `DaemonHomeOptions` · `DaemonHomePlacement` | the return type, options, and `"state" \| "runtime"` placement |
+| `SharedArtifact` | one shared on-disk file both generations touch (inventory entry shape) |
 
 ## The lifecycle
 

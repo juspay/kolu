@@ -18,43 +18,10 @@
 
 import { readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-
-/** One shared artifact the upgrade-window suite must account for. */
-export interface SharedArtifact {
-  /** Stable id used by the watchdog + coverage registry. */
-  id: string;
-  /** Human path shape (not a literal — digests/ports vary). */
-  pathShape: string;
-  /** What the file is for. */
-  role: "gate" | "socket" | "session" | "config" | "manifest" | "log";
-  /**
-   * Either the basename of a covering mixed-version test under
-   * `packages/padi/src/upgradeWindow/`, or `null` when the artifact itself
-   * carries a version field (see `versionField`).
-   */
-  coveredByTest: string | null;
-  /**
-   * When non-null, the artifact embeds this named version field (no separate
-   * mixed-version test required — a version-skew is structural).
-   */
-  versionField: string | null;
-  /**
-   * Exact basenames this artifact may appear as on disk under the runtime
-   * dir or state-root. Empty for logical entries that ride inside another
-   * file (e.g. the session key inside config.json) or for pattern-only
-   * entries (see `diskBasenamePatterns`).
-   */
-  diskBasenames: readonly string[];
-  /**
-   * Regex patterns matched against the basename OR the relative path from
-   * the runtime/state-root (e.g. `bashrc-<uuid>`, `zdotdir-<uuid>/.zshrc`,
-   * `padi.log.1`). Use for per-entity / rotated names that cannot be
-   * listed exhaustively.
-   */
-  diskBasenamePatterns: readonly RegExp[];
-  /** Why this file is shared across generations. */
-  why: string;
-}
+// Type lives in @kolu/surface-daemon (UW0) so daemonHome can emit registry
+// entries by construction; the matchers/sweep stay here until UW2.
+export type { SharedArtifact } from "@kolu/surface-daemon";
+import type { SharedArtifact } from "@kolu/surface-daemon";
 
 /**
  * The inventory. Coverage is filled by the tests that land with this PR; a
