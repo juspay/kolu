@@ -263,10 +263,7 @@ export function serveMap(hosts: string[], agentDrv: string) {
     ): EntrySession<"copying", HostFailure> | EntryFault<HostFailure> => {
       const b = bindings.get(k);
       if (b === undefined)
-        return {
-          kind: "fault",
-          failure: { reason: `unknown host: ${k}` },
-        };
+        return { kind: "fault", failure: { reason: `unknown host: ${k}` } };
       return { kind: "session", link: b.link, state: b.state() };
     },
   };
@@ -355,10 +352,11 @@ const kill = (
 // #endregion rpc
 
 // #region entrystatus
-// `Conn` (SR9): the fine per-entry connection payload, carried on every arm and
+// `Conn` (SR9): the fine per-entry connection payload, carried on the LIVE arms and
 // parameterized like `Failure` — the map validates it against its own `connection`
 // schema, never enumerating it. It is the ONE authority the coarse `kind` (the dot) and
-// the fine word both derive from; optional, so a connection-less map omits it.
+// the fine word both derive from; optional, so a connection-less map omits it. The
+// `failed` arm carries none at all — see the note on that arm below.
 type EntryStatus<Failure = unknown, Conn = unknown> =
   // `membershipId`: opaque, never-reused per-add identity — a BRANDED `MembershipId`
   // (an empty/fabricated bare string is a compile error), minted only by

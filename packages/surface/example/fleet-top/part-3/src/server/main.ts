@@ -64,10 +64,7 @@ const registry: MapRegistry<string, "copying", HostFailure> = {
   resolve: (k) => {
     const b = bindings.get(k);
     if (b === undefined)
-      return {
-        kind: "fault",
-        failure: { reason: `unknown host: ${k}` },
-      };
+      return { kind: "fault", failure: { reason: `unknown host: ${k}` } };
     return { kind: "session", link: b.link, state: b.state() };
   },
 };

@@ -20,7 +20,7 @@ from `.` — for a consumer that must not pull the contract builder into its bun
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on every arm, validated but never enumerated, like `failure`), an optional `entriesClient` policy for the membership collection (SR11), and an optional mount `name`; returns a `SurfaceMap` |
+| `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on the live arms, validated but never enumerated, like `failure`), an optional `entriesClient` policy for the membership collection (SR11), and an optional mount `name`; returns a `SurfaceMap` |
 | `serveSurfaceMap(map, registry)` | `/server` | back the map with a `MapRegistry`; returns `{ router, dispose }` |
 | `connectSurfaceMap(map, transport, opts?)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
 

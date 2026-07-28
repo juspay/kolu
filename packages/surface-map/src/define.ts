@@ -149,17 +149,18 @@ export interface FailureRecord<Failure = unknown> {
  *  the argument for why the tail rides the failure record rather than the live
  *  `connection`, and why that arm carries no `connection` at all.
  *
- *  `Conn` is the FINE connection payload carried on every session-backed arm (SR9):
- *  the domain's rich per-host connection state (padi's `ConnectionInfo` — the phase +
- *  log tail + elapsed the coarse `kind` folds away). Parameterized exactly like
- *  `Failure` — `@kolu/surface-map` carries the value and validates it against the map's
- *  OWN `connection` schema, but never enumerates what a domain's connection states ARE
- *  (dependency-arrow-out). It is the ONE authority the coarse `kind` (the dot) and the
- *  fine word both derive from, so a "dot connected, word connecting" split (drishti#102)
- *  has no encoding: `serveHostMap` produces `kind` and `connection` from the SAME
- *  `SessionState` frame in one projection. Optional so a structural fault (no session)
- *  and a connection-less map (the harness) omit it; every session-backed entry carries
- *  it by construction. */
+ *  `Conn` is the FINE connection payload carried on the LIVE arms (SR9) — `warming` and
+ *  `connected`: the domain's rich per-host connection state (padi's `ConnectionInfo` —
+ *  the phase + log tail + elapsed the coarse `kind` folds away). Parameterized exactly
+ *  like `Failure` — `@kolu/surface-map` carries the value and validates it against the
+ *  map's OWN `connection` schema, but never enumerates what a domain's connection states
+ *  ARE (dependency-arrow-out). It is the ONE authority the coarse `kind` (the dot) and
+ *  the fine word both derive from, so a "dot connected, word connecting" split
+ *  (drishti#102) has no encoding: `serveHostMap` produces `kind` and `connection` from
+ *  the SAME `SessionState` frame in one projection. Optional so a structural fault (no
+ *  session) and a connection-less map (the harness) omit it. The `failed` arm does not
+ *  carry it AT ALL — a live word is work-in-flight, and a failed entry has none; its
+ *  post-mortem is the {@link FailureRecord} instead. */
 export type EntryStatus<Failure = unknown, Conn = unknown> =
   | { kind: "warming"; membershipId: MembershipId; connection?: Conn }
   | {
@@ -198,11 +199,12 @@ export type EntryState<Failure = unknown, Conn = unknown> =
 export function entryStatusSchema<Failure, Conn = unknown>(
   failureSchema: ZodType<Failure>,
   // SR9: the FINE connection payload's schema. Optional — a map that carries no fine
-  // connection (the in-process harness) omits it and its arms carry no `connection`
-  // field. When present, every arm gains `connection: <schema>.optional()` (a structural
-  // fault has no session, so it publishes no connection; every session-backed entry
-  // does). The domain provides the schema; this package validates against it, never
-  // enumerating it — the same volatility-neutral posture as `failure`.
+  // connection (the in-process harness) omits it and no arm carries a `connection`
+  // field. When present, the LIVE arms (`warming`/`connected`) gain
+  // `connection: <schema>.optional()`; the `failed` arm below deliberately does not,
+  // because a failed entry has no work in flight to narrate. The domain provides the
+  // schema; this package validates against it, never enumerating it — the same
+  // volatility-neutral posture as `failure`.
   connectionSchema?: ZodType<Conn>,
 ): ZodType<EntryStatus<Failure, Conn>> {
   const conn = connectionSchema

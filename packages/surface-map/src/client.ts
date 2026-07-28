@@ -120,8 +120,10 @@ export interface EntryClock {
  *  `connected` must NOT keep presenting as connected — it downgrades to `warming` (#1568:
  *  no status renders green over a dead transport). And the domain-opaque `connection` word
  *  is just as stale over a dead link (a frozen in-progress word keeps narrating work that
- *  is no longer live), so it is DROPPED to `undefined` across EVERY session-
- *  backed arm — `undefined` is domain-neutral, so surface-map stays volatility-neutral
+ *  is no longer live), so it is DROPPED to `undefined` on every arm that can carry one —
+ *  which since SR9's reshape is `warming` alone, `connected` being demoted to a
+ *  word-less `warming` and `failed` never carrying one. `undefined` is domain-neutral,
+ *  so surface-map stays volatility-neutral
  *  (it never enumerates what a domain's connection states are). Membership identity rides
  *  through untouched (the floor is about liveness, not identity), so the demoted `warming`
  *  is still the SAME membership, keyed the same way (PR3). `not-a-member` carries neither
@@ -142,8 +144,8 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   // A live link is a no-op — the server's word stands. `not-a-member` carries no
   // `connection`/`membershipId`, so there is nothing to floor.
   if (live || status.kind === "not-a-member") return status;
-  // Demote the CLAIM (connected → warming), dropping the connected-only `clockOffset`,
-  // and drop the fine `connection` word on this and every other session-backed arm.
+  // Demote the CLAIM (connected → warming), dropping the connected-only `clockOffset`
+  // along with the fine `connection` word — the demoted value is rebuilt with neither.
   if (status.kind === "connected")
     return { kind: "warming", membershipId: status.membershipId };
   // `failed` has no `connection` field to drop — its record is already floor-proof by
@@ -156,12 +158,14 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   // remove. (`surface-map` carries no `ts-pattern` dependency, so this is a local `never`
   // assertion rather than an `.exhaustive()`.)
   if (status.kind === "warming") return { ...status, connection: undefined };
-  return assertNeverEntryArm(status);
-}
-
-function assertNeverEntryArm(s: never): never {
+  // The repo's `const _exhaustive: never` fence — but it THROWS rather than
+  // `return _exhaustive`, because this function must produce a value and there is no
+  // honest one for an arm nobody wrote a policy for. Returning the un-floored status
+  // would be the #1568 green-over-dead lie, which is precisely the fallback the fence
+  // exists to forbid.
+  const unfloorableArm: never = status;
   throw new Error(
-    `surface-map: floorOnLiveness has no policy for entry arm ${JSON.stringify(s)}`,
+    `surface-map: floorOnLiveness has no policy for entry arm ${JSON.stringify(unfloorableArm)}`,
   );
 }
 
