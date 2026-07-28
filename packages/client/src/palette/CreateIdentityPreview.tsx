@@ -133,18 +133,14 @@ export function createPreviewModel(
   }
 
   // Filtering with zero matches → no executable selection: never claim a
-  // recent repo the Enter path cannot create.
-  if (mode.kind === "filter" && query.trim().length > 0 && !highlighted) {
-    return buildModel("new", "choose a destination", "—", TerminalIcon, {
-      provisionalAnnotation: true,
-      provisionalRepo: true,
-    });
-  }
-
-  // Quiet root (empty query, no highlight yet): optional recent-repo hint.
-  if (defaultRepo) {
+  // recent repo the Enter path cannot create. Quiet root may hint at the
+  // optional recent-repo default; otherwise provisional chrome.
+  const noExecutable =
+    mode.kind === "filter" && query.trim().length > 0 && !highlighted;
+  const hintRepo = !noExecutable ? defaultRepo : null;
+  if (hintRepo) {
     return buildModel(
-      defaultRepo.repoName,
+      hintRepo.repoName,
       "choose a destination",
       "—",
       TerminalIcon,
@@ -179,62 +175,67 @@ const CreateIdentityPreview: Component<{
 
   return (
     <Show when={model()}>
-      {(m) => (
-        <div
-          data-testid="create-identity-preview"
-          class="px-5 py-2.5 border-t border-edge/60 bg-surface-0/50"
-        >
-          <div class="text-[0.64rem] font-semibold tracking-[0.12em] uppercase text-fg-3/80 mb-1.5">
-            Will create
-          </div>
+      {(m) => {
+        const preview = m();
+        const annotationColor = preview.annotationColor;
+        return (
           <div
-            class="flex items-center gap-2.5 min-w-0 rounded-lg px-2.5 py-2 repo-spine border border-edge/50 bg-surface-1/80"
-            style={{ "--repo-color": m().repoColor }}
+            data-testid="create-identity-preview"
+            class="px-5 py-2.5 border-t border-edge/60 bg-surface-0/50"
           >
-            <span
-              class="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md bg-surface-2 text-fg-2"
-              title={m().agentLabel}
-              data-testid="create-preview-agent"
-            >
-              <Dynamic component={m().AgentIcon} class="w-3.5 h-3.5" />
-            </span>
-            <RepoMonogram
-              group={m().repoName}
-              color={m().repoColor}
-              size="sm"
-              data-testid="create-preview-monogram"
-            />
-            <div class="min-w-0 flex-1">
-              <div
-                class="repo-name-ink font-mono text-[0.8rem] font-semibold truncate leading-tight"
-                data-testid="create-preview-repo"
-              >
-                {m().repoName}
-              </div>
-              <div
-                class="font-mono text-[0.68rem] truncate leading-snug mt-0.5"
-                classList={{
-                  "annotation-ink": m().annotationColor != null,
-                  "text-fg-3": m().annotationColor == null,
-                }}
-                style={(() => {
-                  const c = m().annotationColor;
-                  return c != null ? { "--annotation-color": c } : undefined;
-                })()}
-                data-testid="create-preview-annotation"
-              >
-                {m().annotation}
-              </div>
+            <div class="text-[0.64rem] font-semibold tracking-[0.12em] uppercase text-fg-3/80 mb-1.5">
+              Will create
             </div>
-            <span
-              class="shrink-0 text-[0.65rem] text-fg-3 truncate max-w-[7rem]"
-              data-testid="create-preview-agent-label"
+            <div
+              class="flex items-center gap-2.5 min-w-0 rounded-lg px-2.5 py-2 repo-spine border border-edge/50 bg-surface-1/80"
+              style={{ "--repo-color": preview.repoColor }}
             >
-              {m().agentLabel}
-            </span>
+              <span
+                class="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md bg-surface-2 text-fg-2"
+                title={preview.agentLabel}
+                data-testid="create-preview-agent"
+              >
+                <Dynamic component={preview.AgentIcon} class="w-3.5 h-3.5" />
+              </span>
+              <RepoMonogram
+                group={preview.repoName}
+                color={preview.repoColor}
+                size="sm"
+                data-testid="create-preview-monogram"
+              />
+              <div class="min-w-0 flex-1">
+                <div
+                  class="repo-name-ink font-mono text-[0.8rem] font-semibold truncate leading-tight"
+                  data-testid="create-preview-repo"
+                >
+                  {preview.repoName}
+                </div>
+                <div
+                  class="font-mono text-[0.68rem] truncate leading-snug mt-0.5"
+                  classList={{
+                    "annotation-ink": annotationColor != null,
+                    "text-fg-3": annotationColor == null,
+                  }}
+                  style={
+                    annotationColor != null
+                      ? { "--annotation-color": annotationColor }
+                      : undefined
+                  }
+                  data-testid="create-preview-annotation"
+                >
+                  {preview.annotation}
+                </div>
+              </div>
+              <span
+                class="shrink-0 text-[0.65rem] text-fg-3 truncate max-w-[7rem]"
+                data-testid="create-preview-agent-label"
+              >
+                {preview.agentLabel}
+              </span>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      }}
     </Show>
   );
 };

@@ -41,6 +41,7 @@ import {
   tileTitleBarBorder,
 } from "./tileChrome";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import { prefersReducedMotion } from "./viewport/animatedPan";
 import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };
@@ -118,20 +119,15 @@ const CanvasTile: Component<{
   const [landing, setLanding] = createSignal(false);
   const spendLanding = () => setLanding(false);
   onMount(() => {
-    const reduced =
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-    if (reduced || props.sleeping || props.mode !== "tiled") return;
+    if (prefersReducedMotion() || props.sleeping || props.mode !== "tiled")
+      return;
     setLanding(true);
   });
   createEffect(() => {
     // Mid-entrance loss of eligibility cancels CSS without animationend —
     // spend so a later restore/wake never re-plays.
     if (!landing()) return;
-    if (
-      props.sleeping ||
-      props.mode !== "tiled" ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
-    ) {
+    if (props.sleeping || props.mode !== "tiled" || prefersReducedMotion()) {
       spendLanding();
     }
   });
@@ -186,16 +182,12 @@ const CanvasTile: Component<{
   let prevAura: TileAura = "none";
   createEffect(() => {
     const next = aura();
-    const show = showAura();
-    const active = props.active === true;
-    const reduced =
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-    if (next === "finished" && prevAura !== "finished") {
-      if (show && !active && !reduced) setExhale(true);
-      else setExhale(false);
-    } else if (next !== "finished") {
-      setExhale(false);
-    } else if (exhale() && (!show || active || reduced)) {
+    const enteredFinished = next === "finished" && prevAura !== "finished";
+    const eligible =
+      showAura() && props.active !== true && !prefersReducedMotion();
+    if (enteredFinished) {
+      setExhale(eligible);
+    } else if (next !== "finished" || !eligible) {
       setExhale(false);
     }
     prevAura = next;

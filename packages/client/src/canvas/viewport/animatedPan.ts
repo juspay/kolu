@@ -21,7 +21,8 @@ function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 }
 
-function prefersReducedMotion(): boolean {
+/** Shared canvas motion gate — pan, land-in, finish-exhale all honor this. */
+export function prefersReducedMotion(): boolean {
   if (typeof window === "undefined") return false;
   return (
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
