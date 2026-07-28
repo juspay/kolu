@@ -117,42 +117,44 @@ and unprivileged-available bytes from `bavail`, alongside total bytes.
 
 ## Known limitations
 
-Darwin draws its privilege line through a process, not around it. `kern.proc`
-gives an ordinary caller the pid, ppid, real uid, state, nice value, start time,
-and short command name for every process. `proc_pidpath` gives the executable
-path too, so osfacts uses its basename when it is longer than `kern.proc`'s
-16-byte command field. Those facts must not come back as `U` rows merely because
-the process belongs to another uid.
+Visibility is OS policy, not a parser trick. The same osfacts binary asks the
+same questions on both systems. What changes is where the kernel draws the
+line.
 
-But foreign-process RSS and cumulative CPU time are different. The task APIs
-that supply them return `EPERM` without privilege, so `--mem` and `--cpu-time`
-still emit honest `U` rows for those pids. The same can happen for cwd, argv,
-and fd/socket attribution.
+| OS | Visible for every process | Needs same uid or root | Listener consequence |
+| --- | --- | --- | --- |
+| Linux | name, real uid, RSS, cumulative CPU time, and start time from `/proc` | cwd and fd targets, including port attribution | the kernel TCP table stays world-readable, so a socket survives as an unclaimed `L` row when its fd owner is hidden |
+| Darwin | `kern.proc` gives pid, ppid, real uid, state, nice, start time, and short command; `proc_pidpath` gives the executable path | the full process view, including RSS, CPU time, cwd, argv, and fd attribution | same-uid fd walks still find claimed listeners; macOS 27+ hides the host-wide socket table from callers without Apple platform signing |
 
-`ps` looks like a counterexample: an ordinary shell can run it and see foreign
-RSS and CPU time. The file tells the other half of the story. On macOS it is
-setuid root, and Apple signs it with the private
-`com.apple.system-task-ports.read` entitlement. Apple's own source then calls
-`task_read_for_pid` to fetch the task data ([reader](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c),
+Linux's split is simple. Basic `/proc` process files are world-readable, but
+the links under `/proc/<pid>/fd` and `/proc/<pid>/cwd` are not. The independent
+`/proc/net/tcp{,6}` table is still readable, which is why failure to inspect an
+owner produces an unclaimed listener instead of making the socket vanish.
+
+Darwin lets an ordinary caller read every same-uid process. For another user's
+process, the public census still supplies identity and start facts, but the task
+APIs behind RSS and CPU time return `EPERM`. `ps` only looks like a
+counterexample: on macOS it is setuid root, Apple-signed, and carries the private
+`com.apple.system-task-ports.read` entitlement. Apple's own source calls
+`task_read_for_pid` ([reader](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c),
 [entitlement](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/entitlements.plist)).
-osfacts deliberately has neither. A privileged helper would make the numbers
-less blind by making the program more privileged, which is a different product.
+osfacts deliberately has none of those powers.
 
-macOS 27 draws the same kind of line around the host-wide TCP table. On zest,
-Apple's platform-signed `/usr/sbin/sysctl` received 54,872 bytes from
-`net.inet.tcp.pcblist_n` while a paired `/usr/sbin/netstat` read counted 29
-listeners. An ad-hoc-signed osfacts binary received 48 bytes from the same
-sysctl: just the opening and closing records, with no sockets between them.
-The full capture decodes to all 29 listeners with osfacts' existing decoder, so
-this is a caller-signing gate, not a new record layout. `netstat` carries the
-private `com.apple.private.network.statistics` entitlement; `sysctl` is an
-Apple platform binary. osfacts is neither.
+macOS 27 adds the same kind of gate to the host-wide TCP table. On zest,
+Apple's platform-signed `/usr/sbin/sysctl` got 54,872 bytes from
+`net.inet.tcp.pcblist_n`, and `/usr/sbin/netstat` saw 29 listeners. The
+ad-hoc-signed osfacts binary got 48 bytes: only the opening and closing records.
+The full capture decodes to all 29 rows, so the decoder is fine. The caller is
+what changed. `netstat` carries `com.apple.private.network.statistics`; osfacts
+does not.
 
 The 48-byte shape is indistinguishable from a genuinely empty host-wide table,
 so osfacts keeps reporting `E darwin_tcp_pcblist BLIND_OR_EMPTY`. It does not
 throw away facts it got elsewhere: the same-uid fd walk still emits its claimed
 listeners. What macOS 27 gates is the independent table that would also reveal
 listeners no readable pid claimed.
+
+Same binary, same honesty, different OS policy.
 
 Source blindness is an `E` row, not an instruction to discard facts that did
 arrive. A partial snapshot exits successfully and leaves reject-versus-render
