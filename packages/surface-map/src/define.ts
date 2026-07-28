@@ -50,6 +50,15 @@ import {
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
+import type { FailureEvidence } from "./evidence";
+import { FailureEvidenceSchema } from "./evidence";
+
+export {
+  type EvidenceLine,
+  EvidenceLineSchema,
+  type FailureEvidence,
+  FailureEvidenceSchema,
+} from "./evidence";
 
 // ── Membership identity (PR3) ───────────────────────────────────────────
 
@@ -75,6 +84,28 @@ export type MembershipId = z.infer<typeof MembershipIdSchema>;
  *  real minted id (a UUID). Replaced by the real id on the next frame. */
 export const PENDING_MEMBERSHIP_ID: MembershipId =
   MembershipIdSchema.parse("pending");
+
+// ── Failure evidence ───────────────────────────────────────────────────
+//
+// The vocabulary itself lives in the zod-only leaf `./evidence` (see its header for
+// why), and is re-exported here so `define.ts` remains the one import site for a map's
+// whole contract vocabulary.
+
+/** A domain failure and the EVIDENCE for it — ONE record, with ONE name. Wherever a
+ *  down state carries a reason it carries this whole record, so the pairing rule is a
+ *  TYPE rather than a convention restated at each site: "a reason whose evidence went
+ *  missing" (juspay/kolu#2007) has no spelling anywhere the record is used.
+ *
+ *  This is the type every site the pair travels through refers to — the session's
+ *  `EntryConnectionState` (`failed`, and `disconnected`'s optional `refuse`), the
+ *  published {@link EntryStatus} `failed` arm, and the test harness's helpers. Making
+ *  its PRESENCE the discriminant on `disconnected` is what removes the old two-same-tag-
+ *  member union and its hand-written narrowing predicate: one optional field has no pair
+ *  to leave uncorrelated. */
+export interface FailureRecord<Failure = unknown> {
+  readonly failure: Failure;
+  readonly evidence: FailureEvidence;
+}
 
 // ── Membership status ──────────────────────────────────────────────────
 
@@ -111,18 +142,25 @@ export const PENDING_MEMBERSHIP_ID: MembershipId =
  *  value — the framework has no fabricated fallback cause (PR4), so "failed with
  *  an invented reason" is unrepresentable, not merely discouraged. Defaults to
  *  `unknown` so generic library code carries the value opaquely; a domain
- *  narrows it at its own map. */
-/** `Conn` is the FINE connection payload carried on every session-backed arm (SR9):
- *  the domain's rich per-host connection state (padi's `ConnectionInfo` — the phase +
- *  log tail + elapsed the coarse `kind` folds away). Parameterized exactly like
- *  `Failure` — `@kolu/surface-map` carries the value and validates it against the map's
- *  OWN `connection` schema, but never enumerates what a domain's connection states ARE
- *  (dependency-arrow-out). It is the ONE authority the coarse `kind` (the dot) and the
- *  fine word both derive from, so a "dot connected, word connecting" split (drishti#102)
- *  has no encoding: `serveHostMap` produces `kind` and `connection` from the SAME
- *  `SessionState` frame in one projection. Optional so a structural fault (no session)
- *  and a connection-less map (the harness) omit it; every session-backed entry carries
- *  it by construction. */
+ *  narrows it at its own map.
+ *
+ *  {@link FailureEvidence} is that reason's EVIDENCE, and the `failed` arm carries the
+ *  whole {@link FailureRecord} — see `FailureEvidence`'s doc, which is the ONE home of
+ *  the argument for why the tail rides the failure record rather than the live
+ *  `connection`, and why that arm carries no `connection` at all.
+ *
+ *  `Conn` is the FINE connection payload carried on the LIVE arms (SR9) — `warming` and
+ *  `connected`: the domain's rich per-host connection state (padi's `ConnectionInfo` —
+ *  the phase + log tail + elapsed the coarse `kind` folds away). Parameterized exactly
+ *  like `Failure` — `@kolu/surface-map` carries the value and validates it against the
+ *  map's OWN `connection` schema, but never enumerates what a domain's connection states
+ *  ARE (dependency-arrow-out). It is the ONE authority the coarse `kind` (the dot) and
+ *  the fine word both derive from, so a "dot connected, word connecting" split
+ *  (drishti#102) has no encoding: `serveHostMap` produces `kind` and `connection` from
+ *  the SAME `SessionState` frame in one projection. Optional so a structural fault (no
+ *  session) and a connection-less map (the harness) omit it. The `failed` arm does not
+ *  carry it AT ALL — a live word is work-in-flight, and a failed entry has none; its
+ *  post-mortem is the {@link FailureRecord} instead. */
 export type EntryStatus<Failure = unknown, Conn = unknown> =
   | { kind: "warming"; membershipId: MembershipId; connection?: Conn }
   | {
@@ -131,12 +169,10 @@ export type EntryStatus<Failure = unknown, Conn = unknown> =
       clockOffset: number | null;
       connection?: Conn;
     }
-  | {
-      kind: "failed";
-      membershipId: MembershipId;
-      failure: Failure;
-      connection?: Conn;
-    };
+  // The whole {@link FailureRecord} — reason AND evidence, or neither. And note what
+  // this arm does NOT carry: there is no `connection` here (see {@link FailureEvidence}
+  // for why the tail rides the record instead).
+  | ({ kind: "failed"; membershipId: MembershipId } & FailureRecord<Failure>);
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
@@ -163,11 +199,12 @@ export type EntryState<Failure = unknown, Conn = unknown> =
 export function entryStatusSchema<Failure, Conn = unknown>(
   failureSchema: ZodType<Failure>,
   // SR9: the FINE connection payload's schema. Optional — a map that carries no fine
-  // connection (the in-process harness) omits it and its arms carry no `connection`
-  // field. When present, every arm gains `connection: <schema>.optional()` (a structural
-  // fault has no session, so it publishes no connection; every session-backed entry
-  // does). The domain provides the schema; this package validates against it, never
-  // enumerating it — the same volatility-neutral posture as `failure`.
+  // connection (the in-process harness) omits it and no arm carries a `connection`
+  // field. When present, the LIVE arms (`warming`/`connected`) gain
+  // `connection: <schema>.optional()`; the `failed` arm below deliberately does not,
+  // because a failed entry has no work in flight to narrate. The domain provides the
+  // schema; this package validates against it, never enumerating it — the same
+  // volatility-neutral posture as `failure`.
   connectionSchema?: ZodType<Conn>,
 ): ZodType<EntryStatus<Failure, Conn>> {
   const conn = connectionSchema
@@ -191,7 +228,13 @@ export function entryStatusSchema<Failure, Conn = unknown>(
       kind: z.literal("failed"),
       membershipId: MembershipIdSchema,
       failure: failureSchema,
-      ...conn,
+      // REQUIRED on the wire, not merely in TypeScript: a failed status without its
+      // evidence FAILS this parse. Enforcement lives at the codec, so "reason without
+      // evidence" cannot be decoded even from a hand-crafted frame.
+      evidence: FailureEvidenceSchema,
+      // No `...conn` — the failed arm carries no `connection` (see `EntryStatus`). The
+      // wire must agree with the type or a hand-crafted frame could smuggle back the
+      // duplicate live tail the type just removed.
     }),
   ]) as unknown as ZodType<EntryStatus<Failure, Conn>>;
 }

@@ -335,10 +335,18 @@ const hostScoped = createRoot(() => {
   // has no encoding left). `useEntry` already re-keys the entry on a host switch AND a
   // same-key re-add (a new `membershipId`), so this read rebuilds by construction (PR3).
   // Active-host-only falls out for free: only the active entry's state is read here.
-  const connection = (): ConnectionInfo | undefined => {
-    const s = active.state();
-    return s.kind === "not-a-member" ? undefined : s.connection;
-  };
+  //
+  // Read off the UP arms only. A `failed` entry carries no `connection` field at all
+  // (see `@kolu/surface-map`'s `FailureEvidence`), so a failed host answers `undefined`
+  // here and its readers go to `failedEpisode`/`evidence` instead.
+  const connection = (): ConnectionInfo | undefined =>
+    match(active.state())
+      .with({ kind: "warming" }, { kind: "connected" }, (s) => s.connection)
+      // Spelled EXHAUSTIVELY, not `.otherwise()`: a future arm that DOES carry a live
+      // word must state its policy here rather than silently answering "no connection".
+      // This is the read that narrated the wrong thing for a year.
+      .with({ kind: "failed" }, { kind: "not-a-member" }, () => undefined)
+      .exhaustive();
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
   // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader

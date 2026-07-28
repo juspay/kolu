@@ -8,6 +8,16 @@
 
 export { resolveSystem } from "./arch";
 export {
+  type AgentBinaryCache,
+  agentBinaryCache,
+  AgentBinaryCacheUnbakedError,
+  readBakedBinaryCache,
+} from "./agentBinaryCache";
+export {
+  type AgentDerivation,
+  directAgentDerivation,
+} from "./agentDerivation";
+export {
   AgentSourceUnbakedError,
   type AgentResolutionContext,
   readBakedAgentSource,
@@ -56,8 +66,6 @@ export {
   type RemotePoolOptions,
 } from "./hostFanout";
 export {
-  type AgentDerivation,
-  directAgentDerivation,
   makeProvisionBudgets,
   makeStepBudget,
   type ProvisionBudgets,

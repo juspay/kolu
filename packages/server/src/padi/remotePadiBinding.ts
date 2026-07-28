@@ -54,7 +54,6 @@ import {
   type HostKey,
   LOCAL_HOST,
 } from "kolu-common/surfacesWithPadi";
-import { match, P } from "ts-pattern";
 import { log } from "../log.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
@@ -163,28 +162,45 @@ export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
 type DrvFaultCause = Extract<
   EntryFailedCause,
   | "agent-source-unbaked"
+  | "agent-cache-unbaked"
   | "agent-drv-unavailable"
   | "auth-required"
   | "host-key-unverified"
   | "nix-unavailable"
 >;
 
-/** The pass-through `resolveDrvPath` faults: each maps 1:1 to a
- *  {@link DrvFaultCause}, with no message rewrite (unlike `source-unbaked`,
- *  which is handled separately below). Two of the four RENAME the resolver's
- *  `kind` (`unavailable` → `agent-drv-unavailable`, `auth-refused` →
- *  `auth-required`); the other two pass the literal straight through. This
- *  table is the ONE place that rename happens — spelling it as data, not as
- *  four structurally-identical `match` arms, makes the asymmetry visible
- *  instead of requiring a reader to diff arm bodies to notice it. */
-const PASS_THROUGH_FAULT_CAUSE: Record<
-  "unavailable" | "auth-refused" | "host-key-unverified" | "nix-unavailable",
-  DrvFaultCause
+/** EVERY `resolveDrvPath` fault this binder enriches, as ONE table: the domain
+ *  cause it renames to, and whether the message gets the "…or unset the env"
+ *  hint. Both facts are data, not `match` arms — four structurally-identical
+ *  arms hid which kinds actually RENAME (`unavailable` → `agent-drv-unavailable`,
+ *  `auth-refused` → `auth-required`) versus pass through, and splitting the
+ *  hint into a second table hid that the two tables together were supposed to
+ *  cover the kind space.
+ *
+ *  `Exclude<…, "network-exhausted">` is the load-bearing part: that one kind is
+ *  rethrown untouched (it is the connector's own verdict), and every OTHER kind
+ *  must appear here. A new `ResolveDrvFailure` kind is then a COMPILE error at
+ *  this table — the one place that knows the mapping — instead of a runtime
+ *  surprise at `.exhaustive()` or, worse, a card wearing the wrong remedy. */
+const DRV_FAULT: Record<
+  Exclude<ResolveDrvError["resolution"]["kind"], "network-exhausted">,
+  { cause: DrvFaultCause; unsetHint: boolean }
 > = {
-  unavailable: "agent-drv-unavailable",
-  "auth-refused": "auth-required",
-  "host-key-unverified": "host-key-unverified",
-  "nix-unavailable": "nix-unavailable",
+  // The two SOURCE-CONFIGURATION faults. Both get the hint; they differ only in
+  // the cause, and that difference is load-bearing — the ref-unbaked card tells
+  // the operator to launch through the Nix wrapper, the cache-unbaked one must
+  // not, because the ref IS baked.
+  "source-unbaked": { cause: "agent-source-unbaked", unsetHint: true },
+  "binary-cache-unbaked": { cause: "agent-cache-unbaked", unsetHint: true },
+  // The pass-through faults: an unresolvable baked drv, and (probe-classified
+  // terminal — see `resolveSystem`) the two ssh refusals plus an unrunnable
+  // remote Nix. Each names the actual remedy on the host-down card (set up key
+  // auth, accept the host key, install Nix) instead of the generic
+  // "can't reach this host".
+  unavailable: { cause: "agent-drv-unavailable", unsetHint: false },
+  "auth-refused": { cause: "auth-required", unsetHint: false },
+  "host-key-unverified": { cause: "host-key-unverified", unsetHint: false },
+  "nix-unavailable": { cause: "nix-unavailable", unsetHint: false },
 };
 
 /** A {@link ResolveDrvError} subclass that additionally carries the D1 domain
@@ -223,41 +239,19 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
       return await resolveBakedAgentDrv("padi", ctx);
     } catch (err) {
       if (!(err instanceof ResolveDrvError)) throw err;
-      return (
-        match(err.resolution)
-          .with({ kind: "source-unbaked" }, (resolution) => {
-            throw new PadiDrvFault(
-              `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`,
-              "agent-source-unbaked",
-              resolution,
-            );
-          })
-          // The remaining pass-through faults: an unresolvable baked drv, and
-          // (probe-classified terminal — see `resolveSystem`) the two ssh
-          // refusals plus an unrunnable remote Nix. Enrich each with its
-          // padi domain cause via `PASS_THROUGH_FAULT_CAUSE` so the
-          // host-down card can name the actual remedy (set up key auth,
-          // accept the host key, install Nix) instead of the generic
-          // "can't reach this host".
-          .with(
-            P.union(
-              { kind: "unavailable" },
-              { kind: "auth-refused" },
-              { kind: "host-key-unverified" },
-              { kind: "nix-unavailable" },
-            ),
-            (resolution) => {
-              throw new PadiDrvFault(
-                err.message,
-                PASS_THROUGH_FAULT_CAUSE[resolution.kind],
-                resolution,
-              );
-            },
-          )
-          .with({ kind: "network-exhausted" }, () => {
-            throw err;
-          })
-          .exhaustive()
+      // ONE enrichment arm over `DRV_FAULT`: which cause, and whether the hint
+      // is appended, are the table's job. The only kind with its OWN body is
+      // `network-exhausted` — rethrown untouched, because it is the connector's
+      // own verdict rather than a fault padi renames.
+      const resolution = err.resolution;
+      if (resolution.kind === "network-exhausted") throw err;
+      const fault = DRV_FAULT[resolution.kind];
+      throw new PadiDrvFault(
+        fault.unsetHint
+          ? `${err.message} Or unset ${KOLU_PADI_HOST_ENV} to bind only the local padi.`
+          : err.message,
+        fault.cause,
+        resolution,
       );
     }
   };

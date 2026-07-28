@@ -206,10 +206,13 @@ When the failed attempt produced any output, **the card shows the last lines of 
 the cause — the same running log the canvas shows you while a host is coming up, kept
 where it is most useful. That output is usually what tells you which kind of failure you
 have: a machine that is genuinely unreachable looks nothing like one whose remote build
-failed to compile, and only the log distinguishes them. When kolu can't show it, it shows
-nothing rather than an empty box — an unreadable log and a failure that genuinely printed
-nothing are not the same thing. The same tail appears on the host tab's diagnostics
-popover, so you can read it without leaving the host you're on.
+failed to compile, and only the log distinguishes them. Those lines travel with the
+failure itself, not alongside it — so they survive a browser whose connection to kolu has
+gone quiet (a laptop that slept, a tab left open on flaky wifi): you get the reason and
+its evidence together, or the card simply shows no output block, which now means the
+failure printed nothing. The same tail appears
+on the host tab's diagnostics popover, so you can read it without leaving the host you're
+on.
 
 The causes it distinguishes:
 

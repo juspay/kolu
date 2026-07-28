@@ -33,6 +33,7 @@ import {
   runWithOwner,
   untrack,
 } from "solid-js";
+import { match } from "ts-pattern";
 import type { z } from "zod";
 import type {
   EntryState,
@@ -120,13 +121,23 @@ export interface EntryClock {
  *  `connected` must NOT keep presenting as connected — it downgrades to `warming` (#1568:
  *  no status renders green over a dead transport). And the domain-opaque `connection` word
  *  is just as stale over a dead link (a frozen in-progress word keeps narrating work that
- *  is no longer live), so it is DROPPED to `undefined` across EVERY session-
- *  backed arm — `undefined` is domain-neutral, so surface-map stays volatility-neutral
+ *  is no longer live), so it is DROPPED to `undefined` on every arm that can carry one —
+ *  which since SR9's reshape is `warming` alone, `connected` being demoted to a
+ *  word-less `warming` and `failed` never carrying one. `undefined` is domain-neutral,
+ *  so surface-map stays volatility-neutral
  *  (it never enumerates what a domain's connection states are). Membership identity rides
  *  through untouched (the floor is about liveness, not identity), so the demoted `warming`
  *  is still the SAME membership, keyed the same way (PR3). `not-a-member` carries neither
  *  word nor identity and passes through as-is, and a live link is a no-op. Making `live` a
- *  REQUIRED argument is the point: `foldState` cannot forget to floor. */
+ *  REQUIRED argument is the point: `foldState` cannot forget to floor.
+ *
+ *  The `failed` arm has NOTHING for the floor to do, and structurally so: the arm carries
+ *  no `connection` at all, so its record is not a liveness payload — see
+ *  {@link FailureEvidence}. Note this is NOT a claim that a failed entry is terminal: a
+ *  standing refuse also publishes `failed`, and its session HOLDS degraded rather than
+ *  redialing (`session.ts` — "a persistent skew holds degraded, it doesn't spin"), so the
+ *  record is superseded by a later link death or an operator recheck, never by a retry loop
+ *  grinding underneath it. The guarantee is that its two halves move TOGETHER. */
 export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   status: EntryState<Failure, Conn>,
   live: boolean,
@@ -134,11 +145,28 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   // A live link is a no-op — the server's word stands. `not-a-member` carries no
   // `connection`/`membershipId`, so there is nothing to floor.
   if (live || status.kind === "not-a-member") return status;
-  // Demote the CLAIM (connected → warming), dropping the connected-only `clockOffset`,
-  // and drop the fine `connection` word on this and every other session-backed arm.
-  if (status.kind === "connected")
-    return { kind: "warming", membershipId: status.membershipId };
-  return { ...status, connection: undefined };
+  // Every remaining arm states its own floor policy, spelled EXPLICITLY rather than as a
+  // catch-all. `.exhaustive()` is the compile-time version of the repo's `never` fence: a
+  // new `EntryStatus` arm that lands here without a `.with(...)` for it is a TYPE ERROR at
+  // this call site, not a silent mis-floor discovered only when the new arm is actually
+  // hit in production — the same failure mode the republish gate was rewritten to remove.
+  return (
+    match(status)
+      .with(
+        { kind: "connected" },
+        // Demote the CLAIM (connected → warming), dropping the connected-only `clockOffset`
+        // along with the fine `connection` word — the demoted value is rebuilt with neither.
+        (s): EntryState<Failure, Conn> => ({
+          kind: "warming",
+          membershipId: s.membershipId,
+        }),
+      )
+      // `failed` has no `connection` field to drop — its record is already floor-proof by
+      // construction, so it passes through whole rather than being rebuilt.
+      .with({ kind: "failed" }, (s) => s)
+      .with({ kind: "warming" }, (s) => ({ ...s, connection: undefined }))
+      .exhaustive()
+  );
 }
 
 /** Floor a per-key `Subscription<EntryStatus>` on liveness with the SAME

@@ -15,10 +15,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
 import { silentLogger } from "./loggerStubs.testutil";
-import { directAgentDerivation, PROVISION_STEP_MAX_EXPIRIES } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { PROVISION_STEP_MAX_EXPIRIES } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import { makeTestAgentSourceDir } from "./agentDrv.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),
@@ -91,7 +94,8 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
       connectOnce: sshConnector({
         host: "warm-root-stall",
         binary: "agent",
-        resolveDrvPath: () => Promise.resolve(directAgentDerivation(DRV)),
+        resolveDrvPath: () =>
+          Promise.resolve(directAgentDerivation(DRV, TEST_BINARY_CACHE)),
         localEnv: {},
       }),
       initialConnection: "probing",
@@ -117,7 +121,8 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
     const connectOnce = sshConnector({
       host: "testhost",
       binary: "agent",
-      resolveDrvPath: () => Promise.resolve(directAgentDerivation(DRV)),
+      resolveDrvPath: () =>
+        Promise.resolve(directAgentDerivation(DRV, TEST_BINARY_CACHE)),
       localEnv: {},
     });
     const session = makeSession({
@@ -164,11 +169,14 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
       if (args[0] === "eval") return EXPIRED_PROVISION;
       throw new Error(`unexpected command: ${args.join(" ")}`);
     });
+    // A REAL on-disk agent source (with its binary-cache sidecar): this suite
+    // drives the real agentDrv module, whose resolve reads the sidecar before
+    // spending the evaluation this test expires.
+    const srcDir = makeTestAgentSourceDir();
     const connectOnce = sshConnector({
       host: "silent-evaluator",
       binary: "agent",
-      resolveDrvPath: (ctx) =>
-        ctx.resolveAgentDrv("/nix/store/source", "agent"),
+      resolveDrvPath: (ctx) => ctx.resolveAgentDrv(srcDir, "agent"),
       localEnv: {},
     });
     const session = makeSession({

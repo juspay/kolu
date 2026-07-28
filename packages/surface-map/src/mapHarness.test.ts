@@ -246,8 +246,11 @@ describe("surface-map mock-entry e2e harness", () => {
       setState(
         C,
         disconnected({
-          cause: "cross-supervisor",
-          reason: "another kolu owns this host",
+          failure: {
+            cause: "cross-supervisor",
+            reason: "another kolu owns this host",
+          },
+          evidence: [],
         }),
       );
       await settle();
@@ -263,10 +266,13 @@ describe("surface-map mock-entry e2e harness", () => {
       // carrying its domain failure (a terminal give-up always classifies).
       setState(
         C,
-        failed({
-          cause: "link-failed",
-          reason: "gave up after 5 tries",
-        }),
+        failed(
+          {
+            cause: "link-failed",
+            reason: "gave up after 5 tries",
+          },
+          [],
+        ),
       );
       await settle();
       expect(st).toMatchObject({
@@ -754,6 +760,148 @@ describe("surface-map mock-entry e2e harness", () => {
       dispose();
     });
   });
+
+  it("(16) the republish gate compares EVERY published field — an evidence-only change re-emits", async () => {
+    // The companion to (15). That test pins the gate's SUPPRESSING half (an unchanged
+    // member must not re-emit); this pins the half a hand-enumerated comparison
+    // silently breaks — a field the gate was never told about. `evidence` is exactly
+    // that field: it joined the `failed` arm after the gate was written. With
+    // `evidence` missing from the comparison the two statuses below look identical and
+    // the new tail is never published — the failure is silent, which is why it is
+    // pinned here rather than left to review.
+    //
+    // Driven through a SESSION-backed `failed` entry whose retained tail GREW — the
+    // shape production actually produces (`serveHostMap` stapling `down.log` at the
+    // classification seam). A structural fault has no session and therefore no tail to
+    // grow, so it cannot vehicle this test.
+    await createRoot(async (dispose) => {
+      const { served, addSession, setState } = setup();
+      const raw = directLink<AnyContractRouter>(
+        served.router as Parameters<typeof createRouterClient>[0],
+      ) as unknown as {
+        surface: {
+          entries: {
+            get: (
+              input: { key: string },
+              opts?: { signal?: AbortSignal },
+            ) => Promise<AsyncIterable<EntryStatus<TestFailure>>>;
+          };
+        };
+      };
+      // ONE failure value, reused across both frames, so `evidence` is the only field
+      // that moves.
+      const failure: TestFailure = { cause: "c", reason: "r" };
+      addSession(
+        A,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        connected(0),
+      );
+      setState(A, failed(failure, [{ source: "local", line: "first" }]));
+
+      const ac = new AbortController();
+      const emits: EntryStatus<TestFailure>[] = [];
+      const stream = (await raw.surface.entries.get(
+        { key: "a" },
+        { signal: ac.signal },
+      )) as AsyncIterable<EntryStatus<TestFailure>>;
+      const pump = (async () => {
+        try {
+          for await (const s of stream) emits.push(s);
+        } catch {
+          // aborted at teardown — expected
+        }
+      })();
+      await settle();
+      expect(emits.length).toBe(1);
+
+      // The episode printed one more line. Nothing else about the entry changed.
+      setState(
+        A,
+        failed(failure, [
+          { source: "local", line: "first" },
+          { source: "remote", line: "second" },
+        ]),
+      );
+      await settle();
+      expect(emits.length).toBe(2);
+      expect(
+        (emits.at(-1) as Extract<EntryStatus<TestFailure>, { kind: "failed" }>)
+          .evidence,
+      ).toEqual([
+        { source: "local", line: "first" },
+        { source: "remote", line: "second" },
+      ]);
+
+      ac.abort();
+      await pump;
+      dispose();
+    });
+  });
+
+  it("(17) the gate compares published fields STRUCTURALLY — a fresh-but-equal failure does NOT re-emit", async () => {
+    // The guarantee the gate owes every `MapRegistry`, not just the ones that happen to
+    // memoise. A domain classifier naturally mints a FRESH `failure` literal per resolve
+    // (kolu's `padiFailureOf`, drishti's, the fleet-top example's) — there is nothing in
+    // the `MapRegistry` type, and no test outside this one, that would tell such a
+    // producer its literals must be reference-stable. If the gate compared by reference,
+    // every one of them would re-emit every failed member on every sibling's frame
+    // (O(M²) across a pool) with no compile error and no signal. So the gate compares
+    // STRUCTURALLY and the producer owes nothing: an equal value, however freshly built,
+    // is quiet. (Test (16) is the other direction — a genuinely changed field re-emits.)
+    await createRoot(async (dispose) => {
+      const { served, addSession, setState } = setup();
+      const raw = directLink<AnyContractRouter>(
+        served.router as Parameters<typeof createRouterClient>[0],
+      ) as unknown as {
+        surface: {
+          entries: {
+            get: (
+              input: { key: string },
+              opts?: { signal?: AbortSignal },
+            ) => Promise<AsyncIterable<EntryStatus<TestFailure>>>;
+          };
+        };
+      };
+      // Every value here is minted anew per frame — nothing is shared by reference.
+      const mint = () =>
+        failed({ cause: "c", reason: "r" }, [
+          { source: "local" as const, line: "dial 1" },
+        ]);
+      addSession(
+        A,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        connected(0),
+      );
+      setState(A, mint());
+
+      const ac = new AbortController();
+      const emits: EntryStatus<TestFailure>[] = [];
+      const stream = (await raw.surface.entries.get(
+        { key: "a" },
+        { signal: ac.signal },
+      )) as AsyncIterable<EntryStatus<TestFailure>>;
+      const pump = (async () => {
+        try {
+          for await (const s of stream) emits.push(s);
+        } catch {
+          // aborted at teardown — expected
+        }
+      })();
+      await settle();
+      expect(emits.length).toBe(1);
+
+      // Two more frames carrying a structurally IDENTICAL failure record, each built
+      // from scratch. Under a reference compare both would publish.
+      setState(A, mint());
+      setState(A, mint());
+      await settle();
+      expect(emits.length).toBe(1);
+
+      ac.abort();
+      await pump;
+      dispose();
+    });
+  });
 });
 
 /** Like {@link makeRegistry}, but `resolve` can be armed to THROW exactly once for a given
@@ -1126,6 +1274,40 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
     });
   });
 
+  it("keeps a failed arm's `failure` AND its `evidence` over a DEAD link (juspay/kolu#2007)", () => {
+    // THE property the whole evidence design exists for. The failure record and its
+    // evidence are one post-mortem value pinned at classification, so the liveness floor
+    // — which exists to stop a STALE LIVE view from narrating work that is no longer
+    // happening — has nothing to floor about them. The arm carries no `connection` at
+    // all, so there is not even a live field for a dead link to strand the tail behind:
+    // before this, the retained tail rode `connection`, and a dead browser link left the
+    // card showing a reason with its evidence silently dropped.
+    const evidence = [
+      { source: "local" as const, line: "nix build …" },
+      { source: "remote" as const, line: "error: attribute 'foo' missing" },
+    ];
+    const floored = floorOnLiveness(
+      {
+        kind: "failed",
+        membershipId: testMembershipId("m1"),
+        failure: { cause: "x", reason: "boom" },
+        evidence,
+      },
+      false,
+    );
+    expect(floored).toEqual({
+      kind: "failed",
+      membershipId: testMembershipId("m1"),
+      failure: { cause: "x", reason: "boom" },
+      evidence,
+    });
+    // Not merely equal — the SAME tail, not a rebuilt copy. The floor passes the record
+    // through whole, so nothing downstream can be handed a re-wrapped/truncated variant.
+    expect((floored as Extract<EntryStatus, { kind: "failed" }>).evidence).toBe(
+      evidence,
+    );
+  });
+
   it("never fabricates OR demotes an honest status — failed/warming/not-a-member pass through regardless of live", () => {
     for (const live of [true, false]) {
       expect(
@@ -1134,6 +1316,7 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
             kind: "failed",
             membershipId: testMembershipId("m1"),
             failure: { cause: "x", reason: "boom" },
+            evidence: [],
           },
           live,
         ),
@@ -1141,6 +1324,7 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
         kind: "failed",
         membershipId: testMembershipId("m1"),
         failure: { cause: "x", reason: "boom" },
+        evidence: [],
       });
       expect(
         floorOnLiveness(
