@@ -83,17 +83,28 @@ typed `ConvergenceOutcome` whose kinds either **always** carry their anomaly or
 `expected` identities, `drained` / `observed` instance keys); `detail` is human
 garnish only.
 
+**Single observation authority.** Every observed identity — initial probe, bind
+characterization, post-drain successor, post-give-up bind, drainable re-probe —
+flows through one internal fold (`foldObserved`). That fold always runs
+`decide(policy, identity)` (never a hand-copied compat/match subset), owns
+connection lifecycle so non-adopt returns release any held connection, preserves
+three-valued observations (`identity | absent | failed`), and reports
+`unconverged.running: null` when the running identity is honestly unknown (never
+fabricates `expected`). A characterization probe throw is `probe-failed` with the
+true message — never catch-to-null into `identity-unverifiable`.
+
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="converge" />
 
 | Export | Role |
 | --- | --- |
-| `converge(endpoint)` | probe → decide → budget-gated drain loop → enact; only a genuine createEndpoint handle; same-lineage admitted drains continue (F1a); null re-probe is `identity-unverifiable` (F1b) |
+| `converge(endpoint)` | single fold over every observation → decide → budget-gated drain → private bind; genuine createEndpoint handle only; same-lineage admitted drains continue (F1a); null re-probe is `identity-unverifiable` (F1b); give-up re-decides characterization without re-draining |
 | `convergeAdmit({ running, budget, drain, awaitExit, … })` | connector arm; `budget` is `ConnectorDrainBudget` (recycle/nudge-human unspellable); `awaitExit` resolves only on process exit, not link loss (F3) |
-| `decide(policy, running)` | pure fold — reads `policy.baked` (no free-standing baked arg) |
+| `decide(policy, running)` | pure fold — reads `policy.baked` (no free-standing baked arg); sole decision authority under `converge` |
 | `createDrainBudget` · `createConnectorDrainBudget` · `outcomeAdopted` · `outcomeAnomaly` | opaque budget handles (no public admit/can-openers); connector mint is type-gated |
 | `InstanceKey` · `instanceKeyFromStartedAt` · `instanceKeyTag` | named instance or `pre-instance` (absent startedAt = older — never overloaded null) |
+| `BindResult` · `BoundResidentCharacterization` | private-bind result; adopted residents carry three-valued characterization (`characterized \| absent \| failed \| uncorrelated`) |
 | `drainAndAwaitExit(drain, awaitExit, { ceilingMs })` | framework-run drain-and-confirm-exit skeleton both enactments share |
-| `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `link-failed` is session-owned |
+| `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `unconverged.running` is nullable (unknown); `link-failed` is session-owned |
 | `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed` — evidence as data under `unconverged` |
 | `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
 

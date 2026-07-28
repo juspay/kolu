@@ -23,8 +23,12 @@ export type GiveUpKind =
       readonly anomaly: Extract<ConvergenceAnomaly, { kind: "adopted-stale" }>;
     };
 
+function runningLabel(running: ConvergenceIdentity | null): string {
+  return running === null ? "unknown" : buildLabel(running.build);
+}
+
 function unconvergedDetail(
-  running: ConvergenceIdentity,
+  running: ConvergenceIdentity | null,
   expected: ConvergenceIdentity,
   cause: UnconvergedCause,
 ): string {
@@ -40,9 +44,9 @@ function unconvergedDetail(
         (cause.rejection ? `; drain call rejected: ${cause.rejection}` : "")
       );
     case "adopt-bind-failed":
-      return `bind refused or failed after give-up (running=${buildLabel(running.build)} expected=${buildLabel(expected.build)})`;
+      return `bind refused or failed after give-up (running=${runningLabel(running)} expected=${buildLabel(expected.build)})`;
     case "identity-unverifiable":
-      return `bound a resident whose identity the probe could not re-characterize (running was ${buildLabel(running.build)}; expected ${buildLabel(expected.build)})`;
+      return `bound a resident whose identity the probe could not re-characterize (running was ${runningLabel(running)}; expected ${buildLabel(expected.build)})`;
     case "probe-failed":
       return `convergence probe failed: ${cause.message}`;
     default: {

@@ -39,6 +39,7 @@ import type {
   BindResult,
   BoundResidentCharacterization,
 } from "./convergence/bindResult.ts";
+import { instanceKeyFromStartedAt } from "./convergence/instanceKey.ts";
 import {
   type DrainBudgetHandle,
   createDrainBudget,
@@ -622,23 +623,41 @@ export function createEndpoint<
   };
 
   /**
-   * W4.2: after holding a resident at `socketPath`, probe THAT rendezvous for
-   * ConvergenceIdentity (not the app's unconstrained `I` on current()). null
-   * if the identity probe cannot characterize the held daemon.
+   * W5: after holding `heldConn` at `socketPath`, probe THAT rendezvous for
+   * ConvergenceIdentity. Three-valued — never catch-to-null (W4.4 residue).
+   * Correlates named instance keys with `heldConn.startedAt` and verifies the
+   * same connection is still current after the probe.
    */
   const characterizeHeld = async (
     socketPath: string,
-  ): Promise<BoundResidentCharacterization | null> => {
+    heldConn: DaemonConnection<C, I, M>,
+  ): Promise<BoundResidentCharacterization> => {
+    let p: ConvergenceProbe<Cap> | null;
     try {
-      const p = await spec.probe(socketPath);
-      if (p === null) return null;
-      try {
-        return { identity: p.identity, instanceKey: p.instanceKey };
-      } finally {
-        p.dispose();
-      }
-    } catch {
-      return null;
+      p = await spec.probe(socketPath);
+    } catch (err) {
+      return {
+        kind: "failed",
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+    if (p === null) return { kind: "absent" };
+    try {
+      // Connection must still be the one we held (no rebind mid-probe).
+      if (conn !== heldConn) return { kind: "uncorrelated" };
+      // Identity (contract/build) from the held-socket probe. Instance key from
+      // the held connection's startedAt (handshake) when named, else the probe's
+      // key. Uncorrelated only when the connection object was replaced mid-probe
+      // (checked above) — key mismatch after a real handshake is a probe lag,
+      // not a different connection object.
+      const fromConn = instanceKeyFromStartedAt(heldConn.startedAt);
+      return {
+        kind: "characterized",
+        identity: p.identity,
+        instanceKey: fromConn.kind === "instance" ? fromConn : p.instanceKey,
+      };
+    } finally {
+      p.dispose();
     }
   };
 
@@ -1122,10 +1141,10 @@ export function createEndpoint<
         "adopted a surviving daemon (its PTYs are preserved)",
       );
       holdConnection(outcome.conn);
-      // Characterize the held rendezvous (W4.2) — primary or upgrade-hint socket.
+      // Characterize the held rendezvous (W5) — primary or upgrade-hint socket.
       return {
         kind: "adopted-resident",
-        characterization: await characterizeHeld(rv.socketPath),
+        characterization: await characterizeHeld(rv.socketPath, outcome.conn),
       };
     }
     if (outcome.kind === "skew") {
@@ -1231,10 +1250,17 @@ export function createEndpoint<
       switch (outcome) {
         case "adopted":
           runHook(onAdopted, "onAdopted");
-          // held was set in recoverGuarded; characterize that rendezvous (W4.2).
+          // held was set in recoverGuarded; characterize that rendezvous (W5).
+          // conn is the just-held connection.
+          if (conn === undefined) {
+            return {
+              kind: "adopted-resident",
+              characterization: { kind: "absent" },
+            };
+          }
           return {
             kind: "adopted-resident",
-            characterization: await characterizeHeld(held.socketPath),
+            characterization: await characterizeHeld(held.socketPath, conn),
           };
         case "refused":
           return { kind: "refused-or-failed" };

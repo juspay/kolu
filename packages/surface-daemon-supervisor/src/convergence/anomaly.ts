@@ -56,7 +56,12 @@ export type ConvergenceAnomaly =
     }
   | {
       readonly kind: "unconverged";
-      readonly running: ConvergenceIdentity;
+      /**
+       * Last known running identity, or **null when honestly unknown** (e.g.
+       * initial probe threw before any observation — F19 / W5 running-unknown).
+       * Never fabricates `expected` as a stand-in for unknown.
+       */
+      readonly running: ConvergenceIdentity | null;
       readonly expected: ConvergenceIdentity;
       readonly cause: UnconvergedCause;
       readonly detail: string;

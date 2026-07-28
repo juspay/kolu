@@ -98,6 +98,8 @@ async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
     ReturnType<typeof drainableProbe> | ReturnType<typeof plainProbe> | null
   >;
   bindMode?: BindMode;
+  /** startedAt stamped on each connect (default 1). Foreign-respawn tests use 2. */
+  connectStartedAt?: number | (() => number);
 }) {
   const dir = mkdtempSync(join(tmpdir(), "sds-converge-"));
   tmpDirs.push(dir);
@@ -120,6 +122,11 @@ async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
     await listen();
   }
 
+  const startedAtOf = (): number => {
+    if (typeof opts.connectStartedAt === "function")
+      return opts.connectStartedAt();
+    return opts.connectStartedAt ?? 1;
+  };
   const endpoint = createEndpoint({
     hostId: "test",
     home: { dir, gatePath, socketPath },
@@ -139,7 +146,7 @@ async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
       return {
         client: "c",
         identity: { id: "i" },
-        startedAt: Date.now(),
+        startedAt: startedAtOf(),
         dispose: () => {},
         onClose: () => {},
       };
@@ -272,6 +279,8 @@ describe("converge — enactment + outcomes", () => {
     let probeN = 0;
     const endpoint = await realEndpoint({
       bindMode: "adopt",
+      // Post-drain connect is the foreign process (startedAt 2 ≠ drained ik(1)).
+      connectStartedAt: 2,
       policy: padiPolicy(id("1.1", "mine"), 3),
       probe: async () => {
         probeN += 1;
@@ -444,9 +453,204 @@ describe("converge — enactment + outcomes", () => {
     expect(out.kind).toBe("refused");
     const a = outcomeAnomaly(out);
     expect(a?.kind).toBe("unconverged");
-    if (a?.kind === "unconverged" && a.cause.kind === "probe-failed") {
-      expect(a.cause.message).toMatch(/EPERM/);
+    if (a?.kind === "unconverged") {
+      expect(a.running).toBeNull(); // F19 running-unknown
+      if (a.cause.kind === "probe-failed") {
+        expect(a.cause.message).toMatch(/EPERM/);
+      }
     }
+  });
+
+  // ── W5 named tests ──────────────────────────────────────────────────────
+
+  it("W5.1: null→bind-characterized stale build → resolveDrainable newer contract ⇒ zero drains, refused", async () => {
+    let drains = 0;
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      policy: padiPolicy(id("1.1", "mine"), 3),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) return null; // primary empty
+        // characterize / resolveDrainable: first returns stale build (decide drain),
+        // but re-fold after resolve returns newer incompatible contract.
+        if (probeN === 2) {
+          return drainableProbe(id("1.1", "stale"), {
+            instanceKey: ik(1),
+            onDrain: () => {
+              drains += 1;
+            },
+          });
+        }
+        return drainableProbe(id("9.0", "stale"), {
+          instanceKey: ik(1),
+          onDrain: () => {
+            drains += 1;
+          },
+        });
+      },
+    });
+    const out = await converge(endpoint);
+    expect(drains).toBe(0);
+    expect(out.kind).toBe("refused");
+    expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
+  });
+
+  it("W5.2: drain-not-taken → give-up bind newer-contract characterization ⇒ refused, never adopted-stale", async () => {
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      policy: padiPolicy(id("1.1", "mine"), 1),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) {
+          return drainableProbe(id("1.1", "stale"), {
+            instanceKey: ik(1),
+            hang: true,
+            ceilingMs: 20,
+          });
+        }
+        // Give-up bind characterization: newer incompatible contract.
+        return drainableProbe(id("9.0", "stale"), { instanceKey: ik(1) });
+      },
+    });
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("refused");
+    expect(out.kind).not.toBe("adopted-stale");
+    expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
+    expect(endpoint.current()).toBeUndefined();
+  });
+
+  it("W5.3: null→adopt→characterization throws ⇒ probe-failed with original message", async () => {
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      policy: padiPolicy(id("1.1", "mine"), 2),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) return null;
+        throw new Error("PROTOCOL: handshake explode");
+      },
+    });
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("refused");
+    expect(outcomeAdopted(out)).toBe(false);
+    expect(endpoint.current()).toBeUndefined();
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("unconverged");
+    if (a?.kind === "unconverged" && a.cause.kind === "probe-failed") {
+      expect(a.cause.message).toMatch(/PROTOCOL: handshake explode/);
+    }
+  });
+
+  it("W5.4: held characterized resident whose drainable re-probe throws ⇒ probe-failed + released", async () => {
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      policy: padiPolicy(id("1.1", "mine"), 2),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) return null;
+        if (probeN === 2) {
+          // characterization: stale build → decide drain
+          return plainProbe(id("1.1", "stale"));
+        }
+        // resolveDrainable for drain path throws
+        throw new Error("EPIPE: drainable re-probe died");
+      },
+    });
+    const out = await converge(endpoint);
+    expect(outcomeAdopted(out)).toBe(false);
+    expect(endpoint.current()).toBeUndefined();
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("unconverged");
+    if (a?.kind === "unconverged" && a.cause.kind === "probe-failed") {
+      expect(a.cause.message).toMatch(/EPIPE/);
+    }
+  });
+
+  it("W5.5: real adoptHint topology — primary empty, live hint, mismatched build ⇒ mismatch-reported + held", async () => {
+    const primaryDir = mkdtempSync(join(tmpdir(), "sds-hint-p-"));
+    const hintDir = mkdtempSync(join(tmpdir(), "sds-hint-h-"));
+    tmpDirs.push(primaryDir, hintDir);
+    const primarySock = join(primaryDir, "p.sock");
+    const primaryGate = join(primaryDir, "p.pid");
+    const hintSock = join(hintDir, "h.sock");
+    const hintGate = join(hintDir, "h.pid");
+
+    // Live HINT only (primary free).
+    const hintServer = createServer((c) => c.on("error", () => {}));
+    servers.push(hintServer);
+    await new Promise<void>((resolve, reject) => {
+      hintServer.once("error", reject);
+      hintServer.listen(hintSock, () => resolve());
+    });
+    writeFileSync(hintGate, `${process.pid}\n`);
+
+    let hintConnects = 0;
+    const endpoint = createEndpoint({
+      hostId: "hint-test",
+      home: { dir: primaryDir, gatePath: primaryGate, socketPath: primarySock },
+      policy: {
+        capability: "not-drainable" as const,
+        baked: id("5.0", "test-build"),
+        onContractSkew: { kind: "recycle" as const },
+        onBuildMismatch: { kind: "nudge-human" as const },
+      },
+      probe: async (socketPath: string) => {
+        // Primary empty; hint socket answers with legacy build.
+        if (socketPath === primarySock) return null;
+        if (socketPath === hintSock) {
+          return plainProbe(id("5.0", "legacy"));
+        }
+        return null;
+      },
+      driver: {
+        spawn: async () => {
+          throw new Error("must not spawn — should adopt hint");
+        },
+      },
+      connect: async (socketPath: string) => {
+        if (socketPath === hintSock) hintConnects += 1;
+        return {
+          client: "hint-client",
+          identity: { staleKey: "legacy" },
+          startedAt: 1,
+          dispose: () => {},
+          onClose: () => {},
+        };
+      },
+      adoptHint: {
+        home: { dir: hintDir, gatePath: hintGate, socketPath: hintSock },
+        connect: async (socketPath: string) => {
+          hintConnects += 1;
+          return {
+            client: "hint-client",
+            identity: { staleKey: "legacy" },
+            startedAt: 1,
+            dispose: () => {},
+            onClose: () => {},
+          };
+        },
+        onAdopted: () => {},
+      },
+      log: silent,
+      onStatus: () => {},
+      socketReadyMs: 200,
+      socketPollMs: 5,
+      adoptConnectAttempts: 1,
+      adoptConnectRetryMs: 1,
+    });
+
+    const out = await converge(endpoint);
+    expect(hintConnects).toBeGreaterThanOrEqual(1);
+    expect(out.kind).toBe("mismatch-reported");
+    if (out.kind === "mismatch-reported") {
+      expect(out.running.build).toEqual(daemonBuild("legacy"));
+    }
+    // Hint connection held (mismatch-reported with adopted bind).
+    expect(outcomeAdopted(out)).toBe(true);
+    expect(endpoint.current()).toBeDefined();
   });
 });
 

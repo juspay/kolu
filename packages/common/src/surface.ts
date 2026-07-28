@@ -425,7 +425,8 @@ export const PadiConvergenceSchema = z.discriminatedUnion("kind", [
   z.object({
     /** Drain/budget give-up that left canvas dead — typed cause evidence. */
     kind: z.literal("unconverged"),
-    running: ConvergenceIdentitySchema,
+    /** null when running identity is honestly unknown (e.g. initial probe failed). */
+    running: ConvergenceIdentitySchema.nullable(),
     expected: ConvergenceIdentitySchema,
     cause: z.discriminatedUnion("kind", [
       z.object({
