@@ -112,35 +112,34 @@ const CanvasTile: Component<{
   const layout = () =>
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
 
-  // One-shot "tile lands on the plane" — only when the tile FIRST mounts as
-  // tiled + awake. Mount-maximized/covered, reduced-motion, or sleep marks
-  // land as spent so a later restore/wake never replays the entrance.
-  // Duration lives only in CSS (`tile-place-in`); clear on `animationend`.
+  // One-shot "tile lands on the plane" — armed only once on mount when the
+  // tile is already tiled + awake + motion-ok. Any cancel path (maximize,
+  // sleep, reduced-motion, animationend/cancel) spends the cue permanently.
   const [landing, setLanding] = createSignal(false);
-  const [landSpent, setLandSpent] = createSignal(false);
+  const spendLanding = () => setLanding(false);
   onMount(() => {
     const reduced =
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-    if (reduced || props.sleeping || props.mode !== "tiled") {
-      setLandSpent(true);
-      return;
-    }
+    if (reduced || props.sleeping || props.mode !== "tiled") return;
     setLanding(true);
   });
   createEffect(() => {
-    // Sleep mid-entrance cancels and spends the cue (wake must not re-land).
-    if (props.sleeping && landing()) {
-      setLanding(false);
-      setLandSpent(true);
+    // Mid-entrance loss of eligibility cancels CSS without animationend —
+    // spend so a later restore/wake never re-plays.
+    if (!landing()) return;
+    if (
+      props.sleeping ||
+      props.mode !== "tiled" ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+    ) {
+      spendLanding();
     }
   });
-  const onLandInEnd: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
+  const onLandInAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
     e,
   ) => {
-    // Only our place-in animation on this host — ignore bubbled child animations.
     if (e.target === e.currentTarget && e.animationName === "tile-place-in") {
-      setLanding(false);
-      setLandSpent(true);
+      spendLanding();
     }
   };
 
@@ -149,25 +148,6 @@ const CanvasTile: Component<{
   // each read chains through the resolver into store + staleness lookups — so
   // compute it once per reactive cycle rather than per consumer.
   const aura = createMemo((): TileAura => props.auraTier?.() ?? "none");
-
-  // One-shot finished **exhale** — fires only when the aura tier *transitions*
-  // into `finished`, not when the aura child remounts after pan/maximize.
-  // Held ring stays on `data-aura="finished"` without replaying the motion.
-  const [exhale, setExhale] = createSignal(false);
-  let prevAura: TileAura = "none";
-  createEffect(() => {
-    const next = aura();
-    if (next === "finished" && prevAura !== "finished") {
-      setExhale(true);
-    }
-    if (next !== "finished") setExhale(false);
-    prevAura = next;
-  });
-  const onAuraAnimEnd: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
-    e,
-  ) => {
-    if (e.animationName === "tile-aura-exhale") setExhale(false);
-  };
   // Is this tile's screen rect within the canvas viewport (plus a margin so
   // panning doesn't pop auras in at the very edge)? Mirrors the screen-space
   // mapping in `tileTransformCSS`: a canvas point (l.x, l.y) lands at
@@ -197,6 +177,34 @@ const CanvasTile: Component<{
   const showAura = createMemo(
     () => aura() !== "none" && props.mode === "tiled" && onScreen(),
   );
+
+  // One-shot finished **exhale** — armed only when the tier *transitions*
+  // into finished while the motion is observable. Any cancel (off-screen
+  // unmount, active mute, reduced motion, leave finished) spends it so a
+  // remount never re-plays. Held ring stays on `data-aura="finished"` alone.
+  const [exhale, setExhale] = createSignal(false);
+  let prevAura: TileAura = "none";
+  createEffect(() => {
+    const next = aura();
+    const show = showAura();
+    const active = props.active === true;
+    const reduced =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    if (next === "finished" && prevAura !== "finished") {
+      if (show && !active && !reduced) setExhale(true);
+      else setExhale(false);
+    } else if (next !== "finished") {
+      setExhale(false);
+    } else if (exhale() && (!show || active || reduced)) {
+      setExhale(false);
+    }
+    prevAura = next;
+  });
+  const onAuraAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
+    e,
+  ) => {
+    if (e.animationName === "tile-aura-exhale") setExhale(false);
+  };
 
   // Active stays full-strength regardless of dimmed — the user is looking
   // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
@@ -334,11 +342,11 @@ const CanvasTile: Component<{
       data-dimmed={props.dimmed ? "true" : undefined}
       data-sleeping={props.sleeping ? "" : undefined}
       data-landing={
-        landing() && !landSpent() && props.mode === "tiled" && !props.sleeping
-          ? ""
-          : undefined
+        landing() && props.mode === "tiled" && !props.sleeping ? "" : undefined
       }
-      data-exhale={exhale() && showAura() && aura() === "finished" ? "" : undefined}
+      data-exhale={
+        exhale() && showAura() && aura() === "finished" ? "" : undefined
+      }
       data-aura={showAura() ? aura() : undefined}
       // `inert` (when covered) removes the subtree from tab order, blocks
       // pointer events, and hides from assistive tech in one go — matches
@@ -364,7 +372,8 @@ const CanvasTile: Component<{
       classList={presentation().classes}
       style={presentation().style}
       onMouseDown={() => props.onSelect()}
-      onAnimationEnd={onLandInEnd}
+      onAnimationEnd={onLandInAnim}
+      onAnimationCancel={onLandInAnim}
     >
       {/* Clip shell — sole clip boundary for title/body (xterm, chrome). */}
       <div class="absolute inset-0 flex flex-col overflow-hidden rounded-[inherit]">
@@ -483,7 +492,8 @@ const CanvasTile: Component<{
         <div
           class="tile-aura tile-aura-ring"
           aria-hidden="true"
-          onAnimationEnd={onAuraAnimEnd}
+          onAnimationEnd={onAuraAnim}
+          onAnimationCancel={onAuraAnim}
         />
       </Show>
     </div>

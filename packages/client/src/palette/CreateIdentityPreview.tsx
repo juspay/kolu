@@ -217,11 +217,10 @@ const CreateIdentityPreview: Component<{
                   "annotation-ink": m().annotationColor != null,
                   "text-fg-3": m().annotationColor == null,
                 }}
-                style={
-                  m().annotationColor != null
-                    ? { "--annotation-color": m().annotationColor }
-                    : undefined
-                }
+                style={(() => {
+                  const c = m().annotationColor;
+                  return c != null ? { "--annotation-color": c } : undefined;
+                })()}
                 data-testid="create-preview-annotation"
               >
                 {m().annotation}
