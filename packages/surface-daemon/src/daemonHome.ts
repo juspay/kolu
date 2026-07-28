@@ -22,10 +22,11 @@
  * knobs with zero callers.
  */
 
-import { lstatSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
+import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 import type { SharedArtifact } from "./sharedArtifact.ts";
 
 /** Where the daemon home sits on disk. See the module doc for the rule. */
@@ -59,28 +60,23 @@ export type DaemonHomeOptions = {
   placement: DaemonHomePlacement;
 };
 
-/** Is `dir` a private, owner-only directory the current user owns?
- *  Mirrors the check in `pidGate` / `@kolu/surface/unix-socket` /
- *  kaval's discovery — same boundary, read here so a non-private home
- *  fails before any gate or socket is written. `lstatSync` so a symlink
- *  is judged as itself and rejected. Returns true on platforms without
- *  uid semantics (Windows). */
-function isPrivateOwnedDir(dir: string): boolean {
-  const getuid = process.getuid?.bind(process);
-  if (getuid === undefined) return true;
-  try {
-    const st = lstatSync(dir);
-    return st.isDirectory() && st.uid === getuid() && (st.mode & 0o077) === 0;
-  } catch {
-    return false;
-  }
-}
-
-/** Resolve the home directory for `app` under `placement` — no I/O. */
-function resolveDir(app: string, placement: DaemonHomePlacement): string {
+/**
+ * Resolve the home directory for `app` under `placement` — no I/O.
+ * Also returns the human `pathShape` root for inventory entries, derived
+ * from the SAME branch as `dir` so the two cannot drift.
+ */
+function resolveDir(
+  app: string,
+  placement: DaemonHomePlacement,
+): { dir: string; pathShapeRoot: string } {
   if (placement === "state") {
     const xdg = process.env.XDG_STATE_HOME;
-    if (xdg !== undefined && xdg !== "") return join(xdg, app);
+    if (xdg !== undefined && xdg !== "") {
+      return {
+        dir: join(xdg, app),
+        pathShapeRoot: `$XDG_STATE_HOME/${app}`,
+      };
+    }
     const home = process.env.HOME || homedir();
     if (!home) {
       throw new Error(
@@ -88,12 +84,21 @@ function resolveDir(app: string, placement: DaemonHomePlacement): string {
           `set $XDG_STATE_HOME or $HOME`,
       );
     }
-    return join(home, ".local", "state", app);
+    return {
+      dir: join(home, ".local", "state", app),
+      pathShapeRoot: `~/.local/state/${app}`,
+    };
   }
   // Runtime: same XDG / `/tmp/<app>-$UID` convention as getRuntimeSocketPath.
   // Derive the dir from a dummy file under the app namespace so the path
   // algebra stays single-sourced in @kolu/surface/unix-socket.
-  return dirname(getRuntimeSocketPath({ app, file: "x" }));
+  const dir = dirname(getRuntimeSocketPath({ app, file: "x" }));
+  const pathShapeRoot =
+    process.env.XDG_RUNTIME_DIR !== undefined &&
+    process.env.XDG_RUNTIME_DIR !== ""
+      ? `$XDG_RUNTIME_DIR/${app}`
+      : `/tmp/${app}-$UID`;
+  return { dir, pathShapeRoot };
 }
 
 /**
@@ -111,7 +116,7 @@ export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
     );
   }
 
-  const dir = resolveDir(app, placement);
+  const { dir, pathShapeRoot } = resolveDir(app, placement);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (!isPrivateOwnedDir(dir)) {
     throw new Error(
@@ -125,18 +130,10 @@ export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
   const gatePath = join(dir, gateName);
   const socketPath = join(dir, sockName);
 
-  // pathShape is documentation for humans / the inventory (env names are
-  // literal text, not interpolated). Match the style of existing inventory
-  // entries (`$XDG_RUNTIME_DIR/…`, `$XDG_STATE_HOME|~/.local/state/…`).
-  const pathRoot =
-    placement === "state"
-      ? `$XDG_STATE_HOME|~/.local/state/${app}`
-      : `$XDG_RUNTIME_DIR/${app} | /tmp/${app}-$UID`;
-
   const artifacts: readonly SharedArtifact[] = [
     {
       id: `${app}-gate`,
-      pathShape: `${pathRoot}/${gateName}`,
+      pathShape: `${pathShapeRoot}/${gateName}`,
       role: "gate",
       coveredByTest: null,
       versionField: null,
@@ -146,7 +143,7 @@ export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
     },
     {
       id: `${app}-socket`,
-      pathShape: `${pathRoot}/${sockName}`,
+      pathShape: `${pathShapeRoot}/${sockName}`,
       role: "socket",
       coveredByTest: null,
       versionField: null,

@@ -27,7 +27,6 @@
 import {
   closeSync,
   linkSync,
-  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -35,6 +34,7 @@ import {
   writeSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 
 /** The outcome of trying to take the gate. `acquired` hands back a `release`
  *  the daemon calls at teardown; `held` reports the live pid already serving so
@@ -47,30 +47,6 @@ export type GateAcquisition =
   | { kind: "acquired"; release: () => void }
   | { kind: "held"; pid: number }
   | { kind: "dir-not-private"; dir: string };
-
-/** Is `dir` a private, owner-only directory the current user owns? The gate
- *  shares its parent directory with the socket, and that directory's privacy is
- *  the security boundary for everything it holds (cf. `isPrivateOwnedDir` in
- *  `@kolu/surface/unix-socket`, which guards the socket the same way). On the
- *  stable `/tmp/<app>-$UID` fallback another local user could pre-create the dir
- *  with loose perms and plant a `kaval.pid` holding any live pid; honoring that
- *  gate would let them DoS the daemon (it would exit 0 as "already running")
- *  *before* the socket-side privacy check ever runs. `lstatSync` (NOT
- *  `statSync`) so a symlink is judged as itself and rejected, never followed.
- *  Returns true on platforms without uid semantics (Windows: `process.getuid`
- *  is undefined) — the ACL model there is out of scope. */
-function isPrivateOwnedDir(dir: string): boolean {
-  const getuid = process.getuid?.bind(process);
-  if (getuid === undefined) return true;
-  try {
-    const st = lstatSync(dir);
-    return st.isDirectory() && st.uid === getuid() && (st.mode & 0o077) === 0;
-  } catch {
-    // Couldn't stat the dir at all — treat as not-private (refuse) rather than
-    // assume it's safe.
-    return false;
-  }
-}
 
 /** Is `pid` a live process? `kill(pid, 0)` sends no signal — it only probes:
  *  success or `EPERM` (exists, not ours) ⇒ alive; `ESRCH` ⇒ gone. The daemon's
