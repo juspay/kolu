@@ -25,9 +25,15 @@ import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
+import {
+  assignColors,
+  type TerminalDisplayInfo,
+} from "../terminal/terminalDisplay";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
+import RepoMonogram from "../ui/RepoMonogram";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
 import AgentStatusCard from "./AgentStatusCard";
@@ -88,11 +94,61 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
 
+/** Repo identity chip — monogram + name in the shared repo-colour frame.
+ *  Colour is the live terminal's `repoColor` (fleet-wide assignColors), so the
+ *  chip matches the dock monogram for the same terminal. Not a status chip. */
+const RepoIdentityChip: Component<{ name: string; color: string }> = (
+  props,
+) => (
+  <span
+    class="fleet-hue-chip fleet-hue-chip--with-mono"
+    style={{ "--chip-hue": props.color }}
+    title={props.name}
+    data-testid="inspector-repo"
+  >
+    <RepoMonogram group={props.name} color={props.color} size="xs" />
+    <span class="truncate">{props.name}</span>
+  </span>
+);
+
 /** The "Work" cluster — what you're working ON, told once: branch/repo/PR/CI
  *  as a chip row, the PR title, the working directory, and the deep detail
  *  (per-check list, repo paths) behind disclosures. Replaces the former
  *  Directory + Git + Pull Request label/value sections. */
-const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
+const WorkSection: Component<{
+  meta: TerminalMetadata;
+  /** Active tile id — used only to read the fleet-wide `repoColor`. */
+  terminalId: TerminalId | null;
+}> = (props) => {
+  const store = useTerminalStore();
+  /** Prefer fleet display projection; fall back to stable assignColors on
+   *  the live git names so chips never soft-degrade to neutral chrome. */
+  const identityColors = (): {
+    repoColor: string;
+    annotationColor: string;
+  } | null => {
+    const git = props.meta.git;
+    if (!git) return null;
+    const id = props.terminalId;
+    const display: TerminalDisplayInfo | undefined = id
+      ? store.getDisplayInfo(id)
+      : undefined;
+    if (display) {
+      return {
+        repoColor: display.repoColor,
+        annotationColor: display.annotationColor,
+      };
+    }
+    const colors = assignColors([git.repoName, git.branch]);
+    const repoColor = colors.get(git.repoName);
+    const annotationColor = colors.get(git.branch);
+    if (!repoColor || !annotationColor) {
+      throw new Error(
+        `assignColors missing inspector keys for ${git.repoName}/${git.branch}`,
+      );
+    }
+    return { repoColor, annotationColor };
+  };
   const active = () => activeArm(props.meta);
   // PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
   // resolution (same gate the old Pull Request section used).
@@ -128,22 +184,31 @@ const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
          *  repo name alone would satisfy a non-empty assertion and an empty
          *  branch would pass. */}
         <div class="flex flex-wrap items-center gap-1.5">
-          <Show when={props.meta.git}>
-            {(git) => (
-              <>
-                <Chip
-                  tone="accent"
-                  title={git().isWorktree ? "worktree" : undefined}
-                  data-testid="inspector-branch"
-                >
-                  <Show when={git().isWorktree}>
-                    <WorktreeIcon class="h-3 w-3 shrink-0 text-fg-3/60" />
-                  </Show>
-                  <span class="truncate font-semibold">{git().branch}</span>
-                </Chip>
-                <Chip>{git().repoName}</Chip>
-              </>
-            )}
+          <Show when={props.meta.git && identityColors()}>
+            {(gitAndColors) => {
+              // Show when={A && B} narrows to truthy B (colors); re-read git.
+              const colors = gitAndColors();
+              const git = props.meta.git!;
+              return (
+                <>
+                  <span
+                    class="fleet-hue-chip"
+                    style={{ "--chip-hue": colors.annotationColor }}
+                    title={git.isWorktree ? "worktree" : undefined}
+                    data-testid="inspector-branch"
+                  >
+                    <Show when={git.isWorktree}>
+                      <WorktreeIcon class="h-3 w-3 shrink-0 opacity-60" />
+                    </Show>
+                    <span class="truncate font-semibold">{git.branch}</span>
+                  </span>
+                  <RepoIdentityChip
+                    name={git.repoName}
+                    color={colors.repoColor}
+                  />
+                </>
+              );
+            }}
           </Show>
           <Show when={pr()}>
             {(p) => (
@@ -296,7 +361,7 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Work — directory + git + PR as one identity cluster. */}
-          <WorkSection meta={meta()} />
+          <WorkSection meta={meta()} terminalId={props.terminalId} />
 
           {/* Ports — what this TILE is serving, its splits included (a dev server
               usually runs in a split, so a main-pane-only reading shows nothing in

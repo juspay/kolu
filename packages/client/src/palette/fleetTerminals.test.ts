@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
+import { describe, expect, it } from "vitest";
 import {
   type FleetTerminalRow,
   groupFleetByHost,

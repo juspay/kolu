@@ -596,24 +596,160 @@ body {
  * structure; obligation is interrupt. */
 :root {
   --dock-edge-stripe-w: 5px;
-  /* Darker ink for the section name: pastel `oklch(0.75 0.14 …)` on a
-   * light surface fails the squint test; mixing toward black keeps the
-   * hue while landing readable weight. */
-  --dock-repo-ink: color-mix(in oklch, var(--repo-color) 82%, black);
+  /* Shared identity paint — every monogram / name / spine / chip that
+   * reads `var(--repo-color)` plugs these formulas. Dock card layout
+   * stays dock-local; the *atoms* live here so palette / restore /
+   * inspector / title cannot drift. */
+  --repo-ink: color-mix(in oklch, var(--repo-color) 82%, black);
 }
-/* Vertical air between repo cards — structure does half the grouping
- * work colour alone cannot. Horizontal inset keeps card edges off the
- * scrollport chrome. */
-/* No stack fill: a second surface under the cards reads as nested
- * chrome (dock → tray → card) and steals contrast from the monogram/
- * spine without buying more grouping. Gap + card border do the
- * separation; the dock's own surface is the ground. */
-.dock-cards-stack {
+:root.dark {
+  /* Theme the ink token once — not re-spelled per surface. */
+  --repo-ink: color-mix(in oklch, var(--repo-color) 72%, white);
+}
+
+/* ── Shared monogram tile (`.repo-monogram`) ───────────────────
+ * ONE fill formula for every surface. Size via modifiers only. */
+.repo-monogram {
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  /* Pastel repo colours fail white-on-pastel contrast — darken fill. */
+  color: #fff;
+  background: color-mix(in oklch, var(--repo-color) 72%, black);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 22%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--repo-color) 35%, black);
+  text-shadow: 0 1px 0 color-mix(in oklab, black 22%, transparent);
+}
+.repo-monogram--md {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+}
+.repo-monogram--sm {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  font-size: 0.62rem;
+}
+.repo-monogram--xs {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 0.55rem;
+}
+/* Thin spine used outside the dock card (palette rows, restore groups).
+ * Dock sections keep `--dock-edge-stripe-w` for active-row alignment. */
+.repo-spine {
+  border-left: 4px solid var(--repo-color);
+}
+/* Readable fleet-hue text (light → black; dark → white). Used by chips,
+ * annotation labels, and host headers so contrast cannot drift. */
+.hue-ink {
+  color: color-mix(in oklch, var(--hue) 42%, black);
+}
+:root.dark .hue-ink {
+  color: color-mix(in oklch, var(--hue) 78%, white);
+}
+/* Inspector identity chips — frame + hue-ink; call site sets `--chip-hue`
+ * (and `--hue` for text). Monogram-bearing variant adds left pad. */
+.fleet-hue-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--chip-hue) 40%, var(--color-edge));
+  background: color-mix(in oklab, var(--chip-hue) 12%, var(--color-surface-1));
+  padding: 1px 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  /* Text colour from .hue-ink via --hue = --chip-hue */
+  --hue: var(--chip-hue);
+  color: color-mix(in oklch, var(--hue) 42%, black);
+}
+.fleet-hue-chip--with-mono {
+  padding-left: 3px;
+}
+:root.dark .fleet-hue-chip {
+  color: color-mix(in oklch, var(--hue) 78%, white);
+}
+/* Repo name text — readable ink over fleet hue (parent sets --repo-color). */
+.repo-name-ink {
+  color: var(--repo-ink);
+}
+/* Branch / intent text (parent sets --annotation-color → --hue). */
+.annotation-ink {
+  --hue: var(--annotation-color);
+  color: color-mix(in oklch, var(--hue) 42%, black);
+}
+:root.dark .annotation-ink {
+  color: color-mix(in oklch, var(--hue) 78%, white);
+}
+/* Restore / soft group band. */
+.repo-group-band {
+  border-left: 4px solid var(--repo-color);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in oklab, var(--repo-color) 9%, transparent);
+  padding: 8px 10px;
+}
+.repo-group-band-title {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 8px 8px 10px;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--repo-ink);
 }
+/* Palette host section header — host-hue wash (not attention). */
+.palette-host-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  border: none;
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--host-hue) 22%, var(--color-edge));
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--host-hue) 20%, var(--color-surface-1)) 0%,
+    color-mix(in oklab, var(--host-hue) 5%, var(--color-surface-1)) 100%
+  );
+  /* Host text ink — same formula as .hue-ink via --hue. */
+  --hue: var(--host-hue);
+  color: color-mix(in oklch, var(--hue) 42%, black);
+}
+:root.dark .palette-host-header {
+  color: color-mix(in oklch, var(--hue) 78%, white);
+}
+.palette-host-header:hover {
+  filter: brightness(1.06);
+}
+/* Host chip in palette — identity hue frame; status dot stays fact-only. */
+.palette-host-chip {
+  border-color: color-mix(in oklab, var(--host-hue) 40%, var(--color-edge));
+  background: color-mix(in oklab, var(--host-hue) 12%, var(--color-surface-2));
+}
+/* Stack air lives as Tailwind on Dock/DockList (flex flex-col gap-2.5 p-2).
+ * No layout-only custom class — styling-tailwind-only. */
 .dock-cards-section {
   border: 1px solid
     color-mix(in oklab, var(--repo-color) 22%, var(--color-edge));
@@ -645,37 +781,12 @@ body {
   border-bottom: 1px solid
     color-mix(in oklab, var(--repo-color) 28%, var(--color-edge));
 }
-/* Monogram tile — solid repo colour + first letter. Replaces the old
- * 7×7 swatch: area is what peripheral vision catches (same lesson as
- * the attention row wash). Glyph comes from `repoMonogram()` so rail
- * chips and section headers share one fold. */
-.dock-cards-section-monogram {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1;
-  /* Repo colours are pastel (`oklch(0.75 0.14 …)`); pure white-on-pastel
-   * fails contrast. Darken the fill so the glyph stays legible while
-   * the hue still matches the spine / name. */
-  color: #fff;
-  background: color-mix(in oklch, var(--repo-color) 72%, black);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, white 22%, transparent),
-    0 0 0 1px color-mix(in oklab, var(--repo-color) 35%, black);
-  text-shadow: 0 1px 0 color-mix(in oklab, black 22%, transparent);
-}
+/* Dock monogram = shared `.repo-monogram` (see above). */
 /* Repo name — uppercase mono in the darker repo ink so pastel hues
  * still read on a light surface. Weight + tracking do the identity
  * work; monogram + band + spine do the grouping. */
 .dock-cards-section-name {
-  color: var(--dock-repo-ink);
+  color: var(--repo-ink);
 }
 /* Terminal count — deliberately BARE quiet type, no capsule: the capsule
  * silhouette is reserved for the actionable attention counts (the header's
@@ -695,11 +806,6 @@ body {
     color-mix(in oklab, var(--repo-color) 32%, var(--color-surface-1)) 0%,
     color-mix(in oklab, var(--repo-color) 16%, var(--color-surface-1)) 100%
   );
-}
-:root.dark .dock-cards-section-name {
-  /* On dark surfaces the raw repo colour already has contrast; ink
-   * toward black would muddy it. Prefer a lightened mix. */
-  color: color-mix(in oklch, var(--repo-color) 72%, white);
 }
 /* Branch / intent label on a cards row — slightly denser than body text so
  * the primary line reads as the row title; colour still comes from the

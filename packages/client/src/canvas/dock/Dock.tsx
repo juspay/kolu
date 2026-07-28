@@ -83,8 +83,8 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useStatePip } from "../../terminal/statePipBind";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
@@ -98,9 +98,12 @@ import {
   SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
+import { nextAfter } from "../../ui/nextAfter";
+import RepoMonogram from "../../ui/RepoMonogram";
+import { encActiveHost } from "../../wire";
 import { useViewPosture } from "../useViewPosture";
 import { capturePointerGesture } from "../viewport/capturePointerGesture";
-import { chipInitials, repoMonogram } from "./chipInitials";
+import { chipInitials } from "./chipInitials";
 import {
   CARDS_WIDTH_PX,
   clampDockCardsWidth,
@@ -111,15 +114,13 @@ import {
 import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
-import { nextAfter } from "../../ui/nextAfter";
-import { encActiveHost } from "../../wire";
-import { useDockFocus } from "./useDockFocus";
-import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell, { recencyMode } from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
+import { useDockFocus } from "./useDockFocus";
 import { useDockOrder } from "./useDockOrder";
+import { useSectionAttention } from "./useSectionAttention";
 
 export type DockMode = "rail" | "cards";
 
@@ -381,7 +382,7 @@ const RailOrCards: Component<{
         <Show
           when={props.mode === "rail"}
           fallback={
-            <div class="dock-cards-stack">
+            <div class="flex flex-col gap-2.5 p-2">
               <For each={props.tree.groups}>
                 {(group) => (
                   <RepoSection group={group} flatIndexOf={flatIndexOf()} />
@@ -543,19 +544,17 @@ const RepoSection: Component<{
        *  deliberately BARE text, not a capsule: the capsule silhouette is
        *  reserved for actionable attention counts, so a number in a pill
        *  always means "act on this" (fucknotif — the old count capsule
-       *  read as six decoy notification badges). Monogram reuses
-       *  `repoMonogram` — the same fold the rail chip's repo half uses. */}
+       *  read as six decoy notification badges). Monogram is the shared
+       *  `<RepoMonogram />` atom — same paint as palette / restore. */}
       <div
         data-testid="dock-section-header"
         class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`}
       >
-        <span
-          class="dock-cards-section-monogram"
-          aria-hidden="true"
+        <RepoMonogram
+          group={props.group.name}
+          color={props.group.color}
           data-testid="dock-section-monogram"
-        >
-          {repoMonogram(props.group.name)}
-        </span>
+        />
         <span
           data-testid="dock-section-name"
           class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"

@@ -450,13 +450,15 @@ const CanvasMinimap: Component<{
                   border: "1px solid transparent",
                 };
               }
+              // Fill mixes repo identity into the theme bg so small minimap
+              // tiles stay scannable (1px borders alone blur at 160px).
               return {
                 left: `${t.x}px`,
                 top: `${t.y}px`,
                 width: `${t.w}px`,
                 height: `${t.h}px`,
-                "background-color": theme().bg,
-                border: `1px solid ${t.repoColor}`,
+                "background-color": `color-mix(in oklab, ${t.repoColor} 32%, ${theme().bg})`,
+                border: `1.5px solid ${t.repoColor}`,
               };
             };
             return (
