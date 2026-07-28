@@ -38,6 +38,7 @@ import {
   terminalSwitchActions,
 } from "./palette/fleetActions";
 import { useFleetTerminalIndex } from "./palette/fleetTerminals";
+import { NEW_TERMINAL_GROUP } from "./palette/CreateIdentityPreview";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
@@ -206,7 +207,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
     {
       kind: "group",
-      name: "New terminal",
+      name: NEW_TERMINAL_GROUP,
       section: "terminals",
       row: { kind: "command" },
       children: (): PaletteItem[] => {
