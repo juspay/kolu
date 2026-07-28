@@ -10,6 +10,8 @@
 # Run just the agent directly via `nix run ..#process-monitor-agent -- --stdio`
 # for stdio-only smoke tests.
 
+import '../binary-cache.just'
+
 repo_root := justfile_directory() / "../../../.."
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + repo_root + ' --accept-flake-config -c' }
 
@@ -24,13 +26,13 @@ install:
 # Boot parent (:7720) + Vite (:5175). Supplies the independent example flake as
 # the exact agent source; Surface Remote probes the target and selects its
 # package for that architecture.
-dev host='localhost' *args: install
+dev host='localhost' *args: install binary-cache
     #!/usr/bin/env bash
     set -euo pipefail
     cd {{ justfile_directory() }}
     agent_env=$({{ nix_shell }} node -p "require('{{ repo_root }}/packages/surface-remote/agent-env.json').flakeRef")
     echo "» target host: {{ host }}"
-    env "$agent_env={{ repo_root }}/packages/surface/example" \
+    env "$agent_env={{ agent_source_dir }}" \
     HOST={{ host }} \
     {{ nix_shell }} pnpm run dev {{ args }}
 

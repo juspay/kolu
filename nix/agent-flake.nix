@@ -6,16 +6,18 @@
 # shells. The inventory is application policy in nix/agent-packages.json;
 # @kolu/surface-remote owns only the generic provisioning mechanism.
 {
-  # Same cache the root flake declares. @kolu/surface-remote's nix invocations
-  # pass --accept-flake-config (agentDrv.ts eval, nixCopy.ts build); without
-  # this block that flag had nothing to accept. It reaches exactly the LOCAL
-  # side: the eval and the localhost-provisioning build. It does NOT reach a
-  # remote host's realisation — with `--store ssh-ng://…`, missing outputs are
-  # substituted by the REMOTE daemon per the remote's own nix.conf; a
-  # provisioning run against a host without the cache configured queried only
-  # that host's substituters and rebuilt a padi that sat in this cache. The
-  # remote-side fix is the cache in the host's nix.conf (see the Quickstart's
-  # binary-cache section).
+  # Same cache the root flake declares — and the SOURCE OF TRUTH for the
+  # provisioning prefetch: mkProvenAgentSource derives `binary-cache.json`
+  # from this block (failing eval if it is absent), and @kolu/surface-remote
+  # prefetches the agent closure from these caches into the binder's local
+  # store before realising on a target host. That local seat is the only one
+  # where a flake-declared cache can act — with `--store ssh-ng://…`, missing
+  # outputs are substituted by the REMOTE daemon per the remote's own
+  # nix.conf (a provisioning run against an unconfigured host queried only
+  # that host's substituters and rebuilt a padi that sat in this cache), so
+  # the prefetch-and-ship path is what lets remote hosts inherit the cache
+  # without any nix.conf of their own. --accept-flake-config on the local nix
+  # invocations accepts this same block for eval-time use.
   nixConfig = {
     extra-substituters = "https://cache.nixos.asia/oss";
     extra-trusted-public-keys = "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=";

@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   resolveSystem: vi.fn(),
   runCapture: vi.fn(),
+  readFile: vi.fn(),
 }));
 
 vi.mock("./arch", () => ({ resolveSystem: h.resolveSystem }));
@@ -10,7 +11,18 @@ vi.mock("./process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./process")>();
   return { ...actual, runCapture: h.runCapture };
 });
+// The baked source's binary-cache.json read — every resolve requires it, so
+// the default arm serves a valid sidecar and the contract tests override it.
+vi.mock("node:fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+  readFileSync: h.readFile,
+}));
 
+import {
+  AGENT_BINARY_CACHE_FILE,
+  AgentBinaryCacheUnbakedError,
+  readBakedBinaryCache,
+} from "./agentBinaryCache";
 import {
   AgentResolutionExhaustedError,
   AgentSourceUnbakedError,
@@ -20,6 +32,7 @@ import {
 } from "./agentDrv";
 import { ResolveDrvError } from "./host";
 import { makeProvisionBudgets } from "./nixCopy";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 const success = (stdout: string) => ({
   ok: true,
@@ -28,12 +41,23 @@ const success = (stdout: string) => ({
   stdout,
 });
 
+// The sidecar bytes a baked source would carry — SERIALIZED from the shared
+// fixture, so the URL and key are never re-typed in a third place.
+const VALID_SIDECAR = JSON.stringify({
+  substituters: TEST_BINARY_CACHE.substituters,
+  trustedPublicKeys: TEST_BINARY_CACHE.trustedPublicKeys,
+});
+
 const resolutionOptions = {
   signal: new AbortController().signal,
   onProgress: vi.fn(),
   onEvaluation: vi.fn(),
   budget: makeProvisionBudgets().evaluation,
 };
+
+beforeEach(() => {
+  h.readFile.mockReturnValue(VALID_SIDECAR);
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -355,5 +379,134 @@ describe("resolveAgentDrv", () => {
         resolutionOptions,
       ),
     ).rejects.toThrow(/not a derivation path/);
+  });
+});
+
+describe("readBakedBinaryCache", () => {
+  it("returns the sidecar's declaration and strips a path: ref prefix", () => {
+    const cache = readBakedBinaryCache("path:/nix/store/src")._unsafeUnwrap();
+    expect(h.readFile).toHaveBeenCalledWith(
+      `/nix/store/src/${AGENT_BINARY_CACHE_FILE}`,
+      "utf8",
+    );
+    expect(cache.substituters).toEqual(["https://cache.test.invalid/oss"]);
+    expect(cache.trustedPublicKeys).toHaveLength(1);
+  });
+
+  it("names the real fault for a non-local flake ref, never 'predates the contract'", () => {
+    for (const ref of [
+      "github:juspay/kolu",
+      "git+https://example.invalid/x",
+      "tarball:https://example.invalid/x.tar.gz",
+    ]) {
+      const failure = readBakedBinaryCache(ref)._unsafeUnwrapErr();
+      expect(failure.message).toMatch(/not readable as a directory/);
+      // The misleading remedy must NOT appear for this fault.
+      expect(failure.message).not.toMatch(/rebuild the binder/);
+    }
+    // No read is attempted for a ref that isn't a directory.
+    expect(h.readFile).not.toHaveBeenCalled();
+  });
+
+  it("errs with the typed unbaked fault when the sidecar is unreadable", () => {
+    h.readFile.mockImplementation(() => {
+      throw Object.assign(new Error("ENOENT: no such file"), {
+        code: "ENOENT",
+      });
+    });
+    expect(
+      readBakedBinaryCache("/nix/store/pre-contract")._unsafeUnwrapErr(),
+    ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
+  });
+
+  it("errs with the typed unbaked fault on malformed JSON", () => {
+    h.readFile.mockReturnValue("not-json{");
+    expect(
+      readBakedBinaryCache("/nix/store/src")._unsafeUnwrapErr(),
+    ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
+  });
+
+  it("rejects an empty or wrongly-shaped declaration — cache-blind is unspellable", () => {
+    for (const bad of [
+      { substituters: [], trustedPublicKeys: ["k"] },
+      { substituters: ["u"], trustedPublicKeys: [] },
+      { substituters: ["u"] },
+      { substituters: ["u"], trustedPublicKeys: [" "] },
+      { substituters: [42], trustedPublicKeys: ["k"] },
+      null,
+    ]) {
+      h.readFile.mockReturnValue(JSON.stringify(bad));
+      expect(
+        readBakedBinaryCache("/nix/store/src")._unsafeUnwrapErr(),
+      ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
+    }
+  });
+
+  it("resolveAgentDrv threads the sidecar onto the derivation it returns", async () => {
+    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.runCapture.mockResolvedValue(
+      success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
+    );
+    const drv = await resolveAgentDrv(
+      "builder",
+      "/nix/store/source-cache-thread",
+      "padi",
+      resolutionOptions,
+    );
+    expect(drv.binaryCache.substituters).toEqual([
+      "https://cache.test.invalid/oss",
+    ]);
+  });
+
+  it("fails the resolve, typed, before the arch probe or a Nix evaluation when the sidecar is absent", async () => {
+    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.readFile.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+    await expect(
+      resolveAgentDrv(
+        "builder",
+        "/nix/store/source-pre-contract",
+        "padi",
+        resolutionOptions,
+      ),
+    ).rejects.toBeInstanceOf(AgentBinaryCacheUnbakedError);
+    // The DETERMINISTIC local fault precedes both the ssh arch probe and any
+    // `nix eval` spawn — so an unreachable host can never mask it with a
+    // nondeterministic transport fault.
+    expect(h.resolveSystem).not.toHaveBeenCalled();
+    expect(h.runCapture).not.toHaveBeenCalled();
+  });
+});
+
+describe("the sidecar read is once per source ref", () => {
+  it("a proven-good sidecar is never re-read, so a later dial cannot fail on it", async () => {
+    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.runCapture.mockResolvedValue(
+      success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
+    );
+    const args = [
+      "builder",
+      "/nix/store/source-read-once",
+      "padi",
+      resolutionOptions,
+    ] as const;
+    await resolveAgentDrv(...args);
+    expect(h.readFile).toHaveBeenCalledTimes(1);
+
+    // A second dial for the SAME ref: the drvCache answers it, and the read
+    // that would otherwise run ahead of that hit does not happen again.
+    await resolveAgentDrv(...args);
+    expect(h.readFile).toHaveBeenCalledTimes(1);
+
+    // The point of remembering it: a transient read fault (a permissions blip,
+    // a concurrent rebuild) must not fail a dial whose sidecar was already
+    // proven good.
+    h.readFile.mockImplementation(() => {
+      throw new Error("EACCES: permission denied");
+    });
+    await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
+      kind: "flake-installable",
+    });
   });
 });

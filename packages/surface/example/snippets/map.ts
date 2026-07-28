@@ -15,6 +15,7 @@ import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { createLiveSignal, type WatchableSocket } from "@kolu/surface/solid";
 import {
   type AgentClient,
+  agentBinaryCache,
   directAgentDerivation,
   makeSession,
   pumpRemoteSurface,
@@ -135,6 +136,19 @@ function projectState(
     .exhaustive();
 }
 
+/** Where provisioning may PREFETCH this agent's binaries from — REQUIRED on
+ *  every derivation, since a cache-blind provisioning path is unspellable. A
+ *  real deployment DERIVES it (`readBakedBinaryCache(source)` reads what
+ *  `mkProvenAgentSource` baked from the flake's own `nixConfig`, so the
+ *  TypeScript and the Nix cannot disagree); a fleet whose `.drv` comes bare
+ *  from the environment states one inline, ONCE, against a reserved-invalid
+ *  host. Same value, same shape as the runnable `fleet-top` example this
+ *  snippet mirrors. */
+const EXAMPLE_BINARY_CACHE = agentBinaryCache({
+  substituters: ["https://cache.test.invalid/fleet-top"],
+  trustedPublicKeys: ["fleet-top:0000000000000000000000000000000000000000000="],
+});
+
 // #region binding
 function buildHostBinding(host: string, agentDrv: string): HostBinding {
   const session: Session<
@@ -153,7 +167,9 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
           .map((k): [string, string | undefined] => [k, process.env[k]])
           .filter((e): e is [string, string] => e[1] !== undefined),
       ),
-      resolveDrvPath: () => Promise.resolve(directAgentDerivation(agentDrv)), // deferred per dial
+      resolveDrvPath: () =>
+        // deferred per dial; the cache names where binaries prefetch from
+        Promise.resolve(directAgentDerivation(agentDrv, EXAMPLE_BINARY_CACHE)),
     }),
   });
 

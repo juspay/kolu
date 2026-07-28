@@ -22,10 +22,12 @@ import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { directAgentDerivation, provisionAgent } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { provisionAgent } from "./nixCopy";
 import { makeSession, type Session } from "./session";
 import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 vi.mock("./nixCopy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./nixCopy")>()),
@@ -95,7 +97,10 @@ describe("reconnect bridge loop", () => {
         localEnv: {},
         resolveDrvPath: () =>
           Promise.resolve(
-            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+            directAgentDerivation(
+              "/nix/store/deadbeef-agent.drv",
+              TEST_BINARY_CACHE,
+            ),
           ),
       }),
       reconnectDelayMs: 50,
@@ -155,7 +160,10 @@ describe("reconnect bridge loop", () => {
         localEnv: {},
         resolveDrvPath: () =>
           Promise.resolve(
-            directAgentDerivation("/nix/store/deadbeef-agent.drv"),
+            directAgentDerivation(
+              "/nix/store/deadbeef-agent.drv",
+              TEST_BINARY_CACHE,
+            ),
           ),
       }),
       // Long backoff so the second next() is genuinely parked, not racing a fast

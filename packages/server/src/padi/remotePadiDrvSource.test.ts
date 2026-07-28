@@ -15,6 +15,7 @@
  */
 
 import {
+  AgentBinaryCacheUnbakedError,
   AgentSourceUnbakedError,
   ResolveDrvError,
   type ResolveDrvPathContext,
@@ -147,6 +148,31 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
     h.resolveBakedAgentDrv.mockRejectedValue(new AgentSourceUnbakedError());
     const resolve = seedAndCaptureResolver();
     await expect(resolve(resolverContext)).rejects.toThrow(/is not set/);
+  });
+
+  it("(a'') a BAKED ref whose source has no binary-cache declaration gets its OWN cause", async () => {
+    // Distinct from (a) on purpose: the ref IS baked here, so the host-down
+    // card must not tell the operator to launch through the Nix wrapper. A
+    // shared cause would render exactly that false remedy.
+    h.resolveBakedAgentDrv.mockRejectedValue(
+      new AgentBinaryCacheUnbakedError("/nix/store/pre-contract", "ENOENT"),
+    );
+    const { binding, resolve } = seedLiveBinding();
+    await expect(resolve(resolverContext)).rejects.toMatchObject({
+      resolution: {
+        kind: "binary-cache-unbaked",
+        failureCause: "remote",
+        terminal: false,
+      },
+    });
+    expect(binding.entryFailedDetail()).toEqual({
+      cause: "agent-cache-unbaked",
+    });
+    // The binder appends its own unset-host hint, as it does for (a).
+    await expect(resolve(resolverContext)).rejects.toThrow(
+      /unset KOLU_PADI_HOST/,
+    );
+    binding.destroy();
   });
 
   it("(b) a baked source ref resolves padi for the remote host", async () => {

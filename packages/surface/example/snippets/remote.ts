@@ -21,6 +21,8 @@ import {
   type AgentDerivation,
   directAgentDerivation,
   makeSession,
+  readBakedAgentSource,
+  readBakedBinaryCache,
   pumpRemoteSurface,
   type Session,
   sshConnector,
@@ -45,8 +47,32 @@ type Pid = SF["collections"]["processes"]["Key"];
 type Proc = SF["collections"]["processes"]["Value"];
 const DEFAULT_LOAD: SF["cells"]["load"]["Value"] = { avg: [0, 0, 0] };
 
+// Every derivation names where provisioning may PREFETCH its binaries from
+// (required — a cache-blind provisioning path is unspellable). DERIVE it, don't
+// hand-write it: `mkProvenAgentSource` bakes the declaration into your agent
+// source from your flake's OWN `nixConfig`, and these two readers hand back
+// exactly that — so the TypeScript and the Nix can never disagree about which
+// cache your binaries are in. Both answer on one channel (`Result`), so the
+// two source-configuration faults chain and surface as one typed rejection.
 const resolveDrv = (_host: string): Promise<AgentDerivation> =>
-  Promise.resolve(directAgentDerivation("/nix/store/…-my-agent.drv"));
+  readBakedAgentSource()
+    .andThen(readBakedBinaryCache)
+    .match(
+      (binaryCache) =>
+        Promise.resolve(
+          directAgentDerivation("/nix/store/…-my-agent.drv", binaryCache),
+        ),
+      (fault) => Promise.reject(fault),
+    );
+
+// …or, if you run your own cache and take the .drv from elsewhere, state one
+// inline. `agentBinaryCache` is the only way to make the value, so an empty or
+// blank declaration cannot reach a derivation:
+//
+//   const binaryCache = agentBinaryCache({
+//     substituters: ["https://cache.example.org/my-agent"],
+//     trustedPublicKeys: ["my-agent:0000…="],
+//   });
 
 // #region dial
 const session: Session<

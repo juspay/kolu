@@ -8,6 +8,8 @@
 #   just run user@host          remote (needs passwordless ssh + Nix on host)
 #   just run localhost --json   scriptable (or --headless)
 
+import '../binary-cache.just'
+
 repo_root := justfile_directory() / "../../../.."
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + repo_root + ' --accept-flake-config -c' }
 
@@ -20,13 +22,13 @@ install:
     cd {{ repo_root }} && {{ nix_shell }} pnpm install
 
 # Run the pipeline on `host` (default localhost).
-run host='localhost' *args: install
+run host='localhost' *args: install binary-cache
     #!/usr/bin/env bash
     set -euo pipefail
     cd {{ justfile_directory() }}
     agent_env=$({{ nix_shell }} node -p "require('{{ repo_root }}/packages/surface-remote/agent-env.json').flakeRef")
     echo "» host: {{ host }}" >&2
-    env "$agent_env={{ repo_root }}/packages/surface/example" \
+    env "$agent_env={{ agent_source_dir }}" \
       {{ nix_shell }} pnpm start -- {{ host }} {{ args }}
 
 # Typecheck this example only
