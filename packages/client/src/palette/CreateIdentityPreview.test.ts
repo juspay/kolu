@@ -20,6 +20,18 @@ describe("isNewTerminalPath", () => {
     expect(isNewTerminalPath([])).toBe(false);
     expect(isNewTerminalPath([{ name: "Theme", kind: "group" }])).toBe(false);
   });
+
+  it("requires New terminal as the root group (not a deeper name collision)", () => {
+    expect(
+      isNewTerminalPath([
+        { name: "Hosts", kind: "group" },
+        { name: NEW_TERMINAL_GROUP, kind: "value" },
+      ]),
+    ).toBe(false);
+    expect(
+      isNewTerminalPath([{ name: NEW_TERMINAL_GROUP, kind: "value" }]),
+    ).toBe(false);
+  });
 });
 
 describe("createPreviewModel", () => {
@@ -112,6 +124,19 @@ describe("createPreviewModel", () => {
     expect(model?.annotation).toBe("feat-fun-ui");
     expect(model?.agentLabel).toBe("claude");
     expect(model?.annotationColor).toMatch(/^oklch\(/);
+  });
+
+  it("does not claim a recent repo when filter has no match", () => {
+    const model = createPreviewModel(
+      pathRoot,
+      filter,
+      "zzz-no-match",
+      undefined,
+      null,
+      { repoName: "should-not-show" },
+    );
+    expect(model?.repoName).toBe("new");
+    expect(model?.annotationColor).toBeNull();
   });
 
   it("uses defaultRepo without reading ambient recentRepos", () => {

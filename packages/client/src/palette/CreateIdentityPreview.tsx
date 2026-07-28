@@ -34,11 +34,14 @@ export type CreatePreviewModel = {
   AgentIcon: Component<{ class?: string }>;
 };
 
-/** True when the palette path is inside the New terminal create flow. */
+/** True when the palette path is inside the New terminal create flow.
+ *  Root segment only (name + kind) — a host/repo named "New terminal" deeper
+ *  in the path must not mount this preview. */
 export function isNewTerminalPath(
   path: readonly { name: string; kind: string }[],
 ): boolean {
-  return path.some((p) => p.name === NEW_TERMINAL_GROUP);
+  const root = path[0];
+  return root?.name === NEW_TERMINAL_GROUP && root.kind === "group";
 }
 
 /** Dim monogram when no real repo identity is known yet. */
@@ -129,7 +132,16 @@ export function createPreviewModel(
     );
   }
 
-  // Default while in New terminal with no useful highlight.
+  // Filtering with zero matches → no executable selection: never claim a
+  // recent repo the Enter path cannot create.
+  if (mode.kind === "filter" && query.trim().length > 0 && !highlighted) {
+    return buildModel("new", "choose a destination", "—", TerminalIcon, {
+      provisionalAnnotation: true,
+      provisionalRepo: true,
+    });
+  }
+
+  // Quiet root (empty query, no highlight yet): optional recent-repo hint.
   if (defaultRepo) {
     return buildModel(
       defaultRepo.repoName,

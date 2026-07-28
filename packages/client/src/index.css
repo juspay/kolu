@@ -439,12 +439,15 @@ body {
   filter: brightness(0.85) saturate(0.8);
 }
 
-/* finished — post-turn linger: one-shot exhale, then a soft held ring.
- * Not a comet (comets mean "needs you"). Filter/opacity only so the
- * compositor keeps the terminal body isolated (`contain: paint` on .tile-aura). */
+/* finished — post-turn linger: soft held ring. One-shot exhale is gated by
+ * `data-exhale` (set only on the tier *transition* into finished) so pan /
+ * maximize remounts of `.tile-aura` do not re-play the motion. Not a comet. */
 [data-canvas-tile][data-aura="finished"] .tile-aura {
   padding: 3px;
   background: color-mix(in oklch, var(--aura-c) 42%, transparent);
+  opacity: 0.38;
+}
+[data-canvas-tile][data-exhale][data-aura="finished"] .tile-aura {
   animation: tile-aura-exhale 1.15s ease-out forwards;
   will-change: opacity;
 }
@@ -519,6 +522,12 @@ body {
  * order — so the active-alert tile would keep throbbing 0.5↔1 instead of
  * settling at 0.4. Cancel the pulse on the active tile so the mute wins. */
 [data-canvas-tile][data-active="true"][data-aura="alert"] .tile-aura {
+  animation: none;
+  opacity: 0.4;
+}
+/* Finished exhale keyframes would otherwise outrank the mute for the
+ * animation duration — same cascade rule as alert. */
+[data-canvas-tile][data-active="true"][data-aura="finished"] .tile-aura {
   animation: none;
   opacity: 0.4;
 }
