@@ -244,13 +244,22 @@ The fix opens shared proc files once, preallocates one page for virtual-file
 reads, reuses the cached `stat` RSS in combined snapshots, buffers stdout, and
 parallelizes only large fd walks. Ordered collection keeps attribution stable;
 small scopes never spawn a worker. A live-lane smoke takes 11 interleaved warm
-`--procs` and all-facet samples, then gives the extra facets 75 µs of child CPU
-per live process. The pinned old binary spends 42.25 ms beyond `--procs` across
-500 processes and fails its 37.50 ms budget; the current binary spends 27.69 ms
-and passes. Child CPU, the same-load baseline, and running after CI's heavy
-fan-out drains make this a generous smoke rather than a wall-clock benchmark:
-other jobs can delay osfacts or disturb its caches without manufacturing most
-of a regression. One rejected version read RSS from `stat` even for `--mem`
+`--procs` and all-facet samples, then budgets the difference at 75 µs of child
+CPU per live process **plus 20 µs per readable descriptor**. Two terms, because
+the cost has two drivers: `--ports` walks every process's file descriptors and
+scales with descriptor count, while the other seven facets scale with process
+count. Measured on an idle 407-process, 2725-descriptor host at ~15 µs/process
+and 6.0 µs/descriptor, so each term carries about 3x headroom.<Footnote>The
+first version budgeted per-process only. On a workstation the two counts track
+each other and it passed; on a CI container — 50 processes, a build daemon's
+worth of descriptors — the fd walk alone spent 20 ms against a 3.75 ms
+allowance, and the smoke failed on every CI host it ever ran on. Widening the
+per-process constant enough to cover that would have made the budget larger
+than the regression it exists to catch, so the denominator changed instead.
+Fixed in <PrLink pr={2011} />.</Footnote> Child CPU and the same-load baseline
+make this a generous smoke rather than a wall-clock benchmark: other jobs can
+delay osfacts or disturb its caches without manufacturing most of a
+regression. One rejected version read RSS from `stat` even for `--mem`
 alone; that slowed
 the narrow shape from 5.46 to 6.87 ms, so the final reader keeps `statm` unless
 another requested facet has already paid for `stat`. Combining Drishti's two

@@ -64,12 +64,26 @@ snapshots, buffers stdout, and splits only large fd walks into ordered workers.
 Small scopes stay on the simple path.
 
 The live lane also samples the child CPU consumed by 11 interleaved warm
-`--procs` and all-facet snapshots. The extra facets get a process-count-scaled
-budget of 75 µs per process, so scheduler and shared-cache contention in
-parallel CI mostly cancel instead of pretending to be a regression. CI runs the
-smoke after its heavy fan-out drains. The pinned old binary spends 42.25 ms
-beyond `--procs` across 500 processes and fails its 37.50 ms budget. The current
-one spends 27.69 ms and passes.
+`--procs` and all-facet snapshots, and budgets the difference. Child CPU against
+a same-load baseline is what makes this a smoke rather than a wall-clock
+benchmark: another job can delay osfacts or disturb its caches without
+manufacturing a regression.
+
+The budget has two terms, because the cost has two drivers. `--ports` walks
+every process's file descriptors, so it scales with descriptor count; the other
+seven facets read a file or two per process, so they scale with process count.
+The budget is 75 µs per process plus 20 µs per readable descriptor. On an idle
+407-process, 2725-descriptor host the measured costs are about 15 µs per process
+and 6.0 µs per descriptor, so each term carries roughly 3x headroom — about what
+a contended CI box needs.
+
+A single process-scaled budget was the first version, and it was wrong: on a
+workstation the two counts track each other, but a CI container runs 50
+processes while a build daemon holds thousands of descriptors, and there the fd
+walk alone spends 20 ms against a 3.75 ms allowance. It failed on every CI host
+it ran on while passing on the workstation it was calibrated against. Sizing a
+per-process constant to cover that gap would have made the budget wider than the
+regression it exists to catch.
 
 ## Honesty
 

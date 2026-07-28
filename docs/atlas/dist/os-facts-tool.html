@@ -477,13 +477,22 @@ interleaved run. Every kept cycle cleared the 3% noise bar.</p>
 reads, reuses the cached <code>stat</code> RSS in combined snapshots, buffers stdout, and
 parallelizes only large fd walks. Ordered collection keeps attribution stable;
 small scopes never spawn a worker. A live-lane smoke takes 11 interleaved warm
-<code>--procs</code> and all-facet samples, then gives the extra facets 75 µs of child CPU
-per live process. The pinned old binary spends 42.25 ms beyond <code>--procs</code> across
-500 processes and fails its 37.50 ms budget; the current binary spends 27.69 ms
-and passes. Child CPU, the same-load baseline, and running after CI’s heavy
-fan-out drains make this a generous smoke rather than a wall-clock benchmark:
-other jobs can delay osfacts or disturb its caches without manufacturing most
-of a regression. One rejected version read RSS from <code>stat</code> even for <code>--mem</code>
+<code>--procs</code> and all-facet samples, then budgets the difference at 75 µs of child
+CPU per live process <strong>plus 20 µs per readable descriptor</strong>. Two terms, because
+the cost has two drivers: <code>--ports</code> walks every process’s file descriptors and
+scales with descriptor count, while the other seven facets scale with process
+count. Measured on an idle 407-process, 2725-descriptor host at ~15 µs/process
+and 6.0 µs/descriptor, so each term carries about 3x headroom.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The
+first version budgeted per-process only. On a workstation the two counts track
+each other and it passed; on a CI container — 50 processes, a build daemon’s
+worth of descriptors — the fd walk alone spent 20 ms against a 3.75 ms
+allowance, and the smoke failed on every CI host it ever ran on. Widening the
+per-process constant enough to cover that would have made the budget larger
+than the regression it exists to catch, so the denominator changed instead.
+Fixed in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a>.</span></span></span> Child CPU and the same-load baseline
+make this a generous smoke rather than a wall-clock benchmark: other jobs can
+delay osfacts or disturb its caches without manufacturing most of a
+regression. One rejected version read RSS from <code>stat</code> even for <code>--mem</code>
 alone; that slowed
 the narrow shape from 5.46 to 6.87 ms, so the final reader keeps <code>statm</code> unless
 another requested facet has already paid for <code>stat</code>. Combining Drishti’s two

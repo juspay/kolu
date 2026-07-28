@@ -21,7 +21,23 @@ use std::process::{Child, Command};
 use std::thread;
 use std::time::Duration;
 
+// The extra-facet cost has TWO drivers, not one.
+//
+// `--ports` walks every process's file descriptors, so it scales with
+// DESCRIPTOR count; the remaining facets read a file or two per process, so
+// they scale with PROCESS count. Budgeting the whole thing per-process measured
+// the wrong denominator for the dominant term — on a workstation the two
+// happen to track each other, but a CI container runs few processes while a
+// build daemon holds thousands of descriptors, and there the fd walk alone is
+// ~20 ms against a 3.75 ms allowance. This smoke failed on every CI host it
+// ever ran on while passing on the ~450-process box it was calibrated against.
+//
+// Measured on an idle 407-process / 2725-descriptor workstation: the `--ports`
+// facet costs 6.0 us per readable descriptor, and the other seven facets
+// together cost ~15 us per process. Both budgets carry roughly 3x headroom for
+// a contended CI box, which is what makes this a smoke rather than a benchmark.
 const LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS: u128 = 75;
+const LINUX_PORTS_CPU_BUDGET_US_PER_FD: u128 = 20;
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -47,6 +63,25 @@ struct LiveWorld {
     linux_perf_baseline_samples: Vec<Duration>,
     linux_perf_samples: Vec<Duration>,
     linux_perf_process_count: Option<usize>,
+    linux_perf_fd_count: Option<usize>,
+}
+
+/// How many processes exist, and how many of their descriptors this uid can
+/// read — the two quantities the extra-facet cost is actually a function of.
+#[cfg(target_os = "linux")]
+fn linux_proc_census() -> (usize, usize) {
+    let mut processes = 0;
+    let mut descriptors = 0;
+    for entry in std::fs::read_dir("/proc").expect("read /proc").flatten() {
+        if entry.file_name().to_string_lossy().parse::<u32>().is_err() {
+            continue;
+        }
+        processes += 1;
+        if let Ok(fds) = std::fs::read_dir(entry.path().join("fd")) {
+            descriptors += fds.count();
+        }
+    }
+    (processes, descriptors)
 }
 
 #[derive(Debug, Clone)]
@@ -612,13 +647,9 @@ fn time_complete_process_snapshots(_world: &mut LiveWorld) {
             world.run_osfacts(&baseline_args);
             world.run_osfacts(&args);
         }
-        world.linux_perf_process_count = Some(
-            std::fs::read_dir("/proc")
-                .expect("read /proc")
-                .flatten()
-                .filter(|entry| entry.file_name().to_string_lossy().parse::<u32>().is_ok())
-                .count(),
-        );
+        let (processes, descriptors) = linux_proc_census();
+        world.linux_perf_process_count = Some(processes);
+        world.linux_perf_fd_count = Some(descriptors);
         for _ in 0..11 {
             let started = child_cpu_time();
             world.run_osfacts(&baseline_args);
@@ -647,14 +678,17 @@ fn complete_process_snapshot_is_fast(_world: &mut LiveWorld) {
         let median = world.linux_perf_samples[world.linux_perf_samples.len() / 2];
         let extra = median.saturating_sub(baseline_median);
         let process_count = world.linux_perf_process_count.expect("process count");
-        let limit_micros =
+        let fd_count = world.linux_perf_fd_count.expect("descriptor count");
+        let process_micros =
             LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS.saturating_mul(process_count as u128);
+        let fd_micros = LINUX_PORTS_CPU_BUDGET_US_PER_FD.saturating_mul(fd_count as u128);
+        let limit_micros = process_micros.saturating_add(fd_micros);
         eprintln!(
-            "Linux child CPU medians across {process_count} processes: --procs={baseline_median:?}, all facets={median:?}, extra={extra:?} ({LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process budget, {limit_micros}us total)"
+            "Linux child CPU medians across {process_count} processes / {fd_count} descriptors: --procs={baseline_median:?}, all facets={median:?}, extra={extra:?} (budget {process_micros}us process + {fd_micros}us fd = {limit_micros}us total)"
         );
         assert!(
             extra.as_micros() < limit_micros,
-            "Linux extra-facets child CPU median was {extra:?} (--procs={baseline_median:?}, all facets={median:?}) across {process_count} processes; live smoke budget is {LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process ({limit_micros}us total; baseline samples={:?}; all-facet samples={:?})",
+            "Linux extra-facets child CPU median was {extra:?} (--procs={baseline_median:?}, all facets={median:?}) across {process_count} processes and {fd_count} descriptors; live smoke budget is {LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process + {LINUX_PORTS_CPU_BUDGET_US_PER_FD}us/descriptor ({limit_micros}us total; baseline samples={:?}; all-facet samples={:?})",
             world.linux_perf_baseline_samples,
             world.linux_perf_samples,
         );
