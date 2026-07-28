@@ -27,6 +27,12 @@ const name = pickTheme(availableThemes, {
 const shuffled = pickTheme(availableThemes, {
   excludeBgs: ["#1d1f21"],
 });
+
+// Restrict the pool: light/dark family, or colourful (saturated) tints
+const colourful = pickTheme(availableThemes, {
+  excludeBgs: ["#1d1f21"],
+  mode: "colourful",
+});
 ```
 
 ## Regenerating themes

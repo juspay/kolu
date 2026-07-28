@@ -135,8 +135,8 @@ export const useTerminalCrud = createSharedRoot(() => {
 
     // Pick the new terminal's theme by strategy. `inherit` copies the active
     // tile's theme (like size inheritance below); `shuffle` auto-picks a tint
-    // distinct from every open terminal, restricted to the family the shuffle
-    // behaviour resolves to. Either way an explicit `initial.themeName`
+    // distinct from every open terminal, restricted by shuffle behaviour
+    // (light/dark/auto/colourful). Either way an explicit `initial.themeName`
     // (worktree / session restore) wins, and an unresolved theme (no active
     // tile to inherit, or the active tile is on the default) stays `undefined`
     // → the server default. Peers are snapshotted BEFORE creating so the new
