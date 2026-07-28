@@ -76,9 +76,7 @@ function stableHue(key: string): number {
  *  Non-string entries are dropped (tests / partial meta can yield them). */
 export function assignColors(keys: Iterable<string>): Map<string, string> {
   const unique = [
-    ...new Set(
-      [...keys].filter((k): k is string => typeof k === "string" && k.length >= 0),
-    ),
+    ...new Set([...keys].filter((k): k is string => typeof k === "string")),
   ];
   return new Map(
     unique.map((key) => [key, `oklch(0.75 0.14 ${stableHue(key)})`]),
