@@ -791,21 +791,108 @@ describe("converge — enactment + outcomes", () => {
     );
   });
 
-  // ── W7 named tests ──────────────────────────────────────────────────────
+  // ── W7/W8 named tests ───────────────────────────────────────────────────
 
-  it("W7.1 confinement: BindResult.kind is switched only in consumeBindResult", () => {
-    // Source-level pin: the only `switch (r.kind)` in converge.ts is the sole
-    // consumer. Call sites that hand-switch would reintroduce W6.1 leakage.
+  /**
+   * W8.1: pin bind-call TOPOLOGY, not identifier spelling. Every
+   * `await ctx.bind()` / `await args.bind()` must be the first argument of
+   * `consumeBindResult(...)`. Assignment / destructuring of a bind call is
+   * banned (the renamed-variable escape of the W7 name-only pin).
+   * `outcome.bind.kind` in outcomeAdopted is an outcome projection — no bind
+   * call — and is out of scope for this checker.
+   */
+  function assertBindCallTopology(src: string): void {
+    const stripped = src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+
+    const assigned = stripped.match(
+      /(?:const|let|var)\s+\w+\s*=\s*await\s+(?:ctx|args)\.bind\(\s*\)/g,
+    );
+    if (assigned?.length) {
+      throw new Error(
+        `bind call assigned outside consumeBindResult: ${assigned.join("; ")}`,
+      );
+    }
+    if (
+      /\{[^}]*\bkind\b[^}]*\}\s*=\s*await\s+(?:ctx|args)\.bind\(\s*\)/.test(
+        stripped,
+      )
+    ) {
+      throw new Error("bind call destructured outside consumeBindResult");
+    }
+
+    const re = /await\s+(?:ctx|args)\.bind\(\s*\)/g;
+    let m: RegExpExecArray | null;
+    let count = 0;
+    while ((m = re.exec(stripped)) !== null) {
+      count += 1;
+      let i = m.index - 1;
+      while (i >= 0 && /\s/.test(stripped[i]!)) i--;
+      if (stripped[i] !== "(") {
+        throw new Error(
+          `bind call at ${m.index} is not a function argument (found '${stripped[i] ?? "EOF"}')`,
+        );
+      }
+      i--;
+      while (i >= 0 && /\s/.test(stripped[i]!)) i--;
+      const end = i + 1;
+      while (i >= 0 && /[\w$]/.test(stripped[i]!)) i--;
+      const name = stripped.slice(i + 1, end);
+      if (name !== "consumeBindResult") {
+        throw new Error(
+          `bind call at ${m.index} is argument of '${name || "?"}', not consumeBindResult`,
+        );
+      }
+    }
+    if (count === 0) {
+      throw new Error(
+        "no await (ctx|args).bind() found — topology pin vacuous",
+      );
+    }
+  }
+
+  it("W8.1 confinement: every bind call is first arg of consumeBindResult (topology)", () => {
     const src = readFileSync(
       fileURLToPath(new URL("./converge.ts", import.meta.url)),
       "utf8",
     );
-    const switchMatches = [...src.matchAll(/switch\s*\(\s*r\.kind\s*\)/g)];
-    expect(switchMatches.length).toBe(1);
-    // No equality probes on r.kind outside the switch (if (r.kind === …)).
-    expect(src.match(/\br\.kind\s*===/g)?.length ?? 0).toBe(0);
-    // Consumer is named and documented as the sole home.
+    expect(() => assertBindCallTopology(src)).not.toThrow();
+    // Still require the consumer exists (sanity).
     expect(src).toMatch(/async function consumeBindResult\b/);
+  });
+
+  it("W8.1 confinement is red against renamed-variable escape (proven)", () => {
+    // The W7 name pin (`switch (r.kind)`) stays green under this escape; the
+    // topology pin must fail. Actually run the checker on the fixture.
+    const escape = `
+async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHeld: () => void; baseCtx: FoldCtx }) {
+  // Stored under a DIFFERENT name — the old spelling pin never saw this.
+  const result = await args.bind();
+  if (result.kind === "refused-or-failed") {
+    args.releaseHeld();
+    return { kind: "refused", adopted: false as const };
+  }
+  if (result.kind === "spawned-fresh") {
+    return { kind: "spawned-fresh" };
+  }
+  return consumeBindResult(result, args.baseCtx, { kind: "post-drain" });
+}
+`;
+    expect(() => assertBindCallTopology(escape)).toThrow(
+      /bind call assigned outside consumeBindResult/,
+    );
+
+    // Destructuring escape is also red.
+    const destructure = `
+async function bad(ctx: { bind: () => Promise<BindResult> }) {
+  const { kind } = await ctx.bind();
+  return kind;
+}
+`;
+    expect(() => assertBindCallTopology(destructure)).toThrow(
+      /bind call (assigned|destructured) outside consumeBindResult/,
+    );
   });
 
   it("W7.1 post-drain bind refuse releases held connection (dispose-sensitive)", async () => {

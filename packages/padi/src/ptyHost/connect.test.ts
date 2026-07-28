@@ -10,7 +10,7 @@
  */
 
 import { mkdtempSync } from "node:fs";
-import { createServer } from "node:net";
+import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@kolu/surface-daemon";
@@ -21,7 +21,11 @@ import {
 } from "kaval";
 import { instanceKeyFromStartedAt } from "@kolu/surface-daemon-supervisor";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { connectKaval, probeKavalForConvergence } from "./connect.ts";
+import {
+  connectKaval,
+  isNoListenerError,
+  probeKavalForConvergence,
+} from "./connect.ts";
 
 const silentLog = {
   debug: () => {},
@@ -110,18 +114,29 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
 });
 
 /**
- * W7.2 / F24: production-path pins for `probeKavalForConvergence`.
- * Catch-to-null on handshake failure and hard-coded pre-instance both go green
- * without these — the three cases must stay mutation-red.
+ * W7.2 / W8.2: production-path pins for `probeKavalForConvergence`.
+ * Catch-to-null, hard-coded pre-instance, ECONNREFUSED arm deletion, and
+ * no-op dispose must all stay mutation-red.
  */
-describe("probeKavalForConvergence — production path (W7.2)", () => {
-  it("missing/refused socket ⇒ null (honest absence only)", async () => {
+describe("probeKavalForConvergence — production path (W7.2 / W8.2)", () => {
+  it("ENOENT (missing path) ⇒ null (honest absence)", async () => {
     const missing = join(
       mkdtempSync(join(tmpdir(), "kolu-probe-absent-")),
       "no.sock",
     );
-    // Path with no listener → ECONNREFUSED / ENOENT → null, never throw.
     await expect(probeKavalForConvergence(missing)).resolves.toBeNull();
+  });
+
+  it("W8.2: isNoListenerError accepts both ECONNREFUSED and ENOENT (classifier pin)", () => {
+    // Focused classifier pin: deleting either arm from isNoListenerError goes
+    // red. The ENOENT production path is covered by the missing-path test
+    // above; this pin holds the ECONNREFUSED arm that path never exercises.
+    expect(isNoListenerError({ code: "ECONNREFUSED" })).toBe(true);
+    expect(isNoListenerError({ code: "ENOENT" })).toBe(true);
+    expect(isNoListenerError({ cause: { code: "ECONNREFUSED" } })).toBe(true);
+    // Non-absence codes stay failures (must not collapse into null).
+    expect(isNoListenerError({ code: "EPERM" })).toBe(false);
+    expect(isNoListenerError(new Error("boom"))).toBe(false);
   });
 
   it("socket accepts but handshake never answers ⇒ REJECTS (not null)", async () => {
@@ -154,34 +169,38 @@ describe("probeKavalForConvergence — production path (W7.2)", () => {
     }
   });
 
-  it("real served kaval ⇒ startedAt-derived instance key + disposable probe", async () => {
+  it("real served kaval ⇒ startedAt key + dispose destroys the socket (observed)", async () => {
     const socketPath = join(
       mkdtempSync(join(tmpdir(), "kolu-probe-live-")),
       "pty-host.sock",
     );
     const listener = await serve(socketPath);
+    // Spy the production Socket.destroy boundary — a no-op dispose leaves this
+    // call count unchanged and turns the test red (W8.2).
+    const destroySpy = vi.spyOn(Socket.prototype, "destroy");
     try {
       const probe = await probeKavalForConvergence(socketPath);
       expect(probe).not.toBeNull();
-      if (probe === null) return;
-      try {
-        expect(probe.capability).toBe("not-drainable");
-        expect(probe.identity.contractVersion).toBeTypeOf("string");
-        // Read the same handshake the probe used so the key is pinned to
-        // instanceKeyFromStartedAt(version.startedAt), not hard-coded pre-instance.
-        const conn = await connectKaval(socketPath);
-        try {
-          expect(probe.instanceKey).toEqual(
-            instanceKeyFromStartedAt(conn.startedAt),
-          );
-          expect(probe.instanceKey.kind).toBe("instance");
-        } finally {
-          conn.dispose();
-        }
-      } finally {
-        probe.dispose();
+      if (probe === null) {
+        throw new Error("unreachable: probe null after expect");
       }
+      expect(probe.capability).toBe("not-drainable");
+      expect(probe.identity.contractVersion).toBeTypeOf("string");
+      const conn = await connectKaval(socketPath);
+      try {
+        expect(probe.instanceKey).toEqual(
+          instanceKeyFromStartedAt(conn.startedAt),
+        );
+        expect(probe.instanceKey.kind).toBe("instance");
+      } finally {
+        conn.dispose();
+      }
+      const destroysBefore = destroySpy.mock.calls.length;
+      probe.dispose();
+      // Observable transport close — not a vacuous "callable exists" check.
+      expect(destroySpy.mock.calls.length).toBeGreaterThan(destroysBefore);
     } finally {
+      destroySpy.mockRestore();
       listener.close();
     }
   });

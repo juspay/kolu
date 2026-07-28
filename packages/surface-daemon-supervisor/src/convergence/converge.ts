@@ -4,16 +4,19 @@
  *
  * Accepts only a genuine {@link createEndpoint} handle (F12 WeakMap brand).
  *
- * **Single observation authority (`foldObserved`).** Every observed identity
- * (initial probe, bind characterization, post-drain successor, post-give-up bind,
- * drainable re-probe) and every bind transition routes through that function:
- *   1. folds through `decide(policy, identity | null)` — never a hand-copied subset;
- *   2. owns connection lifecycle — refused / not-adopted / probe-failed always call
- *      the idempotent `releaseHeld` (no `holding` mirror);
- *   3. preserves four-valued characterizations (characterized | absent | failed |
- *      uncorrelated);
- *   4. reports `running: null` when unknown (never fabricates expected);
- *   5. owns dispose of every identity observation (transfer only into drain loop).
+ * **Two composed authorities** (match the supervisor Reference page):
+ *
+ * 1. **`foldObserved`** — every *observation* (initial probe, bind characterization,
+ *    post-drain successor, post-give-up characterization, drainable re-probe):
+ *    folds through `decide(policy, identity | null)`; owns probe dispose (transfer
+ *    only into the drain body); reports `running: null` when unknown; preserves
+ *    four-valued characterizations (characterized | absent | failed | uncorrelated).
+ *
+ * 2. **`consumeBindResult`** — every *bind transition* (plain | recycle | post-drain |
+ *    give-up). Sole switch on BindResult arms; owns releaseHeld / heldBind and
+ *    outcome decorations (recycled, drained-replacing, adopt-bind-failed). Call sites
+ *    never inspect `r.kind`. Spawned-fresh / refused-or-failed return here without
+ *    re-entering `foldObserved`.
  */
 
 import {

@@ -172,8 +172,12 @@ export async function connectKaval(
  * `buildId` folds an absent/off-nix `staleKey` to `""` (an honest "unknown", never a
  * fabricated match), exactly as the client-side currency nudge reads it.
  */
-/** True when the dial failure means "nothing listening" (honest null probe). */
-function isNoListenerError(err: unknown): boolean {
+/**
+ * True when the dial failure means "nothing listening" (honest null probe).
+ * Exported so the W8.2 pin can assert both ECONNREFUSED and ENOENT arms —
+ * deleting either from this classifier must turn that pin red.
+ */
+export function isNoListenerError(err: unknown): boolean {
   const e = err as { code?: string; cause?: { code?: string } };
   const code = e.code ?? e.cause?.code;
   return code === "ECONNREFUSED" || code === "ENOENT";
