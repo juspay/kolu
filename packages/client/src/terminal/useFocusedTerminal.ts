@@ -16,11 +16,13 @@
  *  site assembles is a value a call site can get wrong; a derivation everything
  *  reads cannot disagree with itself.
  *
- *  One consequence worth stating, because it is a deliberate behaviour change:
- *  at most ONE dock row is ever the focused row. With focus inside a split, the
- *  split's entry lights and its parent row does not — the parent tile is still
- *  active, but you are not typing in it, and two highlighted rows answer "where
- *  am I" with two different answers. */
+ *  The two facts NEST rather than compete, and the dock shows both: the parent
+ *  row is lit because its tile is the active one, and the split's entry is lit
+ *  because that is where the keyboard is — a selected file inside a selected
+ *  folder. Treating them as exclusive (lighting only the split) was a real
+ *  regression: it took the highlight off every terminal that held a split, which
+ *  is both what a user reported and what the e2e contract
+ *  `[data-testid="dock-row"][data-active]` has always meant. */
 
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
@@ -44,8 +46,13 @@ export const useFocusedTerminal = createSharedRoot(() => {
 
   return {
     focusedId,
-    /** Is this terminal the one you are in? The only way to ask. */
+    /** Is this terminal the one your keyboard is in? True for a split you are
+     *  typing in, and for a tile whose sub-panel is not where focus sits. */
     isFocused: (id: TerminalId): boolean => focusedId() === id,
+    /** Is this the active TILE — the canvas selection? A split is never a tile,
+     *  so this is false for every sub-entry, and stays TRUE for a parent whose
+     *  focus has moved into one of its splits. */
+    isActiveTile: (id: TerminalId): boolean => tileStore.activeId() === id,
   };
 });
 

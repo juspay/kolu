@@ -45,7 +45,21 @@ export type DockRowAttrs = {
  *  `false` and stayed unlit when you clicked into it. Reading the shared
  *  `useFocusedTerminal` derivation instead means a caller cannot supply a
  *  wrong answer, because there is no longer an answer to supply. Called from a
- *  component body, like every other reactive read here. */
+ *  component body, like every other reactive read here.
+ *
+ *  `data-active` is the OR of two nested facts, not one of them: a row is
+ *  active when it IS the selected tile, or when it is the split your keyboard
+ *  is in. Both, because they nest — you are in that split, inside that tile.
+ *  Reading only the second briefly shipped here and took the highlight off
+ *  every terminal holding a split, which is what the dock's oldest e2e contract
+ *  (`[data-testid="dock-row"][data-active]`) has always denied. */
+/** The tile you selected, or the split you are typing in — the dock lights
+ *  both, because they nest. */
+function isActiveRow(id: TerminalId): boolean {
+  const focus = useFocusedTerminal();
+  return focus.isActiveTile(id) || focus.isFocused(id);
+}
+
 export function dockRowAttrs(row: {
   id: TerminalId;
   /** The ORDER bucket (`data-bucket`) — ordering tests and the rail glow. */
@@ -65,7 +79,7 @@ export function dockRowAttrs(row: {
     "data-terminal-id": row.id,
     "data-bucket": row.bucket,
     "data-agent-state": row.agentState,
-    "data-active": useFocusedTerminal().isFocused(row.id) ? "" : undefined,
+    "data-active": isActiveRow(row.id) ? "" : undefined,
     "data-asking": row.asking ? "" : undefined,
     "data-unread": row.unread ? "" : undefined,
   };

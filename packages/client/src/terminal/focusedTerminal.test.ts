@@ -71,10 +71,12 @@ describe("resolveFocusedTerminal", () => {
     expect(resolveFocusedTerminal(null, () => inTheSplit)).toBeNull();
   });
 
-  // The invariant the whole shape buys: exactly one row can be the focused row.
-  // While focus is in a split, the parent must NOT also answer yes — two lit
-  // rows answer "where am I" twice.
-  it("never names the tile and its split at the same time", () => {
+  // The keyboard is in exactly one place, so this names exactly one terminal.
+  // That is NOT the same as "one lit dock row": the parent row is lit because
+  // its TILE is selected, which is a different fact and nests with this one
+  // (see `dockRowAttrs`). Conflating them took the highlight off every
+  // terminal holding a split.
+  it("names one terminal — the split, not the tile, when focus is inside it", () => {
     const focused = resolveFocusedTerminal(TILE, () => inTheSplit);
     expect(focused === TILE && focused === SUB).toBe(false);
     expect(focused).not.toBe(TILE);
