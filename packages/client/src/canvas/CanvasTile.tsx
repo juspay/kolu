@@ -19,7 +19,6 @@ import {
   createSignal,
   For,
   type JSX,
-  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -115,6 +114,7 @@ const CanvasTile: Component<{
   // One-shot "tile lands on the plane" — only the first mount, never on
   // maximize↔tile restore (that would re-play the entrance every posture flip).
   // Filter-only so it never fights the inline pan/zoom `transform` or opacity.
+  // Duration lives only in CSS (`tile-place-in`); clear on `animationend`.
   const [landing, setLanding] = createSignal(true);
   onMount(() => {
     if (
@@ -122,11 +122,16 @@ const CanvasTile: Component<{
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
     ) {
       setLanding(false);
-      return;
     }
-    const t = window.setTimeout(() => setLanding(false), 420);
-    onCleanup(() => clearTimeout(t));
   });
+  const onLandInEnd: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
+    e,
+  ) => {
+    // Only our place-in animation on this host — ignore bubbled child animations.
+    if (e.target === e.currentTarget && e.animationName === "tile-place-in") {
+      setLanding(false);
+    }
+  };
 
   const bg = () => props.theme.bg;
   // Memoized: `showAura` and the `data-aura` attribute both read the tier, and
@@ -186,12 +191,11 @@ const CanvasTile: Component<{
       "background-color": bg(),
       // One colour throughout: the repo's identity colour drives the border, the
       // state aura, AND the active tile's focus cue. The active "you are here"
-      // signal is a crisp repo-colour OUTLINE floating 4px off the tile on the
-      // dark canvas (`outline` + `outline-offset` below). It's drawn outside the
-      // border-box on the constant dark canvas — never over the terminal body,
-      // so it's theme-independent — and `outline` is never clipped by the tile's
-      // overflow-hidden. The 4px moat keeps it clear of the border aura.
-      // `--aura-c` is also the working-aura outer rail colour (see index.css).
+      // signal is a crisp repo-colour OUTLINE floating in the moat (`--tile-moat-*`
+      // tokens, shared with the working outer rail in index.css). Drawn outside
+      // the border-box on the constant dark canvas — never over the terminal
+      // body — and not clipped (outer shell is overflow-visible; title/body clip
+      // via the inner shell). `--aura-c` is inherited by `.tile-aura`.
       "border-color": props.repoColor,
       "--aura-c": props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
@@ -199,8 +203,10 @@ const CanvasTile: Component<{
       "box-shadow": props.active
         ? `0 8px 32px rgba(0,0,0,0.4)`
         : `0 2px 8px rgba(0,0,0,0.2)`,
-      outline: props.active ? `1.5px solid ${props.repoColor}` : undefined,
-      "outline-offset": props.active ? "4px" : undefined,
+      outline: props.active
+        ? `var(--tile-moat-stroke) solid ${props.repoColor}`
+        : undefined,
+      "outline-offset": props.active ? "var(--tile-moat-offset)" : undefined,
       "transform-origin": "0 0",
       transform: tileTransformCSS(
         l.x,
@@ -315,23 +321,19 @@ const CanvasTile: Component<{
       // warning. `inert` is the spec's recommended replacement precisely
       // because it hides *and* prevents focus without that conflict.
       inert={isCovered()}
-      // Working aura paints an OUTER rotating rail (active-tile double-frame
-      // geometry) that must not be clipped — so the shell is `overflow: visible`
-      // while working, and title/body clip through an inner rounded shell.
-      class="relative border transition-shadow duration-200"
+      // Clip model is tier-independent: outer shell always overflow-visible so
+      // outside-paint auras (working outer rail, future rings) are free; the
+      // inner shell always clips title/body. Geometry does not branch on aura.
+      class="relative border transition-shadow duration-200 overflow-visible"
       // Geometry, layer, and visibility all live in `presentation().style` (one
       // complete box per mode); the classList carries only non-geometric,
       // mode-specific decoration (rounded corners vs. transparent border).
-      classList={{
-        ...presentation().classes,
-        "overflow-hidden": !(showAura() && aura() === "working"),
-        "overflow-visible": showAura() && aura() === "working",
-      }}
+      classList={presentation().classes}
       style={presentation().style}
       onMouseDown={() => props.onSelect()}
+      onAnimationEnd={onLandInEnd}
     >
-      {/* Clip shell — keeps xterm/title rounded when the outer tile is
-       *  overflow-visible for the working outer rail. */}
+      {/* Clip shell — sole clip boundary for title/body (xterm, chrome). */}
       <div class="absolute inset-0 flex flex-col overflow-hidden rounded-[inherit]">
         {/* Title bar — uses tile foreground at low opacity for guaranteed
          *  contrast against the tile background, regardless of theme. The
@@ -445,11 +447,7 @@ const CanvasTile: Component<{
        *  comet. Driven by `[data-aura]` in index.css. Outside the clip shell
        *  so the working outer rail can sit in the active-outline moat. */}
       <Show when={showAura()}>
-        <div
-          class="tile-aura"
-          aria-hidden="true"
-          style={{ "--aura-c": props.repoColor }}
-        />
+        <div class="tile-aura tile-aura-ring" aria-hidden="true" />
       </Show>
     </div>
   );

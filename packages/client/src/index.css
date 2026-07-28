@@ -299,17 +299,25 @@ body {
  * all share it, nothing else competes). The treatment carries the state; the
  * colour carries identity.
  *   - working   → "runs": same double-frame geometry as the active tile
- *                 (solid identity border + outer moat 4px out); the OUTER rail
- *                 carries a calm rotating highlight (busy, asks nothing).
+ *                 (solid identity border + outer moat); the OUTER rail carries
+ *                 a calm rotating highlight (busy, asks nothing).
  *   - needs-you → "sweeps": a comet orbits the ring; its SPEED is the urgency —
  *                 alert fastest, fresh medium, stale slowest (the decay, read as
  *                 a comet winding down).
  *
- * The ring lives on a `.tile-aura` child. Needs-you/finished sit at `inset:0`
- * inside the tile clip. Working expands outside (`inset: -5.5px`) so the outer
- * rail can match the active outline moat — the tile sets `overflow: visible`
- * while working (see CanvasTile) and clips chrome/body via an inner shell.
- * Focusing a tile clears unread and mutes its aura (rule last, so it wins). */
+ * Moat geometry tokens (`--tile-moat-offset` / `--tile-moat-stroke` /
+ * `--tile-radius`) are one socket for the active outline AND the working outer
+ * rail — change them once. Outer shell is always overflow-visible; title/body
+ * clip via the inner shell (CanvasTile). Focusing a tile clears unread and
+ * mutes its aura (rule last, so it wins). */
+[data-canvas-tile] {
+  --tile-radius: 0.75rem; /* matches Tailwind rounded-xl on tiled shells */
+  --tile-moat-offset: 4px;
+  --tile-moat-stroke: 1.5px;
+  /* Working outer rail sits just outside the border-box: offset + stroke. */
+  --tile-moat-outset: calc(var(--tile-moat-offset) + var(--tile-moat-stroke));
+}
+
 .tile-aura {
   position: absolute;
   inset: 0;
@@ -323,18 +331,9 @@ body {
   contain: layout paint;
 }
 
-/* working — double frame like the active tile: solid identity border (on the
- * tile) + outer moat ~4px out. The moat is a full dim rail with a brighter
- * arc that rotates (compositor `transform` only — same model as needs-you). */
-[data-canvas-tile][data-aura="working"] .tile-aura {
-  /* 4px offset + ~1.5px stroke ≈ active outline-offset geometry */
-  inset: -5.5px;
-  /* rounded-xl (0.75rem) + expansion so the outer rail follows the tile curve */
-  border-radius: calc(0.75rem + 5.5px);
-  contain: none;
-  padding: 1.5px;
-  /* static full outer rail */
-  background: color-mix(in oklch, var(--aura-c) 38%, transparent);
+/* Shared ring-stroke mask (padding-box content xor). Tier rules only set
+ * padding / background / motion — not the mask formula. */
+.tile-aura-ring {
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -343,6 +342,19 @@ body {
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
   mask-composite: exclude;
+}
+
+/* working — double frame like the active tile: solid identity border (on the
+ * tile) + outer moat. The moat is a full dim rail with a brighter arc that
+ * rotates (compositor `transform` only — same model as needs-you). */
+[data-canvas-tile][data-aura="working"] .tile-aura {
+  inset: calc(-1 * var(--tile-moat-outset));
+  /* Tile radius + expansion so the outer rail follows the tile curve */
+  border-radius: calc(var(--tile-radius) + var(--tile-moat-outset));
+  contain: none;
+  padding: var(--tile-moat-stroke);
+  /* static full outer rail */
+  background: color-mix(in oklch, var(--aura-c) 38%, transparent);
 }
 [data-canvas-tile][data-aura="working"] .tile-aura::before {
   content: "";
@@ -368,14 +380,6 @@ body {
 [data-canvas-tile][data-aura="waiting-fresh"] .tile-aura,
 [data-canvas-tile][data-aura="waiting-stale"] .tile-aura {
   padding: 3px;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
 }
 [data-canvas-tile][data-aura="alert"] .tile-aura::before,
 [data-canvas-tile][data-aura="waiting-fresh"] .tile-aura::before,
@@ -440,14 +444,6 @@ body {
  * compositor keeps the terminal body isolated (`contain: paint` on .tile-aura). */
 [data-canvas-tile][data-aura="finished"] .tile-aura {
   padding: 3px;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
   background: color-mix(in oklch, var(--aura-c) 42%, transparent);
   animation: tile-aura-exhale 1.15s ease-out forwards;
   will-change: opacity;
