@@ -622,7 +622,7 @@ describe("converge — enactment + outcomes", () => {
       },
       adoptHint: {
         home: { dir: hintDir, gatePath: hintGate, socketPath: hintSock },
-        connect: async (socketPath: string) => {
+        connect: async (_socketPath: string) => {
           hintConnects += 1;
           return {
             client: "hint-client",

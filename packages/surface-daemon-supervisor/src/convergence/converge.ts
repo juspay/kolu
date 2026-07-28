@@ -495,8 +495,10 @@ async function enactDrainLoop(args: {
   baseCtx: FoldCtx;
 }): Promise<ConvergenceOutcome> {
   const baked = args.expected;
-  let current = args.initial;
-  let axis = args.axis;
+  // Successor re-entry is recursive (foldBindResult → foldObserved → enactDrainLoop),
+  // so these are fixed for this loop body — never reassigned in place.
+  const current = args.initial;
+  const axis = args.axis;
 
   try {
     for (;;) {
