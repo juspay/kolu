@@ -69,11 +69,9 @@ function entryAsPadiLink(state: EntryState): PadiLink | undefined {
 }
 
 function skewPairFor(host: HostKey): SkewVersionPair | undefined {
-  // The failed arm carries the schema-valid `PadiEntryFailure`, whose skew arm
-  // types `running`/`expected` directly (both OPTIONAL — the binder may omit them).
-  // `SkewVersionPair` is now the honestly-optional schema-derived type, so the
-  // returned pair needs NO `as SkewVersionPair` cast — the type stops lying about
-  // possibly-undefined fields being present.
+  // The failed arm carries the schema-valid `PadiEntryFailure`, whose
+  // `contract-skew-refused` arm always carries both contract versions (typed
+  // evidence from the standing anomaly — never optional).
   const state = padiMap.entry(host).state();
   if (
     state.kind !== "failed" ||

@@ -99,9 +99,11 @@ export async function convergeAdmit(args: {
       return { kind: "adopt" };
 
     case "report-mismatch":
-      // Nudge-human on a connector: adopt (canvas works) and let the caller surface
-      // the mismatch — same as endpoint's mismatch-reported without a drain.
-      return { kind: "adopt" };
+      // nudge-human is endpoint-only (mismatch-reported has no connector surface).
+      // ConnectorPolicy makes this unspellable; fail loud if a budget is mis-minted.
+      throw new Error(
+        "convergeAdmit: onBuildMismatch: nudge-human is endpoint-only — use drain-and-replace on the connector policy",
+      );
 
     case "recycle":
       // recycle-on-skew is endpoint-only (kill). Unspellable for a connector
@@ -139,8 +141,7 @@ export async function convergeAdmit(args: {
       if (admission.kind === "giveUp") {
         return toAdmitVerdict(
           giveUpOutcome({
-            why: admission.why,
-            reason: admission.reason,
+            admission,
             onGiveUp: budget.drainBudget.onGiveUp,
             axis: decision.axis,
             running: identity,
@@ -148,14 +149,6 @@ export async function convergeAdmit(args: {
             log,
             skewCtx,
             logPrefix: "convergence admit",
-            drained:
-              admission.why === "cross-supervisor"
-                ? admission.drained
-                : undefined,
-            observed:
-              admission.why === "cross-supervisor"
-                ? admission.observed
-                : undefined,
           }),
         );
       }
@@ -181,8 +174,7 @@ export async function convergeAdmit(args: {
         drainRejectionSuffix(drain.drainRejection);
       return toAdmitVerdict(
         giveUpOutcome({
-          why: "budget",
-          reason: notTaken,
+          admission: { kind: "giveUp", why: "budget", reason: notTaken },
           onGiveUp: budget.drainBudget.onGiveUp,
           axis: decision.axis,
           running: identity,

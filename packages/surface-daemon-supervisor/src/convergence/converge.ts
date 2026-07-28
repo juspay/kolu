@@ -283,7 +283,11 @@ export async function converge<Cap extends DrainCapability>(
             `convergence: drain FAILED — ${notTaken}`,
           );
           return enactGiveUp({
-            admission: { kind: "giveUp", why: "budget", reason: notTaken },
+            admission: {
+              kind: "giveUp",
+              why: "budget",
+              reason: notTaken,
+            },
             onGiveUp: budget.drainBudget.onGiveUp,
             axis: decision.axis,
             running: probe.identity,
@@ -332,8 +336,7 @@ async function enactGiveUp(args: {
   skewCtx: Record<string, string>;
 }): Promise<ConvergenceOutcome> {
   const g = giveUpOutcome({
-    why: args.admission.why,
-    reason: args.admission.reason,
+    admission: args.admission,
     onGiveUp: args.onGiveUp,
     axis: args.axis,
     running: args.running,
@@ -341,14 +344,6 @@ async function enactGiveUp(args: {
     log: args.log,
     skewCtx: args.skewCtx,
     logPrefix: "convergence",
-    drained:
-      args.admission.why === "cross-supervisor"
-        ? args.admission.drained
-        : undefined,
-    observed:
-      args.admission.why === "cross-supervisor"
-        ? args.admission.observed
-        : undefined,
   });
   if (g.kind === "adopt-stale") {
     const adopted = await args.bind();

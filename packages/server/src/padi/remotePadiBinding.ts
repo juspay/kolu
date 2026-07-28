@@ -434,23 +434,30 @@ export function ensureRemotePadiBinding(
   };
 
   // ── Drain plumbing: the ssh arm's plugs into the framework drainAndAwaitExit ──
-  /** Fire the control-core drain + await exit via hello-poll (ssh has no socket-close). */
+  /** Observe exit via hello-poll (ssh has no socket-close). Shared by drain + admit. */
+  function awaitExitViaHello(
+    c: PadiDaemonClient,
+  ): (signal: AbortSignal) => Promise<void> {
+    return async (signal) => {
+      while (!signal.aborted) {
+        try {
+          await c.surface.control.core.hello();
+        } catch {
+          return; // hello rejected — the daemon exited
+        }
+        if (signal.aborted) return;
+        await sleep(drainPollMs);
+      }
+    };
+  }
+
+  /** Fire the control-core drain + await exit via hello-poll. */
   function drainAndAwaitClose(
     c: PadiDaemonClient,
   ): Promise<{ took: boolean; drainRejection: string | null }> {
     return drainAndAwaitExit(
       () => c.surface.control.core.drain(),
-      async (signal) => {
-        while (!signal.aborted) {
-          try {
-            await c.surface.control.core.hello();
-          } catch {
-            return; // hello rejected — the daemon exited, drain took
-          }
-          if (signal.aborted) return;
-          await sleep(drainPollMs);
-        }
-      },
+      awaitExitViaHello(c),
       { ceilingMs: drainCeilingMs },
     );
   }
@@ -479,17 +486,7 @@ export function ensureRemotePadiBinding(
       },
       budget,
       drain: () => c.surface.control.core.drain(),
-      awaitExit: async (signal) => {
-        while (!signal.aborted) {
-          try {
-            await c.surface.control.core.hello();
-          } catch {
-            return;
-          }
-          if (signal.aborted) return;
-          await sleep(drainPollMs);
-        }
-      },
+      awaitExit: awaitExitViaHello(c),
       ceilingMs: drainCeilingMs,
       log: log.child({ host }),
     });

@@ -1098,7 +1098,10 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
           kind: "cross-supervisor",
           drained: { kind: "instance", key: 1 },
           observed: { kind: "instance", key: 2 },
-          running: null,
+          running: {
+            contractVersion: PADI_SURFACE_VERSION,
+            build: daemonBuild("x"),
+          },
           detail: "foreign instance of drained build",
         },
       },

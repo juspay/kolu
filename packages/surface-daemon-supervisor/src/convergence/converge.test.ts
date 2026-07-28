@@ -57,7 +57,8 @@ function fakeEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
     opts.policy.capability === "drainable"
       ? createDrainBudget(opts.policy as ConvergencePolicy<"drainable">)
       : null;
-  const endpoint: ConvergingEndpoint<Cap> = {
+  // Runtime binds ride the object; ConvergingEndpoint type omits them.
+  const endpoint = {
     adoptOrSpawnOrRefuse: async () => {
       calls.push("adoptOrSpawnOrRefuse");
       return opts.adopted ?? false;
@@ -70,6 +71,9 @@ function fakeEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
     probe: opts.probe,
     budget: budget as ConvergingEndpoint<Cap>["budget"],
     log: silent,
+  } satisfies ConvergingEndpoint<Cap> & {
+    adoptOrSpawnOrRefuse: () => Promise<boolean>;
+    adoptOrEnsure: () => Promise<boolean>;
   };
   return { endpoint, calls, budget };
 }

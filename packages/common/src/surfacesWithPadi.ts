@@ -80,12 +80,12 @@ const hostKeyCodec: KeyCodec<HostKey> = {
  *  fields a producer sets on the failure value (`packages/server`'s remote padi
  *  binder), never scanned from `reason`'s human text by a consumer. Defined ONCE as
  *  a schema so the wire failure arm, the `PadiEntryFailedDetail` type, and the client
- *  reader all derive from a single source that agrees on optionality — the fields are
- *  OPTIONAL because the binder omits them when it doesn't know the running/expected
- *  versions (`computeEntryFailedDetail` returns `{ cause }` without them). */
+ *  reader all derive from a single source. Both fields are REQUIRED: the sole producer
+ *  (`computeEntryFailedDetail` on a `skew-refused` anomaly) always has both contract
+ *  versions as typed evidence. */
 const SkewVersionPairSchema = z.object({
-  running: z.string().optional(),
-  expected: z.string().optional(),
+  running: z.string(),
+  expected: z.string(),
 });
 export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
 

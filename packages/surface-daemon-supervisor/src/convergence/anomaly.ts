@@ -32,7 +32,7 @@ export type ConvergenceAnomaly =
     }
   | {
       readonly kind: "unconverged";
-      readonly running: ConvergenceIdentity | null;
+      readonly running: ConvergenceIdentity;
       readonly detail: string;
     }
   | {
@@ -41,6 +41,6 @@ export type ConvergenceAnomaly =
       readonly drained: InstanceKey;
       /** Instance key of the daemon that reappeared under a foreign lineage. */
       readonly observed: InstanceKey;
-      readonly running: ConvergenceIdentity | null;
+      readonly running: ConvergenceIdentity;
       readonly detail: string;
     };

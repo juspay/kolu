@@ -425,7 +425,7 @@ export const PadiConvergenceSchema = z.discriminatedUnion("kind", [
   z.object({
     /** A newer-contract drain that never provably took (canvas dead). */
     kind: z.literal("unconverged"),
-    running: ConvergenceIdentitySchema.nullable(),
+    running: ConvergenceIdentitySchema,
     detail: z.string(),
   }),
   z.object({
@@ -434,7 +434,7 @@ export const PadiConvergenceSchema = z.discriminatedUnion("kind", [
     kind: z.literal("cross-supervisor"),
     drained: InstanceKeySchema,
     observed: InstanceKeySchema,
-    running: ConvergenceIdentitySchema.nullable(),
+    running: ConvergenceIdentitySchema,
     detail: z.string(),
   }),
   z.object({
