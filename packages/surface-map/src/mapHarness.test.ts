@@ -792,8 +792,8 @@ describe("surface-map mock-entry e2e harness", () => {
           };
         };
       };
-      // ONE failure value, reused by reference across both frames — so `failure` is
-      // `Object.is`-equal and `evidence` is the only field that moves.
+      // ONE failure value, reused across both frames, so `evidence` is the only field
+      // that moves.
       const failure: TestFailure = { cause: "c", reason: "r" };
       addSession(
         A,
@@ -835,6 +835,71 @@ describe("surface-map mock-entry e2e harness", () => {
         { source: "local", line: "first" },
         { source: "remote", line: "second" },
       ]);
+
+      ac.abort();
+      await pump;
+      dispose();
+    });
+  });
+
+  it("(17) the gate compares published fields STRUCTURALLY — a fresh-but-equal failure does NOT re-emit", async () => {
+    // The guarantee the gate owes every `MapRegistry`, not just the ones that happen to
+    // memoise. A domain classifier naturally mints a FRESH `failure` literal per resolve
+    // (kolu's `padiFailureOf`, drishti's, the fleet-top example's) — there is nothing in
+    // the `MapRegistry` type, and no test outside this one, that would tell such a
+    // producer its literals must be reference-stable. If the gate compared by reference,
+    // every one of them would re-emit every failed member on every sibling's frame
+    // (O(M²) across a pool) with no compile error and no signal. So the gate compares
+    // STRUCTURALLY and the producer owes nothing: an equal value, however freshly built,
+    // is quiet. (Test (16) is the other direction — a genuinely changed field re-emits.)
+    await createRoot(async (dispose) => {
+      const { served, addSession, setState } = setup();
+      const raw = directLink<AnyContractRouter>(
+        served.router as Parameters<typeof createRouterClient>[0],
+      ) as unknown as {
+        surface: {
+          entries: {
+            get: (
+              input: { key: string },
+              opts?: { signal?: AbortSignal },
+            ) => Promise<AsyncIterable<EntryStatus<TestFailure>>>;
+          };
+        };
+      };
+      // Every value here is minted anew per frame — nothing is shared by reference.
+      const mint = () =>
+        failed({ cause: "c", reason: "r" }, [
+          { source: "local" as const, line: "dial 1" },
+        ]);
+      addSession(
+        A,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        connected(0),
+      );
+      setState(A, mint());
+
+      const ac = new AbortController();
+      const emits: EntryStatus<TestFailure>[] = [];
+      const stream = (await raw.surface.entries.get(
+        { key: "a" },
+        { signal: ac.signal },
+      )) as AsyncIterable<EntryStatus<TestFailure>>;
+      const pump = (async () => {
+        try {
+          for await (const s of stream) emits.push(s);
+        } catch {
+          // aborted at teardown — expected
+        }
+      })();
+      await settle();
+      expect(emits.length).toBe(1);
+
+      // Two more frames carrying a structurally IDENTICAL failure record, each built
+      // from scratch. Under a reference compare both would publish.
+      setState(A, mint());
+      setState(A, mint());
+      await settle();
+      expect(emits.length).toBe(1);
 
       ac.abort();
       await pump;

@@ -27,6 +27,7 @@ import {
 } from "@kolu/surface/server";
 import { ORPCError } from "@orpc/client";
 import { implement } from "@orpc/server";
+import { dequal } from "dequal";
 import type { z } from "zod";
 import type {
   EntryStatus,
@@ -679,39 +680,48 @@ export function serveSurfaceMap<
   // a per-key status only when that member's own EntryStatus actually changed.
   let lastKeyset: readonly string[] | undefined;
   const lastPublished = new Map<string, EntryStatus<Failure, Conn>>();
-  // Structural equality over the PUBLISHED EntryStatus — a SHALLOW compare over the
-  // union of both values' own keys, deliberately NOT a hand-written field list. A
-  // hand-enumerated compare has to be edited every time an arm in `define.ts` grows a
-  // field, and the failure mode of forgetting is SILENT: the new field's changes stop
-  // republishing (exactly what happened when the `failed` arm gained `evidence`). Over
-  // the key union the gate cannot miss a field it was never told about.
+  // Equality over the PUBLISHED EntryStatus, generic in BOTH directions:
   //
-  // `Object.is` is the right per-field test, but it only SUPPRESSES for a producer that
-  // hands back stable references: `connection` is the cached `SessionState`
-  // (`projectConnection` is identity), `evidence` is that same frame's retained `log`,
-  // `kind`/`membershipId`/`clockOffset` are primitives, and a structural fault's
-  // evidence is the shared `NO_EVIDENCE`. `failure` is the one field a DOMAIN builds,
-  // so its stability is the producer's to provide, not this gate's to assume: kolu's
-  // `padiFailureOf` mints a fresh literal per call, and `serveHostMap` holds the
-  // classification against the frame it classified from precisely so this compare can
-  // suppress. A producer that rebuilds an equal `failure` per tick merely RE-emits —
-  // safe, but it re-emits every failed member on every sibling's frame, which is the
-  // O(M²) the gate exists to avoid. The gate still never MISSES a real change, which is
-  // the only direction that matters for correctness. A key present on one side only
-  // (an arm gaining or losing an optional field) also re-emits, same safe direction.
+  //  - over FIELDS: every own key of both values, deliberately NOT a hand-written list.
+  //    A hand-enumerated compare has to be edited every time an arm in `define.ts` grows
+  //    a field, and the failure mode of forgetting is SILENT: the new field's changes
+  //    stop republishing (exactly what happened when the `failed` arm gained `evidence`).
+  //  - over VALUES: STRUCTURAL, not reference. `connection` is the cached `SessionState`
+  //    (`projectConnection` is identity), `evidence` is that same frame's retained `log`,
+  //    `kind`/`membershipId`/`clockOffset` are primitives and a structural fault's
+  //    evidence is the shared `NO_EVIDENCE` — all of which `dequal`'s leading `===`
+  //    settles in one comparison. `failure` is the one field a DOMAIN builds, and a
+  //    domain classifier naturally mints a fresh literal per call (kolu's
+  //    `padiFailureOf` does). Comparing it by REFERENCE would make stability an
+  //    UNENFORCED contract on every `MapRegistry`: a producer that rebuilds an equal
+  //    `failure` per tick re-emits every failed member on every sibling's frame — the
+  //    O(M²) this gate exists to avoid — with no compile error and no signal to go build
+  //    a per-frame cache of its own. So the gate pays for the guarantee itself, once,
+  //    for producers that don't exist yet.
+  //
+  // `dequal` (not a hand-rolled walk) because `Failure`/`Conn` are values this package
+  // deliberately never enumerates: a domain's zod-validated failure may hold a `Date` or
+  // a `Map` as legitimately as a string, and a JSON-only comparator would quietly get
+  // those wrong. It is also allocation-light and short-circuits on `===` before touching
+  // anything, which matters — this runs per member per fire.
   const samePublished = (
     a: EntryStatus<Failure, Conn>,
     b: EntryStatus<Failure, Conn>,
   ): boolean => {
     const ra = a as unknown as Record<string, unknown>;
     const rb = b as unknown as Record<string, unknown>;
-    // The UNION of both values' own keys — computed, not assumed from a matching key
-    // COUNT. A count guard is only sound while a given `kind` always yields a fixed key
-    // set, which is the very assumption this rewrite exists to stop relying on: `{p, q}`
-    // vs `{p, r}` (both `undefined`) compare equal under a count guard and unequal over
-    // the union. Over the union the gate cannot skip a key present on only one side.
-    const keys = new Set([...Object.keys(ra), ...Object.keys(rb)]);
-    return [...keys].every((k) => Object.is(ra[k], rb[k]));
+    const ka = Object.keys(ra);
+    const kb = Object.keys(rb);
+    // Same key COUNT plus `k in rb` per key — together exactly the key-UNION test, at two
+    // array allocations. The count alone would be unsound (`{p, q}` vs `{p, r}`, both
+    // `undefined`, have equal counts), which is why the membership check is there; with
+    // it, a key present on only one side (an arm gaining or losing an optional field)
+    // re-emits. Re-emitting is always the safe direction — the gate must never MISS a
+    // real change, and that is the only direction correctness depends on.
+    return (
+      ka.length === kb.length &&
+      ka.every((k) => k in rb && dequal(ra[k], rb[k]))
+    );
   };
   const unsubRepublish = registry.subscribe(() => {
     const ks = members();

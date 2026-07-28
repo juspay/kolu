@@ -442,17 +442,18 @@ describe("serveHostMap — failure EVIDENCE is minted at the classification seam
   });
 });
 
-describe("serveHostMap — a classified failure is per-frame REFERENCE-stable", () => {
+describe("serveHostMap — a re-classified failure does not re-publish", () => {
   it("does NOT re-publish a failed member on a SIBLING's session frame", async () => {
-    // The map's republish gate (`samePublished`) compares per field with `Object.is`, so
-    // it can only suppress if the producer hands back the SAME `failure` reference for an
-    // unchanged frame. A domain classifier does not: `padiFailureOf` — and `classify`
-    // here, deliberately the same shape — mints a FRESH object per call, and nothing
-    // downstream memoises (`derived.registry.resolve` re-runs the projection, and the
-    // republish loop calls `statusOf` for every member on every member's frame). Without
-    // `serveHostMap` holding the classification against its frame, a failed member
-    // re-published a wire frame on EVERY sibling's tick — O(M²) across a pool, on the arm
-    // most likely to sit occupied for hours.
+    // The SUPPRESSING half of the republish gate, pinned through a real producer.
+    // `classify` here — deliberately the same shape as kolu's `padiFailureOf` — mints a
+    // FRESH `failure` literal on every call, and nothing downstream memoises
+    // (`derived.registry.resolve` re-runs the projection, and the republish loop calls
+    // `statusOf` for every member on every member's frame). So the ONLY thing standing
+    // between this and a wire frame per failed member per sibling tick (O(M²) across a
+    // pool, on the arm most likely to sit occupied for hours) is `samePublished`
+    // comparing the published status STRUCTURALLY rather than by reference. This test is
+    // that guarantee: it must hold for producers that mint fresh literals, without any
+    // of them being asked to build a cache.
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
       linkFor: () => ({ surface: {} }),

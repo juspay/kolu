@@ -1572,6 +1572,9 @@ importers:
       '@solid-primitives/keyed':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
+      dequal:
+        specifier: ^2.0.3
+        version: 2.0.3
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
