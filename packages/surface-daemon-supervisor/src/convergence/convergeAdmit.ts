@@ -101,7 +101,16 @@ export async function convergeAdmit(args: {
     mineBuild: buildLabel(baked.build),
   };
 
-  switch (decision.kind) {
+  // ConnectorPolicy makes recycle / report-mismatch unspellable at the type
+  // level (F7) — no runtime endpoint-only throws. Cast so those arms are not
+  // switch cases (decide's return type is still the full Decision union).
+  type ConnectorDecision = Exclude<
+    typeof decision,
+    { kind: "recycle" } | { kind: "report-mismatch" }
+  >;
+  const d = decision as ConnectorDecision;
+
+  switch (d.kind) {
     case "spawn":
       throw new Error(
         "convergeAdmit: decide returned spawn for a live running identity — unreachable",
@@ -109,14 +118,6 @@ export async function convergeAdmit(args: {
 
     case "adopt":
       return { kind: "adopt" };
-
-    case "report-mismatch":
-    case "recycle":
-      // Unspellable for ConnectorPolicy — type gate (F7), not a runtime throw for
-      // the common path. If a forged budget slips through, fail loud.
-      throw new Error(
-        `convergeAdmit: decision ${decision.kind} is endpoint-only — use createConnectorDrainBudget`,
-      );
 
     case "refuse": {
       const detail =
@@ -140,7 +141,7 @@ export async function convergeAdmit(args: {
 
     case "drain-and-replace": {
       const why =
-        decision.axis === "contract"
+        d.axis === "contract"
           ? `contract skew (mine ${baked.contractVersion} newer than running ${identity.contractVersion})`
           : `build mismatch (running=${buildLabel(identity.build)} expected=${buildLabel(baked.build)})`;
       const admission = budgetInternal(budget).admit(lineage, why);
@@ -149,7 +150,7 @@ export async function convergeAdmit(args: {
           giveUpOutcome({
             admission,
             onGiveUp: drainBudgetOf(budget).onGiveUp,
-            axis: decision.axis,
+            axis: d.axis,
             running: identity,
             expected: baked,
             log,
@@ -159,7 +160,7 @@ export async function convergeAdmit(args: {
         );
       }
       log.info(
-        { axis: decision.axis, attempt: admission.attempt, ...skewCtx },
+        { axis: d.axis, attempt: admission.attempt, ...skewCtx },
         "convergence admit: draining a superseded survivor and awaiting exit",
       );
       const drain = await drainAndAwaitExit(args.drain, args.awaitExit, {
@@ -169,7 +170,7 @@ export async function convergeAdmit(args: {
         return {
           kind: "replaced",
           reason:
-            decision.axis === "contract"
+            d.axis === "contract"
               ? "daemon drained (newer contract) — reconnecting to the respawned newer build"
               : "daemon drained (build mismatch) — reconnecting to re-handshake the survivor",
         };
@@ -187,7 +188,7 @@ export async function convergeAdmit(args: {
             instanceKey: running.instanceKey,
           },
           onGiveUp: drainBudgetOf(budget).onGiveUp,
-          axis: decision.axis,
+          axis: d.axis,
           running: identity,
           expected: baked,
           log,
@@ -202,7 +203,7 @@ export async function convergeAdmit(args: {
     }
 
     default: {
-      const _exhaustive: never = decision;
+      const _exhaustive: never = d;
       throw new Error(
         `convergeAdmit: unreachable decision ${JSON.stringify(_exhaustive)}`,
       );

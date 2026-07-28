@@ -160,6 +160,50 @@ function bindOutcomeFromResult(r: BindResult): ConvergenceOutcome {
   }
 }
 
+function identityUnverifiable(args: {
+  running: ConvergenceIdentity;
+  expected: ConvergenceIdentity;
+  log: Logger;
+}): ConvergenceOutcome {
+  const cause = { kind: "identity-unverifiable" as const };
+  const detail =
+    `bound a resident whose identity the probe could not re-characterize ` +
+    `(last known running=${buildLabel(args.running.build)}; expected=${buildLabel(args.expected.build)})`;
+  args.log.error({}, `convergence: UNCONVERGED — ${detail}`);
+  return {
+    kind: "refused",
+    adopted: false,
+    anomaly: {
+      kind: "unconverged",
+      running: args.running,
+      expected: args.expected,
+      cause,
+      detail,
+    },
+  };
+}
+
+function probeFailed(args: {
+  message: string;
+  expected: ConvergenceIdentity;
+  log: Logger;
+}): ConvergenceOutcome {
+  const cause = { kind: "probe-failed" as const, message: args.message };
+  const detail = `convergence probe failed: ${args.message}`;
+  args.log.error({}, `convergence: UNCONVERGED — ${detail}`);
+  return {
+    kind: "refused",
+    adopted: false,
+    anomaly: {
+      kind: "unconverged",
+      running: args.expected,
+      expected: args.expected,
+      cause,
+      detail,
+    },
+  };
+}
+
 /**
  * `converge` — only a genuine createEndpoint handle (F12).
  */
@@ -172,7 +216,15 @@ export async function converge<
   const binds = endpointPrivate(endpoint);
   const policy = endpoint.policy;
   const baked = policy.baked;
-  const probeResult = await endpoint.probe();
+
+  let probeResult: AnyConvergenceProbe | null;
+  try {
+    probeResult = await endpoint.probe();
+  } catch (err) {
+    // F2: non-listener probe failures are typed unconverged, not unhandled rejection.
+    const message = err instanceof Error ? err.message : String(err);
+    return probeFailed({ message, expected: baked, log: endpoint.log });
+  }
 
   const bind =
     policy.onContractSkew.kind === "recycle"
@@ -194,11 +246,19 @@ export async function converge<
             bindResult: r,
             log: endpoint.log,
             axis: null,
+            bind,
+            endpointProbe: () => endpoint.probe(),
           });
         } finally {
           again.dispose();
         }
       }
+      // F1b: adopted a resident the probe cannot characterize — never clean.
+      return identityUnverifiable({
+        running: baked,
+        expected: baked,
+        log: endpoint.log,
+      });
     }
     return bindOutcomeFromResult(r);
   }
@@ -255,117 +315,16 @@ export async function converge<
             "convergence: drain-and-replace decided without a drain budget — unreachable by Pin 1",
           );
         }
-        const budget = endpoint.budget;
-        const why =
-          decision.axis === "contract"
-            ? `contract skew (mine ${baked.contractVersion} newer than running ${probe.identity.contractVersion})`
-            : `build mismatch (running=${buildLabel(probe.identity.build)} expected=${buildLabel(baked.build)})`;
-        const admission = budgetInternal(budget).admit(
-          lineageOf(probe.identity, probe.instanceKey),
-          why,
-        );
-        if (admission.kind === "giveUp") {
-          return enactGiveUp({
-            admission,
-            onGiveUp: drainBudgetOf(budget).onGiveUp,
-            axis: decision.axis,
-            running: probe.identity,
-            expected: baked,
-            bind,
-            log: endpoint.log,
-            skewCtx,
-          });
-        }
-        endpoint.log.info(
-          { axis: decision.axis, attempt: admission.attempt, ...skewCtx },
-          "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
-        );
-        const drain = await drainAndAwaitExit(
-          () => probe.fireDrain(),
-          (signal) => probe.awaitExit(signal),
-          { ceilingMs: probe.drainCeilingMs },
-        );
-        if (!drain.took) {
-          endpoint.log.error(
-            { axis: decision.axis, ...skewCtx },
-            `convergence: drain FAILED — not taken within ${probe.drainCeilingMs}ms` +
-              drainRejectionSuffix(drain.drainRejection),
-          );
-          return enactGiveUp({
-            admission: {
-              kind: "giveUp",
-              why: "budget",
-              axisHint: why,
-              attempts: admission.attempt,
-              maxAttempts: drainBudgetOf(budget).maxAttempts,
-              instanceKey: probe.instanceKey,
-            },
-            onGiveUp: drainBudgetOf(budget).onGiveUp,
-            axis: decision.axis,
-            running: probe.identity,
-            expected: baked,
-            bind,
-            log: endpoint.log,
-            skewCtx,
-            drainNotTaken: {
-              ceilingMs: probe.drainCeilingMs,
-              rejection: drain.drainRejection,
-            },
-          });
-        }
-        // F1: bind then verify successor through budget fold — never silent ride.
-        const r = await bind();
-        if (r.kind === "spawned-fresh") {
-          return {
-            kind: "drained-replacing",
-            axis: decision.axis,
-            running: probe.identity,
-            bind: r,
-          };
-        }
-        if (r.kind === "refused-or-failed") {
-          return enactGiveUp({
-            admission: {
-              kind: "giveUp",
-              why: "budget",
-              axisHint: why,
-              attempts: admission.attempt,
-              maxAttempts: drainBudgetOf(budget).maxAttempts,
-              instanceKey: probe.instanceKey,
-            },
-            onGiveUp: "refuse",
-            axis: decision.axis,
-            running: probe.identity,
-            expected: baked,
-            bind: async () => ({ kind: "refused-or-failed" }),
-            log: endpoint.log,
-            skewCtx,
-            forceUnconverged: true,
-          });
-        }
-        // adopted-resident after drain — re-probe successor (F1).
-        const successor = await endpoint.probe();
-        if (successor === null) {
-          return {
-            kind: "drained-replacing",
-            axis: decision.axis,
-            running: probe.identity,
-            bind: r,
-          };
-        }
-        try {
-          return await evaluateBoundResident({
-            probe: successor,
-            policy,
-            budget,
-            bindResult: r,
-            log: endpoint.log,
-            axis: decision.axis,
-            drainedProbe: probe,
-          });
-        } finally {
-          successor.dispose();
-        }
+        return enactDrainLoop({
+          initialProbe: probe,
+          axis: decision.axis,
+          policy,
+          budget: endpoint.budget,
+          bind,
+          log: endpoint.log,
+          skewCtx,
+          endpointProbe: () => endpoint.probe(),
+        });
       }
       case "report-mismatch": {
         return {
@@ -387,9 +346,170 @@ export async function converge<
 }
 
 /**
- * F1: after bind retained a resident, verify via decide + budget fold.
- * Expected match → clean; foreign instance of drained build → cross-supervisor;
- * same wrong lineage → budget give-up.
+ * F1(a): budget-gated drain → bind → re-probe loop. When the successor is still
+ * wrong and the budget admits another drain, enact it (never adopted-stale while
+ * budget remains). adopted-stale only on give-up at the top of a loop iteration.
+ */
+async function enactDrainLoop(args: {
+  initialProbe: DrainableProbe;
+  axis: "contract" | "build";
+  policy: ConvergencePolicy<"drainable">;
+  budget: DrainBudgetHandle;
+  bind: () => Promise<BindResult>;
+  log: Logger;
+  skewCtx: Record<string, string>;
+  endpointProbe: () => Promise<AnyConvergenceProbe | null>;
+}): Promise<ConvergenceOutcome> {
+  const baked = args.policy.baked;
+  let current: DrainableProbe = args.initialProbe;
+  let axis = args.axis;
+  /** Probes we promoted into `current` after the initial (caller-owned) probe. */
+  let owned: DrainableProbe | null = null;
+
+  try {
+    for (;;) {
+      const why =
+        axis === "contract"
+          ? `contract skew (mine ${baked.contractVersion} newer than running ${current.identity.contractVersion})`
+          : `build mismatch (running=${buildLabel(current.identity.build)} expected=${buildLabel(baked.build)})`;
+      const admission = budgetInternal(args.budget).admit(
+        lineageOf(current.identity, current.instanceKey),
+        why,
+      );
+      if (admission.kind === "giveUp") {
+        return enactGiveUp({
+          admission,
+          onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+          axis,
+          running: current.identity,
+          expected: baked,
+          bind: args.bind,
+          log: args.log,
+          skewCtx: args.skewCtx,
+        });
+      }
+      args.log.info(
+        { axis, attempt: admission.attempt, ...args.skewCtx },
+        "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
+      );
+      const drain = await drainAndAwaitExit(
+        () => current.fireDrain(),
+        (signal) => current.awaitExit(signal),
+        { ceilingMs: current.drainCeilingMs },
+      );
+      if (!drain.took) {
+        args.log.error(
+          { axis, ...args.skewCtx },
+          `convergence: drain FAILED — not taken within ${current.drainCeilingMs}ms` +
+            drainRejectionSuffix(drain.drainRejection),
+        );
+        return enactGiveUp({
+          admission: {
+            kind: "giveUp",
+            why: "budget",
+            axisHint: why,
+            attempts: admission.attempt,
+            maxAttempts: drainBudgetOf(args.budget).maxAttempts,
+            instanceKey: current.instanceKey,
+          },
+          onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+          axis,
+          running: current.identity,
+          expected: baked,
+          bind: args.bind,
+          log: args.log,
+          skewCtx: args.skewCtx,
+          drainNotTaken: {
+            ceilingMs: current.drainCeilingMs,
+            rejection: drain.drainRejection,
+          },
+        });
+      }
+
+      const r = await args.bind();
+      if (r.kind === "spawned-fresh") {
+        return {
+          kind: "drained-replacing",
+          axis,
+          running: current.identity,
+          bind: r,
+        };
+      }
+      if (r.kind === "refused-or-failed") {
+        return enactGiveUp({
+          admission: {
+            kind: "giveUp",
+            why: "budget",
+            axisHint: why,
+            attempts: admission.attempt,
+            maxAttempts: drainBudgetOf(args.budget).maxAttempts,
+            instanceKey: current.instanceKey,
+          },
+          onGiveUp: "refuse",
+          axis,
+          running: current.identity,
+          expected: baked,
+          bind: async () => ({ kind: "refused-or-failed" }),
+          log: args.log,
+          skewCtx: args.skewCtx,
+          forceUnconverged: true,
+        });
+      }
+
+      // adopted-resident after drain — re-probe successor (F1).
+      const successor = await args.endpointProbe();
+      if (successor === null) {
+        return identityUnverifiable({
+          running: current.identity,
+          expected: baked,
+          log: args.log,
+        });
+      }
+
+      if (
+        contractIsCompatible(
+          baked.contractVersion,
+          successor.identity.contractVersion,
+        ) &&
+        buildsMatch(baked.build, successor.identity.build)
+      ) {
+        successor.dispose();
+        return {
+          kind: "drained-replacing",
+          axis,
+          running: current.identity,
+          bind: r,
+        };
+      }
+
+      // Still wrong — promote successor and loop. Next iteration admits (F1a
+      // same-lineage continues while budget remains; foreign instance →
+      // cross-supervisor give-up; exhausted → adopted-stale / refuse).
+      if (successor.capability !== "drainable") {
+        successor.dispose();
+        throw new Error(
+          "convergence: post-drain successor needs drain but is not drainable — unreachable by Pin 1",
+        );
+      }
+      owned?.dispose();
+      owned = successor;
+      current = successor;
+      axis = !contractIsCompatible(
+        baked.contractVersion,
+        successor.identity.contractVersion,
+      )
+        ? "contract"
+        : "build";
+    }
+  } finally {
+    owned?.dispose();
+  }
+}
+
+/**
+ * F1: after bind retained a resident (null-probe race / non-drain paths), verify
+ * via decide + budget fold. Same-lineage admitted drain continues via
+ * {@link enactDrainLoop}.
  */
 async function evaluateBoundResident(args: {
   probe: AnyConvergenceProbe;
@@ -398,7 +518,8 @@ async function evaluateBoundResident(args: {
   bindResult: BindResult;
   log: Logger;
   axis: "contract" | "build" | null;
-  drainedProbe?: AnyConvergenceProbe;
+  bind: () => Promise<BindResult>;
+  endpointProbe?: () => Promise<AnyConvergenceProbe | null>;
 }): Promise<ConvergenceOutcome> {
   const baked = args.policy.baked;
   const running = args.probe.identity;
@@ -409,7 +530,6 @@ async function evaluateBoundResident(args: {
     return { kind: "adopted" };
   }
   if (args.budget === null || args.policy.capability !== "drainable") {
-    // Not drainable — report mismatch / refuse via decide
     const d = decide(args.policy, running);
     if (d.kind === "report-mismatch") {
       return {
@@ -431,8 +551,8 @@ async function evaluateBoundResident(args: {
   }
   const why =
     args.axis === "contract"
-      ? `post-drain successor contract skew`
-      : `post-drain successor build mismatch (running=${buildLabel(running.build)} expected=${buildLabel(baked.build)})`;
+      ? `post-bind resident contract skew`
+      : `post-bind resident build mismatch (running=${buildLabel(running.build)} expected=${buildLabel(baked.build)})`;
   const admission = budgetInternal(args.budget).admit(
     lineageOf(running, args.probe.instanceKey),
     why,
@@ -470,18 +590,109 @@ async function evaluateBoundResident(args: {
     }
     return { kind: "refused", adopted: false, anomaly: g.anomaly };
   }
-  // Budget would allow another drain — still wrong identity after adopt: ride stale.
-  const detail = `post-drain successor is still not the expected build (running=${buildLabel(running.build)} expected=${buildLabel(baked.build)}) — riding the resident`;
-  args.log.warn({}, `convergence: ADOPTED STALE — ${detail}`);
-  return {
-    kind: "adopted-stale",
-    anomaly: {
-      kind: "adopted-stale",
+
+  // F1a: admission says drain — enact it (do not return adopted-stale while budget remains).
+  if (args.probe.capability !== "drainable") {
+    throw new Error(
+      "convergence: admit said drain for a non-drainable bound resident — unreachable by Pin 1",
+    );
+  }
+  // Re-fold into the drain loop. The admit above already counted one attempt —
+  // but enactDrainLoop will admit again. That double-counts.
+
+  // Fix: reverse the admit — we already admitted. Better restructure:
+  // enactDrainLoop always admits at the top. For evaluateBoundResident when
+  // admission is drain, we should drain THIS probe without re-admitting.
+
+  // Undo double-count by draining here with the already-granted admission, then
+  // re-entering evaluation after bind.
+  const axis = args.axis ?? "build";
+  args.log.info(
+    { axis, attempt: admission.attempt },
+    "convergence: draining a bound mismatched resident (budget admits another attempt)",
+  );
+  const drain = await drainAndAwaitExit(
+    () => args.probe.fireDrain(),
+    (signal) => args.probe.awaitExit(signal),
+    { ceilingMs: args.probe.drainCeilingMs },
+  );
+  if (!drain.took) {
+    return enactGiveUp({
+      admission: {
+        kind: "giveUp",
+        why: "budget",
+        axisHint: why,
+        attempts: admission.attempt,
+        maxAttempts: drainBudgetOf(args.budget).maxAttempts,
+        instanceKey: args.probe.instanceKey,
+      },
+      onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+      axis,
       running,
       expected: baked,
-      detail,
-    },
-  };
+      bind: args.bind,
+      log: args.log,
+      skewCtx: {},
+      drainNotTaken: {
+        ceilingMs: args.probe.drainCeilingMs,
+        rejection: drain.drainRejection,
+      },
+    });
+  }
+  const r = await args.bind();
+  if (r.kind === "spawned-fresh") {
+    return {
+      kind: "drained-replacing",
+      axis,
+      running,
+      bind: r,
+    };
+  }
+  if (r.kind === "refused-or-failed") {
+    return {
+      kind: "refused",
+      adopted: false,
+      anomaly: {
+        kind: "unconverged",
+        running,
+        expected: baked,
+        cause: { kind: "adopt-bind-failed", axis },
+        detail: "bind refused or failed after admitted drain of bound resident",
+      },
+    };
+  }
+  const probeFn = args.endpointProbe;
+  if (probeFn === undefined) {
+    // Without a re-probe seam, treat as identity-unverifiable (should not happen
+    // from production call sites — they always pass endpoint.probe).
+    return identityUnverifiable({
+      running,
+      expected: baked,
+      log: args.log,
+    });
+  }
+  const successor = await probeFn();
+  if (successor === null) {
+    return identityUnverifiable({
+      running,
+      expected: baked,
+      log: args.log,
+    });
+  }
+  try {
+    return await evaluateBoundResident({
+      probe: successor,
+      policy: args.policy,
+      budget: args.budget,
+      bindResult: r,
+      log: args.log,
+      axis,
+      bind: args.bind,
+      endpointProbe: probeFn,
+    });
+  } finally {
+    successor.dispose();
+  }
 }
 
 async function enactGiveUp(args: {

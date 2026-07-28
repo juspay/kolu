@@ -9,8 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./states": "./src/endpointStates.ts",
-    "./testing": "./src/endpoint.private.ts"
+    "./states": "./src/endpointStates.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

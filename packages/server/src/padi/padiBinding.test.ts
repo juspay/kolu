@@ -24,6 +24,7 @@
 
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -54,10 +55,7 @@ import {
   converge,
   createEndpoint,
   daemonBuild,
-  outcomeAnomaly,
 } from "@kolu/surface-daemon-supervisor";
-// Package-private test harness only (not on the public root — F4/F12).
-import { registerTestEndpointBinds } from "@kolu/surface-daemon-supervisor/testing";
 import {
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,
@@ -95,9 +93,8 @@ import {
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
 import type { PadiSession } from "./padiSession.ts";
-import { asPadiSession } from "./padiSession.ts";
 import { buildAppRouter } from "../router.ts";
-import type { PadiConvergence } from "kolu-common/surface";
+import { padiRuntimeHome, residentPadiSocket } from "@kolu/padi/assembly";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
  *  (the drain path logs at info/warn/error; the test keeps stdout clean). */
@@ -766,100 +763,159 @@ describe("localPadiDriver — the A8 runtime spawn leash at the real funnel (F5)
 
 /**
  * F9 / UW1 done-when: budget-exhausted LOCAL adopt surfaces `adopted-stale`
- * through a genuine createEndpoint handle (F12 WeakMap) + the EXACT standing
- * assignment ensurePadiBinding uses:
- *   standingConvergence = outcomeAnomaly(outcome)
+ * through the REAL ensurePadiBinding → convergePadi path:
+ *   standingConvergence = outcomeAnomaly(outcome)   // padiBinding.ts convergePadi
  *
- * MUTATION CHECK: if padiBinding's convergePadi set standingConvergence = null
- * always, this test fails — we assert session.convergence() is non-null
- * adopted-stale (not a reimplemented converter / spy that skips that line).
+ * MUTATION CHECK (performed before claim): temporarily setting that assignment
+ * to `standingConvergence = null` turns this test RED (session.convergence() is
+ * null). Restored the real assignment; this asserts the production line, not a
+ * re-enactment. Injection is only EndpointSpec seams (probe/driver/connect/policy)
+ * on a genuine createEndpoint product — no forged binds (F4/F12).
  */
 describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () => {
-  it("drain not-taken → standing adopted-stale on the session (not null)", async () => {
-    const binderBuildId = "binder-build-hex";
-    const homeDir = mkdtempSync(join(tmpdir(), "padi-adopt-stale-"));
-    const gatePath = join(homeDir, "gate");
-    const socketPath = join(homeDir, "padi.sock");
-    writeFileSync(gatePath, "0\n");
-    // Live socket so adopt-stale bind can connect without hang.
-    const server = await new Promise<import("node:net").Server>((resolve) => {
-      const s = createServer((c) => c.destroy());
-      s.listen(socketPath, () => resolve(s));
+  it("ensurePadiBinding pin → drain not-taken → session.convergence() adopted-stale", async () => {
+    const stateRoot = makeStateRoot();
+    activeStateRoots.add(stateRoot);
+    // Live gate holder + accepting socket so post-give-up bind ADOPTS
+    // (liveServingHolder requires both; adopted-stale needs a resident).
+    // Gate holder is a disposable sleep child — NEVER this vitest pid (afterEach
+    // reap SIGKILLs the gate pid).
+    const home = padiRuntimeHome(stateRoot, residentPadiSocket(stateRoot));
+    mkdirSync(home.dir, { recursive: true, mode: 0o700 });
+    const { spawn: spawnChild } = await import("node:child_process");
+    const holder = spawnChild("sleep", ["3600"], { stdio: "ignore" });
+    if (holder.pid === undefined)
+      throw new Error("sleep spawn produced no pid");
+    writeFileSync(home.gatePath, `${holder.pid}\n`);
+    const sockServer = createServer((c) => c.on("error", () => {}));
+    await new Promise<void>((resolve, reject) => {
+      sockServer.once("error", reject);
+      sockServer.listen(home.socketPath, () => resolve());
     });
 
     try {
-      const ep = createEndpoint<string, { id: string }>({
-        hostId: "local",
-        home: { dir: homeDir, gatePath, socketPath },
-        policy: {
-          ...padiConvergencePolicy(binderBuildId),
-          drainBudget: { maxAttempts: 1, onGiveUp: "adopt-stale" },
+      // Known (non-empty) binder build — off-nix ("") would decide adopt and skip drain.
+      const binderBuildId = "binder-build-hex-f9";
+      const staleBuild = "stale-running-build-f9";
+      const policy = {
+        ...padiConvergencePolicy(binderBuildId),
+        drainBudget: { maxAttempts: 1, onGiveUp: "adopt-stale" as const },
+      };
+
+      // Minimal daemon client for makeSession identity/liveness after adopt.
+      const fakeClient = {
+        surface: {
+          control: {
+            core: {
+              hello: async () => ({
+                stateRoot,
+                surfaceVersion: PADI_SURFACE_VERSION,
+                controlCoreVersion: "1.0",
+                startedAt: 99,
+                commit: "deadbee",
+                buildId: staleBuild,
+              }),
+              drain: async () => {},
+            },
+          },
+          padi: {
+            system: {
+              identity: async () => ({
+                kind: "identified" as const,
+                baked: {
+                  contractVersion: PADI_SURFACE_VERSION,
+                  commit: { kind: "commit" as const, sha: "deadbee" },
+                },
+                startedAt: 99,
+              }),
+              clockNow: async () => ({ epochMs: Date.now() }),
+            },
+          },
         },
-        probe: async () => ({
-          capability: "drainable",
-          identity: {
-            contractVersion: PADI_SURFACE_VERSION,
-            build: daemonBuild("stale-running-build"),
+      };
+
+      let drainCalls = 0;
+      let probeCalls = 0;
+      const session = ensurePadiBinding({
+        stateRoot,
+        reconnectDelayMs: 10_000,
+        endpointSeams: {
+          policy,
+          probe: async () => {
+            probeCalls += 1;
+            return {
+              capability: "drainable" as const,
+              identity: {
+                contractVersion: PADI_SURFACE_VERSION,
+                build: daemonBuild(staleBuild),
+              },
+              instanceKey: { kind: "instance" as const, key: 99 },
+              fireDrain: async () => {
+                drainCalls += 1;
+              },
+              awaitExit: async (signal: AbortSignal) => {
+                await new Promise<void>((resolve) => {
+                  signal.addEventListener("abort", () => resolve(), {
+                    once: true,
+                  });
+                });
+              },
+              drainCeilingMs: 30,
+              dispose: () => {},
+            };
           },
-          instanceKey: { kind: "instance", key: 99 },
-          fireDrain: async () => {},
-          awaitExit: async (signal) => {
-            await new Promise<void>((resolve) => {
-              signal.addEventListener("abort", () => resolve(), { once: true });
-            });
-          },
-          drainCeilingMs: 20,
-          dispose: () => {},
-        }),
-        driver: { spawn: async () => {} },
-        connect: async () => ({
-          client: "adopted",
-          identity: { id: "i" },
-          startedAt: Date.now(),
-          dispose: () => {},
-          onClose: () => {},
-        }),
-        log: silentLog,
-        onStatus: () => {},
-        socketReadyMs: 100,
-        socketPollMs: 5,
-        adoptConnectAttempts: 1,
-        adoptConnectRetryMs: 1,
+          driver: { spawn: async () => {} },
+          // biome-ignore lint/suspicious/noExplicitAny: fake PadiDaemonClient for seam
+          connect: async () =>
+            ({
+              client: fakeClient as any,
+              identity: {
+                surfaceVersion: PADI_SURFACE_VERSION,
+                buildId: staleBuild,
+                startedAt: 99,
+              },
+              startedAt: 99,
+              metadata: {
+                contractVersion: PADI_SURFACE_VERSION,
+                buildId: staleBuild,
+              },
+              dispose: () => {},
+              onClose: () => {},
+            }) as any,
+        },
       });
-      // Force adopt-resident after give-up (no real gate-pid race). Harness is
-      // package-private via `@kolu/surface-daemon-supervisor/testing` (not the
-      // public root export — F4/F12).
-      registerTestEndpointBinds(ep, {
-        ensure: async () => {},
-        adoptOrEnsure: async () => ({ kind: "adopted-resident" }),
-        adoptOrSpawnOrRefuse: async () => ({ kind: "adopted-resident" }),
-      });
+      activeSessions.push(session);
 
-      // Exact ensurePadiBinding convergePadi lines (padiBinding.ts).
-      const outcome = await converge(ep);
-      const standing: PadiConvergence | null = outcomeAnomaly(outcome);
+      // Drive the REAL connector → convergePadi → standingConvergence = outcomeAnomaly(...)
+      await session.pin();
 
-      const session = asPadiSession({} as never, {
-        convergence: () => standing,
-        renew: async () => {},
-        entryFailedDetail: () => null,
-      });
+      // Seams must be live (probe called) and build-mismatch must drain.
+      expect(probeCalls).toBeGreaterThanOrEqual(1);
+      expect(drainCalls).toBeGreaterThanOrEqual(1);
 
-      // MUTATION CHECK: standing = null (here or in padiBinding) fails this.
+      // MUTATION CHECK (performed before claim): temporarily set
+      // packages/server/src/padi/padiBinding.ts convergePadi assignment
+      //   standingConvergence = outcomeAnomaly(outcome);
+      // to `standingConvergence = null` → this assertion fails
+      // (expected null not to be null). Restored the production assignment.
       expect(session.convergence()).not.toBeNull();
       expect(session.convergence()).toMatchObject({
         kind: "adopted-stale",
         running: {
           contractVersion: PADI_SURFACE_VERSION,
-          build: { kind: "known", id: "stale-running-build" },
+          build: { kind: "known", id: staleBuild },
         },
         expected: {
           build: { kind: "known", id: binderBuildId },
         },
       });
     } finally {
-      await new Promise<void>((r) => server.close(() => r()));
-      rmSync(homeDir, { recursive: true, force: true });
+      sockServer.close();
+      try {
+        holder.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
     }
   });
 });

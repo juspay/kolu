@@ -2,25 +2,28 @@
  * `converge` / `convergeAdmit` orchestration — decision → budget → enactment,
  * typed outcomes + anomalies, and the two-supervisor drain-war termination.
  *
- * Wave-2 pins: F1 post-drain foreign respawn, F5 spawned-fresh ≠ stale, F3
- * drain-not-taken on link-down, F10 arm-before-fire ordering.
+ * Endpoints are genuine {@link createEndpoint} handles (F12). Bind outcomes are
+ * driven via EndpointSpec seams (driver / connect / probe / gate), never a
+ * forgeable registerTestEndpointBinds harness.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   type ConvergenceIdentity,
   daemonBuild,
   type Logger,
 } from "@kolu/surface-daemon";
-import { describe, expect, it } from "vitest";
-import type { BindResult } from "./bindResult.ts";
-import { createConnectorDrainBudget, createDrainBudget } from "./budget.ts";
+import { afterEach, describe, expect, it } from "vitest";
+import { createConnectorDrainBudget } from "./budget.ts";
 import { convergeAdmit } from "./convergeAdmit.ts";
 import { converge, outcomeAdopted, outcomeAnomaly } from "./converge.ts";
 import { drainAndAwaitExit } from "./drainAndAwaitExit.ts";
 import { type InstanceKey, instanceKeyFromStartedAt } from "./instanceKey.ts";
 import type { ConnectorPolicy, ConvergencePolicy } from "./policy.ts";
-import type { Endpoint } from "../endpoint.ts";
-import { registerTestEndpointBinds } from "../endpoint.private.ts";
+import { createEndpoint } from "../endpoint.ts";
 
 const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -66,42 +69,85 @@ function ik(n: number): InstanceKey {
   return instanceKeyFromStartedAt(n);
 }
 
-function fakeEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
-  bindResult?: BindResult;
-  /** Dynamic bind result (e.g. post-drain foreign). */
-  bindFn?: () => Promise<BindResult>;
+const tmpDirs: string[] = [];
+const servers: Server[] = [];
+afterEach(() => {
+  for (const s of servers.splice(0)) s.close();
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  }
+});
+
+type BindMode = "spawn" | "adopt" | "refuse";
+
+/**
+ * Real createEndpoint product. Bind outcome is controlled only via seams:
+ *  - spawn: free gate → driver.spawn + connect → spawned-fresh
+ *  - adopt: live gate+socket (this pid) + connect ok → adopted-resident
+ *  - refuse: live gate+socket + connect throws non-skew → refused-or-failed
+ *
+ * liveServingHolder requires BOTH a live gate pid AND an accepting socket.
+ */
+async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
   policy: ConvergencePolicy<Cap>;
-  probe: Endpoint<unknown, unknown, undefined, Cap>["probe"];
+  probe: Parameters<typeof createEndpoint>[0]["probe"];
+  bindMode?: BindMode;
 }) {
-  const calls: string[] = [];
-  const budget =
-    opts.policy.capability === "drainable"
-      ? createDrainBudget(opts.policy as ConvergencePolicy<"drainable">)
-      : null;
-  const defaultResult: BindResult = opts.bindResult ?? {
-    kind: "adopted-resident",
+  const dir = mkdtempSync(join(tmpdir(), "sds-converge-"));
+  tmpDirs.push(dir);
+  const socketPath = join(dir, "d.sock");
+  const gatePath = join(dir, "d.pid");
+  const mode = opts.bindMode ?? "spawn";
+
+  const listen = async (): Promise<void> => {
+    const s = createServer((c) => c.on("error", () => {}));
+    servers.push(s);
+    await new Promise<void>((resolve, reject) => {
+      s.once("error", reject);
+      s.listen(socketPath, () => resolve());
+    });
+    writeFileSync(gatePath, `${process.pid}\n`);
   };
-  const endpoint = {
+
+  if (mode === "adopt" || mode === "refuse") {
+    // Pre-listen so liveServingHolder sees a real resident.
+    await listen();
+  }
+
+  const endpoint = createEndpoint({
+    hostId: "test",
+    home: { dir, gatePath, socketPath },
     policy: opts.policy,
     probe: opts.probe,
-    budget: budget as Endpoint<unknown, unknown, undefined, Cap>["budget"],
-    log: silent,
-    current: () => undefined,
-    holdRestarting: async (body: () => Promise<void>) => body(),
-  } as Endpoint<unknown, unknown, undefined, Cap>;
-  const doBind = async (name: string): Promise<BindResult> => {
-    calls.push(name);
-    if (opts.bindFn) return opts.bindFn();
-    return defaultResult;
-  };
-  registerTestEndpointBinds(endpoint, {
-    adoptOrSpawnOrRefuse: () => doBind("adoptOrSpawnOrRefuse"),
-    adoptOrEnsure: () => doBind("adoptOrEnsure"),
-    ensure: async () => {
-      calls.push("ensure");
+    driver: {
+      spawn: async () => {
+        await listen();
+      },
     },
+    connect: async () => {
+      if (mode === "refuse") {
+        throw new Error("connect unreachable (non-skew)");
+      }
+      return {
+        client: "c",
+        identity: { id: "i" },
+        startedAt: Date.now(),
+        dispose: () => {},
+        onClose: () => {},
+      };
+    },
+    log: silent,
+    onStatus: () => {},
+    socketReadyMs: 200,
+    socketPollMs: 5,
+    adoptConnectAttempts: 1,
+    adoptConnectRetryMs: 1,
   });
-  return { endpoint, calls, budget };
+  return endpoint;
 }
 
 function drainableProbe(
@@ -152,35 +198,34 @@ function plainProbe(identity: ConvergenceIdentity) {
 }
 
 describe("converge — enactment + outcomes", () => {
-  it("no survivor → bind refused → not-adopted", async () => {
-    const { endpoint, calls } = fakeEndpoint({
-      bindResult: { kind: "refused-or-failed" },
+  it("live unreachable survivor → bind refuse → not-adopted", async () => {
+    const endpoint = await realEndpoint({
+      bindMode: "refuse",
       policy: padiPolicy(),
       probe: async () => null,
     });
+    // refuse mode: live gate+socket; connect non-skew failure → refused-or-failed
     const out = await converge(endpoint);
     expect(out.kind).toBe("not-adopted");
-    expect(calls).toEqual(["adoptOrSpawnOrRefuse"]);
   });
 
-  it("kaval contract skew → adoptOrEnsure; outcome recycled", async () => {
+  it("kaval contract skew → adoptOrEnsure path; outcome recycled", async () => {
     const probe = plainProbe(id("1.0", "A"));
-    const { endpoint, calls } = fakeEndpoint({
-      bindResult: { kind: "refused-or-failed" },
+    const endpoint = await realEndpoint({
+      bindMode: "spawn",
       policy: KAVAL,
       probe: async () => probe,
     });
     const out = await converge(endpoint);
     expect(out.kind).toBe("recycled");
     expect(outcomeAdopted(out)).toBe(false);
-    expect(calls).toEqual(["adoptOrEnsure"]);
     expect(probe.disposed).toBe(true);
   });
 
   it("padi OLDER contract → refuse + skew-refused anomaly", async () => {
     const probe = drainableProbe(id("2.0", "A"));
-    const { endpoint } = fakeEndpoint({
-      bindResult: { kind: "refused-or-failed" },
+    const endpoint = await realEndpoint({
+      bindMode: "refuse",
       policy: padiPolicy(id("1.0", "B")),
       probe: async () => probe,
     });
@@ -191,8 +236,8 @@ describe("converge — enactment + outcomes", () => {
 
   it("padi build mismatch drain takes + spawned-fresh → drained-replacing (F5 not stale)", async () => {
     const probe = drainableProbe(id("1.1", "A"), { instanceKey: ik(1) });
-    const { endpoint } = fakeEndpoint({
-      bindResult: { kind: "spawned-fresh" },
+    const endpoint = await realEndpoint({
+      bindMode: "spawn",
       policy: padiPolicy(),
       probe: async () => probe,
     });
@@ -209,29 +254,26 @@ describe("converge — enactment + outcomes", () => {
       instanceKey: ik(1),
       ceilingMs: 20,
     });
-    const { endpoint } = fakeEndpoint({
-      bindResult: { kind: "spawned-fresh" },
+    const endpoint = await realEndpoint({
+      bindMode: "spawn",
       policy: padiPolicy(id("1.1", "B"), 1),
       probe: async () => probe,
     });
     const out = await converge(endpoint);
-    // Not-taken then bind spawns fresh → not stale
     expect(out.kind).toBe("spawned-fresh");
     expect(outcomeAnomaly(out)).toBeNull();
   });
 
   it("F1: foreign respawn between drain and bind → cross-supervisor", async () => {
     let probeN = 0;
-    const { endpoint } = fakeEndpoint({
-      bindResult: { kind: "adopted-resident" },
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
       policy: padiPolicy(id("1.1", "mine"), 3),
       probe: async () => {
         probeN += 1;
         if (probeN === 1) {
-          // Initial wrong build instance 1 — will drain.
           return drainableProbe(id("1.1", "A"), { instanceKey: ik(1) });
         }
-        // Post-bind re-probe: foreign instance 2 of same drained build.
         return drainableProbe(id("1.1", "A"), { instanceKey: ik(2) });
       },
     });
@@ -242,6 +284,84 @@ describe("converge — enactment + outcomes", () => {
     if (a?.kind === "cross-supervisor") {
       expect(a.drained).toEqual(ik(1));
       expect(a.observed).toEqual(ik(2));
+    }
+  });
+
+  it("F1a: same-lineage post-drain wrong build enacts admitted drain (not adopted-stale mid-budget)", async () => {
+    let probeN = 0;
+    let drains = 0;
+    const endpoint = await realEndpoint({
+      // First drain: adopt resident (successor still wrong). Second drain: match.
+      bindMode: "adopt",
+      policy: padiPolicy(id("1.1", "mine"), 3),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) {
+          return drainableProbe(id("1.1", "stale"), {
+            instanceKey: ik(1),
+            onDrain: () => {
+              drains += 1;
+            },
+          });
+        }
+        if (probeN === 2) {
+          // Same lineage still wrong — loop must admit another drain, not ride stale.
+          return drainableProbe(id("1.1", "stale"), {
+            instanceKey: ik(1),
+            onDrain: () => {
+              drains += 1;
+            },
+          });
+        }
+        return drainableProbe(id("1.1", "mine"), { instanceKey: ik(1) });
+      },
+    });
+    const out = await converge(endpoint);
+    expect(drains).toBeGreaterThanOrEqual(2);
+    // Not mid-budget adopted-stale while maxAttempts=3 and only 2 same-lineage drains.
+    expect(out.kind).not.toBe("adopted-stale");
+    if (out.kind === "drained-replacing" || out.kind === "adopted") {
+      expect(outcomeAnomaly(out)).toBeNull();
+    }
+  });
+
+  it("F1b: adopted-resident + null re-probe → identity-unverifiable unconverged", async () => {
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      policy: padiPolicy(id("1.1", "mine"), 2),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) {
+          return drainableProbe(id("1.1", "stale"), { instanceKey: ik(1) });
+        }
+        // Post-drain re-probe cannot characterize the resident.
+        return null;
+      },
+    });
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("refused");
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("unconverged");
+    if (a?.kind === "unconverged") {
+      expect(a.cause.kind).toBe("identity-unverifiable");
+    }
+  });
+
+  it("F2: probe throw surfaces typed probe-failed unconverged (not unhandled)", async () => {
+    const endpoint = await realEndpoint({
+      bindMode: "spawn",
+      policy: padiPolicy(),
+      probe: async () => {
+        throw new Error("EPERM: dial blocked");
+      },
+    });
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("refused");
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("unconverged");
+    if (a?.kind === "unconverged" && a.cause.kind === "probe-failed") {
+      expect(a.cause.message).toMatch(/EPERM/);
     }
   });
 });

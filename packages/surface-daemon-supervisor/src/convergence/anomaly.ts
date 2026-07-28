@@ -33,7 +33,11 @@ export type UnconvergedCause =
   | {
       readonly kind: "adopt-bind-failed";
       readonly axis: "contract" | "build" | null;
-    };
+    }
+  /** Bound a resident the probe could not characterize (F1b / F2). */
+  | { readonly kind: "identity-unverifiable" }
+  /** Probe threw (not no-listener) — loud typed failure (F2). */
+  | { readonly kind: "probe-failed"; readonly message: string };
 
 export type ConvergenceAnomaly =
   | {

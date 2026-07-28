@@ -59,7 +59,16 @@ import type {
   SavedSession,
 } from "../vocab.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
-import { registerTestEndpointBinds } from "@kolu/surface-daemon-supervisor/testing";
+import {
+  createEndpoint,
+  destructiveRecycleSteps,
+  recycle,
+} from "@kolu/surface-daemon-supervisor";
+import { spawn as spawnChild, type ChildProcess } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { __setEndpointForTest } from "./index.ts";
 import { restartLocalDaemon } from "./restartLocal.ts";
 
@@ -129,50 +138,111 @@ function sessionBackedCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
   } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
 }
 
-/** A fake pty-host endpoint standing in for the daemon recycle. Its `ensure()` (the
- *  recycle) OUTLASTS the 500 ms autosave, so the timer the drain armed fires in the
- *  drain→park gap — the exact interleave the zest trace shows. The drain's
- *  `killAllTerminals` reaches this fake's client `killAll`, which publishes a genuine
- *  `terminals:dirty` (modelling the PTYs exiting as the daemon is killed).
+const silentLog = {
+  debug() {},
+  info() {},
+  warn() {},
+  error() {},
+};
+
+const epTmpDirs: string[] = [];
+const epServers: Server[] = [];
+const epChildren: ChildProcess[] = [];
+
+/**
+ * A genuine createEndpoint standing in for the daemon recycle. Its `ensure()`
+ * (the recycle) OUTLASTS the 500 ms autosave — timing via the driver.spawn seam
+ * (second spawn delays). No forged binds (F12). The held client's killAll
+ * publishes terminals:dirty so the drain arms autosave.
  *
- *  F12: recycle looks up ensure via the package WeakMap — register the fake there. */
-function fakeEndpoint(recycleMs: number) {
-  const connection = {
-    client: {
-      surface: {
-        terminal: {
-          killAll: async () => {
-            // The PTYs die with the daemon → a genuine dirty arms the autosave.
-            terminalsDirtyChannel.publish({});
-            return { killed: 2 };
-          },
+ * Gate holder is a disposable `sleep` child (never this vitest process) so
+ * recycle's SIGTERM targets the stand-in daemon only.
+ */
+async function realEndpoint(recycleMs: number) {
+  const dir = mkdtempSync(join(tmpdir(), "restart-local-ep-"));
+  epTmpDirs.push(dir);
+  const socketPath = join(dir, "k.sock");
+  const gatePath = join(dir, "k.pid");
+  let spawnN = 0;
+
+  const listen = async (): Promise<void> => {
+    // Close prior server if re-spawning at the same path.
+    for (const s of epServers.splice(0)) {
+      try {
+        s.close();
+      } catch {
+        // already closed
+      }
+    }
+    try {
+      rmSync(socketPath, { force: true });
+    } catch {
+      // absent
+    }
+    const s = createServer((c) => c.on("error", () => {}));
+    epServers.push(s);
+    await new Promise<void>((resolve, reject) => {
+      s.once("error", reject);
+      s.listen(socketPath, () => resolve());
+    });
+    const child = spawnChild("sleep", ["3600"], { stdio: "ignore" });
+    epChildren.push(child);
+    if (child.pid === undefined) throw new Error("sleep spawn produced no pid");
+    writeFileSync(gatePath, `${child.pid}\n`);
+  };
+
+  const makeClient = () => ({
+    surface: {
+      terminal: {
+        killAll: async () => {
+          // The PTYs die with the daemon → a genuine dirty arms the autosave.
+          terminalsDirtyChannel.publish({});
+          return { killed: 2 };
         },
       },
     },
-    identity: undefined,
-    startedAt: 0,
-    metadata: { contractVersion: "test" },
-    dispose: () => {},
-    onClose: () => {},
-  };
-  const ep = {
-    holdRestarting: <T>(fn: () => Promise<T>) => fn(),
-    current: () => connection,
-    // Public face stubs (unused by recycle path beyond current/holdRestarting).
-    policy: {} as never,
-    probe: async () => null,
-    budget: null,
-    log: { debug() {}, info() {}, warn() {}, error() {} },
-  };
-  registerTestEndpointBinds(ep, {
-    ensure: async () => {
-      await delay(recycleMs); // the recycle gap — the autosave fires in here
-    },
-    adoptOrEnsure: async () => ({ kind: "refused-or-failed" }),
-    adoptOrSpawnOrRefuse: async () => ({ kind: "refused-or-failed" }),
   });
-  // biome-ignore lint/suspicious/noExplicitAny: minimal fake for the restart path
-  return ep as any;
+
+  const ep = createEndpoint({
+    hostId: "local-kaval-test",
+    home: { dir, gatePath, socketPath },
+    policy: {
+      capability: "not-drainable" as const,
+      baked: {
+        contractVersion: "test",
+        build: { kind: "off-nix" as const },
+      },
+      onContractSkew: { kind: "recycle" as const },
+      onBuildMismatch: { kind: "nudge-human" as const },
+    },
+    probe: async () => null,
+    driver: {
+      spawn: async () => {
+        spawnN += 1;
+        // First spawn warms the endpoint; subsequent ensure (recycle) is the gap.
+        if (spawnN > 1) await delay(recycleMs);
+        await listen();
+      },
+    },
+    connect: async () => ({
+      client: makeClient(),
+      identity: undefined as undefined,
+      startedAt: Date.now(),
+      metadata: { contractVersion: "test" },
+      dispose: () => {},
+      onClose: () => {},
+    }),
+    log: silentLog,
+    onStatus: () => {},
+    socketReadyMs: 200,
+    socketPollMs: 5,
+    adoptConnectAttempts: 1,
+    adoptConnectRetryMs: 1,
+  });
+
+  // Warm so current() is held before restart (drain's killAll needs it).
+  await recycle(ep, destructiveRecycleSteps());
+  return ep;
 }
 
 // When set (by the ordering test), every autosave-callback evaluation records the
@@ -196,13 +266,13 @@ beforeAll(() => {
   });
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   autosaveEvals = null;
   cancelPendingAutosave();
   setPadiSurfaceCtx(sessionBackedCtx());
   seedActive(A_ID, "/a");
   seedActive(B_ID, "/b");
-  __setEndpointForTest(fakeEndpoint(700));
+  __setEndpointForTest(await realEndpoint(700));
 });
 
 afterEach(async () => {
@@ -211,6 +281,21 @@ afterEach(async () => {
   await delay(0);
   for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
   __resetPadiSurfaceCtxForTest();
+  for (const c of epChildren.splice(0)) {
+    try {
+      c.kill("SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+  for (const s of epServers.splice(0)) s.close();
+  for (const d of epTmpDirs.splice(0)) {
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  }
 });
 
 afterAll(() => {

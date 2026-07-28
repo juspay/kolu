@@ -67,7 +67,7 @@ type BudgetInternal = {
 
 const BUDGET_INTERNALS = new WeakMap<DrainBudgetHandle, BudgetInternal>();
 
-/** Package-internal: resolve a handle (throws if forged). */
+/** Package-internal: resolve a handle (throws if forged). Not a public export. */
 export function budgetInternal(handle: DrainBudgetHandle): BudgetInternal {
   const inner = BUDGET_INTERNALS.get(handle);
   if (inner === undefined) {
@@ -78,12 +78,19 @@ export function budgetInternal(handle: DrainBudgetHandle): BudgetInternal {
   return inner;
 }
 
-/** Policy drainBudget field from a genuine handle. */
+/** Package-internal: drainBudget field from a genuine handle. */
 export function drainBudgetOf(handle: DrainBudgetHandle): DrainBudget {
   return budgetInternal(handle).policy.drainBudget;
 }
 
-/** Policy from a genuine handle. */
+/**
+ * Package-internal: policy from a genuine handle.
+ * Connector budgets are typed so callers get {@link ConnectorPolicy}.
+ */
+export function policyOf(handle: ConnectorDrainBudget): ConnectorPolicy;
+export function policyOf(
+  handle: DrainBudgetHandle,
+): ConvergencePolicy<"drainable"> | ConnectorPolicy;
 export function policyOf(
   handle: DrainBudgetHandle,
 ): ConvergencePolicy<"drainable"> | ConnectorPolicy {
@@ -183,9 +190,3 @@ export function createConnectorDrainBudget(
 ): ConnectorDrainBudget {
   return mintBudget(policy) as ConnectorDrainBudget;
 }
-
-/**
- * @deprecated Prefer {@link createDrainBudget} / {@link createConnectorDrainBudget}.
- * Retained as alias of createDrainBudget for endpoint call sites mid-migration.
- */
-export type DrainBudgetMemory = DrainBudgetHandle;

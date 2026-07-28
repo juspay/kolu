@@ -137,6 +137,12 @@ type ServeOpts = {
   /** After the drain, `hello()` HANGS forever (a wedged post-drain link the per-probe
    *  ceiling race must bound). */
   wedgeAfterDrain?: boolean;
+  /**
+   * ClosedInfo kind resolved when the drain "kills" the link (default `"exit"`).
+   * F3: `transport-failed` models ssh link loss — must NOT count as process exit,
+   * so the process oracle stays unsettled and the ceiling yields drain-not-taken.
+   */
+  closeKind?: ClosedInfo["kind"];
 };
 type SpawnSpec =
   | ({ kind: "serve"; hello: Hello } & ServeOpts)
@@ -205,14 +211,28 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
             drain: async (): Promise<void> => {
               handle.drainCount += 1;
               drained = true;
-              // F3 process oracle: close transport after grace window (not on hello
-              // rejection). Models multi-poll death without treating link blips as exit.
-              if (dies && !spec.wedgeAfterDrain) {
-                const graceMs = (spec.graceHellos ?? 0) * 20 + 5;
-                setTimeout(() => {
-                  resolveClosed({ kind: "exit", code: 0, signal: null });
-                }, graceMs);
+              // F3 process oracle: resolve `closed` after grace window when the
+              // drain "kills" the link (diesOnDrain) OR when a test injects an
+              // explicit closeKind (e.g. transport-failed while hello still
+              // answers — link loss ≠ process exit).
+              const closeKind = spec.closeKind;
+              if ((!dies && closeKind === undefined) || spec.wedgeAfterDrain) {
+                return;
               }
+              const graceMs = (spec.graceHellos ?? 0) * 20 + 5;
+              const kind = closeKind ?? "exit";
+              setTimeout(() => {
+                if (kind === "exit") {
+                  resolveClosed({ kind: "exit", code: 0, signal: null });
+                } else if (kind === "spawn-error") {
+                  resolveClosed({
+                    kind: "spawn-error",
+                    message: "spawn failed",
+                  });
+                } else {
+                  resolveClosed({ kind });
+                }
+              }, graceMs);
             },
           },
         },
@@ -769,6 +789,34 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(conv?.kind).toBe("adopted-stale");
     expect(conv?.detail).toMatch(/did not take|kept answering/i);
     expect(session.currentState().phase).toBe("connected"); // canvas stays live
+  });
+
+  it("F3: transport-failed ClosedInfo during drain is NOT process exit → drain-not-taken (real adapter)", async () => {
+    // Drives the REAL remotePadiBinding awaitExitViaProcessOracle over conn.closed
+    // (not a synthetic awaitExit). On drain, closed resolves as transport-failed
+    // while hello still answers — link loss must NOT count as process exit; the
+    // process oracle stays unsettled until the ceiling → drain-not-taken → adopt-stale.
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: CEIL,
+      maxBuildDrainsPerInstance: 1,
+    });
+    enqueue(
+      serve(helloVals({ buildId: "build-OLD" }), {
+        // Keep answering hello (not process death); inject transport-failed close.
+        diesOnDrain: false,
+        closeKind: "transport-failed",
+      }),
+    );
+    const client = await pinAdopt(session);
+    expect(client).toBeTruthy();
+    expect(handles[0]!.drainCount).toBe(1);
+    const conv = session.convergence();
+    // Must NOT have been treated as successful process exit → replaced.
+    expect(conv?.kind).toBe("adopted-stale");
+    if (conv?.kind === "adopted-stale") {
+      expect(conv.detail).toMatch(/did not take|not take|kept answering/i);
+    }
   });
 
   it("contract skew, binder NEWER → drains (newest-wins), instance-keyed bounded", async () => {

@@ -1,16 +1,12 @@
 /**
  * Package-private endpoint storage — unforgeable handles from {@link createEndpoint}.
- * Not re-exported from the package root (F4 / F12).
+ *
+ * NOT part of the public package API (no root export, no `./testing` subpath).
+ * Only `createEndpoint` may register; only kit modules (converge, recycle) and
+ * same-package tests may resolve via relative import of this file.
  */
 
 import type { BindResult } from "./convergence/bindResult.ts";
-import type { DrainBudgetHandle } from "./convergence/budget.ts";
-import type { ConvergenceProbe } from "./convergence/converge.ts";
-import type {
-  ConvergencePolicy,
-  DrainCapability,
-} from "./convergence/policy.ts";
-import type { Logger } from "@kolu/surface-daemon";
 
 /** Private boot methods — only reachable via this module's WeakMap. */
 export type EndpointPrivateBinds = {
@@ -19,19 +15,9 @@ export type EndpointPrivateBinds = {
   adoptOrSpawnOrRefuse(): Promise<BindResult>;
 };
 
-export type EndpointPrivateFace<Cap extends DrainCapability = DrainCapability> =
-  EndpointPrivateBinds & {
-    readonly policy: ConvergencePolicy<Cap>;
-    probe: () => Promise<ConvergenceProbe<Cap> | null>;
-    readonly budget: Cap extends "drainable"
-      ? DrainBudgetHandle
-      : DrainBudgetHandle | null;
-    readonly log: Logger;
-  };
-
 const ENDPOINT_PRIVATE = new WeakMap<object, EndpointPrivateBinds>();
 
-/** Register private binds for a createEndpoint handle. */
+/** Register private binds for a createEndpoint handle. Only createEndpoint calls this. */
 export function registerEndpointPrivate(
   handle: object,
   binds: EndpointPrivateBinds,
@@ -51,12 +37,4 @@ export function endpointPrivate(handle: object): EndpointPrivateBinds {
     );
   }
   return binds;
-}
-
-/** Test harness: register spy binds on an object used as an Endpoint stand-in. */
-export function registerTestEndpointBinds(
-  handle: object,
-  binds: EndpointPrivateBinds,
-): void {
-  registerEndpointPrivate(handle, binds);
 }

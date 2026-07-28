@@ -372,6 +372,18 @@ export interface EnsurePadiBindingOptions {
    *  here, once via the boot pin's own catch — is a harmless, deliberate
    *  redundancy, not a bug). */
   onFatalBindingError?: (err: PadiBindingFatalError) => void;
+  /**
+   * Optional EndpointSpec composition overrides (probe / driver / connect /
+   * policy). Production omits these. Tests and specialized binders inject at
+   * these seams on a real {@link createEndpoint} product — never by forging
+   * private binds (F9 / F12).
+   */
+  endpointSeams?: {
+    probe?: (socketPath: string) => ReturnType<typeof probePadiForConvergence>;
+    driver?: DaemonDriver;
+    connect?: (socketPath: string) => ReturnType<typeof connectPadi>;
+    policy?: ReturnType<typeof padiConvergencePolicy>;
+  };
 }
 
 /** The single local padi host id — the endpoint's status key. Distinct from
@@ -576,6 +588,13 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // Standing convergence anomaly from the last converge — surfaces via
   // `convergence()` (adopted-stale when the budget is spent, etc.). Null when clean.
   let standingConvergence: PadiConvergence | null = null;
+  const seams = opts.endpointSeams;
+  const defaultPolicy = padiConvergencePolicy(binderBuildId);
+  const policy = seams?.policy ?? defaultPolicy;
+  const probeFn =
+    seams?.probe ??
+    ((socketPath: string) => probePadiForConvergence(socketPath));
+  const connectFn = seams?.connect ?? ((path: string) => connectPadi(path));
   const ep = createEndpoint<
     PadiDaemonClient,
     PadiHelloIdentity,
@@ -584,19 +603,24 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     hostId: PADI_HOST_ID,
     home,
     // Policy stated once — baked identity + Cap-gated budget. The only boot verb is
-    // `converge(ep)`; boot methods are internal.
-    policy: padiConvergencePolicy(binderBuildId),
-    probe: (socketPath) => probePadiForConvergence(socketPath),
-    driver: localPadiDriver(
-      stateRoot,
-      home.socketPath,
-      opts.nixShellWhitelist,
-      opts.spawnVersion,
-      opts.verbose ?? false,
-      opts.legacyKavalSocket,
-    ),
+    // `converge(ep)`; boot methods are internal. Seams may override composition.
+    policy,
+    probe: async (socketPath) => {
+      const r = await probeFn(socketPath);
+      return r;
+    },
+    driver:
+      seams?.driver ??
+      localPadiDriver(
+        stateRoot,
+        home.socketPath,
+        opts.nixShellWhitelist,
+        opts.spawnVersion,
+        opts.verbose ?? false,
+        opts.legacyKavalSocket,
+      ),
     // the framework hands you the path
-    connect: (path) => connectPadi(path),
+    connect: (path) => connectFn(path),
     log,
     onStatus: (_hostId, status) => {
       // A down/terminal close ends the current dial → resolve its `closed` so

@@ -444,6 +444,11 @@ export const PadiConvergenceSchema = z.discriminatedUnion("kind", [
         kind: z.literal("adopt-bind-failed"),
         axis: z.enum(["contract", "build"]).nullable(),
       }),
+      z.object({ kind: z.literal("identity-unverifiable") }),
+      z.object({
+        kind: z.literal("probe-failed"),
+        message: z.string(),
+      }),
     ]),
     detail: z.string(),
   }),

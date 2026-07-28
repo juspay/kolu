@@ -41,6 +41,10 @@ function unconvergedDetail(
       );
     case "adopt-bind-failed":
       return `bind refused or failed after give-up (running=${buildLabel(running.build)} expected=${buildLabel(expected.build)})`;
+    case "identity-unverifiable":
+      return `bound a resident whose identity the probe could not re-characterize (running was ${buildLabel(running.build)}; expected ${buildLabel(expected.build)})`;
+    case "probe-failed":
+      return `convergence probe failed: ${cause.message}`;
     default: {
       const _e: never = cause;
       throw new Error(`unreachable UnconvergedCause: ${JSON.stringify(_e)}`);

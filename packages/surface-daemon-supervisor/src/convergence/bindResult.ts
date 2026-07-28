@@ -11,11 +11,3 @@ export type BindResult =
   | { readonly kind: "spawned-fresh" }
   /** Skew refuse, unreachable survivor, or connect failure — no usable bind. */
   | { readonly kind: "refused-or-failed" };
-
-export function bindAdoptedResident(r: BindResult): boolean {
-  return r.kind === "adopted-resident";
-}
-
-export function bindSucceeded(r: BindResult): boolean {
-  return r.kind === "adopted-resident" || r.kind === "spawned-fresh";
-}

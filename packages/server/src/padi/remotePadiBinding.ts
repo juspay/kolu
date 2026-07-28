@@ -421,21 +421,28 @@ export function ensureRemotePadiBinding(
       }
     },
   });
-  // Process-exit oracle for F3: resolve only when the transport reports the
-  // remote process/link truly closed — never from a single hello rejection
-  // (a link blip is not process exit).
+  // Process-exit oracle for F3: resolve ONLY on ClosedInfo `exit` (the remote
+  // process actually left). transport-failed / endpoint-down / spawn-error are
+  // link or bootstrap loss — never process exit; leave the wait hanging until
+  // the ceiling yields drain-not-taken (ssh link loss is deliberately
+  // transport-failed on the session ClosedInfo).
   let processExit: Promise<void> | null = null;
 
   const rawConnector: Connector<PadiSurfaceClient, SshProv> = async (ctx) => {
     const conn = await inner(ctx);
     combined = conn.client;
-    processExit = conn.closed.then(() => undefined);
+    processExit = conn.closed.then((info) => {
+      if (info.kind !== "exit") {
+        // Keep the oracle unsettled so awaitExit only resolves on ceiling abort.
+        return new Promise<void>(() => {});
+      }
+    });
     return { ...conn, client: scopePadiSurface(conn.client) };
   };
 
   // ── Drain plumbing: process oracle, not hello-poll (F3) ────────────────────
-  /** awaitExit resolves only from the connection's process-exit signal (closed).
-   *  Link-down without close + ceiling → drain-not-taken, never replaced. */
+  /** awaitExit resolves only from ClosedInfo.kind === "exit".
+   *  transport-failed / link-down + ceiling → drain-not-taken, never replaced. */
   function awaitExitViaProcessOracle(signal: AbortSignal): Promise<void> {
     return new Promise<void>((resolve) => {
       if (signal.aborted) {

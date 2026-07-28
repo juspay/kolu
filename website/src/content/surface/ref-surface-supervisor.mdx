@@ -85,13 +85,14 @@ garnish only.
 
 | Export | Role |
 | --- | --- |
-| `converge(endpoint)` | probe → decide → budget → enact; only a genuine createEndpoint handle; post-drain successor re-probed (F1) |
-| `convergeAdmit({ running, budget, drain, awaitExit, … })` | connector arm; `budget` is `ConnectorDrainBudget`; `awaitExit` is a process oracle (not RPC blip) |
+| `converge(endpoint)` | probe → decide → budget-gated drain loop → enact; only a genuine createEndpoint handle; same-lineage admitted drains continue (F1a); null re-probe is `identity-unverifiable` (F1b) |
+| `convergeAdmit({ running, budget, drain, awaitExit, … })` | connector arm; `budget` is `ConnectorDrainBudget` (recycle/nudge-human unspellable); `awaitExit` resolves only on process exit, not link loss (F3) |
 | `decide(policy, running)` | pure fold — reads `policy.baked` (no free-standing baked arg) |
-| `createDrainBudget` · `createConnectorDrainBudget` · `outcomeAdopted` · `outcomeAnomaly` | opaque budget handles; connector mint is type-gated |
+| `createDrainBudget` · `createConnectorDrainBudget` · `outcomeAdopted` · `outcomeAnomaly` | opaque budget handles (no public admit/can-openers); connector mint is type-gated |
 | `InstanceKey` · `instanceKeyFromStartedAt` · `instanceKeyTag` | named instance or `pre-instance` (absent startedAt = older — never overloaded null) |
 | `drainAndAwaitExit(drain, awaitExit, { ceilingMs })` | framework-run drain-and-confirm-exit skeleton both enactments share |
 | `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `link-failed` is session-owned |
+| `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed` — evidence as data under `unconverged` |
 | `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
 
 <Aside type="note" title="Two policies in the wild">

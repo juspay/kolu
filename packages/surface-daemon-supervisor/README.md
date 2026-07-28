@@ -5,13 +5,14 @@ to spawn, watch, and recycle a surface daemon it does *not* run in — the mirro
 [`@kolu/surface-daemon`](../surface-daemon). It runs in the *client*, never the
 daemon, so it is never a staleKey root. Beside the endpoint state machine it
 carries the **convergence kit** — the policy-driven answer to "the running daemon
-is not the one I shipped: detect it, decide, converge it." Zero `kolu-*`
-dependencies.
+is not the one I shipped: detect it, decide, converge it." Depends only on
+`@kolu/surface-daemon` (the daemon-half twin); no other workspace packages.
 
 ```ts
 import {
   converge,
   createEndpoint,
+  daemonBuild,
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";

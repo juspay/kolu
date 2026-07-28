@@ -2,6 +2,9 @@
  * The daemon-convergence kit — "the running daemon is not the one I shipped: detect it,
  * decide, converge it." One shared mechanism (probe → pure {@link decide} → enact via
  * the endpoint or a connector), with POLICY AS THE PARAMETER.
+ *
+ * Budget internals (`budgetInternal` / `drainBudgetOf` / `policyOf`) are package-private
+ * — not re-exported here (F7).
  */
 
 export {
@@ -23,14 +26,10 @@ export {
   type ConnectorDrainBudget,
   type DrainAdmission,
   type DrainBudgetHandle,
-  type DrainBudgetMemory,
   type DrainGiveUp,
   type DrainLineage,
-  budgetInternal,
   createConnectorDrainBudget,
   createDrainBudget,
-  drainBudgetOf,
-  policyOf,
 } from "./budget.ts";
 export {
   type ConvergeAdmitVerdict,
