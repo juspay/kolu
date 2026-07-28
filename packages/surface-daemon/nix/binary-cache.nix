@@ -29,10 +29,12 @@
 }:
 let
   cfg = (import flakeNix).nixConfig or null;
+  # Trim as part of normalizing, so the baked value is exactly what nix is
+  # handed later — a list entry written with stray whitespace would otherwise
+  # survive into `binary-cache.json` and fail at `nix copy` looking like a miss.
   asList = v:
-    if builtins.isList v
-    then builtins.filter (s: s != "") v
-    else builtins.filter (s: s != "") (lib.splitString " " v);
+    let raw = if builtins.isList v then v else lib.splitString " " v;
+    in builtins.filter (s: s != "") (map (s: lib.trim s) raw);
   # Union both live spellings of one setting; a flake may use either (or both).
   require = names:
     let

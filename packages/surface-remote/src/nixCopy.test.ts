@@ -44,6 +44,16 @@ const okOut = (stdout: string): CaptureResult => ({
 });
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 
+/** The two speculative closure copies, matched by SHAPE rather than position —
+ *  both argv start with `-v` (per-path progress keeps a healthy transfer alive
+ *  under progress-liveness), so an index-based match would silently stop
+ *  matching the moment a flag is added. */
+const isCopy = (args: readonly string[]): boolean => args.includes("copy");
+const isPrefetch = (args: readonly string[]): boolean =>
+  isCopy(args) && args.includes("--from");
+const isShip = (args: readonly string[]): boolean =>
+  isCopy(args) && args.includes("--to");
+
 /** The fused budgets a `provisionAgent` call needs (the connector reconciles the
  *  campaign reset itself, so `provisionAgent` takes no epoch). Pass a custom `budgets`
  *  (e.g. a tight-terminal one) to override. */
@@ -67,8 +77,8 @@ function mockNix(over?: {
     // Cache prefetch (2) / ship (3) — default MISS/refusal, so the suites
     // written before these steps existed keep exercising the narrated
     // source-realise fallback.
-    if (args[0] === "copy" && args[1] === "--to") return over?.ship ?? failOut;
-    if (args[0] === "copy") return over?.copy ?? failOut;
+    if (isShip(args)) return over?.ship ?? failOut;
+    if (isCopy(args)) return over?.copy ?? failOut;
     if (args.includes("--outputs")) return over?.outputs ?? okOut(`${STORE}\n`);
     // The LOCAL "do we even hold this closure?" query the ship is gated on
     // (a bare `nix-store`, unlike the remote warm check's `ssh …`). Default:
@@ -549,7 +559,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     });
     expect(res.ok).toBe(true);
     const calls = vi.mocked(runCapture).mock.calls;
-    const copyIdx = calls.findIndex(([, args]) => args[0] === "copy");
+    const copyIdx = calls.findIndex(([, args]) => isCopy(args));
     const buildIdx = calls.findIndex(([, args]) =>
       args.includes("--print-out-paths"),
     );
@@ -558,6 +568,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     // The exact wire shape: closure of the LOCAL output path, from the
     // declared substituter, with the declared keys trusted for this copy.
     expect(calls[copyIdx]?.[1]).toEqual([
+      "-v",
       "copy",
       "--from",
       TEST_BINARY_CACHE.substituters[0],
@@ -621,9 +632,9 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       // The substituter URL is exactly the `--from` value (args[2]) — an exact
       // compare, not a substring scan (which CodeQL would flag as URL
       // sanitization).
-      if (args[0] === "copy" && args[1] === "--to") return okOut("");
-      if (args[0] === "copy")
-        return args[2] === "https://a.test.invalid" ? failOut : okOut("");
+      if (isShip(args)) return okOut("");
+      if (isCopy(args))
+        return args[args.indexOf("--from") + 1] === "https://a.test.invalid" ? failOut : okOut("");
       if (args.includes("--outputs")) return okOut(`${STORE}\n`);
       if (args.includes("--check-validity")) return failOut;
       if (args.includes("--add-root")) return okOut("/home/u/link\n");
@@ -640,9 +651,9 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     const froms = vi
       .mocked(runCapture)
       .mock.calls.filter(
-        ([, args]) => args[0] === "copy" && args[1] === "--from",
+        ([, args]) => isPrefetch(args),
       )
-      .map(([, args]) => args[2]);
+      .map(([, args]) => args[args.indexOf("--from") + 1]);
     expect(froms).toEqual(["https://a.test.invalid", "https://b.test.invalid"]);
   });
 
@@ -656,7 +667,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     });
     expect(res.ok).toBe(true);
     expect(
-      vi.mocked(runCapture).mock.calls.some(([, args]) => args[0] === "copy"),
+      vi.mocked(runCapture).mock.calls.some(([, args]) => isCopy(args)),
     ).toBe(true);
   });
 
@@ -670,7 +681,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     });
     const calls = vi.mocked(runCapture).mock.calls;
     const shipIdx = calls.findIndex(
-      ([, args]) => args[0] === "copy" && args[1] === "--to",
+      ([, args]) => isShip(args),
     );
     const buildIdx = calls.findIndex(([, args]) =>
       args.includes("--print-out-paths"),
@@ -678,6 +689,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     expect(shipIdx).toBeGreaterThanOrEqual(0);
     expect(shipIdx).toBeLessThan(buildIdx);
     expect(calls[shipIdx]?.[1]).toEqual([
+      "-v",
       "copy",
       "--to",
       "ssh-ng://build-host",
@@ -702,7 +714,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       vi
         .mocked(runCapture)
         .mock.calls.some(
-          ([, args]) => args[0] === "copy" && args[1] === "--to",
+          ([, args]) => isShip(args),
         ),
     ).toBe(true);
   });
@@ -725,7 +737,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       vi
         .mocked(runCapture)
         .mock.calls.some(
-          ([, args]) => args[0] === "copy" && args[1] === "--to",
+          ([, args]) => isShip(args),
         ),
     ).toBe(false);
     expect(
@@ -745,10 +757,10 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     });
     const calls = vi.mocked(runCapture).mock.calls;
     expect(
-      calls.some(([, args]) => args[0] === "copy" && args[1] === "--from"),
+      calls.some(([, args]) => isPrefetch(args)),
     ).toBe(true);
     expect(
-      calls.some(([, args]) => args[0] === "copy" && args[1] === "--to"),
+      calls.some(([, args]) => isShip(args)),
     ).toBe(false);
   });
 
@@ -777,7 +789,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     // REMOTE rejection of the build below would read as retryable "network"
     // and the session would retry a deterministic fault forever.
     vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
-      if (args[0] === "copy") {
+      if (isCopy(args)) {
         opts.onProgress?.(
           "error: unable to download: Couldn't connect to server",
         );
@@ -848,7 +860,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     });
     const copyPolicies = vi
       .mocked(runCapture)
-      .mock.calls.filter(([, args]) => args[0] === "copy")
+      .mock.calls.filter(([, args]) => isCopy(args))
       .map(([, , opts]) => opts.policy);
     expect(copyPolicies).toHaveLength(2); // prefetch + ship
     for (const policy of copyPolicies) {
@@ -879,7 +891,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     });
     expect(res.ok).toBe(true);
     expect(
-      vi.mocked(runCapture).mock.calls.some(([, args]) => args[0] === "copy"),
+      vi.mocked(runCapture).mock.calls.some(([, args]) => isCopy(args)),
     ).toBe(false);
   });
 
@@ -907,5 +919,82 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       substituters: ["u"],
       trustedPublicKeys: ["k"],
     });
+  });
+});
+
+describe("the speculative copies' liveness and honesty", () => {
+  const flakeDrv = () =>
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
+
+  it("both copies pass -v — without it a healthy transfer reads as silence", () => {
+    // Regression: `runCapture` pipes stderr, so a copy without `-v` reports
+    // nothing per path. Under progress-liveness that healthy transfer gets
+    // killed and narrated as a MISS, and the host compiles from source — the
+    // exact outcome this feature exists to prevent, produced by a timeout.
+    mockNix({ copy: okOut(""), ship: okOut("") });
+    return provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    }).then(() => {
+      const copies = vi
+        .mocked(runCapture)
+        .mock.calls.filter(([, args]) => isCopy(args));
+      expect(copies.length).toBeGreaterThanOrEqual(2);
+      for (const [, args] of copies) expect(args).toContain("-v");
+    });
+  });
+
+  it("an abort during the local validity check settles aborted, not 'nothing to ship'", async () => {
+    // The probe's abort must not fold into "absent": narrating "no local copy
+    // of the agent to ship" for a dial the user just cancelled is a false
+    // statement about the store.
+    vi.mocked(runCapture).mockImplementation(async (cmd, args) => {
+      if (isCopy(args)) return failOut; // every declared cache misses
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--check-validity")) {
+        // The host's warm check runs through ssh (cmd === "ssh"); the LOCAL
+        // probe spawns nix-store directly — that is the one being aborted.
+        return cmd === "nix-store"
+          ? { ok: false, kind: "aborted", stdout: "" }
+          : failOut;
+      }
+      return failOut;
+    });
+    const onProgress = vi.fn();
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress,
+      ...provArgs(),
+    });
+    expect(res).toMatchObject({
+      ok: false,
+      cause: "network",
+      reason: expect.stringMatching(/aborted during the local validity check/),
+    });
+    expect(
+      onProgress.mock.calls.some(([line]) =>
+        /no local copy of the agent to ship/.test(String(line)),
+      ),
+    ).toBe(false);
+  });
+
+  it("says the check is SKIPPED when the local output path is unknown", async () => {
+    mockNix({ outputs: failOut });
+    const onProgress = vi.fn();
+    await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress,
+      ...provArgs(),
+    });
+    const lines = onProgress.mock.calls.map(([l]) => String(l));
+    expect(lines.some((l) => /skipping the cached-agent check/.test(l))).toBe(
+      true,
+    );
+    // The line announcing a check that never runs must not appear.
+    expect(lines.some((l) => /checking for a cached agent/.test(l))).toBe(false);
   });
 });

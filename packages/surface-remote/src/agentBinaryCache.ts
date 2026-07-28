@@ -65,11 +65,14 @@ export function agentBinaryCache(raw: {
   substituters?: unknown;
   trustedPublicKeys?: unknown;
 }): AgentBinaryCache {
+  // TRIM as part of validating: the value that passes the gate is the value nix
+  // receives. Keeping the untrimmed string would let " https://cache…" satisfy
+  // "non-blank" and then fail at `nix copy` in a way that reads as a cache miss.
   const list = (v: unknown): readonly string[] | null =>
     Array.isArray(v) &&
     v.length > 0 &&
     v.every((s) => typeof s === "string" && s.trim().length > 0)
-      ? (v as readonly string[])
+      ? (v as readonly string[]).map((s) => s.trim())
       : null;
   const substituters = list(raw.substituters);
   const trustedPublicKeys = list(raw.trustedPublicKeys);

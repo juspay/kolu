@@ -106,8 +106,17 @@ export const PROVISION_STEP_SILENCE_BASE_MS = 120_000;
  *  `base × 2^expiries` precisely because `recordExpiry()` charged the previous
  *  silence — a step that takes the first half without the second would let a
  *  dead cache endpoint wedge provisioning for the build's escalated window (up
- *  to 16 min) while advancing nothing. */
-export const PROVISION_COPY_SILENCE_MS = PROVISION_STEP_SILENCE_BASE_MS;
+ *  to 16 min) while advancing nothing.
+ *
+ *  Deliberately LOOSER than the build's base, because the two ways to be wrong
+ *  are not symmetric. Too generous costs a slow dial against a dead endpoint —
+ *  the user waits, then the fallback runs. Too tight kills a HEALTHY transfer
+ *  and narrates it as a miss, so the host compiles from source: the precise
+ *  outcome this feature exists to prevent, produced by a timeout rather than a
+ *  real miss. `nix copy` reports per PATH, so one large NAR (kolu's own closure
+ *  carries a ~200 MB path) is legitimately quiet for minutes on a slow uplink
+ *  even with `-v`. Bound the dead endpoint, not the slow one. */
+export const PROVISION_COPY_SILENCE_MS = 600_000;
 
 /** How many consecutive `lifetime-expired` kills of the SAME step before it is
  *  genuinely terminal (#1908 R4c/C5). With base 120s and N=4 the last budgeted
@@ -444,10 +453,14 @@ async function prefetchAgentClosure(opts: {
     opts.narrate(`prefetching agent closure from ${url} into the local store…`);
     const res = await runCapture(
       "nix",
-      // `--extra-trusted-public-keys` lets a trusted local user import the
-      // declared cache's signatures without a nix.conf edit; for an untrusted
-      // user nix's own refusal line lands in the tail and we fall back.
+      // `-v` for the same reason the cold build passes it: stderr is a pipe, so
+      // without it nix reports nothing per path and a healthy transfer reads as
+      // silence to the liveness policy. `--extra-trusted-public-keys` lets a
+      // trusted local user import the declared cache's signatures without a
+      // nix.conf edit; for an untrusted user nix's own refusal line lands in the
+      // tail and we fall back.
       [
+        "-v",
         "copy",
         "--from",
         url,
@@ -503,7 +516,9 @@ async function shipAgentClosure(opts: {
   opts.narrate("shipping agent closure to the host's store…");
   const res = await runCapture(
     "nix",
-    ["copy", "--to", `ssh-ng://${opts.host}`, opts.outPath],
+    // `-v`: see the prefetch — per-path lines are what keep a healthy transfer
+    // alive under progress-liveness.
+    ["-v", "copy", "--to", `ssh-ng://${opts.host}`, opts.outPath],
     {
       onProgress: opts.narrate,
       policy: opts.policy,
@@ -525,16 +540,22 @@ async function shipAgentClosure(opts: {
 /** Is `outPath` valid in the LOCAL store right now? A pure store query — the
  *  same cheap, never-substituting question step 1 asks the host, asked here of
  *  ourselves. Used to decide whether there is anything to ship after a total
- *  prefetch miss (a warm binder store legitimately already holds the closure). */
-async function isLocallyValid(
+ *  prefetch miss (a warm binder store legitimately already holds the closure).
+ *
+ *  Three outcomes, not two: an ABORTED probe is not an absent closure. Folding
+ *  it into `false` would narrate "no local copy of the agent to ship" for a dial
+ *  the user just cancelled — a false statement about the store, and the same
+ *  class of lie the other copy steps take care to avoid. */
+async function localValidity(
   outPath: string,
   signal: AbortSignal | undefined,
-): Promise<boolean> {
+): Promise<"valid" | "absent" | "aborted"> {
   const res = await runCapture("nix-store", ["--check-validity", outPath], {
     policy: probePolicy(),
     signal,
   });
-  return res.ok;
+  if (res.ok) return "valid";
+  return res.kind === "aborted" ? "aborted" : "absent";
 }
 
 /** Realise an agent derivation in `$host`'s store and commit its required GC
@@ -614,10 +635,17 @@ export async function provisionAgent(
   //    owns keeping its path valid. Localhost never copies, so the fast-path
   //    is remote-only.
   if (!isLocal && rootPath !== null) {
-    // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
-    onProgress(`${opts.host}: checking for a cached agent…`);
     const agentPath = localAgentPath;
-    if (agentPath !== undefined) {
+    if (agentPath === undefined) {
+      // Step 0's local query missed (GC took the evaluated .drv), so there is
+      // no path to ask the host about — say THAT, rather than the line below,
+      // which would announce a check that never runs.
+      onProgress(
+        `${opts.host}: agent output path unknown locally — skipping the cached-agent check; the cold provision re-establishes it`,
+      );
+    } else {
+      // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
+      onProgress(`${opts.host}: checking for a cached agent…`);
       // Ask the host, bounded, whether the output is already valid there. This is a pure
       // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
       // returns non-zero instantly, no fetch).
@@ -699,10 +727,14 @@ export async function provisionAgent(
     // this step's refusal narration names trust levers. Localhost never ships
     // (the prefetch already filled the very store the build realises in).
     if (!isLocal) {
-      const haveIt =
-        prefetch === "delivered" ||
-        (await isLocallyValid(localAgentPath, signal));
-      if (!haveIt) {
+      const held =
+        prefetch === "delivered"
+          ? "valid"
+          : await localValidity(localAgentPath, signal);
+      if (held === "aborted") {
+        return abortedDuring(opts.host, "the local validity check");
+      }
+      if (held === "absent") {
         narrate(
           "no local copy of the agent to ship — the host will realise it from source",
         );
