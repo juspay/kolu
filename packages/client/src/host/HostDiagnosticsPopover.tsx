@@ -33,7 +33,11 @@ import { forwardsForHost } from "../forwards/useForwards";
 import { formatTimeAgo } from "../terminal/staleness";
 import { tailOf } from "../kaval/connectCanvasView";
 import { failedEpisode } from "../kaval/useDaemonStatus";
-import { LOG_TAIL_LINE, LOG_TAIL_SURFACE } from "../ui/logTailChrome";
+import {
+  LOG_TAIL_LINE,
+  LOG_TAIL_SURFACE,
+  type LogLine,
+} from "../ui/logTailChrome";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
@@ -51,6 +55,10 @@ import { removeHost } from "./removeHost";
 /** How many trailing lines of a failed episode this popover shows — the last few, not the
  *  whole post-mortem the host-down card renders: this is a popover anchored to a status pip. */
 const POPOVER_TAIL_LINES = 4;
+
+/** The ONE empty tail — a shared reference, so a non-failed entry hands `<For>` the SAME
+ *  array on every repaint instead of a fresh literal. */
+const NO_LINES: readonly LogLine[] = [];
 
 const popoverChrome = surface({
   radius: "lg",
@@ -237,12 +245,16 @@ export const HostDiagnosticsPopover: Component<{
   // A MEMO because both the `Show` guard and the `For` read it: called twice per render it
   // folded the entry twice and handed `For` a fresh array each time, so the tail's rows tore
   // down and rebuilt on every unrelated repaint (the same `Show`+`For` pairing ConnectCanvas
-  // already memoizes). `undefined` here means only "this entry is not failed" — a FAILED
-  // entry always has its tail (see `failedEpisode`).
+  // already memoizes). TOTAL — a non-failed entry yields the shared {@link NO_LINES}, not
+  // `undefined`. Nothing here can tell the two apart (`length > 0` and `<For>` both read an
+  // empty array exactly as they read an absent one), and `failure()` already answers "is
+  // this entry failed", so an `| undefined` would be a distinction with no reader. That is
+  // NOT the canvas card's absence distinction, which IS observable and stays: this popover
+  // renders only the failure record's own `evidence`, which is never missing.
   const failureLog = createMemo(() => {
     const episode = failure();
     return episode === undefined
-      ? undefined
+      ? NO_LINES
       : tailOf(episode.log, POPOVER_TAIL_LINES);
   });
 
@@ -282,7 +294,7 @@ export const HostDiagnosticsPopover: Component<{
             )}
           </Show>
 
-          <Show when={(failureLog()?.length ?? 0) > 0}>
+          <Show when={failureLog().length > 0}>
             <div
               data-testid="host-diagnostics-log"
               class={`mt-1 max-h-20 overflow-y-auto px-1.5 py-1 text-[10px] leading-4 ${LOG_TAIL_SURFACE}`}

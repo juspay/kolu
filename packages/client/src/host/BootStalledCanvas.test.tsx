@@ -70,7 +70,12 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     dispose = render(
       () => (
         <BootStalledCanvas
-          recovery={{ via: "connector", phase: "provisioning", log: undefined }}
+          recovery={{
+            via: "connector",
+            phase: "provisioning",
+            log: [],
+            logAbsence: undefined,
+          }}
         />
       ),
       document.body,
@@ -106,6 +111,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
             log: [
               { line: "error: builder for '/nix/store/…-kolu.drv' failed" },
             ],
+            logAbsence: undefined,
           }}
         />
       ),
@@ -138,7 +144,8 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     const [rec, setRec] = createSignal<BootStalledRecovery>({
       via: "connector",
       phase: "provisioning",
-      log: undefined,
+      log: [],
+      logAbsence: undefined,
     });
     dispose = render(
       () => <BootStalledCanvas recovery={rec()} />,
@@ -152,14 +159,24 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     expect(document.activeElement).toBe(btn);
 
     // A fresh-but-EQUAL recovery object (the every-tick case): same DOM node, focus intact.
-    setRec({ via: "connector", phase: "provisioning", log: undefined });
+    setRec({
+      via: "connector",
+      phase: "provisioning",
+      log: [],
+      logAbsence: undefined,
+    });
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).toBe(btn);
     expect(document.activeElement).toBe(btn);
 
     // A phase change narrates a new detail but must NOT rebuild the button.
-    setRec({ via: "connector", phase: "connecting", log: undefined });
+    setRec({
+      via: "connector",
+      phase: "connecting",
+      log: [],
+      logAbsence: undefined,
+    });
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).toBe(btn);
@@ -168,16 +185,21 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
   });
 });
 
-describe("the two absences render differently (lens valve-2 adjudication)", () => {
+describe("the card renders the absence it was TOLD, never one it inferred", () => {
   it("a connector leg whose live tail was floored says the output is unavailable", () => {
-    // `undefined` on the connector arm = the map's liveness floor dropped the live
-    // `connection` word. Output exists; we cannot see it. The card must SAY that — a
-    // distinction no reader can observe is dead weight, which is the whole argument for
-    // keeping `undefined` and `[]` apart in the prop's type.
+    // `logAbsence: "link-down"` = the map's liveness floor dropped the live `connection`
+    // word this tail was read off. Output exists; we cannot see it. The card must SAY
+    // that — a distinction no reader can observe is dead weight, which is the whole
+    // argument for keeping the two absences apart.
     dispose = render(
       () => (
         <BootStalledCanvas
-          recovery={{ via: "connector", phase: "provisioning", log: undefined }}
+          recovery={{
+            via: "connector",
+            phase: "provisioning",
+            log: [],
+            logAbsence: "link-down",
+          }}
         />
       ),
       document.body,
@@ -190,9 +212,37 @@ describe("the two absences render differently (lens valve-2 adjudication)", () =
     ).toBeNull();
   });
 
+  it("a connector leg with an EMPTY-but-honest tail claims NO link problem", () => {
+    // THE pin the card's old shape could not express. Before, the card read the reason
+    // OUT of the absence — a bare `log === undefined` became "kolu's link to this browser
+    // went quiet", a claim the type carried no evidence for. Now the empty tail arrives
+    // with nothing to explain (`logAbsence: undefined`), and the card says nothing about
+    // the link. A caller that has no reason cannot accidentally manufacture one.
+    dispose = render(
+      () => (
+        <BootStalledCanvas
+          recovery={{
+            via: "connector",
+            phase: "provisioning",
+            log: [],
+            logAbsence: undefined,
+          }}
+        />
+      ),
+      document.body,
+    );
+    expect(
+      document.querySelector('[data-testid="boot-stalled-log-unavailable"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="boot-stalled-log"]'),
+    ).toBeNull();
+  });
+
   it("a client leg renders neither a tail nor the unavailable note", () => {
     // A client-side stall has no connector campaign, so there is no output and we KNOW
-    // it — `[]`, not `undefined`. Claiming a link problem here would be a lie.
+    // it — an empty tail with no reason. Claiming a link problem here would be a lie, and
+    // the arm carries no field with which to tell one.
     dispose = render(
       () => <BootStalledCanvas recovery={{ via: "client", leg: "session" }} />,
       document.body,

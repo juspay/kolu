@@ -26,7 +26,8 @@ import {
   resolveCanvasMode,
 } from "./canvasModeResolver";
 import { isConnectPhase } from "../host/connectCanvasCopy";
-import { activeHost, connectionInfo, hostKeys } from "../wire";
+import { activeHost, connectionInfo, hostKeys, padiMap } from "../wire";
+import type { LogAbsence, LogLine } from "../ui/logTailChrome";
 import {
   bootDeadlineExceeded,
   pruneBootAnchors,
@@ -44,6 +45,10 @@ import {
 } from "./useDaemonStatus";
 
 export type { CanvasMode } from "./canvasModeResolver";
+
+/** The ONE empty tail — a shared reference so a host with no connection frame hands the
+ *  resolver the SAME array on every ~1s re-resolve rather than a fresh literal per tick. */
+const NO_LOG: readonly LogLine[] = [];
 
 /** Resolve the canvas surface in strict precedence order. Reads the ACTIVE
  *  entry's connection state for the discriminant and the daemon accessors for
@@ -78,7 +83,17 @@ export function canvasMode(deps: {
   const phase = info?.phase;
   const connectPhase: ConnectPhase | undefined =
     phase !== undefined && isConnectPhase(phase) ? phase : undefined;
-  const connectLog = info?.log;
+  // The tail, TOTAL, plus — separately — WHY it is empty when the cell handed us no frame
+  // at all. This is the one site that holds both halves of that question: the cell read
+  // above and `padiMap.live()`, the very liveness the map's floor applies. Two different
+  // situations produce a missing cell — the floor DROPPED the live word because our link
+  // to the publisher is dead, or no frame has landed yet — and only the first is a link
+  // problem. Deciding it here means the boot-stalled card renders a reason it was TOLD;
+  // it used to infer "kolu's link to this browser went quiet" from a bare `undefined`,
+  // which was true only via a four-file chain no type expressed.
+  const connectLog = info?.log ?? NO_LOG;
+  const connectLogAbsence: LogAbsence | undefined =
+    info === undefined && !padiMap.live() ? "link-down" : undefined;
   // The active entry's connection state is the discriminant. A non-`connected`
   // host's re-served daemonStatus is frozen stale, so the kaval-derived facts are
   // gathered ONLY on the `connected` arm.
@@ -86,7 +101,13 @@ export function canvasMode(deps: {
   let facts: CanvasFacts;
   switch (state.kind) {
     case "warming":
-      facts = { ...liveness, entry: "warming", connectPhase, connectLog };
+      facts = {
+        ...liveness,
+        entry: "warming",
+        connectPhase,
+        connectLog,
+        connectLogAbsence,
+      };
       break;
     case "failed":
       // The failed arm feeds the resolver the DISCRIMINANT only — the episode itself is read
@@ -94,7 +115,13 @@ export function canvasMode(deps: {
       facts = { ...liveness, entry: "failed" };
       break;
     case "not-a-member":
-      facts = { ...liveness, entry: "not-a-member", connectPhase, connectLog };
+      facts = {
+        ...liveness,
+        entry: "not-a-member",
+        connectPhase,
+        connectLog,
+        connectLogAbsence,
+      };
       break;
     case "connected":
       facts = {

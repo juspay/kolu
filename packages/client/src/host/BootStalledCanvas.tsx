@@ -31,6 +31,7 @@
  */
 
 import { type Component, createMemo } from "solid-js";
+import type { LogLine } from "../ui/logTailChrome";
 import {
   bootStalledCopy,
   bootStalledPhaseDetail,
@@ -43,6 +44,11 @@ import {
   reconnectAction,
   switchToLocalAction,
 } from "./CanvasFailureCard";
+
+/** The ONE empty tail this component hands the card — a shared reference, so the client
+ *  arm (which has no campaign to narrate) never churns the card's `<For>` with a fresh
+ *  `[]` on each 1s re-resolve. Same idea as `@kolu/surface-map`'s `NO_EVIDENCE`. */
+const NO_LOG: readonly LogLine[] = [];
 
 const BootStalledCanvas: Component<{
   /** The whole verdict, tail included: only the `connector` arm carries a `log`, so the
@@ -76,18 +82,23 @@ const BootStalledCanvas: Component<{
   const connectorPhase = createMemo(() =>
     props.recovery.via === "connector" ? props.recovery.phase : undefined,
   );
-  // The connector campaign's own output tail — the narration of the work the card is asking
-  // about. A memo like the two above, so the `<For>` inside the card sees a stable array
-  // across every 1s re-resolve instead of a fresh reference per tick.
+  // The connector campaign's own output tail, and — separately — why it is empty when
+  // that is not the campaign's own fact. Memos like the two above, so the `<For>` inside
+  // the card sees a stable array across every 1s re-resolve instead of a fresh reference
+  // per tick: the client arm yields the SHARED {@link NO_LOG}, never a fresh `[]` literal
+  // (a fresh literal per tick is what falsified this very comment last round).
   //
   //  The two arms hand the card DIFFERENT absences, and the difference is load-bearing.
   //  A `client` leg has no connector campaign at all, so there is no output and we KNOW
-  //  it: that is `[]`. A `connector` leg whose `log` is `undefined` is the floor having
-  //  dropped the live word — output exists, we just cannot see it — and the card says so
-  //  out loud. Collapsing the client arm to `undefined` would make the card claim a link
-  //  problem for a stall that has none.
+  //  it: `[]` with nothing to explain. A `connector` leg carries whatever reason the
+  //  resolver was given — today `"link-down"`, the liveness floor having dropped the live
+  //  word. Neither arm INFERS its reason from the emptiness; the card renders what it was
+  //  told, so a client-side stall can never claim a link problem it does not have.
   const connectorLog = createMemo(() =>
-    props.recovery.via === "connector" ? props.recovery.log : [],
+    props.recovery.via === "connector" ? props.recovery.log : NO_LOG,
+  );
+  const connectorLogAbsence = createMemo(() =>
+    props.recovery.via === "connector" ? props.recovery.logAbsence : undefined,
   );
 
   const actions = createMemo<CanvasFailureAction[]>(() => [
@@ -116,6 +127,7 @@ const BootStalledCanvas: Component<{
       body={copy().body}
       detail={detail()}
       log={connectorLog()}
+      logAbsence={connectorLogAbsence()}
       logTestid="boot-stalled-log"
       actions={actions()}
     />

@@ -38,7 +38,7 @@
 
 import type { DaemonState } from "@kolu/padi/surface";
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
-import type { LogLine } from "../ui/logTailChrome";
+import type { LogAbsence, LogLine } from "../ui/logTailChrome";
 import { match, P } from "ts-pattern";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
 import type { DaemonDownState } from "./daemonPresentation";
@@ -48,6 +48,12 @@ import type { DaemonDownState } from "./daemonPresentation";
  *  exists to kill (a link-live frozen `provisioning` would never escape). The concrete
  *  millisecond values live beside the anchor in `bootDeadline.ts`. */
 export type CeilingClass = "local" | "remote-provisioning" | "remote-handshake";
+
+/** The ONE empty tail — a shared reference, so an arm that has no output to narrate hands
+ *  every downstream `<For>` the SAME array across each of the canvas's ~1s re-resolves
+ *  instead of a fresh literal per tick. (`@kolu/surface-map`'s `NO_EVIDENCE` is the same
+ *  idea one layer down.) */
+const NO_LOG: readonly LogLine[] = [];
 
 /** Which boot leg is still unsettled when the deadline fires — carried on the escape
  *  surface so the failure card can NAME what never arrived (not a mute spinner).
@@ -87,7 +93,13 @@ export type BootStalledRecovery =
   | {
       via: "connector";
       phase: ConnectPhase | undefined;
-      log: readonly LogLine[] | undefined;
+      /** The campaign's retained output — TOTAL, so `[]` is the whole vocabulary for "no
+       *  lines" and the card never infers a cause from an absence. */
+      log: readonly LogLine[];
+      /** WHY `log` is empty, when that is not the campaign's own fact — see
+       *  {@link LogAbsence}. Decided where the liveness fact lives (`useCanvasMode`), so
+       *  the card renders a reason it was told. */
+      logAbsence: LogAbsence | undefined;
     }
   | { via: "client"; leg: ClientStalledLeg };
 
@@ -103,7 +115,8 @@ export type BootStalledRecovery =
  *  The resolver KNOWS which of the three it is at every return, so the verdict travels ON
  *  the tag rather than being re-derived downstream from `kind`. A future overlay return must
  *  DECLARE its `accrual` or fail to compile. `accrue` also carries `phase` and `log` — the
- *  connect phase the escape surface names beside the leg, and the campaign's own output tail —
+ *  connect phase the escape surface names beside the leg, the campaign's own output tail, and
+ *  why that tail is missing when it is —
  *  declared here for the SAME reason as `leg`/`ceiling`: {@link escapeSurface} renders off the
  *  tag alone, never by re-reading `facts` for a field that may not exist on every arm. */
 export type BootTag =
@@ -114,7 +127,8 @@ export type BootTag =
       leg: StalledLeg;
       ceiling: CeilingClass;
       phase: ConnectPhase | undefined;
-      log: readonly LogLine[] | undefined;
+      log: readonly LogLine[];
+      logAbsence: LogAbsence | undefined;
     };
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
@@ -186,8 +200,14 @@ type NotYetConnectedFacts = EntryLivenessFacts & {
   /** The SAME connection cell's retained output tail, read in the same breath as
    *  `connectPhase` (one `connectionInfo()` read in `useCanvasMode`). It rides the boot tag onto
    *  the boot-stalled card's `connector` arm, so a wedged provisioning campaign shows what it was
-   *  doing. `undefined` before the cell's first frame, or once the map's liveness floor drops it. */
-  connectLog: readonly LogLine[] | undefined;
+   *  doing. TOTAL — `[]` when there is no cell frame to read one off. */
+  connectLog: readonly LogLine[];
+  /** WHY {@link NotYetConnectedFacts.connectLog} is empty, when that is not the campaign's
+   *  own fact. There are two ways the cell can hand us nothing — the floor dropped the live
+   *  word over a dead link, or no frame has arrived yet — and only ONE of them is a link
+   *  problem. `useCanvasMode` holds the liveness fact and states which; nothing downstream
+   *  re-derives it from the emptiness, which is a guess the type cannot back. */
+  connectLogAbsence: LogAbsence | undefined;
 };
 
 /** The precedence decision's snapshot — a DISCRIMINATED UNION keyed on the active
@@ -311,6 +331,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
             ceiling: ceilingFor(f.isLocalHost, f.connectPhase),
             phase: f.connectPhase,
             log: f.connectLog,
+            logAbsence: f.connectLogAbsence,
           };
           // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is coming
           // up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase — the SAME
@@ -350,9 +371,11 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
               // A connected fact carries no connect phase → the handshake/local cell.
               leg,
               ceiling: ceilingFor(f.isLocalHost, undefined),
-              // A connected fact carries no connection-cell narration either.
+              // A connected fact carries no connection-cell narration either — and its
+              // absence is a fact about this ARM, not about the link, so no reason.
               phase: undefined,
-              log: undefined,
+              log: NO_LOG,
+              logAbsence: undefined,
             },
           };
         }
@@ -413,7 +436,12 @@ function escapeSurface(
       { leg: "provisioning" },
       (): CanvasMode => ({
         kind: "boot-stalled",
-        recovery: { via: "connector", phase: tag.phase, log: tag.log },
+        recovery: {
+          via: "connector",
+          phase: tag.phase,
+          log: tag.log,
+          logAbsence: tag.logAbsence,
+        },
       }),
     )
     .with(
