@@ -125,5 +125,17 @@ describe("processMemoryMbEqual", () => {
         mem({ kaval: { status: "absent" } }),
       ),
     ).toBe(true);
+    expect(
+      processMemoryMbEqual(
+        mem({ kaval: { status: "error" } }),
+        mem({ kaval: { status: "gate-format-unsupported" } }),
+      ),
+    ).toBe(false);
+    expect(
+      processMemoryMbEqual(
+        mem({ kaval: { status: "gate-format-unsupported" } }),
+        mem({ kaval: { status: "gate-format-unsupported" } }),
+      ),
+    ).toBe(true);
   });
 });

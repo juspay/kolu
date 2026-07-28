@@ -24,7 +24,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 4.4, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 4.5, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -54,18 +54,20 @@ describe("padiSurface contract", () => {
     // 4.4 (minor): a NEW `fs.listIgnored` procedure (git's collapsed gitignored
     // listing, behind the Code tab's show-ignored toggle). Purely additive —
     // `fs.listAll` is untouched — so the plainest minor there is.
-    expect(PADI_SURFACE_VERSION).toBe("4.4");
+    // 4.5 (minor): kaval process memory gained the emitted, typed refusal for a
+    // gate that is present but not in this build's format.
+    expect(PADI_SURFACE_VERSION).toBe("4.5");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
     );
-    // The load-bearing claim behind every additive-minor bump, 4.4 included: a
+    // The load-bearing claim behind every additive-minor bump, 4.5 included: a
     // binder that EXPECTS the new minor refuses a padi still reporting the old
     // one, so the convergence machinery drains-and-respawns it BEFORE the new
     // client's schema can meet an old frame missing the added field. Without
-    // this leg, a 4.4 client against a surviving 4.3 padi would call the
-    // `fs.listIgnored` procedure that padi does not have.
-    expect(isContractVersionCompatible("4.3", "4.4")).toBe(false);
+    // this leg, a 4.5 client against a surviving 4.4 padi could receive a state
+    // its schema cannot name.
+    expect(isContractVersionCompatible("4.4", "4.5")).toBe(false);
     // A newer additive minor (a future 4.x) still serves a 4.0 consumer; a
     // major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("4.1", "4.0")).toBe(true);

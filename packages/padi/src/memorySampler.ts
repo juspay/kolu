@@ -22,7 +22,7 @@
 
 import { log } from "./log.ts";
 import { dirname, join } from "node:path";
-import { gatePid } from "@kolu/surface-daemon";
+import { readGateIdentity } from "@kolu/surface-daemon";
 import { snapshotPids } from "osfacts-client";
 import { KAVAL_GATE_FILE } from "kaval";
 import {
@@ -30,7 +30,11 @@ import {
   readDaemonStatus,
 } from "./ptyHost/daemonStatus.ts";
 import { osfactsBinPath } from "./ports/scan.ts";
-import type { PadiProcessMemory, ProcessRss } from "./vocab.ts";
+import type {
+  KavalProcessRss,
+  PadiProcessMemory,
+  ProcessRss,
+} from "./vocab.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
 
 /** Cadence of padi's process-memory readout — the SAME 5s the retired kolu-server
@@ -38,33 +42,40 @@ import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
  *  a 5s poll is plenty live without chattering at the daemon. */
 export const MEMORY_SAMPLE_INTERVAL_MS = 5_000;
 
-/** Poll kaval's RSS as the honest three-way. `absent` when there is no connected
+/** Poll kaval's RSS as the honest four-way. `absent` when there is no connected
  *  daemon to measure (the expected "no value", read off the daemon-status store —
  *  never a thrown poll against a down daemon); `ok` when a connected daemon
  *  answered `system.processMemory`; `error` when a BELIEVED-connected daemon's poll
- *  threw (surfaced — logged ERROR — and reported distinctly, so a failed RPC never
- *  renders identically to "no daemon"). */
+ *  threw; `gate-format-unsupported` when a surviving older daemon's gate is present
+ *  but not in this build's identity format. That arm refuses the legacy pid while
+ *  giving the client a typed restart-needed explanation. */
 export interface MemorySamplerDeps {
   selfRss: () => number;
-  connectedKavalPid: () => number | undefined;
+  connectedKaval: () =>
+    | { kind: "absent" }
+    | { kind: "pid"; pid: number }
+    | { kind: "gate-format-unsupported" };
   samplePidRss: (pid: number) => Promise<number>;
 }
 
-function connectedKavalPid(): number | undefined {
+function connectedKaval(): ReturnType<MemorySamplerDeps["connectedKaval"]> {
   if (
     readDaemonStatus(encodeHostLocation(LOCAL_LOCATION))?.state !== "connected"
   ) {
-    return undefined;
+    return { kind: "absent" };
   }
   const socketPath = getLocalSocketPath();
   if (socketPath === undefined) {
     throw new Error("connected kaval has no recorded socket path");
   }
-  const pid = gatePid(join(dirname(socketPath), KAVAL_GATE_FILE));
-  if (pid === undefined) {
-    throw new Error("connected kaval has no readable gate pid");
+  const gate = readGateIdentity(join(dirname(socketPath), KAVAL_GATE_FILE));
+  if (gate.kind === "unsupported-format") {
+    return { kind: "gate-format-unsupported" };
   }
-  return pid;
+  if (gate.kind !== "ok") {
+    throw new Error(`connected kaval gate is ${gate.kind}`);
+  }
+  return { kind: "pid", pid: gate.identity.pid };
 }
 
 async function samplePidRss(pid: number): Promise<number> {
@@ -85,15 +96,21 @@ async function samplePidRss(pid: number): Promise<number> {
 
 const defaultDeps: MemorySamplerDeps = {
   selfRss: () => process.memoryUsage().rss,
-  connectedKavalPid,
+  connectedKaval,
   samplePidRss,
 };
 
-async function pollKavalRss(deps: MemorySamplerDeps): Promise<ProcessRss> {
+async function pollKavalRss(deps: MemorySamplerDeps): Promise<KavalProcessRss> {
   try {
-    const pid = deps.connectedKavalPid();
-    if (pid === undefined) return { status: "absent" };
-    return { status: "ok", rssBytes: await deps.samplePidRss(pid) };
+    const connected = deps.connectedKaval();
+    if (connected.kind === "absent") return { status: "absent" };
+    if (connected.kind === "gate-format-unsupported") {
+      return { status: "gate-format-unsupported" };
+    }
+    return {
+      status: "ok",
+      rssBytes: await deps.samplePidRss(connected.pid),
+    };
   } catch (err) {
     log.error({ err }, "kaval osfacts RSS read failed");
     return { status: "error" };

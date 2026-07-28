@@ -73,9 +73,11 @@ export { type Logger, stderrLogger } from "./logger.ts";
 export {
   acquirePidGate,
   type GateAcquisition,
+  type GateIdentityRead,
   gateIdentity,
   gatePid,
   isHolderLive,
+  readGateIdentity,
   type ProcessIdentity,
   type ReadProcessIdentity,
 } from "./pidGate.ts";

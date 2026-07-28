@@ -16,7 +16,7 @@
  *     already throttles itself in a hidden tab).
  */
 
-import type { ProcessRss } from "kolu-common/surface";
+import type { KavalProcessRss, ProcessRss } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import {
   daemonChannelLive,
@@ -76,6 +76,19 @@ function displayRss(
   return null;
 }
 
+function displayKavalRss(
+  m: KavalProcessRss | undefined,
+):
+  | { kind: "ok"; rssBytes: number }
+  | { kind: "error" }
+  | { kind: "gate-format-unsupported" }
+  | null {
+  if (m?.status === "gate-format-unsupported") {
+    return { kind: "gate-format-unsupported" };
+  }
+  return displayRss(m);
+}
+
 /** The ACTIVE host's padi process memory projected for display (see
  *  {@link displayRss}). padi measures itself, so it is `ok` whenever that host's
  *  `identity`/`processMemory` cells have a live padi to read; `null`/`error`
@@ -105,6 +118,7 @@ export function padiMemoryDisplay():
 export function kavalMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
+  | { kind: "gate-format-unsupported" }
   | null {
   // The kaval RSS renders on the HOST-SCOPED Kaval chip (its dot/state/uptime floor on
   // `daemonChannelLive` = ws ∧ the active entry), so its memory folds the SAME entry leg: a
@@ -115,7 +129,7 @@ export function kavalMemoryDisplay():
   // VALUE now genuinely re-keys with the active host too, not just the display floor.
   if (!daemonChannelLive()) return null;
   if (localDaemonStatus()?.state !== "connected") return null;
-  return displayRss(hostSub.value()?.kaval);
+  return displayKavalRss(hostSub.value()?.kaval);
 }
 
 /** This browser's used JS heap in bytes, refreshed every second off the shared

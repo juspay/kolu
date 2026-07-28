@@ -25,6 +25,7 @@ import { afterEach, expect, it } from "vitest";
 import {
   acquirePidGate,
   gateIdentity,
+  readGateIdentity,
   type ProcessIdentity,
 } from "./pidGate.ts";
 
@@ -124,6 +125,14 @@ describeDaemon("acquirePidGate", () => {
     const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
     expect(liveHolder(path)).toBe(process.pid);
+  });
+
+  it("refuses a legacy one-field gate without projecting its pid", () => {
+    const path = gateIn();
+    writeFileSync(path, "772500\n");
+
+    expect(readGateIdentity(path)).toEqual({ kind: "unsupported-format" });
+    expect(gateIdentity(path)).toBeUndefined();
   });
 
   it("refuses (dir-not-private) when the gate dir is group/other-accessible", () => {

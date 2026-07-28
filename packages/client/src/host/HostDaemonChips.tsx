@@ -15,11 +15,10 @@ import {
 } from "@kolu/padi/surface";
 import type { EntryState } from "@kolu/surface-map";
 import type { HostKey } from "kolu-common/hostKey";
-import type { PadiLink, ProcessRss } from "kolu-common/surface";
+import type { PadiLink } from "kolu-common/surface";
 import type { SkewVersionPair } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
-import { match, P } from "ts-pattern";
 import {
   channelLive,
   DAEMON_UNKNOWN_LABEL,
@@ -52,10 +51,10 @@ import {
   StatusDot,
 } from "../ui/IdentityMark";
 import { joinTip } from "../ui/joinTip";
-import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { hostGlance, hostLabel, sameHost } from "./hostChipTone";
+import { formatProcessMemoryText } from "./processMemoryText";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
@@ -142,17 +141,6 @@ function useHostKaval(host: HostKey): {
  *  reader-as-shared-value discipline the daemonStatus reader already follows. */
 function useHostProcessMemory(host: HostKey) {
   return padiMap.entry(host).cells.processMemory.use();
-}
-
-/** The 4-arm process-RSS readout → tooltip text, in ONE place: the Padi and
- *  Kaval tips rendered a byte-identical `match(...).exhaustive()` block each. */
-function formatProcessMemoryText(m: ProcessRss | undefined): string {
-  return match(m)
-    .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
-    .with({ status: "error" }, () => "memory poll failed")
-    .with({ status: "absent" }, () => "memory unavailable")
-    .with(P.nullish, () => "memory unavailable")
-    .exhaustive();
 }
 
 /** Presentational Padi mark — logo + status dot for a host. Takes the ALREADY-folded

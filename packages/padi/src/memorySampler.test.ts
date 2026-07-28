@@ -4,7 +4,7 @@ import { samplePadiMemory, type MemorySamplerDeps } from "./memorySampler.ts";
 function deps(overrides: Partial<MemorySamplerDeps> = {}): MemorySamplerDeps {
   return {
     selfRss: () => 10,
-    connectedKavalPid: () => 4242,
+    connectedKaval: () => ({ kind: "pid", pid: 4242 }),
     samplePidRss: vi.fn(async () => 20),
     ...overrides,
   };
@@ -21,7 +21,7 @@ describe("samplePadiMemory", () => {
   });
 
   it("keeps disconnected kaval absent without invoking osfacts", async () => {
-    const d = deps({ connectedKavalPid: () => undefined });
+    const d = deps({ connectedKaval: () => ({ kind: "absent" }) });
     await expect(samplePadiMemory(undefined, d)).resolves.toEqual({
       padi: { status: "ok", rssBytes: 10 },
       kaval: { status: "absent" },

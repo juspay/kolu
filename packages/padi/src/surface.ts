@@ -269,8 +269,14 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  the usual reason — a newer binder against an old 4.3 padi fails
  *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
  *  surface, so a 4.4 client never calls `fs.listIgnored` on a padi that lacks it
- *  (which would be a missing-procedure error, not a graceful absence). */
-export const PADI_SURFACE_VERSION = "4.4";
+ *  (which would be a missing-procedure error, not a graceful absence).
+ *
+ *  4.5 (additive · minor): kaval's `processMemory` arm gains the emitted
+ *  `gate-format-unsupported` state. It names the deliberate refusal during the
+ *  deploy window where a surviving older kaval still has a one-field pid gate;
+ *  no legacy pid is parsed. As with 4.1's emitted variant, the wire shape changed,
+ *  so the version must say so and convergence keeps older parsers apart from it. */
+export const PADI_SURFACE_VERSION = "4.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });

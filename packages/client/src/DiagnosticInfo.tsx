@@ -33,16 +33,29 @@ import {
   padiMemoryDisplay,
   serverRssBytes,
 } from "./ui/useMemoryUsage";
+import { KAVAL_GATE_FORMAT_UNSUPPORTED_MESSAGE } from "./kaval/kavalMemoryPresentation";
 import { layoutMode } from "./useMobile";
 
 /** A per-process RSS display projected for the JSON snapshot — the byte figure
  *  when a live process answered, `"error"` when a believed-up process's read
  *  failed, or `null` (nothing to measure). Keeps a failed read distinct from
  *  no-data so the snapshot never conflates the two. */
+type RssDisplay = { kind: "ok"; rssBytes: number } | { kind: "error" } | null;
+type KavalRssDisplay =
+  | Exclude<RssDisplay, null>
+  | { kind: "gate-format-unsupported" }
+  | null;
+
+function rssFigure(d: RssDisplay): number | "error" | null;
 function rssFigure(
-  d: { kind: "ok"; rssBytes: number } | { kind: "error" } | null,
-): number | "error" | null {
-  return d === null ? null : d.kind === "ok" ? d.rssBytes : "error";
+  d: KavalRssDisplay,
+): number | "error" | "gate-format-unsupported" | null;
+function rssFigure(
+  d: KavalRssDisplay,
+): number | "error" | "gate-format-unsupported" | null {
+  if (d === null) return null;
+  if (d.kind === "ok") return d.rssBytes;
+  return d.kind;
 }
 
 /** WebGL2 support detection creates a throwaway canvas + WebGL context
@@ -163,7 +176,8 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         jsHeap: readJsHeap(),
         // The three server-side processes' RSS, off the `processMemory` cell (the
         // same source the rail reads). `serverRss` is always a real figure (the
-        // server measures itself); `padiRss`/`kavalRss` are the honest three-way —
+        // server measures itself); `padiRss` is the honest three-way and `kavalRss`
+        // additionally names a surviving daemon's unsupported gate format —
         // the byte figure when the process answered, `"error"` when a believed-up
         // process's read failed, or `null` (nothing to measure) — so the snapshot
         // never conflates a failed read with no-data. padi owns kaval now, so its
@@ -336,9 +350,11 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 <span class="font-mono text-fg">
                   {(() => {
                     const rss = snapshot().session.kavalRss;
-                    return rss === "error"
-                      ? "poll failed"
-                      : formatMB(rss as number);
+                    if (rss === "error") return "poll failed";
+                    if (rss === "gate-format-unsupported") {
+                      return KAVAL_GATE_FORMAT_UNSUPPORTED_MESSAGE;
+                    }
+                    return formatMB(rss as number);
                   })()}
                 </span>
               </Row>

@@ -55,6 +55,15 @@ export interface ProcessIdentity {
   startUnixUs: number;
 }
 
+/** A gate read keeps absence, I/O failure, and a present-but-foreign format
+ * distinct. `unsupported-format` deliberately carries no legacy projection: a
+ * caller may name the refusal, but must not recover a bare pid from it. */
+export type GateIdentityRead =
+  | { kind: "ok"; identity: ProcessIdentity }
+  | { kind: "absent" }
+  | { kind: "unreadable" }
+  | { kind: "unsupported-format" };
+
 export type ReadProcessIdentity = (pid: number) => ProcessIdentity | undefined;
 
 /** Is `dir` a private, owner-only directory the current user owns? The gate
@@ -94,25 +103,37 @@ export function isHolderLive(pid: number): boolean {
   }
 }
 
-/** The gate's recorded identity, or `undefined` if the file is absent or
- * malformed. Does NOT check the live process — each reader compares this record
- * with its injected process-identity reader. The parse half of the gate's file
- * format is single-sourced here. */
-export function gateIdentity(gatePath: string): ProcessIdentity | undefined {
+/** Read the gate without collapsing a present foreign/legacy shape into
+ * absence. This parser accepts exactly this build's two-field identity; it never
+ * interprets the retired one-field pid shape. */
+export function readGateIdentity(gatePath: string): GateIdentityRead {
+  let contents: string;
   try {
-    const fields = readFileSync(gatePath, "utf8").trim().split("\t");
-    if (fields.length !== 2) return undefined;
-    const pid = Number(fields[0]);
-    const startUnixUs = Number(fields[1]);
-    return Number.isSafeInteger(pid) &&
-      pid > 0 &&
-      Number.isSafeInteger(startUnixUs) &&
-      startUnixUs > 0
-      ? { pid, startUnixUs }
-      : undefined;
-  } catch {
-    return undefined;
+    contents = readFileSync(gatePath, "utf8");
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT"
+      ? { kind: "absent" }
+      : { kind: "unreadable" };
   }
+
+  const fields = contents.trim().split("\t");
+  if (fields.length !== 2) return { kind: "unsupported-format" };
+  const pid = Number(fields[0]);
+  const startUnixUs = Number(fields[1]);
+  return Number.isSafeInteger(pid) &&
+    pid > 0 &&
+    Number.isSafeInteger(startUnixUs) &&
+    startUnixUs > 0
+    ? { kind: "ok", identity: { pid, startUnixUs } }
+    : { kind: "unsupported-format" };
+}
+
+/** The gate's recorded identity, or `undefined` if the file is absent,
+ * unreadable, or not in this build's format. Does NOT check the live process —
+ * each reader compares this record with its injected process-identity reader. */
+export function gateIdentity(gatePath: string): ProcessIdentity | undefined {
+  const read = readGateIdentity(gatePath);
+  return read.kind === "ok" ? read.identity : undefined;
 }
 
 /** Convenience projection for diagnostics and socket paths. Ownership checks

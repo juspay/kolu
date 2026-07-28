@@ -36,6 +36,8 @@
 // `kolu-common/surface` importers are unchanged.
 import {
   HostDaemonInventorySchema,
+  type KavalProcessRss,
+  KavalProcessRssSchema,
   type ToastOnlyPolicy,
 } from "@kolu/padi/surface";
 import {
@@ -66,7 +68,11 @@ import { z } from "zod";
 // The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
 // home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
 // them here — the schema home moved to the daemon-domain package, the consumers didn't.
-export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
+export type {
+  KavalProcessRss,
+  RunningKaval,
+  RunningPadi,
+} from "@kolu/padi/surface";
 // kolu's app-owned client-error-policy union (SR11) — its home is `@kolu/padi`
 // (so `padiSurface`'s members can reference it without the seal-forbidden
 // `@kolu/padi → kolu-common` import); re-exported HERE so `koluSurface` above and
@@ -319,13 +325,14 @@ export function applyPreferencesPatch(
  *  — a SEPARATE process pair kolu-server no longer runs in-process (W2.2). padi
  *  serves its OWN `{ padi, kaval }` readout on `padiSurface.processMemory`; the
  *  server's sampler folds that reading in here so the rail reads one cell. Each is
- *  the honest {@link ProcessRssSchema} three-way so the rail can tell "the process
- *  is down" (`absent`) apart from "its RSS read failed" (`error`), never a fake
- *  zero — when padi is down both read `absent`. */
+ *  honest process-RSS state so the rail can tell "the process is down" (`absent`)
+ *  apart from "its RSS read failed" (`error`), never a fake zero. Kaval adds the
+ *  typed `gate-format-unsupported` deploy-window refusal; when padi is down both
+ *  still read `absent`. */
 export const ProcessMemorySchema = z.object({
   serverRssBytes: z.number(),
   padi: ProcessRssSchema,
-  kaval: ProcessRssSchema,
+  kaval: KavalProcessRssSchema,
 });
 export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
 
@@ -626,7 +633,10 @@ export function bytesToWholeMB(bytes: number): number {
 /** Two per-process RSS readings render the same whole-MB figure — same status and,
  *  when `ok`, the same whole megabytes (an `absent`/`error` pair carries no number
  *  to compare). */
-function rssMbEqual(a: ProcessRss, b: ProcessRss): boolean {
+function rssMbEqual(
+  a: ProcessRss | KavalProcessRss,
+  b: ProcessRss | KavalProcessRss,
+): boolean {
   if (a.status !== b.status) return false;
   if (a.status === "ok" && b.status === "ok") {
     return bytesToWholeMB(a.rssBytes) === bytesToWholeMB(b.rssBytes);

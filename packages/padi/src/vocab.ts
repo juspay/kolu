@@ -685,16 +685,25 @@ export type DaemonState = DaemonStatus["state"];
 // consumers (e.g. `memorySampler.ts`) resolve it from here unchanged.
 export { type ProcessRss, ProcessRssSchema };
 
-/** padi's process-memory readout — its OWN RSS plus its kaval daemon's, each the
- *  honest {@link ProcessRssSchema} three-way. padi owns kaval now (it supervises
- *  the kaval process), so padi is the source of this pair; it publishes it every
- *  sampler tick and kolu-server folds it into the rail's cell. `padi` is `ok` once
- *  padi has measured itself; `kaval` is `ok` when a connected daemon answered
- *  `system.processMemory`, `absent` when there is no connected daemon, `error` when
- *  a believed-connected daemon's poll threw. */
+/** Kaval's RSS read adds one typed mixed-version refusal to the generic process
+ * states. A surviving kaval with the retired one-field pid gate is still
+ * connected, but this padi refuses to derive an identity from that gate; the
+ * client can therefore name the restart-needed window without parsing legacy
+ * content or misreporting a generic poll failure. */
+export const KavalProcessRssSchema = z.union([
+  ProcessRssSchema,
+  z.object({ status: z.literal("gate-format-unsupported") }),
+]);
+export type KavalProcessRss = z.infer<typeof KavalProcessRssSchema>;
+
+/** padi's process-memory readout — its OWN generic process RSS plus its kaval
+ *  daemon's four-way read. padi owns kaval now (it supervises the kaval process),
+ *  so padi is the source of this pair; it publishes it every sampler tick and
+ *  kolu-server folds it into the rail's cell. Kaval adds only the typed
+ *  `gate-format-unsupported` refusal described above. */
 export const PadiProcessMemorySchema = z.object({
   padi: ProcessRssSchema,
-  kaval: ProcessRssSchema,
+  kaval: KavalProcessRssSchema,
 });
 export type PadiProcessMemory = z.infer<typeof PadiProcessMemorySchema>;
 

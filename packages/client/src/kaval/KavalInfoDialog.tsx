@@ -36,6 +36,7 @@ import {
 } from "./daemonPresentation";
 import { expectedKaval } from "./KavalUpdateBadge";
 import type { KavalAttention } from "./kavalCurrency";
+import { KAVAL_GATE_FORMAT_UNSUPPORTED_MESSAGE } from "./kavalMemoryPresentation";
 import RestartKavalButton from "./RestartKavalButton";
 import UpdateKavalButton from "./UpdateKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
@@ -244,6 +245,10 @@ const KavalInfoDialog: Component<{
             {match(kavalMemoryDisplay())
               .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
               .with({ kind: "error" }, () => "poll failed")
+              .with(
+                { kind: "gate-format-unsupported" },
+                () => KAVAL_GATE_FORMAT_UNSUPPORTED_MESSAGE,
+              )
               .with(P.nullish, () => "unavailable")
               .exhaustive()}
           </span>
