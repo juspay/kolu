@@ -27,6 +27,7 @@
 import {
   closeSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -157,34 +158,53 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
   );
 }
 
-/** Does anything accept connections on this unix-socket path? */
-export function socketIsServing(socketPath: string): Promise<boolean> {
+/**
+ * Probe the co-located socket:
+ *   - `serving` — accept works (real daemon)
+ *   - `dead` — socket inode present but connect fails (stale after crash/reboot)
+ *   - `absent` — no socket file yet (holder may still be starting — do NOT reclaim)
+ */
+export function socketServeState(
+  socketPath: string,
+): Promise<"serving" | "dead" | "absent"> {
+  try {
+    if (!lstatSync(socketPath).isSocket()) return Promise.resolve("dead");
+  } catch {
+    return Promise.resolve("absent");
+  }
   return new Promise((resolve) => {
     const sock = createConnection(socketPath);
-    const done = (v: boolean) => {
+    const done = (v: "serving" | "dead") => {
       sock.removeAllListeners();
       sock.destroy();
       resolve(v);
     };
-    sock.once("connect", () => done(true));
-    sock.once("error", () => done(false));
+    sock.once("connect", () => done("serving"));
+    sock.once("error", () => done("dead"));
   });
 }
 
+/** @deprecated prefer {@link socketServeState} — true only when actively serving */
+export async function socketIsServing(socketPath: string): Promise<boolean> {
+  return (await socketServeState(socketPath)) === "serving";
+}
+
 /**
- * After {@link acquirePidGate} returns `held`, confirm the co-located socket
- * is still serving. If not (reboot PID reuse, crashed daemon left a gate),
- * unlink the gate and re-acquire so a new daemon can start.
+ * After {@link acquirePidGate} returns `held`, distinguish:
+ *   - socket **serving** → real daemon, keep held
+ *   - socket **absent** → holder still booting (gate-first fence); keep held
+ *   - socket **dead** → stale gate (reboot PID reuse / crashed daemon); reclaim
  *
- * Call sites that build a {@link DaemonHomePaths} should always pass its
- * `socketPath` here — that is the F1 reboot-stale-gate fix for state placement.
+ * Reclaiming on "absent" would race a legitimate gate-first boot and let a
+ * second process past the single-instance fence (the F12 regression).
  */
 export async function confirmHeldGate(
   held: Extract<GateAcquisition, { kind: "held" }>,
   gatePath: string,
   socketPath: string,
 ): Promise<GateAcquisition> {
-  if (await socketIsServing(socketPath)) return held;
+  const state = await socketServeState(socketPath);
+  if (state !== "dead") return held;
   try {
     unlinkSync(gatePath);
   } catch {

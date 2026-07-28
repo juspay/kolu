@@ -325,7 +325,7 @@ describe.runIf(process.getuid)(
 );
 
 // The STRUCTURAL `kind` each candidate carries (decided at the matching branch, the
-// inverse of `kavalNamespace`) + the gate-pid enrichment `discoverKavalDaemons` adds —
+// inverse of `instance-mode decoration`) + the gate-pid enrichment `discoverKavalDaemons` adds —
 // the read-only enumeration the Kaval info dialog lists. Exercised over seeded
 // socket-inode facts + real gate files, so the classification (esp. the LEGACY
 // `port` leak signal) and the gate read are pinned without opening OS sockets.
@@ -389,7 +389,7 @@ describe("discoverKavalDaemons + candidate kind", () => {
 
 // The selection policy (explicit wins; else discover; one→use it;
 // many→ambiguous-with-labels; none→bare default) plus the candidate labels — the
-// inverse of `kavalNamespace` — live here, beside the construction they decode,
+// inverse of `instance-mode decoration` — live here, beside the construction they decode,
 // so both consumers (pulam's daemon, kaval-tui) only render their own
 // many/none error surface. Discovery is exercised over seeded socket-inode
 // facts, so the policy is pinned without waiting on kernel socket scheduling.

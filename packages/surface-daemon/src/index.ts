@@ -92,6 +92,7 @@ export {
   gatePid,
   isHolderLive,
   socketIsServing,
+  socketServeState,
 } from "./pidGate.ts";
 export type { SharedArtifact } from "./sharedArtifact.ts";
 export { daemonProcessMain } from "./tenure.ts";
