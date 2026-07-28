@@ -203,7 +203,8 @@ export const padiHostMap = defineSurfaceMap({
   entry: padiEntrySurface,
   codec: hostKeyCodec,
   failure: PadiEntryFailureSchema,
-  // SR9 — the FINE connection payload rides every entry (the ONE connection authority):
+  // SR9 — the FINE connection payload rides every LIVE entry (the ONE connection authority;
+  // a `failed` entry carries none — its post-mortem is the failure record instead):
   // `serveHostMap` produces the coarse dot and this fine word from the SAME session frame,
   // so the client derives the connect overlay / status word from `state().connection`
   // without a second per-host subscription (fixes the dot-vs-word split, drishti#102).

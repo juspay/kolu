@@ -20,7 +20,10 @@ import type { LogLine } from "../ui/logTailChrome";
 type FailedEntry = {
   kind: "failed";
   failure: { cause: EntryFailedCause; reason: string };
-  connection: { log: readonly LogLine[] } | undefined;
+  /** The failure record's own EVIDENCE — the retained tail surface-map staples on at
+   *  classification. REQUIRED, exactly as on the real `EntryStatus`: a failed entry
+   *  whose output "we cannot see" is no longer a state that exists. */
+  evidence: readonly LogLine[];
 };
 // The one non-`failed` shape these tests need — `HostDownCanvas` only ever mounts from
 // App.tsx's `host-failed` <Match> arm, so any other kind here is a routing bug, not a real
@@ -32,7 +35,7 @@ const h = vi.hoisted(() => ({
   entry: {
     kind: "failed",
     failure: { cause: "link-failed", reason: "" },
-    connection: undefined,
+    evidence: [],
   } as FailedEntry | OtherEntry,
 }));
 vi.mock("../wire", () => ({
@@ -41,10 +44,9 @@ vi.mock("../wire", () => ({
   client: { hosts: { reconnect: () => Promise.resolve() } },
 }));
 // Mirrors the real `failedEpisode` (`kaval/useDaemonStatus.ts`) exactly — `undefined` for any
-// non-`failed` entry, or when `connection` itself is absent ("we cannot see the output"); `[]`
-// when `connection` is present with nothing retained ("the failure produced none"). Kept in
-// lockstep with the production distinction rather than a placeholder, since that distinction
-// is exactly what these tests pin.
+// non-`failed` entry, and otherwise the episode with its `log` read off the failure record's
+// `evidence` (never the live `connection`, which the liveness floor drops). Kept in lockstep
+// with production, since what these tests pin is that the evidence reaches the card.
 vi.mock("../kaval/useDaemonStatus", () => ({
   activeEntryState: () => h.entry,
   failedEpisode: (entry: FailedEntry | OtherEntry) =>
@@ -53,7 +55,7 @@ vi.mock("../kaval/useDaemonStatus", () => ({
       : {
           cause: entry.failure.cause,
           reason: entry.failure.reason,
-          log: entry.connection?.log,
+          log: entry.evidence,
         },
 }));
 
@@ -71,13 +73,13 @@ const TAIL = '[data-testid="host-down-log"]';
 
 const mount = (props: {
   reason: string;
-  log: readonly LogLine[] | undefined;
+  log: readonly LogLine[];
   cause?: EntryFailedCause;
 }): void => {
   h.entry = {
     kind: "failed",
     failure: { cause: props.cause ?? "link-failed", reason: props.reason },
-    connection: props.log === undefined ? undefined : { log: props.log },
+    evidence: props.log,
   };
   dispose = render(() => <HostDownCanvas />, document.body);
 };
@@ -113,22 +115,16 @@ describe("HostDownCanvas surfaces the failed episode's output", () => {
     );
   });
 
-  it("renders no tail block when there is no output to show", () => {
+  it("renders no tail block when the failure produced no output", () => {
     // Data absence, not a flag: a cause that never ran a build (a contract refusal)
-    // renders exactly the pre-fix card. `[]` and `undefined` are ONE case here — they
-    // differ in MEANING ("there was none" vs "we cannot see it") but not in pixels, and
-    // happy-dom can observe only the pixels. The distinction itself is pinned where it is
-    // real: the card's `log` prop type, which forbids collapsing one into the other.
-    for (const log of [[], undefined] as const) {
-      mount({ reason: "zest: another kolu owns this host", log });
-      expect(document.querySelector(TAIL)).toBeNull();
-      expect(
-        document.querySelector('[data-testid="host-down-canvas"]'),
-      ).not.toBeNull();
-      dispose?.();
-      dispose = undefined;
-      document.body.innerHTML = "";
-    }
+    // renders exactly the pre-fix card. `[]` is the ONLY absence this arm can carry now —
+    // the old sibling case ("we cannot see the output", the floored-away live tail) is
+    // unrepresentable here, because the evidence rides the failure record past the floor.
+    mount({ reason: "zest: another kolu owns this host", log: [] });
+    expect(document.querySelector(TAIL)).toBeNull();
+    expect(
+      document.querySelector('[data-testid="host-down-canvas"]'),
+    ).not.toBeNull();
   });
 
   it("keeps the recovery verbs reachable below a full tail", () => {

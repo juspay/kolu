@@ -37,6 +37,22 @@ vibes:
 - **connected** — live. `clockOffset` is this entry's clock seam (below).
 - **failed** — it will *not* resolve without someone acting: a bounded give-up, or a standing refuse ("another owner holds this host"). The right UI is an actionable card; the wrong one is an eternal spinner.
 
+The `failed` arm is a **`FailureRecord`**: the reason, and the output that evidences
+it, as one named value. Neither half is optional, because a card that names a cause
+without showing what the machine actually printed is exactly the card nobody can act
+on — and because a pair spelled out as two correlated fields is a rule you have to
+remember, whereas one value is a rule you cannot forget. That is also why a
+`disconnected` session state carries an optional `refuse: FailureRecord` rather than
+two optional fields: there is no pair left to leave half-filled. The pairing is also
+what survives the client's liveness floor. That floor drops the live `connection`
+payload when the browser's own link to kolu goes quiet — a frozen in-progress word
+would otherwise keep narrating work that is no longer happening — and for a year the
+retained output tail rode that payload, so a slept laptop woke to a reason whose
+evidence had silently vanished. Moving the tail onto the failure record means the floor
+cannot separate them: it drops liveness payloads, and a failure record is not one. The
+`failed` arm carries no `connection` at all now, so the old read isn't merely
+discouraged, it doesn't compile.
+
 The line between `warming` and `failed` is drawn by the session's **domain failure**.
 A *specific* failure — a contract skew, a cross-supervisor refusal — is a standing
 condition, so it projects `failed`. *No* specific failure is a transient drop, so it
@@ -45,15 +61,26 @@ render a retriable reconnect as a steady red "failed" and a live system looks
 dead; render a standing refuse as `warming` and a permanently-stuck host spins
 forever. The sum is the fix that makes both unrepresentable.
 
-<Aside type="note" title="The domain owns its failures; the framework owns the discriminant">
+<Aside type="note" title="The domain owns its failures; the framework owns the discriminant and one co-product">
   `Failure` is a type parameter (defaulting to `unknown`), inferred from the map's
   required `failure` schema — not a baked-in list. The generic package cannot know a
-  domain's failure taxonomy, so it carries the discriminant and nothing more; a domain
-  instantiates `EntryStatus<PadiEntryFailure>` at its own map, where `PadiEntryFailure`
-  is a validated `z.discriminatedUnion` over a structural `cause` (each arm carrying its
-  human `reason`, the `contract-skew-refused` arm additionally a typed `running`/`expected`
-  version pair). The `failed` arm carries a schema-valid domain value, not a loose object.
-  Domain vocabulary stays in the domain — the dependency arrow points *out*.
+  domain's failure taxonomy, so it carries the discriminant, plus exactly one thing of
+  its own; a domain instantiates `EntryStatus<PadiEntryFailure>` at its own map, where
+  `PadiEntryFailure` is a validated `z.discriminatedUnion` over a structural `cause`
+  (each arm carrying its human `reason`, the `contract-skew-refused` arm additionally a
+  typed `running`/`expected` version pair). The `failed` arm carries a schema-valid
+  domain value, not a loose object. Domain vocabulary stays in the domain — the
+  dependency arrow points *out*.
+
+  The one thing the framework does own on that arm is `evidence`: a fixed structural
+  type (`readonly { source: "local" | "remote"; line: string }[]`), not a third type
+  parameter. That looks like a hole in the rule and isn't, because evidence is not
+  domain volatility. Every transport that can fail can produce provenance-tagged output
+  lines; there is no taxonomy here for a domain to disagree about, no schema to inject,
+  and nothing to enumerate. `@kolu/surface-remote`'s session log is already structurally
+  exactly this shape, so the producer hands its retained tail straight through. A
+  generic parameter would buy a domain no expressiveness it lacks and cost every map an
+  argument that has one correct answer.
 </Aside>
 
 ## Why the fold envelope omits void

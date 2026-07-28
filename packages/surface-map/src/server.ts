@@ -27,8 +27,15 @@ import {
 } from "@kolu/surface/server";
 import { ORPCError } from "@orpc/client";
 import { implement } from "@orpc/server";
+import { dequal } from "dequal";
 import type { z } from "zod";
-import type { EntryStatus, MembershipId, SurfaceMap } from "./define";
+import type {
+  EntryStatus,
+  FailureEvidence,
+  FailureRecord,
+  MembershipId,
+  SurfaceMap,
+} from "./define";
 import { MembershipIdSchema } from "./define";
 import { unfoldInput, unfoldKeyField } from "./envelope";
 
@@ -82,10 +89,12 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
  *  earlier (the session's raw connection state, before {@link projectStatus}
  *  projects it onto the published `EntryStatus`). Its optionality is PER-ARM, and
  *  the two down arms differ because their lifecycles do:
- *    - `disconnected.failure` is OPTIONAL — a transient drop legitimately carries
- *      NONE (still coming back → projects to `warming`); a standing refuse carries
- *      one (→ `failed(failure)`). Presence IS the warming-vs-failed discriminant.
- *    - `failed.failure` is REQUIRED — a terminal give-up is ALWAYS a real failure,
+ *    - `disconnected.refuse` is OPTIONAL and is a whole {@link FailureRecord} — a
+ *      transient drop legitimately carries NONE (still coming back → projects to
+ *      `warming`); a standing refuse carries one (→ `failed`). Presence IS the
+ *      warming-vs-failed discriminant, and because the record is ONE value the
+ *      reason can never arrive without the evidence that explains it.
+ *    - `failed` IS a `FailureRecord` — a terminal give-up is ALWAYS a real failure,
  *      so "failed with no failure" is an illegal state made UNCONSTRUCTIBLE at the
  *      type, not caught by a runtime throw. The optionality a transient
  *      `disconnected` legitimately needs does NOT bleed onto `failed` (independent
@@ -94,7 +103,20 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
  *  obtains the value from an injected, REQUIRED `failureOf` classifier (domain
  *  knowledge it doesn't itself hold), and fails loud at its OWN classification
  *  seam when a terminal `failed` session yields none — so the illegal state is
- *  refused at the producer, never represented here. */
+ *  refused at the producer, never represented here.
+ *
+ *  {@link FailureRecord} carries that same argument one field further: a domain failure
+ *  and the retained output tail that EVIDENCES it are ONE record with one name, so they
+ *  travel as one VALUE rather than as two correlated fields.
+ *    - `failed` IS a {@link FailureRecord} (a terminal give-up always has a reason, and
+ *      the episode that produced it always retained SOME tail — `[]` when it genuinely
+ *      produced none).
+ *    - `disconnected` carries an OPTIONAL `refuse` record: present = a standing refuse,
+ *      absent = a transient drop. Presence of the RECORD is the discriminant, so a
+ *      reason without its evidence (and evidence without a reason) is unspellable at
+ *      the shape level rather than pinned by a hand-written predicate, and
+ *      `state.refuse !== undefined` narrows it by ordinary optional-property narrowing
+ *      — no dependence on `Failure` being a usable discriminant. */
 export type EntryConnectionState<
   Prov extends "copying" | never = "copying",
   Failure = unknown,
@@ -102,8 +124,8 @@ export type EntryConnectionState<
   | { kind: Prov }
   | { kind: "connecting" }
   | { kind: "connected"; clockOffset: number | null }
-  | { kind: "disconnected"; failure?: Failure }
-  | { kind: "failed"; failure: Failure };
+  | { kind: "disconnected"; refuse?: FailureRecord<Failure> }
+  | ({ kind: "failed" } & FailureRecord<Failure>);
 
 /** A resolved, serveable entry. Carries what the map needs to (a) FORWARD calls
  *  (a live entry-surface oRPC client/link to proxy to) and (b) observe status
@@ -135,7 +157,16 @@ export interface EntrySession<
  *  Publishes `failed(failure)` directly. PR4: it carries the SAME schema-valid
  *  domain `failure` as a session-backed failed entry — there is no framework
  *  fabrication, so a registry that has no domain failure to report has no
- *  business minting an `EntryFault` at all (it fails loud instead). */
+ *  business minting an `EntryFault` at all (it fails loud instead).
+ *
+ *  Carries NO evidence. A fault has no session, hence no retained output tail — that is
+ *  a STRUCTURAL fact of the shape, not a value a producer could know better, so the one
+ *  seam that knows it (`statusOf`) states it once. It is the same class of fact as the
+ *  `kind` and the `membershipId` this seam already supplies for a fault rather than
+ *  demanding them back; asking every mint site to restate a constant its own type fixes
+ *  is a convention, not a guarantee. (The defect this design removes was a READER
+ *  defaulting missing data away — `connection?.log ?? []`. A producer stating a value
+ *  its type determines is not that.) */
 export interface EntryFault<Failure = unknown> {
   /** The sum tag — the discriminant `isFault` switches on. */
   readonly kind: "fault";
@@ -171,6 +202,10 @@ export interface MapRegistry<
   resolve(key: K): EntrySession<Prov, Failure, Conn> | EntryFault<Failure>;
 }
 
+/** The evidence a structural fault publishes — see `statusOf`. One module-level value
+ *  so it is reference-stable across resolves. */
+const NO_EVIDENCE: FailureEvidence = [];
+
 function isFault<Failure, Conn>(
   r: EntrySession<"copying", Failure, Conn> | EntryFault<Failure>,
 ): r is EntryFault<Failure> {
@@ -189,9 +224,12 @@ function isFault<Failure, Conn>(
  *                    (cross-supervisor / contract-skew-refused / unconverged: it will
  *                    not resolve by redialing) OR a TERMINAL give-up. Carries the
  *                    schema-valid domain `failure` so the host-down card can say what
- *                    to DO about it.
+ *                    to DO about it, AND that failure's `evidence` (the episode's
+ *                    retained output tail) so it can SHOW what happened — one record,
+ *                    so no consumer can hold the reason while the evidence went
+ *                    missing.
  *
- *  The warming-vs-failed discriminant is the PRESENCE of a domain `failure` on a
+ *  The warming-vs-failed discriminant is the PRESENCE of a `refuse` record on a
  *  `disconnected` state (PR4) — no magic `"other"` sentinel: a transient reconnect
  *  carries none (→ warming), a standing refuse carries one (→ failed). A terminal
  *  `failed` state ALWAYS carries a real failure — the arm is typed to REQUIRE it,
@@ -219,7 +257,7 @@ function projectStatus<Failure, Conn>(
       };
     // `disconnected` is OVERLOADED (see `@kolu/surface-remote`'s session machine):
     //   - a TRANSIENT reconnect-backoff — the link dropped and the loop is
-    //     redialing; the classifier reported NO standing failure (absent `failure`).
+    //     redialing; the classifier reported NO standing failure (absent `refuse`).
     //     This is the P4 case: a live host's normal reconnect window must read
     //     WARMING (coming back up), never a red "failed" chip indistinguishable
     //     from a dead host.
@@ -227,17 +265,17 @@ function projectStatus<Failure, Conn>(
     //     unconverged: `session.ts`'s refuse path "holds degraded, does NOT
     //     reconnect", and the domain classified a SPECIFIC failure. Project it to
     //     `failed(failure)` so the host-down card renders what to do about it.
-    // The discriminant is now the PRESENCE of a domain `failure`, not cause-
-    // specificity: a refuse carries one, a transient drop carries none.
-    case "disconnected":
-      return state.failure === undefined
+    // The discriminant is the PRESENCE of the `refuse` record, not cause-specificity.
+    case "disconnected": {
+      // The whole record, spread as one value — never two fields read separately, so
+      // the reason and its evidence cannot be split apart on the way to the arm. The
+      // live `connection` is deliberately NOT carried onto `failed` (that arm has no
+      // such field; see {@link FailureEvidence}).
+      const refuse = state.refuse;
+      return refuse === undefined
         ? { kind: "warming", membershipId, connection }
-        : {
-            kind: "failed",
-            membershipId,
-            failure: state.failure,
-            connection,
-          };
+        : { kind: "failed", membershipId, ...refuse };
+    }
     // A terminal give-up (the reconnect loop stopped for good) — always a red
     // `failed` chip carrying the domain failure the arm is now typed to REQUIRE
     // (the illegal "failed with no failure" is unconstructible; the producer's
@@ -247,7 +285,7 @@ function projectStatus<Failure, Conn>(
         kind: "failed",
         membershipId,
         failure: state.failure,
-        connection,
+        evidence: state.evidence,
       };
   }
 }
@@ -389,7 +427,18 @@ export function serveSurfaceMap<
     // member — never `connected`, so the joint invariant holds trivially). A session-
     // backed entry threads its co-produced fine `connection` through `projectStatus`.
     return isFault(r)
-      ? { kind: "failed", membershipId, failure: r.failure }
+      ? {
+          kind: "failed",
+          membershipId,
+          failure: r.failure,
+          // A fault has NO session, so there is no retained tail to staple: `[]` is what
+          // this shape structurally MEANS, not a fallback for "we couldn't see it".
+          // Stated here — the one seam that knows a fault has no session — exactly like
+          // the `kind` and the `membershipId` this same seam supplies. A SHARED const,
+          // so a re-resolve of an unchanged fault hands the republish gate the same
+          // reference rather than a fresh empty array on every family fire.
+          evidence: NO_EVIDENCE,
+        }
       : projectStatus<Failure, Conn>(r.state, membershipId, r.connection);
   };
 
@@ -631,23 +680,49 @@ export function serveSurfaceMap<
   // a per-key status only when that member's own EntryStatus actually changed.
   let lastKeyset: readonly string[] | undefined;
   const lastPublished = new Map<string, EntryStatus<Failure, Conn>>();
-  // Structural equality over the PUBLISHED EntryStatus fields (the arm shape in
-  // `define.ts`): `connection` is the cached `SessionState` frame, reference-stable
-  // per frame (`projectConnection` is identity), so `===` is exactly "did the source
-  // hand a new frame" — the fine word's change signal. `clockOffset`/`failure` are
-  // the only other published fields; comparing them by `===` errs toward RE-emitting
-  // a rebuilt-but-equal value (safe — it never MISSES a real change).
+  // Equality over the PUBLISHED EntryStatus, generic in BOTH directions:
+  //
+  //  - over FIELDS: every own key of both values, deliberately NOT a hand-written list.
+  //    A hand-enumerated compare has to be edited every time an arm in `define.ts` grows
+  //    a field, and the failure mode of forgetting is SILENT: the new field's changes
+  //    stop republishing (exactly what happened when the `failed` arm gained `evidence`).
+  //  - over VALUES: STRUCTURAL, not reference. `connection` is the cached `SessionState`
+  //    (`projectConnection` is identity), `evidence` is that same frame's retained `log`,
+  //    `kind`/`membershipId`/`clockOffset` are primitives and a structural fault's
+  //    evidence is the shared `NO_EVIDENCE` — all of which `dequal`'s leading `===`
+  //    settles in one comparison. `failure` is the one field a DOMAIN builds, and a
+  //    domain classifier naturally mints a fresh literal per call (kolu's
+  //    `padiFailureOf` does). Comparing it by REFERENCE would make stability an
+  //    UNENFORCED contract on every `MapRegistry`: a producer that rebuilds an equal
+  //    `failure` per tick re-emits every failed member on every sibling's frame — the
+  //    O(M²) this gate exists to avoid — with no compile error and no signal to go build
+  //    a per-frame cache of its own. So the gate pays for the guarantee itself, once,
+  //    for producers that don't exist yet.
+  //
+  // `dequal` (not a hand-rolled walk) because `Failure`/`Conn` are values this package
+  // deliberately never enumerates: a domain's zod-validated failure may hold a `Date` or
+  // a `Map` as legitimately as a string, and a JSON-only comparator would quietly get
+  // those wrong. It is also allocation-light and short-circuits on `===` before touching
+  // anything, which matters — this runs per member per fire.
   const samePublished = (
     a: EntryStatus<Failure, Conn>,
     b: EntryStatus<Failure, Conn>,
-  ): boolean =>
-    a.kind === b.kind &&
-    a.membershipId === b.membershipId &&
-    a.connection === b.connection &&
-    (a as { clockOffset?: number | null }).clockOffset ===
-      (b as { clockOffset?: number | null }).clockOffset &&
-    (a as { failure?: Failure }).failure ===
-      (b as { failure?: Failure }).failure;
+  ): boolean => {
+    const ra = a as unknown as Record<string, unknown>;
+    const rb = b as unknown as Record<string, unknown>;
+    const ka = Object.keys(ra);
+    const kb = Object.keys(rb);
+    // Same key COUNT plus `k in rb` per key — together exactly the key-UNION test, at two
+    // array allocations. The count alone would be unsound (`{p, q}` vs `{p, r}`, both
+    // `undefined`, have equal counts), which is why the membership check is there; with
+    // it, a key present on only one side (an arm gaining or losing an optional field)
+    // re-emits. Re-emitting is always the safe direction — the gate must never MISS a
+    // real change, and that is the only direction correctness depends on.
+    return (
+      ka.length === kb.length &&
+      ka.every((k) => k in rb && dequal(ra[k], rb[k]))
+    );
+  };
   const unsubRepublish = registry.subscribe(() => {
     const ks = members();
     const encoded = ks.map((k) => map.codec.encode(k));
