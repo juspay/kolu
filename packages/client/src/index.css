@@ -693,22 +693,6 @@ body {
 :root.dark .repo-branch-chip {
   color: color-mix(in oklch, var(--branch-color) 85%, white);
 }
-/* Minimap — faint monogram watermark on rects big enough to hold it. */
-.minimap-repo-glyph {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-weight: 800;
-  font-size: clamp(7px, 38%, 13px);
-  line-height: 1;
-  letter-spacing: -0.02em;
-  color: color-mix(in oklab, var(--repo-color) 48%, transparent);
-  pointer-events: none;
-  user-select: none;
-  text-shadow: 0 0 1px color-mix(in oklab, black 25%, transparent);
-}
 /* Restore / soft group band. */
 .repo-group-band {
   border-left: 4px solid var(--repo-color);

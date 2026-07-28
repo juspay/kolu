@@ -16,7 +16,6 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
-import { repoMonogram } from "../ui/repoMonogram";
 import { bucketDescriptor, metaBucket } from "./dockModel";
 import {
   handleMinimapClick,
