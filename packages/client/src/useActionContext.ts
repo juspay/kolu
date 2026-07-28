@@ -11,6 +11,7 @@ import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher } from "./capabilities";
 import type { ActionContext } from "./input/actions";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
+import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useRecorder } from "./recorder/useRecorder";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -53,7 +54,7 @@ export function useActionContext(): ActionContext {
       }),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
-    openNewTerminalMenu: () => commandPalette.openGroup("New terminal"),
+    openNewTerminalMenu: () => commandPalette.openGroup(NEW_TERMINAL_GROUP),
     openWorkspaceSwitcher: () => {
       // ⌘⇧K → Terminals host list (type to pierce all hosts). Dock search
       // deep-links further into the active host — see App dockPalette.

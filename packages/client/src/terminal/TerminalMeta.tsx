@@ -292,16 +292,21 @@ const NameSpan: Component<{
   <span
     data-testid="terminal-meta-name"
     class="inline-flex items-center gap-1.5 truncate shrink-0 max-w-[22ch]"
-    style={{ "--repo-color": props.info.repoColor }}
     title={props.meta.cwd}
   >
+    {/* Monogram uses --repo-color fill; name uses the raw fleet pastel.
+     *  Do NOT use `.repo-name-ink` here: that token mixes toward black in
+     *  light app chrome, which paints near-black on the dark terminal title
+     *  bar (#2037 regression). Title chrome is theme-dark; keep the pastel. */}
     <RepoMonogram
       group={props.info.key.group}
       color={props.info.repoColor}
       size="xs"
       data-testid="terminal-meta-monogram"
     />
-    <span class="repo-name-ink truncate">{props.info.key.group}</span>
+    <span class="truncate" style={{ color: props.info.repoColor }}>
+      {props.info.key.group}
+    </span>
   </span>
 );
 
