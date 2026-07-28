@@ -86,7 +86,9 @@ impl Facet {
         Self::StartTime,
         Self::CpuTime,
         Self::Uid,
+        Self::Cwd,
         Self::Status,
+        Self::Argv,
     ];
 
     /// Facets an `E` row of the `host` verb can name. A separate projection

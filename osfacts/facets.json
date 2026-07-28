@@ -20,7 +20,9 @@
     "start_time",
     "cpu_time",
     "uid",
-    "status"
+    "cwd",
+    "status",
+    "argv"
   ],
   "hostSource": ["uptime", "load", "mem", "cpu", "net", "disk"]
 }

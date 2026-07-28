@@ -114,6 +114,42 @@ describe("parseSnapshotOutput", () => {
     }
   });
 
+  it("keeps the E rows of a totally-blind probe that exited non-zero", async () => {
+    // The binary's documented total-failure path is "write the V line and its
+    // E rows, then exit 1". That document is the only place the answer to
+    // *which source went blind* exists; discarding it for the exit status left
+    // every consumer an opaque "non-zero exit".
+    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+    const bin = join(dir, "osfacts-blind");
+    try {
+      await writeFile(
+        bin,
+        '#!/bin/sh\nprintf "V\\t2\\nE\\tproc_readdir\\tproc\\tEACCES\\n"\nexit 1\n',
+      );
+      await chmod(bin, 0o755);
+      await expect(snapshotHost(bin, { procs: true })).resolves.toMatchObject({
+        procs: [],
+        errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("still fails loudly when a non-zero exit produced no document", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+    const bin = join(dir, "osfacts-broken");
+    try {
+      await writeFile(bin, '#!/bin/sh\necho "boom" >&2\nexit 3\n');
+      await chmod(bin, 0o755);
+      await expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
+        OsfactsClientError,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a version it does not speak", () => {
     expect(() => parseSnapshotOutput("V\t1\nP\t1\t0\tlaunchd\n")).toThrow(
       OsfactsClientError,

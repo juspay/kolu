@@ -382,11 +382,23 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 }
                 snap.ports = attribute_host_listeners(rows, &claims);
             }
-            // A hard sysctl failure never reached `attribute_host_listeners`,
-            // so nothing populated `snap.ports` — the whole facet is gone.
-            Err(err) => snap
-                .errors
-                .push(source_error("darwin_tcp_pcblist", Facet::Ports, err)),
+            // A hard sysctl failure loses the same thing an empty table loses
+            // — the independent host-wide view — and loses it no harder. The
+            // fd walk above is a SEPARATE source whose claims this snapshot is
+            // already holding, so they still ship: dropping them here would
+            // delete observed facts because a different source failed, which
+            // is the erasure the empty-table path already refuses.
+            Err(err) => {
+                snap.ports = attribute_host_listeners(Vec::new(), &claims);
+                let facet = if claims.is_empty() {
+                    // Nothing was claimed either, so no listener fact survives.
+                    Facet::Ports
+                } else {
+                    Facet::PortsUnclaimed
+                };
+                snap.errors
+                    .push(source_error("darwin_tcp_pcblist", facet, err));
+            }
         }
     }
 

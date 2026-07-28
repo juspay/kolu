@@ -120,7 +120,9 @@ export const SNAPSHOT_SOURCE_FACETS = [
   "start_time",
   "cpu_time",
   "uid",
+  "cwd",
   "status",
+  "argv",
 ] as const;
 export type SnapshotSourceFacet = (typeof SNAPSHOT_SOURCE_FACETS)[number];
 
@@ -264,9 +266,9 @@ const SNAPSHOT_FACET_NAMES = {
   startTime: { unreadable: ["start_time"], source: ["start_time"] },
   cpuTime: { unreadable: ["cpu_time"], source: ["cpu_time"] },
   uid: { unreadable: ["uid"], source: ["uid"] },
-  cwd: { unreadable: ["cwd"], source: [] },
+  cwd: { unreadable: ["cwd"], source: ["cwd"] },
   status: { unreadable: ["status", "status_threads"], source: ["status"] },
-  argv: { unreadable: ["argv"], source: [] },
+  argv: { unreadable: ["argv"], source: ["argv"] },
 } as const satisfies Record<
   keyof SnapshotFacets,
   {
@@ -664,12 +666,38 @@ async function runOsfacts(bin: string, args: string[]): Promise<string> {
     });
     return stdout;
   } catch (err) {
+    // A non-zero exit is not the same as no answer. The binary's documented
+    // total-failure path is "write the V line and its E rows, then exit 1" —
+    // and that document is the ONLY place the answer to *which source went
+    // blind* exists. Discarding it here because the status was non-zero threw
+    // away exactly the honesty the wire format is for, leaving every consumer
+    // an opaque "non-zero exit". Hand the document on and let the caller apply
+    // its own reject-versus-render policy, the same way it does for a partial
+    // snapshot that exited 0.
+    const document = failureDocument(err);
+    if (document !== undefined) return document;
     throw new OsfactsClientError(
       "spawn",
       `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
       { cause: err },
     );
   }
+}
+
+/**
+ * The child's stdout when a non-zero exit still produced a V2 document.
+ *
+ * A killed child is excluded: on timeout or SIGKILL the output is whatever had
+ * been flushed, so a `V` prefix there means a truncated document, not a
+ * complete one — and a truncated document must surface as the spawn failure it
+ * is rather than as a parse error about some arbitrary row.
+ */
+function failureDocument(err: unknown): string | undefined {
+  const failure = err as { stdout?: unknown; killed?: boolean };
+  if (failure?.killed) return undefined;
+  const stdout = failure?.stdout;
+  if (typeof stdout !== "string" || !stdout.startsWith("V\t")) return undefined;
+  return stdout;
 }
 function appendSnapshotFacets(
   args: string[],

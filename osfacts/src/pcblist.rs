@@ -46,12 +46,23 @@ pub fn decode_host_listeners(bytes: &[u8]) -> Result<Vec<HostListener>, i32> {
         return Ok(Vec::new());
     }
     let header_len = read_u32(bytes, 0)? as usize;
-    let mut offset = round_up_8(header_len);
+    // The kernel supplies every length in this buffer, so each one is checked
+    // against the buffer before it is trusted, and every cursor step is
+    // checked arithmetic. An unchecked `offset + len` wraps in release, and a
+    // wrapped sum passes a `> bytes.len()` bound — admitting a phantom record
+    // read from fixed offsets. A header that overshoots the buffer is drift
+    // too, and must not leave the loop unentered and report `Ok(empty)`, which
+    // the caller reads as a gated-but-healthy table.
+    let mut offset = round_up_8(header_len).ok_or(libc::EINVAL)?;
+    if offset > bytes.len() {
+        return Err(libc::EINVAL);
+    }
     let mut pending: Option<HostListener> = None;
     let mut out = Vec::new();
     while offset + 8 <= bytes.len() {
         let len = read_u32(bytes, offset)? as usize;
-        if len < CLOSING_RECORD_LEN || offset + len > bytes.len() {
+        let end = offset.checked_add(len).ok_or(libc::EINVAL)?;
+        if len < CLOSING_RECORD_LEN || end > bytes.len() {
             return Err(libc::EINVAL);
         }
         // A bare 24-byte record is the table's closing marker. Both committed
@@ -93,7 +104,7 @@ pub fn decode_host_listeners(bytes: &[u8]) -> Result<Vec<HostListener>, i32> {
                 pending = None;
             }
         }
-        offset = offset.saturating_add(round_up_8(len));
+        offset = round_up_8(end).ok_or(libc::EINVAL)?;
     }
     Ok(out)
 }
@@ -137,15 +148,22 @@ pub fn attribute_host_listeners(
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, i32> {
+    let end = offset.checked_add(4).ok_or(libc::EINVAL)?;
     bytes
-        .get(offset..offset + 4)
+        .get(offset..end)
         .and_then(|slice| slice.try_into().ok())
         .map(u32::from_ne_bytes)
         .ok_or(libc::EINVAL)
 }
 
-fn round_up_8(value: usize) -> usize {
-    value.saturating_add(7) & !7
+/// Round to the next 8-byte boundary, or `None` if that would overflow.
+///
+/// Saturating here would be a lie: it turns an impossible length into
+/// `usize::MAX`, which then compares as "past the buffer" by luck rather than
+/// by check. A kernel length that cannot be rounded is drift, and drift is an
+/// error.
+fn round_up_8(value: usize) -> Option<usize> {
+    value.checked_add(7).map(|v| v & !7)
 }
 
 #[cfg(test)]
@@ -189,6 +207,32 @@ mod tests {
             decode_host_listeners(&PLATFORM[..PLATFORM.len() - 1]),
             Err(libc::EINVAL)
         );
+    }
+
+    #[test]
+    fn a_header_that_overshoots_the_buffer_is_loud_drift_not_an_empty_table() {
+        // A corrupt opening length used to push the cursor past the end, so
+        // the record loop never ran and the walk returned `Ok(empty)` — which
+        // the caller reports as BLIND_OR_EMPTY, a gated-but-healthy table.
+        let mut bytes = PLATFORM.to_vec();
+        bytes[..4].copy_from_slice(&u32::to_ne_bytes(0xffff_0000));
+
+        assert_eq!(decode_host_listeners(&bytes), Err(libc::EINVAL));
+    }
+
+    #[test]
+    fn an_enormous_record_length_is_loud_drift() {
+        // The cursor arithmetic is checked rather than wrapping. On a 64-bit
+        // usize a u32 length cannot actually wrap `offset + len`, so this pins
+        // the reachable half — a length past the buffer is an error, never a
+        // phantom record read from fixed offsets — while `checked_add` keeps
+        // the unreachable half unspellable rather than true by luck.
+        let header_len = u32::from_ne_bytes(PLATFORM[..4].try_into().expect("four bytes")) as usize;
+        let first = round_up_8(header_len).expect("fixture header rounds");
+        let mut bytes = PLATFORM.to_vec();
+        bytes[first..first + 4].copy_from_slice(&u32::to_ne_bytes(u32::MAX));
+
+        assert_eq!(decode_host_listeners(&bytes), Err(libc::EINVAL));
     }
 
     #[test]

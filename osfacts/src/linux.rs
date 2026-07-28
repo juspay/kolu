@@ -18,7 +18,37 @@ const TCP_LISTEN: &str = "0A";
 
 pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     let mut snap = Snapshot::new();
-    let pids = collect_pids(&args.scope, &mut snap);
+    let pids = match collect_pids(&args.scope, &mut snap) {
+        Ok(pids) => pids,
+        Err(err) => {
+            // Listing `/proc` is how a host-wide ask learns which pids exist,
+            // so its silence costs every facet the ask named — the same shape
+            // as darwin's `kern.proc.all`, which is that platform's sole
+            // process source.
+            let mut costed = false;
+            for (asked, facet) in [
+                (args.procs, Facet::Proc),
+                (args.ports, Facet::Ports),
+                (args.mem, Facet::Mem),
+                (args.start_time, Facet::StartTime),
+                (args.cpu_time, Facet::CpuTime),
+                (args.uid, Facet::Uid),
+                (args.cwd, Facet::Cwd),
+                (args.status, Facet::Status),
+                (args.argv, Facet::Argv),
+            ] {
+                if asked {
+                    snap.errors.push(source_error("proc_readdir", facet, err));
+                    costed = true;
+                }
+            }
+            if !costed {
+                snap.errors
+                    .push(source_error("proc_readdir", Facet::Proc, err));
+            }
+            return snap;
+        }
+    };
     let boot_us = if args.start_time {
         match boot_time_us() {
             Ok(value) => Some(value),
@@ -262,10 +292,10 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
     out
 }
 
-fn collect_pids(scope: &Scope, snap: &mut Snapshot) -> Vec<u32> {
+fn collect_pids(scope: &Scope, snap: &mut Snapshot) -> Result<Vec<u32>, i32> {
     match scope {
         Scope::Host => host_pids(),
-        Scope::Pids(list) => list.clone(),
+        Scope::Pids(list) => Ok(list.clone()),
         Scope::Roots(roots) => {
             let mut seen = HashSet::new();
             let mut out = Vec::new();
@@ -280,22 +310,25 @@ fn collect_pids(scope: &Scope, snap: &mut Snapshot) -> Vec<u32> {
                 out.push(root);
                 descend(root, &mut seen, &mut out);
             }
-            out
+            Ok(out)
         }
     }
 }
 
-fn host_pids() -> Vec<u32> {
+fn host_pids() -> Result<Vec<u32>, i32> {
     let mut p = Vec::new();
-    if let Ok(rd) = fs::read_dir("/proc") {
-        for e in rd.flatten() {
-            if let Ok(pid) = e.file_name().to_string_lossy().parse() {
-                p.push(pid)
-            }
+    // Not `if let Ok(..)`. `/proc` is how a host-wide snapshot learns which
+    // pids exist, so a failed listing is total blindness — and swallowing it
+    // hands the consumer a successful, empty, entirely plausible "this host
+    // has no processes".
+    let rd = fs::read_dir("/proc").map_err(|err| raw_errno(&err))?;
+    for e in rd.flatten() {
+        if let Ok(pid) = e.file_name().to_string_lossy().parse() {
+            p.push(pid)
         }
     }
     p.sort_unstable();
-    p
+    Ok(p)
 }
 fn descend(root: u32, seen: &mut HashSet<u32>, out: &mut Vec<u32>) {
     let mut q = vec![root];
