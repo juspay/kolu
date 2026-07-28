@@ -23,18 +23,30 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
         match boot_time_us() {
             Ok(value) => Some(value),
             Err(err) => {
-                snap.errors.push(source_error("proc_stat_btime", err));
+                snap.errors
+                    .push(source_error("proc_stat_btime", "start_time", err));
                 None
             }
         }
     } else {
         None
     };
-    let cpu_hz = if args.cpu_time {
+    // The tick rate is one host-global constant, so it is read once here and
+    // handed to both facets that need it. Re-deriving it per pid would turn a
+    // single source failure into one `U` row per process — a host fact
+    // misfiled as N per-process facts.
+    let clk_hz = if args.cpu_time || args.start_time {
         match clock_ticks() {
             Ok(value) => Some(value),
             Err(err) => {
-                snap.errors.push(source_error("sysconf_clk_tck", err));
+                if args.start_time {
+                    snap.errors
+                        .push(source_error("sysconf_clk_tck", "start_time", err));
+                }
+                if args.cpu_time {
+                    snap.errors
+                        .push(source_error("sysconf_clk_tck", "cpu_time", err));
+                }
                 None
             }
         }
@@ -85,18 +97,18 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 Err(err) => push_unreadable(&mut snap, pid, "mem", err),
             }
         }
-        if let Some(boot_us) = boot_us {
+        if let (Some(boot_us), Some(clk_hz)) = (boot_us, clk_hz) {
             let stat = stat
                 .as_ref()
                 .expect("stat is loaded for start time")
                 .as_deref()
                 .map_err(|err| *err);
-            match stat.and_then(|stat| read_start_time(stat, boot_us)) {
+            match stat.and_then(|stat| read_start_time(stat, boot_us, clk_hz)) {
                 Ok(start_unix_us) => snap.start_times.push(StartTime { pid, start_unix_us }),
                 Err(err) => push_unreadable(&mut snap, pid, "start_time", err),
             }
         }
-        if let Some(cpu_hz) = cpu_hz {
+        if let (true, Some(cpu_hz)) = (args.cpu_time, clk_hz) {
             let stat = stat
                 .as_ref()
                 .expect("stat is loaded for CPU time")
@@ -174,7 +186,9 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                     })
                     .collect();
             }
-            Err((source, err)) => snap.errors.push(source_error(source, err)),
+            // `/proc/net/tcp{,6}` is the only listener source on linux, so its
+            // silence costs the whole listener set, claimed rows included.
+            Err((source, err)) => snap.errors.push(source_error(source, "ports", err)),
         }
     }
 
@@ -201,13 +215,13 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
 pub fn host(args: &HostArgs) -> HostSnapshot {
     let mut out = HostSnapshot::new();
     match uptime_us() {
-        Ok(v) => out.uptime_us = v,
-        Err(e) => out.errors.push(source_error("proc_uptime", e)),
+        Ok(v) => out.uptime_us = Some(v),
+        Err(e) => out.errors.push(source_error("proc_uptime", "uptime", e)),
     }
     if args.load {
         match read_load() {
             Ok(v) => out.load = Some(v),
-            Err(e) => out.errors.push(source_error("proc_loadavg", e)),
+            Err(e) => out.errors.push(source_error("proc_loadavg", "load", e)),
         }
     }
     if args.mem {
@@ -216,25 +230,25 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
                 out.memory = Some(m);
                 out.swap = Some(s)
             }
-            Err(e) => out.errors.push(source_error("proc_meminfo", e)),
+            Err(e) => out.errors.push(source_error("proc_meminfo", "mem", e)),
         }
     }
     if args.cpu {
         match read_cpus() {
             Ok(v) => out.cpus = v,
-            Err((source, e)) => out.errors.push(source_error(source, e)),
+            Err((source, e)) => out.errors.push(source_error(source, "cpu", e)),
         }
     }
     if args.net {
         match read_networks() {
             Ok(v) => out.networks = v,
-            Err(e) => out.errors.push(source_error("proc_net_dev", e)),
+            Err(e) => out.errors.push(source_error("proc_net_dev", "net", e)),
         }
     }
     if args.disk {
         match read_root_disk() {
             Ok(v) => out.disks.push(v),
-            Err(e) => out.errors.push(source_error("statvfs_root", e)),
+            Err(e) => out.errors.push(source_error("statvfs_root", "disk", e)),
         }
     }
     out
@@ -385,11 +399,11 @@ fn clock_ticks() -> Result<u64, i32> {
         Ok(v as u64)
     }
 }
-fn read_start_time(stat: &str, boot_us: u64) -> Result<u64, i32> {
+fn read_start_time(stat: &str, boot_us: u64, hz: u64) -> Result<u64, i32> {
     let ticks = parse_stat_field(stat, 19)?
         .parse::<u64>()
         .map_err(|_| libc::EINVAL)?;
-    Ok(boot_us + ticks.saturating_mul(1_000_000) / clock_ticks()?)
+    Ok(boot_us + ticks.saturating_mul(1_000_000) / hz)
 }
 
 fn read_cpu_time(stat: &str, hz: u64) -> Result<u64, i32> {
@@ -717,6 +731,11 @@ fn read_networks() -> Result<Vec<Network>, i32> {
             tx_bytes: tx,
         })
     }
+    // `lo` is always present, so an empty parse means the file did not have the
+    // shape this reader expects — blindness, not a host with no interfaces.
+    if out.is_empty() {
+        return Err(libc::EINVAL);
+    }
     Ok(out)
 }
 fn read_root_disk() -> Result<Disk, i32> {
@@ -747,9 +766,10 @@ fn push_unreadable(s: &mut Snapshot, pid: u32, facet: &str, err: i32) {
         })
     }
 }
-fn source_error(source: &str, err: i32) -> SourceError {
+fn source_error(source: &str, facet: &str, err: i32) -> SourceError {
     SourceError {
         source: source.into(),
+        facet: facet.into(),
         code: errno_name(err),
     }
 }

@@ -192,6 +192,7 @@ fn narrow_scope_emits_unclaimed_host_listener() {
         == [vec![
             "E".to_owned(),
             "darwin_tcp_pcblist".to_owned(),
+            "ports_unclaimed".to_owned(),
             "BLIND_OR_EMPTY".to_owned(),
         ]]
     {

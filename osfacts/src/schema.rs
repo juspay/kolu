@@ -83,9 +83,18 @@ pub struct Unreadable {
     pub errno: String,
 }
 
+/// A source that could not be read, and the facet its silence costs.
+///
+/// `facet` is the same vocabulary the `U` rows use, so a consumer scopes
+/// source blindness exactly the way it scopes per-pid blindness. It is what
+/// separates "the listener table is gone" (`ports`) from "the host-wide table
+/// is gone but the fd walk still named every claimed listener"
+/// (`ports_unclaimed`) — a distinction a consumer cannot rederive from the
+/// source name without duplicating this module's knowledge.
 #[derive(Debug, Clone, Serialize)]
 pub struct SourceError {
     pub source: String,
+    pub facet: String,
     pub code: String,
 }
 
@@ -156,7 +165,7 @@ impl Snapshot {
             writeln!(out, "U\t{}\t{}\t{}", u.pid, u.facet, u.errno)?;
         }
         for e in &self.errors {
-            writeln!(out, "E\t{}\t{}", e.source, e.code)?;
+            writeln!(out, "E\t{}\t{}\t{}", e.source, e.facet, e.code)?;
         }
         out.flush()
     }
@@ -236,7 +245,8 @@ pub struct HostSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub swap: Option<Swap>,
     #[serde(rename = "uptimeUs")]
-    pub uptime_us: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uptime_us: Option<u64>,
     pub cpus: Vec<Cpu>,
     pub networks: Vec<Network>,
     pub disks: Vec<Disk>,
@@ -262,7 +272,9 @@ impl HostSnapshot {
         if let Some(v) = &self.swap {
             writeln!(out, "HSWAP\t{}\t{}", v.total_bytes, v.used_bytes)?;
         }
-        writeln!(out, "HUP\t{}", self.uptime_us)?;
+        if let Some(v) = self.uptime_us {
+            writeln!(out, "HUP\t{v}")?;
+        }
         for v in &self.cpus {
             writeln!(
                 out,
@@ -288,7 +300,7 @@ impl HostSnapshot {
             )?;
         }
         for e in &self.errors {
-            writeln!(out, "E\t{}\t{}", e.source, e.code)?;
+            writeln!(out, "E\t{}\t{}\t{}", e.source, e.facet, e.code)?;
         }
         out.flush()
     }

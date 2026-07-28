@@ -42,13 +42,34 @@ export class PortScanError extends Error {
 
 export type { ProcessRow };
 
+/**
+ * The facets this scan actually reads.
+ *
+ * A subtree port fold needs the process table and the listeners a pid claims —
+ * nothing else. Blindness in any other facet costs this scan no fact, so it
+ * must not be laundered into a blind scan. The osfacts contract is explicit:
+ * a source error is not an instruction to discard facts that did arrive. In
+ * particular `ports_unclaimed` — what macOS 27 gates when it hides the
+ * host-wide socket table — leaves every claimed listener intact via the
+ * same-uid fd walk, so treating it as blindness would black out port
+ * detection on that platform while the facts sat in hand.
+ */
+const SCANNED_FACETS: readonly string[] = ["proc", "ports"];
+
+function scanned(facet: string): boolean {
+  return SCANNED_FACETS.includes(facet);
+}
+
 /** Render explicit source blindness for padi's fail-loud port policy. */
 export function sourceErrorsMessage(
   errors: readonly SourceErrorRow[],
 ): string | null {
-  return errors.length === 0
+  const blinding = errors.filter(({ facet }) => scanned(facet));
+  return blinding.length === 0
     ? null
-    : errors.map(({ source, code }) => `${source}=${code}`).join(", ");
+    : blinding
+        .map(({ source, facet, code }) => `${source}[${facet}]=${code}`)
+        .join(", ");
 }
 
 /** Partition the process table into one pid SET per requested ROOT pid. */
@@ -149,7 +170,7 @@ export function unreadablePolicy(
   const skipPids = new Set<number>();
   let fatal: UnreadableRow | null = null;
   for (const u of unreadable) {
-    if (u.facet !== "proc" && u.facet !== "ports") continue;
+    if (!scanned(u.facet)) continue;
     const exitRace = u.errno === "ENOENT" || u.errno === "ESRCH";
     if (rootPids.has(u.pid)) {
       if (exitRace) {

@@ -166,13 +166,50 @@ describe("unreadablePolicy", () => {
 });
 
 describe("sourceErrorsMessage", () => {
-  it("keeps explicit partial-source failure fatal for padi", () => {
+  it("keeps a blind listener source fatal for padi", () => {
     expect(
       sourceErrorsMessage([
-        { source: "darwin_tcp_pcblist", code: "BLIND_OR_EMPTY" },
+        { source: "proc_net_tcp", facet: "ports", code: "EACCES" },
       ]),
-    ).toBe("darwin_tcp_pcblist=BLIND_OR_EMPTY");
+    ).toBe("proc_net_tcp[ports]=EACCES");
     expect(sourceErrorsMessage([])).toBeNull();
+  });
+
+  it("survives macOS 27 hiding the host-wide socket table", () => {
+    // The fd walk still named every claimed listener, so the only facet lost
+    // is the one a subtree fold never reads. Treating this as blindness once
+    // blacked out port detection on the whole platform.
+    expect(
+      sourceErrorsMessage([
+        {
+          source: "darwin_tcp_pcblist",
+          facet: "ports_unclaimed",
+          code: "BLIND_OR_EMPTY",
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it("ignores blindness in facets this scan never reads", () => {
+    expect(
+      sourceErrorsMessage([
+        { source: "net_rt_iflist2", facet: "net", code: "EPERM" },
+        { source: "proc_loadavg", facet: "load", code: "EACCES" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("still reports the blinding facet when it arrives beside a benign one", () => {
+    expect(
+      sourceErrorsMessage([
+        {
+          source: "darwin_tcp_pcblist",
+          facet: "ports_unclaimed",
+          code: "BLIND_OR_EMPTY",
+        },
+        { source: "kern_proc_all", facet: "proc", code: "EPERM" },
+      ]),
+    ).toBe("kern_proc_all[proc]=EPERM");
   });
 });
 

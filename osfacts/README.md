@@ -105,7 +105,10 @@ The other process details stay independent too. `--uid` emits the real uid
 (name lookup belongs to the consumer); `--cwd` emits the current directory;
 `--status` emits the one-character state, nice value, and a nullable thread
 count; `--argv` emits the full argument vector, distinct from the short process
-name. Cwd and argv are JSON-encoded inside their final TSV field, so tabs,
+name. State and nice come from the public census, but on darwin the thread
+count comes from the task port, which can be denied on its own — so a denied
+thread read emits `U <pid> status_threads <errno>` beside the `STAT` row
+instead of letting `null` stand in for "the kernel said none". Cwd and argv are JSON-encoded inside their final TSV field, so tabs,
 newlines, and NULs cannot change row boundaries. Each failed read is its own
 `U <pid> <facet> <errno>` row — asking for cwd cannot turn an unreadable cwd
 into an empty path or erase a readable uid.
@@ -156,12 +159,28 @@ listeners no readable pid claimed.
 
 Same binary, same honesty, different OS policy.
 
-Source blindness is an `E` row, not an instruction to discard facts that did
-arrive. A partial snapshot exits successfully and leaves reject-versus-render
-policy to the consumer; an `E`-only result remains a total failure and exits
-nonzero, as do usage and output failures. This distinction keeps a blind port
-source from erasing valid process rows while making a completely blind probe
-fail loudly.
+Source blindness is an `E <source> <facet> <code>` row, not an instruction to
+discard facts that did arrive. A partial snapshot exits successfully and leaves
+reject-versus-render policy to the consumer; an `E`-only result remains a total
+failure and exits nonzero, as do usage and output failures. This distinction
+keeps a blind port source from erasing valid process rows while making a
+completely blind probe fail loudly.
+
+The `facet` field is what makes that policy decidable without guessing from the
+source name. It says which facet the silence actually costs, in the same
+vocabulary the `U` rows use, so a consumer scopes source blindness exactly the
+way it scopes per-pid blindness — ignoring what it never reads. The macOS 27
+case is the one that matters: the host-wide table is the sole source of
+listeners *nobody* claimed, so its silence is `ports_unclaimed`, not `ports`.
+A consumer folding listeners per subtree loses no fact and must not go blind.
+A hard failure of the only listener source — `/proc/net/tcp` on linux, or a
+`net.inet.tcp.pcblist_n` sysctl that errors rather than returning the empty
+shape — costs the whole facet and says `ports`.
+
+Host facets follow the same rule and are individually optional: a failed
+uptime read emits `E <source> uptime <code>` and simply omits the `HUP` row,
+rather than publishing a fabricated `0` a consumer would read as a legitimate
+just-booted host.
 
 ## Who uses it
 
@@ -236,9 +255,12 @@ worth keeping readable.
 
 OSF1, OSF2, OSF3, OSF6, and OSF7 are in: the binary's process, listener,
 RSS, start-time, cumulative CPU-time, uid, cwd, status, full argv, and complete
-host-telemetry facts on both platforms, plus kolu's port and memory sensors and
-start-qualified daemon ownership. The TypeScript client exposes exact-pid,
-subtree, and true host-wide process snapshots. The contract is
+host-telemetry facts on both platforms, plus kolu's port sensor. The TypeScript
+client exposes exact-pid, subtree, and true host-wide process snapshots. Kolu's
+adoption of the *new* facets — memory sampling over osfacts, pid+start identity
+gates, and start-qualified daemon ownership — is **not** here; it is phase OSF8,
+which has to be designed around the window where old and new daemons coexist
+during an upgrade. The contract is
 versioned TSV + `--json`, with mandatory `unreadable` and source-error rows,
 and kolu spawns the baked store path
 (`KOLU_OSFACTS_BIN`). The TypeScript client lives at `client-ts/` as the

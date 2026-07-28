@@ -201,7 +201,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     let process_table = match read_process_table() {
         Ok(rows) => rows,
         Err(err) => {
-            snap.errors.push(source_error("kern_proc_all", err));
+            snap.errors.push(source_error("kern_proc_all", "proc", err));
             return snap;
         }
     };
@@ -277,17 +277,30 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
         if args.status {
             match bsd.as_ref().expect("bsd requested") {
                 Ok(row) => match darwin_state(row.status) {
-                    Ok(state) => snap.statuses.push(ProcessStatus {
-                        pid,
-                        state,
-                        nice: row.nice,
-                        threads: task
-                            .as_ref()
-                            .and_then(|result| result.as_ref().ok())
-                            .and_then(|task| {
+                    Ok(state) => {
+                        // `threads` comes from the task port, `state`/`nice` from
+                        // the BSD census. The task port alone can be denied
+                        // (EPERM on another user's process), so its failure gets
+                        // its own `U` row — otherwise a denied read is
+                        // indistinguishable from a kernel that reported no
+                        // threads, which is the collapse-to-empty this tool exists
+                        // to refuse.
+                        let threads = match task.as_ref().expect("task requested") {
+                            Ok(task) => {
                                 (task.pti_threadnum > 0).then_some(task.pti_threadnum as u32)
-                            }),
-                    }),
+                            }
+                            Err(err) => {
+                                push_unreadable(&mut snap, pid, "status_threads", *err);
+                                None
+                            }
+                        };
+                        snap.statuses.push(ProcessStatus {
+                            pid,
+                            state,
+                            nice: row.nice,
+                            threads,
+                        });
+                    }
                     Err(err) => push_unreadable(&mut snap, pid, "status", err),
                 },
                 Err(err) => push_unreadable(&mut snap, pid, "status", *err),
@@ -318,13 +331,23 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 let host_table_blind = rows.is_empty();
                 snap.ports = attribute_host_listeners(rows, &claims);
                 if host_table_blind {
+                    // The host-wide table is the ONLY source of listeners no
+                    // readable pid claims; the same-uid fd walk above already
+                    // supplied every claimed one. So its silence costs the
+                    // unclaimed facet alone — a consumer that folds listeners
+                    // per subtree loses nothing and must not go blind.
                     snap.errors.push(SourceError {
                         source: "darwin_tcp_pcblist".into(),
+                        facet: "ports_unclaimed".into(),
                         code: "BLIND_OR_EMPTY".into(),
                     });
                 }
             }
-            Err(err) => snap.errors.push(source_error("darwin_tcp_pcblist", err)),
+            // A hard sysctl failure never reached `attribute_host_listeners`,
+            // so nothing populated `snap.ports` — the whole facet is gone.
+            Err(err) => snap
+                .errors
+                .push(source_error("darwin_tcp_pcblist", "ports", err)),
         }
     }
 
@@ -345,13 +368,15 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
 pub fn host(args: &HostArgs) -> HostSnapshot {
     let mut out = HostSnapshot::new();
     match uptime_us() {
-        Ok(value) => out.uptime_us = value,
-        Err(err) => out.errors.push(source_error("kern_boottime", err)),
+        Ok(value) => out.uptime_us = Some(value),
+        Err(err) => out
+            .errors
+            .push(source_error("kern_boottime", "uptime", err)),
     }
     if args.load {
         match read_load() {
             Ok(value) => out.load = Some(value),
-            Err(err) => out.errors.push(source_error("getloadavg", err)),
+            Err(err) => out.errors.push(source_error("getloadavg", "load", err)),
         }
     }
     if args.mem {
@@ -360,25 +385,33 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
                 out.memory = Some(memory);
                 out.swap = Some(swap);
             }
-            Err((source, err)) => out.errors.push(source_error(source, err)),
+            Err((source, err)) => out.errors.push(source_error(source, "mem", err)),
         }
     }
     if args.cpu {
         match read_cpus() {
             Ok(value) => out.cpus = value,
-            Err((source, err)) => out.errors.push(source_error(source, err)),
+            Err((source, err)) => out.errors.push(source_error(source, "cpu", err)),
         }
     }
     if args.net {
-        match read_networks() {
-            Ok(value) => out.networks = value,
-            Err(err) => out.errors.push(source_error("getifaddrs", err)),
+        let networks = read_networks();
+        // `lo0` always exists on macOS, so an empty set is a gated read, not a
+        // host without interfaces — the same indistinguishable shape as the
+        // pcblist table, and reported the same way.
+        if networks.is_empty() {
+            out.errors.push(SourceError {
+                source: "sysinfo_networks".into(),
+                facet: "net".into(),
+                code: "BLIND_OR_EMPTY".into(),
+            });
         }
+        out.networks = networks;
     }
     if args.disk {
         match read_root_disk() {
             Ok(value) => out.disks.push(value),
-            Err(err) => out.errors.push(source_error("statvfs_root", err)),
+            Err(err) => out.errors.push(source_error("statvfs_root", "disk", err)),
         }
     }
     out
@@ -986,18 +1019,26 @@ fn read_cpus() -> Result<Vec<Cpu>, (&'static str, i32)> {
     }
 }
 
-fn read_networks() -> Result<Vec<Network>, i32> {
+/// Interface counters via `sysinfo`'s network module.
+///
+/// Infallible by construction: `sysinfo` drops a failed `NET_RT_IFLIST2`
+/// sysctl on the floor and hands back an empty set, so there is no error for
+/// this function to report. The caller reads the emptiness instead — see
+/// `host`. Kept as a dependency deliberately: it replaced an unsafe
+/// hand-computed `if_data` byte overlay that CodeQL flagged (see the
+/// os-facts-tool plan of record).
+fn read_networks() -> Vec<Network> {
     let networks = sysinfo::Networks::new_with_refreshed_list();
     let mut out: Vec<_> = networks
         .iter()
         .map(|(name, data)| Network {
-            name: name.clone(),
+            name: sanitize_name(name),
             rx_bytes: data.total_received(),
             tx_bytes: data.total_transmitted(),
         })
         .collect();
     out.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(out)
+    out
 }
 
 fn read_root_disk() -> Result<Disk, i32> {
@@ -1104,9 +1145,10 @@ fn push_unreadable(snap: &mut Snapshot, pid: u32, facet: &str, err: i32) {
     }
 }
 
-fn source_error(source: &str, err: i32) -> SourceError {
+fn source_error(source: &str, facet: &str, err: i32) -> SourceError {
     SourceError {
         source: source.into(),
+        facet: facet.into(),
         code: errno_name(err),
     }
 }

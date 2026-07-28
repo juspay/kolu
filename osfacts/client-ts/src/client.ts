@@ -67,23 +67,53 @@ interface ListenerFact {
 export type ListenerRow =
   | (ListenerFact & { status: "claimed"; pid: number })
   | (ListenerFact & { status: "unclaimed" });
-export type UnreadableFacet =
-  | "proc"
-  | "ports"
-  | "mem"
-  | "start_time"
-  | "cpu_time"
-  | "uid"
-  | "cwd"
-  | "status"
-  | "argv";
+/** Per-pid facets a `U` row can name. One list, so the type and the parser's
+ * check can never drift apart. */
+export const UNREADABLE_FACETS = [
+  "proc",
+  "ports",
+  "mem",
+  "start_time",
+  "cpu_time",
+  "uid",
+  "cwd",
+  "status",
+  "status_threads",
+  "argv",
+] as const;
+export type UnreadableFacet = (typeof UNREADABLE_FACETS)[number];
 export interface UnreadableRow {
   pid: number;
   facet: UnreadableFacet;
   errno: string;
 }
+/**
+ * Facets an `E` row can name — what a blind *source* costs, as opposed to what
+ * a blind *pid* costs.
+ *
+ * `ports` and `ports_unclaimed` are the distinction that matters: the first
+ * means no listener survived, the second that only listeners nobody claimed
+ * are missing. A consumer that folds listeners per subtree is untouched by the
+ * second and must not treat it as blindness.
+ */
+export const SOURCE_FACETS = [
+  "proc",
+  "ports",
+  "ports_unclaimed",
+  "start_time",
+  "cpu_time",
+  "uptime",
+  "load",
+  "mem",
+  "cpu",
+  "net",
+  "disk",
+] as const;
+export type SourceFacet = (typeof SOURCE_FACETS)[number];
 export interface SourceErrorRow {
   source: string;
+  /** Which facet this source's silence costs. */
+  facet: SourceFacet;
   code: string;
 }
 export interface LoadRow {
@@ -381,19 +411,7 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
       case "U": {
         arity(f, 4, line);
         const facet = f[2];
-        if (
-          ![
-            "proc",
-            "ports",
-            "mem",
-            "start_time",
-            "cpu_time",
-            "uid",
-            "cwd",
-            "status",
-            "argv",
-          ].includes(facet!)
-        )
+        if (!(UNREADABLE_FACETS as readonly string[]).includes(facet!))
           throw new OsfactsClientError(
             "parse",
             `unknown unreadable facet: ${line}`,
@@ -410,12 +428,23 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         });
         break;
       }
-      case "E":
-        arity(f, 3, line);
-        if (!f[1] || !f[2])
+      case "E": {
+        arity(f, 4, line);
+        if (!f[1] || !f[3])
           throw new OsfactsClientError("parse", `empty source error: ${line}`);
-        out.errors.push({ source: f[1], code: f[2] });
+        const errorFacet = f[2];
+        if (!(SOURCE_FACETS as readonly string[]).includes(errorFacet!))
+          throw new OsfactsClientError(
+            "parse",
+            `unknown source-error facet: ${line}`,
+          );
+        out.errors.push({
+          source: f[1],
+          facet: errorFacet as SourceFacet,
+          code: f[3],
+        });
         break;
+      }
       case "HLOAD":
         arity(f, 4, line);
         out.load = {

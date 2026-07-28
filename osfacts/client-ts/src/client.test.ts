@@ -31,7 +31,7 @@ const SAMPLE = [
   "L\tclaimed\t4242\t1000\t5173\t7f000001",
   `L\tunclaimed\t-\t0\t8081\t${V4_MAPPED_LOOPBACK}`,
   "U\t991\tports\tEACCES",
-  "E\tdarwin_tcp_pcblist\tBLIND_OR_EMPTY",
+  "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY",
   'HCPU\t0\t10\t20\t30\t40\t"Apple M1 Max"\t-',
   "HDISK\t/\t1000\t700\t800",
   "",
@@ -77,7 +77,11 @@ describe("parseOsfactsOutput", () => {
       { pid: 991, facet: "ports", errno: "EACCES" },
     ]);
     expect(r.errors).toEqual([
-      { source: "darwin_tcp_pcblist", code: "BLIND_OR_EMPTY" },
+      {
+        source: "darwin_tcp_pcblist",
+        facet: "ports_unclaimed",
+        code: "BLIND_OR_EMPTY",
+      },
     ]);
     expect(r.cpus).toEqual([
       {

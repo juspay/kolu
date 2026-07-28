@@ -188,7 +188,7 @@ pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>, V
 }
 
 pub fn darwin_pcblist_is_blind(errors: &[String]) -> bool {
-    errors == ["E\tdarwin_tcp_pcblist\tBLIND_OR_EMPTY"]
+    errors == ["E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY"]
 }
 
 pub fn l_addr_for_port(ports: &[String], port: u16) -> String {

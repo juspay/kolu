@@ -647,8 +647,8 @@ fn complete_process_snapshot_is_fast(_world: &mut LiveWorld) {
         let median = world.linux_perf_samples[world.linux_perf_samples.len() / 2];
         let extra = median.saturating_sub(baseline_median);
         let process_count = world.linux_perf_process_count.expect("process count");
-        let limit_micros = LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS
-            .saturating_mul(process_count as u128);
+        let limit_micros =
+            LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS.saturating_mul(process_count as u128);
         eprintln!(
             "Linux child CPU medians across {process_count} processes: --procs={baseline_median:?}, all facets={median:?}, extra={extra:?} ({LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process budget, {limit_micros}us total)"
         );
