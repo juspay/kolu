@@ -785,9 +785,21 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
     const home = padiRuntimeHome(stateRoot, residentPadiSocket(stateRoot));
     mkdirSync(home.dir, { recursive: true, mode: 0o700 });
     // This vitest process is the live gate holder (isHolderLive). Clear the gate
-    // in finally so afterEach reap does not SIGKILL this process. Owner-only mode
-    // on the tmp-derived path (CodeQL js/insecure-temporary-file).
-    writeFileSync(home.gatePath, `${process.pid}\n`, { mode: 0o600 });
+    // in finally so afterEach reap does not SIGKILL this process. Exclusive
+    // create + owner-only mode on the tmp-derived path (CodeQL CWE-377).
+    const gateFd = openSync(
+      home.gatePath,
+      fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      writeSync(gateFd, `${process.pid}\n`);
+    } finally {
+      closeSync(gateFd);
+    }
     const sockServer = createServer((c) => c.on("error", () => {}));
     await new Promise<void>((resolve, reject) => {
       sockServer.once("error", reject);
