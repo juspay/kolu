@@ -48,10 +48,9 @@ from another device.
     over ssh. It must be runnable from a *non-interactive* ssh session, not only
     from a login shell.
   </Card>
-  <Card title="A baked agent source">
-    Launch kolu through its Nix wrapper (`nix run` / a packaged install), or
-    from a checkout with `just dev` — both bake the exact agent source. On
-    first contact, kolu asks the host for its CPU/OS pair and resolves only
+  <Card title="A Nix-wrapped kolu">
+    Launch kolu through its Nix wrapper, which bakes in its exact agent source.
+    On first contact, kolu asks the host for its CPU/OS pair and resolves only
     that padi build — Linux and macOS, including cross-arch (a macOS kolu can
     bind a Linux box).
   </Card>
@@ -225,7 +224,7 @@ The causes it distinguishes:
 | **This host isn't trusted yet** | ssh doesn't recognise the host's identity key. Run `ssh <host>` once in a terminal to review and accept it — or clear a changed-key warning — then reconnect |
 | **This host has no Nix that kolu can run** | ssh worked, but the host's shell couldn't run `nix-instantiate`. Either Nix isn't [installed](https://nixos.asia/en/install) there, or it isn't on the PATH of a non-interactive ssh session |
 | **Can't reach this host** | unreachable over ssh, or provisioning failed partway. These look identical from the outside, so read the output on the card: silence or an ssh error means the machine; a compiler or build error means the host was fine and its build wasn't |
-| **This kolu run is missing its agent source** | kolu was launched without the agent-source bake (not via the Nix wrapper or `just dev`), so it has nothing to deploy |
+| **This kolu run is missing its agent source** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
 | **Kolu couldn't prepare padi for this host** | the baked source could not resolve padi; the detail shows the Nix error, including an unsupported CPU/OS pair when that is the cause |
 | **This host's padi never settled** | a contract upgrade's drain never provably finished |
 
