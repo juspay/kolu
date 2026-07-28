@@ -690,18 +690,13 @@ body {
  * second opacity channel at a neighbouring value would make "read" and
  * "asleep" the same mark.
  *
- * `[data-dock-row]` is the shared hook every row surface carries — desktop
- * row, touch row, and the indented split sub-entry. Enumerating the row types
- * by test id meant a new one was silently outside the wash: the sub-entry set
- * `data-asking` and lit up nowhere, and it is the ONE row type that exists
- * because its agent was invisible. */
+ * `[data-dock-row]` is the shared hook every row surface carries — desktop row
+ * and touch row. Enumerating the row types by test id instead meant a new
+ * surface was silently outside the wash rather than by anyone's decision. */
 /* The ACTIVE-row highlight, keyed on the shared hook rather than spelled as a
- * Tailwind variant per row component. It was a per-component class, and the
- * split sub-entry — the ONE row type that exists because its agent was
- * invisible — simply did not carry it: the entry took `data-active` correctly
- * and rendered no visible change at all, so clicking into a split looked like
- * nothing happened. A row surface can no longer be outside this rule, because
- * the rule reads the same attribute the row already has to carry. */
+ * Tailwind variant per row component — a row surface can no longer be outside
+ * this rule, because the rule reads the same attribute the row already has to
+ * carry. */
 .dock-cards-section > [data-dock-row][data-active] {
   background: color-mix(in oklab, var(--color-accent) 15%, transparent);
   border-left-color: var(--color-accent);
@@ -745,10 +740,9 @@ body {
  * input …") wear the same hue as the wash, chip, and pip.
  *
  * Keyed on the SHARED `[data-dock-row]` / `[data-dock-subline]` hooks, not on an
- * enumeration of per-surface test ids: enumerating row types by test id is
- * exactly what left the split sub-entry outside the wash above, and this rule
- * had reverted to it two declarations later. Test ids stay on the spans for e2e;
- * they are not what styling reads. */
+ * enumeration of per-surface test ids — the same reason the wash above is:
+ * an enumeration silently leaves a new row surface out. Test ids stay on the
+ * spans for e2e; they are not what styling reads. */
 [data-dock-row][data-asking] [data-dock-subline] {
   color: var(--color-alert);
 }

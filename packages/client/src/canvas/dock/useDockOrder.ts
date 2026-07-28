@@ -42,21 +42,14 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   // memoized on its own. Flipping `showSleeping` invalidates only the outer
   // `buildDockTree` pass (an O(n) filter+group over the already-ranked rows),
   // not the sort.
-  // Splits ride along: `getSubTerminalIds` lets a row carry an indented entry
-  // for each agent running in one of its splits, so an agent the host tab
-  // counts is never invisible in the dock.
   // A row's PAINT is its attention class — the same value its motion and every
   // count read — so the dock reads it from the mirror rather than re-deriving a
   // colour from metadata that arrives on a different subscription. `classOf`
   // deliberately does not read the live set: row order and colour move on agent
   // transitions, not on the ~1 s byte tick.
   const ranked = createMemo(() =>
-    rankDockRows(
-      tileStore.tileIds(),
-      store.getMetadata,
-      isStale,
-      (id) => facts.classOf(encActiveHost(), id),
-      store.getSubTerminalIds,
+    rankDockRows(tileStore.tileIds(), store.getMetadata, isStale, (id) =>
+      facts.classOf(encActiveHost(), id),
     ),
   );
   return createMemo(() =>

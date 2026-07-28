@@ -69,20 +69,6 @@ export function useSubPanel() {
       return ensureState(parentId);
     },
 
-    /** Read a parent's panel state WITHOUT creating it — `undefined` when the
-     *  terminal has no panel state yet.
-     *
-     *  `getSubPanel` seeds on first touch, which is right for the callers that
-     *  are about to write, and wrong for anyone merely asking a question: the
-     *  seed carries `focusTarget: "sub"`, so a reader that reached for it
-     *  MANUFACTURED "you are in the split" for a terminal nobody had focused
-     *  into — and did it from inside a memo, writing during a derivation. The
-     *  dock's active highlight went dark for every terminal holding a split
-     *  that way. Askers use this. */
-    peekSubPanel(parentId: TerminalId): SubPanelState | undefined {
-      return state[parentId];
-    },
-
     togglePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", (v) => !v);

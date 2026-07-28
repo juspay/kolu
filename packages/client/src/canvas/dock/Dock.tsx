@@ -112,7 +112,6 @@ import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { nextAfter } from "../../ui/nextAfter";
 import { encActiveHost } from "../../wire";
-import { SubAgentRow } from "./SubAgentRow";
 import { useDockFocus } from "./useDockFocus";
 import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
@@ -510,9 +509,8 @@ const RepoSection: Component<{
   // host pill (violet clears only when the agent stops waiting; amber clears
   // because activating the terminal marks it read). It walks the counted ids
   // rather than re-filtering the visible rows: the count deliberately includes
-  // rows the activity window parked and agents living in splits, and both were
-  // exactly the cases the old click could not reach — a capsule reading "1"
-  // that did nothing.
+  // rows the activity window parked, which was exactly the case the old click
+  // could not reach — a capsule reading "1" that did nothing.
   const jumpTo = (ids: readonly TerminalId[]) => {
     const next = nextAfter(ids, tileStore.activeId());
     if (next === undefined) return;
@@ -574,27 +572,12 @@ const RepoSection: Component<{
       </div>
       <For each={props.group.rows}>
         {(row) => (
-          <>
-            <DockRow
-              id={row.id}
-              bucket={row.bucket}
-              pip={row.pip}
-              flatIndex={props.flatIndexOf.get(row.id) ?? -1}
-            />
-            {/* Agents living in this terminal's splits, indented beneath it.
-             *  Empty for nearly every row — only agent-bearing splits earn a
-             *  line, so the signal stays rare enough to mean something. */}
-            <For each={row.subRows}>
-              {(sub) => (
-                <SubAgentRow
-                  id={sub.id}
-                  parentId={row.id}
-                  bucket={sub.bucket}
-                  pip={sub.pip}
-                />
-              )}
-            </For>
-          </>
+          <DockRow
+            id={row.id}
+            bucket={row.bucket}
+            pip={row.pip}
+            flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+          />
         )}
       </For>
     </section>
@@ -638,7 +621,9 @@ const DockRow: Component<{
   const store = useTerminalStore();
   const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  // Active-tile highlight follows the TILE registry (so a focused sleeping tile
+  // `data-active` is read inside `dockRowAttrs` off the TILE registry (so a
+  // focused sleeping tile reads as the active row in PR 2); unread is
+  // terminal-attention, stays on the terminal store.
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;

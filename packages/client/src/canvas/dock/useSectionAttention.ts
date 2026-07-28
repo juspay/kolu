@@ -11,16 +11,9 @@
  *  toggle a dock filter, and an agent blocked long enough to fall out of the
  *  activity window is precisely the one whose count must still show.
  *
- *  It counts every SPLIT id, not just the agent-bearing splits that earn a
- *  rendered line — the host tab above counts a plain shell printing in a split,
- *  so a header that folded only the rendered sub-entries reported one fewer
- *  than the tab directly above it.
- *
  *  It returns IDS rather than counts, because the capsule that renders
  *  `.length` is the same capsule that jumps: the two must walk one list or the
- *  count can promise a target the click cannot reach. Where a counted id LIVES
- *  is not this fold's problem — `useDockFocus` resolves a split's parent from
- *  the split's own metadata, so nothing here has to carry it. */
+ *  count can promise a target the click cannot reach. */
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
@@ -46,11 +39,7 @@ export function useSectionAttention(
     // row's facts come off — the shared key memo, so this fold and every pip
     // beneath it read one derivation of it.
     const encHost = encActiveHost();
-    const ids: TerminalId[] = [];
-    for (const row of group().allRows) {
-      ids.push(row.id);
-      ids.push(...row.subIds);
-    }
+    const ids = group().allRows.map((row) => row.id);
     return scopeAttention(ids, store.isUnread, (id) =>
       facts.attentionOf(encHost, id),
     );

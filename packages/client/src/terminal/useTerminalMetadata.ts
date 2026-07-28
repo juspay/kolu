@@ -98,8 +98,9 @@ export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
  *  which is why the value read path funnels through `getMetadata` alone. */
 
 /** A parent with no splits — the common case, and the SAME array every time so
- *  a consumer keyed on the reference (a dock row's `subIds`) doesn't see a fresh
- *  empty array on every read. Never mutated; neither are the index's own lists. */
+ *  a consumer keyed on the reference (a memo over `getSubTerminalIds`) doesn't
+ *  see a fresh empty array on every read. Never mutated; neither are the
+ *  index's own lists. */
 const NO_SUB_IDS: TerminalId[] = [];
 
 export function useTerminalMetadata(deps: {
@@ -300,12 +301,11 @@ export function useTerminalMetadata(deps: {
 
   /** The parent→children relation, indexed ONCE per invalidation.
    *
-   *  Both readers of that relation used to walk EVERY terminal per parent:
-   *  `getSubTerminalIds` filtered `keys()` for one parentId, and both the dock's
-   *  rank (once per row, at the agent-transition cadence) and
-   *  `buildTerminalDisplayInfos` (once per display row) asked it per parent — so
-   *  the same relation was scanned quadratically, twice. One O(T) grouping walk
-   *  answers both in O(1) per parent. Server-provided `keys()` order is
+   *  Every reader of that relation used to walk EVERY terminal per parent:
+   *  `getSubTerminalIds` filtered `keys()` for one parentId, and
+   *  `buildTerminalDisplayInfos` asked it once per display row — so the same
+   *  relation was scanned quadratically. One O(T) grouping walk answers every
+   *  reader in O(1) per parent. Server-provided `keys()` order is
    *  preserved by construction: the walk appends in `keys()` order, so each
    *  parent's list is the same sequence the old filter produced — which
    *  `useSubPanel`'s tab order and `Cmd`-cycling depend on. */

@@ -93,7 +93,6 @@ function rankOne(meta: TerminalMetadata, stale: boolean) {
     () => meta,
     () => stale,
     classOfMeta(() => meta),
-    () => [],
   );
   const row = rows[0];
   if (!row) throw new Error("no row returned");
@@ -171,7 +170,6 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => makeSleepingMeta(1),
       () => true,
       classOfMeta(() => makeSleepingMeta(1)),
-      () => [],
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -199,7 +197,6 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       realStale(NOW, WINDOW),
       classOfMeta(() => meta),
-      () => [],
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -217,7 +214,6 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       realStale(NOW, WINDOW),
       classOfMeta(() => meta),
-      () => [],
     );
     expect(rows[0]?.bucket).toBe("sleeping");
   });
@@ -234,7 +230,6 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       () => true,
       classOfMeta(() => meta),
-      () => [],
     );
     expect(meta.agent).toBe(agentBefore); // identity preserved — same object reference
     expect(meta.agent?.state).toBe("waiting");
@@ -341,64 +336,5 @@ describe("rowRecencyAt — the one recency the window and the row display share"
       sleptAt: 999_000,
     } as TerminalMetadata;
     expect(rowRecencyAt(meta)).toBe(999_000);
-  });
-});
-
-describe("rankDockRows — split sub-entries", () => {
-  const PARENT = "parent" as TerminalId;
-  const AGENT_SPLIT = "split-agent" as TerminalId;
-  const PLAIN_SPLIT = "split-bash" as TerminalId;
-
-  const metas: Record<string, TerminalMetadata> = {
-    [PARENT]: makeMeta({ lastActivityAt: 100 }),
-    [AGENT_SPLIT]: makeMeta({
-      agent: makeAgent("thinking"),
-      lastActivityAt: 50,
-    }),
-    [PLAIN_SPLIT]: makeMeta({ lastActivityAt: 40 }),
-  };
-  const getMeta = (id: TerminalId) => metas[id as string];
-
-  function rank(subIds: TerminalId[]) {
-    return rankDockRows(
-      [PARENT],
-      getMeta,
-      () => false,
-      classOfMeta(getMeta),
-      () => subIds,
-    );
-  }
-
-  it("gives an agent in a split its own entry under its parent", () => {
-    // The 4-vs-3 bug: padi counted an agent working in a split, the dock had
-    // no row for it anywhere, and it was reachable only by clicking into
-    // terminals one at a time.
-    const row = rank([AGENT_SPLIT])[0];
-    expect(row?.subRows.map((s) => s.id)).toEqual([AGENT_SPLIT]);
-    expect(row?.subRows[0]?.bucket).toBe("working");
-  });
-
-  it("leaves a plain shell split folded into the ⊟ chip", () => {
-    // Every split earning a line would bury the one that matters.
-    expect(rank([PLAIN_SPLIT])[0]?.subRows).toEqual([]);
-  });
-
-  it("keeps the parent row out of the flat shortcut order it does not belong in", () => {
-    // `Cmd+1..9` numbers top-level rows; a sub-entry must not shift them.
-    const rows = rank([AGENT_SPLIT]);
-    expect(rows.map((r) => r.id)).toEqual([PARENT]);
-  });
-
-  // "Splits do not nest" is now carried by the TYPE (`SubDockRow` has no
-  // `subRows`), so there is no shape left for a test to assert about — the
-  // illegal structure cannot be built.
-
-  it("counts every split, agent or not — what a scope count quantifies over", () => {
-    // The rendered sub-entries stay agent-only, but a plain shell printing in a
-    // split is counted by the host tab, so the section header must be able to
-    // fold it too or the two altitudes count different populations.
-    const row = rank([AGENT_SPLIT, PLAIN_SPLIT])[0];
-    expect(row?.subRows.map((s) => s.id)).toEqual([AGENT_SPLIT]);
-    expect(row?.subIds).toEqual([AGENT_SPLIT, PLAIN_SPLIT]);
   });
 });
