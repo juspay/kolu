@@ -4,23 +4,7 @@ version: Unreleased
 
 ### [The Dock](/dock)
 
-- <Change kind="changed" title="Repo cards you can actually tell apart" pr={2035}>With many repos open, the dock's section cues — a 3px spine, a 7px swatch, and a 9% pastel header wash — all dissolved into one pale list. Each repo is now a **card**: thicker spine, solid monogram tile (first letter of the repo, the same glyph the rail chip already uses), a stronger sticky header wash, and a little air between sections, so a fleet of eight still passes a squint test. Attention (violet needs-you, amber unread) stays the loudest row signal — repo paint is ambient structure, not another interrupt.</Change>
-
-### [The Switcher](/switcher)
-
-- <Change kind="changed" title="Terminal rows wear the dock monogram" pr={2037}>Terminal rows in the command palette now lead with the same **repo monogram tile** and a thin colour spine the dock uses, so a multi-repo fleet is scannable without reading the full name. Host section headers pick up a soft **host-hue wash**. Attention and selection stay separate channels.</Change>
-
-### [Sessions, Sleep &amp; Wake](/sessions)
-
-- <Change kind="changed" title="Restore groups match live repo colours" pr={2037}>The restore-session card's repo groups now share the dock's monogram and colour spine — the same hue map as your live terminals, so "which repo was that?" is obvious before you restore.</Change>
-
-### [The Right Panel](/right-panel)
-
-- <Change kind="changed" title="The Work repo chip matches the dock" pr={2037}>The inspector's repo chip wears the shared monogram and a soft repo-colour frame, so "where am I?" agrees with the dock and the tile title.</Change>
-
-### [Tiles](/tiles)
-
-- <Change kind="changed" title="Title bar monogram + a more scannable minimap" pr={2037}>Each tile's title bar carries the shared monogram and a short repo-colour spine; the minimap tints each rect with a touch of repo colour so small tiles stay distinguishable at a glance. Branch names in the switcher and inspector use the same hue the dock already paints on branch labels.</Change>
+- <Change kind="changed" title="Repo identity you can tell apart — on the dock and beyond" prs={[2035, 2037]}>With many repos open, the dock's section cues — a 3px spine, a 7px swatch, and a 9% pastel header wash — all dissolved into one pale list. Each repo is now a **card**: thicker spine, solid monogram tile (first letter of the repo), a stronger sticky header wash, and a little air between sections. That monogram is a **shared identity atom** — the same letter, fill formula, and fleet hue also lead the command palette (monogram · repo name · branch colour · spine), session-restore groups, the inspector's Work chips (repo and branch both match the dock), and the tile title bar; the minimap tints each rect with a touch of repo colour. Attention (violet needs-you, amber unread) stays the loudest interrupt; host palette headers pick up a soft host-hue wash without competing.</Change>
 
 ### [Padi](/padi)
 
