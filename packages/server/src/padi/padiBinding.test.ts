@@ -778,14 +778,12 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
     activeStateRoots.add(stateRoot);
     // Live gate holder + accepting socket so post-give-up bind ADOPTS
     // (liveServingHolder requires both; adopted-stale needs a resident).
-    // Gate holder is a disposable sleep child — NEVER this vitest pid (afterEach
-    // reap SIGKILLs the gate pid).
     const home = padiRuntimeHome(stateRoot, residentPadiSocket(stateRoot));
     mkdirSync(home.dir, { recursive: true, mode: 0o700 });
-    // This vitest process is the live gate holder (isHolderLive). No child spawn —
-    // afterEach reap would SIGKILL a sleep pid we wrote; instead clear the gate in
-    // finally so reap has nothing to kill.
-    writeFileSync(home.gatePath, `${process.pid}\n`);
+    // This vitest process is the live gate holder (isHolderLive). Clear the gate
+    // in finally so afterEach reap does not SIGKILL this process. Owner-only mode
+    // on the tmp-derived path (CodeQL js/insecure-temporary-file).
+    writeFileSync(home.gatePath, `${process.pid}\n`, { mode: 0o600 });
     const sockServer = createServer((c) => c.on("error", () => {}));
     await new Promise<void>((resolve, reject) => {
       sockServer.once("error", reject);
