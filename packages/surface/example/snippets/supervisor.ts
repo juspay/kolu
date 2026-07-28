@@ -149,6 +149,8 @@ async function probeIdentity(socketPath: string): Promise<PlainProbe | null> {
   return {
     capability: "not-drainable",
     identity: baked,
+    // Absent startedAt on a not-drainable probe still names pre-instance.
+    instanceKey: { kind: "pre-instance" },
     dispose: () => socket.destroy(),
   };
 }
