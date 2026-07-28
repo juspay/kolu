@@ -60,8 +60,10 @@ export {
   type DaemonHome,
   type DaemonHomeOptions,
   type DaemonHomePlacement,
+  type DaemonHomeRuntimeRoot,
   type ResolvedDaemonHome,
 } from "./daemonHome.ts";
+export { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 export {
   anchorGone,
   DAEMON_BIND_PID_ENV,

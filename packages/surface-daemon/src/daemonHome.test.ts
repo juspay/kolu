@@ -247,3 +247,39 @@ it("rejects empty/dot/multi-segment instance and socketFile", () => {
     }),
   ).toThrow(/socketFile must/);
 });
+
+it("runtimeRoot: null forces /tmp without mutating process.env", () => {
+  const root = scratch();
+  pinEnv("XDG_RUNTIME_DIR", root);
+  const uid = process.getuid?.() ?? "shared";
+
+  const forced = resolveDaemonHome({
+    app: "padi",
+    placement: "runtime",
+    instance: "abc",
+    runtimeRoot: null,
+  });
+  expect(forced.dir).toBe(`/tmp/padi-abc-${uid}`);
+  // Live env still points at the scratch root — pure algebra, no mutation.
+  expect(process.env.XDG_RUNTIME_DIR).toBe(root);
+  expect(
+    resolveDaemonHome({
+      app: "padi",
+      placement: "runtime",
+      instance: "abc",
+    }).dir,
+  ).toBe(join(root, "padi-abc"));
+});
+
+it("runtimeRoot: string evaluates under that drawer", () => {
+  pinEnv("XDG_RUNTIME_DIR", "/run/user/1000");
+  const other = scratch();
+  const home = resolveDaemonHome({
+    app: "kaval",
+    placement: "runtime",
+    socketFile: "pty-host.sock",
+    runtimeRoot: other,
+  });
+  expect(home.dir).toBe(join(other, "kaval"));
+  expect(process.env.XDG_RUNTIME_DIR).toBe("/run/user/1000");
+});

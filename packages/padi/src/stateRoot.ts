@@ -111,17 +111,15 @@ export function padiDigest(stateRoot: string): string {
     .slice(0, 16);
 }
 
-/** padi's runtime app-namespace: `padi-<digest>`. */
-export function padiNamespace(digest: string): string {
-  return `padi-${digest}`;
-}
-
-/** kaval's runtime app-namespace for THIS padi: `kaval-<digest>` (retires the
- *  legacy `kaval-<port>`). Keyed by the SAME digest as padi, so padi's kaval sits
- *  beside padi's socket and two padis at distinct state-roots get distinct kavals
- *  by construction. */
-export function kavalNamespaceForDigest(digest: string): string {
-  return `kaval-${digest}`;
+/** Pure padi runtime home for a state-root — full `ResolvedDaemonHome` so
+ *  construction can take gate + socket from one resolve (override paths still
+ *  use {@link padiGatePath} beside the socket). */
+export function padiRuntimeHome(stateRoot: string) {
+  return resolveDaemonHome({
+    app: "padi",
+    placement: "runtime",
+    instance: padiDigest(stateRoot),
+  });
 }
 
 /** The socket path padi serves on: `$XDG_RUNTIME_DIR/padi-<digest>/padi.sock`
@@ -131,15 +129,12 @@ export function kavalNamespaceForDigest(digest: string): string {
  *  is {@link resolveDaemonHome} with `instance` = the digest. */
 export function padiSocketPath(stateRoot: string, override?: string): string {
   if (override !== undefined && override !== "") return override;
-  return resolveDaemonHome({
-    app: "padi",
-    placement: "runtime",
-    instance: padiDigest(stateRoot),
-  }).socketPath;
+  return padiRuntimeHome(stateRoot).socketPath;
 }
 
-/** padi's single-instance gate, beside its socket — the same path padi's
- *  `daemonMain` derives, so a binder reads the true current holder. */
+/** padi's single-instance gate beside a socket — for override/discovered
+ *  sockets where only the socket path is known. Construction uses
+ *  {@link padiRuntimeHome}.gatePath instead. */
 export function padiGatePath(socketPath: string): string {
   return join(dirname(socketPath), PADI_GATE_FILE);
 }
@@ -225,21 +220,13 @@ function standardXdgRuntimeDir(): string | undefined {
 function sentinelDecoratedDirUnderRegime(
   xdgRuntimeDir: string | undefined,
 ): string {
-  const saved = process.env.XDG_RUNTIME_DIR;
-  if (xdgRuntimeDir === undefined) delete process.env.XDG_RUNTIME_DIR;
-  else process.env.XDG_RUNTIME_DIR = xdgRuntimeDir;
-  try {
-    // Sentinel digest `0` — same decoration shape construction uses for a real
-    // digest; instance mode so the stem stays `padi` (gate/socket basenames).
-    return resolveDaemonHome({
-      app: "padi",
-      placement: "runtime",
-      instance: "0",
-    }).dir;
-  } finally {
-    if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
-    else process.env.XDG_RUNTIME_DIR = saved;
-  }
+  // Pure regime plug — never mutates process.env. `undefined` forces `/tmp`.
+  return resolveDaemonHome({
+    app: "padi",
+    placement: "runtime",
+    instance: "0",
+    runtimeRoot: xdgRuntimeDir === undefined ? null : xdgRuntimeDir,
+  }).dir;
 }
 
 /** Every padi candidate under ONE runtime-root regime (this process's own env,

@@ -44,7 +44,6 @@ import {
   getPtyHostSocketPath,
   KAVAL_GATE_FILE,
   KAVAL_NS_PREFIX,
-  kavalNamespace,
   legacyKavalSocketPath,
   PTY_HOST_SOCK_FILE,
   resolveRunningKavalSocket,
@@ -128,7 +127,7 @@ describe("legacyKavalSocketPath — the W2.2 upgrade adopt-hint (binder hints it
     // Derived purely from the port via the ONE `kaval-<port>` literal, so the hint
     // and legacy discovery can never spell it differently.
     expect(legacyKavalSocketPath(7681)).toBe(
-      getPtyHostSocketPath(undefined, kavalNamespace(7681)),
+      "/run/user/1000/kaval-7681/pty-host.sock",
     );
   });
 
@@ -250,8 +249,8 @@ describe("discoverPtyHostSockets", () => {
       );
       // Per-port server daemon → /tmp/kaval-<port>-<uid>/pty-host.sock. This is
       // the suffix discovery's portedRe must (and does, reading it back from the
-      // same builder) accept.
-      expect(getPtyHostSocketPath(undefined, kavalNamespace(7681))).toBe(
+      // same builder) accept. Spelled via instance mode (not pre-joined app).
+      expect(legacyKavalSocketPath(7681)).toBe(
         `/tmp/${KAVAL_NS_PREFIX}-7681-${FAKE_UID}/${PTY_HOST_SOCK_FILE}`,
       );
     });

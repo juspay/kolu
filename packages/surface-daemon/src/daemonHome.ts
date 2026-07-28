@@ -10,25 +10,25 @@
  *     dir with the user's last session, leaving an orphan daemon whose
  *     socket and gate vanished while the process kept running.
  *   - `"runtime"` → `$XDG_RUNTIME_DIR/<app>/`, falling back to
- *     `/tmp/<app>-$UID/` (the same convention as
+ *     `/tmp/<app>-$UID/` (same formula as
  *     `@kolu/surface/unix-socket`'s `getRuntimeSocketPath`). Boot-wiped;
  *     fine for a single-machine daemon that dies with the session.
  *
- * Multi-instance namespacing (`instance`) carries padi's digest-keyed shape
- * (`padi-<digest>/`, `kaval-<digest>/`): the directory is
- * `<app>-<instance>/`, while gate/socket basenames keep the bare app stem
- * (`padi.pid`, not `padi-<digest>.pid`). kaval and padi are the real callers.
+ * Multi-instance namespacing (`instance`) is the **only** spelling for a
+ * decorated home: dir is `<app>-<instance>/`, while gate/socket basenames
+ * keep the bare app stem (`padi.pid`, not `padi-<digest>.pid`). Do not stuff
+ * a pre-joined `padi-<digest>` into `app` — that mints a wrong gate basename.
+ * kaval and padi are the real callers.
  *
- * `resolveDaemonHome` is the pure path algebra (no I/O) path helpers and
- * discovery consume. `daemonHome` materialises the dir `0700` and refuses
- * (throws) if it is not a private, owner-only directory we own — the same
- * security boundary `acquirePidGate` / `serveOverUnixSocket` enforce.
+ * `resolveDaemonHome` is the pure path algebra (no I/O, never mutates env).
+ * Pass `runtimeRoot` to evaluate under a chosen drawer (discovery's multi-regime
+ * scan). `daemonHome` materialises the dir `0700` and refuses (throws) if it
+ * is not a private, owner-only directory we own.
  */
 
 import { lstatSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
+import { join } from "node:path";
 import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 import type { SharedArtifact } from "./sharedArtifact.ts";
 
@@ -52,20 +52,31 @@ function assertPathSegment(kind: string, name: string): void {
 /** Where the daemon home sits on disk. See the module doc for the rule. */
 export type DaemonHomePlacement = "state" | "runtime";
 
+/**
+ * Runtime-placement root, for pure multi-regime discovery without mutating
+ * `process.env`:
+ *   - omitted — read live `$XDG_RUNTIME_DIR` (binder default)
+ *   - `null` — force the `/tmp/<ns>-$UID` branch
+ *   - string — use this value as `$XDG_RUNTIME_DIR`
+ *
+ * Ignored when `placement` is `"state"`.
+ */
+export type DaemonHomeRuntimeRoot = string | null;
+
 /** Options for {@link resolveDaemonHome} / {@link daemonHome}. */
 export type DaemonHomeOptions = {
   /** App stem — basename for `<app>.pid` (and default `<app>.sock`), and the
    *  directory component when `instance` is unset. Must be a single path
-   *  segment: non-empty, no `/` or `\`, not `.` or `..` (those would escape
-   *  the private home via `path.join`). */
+   *  segment: non-empty, no `/` or `\`, not `.` or `..`. Never a pre-joined
+   *  multi-instance name (`kaval-<digest>`); use `instance` for that. */
   app: string;
   /** Durable state dir vs session-scoped runtime dir — see module doc. */
   placement: DaemonHomePlacement;
   /**
-   * Multi-instance key (padi's state-root digest). When set, the home
-   * directory is `<app>-<instance>/` instead of bare `<app>/`. Gate and
-   * default socket basenames keep the bare app stem so the instance key
-   * only namespaces the directory. Must be a single path segment.
+   * Multi-instance key (padi's state-root digest, or a legacy port string).
+   * When set, the home directory is `<app>-<instance>/` instead of bare
+   * `<app>/`. Gate and default socket basenames keep the bare app stem so the
+   * instance key only namespaces the directory. Must be a single path segment.
    */
   instance?: string;
   /**
@@ -73,6 +84,11 @@ export type DaemonHomeOptions = {
    * historical name is `pty-host.sock` — a real caller, not a zero-use knob.
    */
   socketFile?: string;
+  /**
+   * Which runtime drawer to evaluate under (see {@link DaemonHomeRuntimeRoot}).
+   * Pure — never writes `process.env`.
+   */
+  runtimeRoot?: DaemonHomeRuntimeRoot;
 };
 
 /** Pure path algebra — no I/O. Path helpers and discovery use this so they
@@ -115,12 +131,12 @@ export type DaemonHome = {
 };
 
 /**
- * Resolve the home directory namespace under `placement` — no I/O.
- * `appNamespace` is bare `app` or `app-instance`.
+ * Resolve the home directory namespace under `placement` — no I/O, no env writes.
  */
 function resolveDir(
   appNamespace: string,
   placement: DaemonHomePlacement,
+  runtimeRoot: DaemonHomeRuntimeRoot | undefined,
 ): { dir: string; pathShapeRoot: string } {
   switch (placement) {
     case "state": {
@@ -144,18 +160,27 @@ function resolveDir(
       };
     }
     case "runtime": {
-      // Same XDG / `/tmp/<app>-$UID` convention as getRuntimeSocketPath.
-      // Derive the dir from a dummy file under the app namespace so the path
-      // algebra stays single-sourced in @kolu/surface/unix-socket.
-      const dir = dirname(
-        getRuntimeSocketPath({ app: appNamespace, file: "x" }),
-      );
-      const pathShapeRoot =
-        process.env.XDG_RUNTIME_DIR !== undefined &&
-        process.env.XDG_RUNTIME_DIR !== ""
-          ? `$XDG_RUNTIME_DIR/${appNamespace}`
-          : `/tmp/${appNamespace}-$UID`;
-      return { dir, pathShapeRoot };
+      // Same XDG / `/tmp/<ns>-$UID` formula as getRuntimeSocketPath, evaluated
+      // under an explicit root when discovery asks (never mutates process.env).
+      const xdg =
+        runtimeRoot === null
+          ? undefined
+          : runtimeRoot !== undefined
+            ? runtimeRoot === ""
+              ? undefined
+              : runtimeRoot
+            : process.env.XDG_RUNTIME_DIR;
+      if (xdg !== undefined && xdg !== "") {
+        return {
+          dir: join(xdg, appNamespace),
+          pathShapeRoot: `$XDG_RUNTIME_DIR/${appNamespace}`,
+        };
+      }
+      const uid = process.getuid?.() ?? "shared";
+      return {
+        dir: `/tmp/${appNamespace}-${uid}`,
+        pathShapeRoot: `/tmp/${appNamespace}-$UID`,
+      };
     }
     default: {
       const _exhaustive: never = placement;
@@ -167,12 +192,12 @@ function resolveDir(
 }
 
 /**
- * Pure path algebra for a daemon home — no mkdir, no ownership check.
- * kaval/padi path helpers and discovery use this so construction and
- * discovery cannot spell different shapes than {@link daemonHome}.
+ * Pure path algebra for a daemon home — no mkdir, no ownership check, no
+ * env mutation. kaval/padi path helpers and discovery use this so construction
+ * and discovery cannot spell different shapes than {@link daemonHome}.
  */
 export function resolveDaemonHome(opts: DaemonHomeOptions): ResolvedDaemonHome {
-  const { app, placement, instance, socketFile } = opts;
+  const { app, placement, instance, socketFile, runtimeRoot } = opts;
   assertPathSegment("daemonHome: app", app);
   if (instance !== undefined) {
     assertPathSegment("daemonHome: instance", instance);
@@ -182,7 +207,11 @@ export function resolveDaemonHome(opts: DaemonHomeOptions): ResolvedDaemonHome {
   }
 
   const appNamespace = instance !== undefined ? `${app}-${instance}` : app;
-  const { dir, pathShapeRoot } = resolveDir(appNamespace, placement);
+  const { dir, pathShapeRoot } = resolveDir(
+    appNamespace,
+    placement,
+    runtimeRoot,
+  );
 
   // Gate/socket basenames keep the bare app stem even when instance
   // decorates the directory — `padi-<digest>/padi.pid`, never

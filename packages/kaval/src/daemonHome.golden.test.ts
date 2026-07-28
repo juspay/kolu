@@ -1,11 +1,11 @@
 /**
  * Golden path pins — every kaval-derived path must stay byte-identical to the
  * master-shipped `getRuntimeSocketPath` algebra. A surviving old daemon is
- * found only if the new build spells the same strings.
+ * found only if the new build derives the same strings.
  *
  * Expected values are frozen via `@kolu/surface/unix-socket`'s builder
- * directly (never through kaval helpers that now route through daemonHome),
- * so a swap of the production helpers cannot make these tests tautological.
+ * directly (never through kaval helpers that route through daemonHome), so a
+ * swap of the production helpers cannot make these tests tautological.
  */
 
 import { dirname, join } from "node:path";
@@ -18,7 +18,6 @@ import {
   KAVAL_LOG_FILE,
   KAVAL_NS_PREFIX,
   kavalLogPath,
-  kavalNamespace,
   legacyKavalSocketPath,
   PTY_HOST_SOCK_FILE,
   STATE_ROOT_MANIFEST_FILE,
@@ -62,13 +61,11 @@ describe("daemonHome golden — kaval paths byte-identical to master", () => {
     );
   });
 
-  it("digest-keyed kaval (padi-owned): instance mode matches kaval-<digest>/", () => {
+  it("digest-keyed kaval: instance mode only (never pre-joined app)", () => {
     const digest = "abcdef0123456789";
     const ns = `${KAVAL_NS_PREFIX}-${digest}`;
     const expectedSock = masterSocket(ns);
     const expectedDir = dirname(expectedSock);
-
-    expect(getPtyHostSocketPath(undefined, ns)).toBe(expectedSock);
 
     const home = resolveDaemonHome({
       app: KAVAL_NS_PREFIX,
@@ -80,39 +77,51 @@ describe("daemonHome golden — kaval paths byte-identical to master", () => {
     expect(home.dir).toBe(expectedDir);
     expect(home.socketPath).toBe(expectedSock);
     expect(home.gatePath).toBe(join(expectedDir, KAVAL_GATE_FILE));
+    expect(home.gatePath).toBe(join(expectedDir, "kaval.pid"));
     expect(home.file(KAVAL_LOG_FILE)).toBe(join(expectedDir, KAVAL_LOG_FILE));
     expect(home.file(STATE_ROOT_MANIFEST_FILE)).toBe(
       join(expectedDir, STATE_ROOT_MANIFEST_FILE),
     );
-    // Gate stem is bare `kaval.pid`, never `kaval-<digest>.pid`
-    expect(home.gatePath).toBe(join(expectedDir, "kaval.pid"));
   });
 
-  it("legacy port-keyed kaval still matches kaval-<port>/", () => {
-    const expected = masterSocket(kavalNamespace(7681));
+  it("legacy port-keyed kaval via instance: String(port)", () => {
+    const expected = masterSocket(`${KAVAL_NS_PREFIX}-7681`);
     expect(legacyKavalSocketPath(7681)).toBe(expected);
-    expect(getPtyHostSocketPath(undefined, kavalNamespace(7681))).toBe(
-      expected,
-    );
+    expect(
+      resolveDaemonHome({
+        app: KAVAL_NS_PREFIX,
+        placement: "runtime",
+        instance: "7681",
+        socketFile: PTY_HOST_SOCK_FILE,
+      }).socketPath,
+    ).toBe(expected);
+    // Gate stem stays bare under instance mode
+    expect(
+      resolveDaemonHome({
+        app: KAVAL_NS_PREFIX,
+        placement: "runtime",
+        instance: "7681",
+        socketFile: PTY_HOST_SOCK_FILE,
+      }).gatePath,
+    ).toBe(join(dirname(expected), "kaval.pid"));
   });
 
-  it("/tmp fallback shape is identical under forced unset XDG", () => {
-    delete process.env.XDG_RUNTIME_DIR;
+  it("/tmp fallback shape via pure runtimeRoot: null", () => {
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000"; // ambient XDG set
     const uid = process.getuid?.() ?? "shared";
     const digest = "deadbeefcafebabe";
     const expectedDir = `/tmp/kaval-${digest}-${uid}`;
     const expectedSock = join(expectedDir, PTY_HOST_SOCK_FILE);
 
-    expect(masterSocket(`kaval-${digest}`)).toBe(expectedSock);
-    expect(getPtyHostSocketPath(undefined, `kaval-${digest}`)).toBe(
-      expectedSock,
-    );
+    expect(masterSocket(`kaval-${digest}`)).not.toBe(expectedSock); // master uses live env
+    // force /tmp pure — without env mutation
     expect(
       resolveDaemonHome({
         app: KAVAL_NS_PREFIX,
         placement: "runtime",
         instance: digest,
         socketFile: PTY_HOST_SOCK_FILE,
+        runtimeRoot: null,
       }).socketPath,
     ).toBe(expectedSock);
   });

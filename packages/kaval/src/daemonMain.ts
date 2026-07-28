@@ -22,12 +22,13 @@ import {
   daemonMain,
   lifetimeInfo,
   type Logger,
+  resolveDaemonHome,
 } from "@kolu/surface-daemon";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
-  getPtyHostSocketPath,
   KAVAL_GATE_FILE,
   KAVAL_NS_PREFIX,
+  PTY_HOST_SOCK_FILE,
   readStateRootManifest,
 } from "./socketPath.ts";
 
@@ -53,13 +54,21 @@ export interface KavalDaemonOptions {
 export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   const { log } = opts;
   // kaval's rendezvous lives under its own app namespace, so kaval-tui's
-  // default (`getPtyHostSocketPath(undefined, "kaval")`) reaches it with no
-  // flags. The gate and the per-PTY init-file dir sit beside the socket in the
-  // same private (0700) directory.
-  const socketPath = getPtyHostSocketPath(opts.socketOverride, KAVAL_NS_PREFIX);
-  const dir = dirname(socketPath);
-  const gatePath = join(dir, KAVAL_GATE_FILE);
-  const rcDir = join(dir, "rc");
+  // default reaches it with no flags. Gate + socket come from one
+  // resolveDaemonHome when there is no override; an explicit `--socket`
+  // relocates the whole rendezvous (gate beside the override).
+  const home =
+    opts.socketOverride !== undefined && opts.socketOverride !== ""
+      ? null
+      : resolveDaemonHome({
+          app: KAVAL_NS_PREFIX,
+          placement: "runtime",
+          socketFile: PTY_HOST_SOCK_FILE,
+        });
+  const socketPath = home?.socketPath ?? opts.socketOverride!;
+  const dir = home?.dir ?? dirname(socketPath);
+  const gatePath = home?.gatePath ?? join(dir, KAVAL_GATE_FILE);
+  const rcDir = home?.file("rc") ?? join(dir, "rc");
 
   // Resolve the lifetime ONCE, before the router is built: `forever` in
   // production; `boundToPid` when a harness/smoke run set `KOLU_DAEMON_BIND_PID`

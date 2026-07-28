@@ -21,11 +21,12 @@
 import {
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
+  resolveDaemonHome,
 } from "@kolu/surface-daemon";
 import {
-  getPtyHostSocketPath,
   KAVAL_NS_PREFIX,
   kavalLogPath,
+  PTY_HOST_SOCK_FILE,
 } from "./socketPath.ts";
 
 export interface RunStdioBridgeOptions {
@@ -49,7 +50,14 @@ export interface RunStdioBridgeOptions {
 export function runStdioBridge(
   opts: RunStdioBridgeOptions = {},
 ): Promise<void> {
-  const socketPath = getPtyHostSocketPath(opts.socketOverride, KAVAL_NS_PREFIX);
+  const socketPath =
+    opts.socketOverride !== undefined && opts.socketOverride !== ""
+      ? opts.socketOverride
+      : resolveDaemonHome({
+          app: KAVAL_NS_PREFIX,
+          placement: "runtime",
+          socketFile: PTY_HOST_SOCK_FILE,
+        }).socketPath;
   return frontDaemonOverStdio({
     socketPath,
     // Start kaval's own durable daemon: re-exec this binary minus `--stdio`.

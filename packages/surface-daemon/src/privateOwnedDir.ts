@@ -11,10 +11,10 @@
  * never followed. Returns true on platforms without uid semantics (Windows:
  * `process.getuid` is undefined) — the ACL model there is out of scope.
  *
- * Package-private — shared by `acquirePidGate` and `daemonHome` so the
- * predicate cannot drift inside this package. Not exported: the monorepo still
- * has sibling copies in `@kolu/surface/unix-socket` and kaval; collapsing those
- * is a surface public-API change (drishti pair) and out of this PR's scope.
+ * Shared by `acquirePidGate` and `daemonHome` so the predicate cannot drift
+ * inside this package. Exported so kaval discovery reuses the same body (no
+ * parallel kaval copy). `@kolu/surface/unix-socket` still has its own private
+ * copy for the transport layer — collapsing that is a separate surface API move.
  */
 
 import { lstatSync } from "node:fs";
