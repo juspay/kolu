@@ -988,13 +988,43 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
   const stateRoot = "/state/root";
   const socketPath = "/run/user/1000/padi-deadbeef/padi.sock";
 
-  it("a genuine `refused` outcome (never adopted) is FATAL — a PadiAdoptionRefusedError naming the state dir + socket + remedy", () => {
-    const outcome: ConvergenceOutcome = { kind: "refused", adopted: false };
+  it("a genuine skew-refused outcome (never adopted) is FATAL — a PadiAdoptionRefusedError naming the state dir + socket + remedy", () => {
+    const outcome: ConvergenceOutcome = {
+      kind: "refused",
+      adopted: false,
+      anomaly: {
+        kind: "skew-refused",
+        running: {
+          contractVersion: "9.0",
+          build: daemonBuild("x"),
+        },
+        detail: "skew",
+      },
+    };
     const err = padiConnectFailure(outcome, stateRoot, socketPath);
     expect(err).toBeInstanceOf(PadiAdoptionRefusedError);
     expect(err.message).toContain(stateRoot);
     expect(err.message).toContain(socketPath);
     expect(err.message).toContain("KOLU_STATE_DIR"); // the remedy
+  });
+
+  it("cross-supervisor refuse is a ConnectError naming the fight — not a contract-skew refusal", () => {
+    const err = padiConnectFailure(
+      {
+        kind: "refused",
+        adopted: false,
+        anomaly: {
+          kind: "cross-supervisor",
+          running: null,
+          detail: "foreign instance of drained build",
+        },
+      },
+      stateRoot,
+      socketPath,
+    );
+    expect(err).toBeInstanceOf(ConnectError);
+    expect(err).not.toBeInstanceOf(PadiAdoptionRefusedError);
+    expect(err.message).toMatch(/cross-supervisor/i);
   });
 
   it("every other reason `conn` is undefined stays the pre-existing retryable ConnectError — never fatal", () => {
@@ -1077,7 +1107,18 @@ describe("reportFatalBindingError — a refusal reported on EVERY dial, not just
     // skew this binder must never touch (#1313). This is the exact case the
     // session's fire-and-forget reconnect loop would otherwise swallow silently.
     const err = padiConnectFailure(
-      { kind: "refused", adopted: false },
+      {
+        kind: "refused",
+        adopted: false,
+        anomaly: {
+          kind: "skew-refused",
+          running: {
+            contractVersion: "9.0",
+            build: daemonBuild(""),
+          },
+          detail: "skew",
+        },
+      },
       "/sr",
       "/sock",
     );

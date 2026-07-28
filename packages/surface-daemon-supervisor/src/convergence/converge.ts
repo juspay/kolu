@@ -113,7 +113,8 @@ export type ConvergenceOutcome =
   | {
       readonly kind: "refused";
       readonly adopted: boolean;
-      readonly anomaly?: ConvergenceAnomaly;
+      /** Required — a refused outcome without an anomaly is unrepresentable. */
+      readonly anomaly: ConvergenceAnomaly;
     }
   | {
       readonly kind: "drained-replacing";

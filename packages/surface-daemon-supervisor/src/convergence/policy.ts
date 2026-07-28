@@ -74,6 +74,21 @@ export type ConvergencePolicy<Cap extends DrainCapability> = {
   ? { readonly drainBudget: DrainBudget }
   : { readonly drainBudget?: never });
 
+/**
+ * Connector-arm policy — the subset of drainable policies `convergeAdmit` accepts.
+ * `recycle` is endpoint-only (kill); `nudge-human` has no connector surface to surface
+ * a mismatch without a host UI. Unspellable arms make illegal connectors a type error.
+ */
+export type ConnectorPolicy = {
+  readonly capability: "drainable";
+  readonly baked: ConvergenceIdentity;
+  readonly onContractSkew:
+    | { readonly kind: "drain-newer-else-refuse" }
+    | { readonly kind: "refuse" };
+  readonly onBuildMismatch: { readonly kind: "drain-and-replace" };
+  readonly drainBudget: DrainBudget;
+};
+
 /** The widened, all-arms view the PURE `decide()` consumes. Every `ConvergencePolicy<Cap>`
  *  is assignable to this (its arms are a subset of the drainable arms), so `decide` stays
  *  exhaustive over a concrete union while Pin 1 is enforced at the enactment boundary. */

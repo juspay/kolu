@@ -20,7 +20,11 @@
  */
 
 import type { DaemonBuild } from "@kolu/surface-daemon";
-import type { ConvergencePolicy, DrainBudget } from "./policy.ts";
+import type {
+  ConnectorPolicy,
+  ConvergencePolicy,
+  DrainBudget,
+} from "./policy.ts";
 
 /** A running daemon's budget identity — build + instance key. */
 export type DrainLineage = {
@@ -41,8 +45,12 @@ export type DrainAdmission =
 export interface DrainBudgetMemory {
   /** May we drain this lineage? Records the attempt on `"drain"`. */
   admit(lineage: DrainLineage, why: string): DrainAdmission;
-  /** The whole drainable policy this memory was created from — decide + budget. */
-  readonly policy: ConvergencePolicy<"drainable">;
+  /**
+   * The whole policy this memory was created from. Endpoint arms may pass any
+   * drainable policy; connector arms should pass {@link ConnectorPolicy} so
+   * recycle/nudge-human are unspellable at the mint site.
+   */
+  readonly policy: ConvergencePolicy<"drainable"> | ConnectorPolicy;
   /** Convenience: the Cap-gated budget data (same as `policy.drainBudget`). */
   readonly drainBudget: DrainBudget;
 }
@@ -94,7 +102,7 @@ function buildKey(build: DaemonBuild): string {
  *  shared by every dial / admit of that boot. Takes the whole policy so
  *  `convergeAdmit` cannot cross-wire a different policy with this memory. */
 export function createDrainBudget(
-  policy: ConvergencePolicy<"drainable">,
+  policy: ConvergencePolicy<"drainable"> | ConnectorPolicy,
 ): DrainBudgetMemory {
   const drainBudget = policy.drainBudget;
   if (

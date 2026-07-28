@@ -9,13 +9,13 @@
  *   connecting → dead           (couldn't spawn / connect)
  *   connected  → degraded       (the daemon died mid-session)
  *
- * `ensure()` is the always-recycle boot: a live survivor is killed, then a
+ * `converge(endpoint)` is the only boot verb: a live survivor is killed, then a
  * fresh daemon is spawned — every boot exercises kill → `waitForPidGone` →
  * spawn → connect (composed from `@kolu/surface-daemon`'s gate primitives).
  * `survivableSpawnDriver` launches the daemon so it OUTLIVES us (systemd-run
  * --user under a service; detached + unref otherwise).
  *
- * The finale is the LIVE recycle under a connected client: `restart` runs the
+ * The finale is the LIVE recycle under a connected client: `recycle` runs the
  * fixed `capture → drain → recycle → reattach` sequence. This demo makes no
  * survival promise, so it supplies the degenerate steps (B2's boot recycle);
  * part 3's remote fan-out is where the same sequence carries real per-host

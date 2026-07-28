@@ -447,32 +447,42 @@ export function padiConnectFailure(
   socketPath: string,
 ): Error {
   if (outcome.kind === "refused") {
-    const anomaly = outcome.anomaly;
-    if (anomaly?.kind === "skew-refused") {
-      return new PadiAdoptionRefusedError(
-        "a padi is already serving this workspace at a padiSurface contract this " +
-          `kolu cannot speak (state dir: ${stateRoot}; its socket: ${socketPath}) — ` +
-          "left standing, never touched (#1313: a binder never kills a running padi). " +
-          "If a kolu is already running against it, use that one. To run a second, " +
-          "independent instance here, set KOLU_STATE_DIR=<dir> (and " +
-          "KOLU_PADI_STATE_DIR=<dir> for an isolated padi too).",
-      );
+    // anomaly is required on refused — exhaustive fold.
+    switch (outcome.anomaly.kind) {
+      case "skew-refused":
+        return new PadiAdoptionRefusedError(
+          "a padi is already serving this workspace at a padiSurface contract this " +
+            `kolu cannot speak (state dir: ${stateRoot}; its socket: ${socketPath}) — ` +
+            "left standing, never touched (#1313: a binder never kills a running padi). " +
+            "If a kolu is already running against it, use that one. To run a second, " +
+            "independent instance here, set KOLU_STATE_DIR=<dir> (and " +
+            "KOLU_PADI_STATE_DIR=<dir> for an isolated padi too).",
+        );
+      case "cross-supervisor":
+        return new ConnectError(
+          `padi cross-supervisor: ${outcome.anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath}) — ` +
+            "another supervisor is respawning this workspace's padi; isolate with " +
+            "KOLU_STATE_DIR / KOLU_REMOTE_PADI_STATE_DIR rather than fighting",
+          "remote",
+        );
+      case "unconverged":
+        return new ConnectError(
+          `padi unconverged: ${outcome.anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath})`,
+          "remote",
+        );
+      case "adopted-stale":
+        // Adopted-stale is never a refuse outcome — if it lands here, reconnect.
+        return new ConnectError(
+          `padi refused with unexpected adopted-stale anomaly: ${outcome.anomaly.detail}`,
+          "network",
+        );
+      default: {
+        const _exhaustive: never = outcome.anomaly;
+        throw new Error(
+          `unreachable refuse anomaly: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
     }
-    if (anomaly?.kind === "cross-supervisor") {
-      return new ConnectError(
-        `padi cross-supervisor: ${anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath}) — ` +
-          "another supervisor is respawning this workspace's padi; isolate with " +
-          "KOLU_STATE_DIR / KOLU_REMOTE_PADI_STATE_DIR rather than fighting",
-        "remote",
-      );
-    }
-    if (anomaly?.kind === "unconverged") {
-      return new ConnectError(
-        `padi unconverged: ${anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath})`,
-        "remote",
-      );
-    }
-    // refused without a typed anomaly — fall through to transient reconnect
   }
   // converge left padi standing + degraded (unreachable, or a raced refuse that
   // still holds no connection) — reconnect (network, retry with backoff) rather

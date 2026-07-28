@@ -61,6 +61,7 @@ export {
 export type {
   AnyConvergencePolicy,
   BuildMismatchPolicy,
+  ConnectorPolicy,
   ContractSkewPolicy,
   ConvergencePolicy,
   DrainBudget,
