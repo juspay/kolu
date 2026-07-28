@@ -60,7 +60,9 @@ export function pairDisplayRow(
  *  (not `% 360`) keeps ordinary names from colliding on exact hues. */
 function stableHue(key: string): number {
   // NFC so hue matches monogram for NFD/NFC-equivalent names (macOS paths).
-  const s = key.normalize("NFC");
+  // Empty / unexpected keys still get a deterministic hue (callers usually
+  // only pass non-empty terminalKey group/label strings).
+  const s = (key ?? "").normalize("NFC");
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -70,13 +72,16 @@ function stableHue(key: string): number {
 }
 
 /** Assign OKLCH colours from a stable per-key hue. The iterable only
- *  names which keys appear; it does not affect the hue of any key. */
+ *  names which keys appear; it does not affect the hue of any key.
+ *  Non-string entries are dropped (tests / partial meta can yield them). */
 export function assignColors(keys: Iterable<string>): Map<string, string> {
+  const unique = [
+    ...new Set(
+      [...keys].filter((k): k is string => typeof k === "string" && k.length >= 0),
+    ),
+  ];
   return new Map(
-    [...new Set(keys)].map((key) => [
-      key,
-      `oklch(0.75 0.14 ${stableHue(key)})`,
-    ]),
+    unique.map((key) => [key, `oklch(0.75 0.14 ${stableHue(key)})`]),
   );
 }
 
