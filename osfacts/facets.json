@@ -1,0 +1,28 @@
+{
+  "unreadable": [
+    "proc",
+    "ports",
+    "mem",
+    "start_time",
+    "cpu_time",
+    "uid",
+    "cwd",
+    "status",
+    "status_threads",
+    "argv"
+  ],
+  "snapshotSource": [
+    "proc",
+    "ports",
+    "ports_unclaimed",
+    "ports_uid",
+    "mem",
+    "start_time",
+    "cpu_time",
+    "uid",
+    "cwd",
+    "status",
+    "argv"
+  ],
+  "hostSource": ["uptime", "load", "mem", "cpu", "net", "disk"]
+}

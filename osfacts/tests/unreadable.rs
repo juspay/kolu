@@ -34,11 +34,11 @@ fn pid_one_ports_yields_u_row() {
         .stdout
         .clone();
     let stdout = String::from_utf8(out).unwrap();
-    let (v, _procs, _ports, unreadable) = parse_tsv(&stdout);
-    assert_eq!(v, 1);
+    let (v, _procs, _ports, unreadable, _errors) = parse_tsv(&stdout);
+    assert_eq!(v, 2);
     assert!(
         unreadable.iter().any(|u| {
-            u.starts_with("U\t1\t")
+            u.starts_with("U\t1\tports\t")
                 && (u.contains("EACCES") || u.contains("EPERM") || u.contains("ESRCH"))
         }),
         "expected a U row for pid 1 with a permission errno; unreadable={unreadable:?}\nfull:\n{stdout}"
@@ -55,6 +55,7 @@ fn vanished_pid_yields_u_row() {
             &gone.to_string(),
             "--procs",
             "--ports",
+            "--cpu-time",
         ])
         .assert()
         .success()
@@ -62,8 +63,8 @@ fn vanished_pid_yields_u_row() {
         .stdout
         .clone();
     let stdout = String::from_utf8(out).unwrap();
-    let (v, procs, _, unreadable) = parse_tsv(&stdout);
-    assert_eq!(v, 1);
+    let (v, procs, _, unreadable, _errors) = parse_tsv(&stdout);
+    assert_eq!(v, 2);
     assert!(
         procs
             .iter()
@@ -73,7 +74,7 @@ fn vanished_pid_yields_u_row() {
     assert!(
         unreadable
             .iter()
-            .any(|u| u.starts_with(&format!("U\t{gone}\t"))),
-        "expected a U row for pid {gone}; unreadable={unreadable:?}"
+            .any(|u| u.starts_with(&format!("U\t{gone}\tcpu_time\t"))),
+        "expected a cpu_time U row for pid {gone}; unreadable={unreadable:?}"
     );
 }

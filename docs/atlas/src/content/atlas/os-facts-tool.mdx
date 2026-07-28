@@ -1,10 +1,10 @@
 ---
 title: osfacts — scoped, honest OS process & socket facts
-description: A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn't read — with kolu and drishti as its first two consumers.
+description: A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn't read. V2 facets ship tool-side; kolu's further consumer adoption is a separate, mixed-version-aware PR.
 parents: [feature]
-status: proposed
-maturity: seedling
-updated: 2026-07-25
+status: accepted
+maturity: budding
+updated: 2026-07-27
 ---
 
 import Footnote from "../../components/Footnote.astro";
@@ -12,23 +12,28 @@ import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import arch from "../../diagrams/os-facts-tool-arch.svg?raw";
 
-**osfacts is a product of its own** — its own repo, its own README, its own CI —
-not a kolu module. One static Rust binary that answers *what does the OS say
-about these processes and their sockets*, scoped to exactly what you asked,
-honest about what it could not read, in about ten milliseconds. kolu and drishti
-are its first two consumers, and the reason to build it is that the tool they
-need genuinely does not exist — see the comparison below.<Footnote>Status:
-proposed, deliberately future work; nothing here ships yet. Every measurement in
-this note comes from the <PrLink pr={1982} /> candidate sweep — the note is
-where that week's conclusions live on after the scratchpads that produced them
-are gone.</Footnote>
+**osfacts is a product of its own** — its own README, its own CI, its own
+repo-to-be — not a kolu module. One static Rust binary that answers *what does
+the OS say about these processes and their sockets*, scoped to exactly what you
+asked, honest about what it could not read. On a Linux host with about 450
+processes, its one-process process+port shape takes 6.5 ms and its host-wide
+all-process-facets shape takes 24.3 ms. The flags are part of the number. The
+binary and kolu's port-sensor adoption shipped in <PrLink pr={1996} />;
+drishti's adoption attempt
+([srid/drishti#122](https://github.com/srid/drishti/pull/122)) is what wrote
+the rest of the phase tree below.<Footnote>The candidate measurements come from
+the <PrLink pr={1982} /> sweep. The current osfacts numbers come from 31
+interleaved warm runs for <PrLink pr={2011} /> on `naiveintent`, with 450–466
+live processes and stdout captured as a real client captures it.</Footnote>
 
 <Svg
   svg={arch}
   caption="Every consumer speaks one versioned contract; only osfacts touches the OS."
 />
 
-The creed, one line per word — also the repo README's opening:
+The creed, one line per word — also the [repo
+README](https://github.com/juspay/kolu/blob/master/osfacts/README.md)'s
+opening:
 
 - **Scoped** — cost tracks the *ask* (`--roots` walks a subtree), never the host.
 - **Attributed** — every snapshot carries the full pid→ppid table, so a
@@ -36,49 +41,43 @@ The creed, one line per word — also the repo README's opening:
 - **Honest** — what it could not read is *reported*, never silently dropped.
 - **Versioned** — schema version first; a mismatched consumer fails loudly
   instead of parsing a half-understood shape into zero rows.
-- **Fast** — ~10 ms per snapshot, because interactive callers poll at
-  seconds scale. This budget is the requirement that explains every rejection
-  in the comparison table.
-
-## User stories
-
-Five flows, one contract — every story is the same verb with different facets,
-never a consumer-shaped flag or mode:
-
-| who                             | wants to know                                        | runs                                                | comes back                                                                                                                    |
-| ------------------------------- | ---------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| kolu's port sensor, every ~5 s  | which ports this terminal's subtree listens on       | `osfacts snapshot --roots 4242 --procs --ports`     | pid table + listener rows with raw addresses; unreadable pids listed, so a blind terminal renders *blind*, not *empty*        |
-| drishti's inspector             | the process tree under a service, with memory and age | `osfacts snapshot --roots 991 --procs --mem --start-time` | one row per descendant with RSS and start time                                                                                |
-| kolu's daemon supervisor        | is this pid still mine, and since when               | `osfacts snapshot --pids 991 --start-time`          | a start time to compare against the recorded one                                                                              |
-| padi's socket takeover          | which pids hold this unix socket                     | `osfacts socket-holders /run/user/1000/padi.sock`   | the holder pids, or none                                                                                                      |
-| a human at any shell            | all of it, readable                                  | `osfacts snapshot --json \| jq`                     | the same facts as JSON                                                                                                        |
+- **Fast** — cost tracks the ask: 6.5 ms for the one-process port shape, 24.3
+  ms for every process facet across about 450 Linux processes. Interactive
+  callers poll at seconds scale, and the live lane guards the large shape with
+  a process-count-scaled child-CPU budget that ignores scheduler contention.
 
 ## The contract
 
-**One verb, composable facets, first-class scoping.**
+**One verb, composable facets, first-class scoping** — every user story is the
+same verb with different facets, never a consumer-shaped flag or mode:
 
-```
-osfacts snapshot --roots 4242,4310 --procs --ports
-osfacts snapshot --pids 991 --mem --start-time
-osfacts socket-holders /run/user/1000/padi.sock
-```
+| who                             | wants to know                                         | runs                                                      | comes back                                                                                                             |
+| ------------------------------- | ----------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| kolu's port sensor, every ~5 s  | which ports this terminal's subtree listens on        | `osfacts snapshot --roots 4242 --procs --ports`           | pid table + listener rows with raw addresses; unreadable pids listed, so a blind terminal renders *blind*, not *empty* |
+| drishti's inspector             | every process, with identity, launch details, memory, age, and CPU% | `snapshotHost(bin, { procs, uid, cwd, status, argv, mem, startTime, cpuTime })` | the real host process set — not pid 1's incomplete subtree — with raw uid, cwd, state/nice/threads, full argv, RSS, start time, and cumulative CPU microseconds |
+| kolu's daemon supervisor        | is this pid still mine, and since when                | `osfacts snapshot --pids 991 --start-time`                | a start time to compare against the recorded one                                                                       |
+| padi's socket takeover          | which pids hold this unix socket                      | `osfacts socket-holders /run/user/1000/padi.sock`         | the holder pids, or none                                                                                               |
+| drishti's host dashboard        | how the machine itself is doing                       | `osfacts host --cpu --mem --load --net --disk`            | cumulative counters + gauges, one versioned schema                                                                     |
+| a human at any shell            | all of it, readable                                   | `osfacts snapshot --json \| jq`                           | the same facts as JSON                                                                                                 |
 
 - **Scoping is the headline.** `--roots` walks the given pids' subtrees,
   `--pids` takes an exact set, no flag means host-wide. Cost then tracks the
   *ask*, not the host — the property no surveyed tool has and the one the
   measurements say matters most.
 - **Facets** so a consumer pays only for what it reads: `--procs`, `--ports`,
-  `--mem`, `--start-time`. `socket-holders` is a second verb because it answers
-  a different question (a path, not a pid set).
-- **One versioned schema.** TSV on the hot path (`V<TAB>1` first, tagged rows),
+  `--mem`, `--start-time`, `--cpu-time`, `--uid`, `--cwd`, `--status`, and
+  `--argv`. `socket-holders` and `host` are
+  separate verbs because they answer different questions (a path, not a pid
+  set; the machine, not a process).
+- **One versioned schema.** TSV on the hot path (`V<TAB>2` first, tagged rows),
   `--json` for humans and one-offs.
 - **Raw address bytes, never a `wildcard` boolean.** Consumers keep exactly one
   classifier. Two predicates that must agree about `::ffff:0.0.0.0` is precisely
   how they come to disagree.
-- **Cumulative CPU time per row**, so CPU% is a consumer-side diff between two
-  snapshots rather than a sampling delay inside the tool.<Footnote>This is why
-  `procs` costs ~30 ms even at its lowest setting: it sleeps to compute a rate
-  nobody asked it for. A one-shot sampler should never sleep.</Footnote>
+- **Cumulative counters, never rates.** CPU% and bytes/s are consumer-side
+  diffs between two snapshots; a one-shot sampler never sleeps.<Footnote>This
+  is why `procs` costs ~30 ms even at its lowest setting: it sleeps to compute
+  a rate nobody asked it for.</Footnote>
 - **A MANDATORY `unreadable` section.** Every pid that could not be inspected is
   *reported*, with its errno — the policy of what is fatal stays in the
   consumer, the only layer that knows which pids it asked about.<Footnote>The
@@ -86,214 +85,209 @@ osfacts socket-holders /run/user/1000/padi.sock
   `sudo` password prompt emptied the Ports section for every terminal on the
   host; when it threw indiscriminately, one foreign-uid descendant did the
   same.</Footnote>
+- **One home for the facet vocabulary.** A facet name is a `Facet` enum variant
+  in `src/schema.rs`, never a string literal at an emit site, and `facets.json`
+  carries the same list to the TypeScript client — pinned from both sides by
+  tests in the fast unit lane. The facet set is this contract's live axis of
+  change (2 → 17 across V2, with `socket-holders` still to come), so adding one
+  must be a single edit that fails loudly if only half of it lands, not a typo
+  that reaches a consumer as a parse error at runtime.
+- **A blind source names every facet it costs, at the right scope.** One source
+  can feed several facets — darwin's `kern.proc.all` supplies process identity,
+  start time, uid, *and* state — so its silence emits one `E` row per facet the
+  ask actually loses. A host-global constant is the mirror image: `CLK_TCK`, the
+  linux page size, and the darwin mach timebase each cost their facet ONCE, as
+  one `E` row, never as one `U` row per process.
+
+| process facet | tagged TSV row | JSON field | unreadable facet | semantics |
+| --- | --- | --- | --- | --- |
+| `--procs` | `P pid ppid name` | `procs` | `proc` | short display name and parent identity |
+| `--mem` | `M pid rss_bytes` | `memory` | `mem` | resident bytes at snapshot time |
+| `--start-time` | `S pid start_unix_us` | `startTimes` | `start_time` | process identity instant in Unix microseconds |
+| `--cpu-time` | `C pid cpu_time_us` | `cpuTimes` | `cpu_time` | cumulative user + system time; CPU% is a consumer-side diff |
+| `--uid` | `UID pid uid` | `uids` | `uid` | real uid; username resolution belongs to the consumer |
+| `--cwd` | `CWD pid cwd_json` | `cwds` | `cwd` | current directory; JSON in the final TSV field preserves delimiters |
+| `--status` | `STAT pid state nice threads` | `statuses` | `status` | one-character state, signed nice, nullable thread count (`-` in TSV) |
+| `--argv` | `ARGV pid argv_json` | `argv` | `argv` | the full vector, distinct from the short name; JSON preserves tabs, newlines, and NULs |
+
+Darwin's process table is public even when its task accounting is not.
+`kern.proc` gives an ordinary caller pid, ppid, real uid, state, nice, start
+time, and a short command name for foreign processes; `proc_pidpath` adds the
+executable path, whose basename keeps long names from being cut to `p_comm`'s
+16 bytes. RSS and cumulative CPU time still come from task APIs that return
+`EPERM` across uid boundaries.<Footnote>`/bin/ps` looks unprivileged from the
+shell, but the binary is setuid root and Apple signs it with the private
+`com.apple.system-task-ports.read` entitlement. Its source calls
+`task_read_for_pid` for the protected half ([reader](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c),
+[entitlement](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/entitlements.plist)).
+So foreign `U mem` and `U cpu_time` rows are real blindness for an ordinary
+osfacts binary, while `U proc`, `U uid`, and `U start_time` rows would be false
+blindness.</Footnote>
+
+Darwin's listener rows carry no owning uid: neither `net.inet.tcp.pcblist_n`'s
+`xinpcb_n` records nor the libproc fd walk exposes one, where linux's
+`/proc/net/tcp` does. So a `--ports` snapshot on darwin always emits
+`E darwin_listeners ports_uid ENOTSUP` and leaves every `L` row's uid column
+`-`. Reporting it costs one row and buys the property the whole contract rests
+on: a consumer never has to know which OS it is running on to read a field.
+
+The two darwin listener sources are always merged as a **union**, never
+switched between. A listener the fd walk positively observed is a fact the tool
+is holding, so a host table that omits it — the shape a *partially* gated
+`pcblist_n` would take — cannot delete it. Emptiness of the host table is
+evaluated once, by the caller, and is the sole trigger for the
+`ports_unclaimed` row. A record the walker cannot frame is a different failure:
+Apple layout drift, reported as `E darwin_tcp_pcblist ports EINVAL` rather than
+returned as a silently short listener set that looks healthy.
+
+`BLIND_OR_EMPTY` is the single code for "this source cannot tell *gated* from
+*genuinely empty*", on both platforms — the gated `pcblist_n` table, and an
+interface list that came back with nothing when `lo`/`lo0` always exists. One
+condition, one code: a consumer that branches on the code must not have to know
+which kernel produced the row.
+
+Host `HCPU` rows add a nonempty model name and nullable MHz to the cumulative
+per-core counters. The frequency is honestly absent on Apple Silicon rather
+than represented by zero. `HDISK` carries both `freeBytes` (`bfree`) and
+`availableBytes` (`bavail`) so the consumer chooses its used-space definition
+without inheriting a hidden semantic change.
 
 ## Why not an existing tool
 
 Every candidate was **measured, not surveyed**, and each fails on the contract
-above rather than on packaging — anything merely absent from nixpkgs could be
-packaged in an afternoon, so packaging never counts as a
-disqualifier.<Footnote>Earlier drafts listed "not packaged for darwin" against
-osquery and "not in nixpkgs" against portls. Both struck: a packaging gap is an
-errand, not an architecture verdict. The rows now stand on what each tool
-*is*.</Footnote> The [repo README](https://github.com/juspay/kolu/blob/master/osfacts/README.md) carries this same table:
+above rather than on packaging — a packaging gap is an errand, not an
+architecture verdict.<Footnote>Earlier drafts listed "not packaged for darwin"
+against osquery and "not in nixpkgs" against portls. Both struck: anything
+merely absent from nixpkgs could be packaged in an afternoon, so packaging
+never counts as a disqualifier.</Footnote> The repo README carries this same
+table:
 
 | candidate            | disqualifier                                                                                                                                                                                                                                              |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `osquery`            | **the wrong operational model**: a resident fleet-telemetry agent with a SQL surface, measured at ~378 ms per query and ~158 MB — built for querying thousands of machines every few minutes, not one machine every five seconds on a 10 ms budget          |
-| `procs`              | **discards the bind address** — loopback and wildcard collapse to one row                                                                                                                                                                                  |
-| `portls`             | no PPID, no process table — a listener cannot be walked back to its root                                                                                                                                                                                   |
-| `rustnet`            | interactive capture TUI, needs packet-capture privilege                                                                                                                                                                                                    |
-| `portview`           | **listener rows only, no process table** — a `shell → npm → node` server cannot be walked back to its terminal, because `npm` holds no listener and never appears. No subtree scoping either: its single-port query is a host-wide scan plus a filter (26.0 ms full vs 25.1 ms scoped) |
-| `sysinfo`+`listeners` | wrapping the two crates enumerates the process list **twice**: 23 ms darwin / ~100 ms linux against 10 ms for a single pass — and `listeners` shipped the v4-mapped decode bug [we fixed upstream](https://github.com/GyulyVGC/listeners/pull/57)          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `osquery`            | **the wrong operational model**: a resident fleet-telemetry agent with a SQL surface, measured at ~378 ms per query and ~158 MB — built for querying thousands of machines every few minutes, not an interactive poll measured in tens of milliseconds         |
+| `procs`              | **discards the bind address** — loopback and wildcard collapse to one row                                                                                                                                                                                 |
+| `portls`             | no PPID, no process table — a listener cannot be walked back to its root                                                                                                                                                                                  |
+| `rustnet`            | interactive capture TUI, needs packet-capture privilege                                                                                                                                                                                                   |
+| `portview`           | **listener rows only, no process table** — a `shell → npm → node` server cannot be walked back to its terminal. No subtree scoping either: its single-port query is a host-wide scan plus a filter<Footnote>portview is also the strongest evidence *for* building this: it measures **9.9 ms on darwin** against our former C helper's 10.6 ms on the same box by the same method, in Rust, in a single pass. Single-pass Rust matches C — the language was never the constraint, the double enumeration was. That measurement is what settled osfacts on Rust.</Footnote> |
+| `sysinfo`+`listeners` | wrapping the two crates enumerates the process list **twice**: 23 ms darwin / ~100 ms linux, while osfacts' current Linux host-wide process+listener pass is 17.8 ms — and `listeners` shipped the v4-mapped decode bug [we fixed upstream](https://github.com/GyulyVGC/listeners/pull/57)<Footnote>The ~50-line darwin address decode from that fix is vendored into osfacts with its regression fixtures; upstream is pinned in CI as a drift oracle. The repo README's Testing section owns the detail.</Footnote><Footnote>Disqualified as the process/socket *engine* — not banned outright. OSF7's darwin network counters use `sysinfo`'s network module (target-gated to macos, `default-features = false`, `network` feature only): one function, taken to delete an unsafe hand-computed `if_data` byte overlay after CodeQL flagged it — the same remove-a-defect-class clause that admitted `serde`. The measured disqualifier (a host-wide process double-walk) doesn't apply to a single sysctl read, and the live-oracle lane's monotonic-counter check is the drift detector for the dependency. Its one honesty cost is contained rather than accepted: `sysinfo` drops a failed `NET_RT_IFLIST2` sysctl and returns an empty set, so `darwin::host` reads that emptiness as blindness and emits `E sysinfo_networks net BLIND_OR_EMPTY` — `lo0` always exists, so an empty interface table is a gated read, never a host without interfaces. Keeping the crate therefore costs no `E` row, which is what disqualifies a dependency here.</Footnote> |
 | `lsof` / `netstat`   | `lsof` measured 93 ms; macOS `netstat` is **intermittently blind** — success and zero rows in one sampling window, 29 rows in the next, same boot                                                                                                          |
 
-`portview` is also the strongest evidence *for* building this: it measures
-**9.9 ms on darwin** against our C helper's 10.6 ms on the same box by the same
-method, in Rust, in a single pass. Single-pass Rust matches C — the language was
-never the constraint, the double enumeration was. That measurement is what
-settles osfacts on Rust.
+## Adoption — kolu and drishti
 
-## Internals
-
-One pass per platform, and no more:
-
-- **linux** — `/proc`, scoped by descending `/proc/<pid>/task/<tid>/children`
-  from each root rather than reading the whole pid table. That descent is
-  exactly the `u-port-scan-subtree-descent` opportunity, and the cost accounting
-  says it is worth ~96% of a scoped pass.
-- **darwin** — a single libproc pass (`proc_listpids` → `proc_pidinfo` →
-  `proc_pidfdinfo`), the shape the C helper already proved at ~4 ms of real
-  work.
-
-**Crates only where earned — and `listeners` did not earn a dependency.** Its
-*enumeration* shape is the disqualified one (it maps socket inodes by walking
-every process's fds, host-wide — the exact cost `--roots` exists to avoid);
-the only part of it osfacts needs is the ~50-line darwin address decode
-[we fixed](https://github.com/GyulyVGC/listeners/pull/57), which is **vendored
-into osfacts** with the scar-tissue fixtures riding it, credited, and checked
-against the fork as an oracle in CI. **Not `sysinfo`** either: pairing crates
-that each enumerate walks the host twice, disqualified by construction. The
-full stack proposal lives in the Implementation section.
-
-### The regression suite is scar tissue
-
-Every one of these is a bug that actually happened, so the suite is written from
-the scars rather than from imagination — cargo integration tests, its own CI,
-both platforms:
-
-- the five bind fixtures (`127.0.0.1`, `0.0.0.0`, `::1`, `::`,
-  `::ffff:127.0.0.1`);
-- **v4-mapped vs v4-compatible** — the upstream crate reported
-  `::ffff:127.0.0.1` as `::127.0.0.1`;
-- **dual-stack flag ordering** — `insi_vflag` sets BOTH bits for `::`, so
-  testing `INI_IPV4` first narrows the wildcard to `0.0.0.0`. Two independent
-  tools and our own C helper each had this;
-- **silent-empty detection** — a mechanism that answers "no ports" successfully
-  is the worst possible failure here, and macOS `netstat` does it
-  intermittently;
-- **the `unreadable` contract** — an uninspectable pid must appear in output.
-
-## How kolu and drishti adopt it
-
-Inside kolu the OS is inspected in five places today, each with its own
+Inside kolu the OS used to be inspected in five places, each with its own
 hand-rolled reader, its own error policy, and its own platform split — five
-answers to one question, and every one a place a platform quirk can be got wrong
-independently.<Footnote>The week that produced <PrLink pr={1982} /> found four
-such quirks, each fixed in exactly one of the five readers.</Footnote> All five
-collapse into calls to the one binary — and a full-source sweep confirms the
-list is exhaustive.<Footnote>The sweep covered every package including
-`@kolu/surface`. The one near-miss: `surface-remote`'s `groupAlive` probe
-(`process.kill(-pid, 0)` — process-*group* liveness inside a SIGTERM→SIGKILL
-escalation timer). Deliberately not a consumer: group liveness is not in the
-fact set, and forking a snapshot binary inside an escalation timer is the wrong
-operational model. The `@kolu/surface` example apps read full process tables
-but are framework demos, not kolu runtime.</Footnote>
+answers to one question. All five collapse into calls to the one binary, and a
+full-source sweep confirmed the list is exhaustive.<Footnote>The sweep covered
+every package including `@kolu/surface`. The one near-miss: `surface-remote`'s
+`groupAlive` probe (`process.kill(-pid, 0)` — process-*group* liveness inside a
+SIGTERM→SIGKILL escalation timer). Deliberately not a consumer: group liveness
+is not in the fact set, and forking a snapshot binary inside an escalation
+timer is the wrong operational model.</Footnote>
 
-| consumer today       | asks                                                  | reads today                                                                                          |
-| -------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| padi port scan       | a subtree's processes + listening ports               | **osfacts** via `osfacts-client` (`KOLU_OSFACTS_BIN`, OSF2 / PR #1996); former `@kolu/port-scan` dissolved |
-| padi `memorySampler` | per-pid RSS                                           | only *self*-measurement (`process.memoryUsage()`) plus an RPC hop to kaval for kaval's own RSS — no true per-pid read exists yet |
-| `socketHolder` (in `surface-daemon-supervisor`) | which pids hold a unix socket **path** | `/proc/net/unix` + fd readlinks; darwin `lsof`                                                       |
-| daemon supervisor    | "is this pid still ours", and since when              | `kill(pid, 0)` liveness only — start-time identity is not read at all today                          |
-| **drishti**          | process inspection                                    | hand-rolled `lsof` — **next adopter of `osfacts-client`** (PR after #1996)                            |
+| consumer                                        | asks                                     | path                                                                                                                       |
+| ----------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| padi port scan                                  | a subtree's processes + listening ports  | **shipped** — `osfacts-client` (OSF2, <PrLink pr={1996} />); V2 wire compatibility for the same path in <PrLink pr={2011} /> |
+| padi `memorySampler`                            | per-pid RSS                              | **OSF8** — today only *self*-measurement plus an RPC hop to kaval                                                          |
+| daemon supervisor                               | "is this pid still ours", and since when | **OSF8** — today `kill(pid, 0)` liveness only (one-field gate; no start-time identity)                                      |
+| `socketHolder` (in `surface-daemon-supervisor`) | which pids hold a unix socket **path**   | OSF4 — today `/proc/net/unix` + fd readlinks; darwin `lsof`                                                                |
+| **drishti**                                     | process inspection + host telemetry      | OSF3 · OSF6 · OSF7 tool-side ready — first attempt [srid/drishti#122](https://github.com/srid/drishti/pull/122)             |
+
+**Drishti's first adoption attempt hit two walls, and they named the missing
+phases.** [srid/drishti#122](https://github.com/srid/drishti/pull/122) moved
+process identity and listeners onto the contract, then deployment as an
+ordinary SSH user turned red: 41 system processes came back readable as `P`
+rows but `U … EACCES` for their fds, so every one of them rendered
+listener-blind — honest, but useless for a whole-host inspector (OSF6). And
+[srid/drishti#123](https://github.com/srid/drishti/issues/123) inventories the
+native host-telemetry readers the contract doesn't cover at all — `/proc`
+gauges, `vm_stat`, `sysctl`, `netstat -ib`, Node `os` calls, `statfs` (OSF7).
+
+The later dropped-info audit found the quieter third wall: pid 1 is not a
+portable synonym for the host process set (Linux's `kthreadd` tree is its own
+root), and the first contract omitted uid, cwd, state/nice/threads, full argv,
+CPU model/frequency, and `bfree`. PR <PrLink pr={2011} /> closes that set
+**tool-side** in the same V2 contract. `osfacts-client` now exposes
+`snapshotHost` directly; Drishti can delete its native readers without
+narrowing or sentinelizing the facts it used to show. kolu's own next
+consumers of those facets (identity gates, memory sampler, socket-holders)
+are deliberately *not* in <PrLink pr={2011} /> — they are OSF8, planned
+around mixed-version daemon windows (see the phase tree).
+
+### Linux cost follows the ask again
+
+Drishti measured the first full Linux migration at 55.8 ms per poll, against
+5.6 ms for its old in-process reader. **The second process was not the
+problem.** The host call cost 2.6 ms. The process snapshot was reopening `stat`
+four times per pid, walking every fd in one long line, growing zero-length proc
+files through repeated reads, and issuing almost one stdout write per row.
+Plain waste.
+
+| warm Linux shape | before | after |
+| --- | ---: | ---: |
+| host-wide, every process facet | 52.56 ms | 24.33 ms |
+| drishti's snapshot + host calls, serial | 55.41 ms | 26.48 ms |
+| one-process `--roots`, process+ports | 7.58 ms | 6.49 ms |
+| 83-process subtree, process+ports | 19.85 ms | 17.27 ms |
+
+Each mutation was timed against the binary immediately before it, in the same
+interleaved run. Every kept cycle cleared the 3% noise bar.
+
+| isolated cycle | before | after | change |
+| --- | ---: | ---: | ---: |
+| share `stat` and `cmdline` reads | 51.34 ms | 39.38 ms | −23.3% |
+| ordered workers for large fd walks | 39.98 ms | 33.58 ms | −16.0% |
+| buffer stdout | 32.03 ms | 27.75 ms | −13.4% |
+| preallocate proc-file reads | 28.72 ms | 26.20 ms | −8.8% |
+| reuse cached `stat` RSS | 26.66 ms | 24.16 ms | −9.4% |
+
+The fix opens shared proc files once, preallocates one page for virtual-file
+reads, reuses the cached `stat` RSS in combined snapshots, buffers stdout, and
+parallelizes only large fd walks. Ordered collection keeps attribution stable;
+small scopes never spawn a worker. A live-lane smoke takes 11 interleaved warm
+`--procs` and all-facet samples, then budgets the difference at 75 µs of child
+CPU per live process **plus 20 µs per readable descriptor**. Two terms, because
+the cost has two drivers: `--ports` walks every process's file descriptors and
+scales with descriptor count, while the other seven facets scale with process
+count. Measured on an idle 407-process, 2725-descriptor host at ~15 µs/process
+and 6.0 µs/descriptor, so each term carries about 3x headroom.<Footnote>The
+first version budgeted per-process only. On a workstation the two counts track
+each other and it passed; on a CI container — 50 processes, a build daemon's
+worth of descriptors — the fd walk alone spent 20 ms against a 3.75 ms
+allowance, and the smoke failed on every CI host it ever ran on. Widening the
+per-process constant enough to cover that would have made the budget larger
+than the regression it exists to catch, so the denominator changed instead.
+Fixed in <PrLink pr={2011} />.</Footnote> Child CPU and the same-load baseline
+make this a generous smoke rather than a wall-clock benchmark: other jobs can
+delay osfacts or disturb its caches without manufacturing most of a
+regression. One rejected version read RSS from `stat` even for `--mem`
+alone; that slowed
+the narrow shape from 5.46 to 6.87 ms, so the final reader keeps `statm` unless
+another requested facet has already paid for `stat`. Combining Drishti's two
+subprocesses was not worth a new command shape: the host half costs only 2.6 ms.
 
 ### The phase tree — track prefix `OSF`
 
-| phase                        | delivers                                                                                                                                         | needs       |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| **OSF1 — the binary**        | `snapshot --roots --procs --ports` on both platforms · versioned TSV + `--json` · the mandatory `unreadable` section · the scar-tissue suite · `osfacts/` + subflake wiring — **shipped in PR #1996** | —           |
-| **OSF2 — kolu's port sensor adopts it** | padi invokes the baked osfacts binary through `osfacts-client`; C helper, TS `/proc`, and `@kolu/port-scan` are **deleted** — **shipped in PR #1996** | OSF1        |
-| **OSF3 — memory & age facets** | `--mem` + `--start-time`; `memorySampler` gains a true per-pid read (the RPC hop to kaval is deleted); the supervisor gains start-time identity   | OSF1        |
-| **OSF4 — socket-holders**    | the second verb ships; `socketHolder` deletes its `/proc/net/unix` and `lsof` paths                                                              | OSF1        |
-| **OSF5 — drishti & extraction** | drishti migrates onto `osfacts-client` (replacing hand-rolled `lsof`); the directory moves to its own repo and the subflake becomes *the* flake | OSF2–4 stable |
+| phase                            | delivers                                                                                                                                                                                                              | needs             |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| **OSF1 — the binary**            | `snapshot --roots --procs --ports` on both platforms · versioned TSV + `--json` · the mandatory `unreadable` section · the scar-tissue suite — **shipped in <PrLink pr={1996} />**                                     | —                 |
+| **OSF2 — kolu's port sensor**    | padi invokes the baked osfacts binary through `osfacts-client`; C helper, TS `/proc`, and `@kolu/port-scan` deleted — **shipped in <PrLink pr={1996} />**; V2 parse compatibility (claimed/unclaimed listeners, faceted `U` rows, source-error blindness) for that same path — **shipped in <PrLink pr={2011} />** | OSF1              |
+| **OSF3 — process detail facets** | *tool-side:* `--mem` + `--start-time` + `--cpu-time` + `--uid` + `--cwd` + `--status` + `--argv`, host-wide `snapshotHost` so Linux roots outside pid 1 are not dropped, Linux perf so cost tracks the ask again — **shipped in <PrLink pr={2011} />**. kolu consumers of these facets are *not* this phase — see OSF8. | OSF1              |
+| **OSF4 — socket-holders**        | the second verb ships; `socketHolder` deletes its `/proc/net/unix` and `lsof` paths                                                                                                                                    | OSF1              |
+| **OSF6 — unattributed listeners** | *tool-side:* a listener no readable pid claims is *emitted* with explicit unattributed status (and its owning uid on linux) instead of dropped — the fix for #122's privilege regression — **shipped in <PrLink pr={2011} />**<Footnote>Linux's world-readable `/proc/net/tcp{,6}` table makes this honesty, not new privilege: under a narrow `--roots`, an unclaimed socket may simply belong to an out-of-scope process, so the row says *unclaimed*, never *unowned*. Darwin's fd-walk-free source is `net.inet.tcp.pcblist_n`. On macOS 27, zest gave Apple's platform-signed `sysctl` a 54,872-byte table whose paired `netstat` read contained 29 listeners, but gave the ad-hoc osfacts binary only 48 bytes of empty framing; `netstat` also carries the private `com.apple.private.network.statistics` entitlement. Both captures are fixtures: the full one decodes to 29 and proves the record walker is current, while the gated one pins `BLIND_OR_EMPTY`. Same-uid fd walks still emit claimed listeners; only the independent host-wide unattributed table is gated. Anything stronger would require Apple identity or privilege, deliberately outside OSF6.</Footnote> | OSF1              |
+| **OSF7 — host facets**           | *tool-side:* the `host` verb — load, memory + swap, uptime, per-core cumulative CPU with model and nullable MHz, per-interface cumulative counters, root-fs total/free/available bytes — **shipped in <PrLink pr={2011} />**. drishti deletes its native telemetry readers on adoption ([srid/drishti#123](https://github.com/srid/drishti/issues/123)).<Footnote>Semantics to preserve, per the issue: cache-aware available memory, swap used/total, cumulative per-interface byte counters, per-core CPU deltas, honest CPU metadata absence, and distinct `bfree`/`bavail` disk meanings. Cumulative per the creed — rates are consumer-side diffs between snapshots; the tool never sleeps.</Footnote> | OSF1              |
+| **OSF8 — kolu V2 facet adoption** | kolu wires the V2 facets it does not yet consume: pid+start-time identity gates (padi/kaval/server), `memorySampler` via osfacts (delete the kaval RPC hop), and any remaining UI that paints those facts. **Central design constraint: the mixed-version kaval window.** A live production strip of an earlier attempt showed why: a new padi that only understands a two-field gate refused to yield a pid for a legacy one-field gate, so Restart-kaval could not SIGTERM the old process and the upgrade path bricked. OSF8's plan must name that window — old and new daemons coexisting on one host during upgrade — and make the gate reader/writer compatible across it. Work parked on branch `osfacts-kolu-adoption` (the pre-strip tip of <PrLink pr={2011} />) is the starting point, not the design. | OSF3              |
+| **OSF5 — drishti & extraction**  | drishti's migration relands whole — every native reader deleted, fail-fast baked path — and the directory graduates to its own repo<Footnote>The directory moves wholesale: `osfacts/` already carries its own README, `default.nix`, a zero-input subflake, and `client-ts/` (`osfacts-client` — no `@kolu` scope, Node builtins only) precisely so extraction is a move, not a redesign. The subflake becomes *the* flake and the contract does not change.</Footnote> | OSF3 · OSF6 · OSF7 |
 
-OSF2, OSF3 and OSF4 are independent siblings under OSF1. **The port-forwarding
-track needs exactly OSF1 → OSF2** — that pair is the "initial version", and the
-other branches can land whenever. Each phase is a consumer deleting its own OS
-traversal, independently revertible.<Footnote>OSF2 done-criterion: padi's
-`ports/sampler` → `ports/scan` (policy) → `osfacts-client` → the osfacts binary, on
-both platforms, with `@kolu/port-scan` gone — the port e2e must pass *through
-the new path*, not beside it.</Footnote>
+OSF3, OSF4, OSF6 and OSF7 are independent *tool* siblings under OSF1; OSF8 is
+the kolu *consumer* follow-on that depends on OSF3's facets being stable; OSF5
+closes the track once external adopters are on the contract. Each phase is
+independently revertible.
 
 **Out of scope, deliberately:** foreground process (a PTY-fd fact — `tcgetpgrp`
-on the pty, so it stays kaval's), anything requiring root, and any
-daemon/resident mode. This is a one-shot sampler; if startup cost ever becomes
-the problem, the answer is to revisit the operational model, not to hide it
-behind a resident process. The same restraint applies outward: no TUI, no
-`kill`, no docker verbs — the broad user-facing surface is what made `portls`
-and `portview` wrong for embedding, and osfacts stays embeddable by staying
-narrow.
-
-## Implementation
-
-**Incubate in the kolu monorepo; extract on the second external consumer.** The
-contract will churn hardest while kolu's five readers migrate onto it — each
-migration co-evolves the crate and its caller in one PR — and that argues for
-one repo until the churn settles.
-
-- **Path: top-level `osfacts/`, not under `packages/`.** The cargo crate is not
-  a pnpm workspace member by default — location is structure. The directory
-  *is* the whole future repo: `Cargo.toml`, `src/`, `tests/`,
-  `client-ts/` (the TypeScript client), the
-  [README](https://github.com/juspay/kolu/blob/master/osfacts/README.md),
-  `default.nix`, `flake.nix`.<Footnote>Precedent: `website/` is exactly this
-  shape today — a top-level non-workspace subproject with its own
-  `default.nix` and subflake.</Footnote>
-- **`client-ts/` — package name `osfacts-client`, no `@kolu` scope.** The
-  binary's TypeScript face: spawn at a supplied path, gate `V 1`, parse typed
-  `P`/`L`/`U` rows. Zero kolu imports, zero npm runtime dependencies (Node
-  builtins only) so drishti can pin it without friction. Listed as one
-  workspace member in `pnpm-workspace.yaml` while incubated so kolu can import
-  it; leaves with the directory at OSF5. kolu policy (address scope, fold,
-  U-row blindness) stays in padi — not in the client.
-- **`@kolu/port-scan` is dissolved (OSF2).** Raw protocol → `osfacts-client`;
-  kolu policy + `scanSubtreePorts` → padi; `PortInfo` / `foldPorts` →
-  `@kolu/terminal-vocab`. No re-export shim.
-- **One `default.nix`, plus a thin zero-input subflake — the vazhi
-  pattern.** The canonical build lives in `osfacts/default.nix`
-  (`rustPlatform.buildRustPackage`, dependencies vendored via `cargoLock`,
-  toolchain from the npins-pinned nixpkgs — **no new flake inputs**, per the
-  root flake's zero-input rule). `osfacts/flake.nix` also takes no inputs,
-  reusing `nix/each-system.nix`, so `nix run ./osfacts` works standalone from
-  day one; the root flake exports `.#osfacts` by importing the *same*
-  `default.nix`, so the two paths can never build two
-  osfacts.<Footnote>`packages/vazhi/flake.nix` documents this pattern: the
-  subflake exists to keep the extraction gap small and visible, not to claim it
-  is already zero.</Footnote>
-- **Consumers take the binary by baked store path.** padi (and soon drishti)
-  reference the Nix-built osfacts the way padi ships other required bins: the
-  path is baked at build time and the caller crashes loudly if it is absent —
-  never a `PATH` lookup, never an env override.
-- **CI while incubated:** the cargo regression suite runs as a kolu CI lane on
-  both platforms; it moves with the directory on extraction.
-- **The extraction signal is drishti (OSF5).** kolu's readers migrate in-repo;
-  the next PR after #1996 has drishti adopt `osfacts-client` (replacing
-  hand-rolled `lsof`). The day that lands, the directory is ready to graduate
-  to its own repo. The directory moves wholesale, the subflake becomes *the*
-  flake, and the contract does not change.
-
-### Language & stack
-
-**Rust** — settled by measurement, not preference: single-pass Rust matches C
-on the hot path (portview's 9.9 ms vs the C helper's 10.6 ms, same box, same
-method), and the language buys the cargo test harness the scar-tissue suite
-needs, one codebase for both platforms, and a static binary Nix packages
-trivially. The toolchain is the npins-pinned nixpkgs Rust (1.93 today), so
-every crate below must build there — the constraint that already vetoed
-`sysinfo` 0.39.
-
-The dependency bar is the repo's own: a crate is taken where it removes a
-defect class, never for convenience. Four runtime deps, a small dev-dep set,
-and a deliberate not-chosen list longer than both:
-
-| layer | choice | why — and why not the obvious alternative |
-| --- | --- | --- |
-| darwin process + socket read | **`libc` + hand-declared libproc FFI** (`proc_listpids` · `proc_pidinfo` · `proc_pidfdinfo`) | the exact calls `portScanDarwin.c` proved at ~4 ms; the `libproc` wrapper crate adds a layer over the same three calls without owning the decode subtleties that actually bite |
-| darwin address decode | **vendored** ~50-line `insi_vflag` routine (our [upstream-merged fix](https://github.com/GyulyVGC/listeners/pull/57)), fixtures riding it | `listeners` as a dependency re-imports the disqualified host-wide fd walk; the decode is the only part that earned its keep. Upstream now carries our regression tests, so CI pins upstream as an **oracle** and drift is detectable<Footnote>The juspay/listeners fork's job is done: the fix merged upstream 2026-07-25 (`226273e5`), unreleased as of v0.6.0. Until a release ships, the oracle pins the upstream merge rev; after it, the crates.io release — and the fork is archived.</Footnote> |
-| linux read | **`std` only** (`/proc` via `std::fs`) | the `procfs` crate parses whole tables host-wide — the shape `--roots` exists to avoid; our subtree descent is ~a page of code |
-| CLI | **`lexopt`** | a fixed, tiny flag surface needs an args loop, not a framework; `clap` is a derive machine + help engine for a tool whose `--help` is ten lines. `lexopt` is ~0-dep and builds on 1.93 |
-| `--json` | **`serde` + `serde_json`** | the serializer-defect class we hunted in `procs`/`portview` (escaping, field drift) is exactly what derive eliminates; the schema structs are the one place `deny_unknown_fields`-style strictness lives |
-| TSV hot path | **hand-written** | tab-join over the same schema structs; a dependency here would be decoration |
-| errors | **`std` error enums, no `anyhow`** | a tool whose contract REQUIRES structured blindness (`unreadable` with errnos) must never bubble an opaque box to the caller; every failure is either a row in `unreadable` or a non-zero exit with a versioned message |
-| async runtime | **none** (runtime); **`tokio` only as a live-oracle test harness dep** | a one-shot sampler has no concurrency to schedule; `tokio` would be startup cost buying nothing in the binary. The live lane's cucumber runner is the only place async appears, and it never ships |
-| tests (dev-deps) | **`assert_cmd` + `predicates` + `insta` + `proptest` + `cucumber` + `tokio` (live harness)** | the hermetic gate spawns the real binary (`assert_cmd`), redacts the two volatile fields for byte-exact snapshots (`insta`), and property-tests pure codecs only (`proptest`). Both platforms use self-referential bind-in-child fixtures (scoped `--roots` / `--pids` asserts "my fixture appears exactly") — no `unshare` / netns, no host-kernel knob. Live-host oracle scenarios are Gherkin via `cucumber` (MSRV 1.88; our pin is ≥1.93 — cleared) |
-| tests (nix-pinned tools) | **`cargo-nextest`** | process-per-test isolation and per-test timeouts for the hermetic gate; not a Cargo dep — rides `nativeCheckInputs` in `osfacts/default.nix` |
-
-The whole runtime dependency tree is four crates deep (`libc`, `lexopt`,
-`serde`, `serde_json`), which is itself a design goal: every dependency is a
-place a platform quirk can arrive with an update, and this tool exists because
-five hand-rolled readers each got one quirk wrong.
-
-One near-term alternative was considered and rejected: replacing kolu's C
-helper *now* with a Rust binary built on the upstream-fixed `listeners`,
-ahead of osfacts. Rejected on the same measurements as ever — the crate
-answers half the question (listener rows, no process table), so a helper must
-add its own process pass beside the crate's internal host-wide fd walk, and
-two walks land at an estimated 15–20 ms against the C helper's ~10
-ms.<Footnote>Anchors, same box and method: one-pass C 8.45–10.6 ms; one-pass
-Rust (portview) 9.9 ms; two-pass `sysinfo`+`listeners` 23.2 ms. A leaner
-hand-rolled pid table trims the second walk's overhead but keeps the
-duplication; the estimate is bounded by those measurements, not itself a
-measurement.</Footnote> The proper Rust replacement of the C helper *is* OSF1's
-darwin path, and OSF2 is the step that deletes it — building an interim means
-building a slower engine and migrating twice.
+on the pty, so it stays kaval's), anything requiring root — OSF6 is the best
+honest answer *without* privilege, not an escalation — and any daemon/resident
+mode. This is a one-shot sampler; if startup cost ever becomes the problem, the
+answer is to revisit the operational model, not to hide it behind a resident
+process. The same restraint applies outward: no TUI, no `kill`, no docker
+verbs — the broad user-facing surface is what made `portls` and `portview`
+wrong for embedding, and osfacts stays embeddable by staying narrow.

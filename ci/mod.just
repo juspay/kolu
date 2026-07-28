@@ -334,8 +334,10 @@ osfacts: nix
     # Subflake path must build the same derivation (vazhi pattern).
     bash ci/flake-build --kinds packages ./osfacts
 
-# osfacts live-host oracle (lane 2). In the default run DAG on both platforms
-# (after `osfacts` → after `nix`, so the built binary is already in the store).
+# osfacts live-host oracle (lane 2). In the default run DAG on both platforms,
+# after the heavy fan-out drains: its Linux performance scenario is a smoke,
+# not a benchmark of how badly concurrent compilers can contend for shared
+# caches. The dependencies also put the built binary in the store first.
 # Diffs that binary against the host's own tools (`ss` / `lsof`) on a real,
 # noisy box — the class of test that can catch OS regressions hermetic
 # fixtures cannot. Exit non-zero is honest: a red fails the `/ci` run (no
@@ -347,7 +349,7 @@ osfacts: nix
 # odu's platform targeting (rasam in the aarch64-darwin pool).
 [linux]
 [macos]
-osfacts-live: osfacts
+osfacts-live: osfacts atlas-sync pnpm-hash-fresh agent-flake-nix website-nix home-manager unit daemon e2e
     bash osfacts/scripts/live-oracle.sh
 
 

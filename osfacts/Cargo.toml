@@ -26,6 +26,9 @@ lexopt = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+sysinfo = { version = "0.39.6", default-features = false, features = ["network"] }
+
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
