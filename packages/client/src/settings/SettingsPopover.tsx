@@ -75,13 +75,14 @@ const NEW_TERMINAL_THEME_HINT: Record<NewTerminalTheme, Hint> = {
 
 /** Shuffle pool — governs both a `Shuffle` new terminal and the ⌘⇧J action.
  *  `Auto` tracks the app's light/dark mode; `Dark`/`Light` force that family;
- *  `Random` spreads across the whole catalogue. */
+ *  `Colourful` prefers saturated (non-grey) tints; `Random` spans the catalogue. */
 const SHUFFLE_BEHAVIOR_OPTIONS: readonly SegmentedControlOption<ShuffleBehavior>[] =
   [
     { value: "random", label: "Random" },
     { value: "dark", label: "Dark" },
     { value: "light", label: "Light" },
     { value: "auto", label: "Auto" },
+    { value: "colourful", label: "Colourful" },
   ];
 
 /** Reactive hint table — re-read on every shuffle-behaviour change. */
@@ -90,6 +91,9 @@ const SHUFFLE_BEHAVIOR_HINT: Record<ShuffleBehavior, Hint> = {
   dark: { text: "Dark tints only." },
   light: { text: "Light tints only." },
   auto: { text: "Match the app's light/dark mode." },
+  colourful: {
+    text: "Saturated tints only — skip grey / monochrome schemes.",
+  },
 };
 
 const SettingsPopover: Component<{

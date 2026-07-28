@@ -165,12 +165,14 @@ export const NewTerminalThemeSchema = z.enum(["inherit", "shuffle"]);
 /** Which themes a *shuffle* draws from — both a `shuffle` new terminal and the
  *  ⌘⇧J "Shuffle theme" action. `random` spreads across the whole catalogue;
  *  `dark`/`light` restrict to that luminance family; `auto` tracks the app's
- *  resolved light/dark mode. */
+ *  resolved light/dark mode; `colourful` prefers saturated (non-grey) tints
+ *  across light and dark. */
 export const ShuffleBehaviorSchema = z.enum([
   "random",
   "dark",
   "light",
   "auto",
+  "colourful",
 ]);
 
 /** Right-panel preferences — workspace-level layout chrome: the panel's width
@@ -244,20 +246,23 @@ export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
 export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
 
-/** The luminance family a shuffle should restrict its candidate pool to, from
- *  the `shuffleBehavior` preference and the app's resolved dark mode.
- *  `undefined` means no restriction (`random` — the whole catalogue). The
+/** The candidate-pool filter a shuffle should apply, from the
+ *  `shuffleBehavior` preference and the app's resolved dark mode.
+ *  `undefined` means no restriction (`random` — the whole catalogue).
+ *  Otherwise `"light"` / `"dark"` / `"colourful"` — the same literals
+ *  `pickTheme`'s `mode` accepts (`ThemePickMode` in terminal-themes). The
  *  single source of truth for every shuffle: a `shuffle` new terminal AND the
  *  ⌘⇧J action both resolve their pool through here. */
 export function shuffleMode(
   behavior: ShuffleBehavior,
   isDark: boolean,
-): "light" | "dark" | undefined {
+): "light" | "dark" | "colourful" | undefined {
   return match(behavior)
     .with("random", () => undefined)
     .with("dark", () => "dark" as const)
     .with("light", () => "light" as const)
     .with("auto", () => (isDark ? ("dark" as const) : ("light" as const)))
+    .with("colourful", () => "colourful" as const)
     .exhaustive();
 }
 

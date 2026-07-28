@@ -157,7 +157,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.34.0";
+const SCHEMA_VERSION = "1.35.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -625,6 +625,11 @@ export const store = new Conf<PersistedState>({
         ) as unknown as Preferences,
       );
     },
+    // `ShuffleBehaviorSchema` gained `colourful` (saturated shuffle pool).
+    // Existing records keep their prior `shuffleBehavior` string — no rewrite.
+    // Ladder step only so a PreferencesSchema change advances SCHEMA_VERSION
+    // (see .claude/rules/state.md).
+    "1.35.0": () => {},
   },
 });
 
