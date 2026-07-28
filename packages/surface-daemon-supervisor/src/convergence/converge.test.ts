@@ -865,7 +865,7 @@ describe("converge — enactment + outcomes", () => {
   it("W8.1 confinement is red against renamed-variable escape (proven)", () => {
     // The W7 name pin (`switch (r.kind)`) stays green under this escape; the
     // topology pin must fail. Actually run the checker on the fixture.
-    const escape = `
+    const renameEscapeFixture = `
 async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHeld: () => void; baseCtx: FoldCtx }) {
   // Stored under a DIFFERENT name — the old spelling pin never saw this.
   const result = await args.bind();
@@ -879,7 +879,7 @@ async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHe
   return consumeBindResult(result, args.baseCtx, { kind: "post-drain" });
 }
 `;
-    expect(() => assertBindCallTopology(escape)).toThrow(
+    expect(() => assertBindCallTopology(renameEscapeFixture)).toThrow(
       /bind call assigned outside consumeBindResult/,
     );
 
