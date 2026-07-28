@@ -257,4 +257,18 @@ Summarize in chat — reporting **only the selected tracks**, and naming any tra
 - `git log --oneline <base>..HEAD` + `git diff --stat <base>` so the combined
   result is visible.
 
+**The report is not the end of the run.** When the branch has an **open PR**,
+delivering this summary while its checks are **pending or red** is one step short
+of done, and the human is left to type "Status?". This bites hardest when
+be-review was the run's *entry point* rather than `/be` §4 — the same gap that
+forced `/ci` to absorb the master-sync obligation (`.apm/skills/ci/SKILL.md`): a
+run that never entered `/be` never reaches §5, so nothing carries it to green.
+One session closed the gauntlet with "**PR #2018 is MERGEABLE** with CI running",
+even listing *"remaining before merge: CI green"* in the same breath, and stopped;
+an hour earlier it had reported that PR with "the JS CodeQL analysis still
+running", which then went red and had to be pointed at by hand. So after
+reporting, **continue into `/be` §5 yourself** — load `/ci` (Skill tool) and drive
+the pipeline to green on the final `HEAD`, fixing whatever reds. Stop at the
+report only when the branch has **no** open PR: then there is no gate to close.
+
 ARGUMENTS:
