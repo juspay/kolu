@@ -29,7 +29,7 @@ import {
   restart,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import { GATE_PATH, SOCKET_PATH } from "../common/paths";
+import { GATE_PATH, HOME, SOCKET_PATH } from "../common/paths";
 import { connectTop, type TopClient, type TopIdentity } from "./connect";
 
 async function firstFrame<T>(
@@ -50,8 +50,7 @@ async function main(): Promise<void> {
 
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
-    gatePath: GATE_PATH,
-    socketPath: SOCKET_PATH,
+    home: HOME, // SAME home declaration as the daemon — disagreement impossible
     driver: survivableSpawnDriver({
       binPath: process.execPath, // node
       args: ["--import", "tsx/esm", daemonEntry],
@@ -66,7 +65,8 @@ async function main(): Promise<void> {
       // binary would omit `fromSource` and pass a complete env.
       fromSource: { inheritParentEnv: true },
     }),
-    connect: () => connectTop(SOCKET_PATH),
+    // the framework hands you the path
+    connect: (socketPath) => connectTop(socketPath),
     log,
     onStatus: (hostId, status) =>
       process.stderr.write(`[supervisor] ${hostId}: ${status.state}\n`),

@@ -30,7 +30,7 @@ import {
   daemonProcessMain,
   stderrLogger,
 } from "@kolu/surface-daemon";
-import { GATE_PATH, HOME_DIR, SOCKET_PATH } from "../common/paths";
+import { HOME } from "../common/paths";
 import { createTop } from "./top";
 
 daemonProcessMain({
@@ -47,14 +47,10 @@ daemonProcessMain({
       top.start();
 
       return await daemonMain({
-        gatePath: GATE_PATH,
-        socketPath: SOCKET_PATH,
+        // gate, socket, anchor — all derived from home inside the spine
+        home: HOME,
         router: top.router,
         lifetime: { kind: "forever" },
-        // The rendezvous home is on-disk identity: if it is deleted, this
-        // daemon's gate/socket are gone and a successor would re-create the
-        // dir and double-serve — so the home is the self-reap anchor.
-        anchor: () => HOME_DIR,
         log: stderrLogger(),
         onReady: ({ socketPath, pid }) =>
           process.stderr.write(

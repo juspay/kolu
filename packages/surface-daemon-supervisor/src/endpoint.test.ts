@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
@@ -104,10 +104,9 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       { contractVersion: string }
     >({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: { spawn: () => fake.listen() },
-      connect: async () => conn,
+      connect: async (_socketPath) => conn,
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
@@ -134,10 +133,9 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     let closeCb: (() => void) | undefined;
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: { spawn: () => fake.listen() },
-      connect: async () => ({
+      connect: async (_socketPath) => ({
         client: "C",
         identity: { staleKey: "k" },
         startedAt: 1,
@@ -171,10 +169,9 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: { spawn: () => fake.listen() },
-      connect: async () => {
+      connect: async (_socketPath) => {
         throw new Error("skew");
       },
       log: silentLog,
@@ -195,15 +192,14 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     let connectCalled = false;
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       // A bad binPath / un-forkable systemd-run surfaces as a rejecting spawn.
       driver: {
         spawn: async () => {
           throw new Error("ENOENT: kaval binary not found");
         },
       },
-      connect: async () => {
+      connect: async (_socketPath) => {
         connectCalled = true;
         throw new Error("connect should never run after a failed spawn");
       },
@@ -245,15 +241,14 @@ describeDaemon("createEndpoint — boot, status, death", () => {
 
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: {
         spawn: async () => {
           // The recycle must have killed the survivor before we spawn.
           spawned = true;
         },
       },
-      connect: async () => ({
+      connect: async (_socketPath) => ({
         client: "C",
         identity: { staleKey: "fresh" },
         startedAt: 2,
@@ -292,11 +287,10 @@ describeDaemon("createEndpoint — boot, status, death", () => {
 
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       // The fresh daemon brings the socket up — the stranger's pid is untouched.
       driver: { spawn: () => fake.listen() },
-      connect: async () => ({
+      connect: async (_socketPath) => ({
         client: "C",
         identity: { staleKey: "fresh" },
         startedAt: 3,
@@ -338,10 +332,9 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     let connects = 0;
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: { spawn: async () => {} }, // the fake is already serving
-      connect: async () => {
+      connect: async (_socketPath) => {
         connects += 1;
         return {
           client: `C${connects}`,
@@ -406,10 +399,9 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     let connects = 0;
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: { spawn: async () => {} },
-      connect: async () => {
+      connect: async (_socketPath) => {
         connects += 1;
         if (connects === 1) {
           return {
@@ -506,15 +498,14 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: {
         spawn: async () => {
           spawnCalled = true;
         },
       },
       // The handshake succeeds → the survivor is compatible → adopt it.
-      connect: async () => ({
+      connect: async (_socketPath) => ({
         client: "SURVIVOR",
         identity: { staleKey: "survivor" },
         startedAt: 99,
@@ -565,14 +556,13 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     let connectCount = 0;
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: {
         spawn: async () => {
           spawnCalled = true;
         },
       },
-      connect: async () => {
+      connect: async (_socketPath) => {
         connectCount += 1;
         if (connectCount === 1) throw new Error("ECONNRESET (transient)");
         return {
@@ -622,14 +612,13 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     let connectCount = 0;
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: {
         spawn: async () => {
           spawned = true;
         },
       },
-      connect: async () => {
+      connect: async (_socketPath) => {
         connectCount += 1;
         // A genuine skew (the typed error) is TERMINAL: it proves the contract is
         // incompatible, so the endpoint must recycle on the FIRST one — never
@@ -691,12 +680,11 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: { spawn: async () => {} },
       // EVERY connect skews — the survivor AND the fresh spawn: the closure on
       // this host cannot speak the required contract, whoever runs it.
-      connect: async () => {
+      connect: async (_socketPath) => {
         throw skewError();
       },
       log: silentLog,
@@ -740,10 +728,9 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: { spawn: async () => {} },
-      connect: async () => {
+      connect: async (_socketPath) => {
         throw skewError();
       },
       log: silentLog,
@@ -792,14 +779,13 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: {
         spawn: async () => {
           spawnCalled = true;
         },
       },
-      connect: async () => {
+      connect: async (_socketPath) => {
         connectCount += 1;
         // Plain Error (NOT a DaemonContractSkewError) → non-skew, possibly
         // transient. Here it persists across every attempt.
@@ -833,10 +819,9 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
 
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: { spawn: () => fake.listen() },
-      connect: async () => ({
+      connect: async (_socketPath) => ({
         client: "FRESH",
         identity: { staleKey: "fresh" },
         startedAt: 1,
@@ -885,14 +870,13 @@ describeDaemon(
       const statuses: EndpointStatus<Identity>[] = [];
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath,
-        socketPath,
+        home: { dir: dirname(socketPath), gatePath, socketPath },
         driver: {
           spawn: async () => {
             spawnCalled = true;
           },
         },
-        connect: async () => {
+        connect: async (_socketPath) => {
           connectCount += 1;
           throw skewError({
             subject: "padiSurface",
@@ -952,14 +936,13 @@ describeDaemon(
       let spawnCalled = false;
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath,
-        socketPath,
+        home: { dir: dirname(socketPath), gatePath, socketPath },
         driver: {
           spawn: async () => {
             spawnCalled = true;
           },
         },
-        connect: async () => ({
+        connect: async (_socketPath) => ({
           client: "SURVIVOR",
           identity: { staleKey: "survivor" },
           startedAt: 42,
@@ -989,10 +972,9 @@ describeDaemon(
 
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath,
-        socketPath,
+        home: { dir: dirname(socketPath), gatePath, socketPath },
         driver: { spawn: () => fake.listen() },
-        connect: async () => ({
+        connect: async (_socketPath) => ({
           client: "FRESH",
           identity: { staleKey: "fresh" },
           startedAt: 1,
@@ -1021,6 +1003,7 @@ describeDaemon(
     // listening socket — the exact `liveServingHolder` candidate. Returns the pid and an
     // exited() flag so a recycle's SIGTERM can be observed.
     async function liveSurvivor(rv: {
+      dir: string;
       gatePath: string;
       socketPath: string;
     }): Promise<{ pid: number; exited: () => boolean }> {
@@ -1054,10 +1037,12 @@ describeDaemon(
     it("PRIMARY (digest) gate live → adopts the PRIMARY, NEVER probes the hint", async () => {
       const d = dir();
       const primary = {
+        dir: d,
         gatePath: join(d, "p.pid"),
         socketPath: join(d, "p.sock"),
       };
       const hint = {
+        dir: d,
         gatePath: join(d, "l.pid"),
         socketPath: join(d, "l.sock"),
       };
@@ -1069,21 +1054,19 @@ describeDaemon(
       let driverSpawnCalled = false;
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath: primary.gatePath,
-        socketPath: primary.socketPath,
+        home: primary,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
           },
         },
-        connect: async () => conn("primary", 99),
+        connect: async (_socketPath) => conn("primary", 99),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptHint: {
-          gatePath: hint.gatePath,
-          socketPath: hint.socketPath,
-          connect: async () => {
+          home: hint,
+          connect: async (_socketPath) => {
             hintConnectCalled = true;
             return conn("legacy", 5);
           },
@@ -1108,10 +1091,12 @@ describeDaemon(
     it("PRIMARY empty + a COMPATIBLE legacy survivor at the hint → ADOPTS it, fires onAdopted, no spawn, no kill", async () => {
       const d = dir();
       const primary = {
+        dir: d,
         gatePath: join(d, "p.pid"),
         socketPath: join(d, "p.sock"),
       };
       const hint = {
+        dir: d,
         gatePath: join(d, "l.pid"),
         socketPath: join(d, "l.sock"),
       };
@@ -1121,21 +1106,19 @@ describeDaemon(
       let driverSpawnCalled = false;
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath: primary.gatePath,
-        socketPath: primary.socketPath,
+        home: primary,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
           },
         },
-        connect: async () => conn("primary-fresh"),
+        connect: async (_socketPath) => conn("primary-fresh"),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptHint: {
-          gatePath: hint.gatePath,
-          socketPath: hint.socketPath,
-          connect: async () => conn("legacy", 5),
+          home: hint,
+          connect: async (_socketPath) => conn("legacy", 5),
           onAdopted: () => {
             onAdoptedCalled = true;
           },
@@ -1156,10 +1139,12 @@ describeDaemon(
     it("PRIMARY empty + a SKEWED legacy survivor at the hint → RECYCLES it (kills the legacy holder) and spawns fresh at the PRIMARY", async () => {
       const d = dir();
       const primary = {
+        dir: d,
         gatePath: join(d, "p.pid"),
         socketPath: join(d, "p.sock"),
       };
       const hint = {
+        dir: d,
         gatePath: join(d, "l.pid"),
         socketPath: join(d, "l.sock"),
       };
@@ -1171,23 +1156,21 @@ describeDaemon(
       let onSpawnedCalled = 0;
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath: primary.gatePath,
-        socketPath: primary.socketPath,
+        home: primary,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
             await fakePrimary.listen(); // the fresh (digest) kaval comes up
           },
         },
-        connect: async () => conn("primary-fresh"),
+        connect: async (_socketPath) => conn("primary-fresh"),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptConnectRetryMs: 1,
         adoptHint: {
-          gatePath: hint.gatePath,
-          socketPath: hint.socketPath,
-          connect: async () => {
+          home: hint,
+          connect: async (_socketPath) => {
             throw skewError({
               subject: "pty-host",
               daemonVersion: "1.0",
@@ -1220,10 +1203,12 @@ describeDaemon(
       // caller's hint-reset never fires.
       const d = dir();
       const primary = {
+        dir: d,
         gatePath: join(d, "p.pid"),
         socketPath: join(d, "p.sock"),
       };
       const hint = {
+        dir: d,
         gatePath: join(d, "l.pid"),
         socketPath: join(d, "l.sock"),
       };
@@ -1235,8 +1220,7 @@ describeDaemon(
       const statuses: EndpointStatus<Identity>[] = [];
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath: primary.gatePath,
-        socketPath: primary.socketPath,
+        home: primary,
         driver: {
           spawn: async () => {
             await fakePrimary.listen();
@@ -1244,7 +1228,7 @@ describeDaemon(
         },
         // The PRIMARY handshake skews too — the whole closure on this host is
         // incompatible, whoever runs it.
-        connect: async () => {
+        connect: async (_socketPath) => {
           throw skewError({
             subject: "pty-host",
             daemonVersion: "1.0",
@@ -1256,9 +1240,8 @@ describeDaemon(
         socketPollMs: 5,
         adoptConnectRetryMs: 1,
         adoptHint: {
-          gatePath: hint.gatePath,
-          socketPath: hint.socketPath,
-          connect: async () => {
+          home: hint,
+          connect: async (_socketPath) => {
             throw skewError({
               subject: "pty-host",
               daemonVersion: "1.0",
@@ -1287,10 +1270,12 @@ describeDaemon(
     it("PRIMARY empty + NO live survivor at the hint → spawns fresh at the PRIMARY (never probes the dead hint)", async () => {
       const d = dir();
       const primary = {
+        dir: d,
         gatePath: join(d, "p.pid"),
         socketPath: join(d, "p.sock"),
       };
       const hint = {
+        dir: d,
         gatePath: join(d, "l.pid"),
         socketPath: join(d, "l.sock"),
       };
@@ -1302,17 +1287,15 @@ describeDaemon(
       let onSpawnedCalled = 0;
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath: primary.gatePath,
-        socketPath: primary.socketPath,
+        home: primary,
         driver: { spawn: () => fakePrimary.listen() },
-        connect: async () => conn("primary-fresh"),
+        connect: async (_socketPath) => conn("primary-fresh"),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptHint: {
-          gatePath: hint.gatePath, // no gate file, nobody listening
-          socketPath: hint.socketPath,
-          connect: async () => {
+          home: hint,
+          connect: async (_socketPath) => {
             hintConnectCalled = true;
             return conn("legacy");
           },
@@ -1336,10 +1319,12 @@ describeDaemon(
     it("CONVERGENCE: a recycle AFTER a hint adoption kills the adopted legacy kaval and respawns at the PRIMARY (digest)", async () => {
       const d = dir();
       const primary = {
+        dir: d,
         gatePath: join(d, "p.pid"),
         socketPath: join(d, "p.sock"),
       };
       const hint = {
+        dir: d,
         gatePath: join(d, "l.pid"),
         socketPath: join(d, "l.sock"),
       };
@@ -1352,22 +1337,20 @@ describeDaemon(
       let onAdoptedCalled = false;
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
-        gatePath: primary.gatePath,
-        socketPath: primary.socketPath,
+        home: primary,
         driver: {
           spawn: async () => {
             driverSpawnCalled += 1;
             await fakePrimary.listen();
           },
         },
-        connect: async () => conn("primary-fresh", 42),
+        connect: async (_socketPath) => conn("primary-fresh", 42),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptHint: {
-          gatePath: hint.gatePath,
-          socketPath: hint.socketPath,
-          connect: async () => conn("legacy", 5),
+          home: hint,
+          connect: async (_socketPath) => conn("legacy", 5),
           onAdopted: () => {
             onAdoptedCalled = true;
           },

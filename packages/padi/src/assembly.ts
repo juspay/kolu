@@ -97,6 +97,7 @@ export {
   padiGatePath,
   padiKavalSocketPath,
   padiLogPath,
+  padiRuntimeHome,
   padiSocketPath,
   padiStderrLogPath,
   residentPadiSocket,

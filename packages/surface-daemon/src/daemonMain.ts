@@ -1,12 +1,13 @@
 /**
  * The daemon skeleton every surface daemon repeats: **gate → serve → teardown**.
  *
- * `daemonMain` is the mechanism; the *policy* arrives as parameters — the scope
- * key (`gatePath`), where to listen (`socketPath`), what to serve (`router`,
- * any `@kolu/surface` router), how long to live (`lifetime`), and what the
- * daemon's existence is anchored to (`anchor` — the required self-reap
- * invariant: a daemon whose identity directory is proven gone shuts itself
- * down rather than leaking forever, juspay/kolu#2010). kaval picks
+ * `daemonMain` is the mechanism; the *policy* arrives as parameters — the
+ * on-disk {@link DaemonHomePaths} (`home`: gate + socket co-located under
+ * `dir`), what to serve (`router`, any `@kolu/surface` router), how long to
+ * live (`lifetime`), and what the daemon's existence is anchored to
+ * (`anchor` — the required self-reap invariant: a daemon whose identity
+ * directory is proven gone shuts itself down rather than leaking forever,
+ * juspay/kolu#2010). kaval picks
  * `{ kind: "forever" }` — an idle PTY daemon still holds your terminals;
  * `odu serve` will pick `idleTimeout` — a quiet CI coordinator may exit. Same
  * skeleton, opposite policies, which is the evidence the mechanism is real and
@@ -25,6 +26,7 @@ import {
   type UnixSocketServeOutcome,
 } from "@kolu/surface/unix-socket";
 import type { Router } from "@orpc/server";
+import type { DaemonHomePaths } from "./daemonHome.ts";
 import type { Logger } from "./logger.ts";
 import {
   acquirePidGate,
@@ -218,31 +220,28 @@ export function anchorGone(path: string): boolean {
 }
 
 export interface DaemonSpec {
-  /** The single-instance gate path — the scope key (per-user for kaval, per-repo
-   *  for `odu serve`). */
-  gatePath: string;
-  /** Where to bind the unix socket clients dial. */
-  socketPath: string;
-  /** Resolve the directory this daemon's EXISTENCE is anchored to — its
-   *  identity/state root, the path whose deletion makes the daemon garbage.
-   *  When that directory has been PROVEN gone ({@link anchorGone}, ENOENT-only)
-   *  for {@link ANCHOR_MISSES_TO_EXIT} consecutive polls, the daemon reaps
-   *  itself (`reason: "anchor-gone"`) through the normal teardown — socket
-   *  unlinked, gate released — instead of lingering as a zombie holding its
-   *  sockets and RSS forever (juspay/kolu#2010: `git worktree remove` stranded
-   *  every dev padi this way; kaval had hand-rolled exactly this watch in
-   *  #1713, padi never did — the spine now enforces what was once one daemon's
-   *  private discipline).
+  /**
+   * On-disk home — the spine primitive. Gate and socket are taken only from
+   * here (never as loose path strings). Build with {@link resolveDaemonHome} /
+   * {@link daemonHome}; overrides (CLI `--socket`) are absorbed into that
+   * construction.
+   */
+  home: DaemonHomePaths;
+  /**
+   * Resolve the directory this daemon's EXISTENCE is anchored to — its
+   * identity/state root, the path whose deletion makes the daemon garbage.
+   * When that directory has been PROVEN gone ({@link anchorGone}, ENOENT-only)
+   * for {@link ANCHOR_MISSES_TO_EXIT} consecutive polls, the daemon reaps
+   * itself (`reason: "anchor-gone"`) through the normal teardown.
    *
-   *  REQUIRED, no opt-out knob, and armed under EVERY lifetime (it is a
-   *  separate trigger, not a lifetime arm — `forever ∧ anchored` and
-   *  `boundToPid ∧ anchored` both occur): a daemon author must answer "what is
-   *  my anchor?" to compile. Re-evaluated every poll tick, so an anchor learned
-   *  after boot self-corrects (kaval reads the manifest its padi writes around
-   *  kaval's own boot); `undefined` means "not anchored right now" — never
-   *  reaped — which is also the honest, visible spelling (`() => undefined`)
-   *  for the rare daemon with genuinely no on-disk identity. */
-  anchor: () => string | undefined;
+   * **Default (when omitted): `() => home.dir`** — gate, socket, and anchor
+   * all ride the home, matching the hello-world contract. Override only when
+   * the on-disk identity is not the rendezvous home itself (kaval's anchor is
+   * its padi's state-root, learned from a manifest beside the socket).
+   * `() => undefined` is the honest spelling for a daemon with no on-disk
+   * identity (never reaped). Re-evaluated every poll tick.
+   */
+  anchor?: () => string | undefined;
   /** Anchor poll period override, in ms. A TEST seam — production omits it and
    *  uses {@link ANCHOR_POLL_MS} (mirrors `boundToPid`'s `pollMs`). */
   anchorPollMs?: number;
@@ -272,7 +271,10 @@ export interface DaemonSpec {
  *  for the configured lifetime to end. Resolves with a `DaemonExit`; cleans up
  *  the socket and releases the gate on every non-`already-running` path. */
 export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
-  const { gatePath, socketPath, router, lifetime, anchor, log, signal } = spec;
+  const { home, router, lifetime, log, signal } = spec;
+  const { gatePath, socketPath } = home;
+  // Default anchor is the home dir — gate/socket/anchor derived from `home`.
+  const anchor = spec.anchor ?? (() => home.dir);
 
   // The caller may have claimed the gate already (padi, to fence its boot side
   // effects behind it); otherwise acquire it here (kaval).

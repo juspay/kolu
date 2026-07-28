@@ -37,13 +37,10 @@ export function runDaemon(controller: AbortController): void {
     name: "fleet-top", // crash-arm narration prefix
     run: () =>
       daemonMain({
-        gatePath: home.gatePath, // <home.dir>/fleet-top.pid
-        socketPath: home.socketPath, // <home.dir>/fleet-top.sock
+        // gate, socket, anchor — all derived from home inside the spine
+        home,
         router, // runtime.router — already the final flattened router
         lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
-        // The self-reap anchor: the home dir is on-disk identity — if it is
-        // deleted, gate and socket are gone and a successor would double-serve.
-        anchor: () => home.dir,
         log: stderrLogger(),
         signal: controller.signal,
         onReady: ({ socketPath, pid }) =>

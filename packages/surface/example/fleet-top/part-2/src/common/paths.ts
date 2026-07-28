@@ -2,24 +2,20 @@
  * Where the daemon's single-instance gate + unix socket live.
  *
  * Both the daemon (`daemon/main.ts`) and the supervisor (`supervisor/main.ts`)
- * derive the SAME two paths from the same rule, so the supervisor reads the
- * exact gate the daemon claims and dials the exact socket it serves.
- *
- * `daemonHome` is that rule: one call creates a private 0700 home under the
- * runtime dir and keeps gate beside socket. A harness may override with
- * `FLEET_TOP_GATE` + `FLEET_TOP_SOCKET`, but both must be set and must share a
- * directory — independent overrides would undo the co-location invariant.
- * `HOME_DIR` is always that shared directory (the daemon's self-reap anchor).
+ * build the SAME {@link DaemonHomePaths} from the same rule, so they cannot
+ * disagree about the gate or the socket. Overrides
+ * (`FLEET_TOP_GATE` + `FLEET_TOP_SOCKET`) are absorbed into home construction
+ * via `socketOverride` — never as loose path strings past the spine.
  */
 
 import { dirname } from "node:path";
-import { daemonHome } from "@kolu/surface-daemon";
+import {
+  type DaemonHomePaths,
+  daemonHome,
+  resolveDaemonHome,
+} from "@kolu/surface-daemon";
 
-function fleetTopPaths(): {
-  homeDir: string;
-  gatePath: string;
-  socketPath: string;
-} {
+function fleetTopHome(): DaemonHomePaths {
   const gate = process.env.FLEET_TOP_GATE;
   const sock = process.env.FLEET_TOP_SOCKET;
   if (gate !== undefined || sock !== undefined) {
@@ -34,23 +30,19 @@ function fleetTopPaths(): {
         `FLEET_TOP_GATE (${gate}) and FLEET_TOP_SOCKET (${sock}) must share a directory`,
       );
     }
-    return {
-      homeDir: dirname(gate),
-      gatePath: gate,
-      socketPath: sock,
-    };
+    // Override absorbed into home construction (gate stem from app).
+    return resolveDaemonHome({
+      app: "fleet-top",
+      placement: "runtime",
+      socketOverride: sock,
+    });
   }
-  // Only materialise the home when no harness override is in play — so a
-  // fixed-path test doesn't also mkdir the default runtime dir.
-  const home = daemonHome({ app: "fleet-top", placement: "runtime" });
-  return {
-    homeDir: home.dir,
-    gatePath: home.gatePath,
-    socketPath: home.socketPath,
-  };
+  // Materialise the private 0700 home when no harness override is in play.
+  return daemonHome({ app: "fleet-top", placement: "runtime" });
 }
 
-const paths = fleetTopPaths();
-export const HOME_DIR = paths.homeDir;
-export const GATE_PATH = paths.gatePath;
-export const SOCKET_PATH = paths.socketPath;
+/** The daemon/supervisor home — one object, both sides. */
+export const HOME: DaemonHomePaths = fleetTopHome();
+export const HOME_DIR = HOME.dir;
+export const GATE_PATH = HOME.gatePath;
+export const SOCKET_PATH = HOME.socketPath;

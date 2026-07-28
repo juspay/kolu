@@ -12,6 +12,7 @@ import type { ContractRouterClient } from "@orpc/contract";
 import {
   type ConvergenceIdentity,
   daemonBuild,
+  daemonHome,
   readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
@@ -29,8 +30,8 @@ import {
 import { stdioLink } from "@kolu/surface/links/stdio";
 import type { surface } from "./surface";
 
-const GATE_PATH = "/run/fleet-top/daemon.pid";
-const SOCKET_PATH = "/run/fleet-top/daemon.sock";
+// Same home declaration the daemon uses — disagreement about gate/socket impossible.
+const home = daemonHome({ app: "fleet-top", placement: "runtime" });
 const daemonEntry = "/nix/store/…/bin/fleet-top-daemon";
 
 // A supervisor's DETACHED spawn runs the daemon under `cfg.env` ALONE — no parent
@@ -92,8 +93,7 @@ export async function bootSupervisor(): Promise<void> {
   // #region endpoint
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
-    gatePath: GATE_PATH,
-    socketPath: SOCKET_PATH,
+    home, // SAME call as the daemon — disagreement impossible
     driver: survivableSpawnDriver({
       binPath: daemonEntry,
       args: [],
@@ -101,12 +101,13 @@ export async function bootSupervisor(): Promise<void> {
       // locator vars. A partial env here would spawn a daemon with no PATH/HOME.
       env: {
         ...spawnEnvBase(),
-        FLEET_TOP_GATE: GATE_PATH,
-        FLEET_TOP_SOCKET: SOCKET_PATH,
+        FLEET_TOP_GATE: home.gatePath,
+        FLEET_TOP_SOCKET: home.socketPath,
       },
       unitPrefix: "fleet-top",
     }),
-    connect: () => connectTop(SOCKET_PATH), // dial + identity handshake
+    // the framework hands you the path
+    connect: (socketPath) => connectTop(socketPath),
     log: stderrLogger(),
     onStatus: (hostId, status) =>
       process.stderr.write(`[supervisor] ${hostId}: ${status.state}\n`),
@@ -158,7 +159,7 @@ async function upgradeInPlace(
   const outcome = await converge({
     endpoint,
     baked, // expected build id + contract version
-    probe: () => probeIdentity(SOCKET_PATH), // identity over a version-agnostic channel
+    probe: () => probeIdentity(home.socketPath), // identity over a version-agnostic channel
     policy,
     buildFence: createBuildDrainFence(), // once-per-boot drain fence
     log: stderrLogger(),

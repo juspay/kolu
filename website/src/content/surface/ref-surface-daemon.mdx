@@ -22,6 +22,13 @@ with gate and socket side by side — so those two can never drift apart. The
 returned `artifacts` array is a pair of `SharedArtifact` registry entries for
 the gate and socket, so a mixed-version inventory (UW2) is fed by construction.
 
+**This is a spine primitive, not a helper.** `daemonMain({ home })` and the
+supervisor's `createEndpoint({ home, connect: (socketPath) => … })` accept the
+home and derive gate/socket (and, by default, the self-reap anchor) from it —
+loose path strings do not cross consumer → framework. Overrides (CLI `--socket`)
+are absorbed into home construction (`socketOverride`), never sprinkled at call
+sites. `connect` receives the socket path from the framework.
+
 | `placement` | Directory |
 | --- | --- |
 | `"state"` | `${XDG_STATE_HOME:-~/.local/state}/<app>/` — durable across reboots |
@@ -32,11 +39,10 @@ Optional `instance` (padi's state-root digest, or a legacy port string) is the
 basenames keep the bare app stem (`padi-<digest>/padi.pid`, never
 `padi-<digest>.pid`). Do not stuff a pre-joined name into `app`. Optional
 `socketFile` overrides the socket basename (kaval's historical `pty-host.sock`).
-Optional `runtimeRoot` (`string | null`) lets discovery evaluate under another
-drawer without mutating `process.env` (`null` forces `/tmp`). kaval and padi
-both ride this API — path helpers and discovery call `resolveDaemonHome` so they
-cannot drift; golden tests pin every derived path byte-identical to the
-pre-migration formula.
+Optional `runtimeRoot` (`string | null`, pure resolve only) lets discovery
+evaluate under another drawer without mutating `process.env` (`null` forces
+`/tmp`). kaval and padi both ride this API; golden tests pin every derived path
+byte-identical to the pre-migration formula.
 
 A daemon that must outlive user sessions (anything supervised over ssh) takes
 `"state"`: logind deletes the runtime dir with the user's last session, leaving
@@ -46,17 +52,20 @@ an orphan process whose socket and gate have vanished.
 
 | Export | Role |
 | --- | --- |
-| `daemonHome({ app, placement, instance?, socketFile?, runtimeRoot? })` | create + verify the home; returns `dir` · `gatePath` · `socketPath` · `file(name)` · `artifacts` |
-| `resolveDaemonHome(…)` | pure path algebra (no mkdir, no env mutation); what path helpers and discovery consume |
-| `DaemonHome` · `ResolvedDaemonHome` · `DaemonHomeOptions` · `DaemonHomePlacement` · `DaemonHomeRuntimeRoot` | return types, options, and `"state" \| "runtime"` placement |
+| `daemonHome({ app, placement, instance?, socketFile?, socketOverride? })` | create + verify the home; returns `dir` · `gatePath` · `socketPath` · `file(name)` · `artifacts` |
+| `resolveDaemonHome(…)` | pure path algebra (no mkdir, no env mutation); path helpers, discovery, and the spine consume this |
+| `DaemonHomePaths` | the face the spine speaks (`dir` · `gatePath` · `socketPath`) |
+| `DaemonHome` · `ResolvedDaemonHome` · `DaemonHomeOptions` · `ResolveDaemonHomeOptions` · `DaemonHomePlacement` · `DaemonHomeRuntimeRoot` | return types and options |
 | `isPrivateOwnedDir(dir)` | owner-only privacy predicate (shared with the pid gate) |
 | `SharedArtifact` | one shared on-disk file both generations touch (inventory entry shape) |
 
 ## The lifecycle
 
-`daemonMain(spec)` is the gate → serve → teardown skeleton. It claims a
-single-instance gate, serves the router over a unix socket, waits for the
-lifetime to end — or for the daemon's [anchor](#the-anchor-self-reap) to be
+`daemonMain({ home, … })` is the gate → serve → teardown skeleton. Gate and
+socket come from `home`; the self-reap [anchor](#the-anchor-self-reap) defaults
+to `home.dir` (override when the on-disk identity is not the rendezvous home —
+e.g. padi's state-root). It claims the single-instance gate, serves the router
+over the unix socket, waits for the lifetime to end — or for the anchor to be
 proven gone — then closes the socket, releases the gate, and **returns** a
 `DaemonExit` — it never calls `process.exit`, so the whole lifecycle is drivable
 in-process from a test.
@@ -77,7 +86,7 @@ rest of the process's life.
 
 | Export | Role |
 | --- | --- |
-| `daemonMain(spec)` | the gate → serve → teardown skeleton; resolves a `DaemonExit` |
+| `daemonMain({ home, … })` | the gate → serve → teardown skeleton; gate/socket/default-anchor from `home`; resolves a `DaemonExit` |
 | `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm) |
 | `acquirePidGate(gatePath)` | atomic single-instance claim via `link(2)`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` (the gate dir failed the owner-only check) |
 | `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |

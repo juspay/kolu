@@ -59,8 +59,10 @@ export {
   resolveDaemonHome,
   type DaemonHome,
   type DaemonHomeOptions,
+  type DaemonHomePaths,
   type DaemonHomePlacement,
   type DaemonHomeRuntimeRoot,
+  type ResolveDaemonHomeOptions,
   type ResolvedDaemonHome,
 } from "./daemonHome.ts";
 export { isPrivateOwnedDir } from "./privateOwnedDir.ts";

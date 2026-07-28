@@ -16,6 +16,7 @@
  * See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B2 — the door).
  */
 
+import { dirname } from "node:path";
 import {
   type ConvergencePolicy,
   converge,
@@ -245,12 +246,19 @@ export async function ensureLocalEndpoint(opts: {
   // the digest socket by default; the adopt-hint below flips it to the legacy socket
   // when an upgrade adopts the port kaval, and a spawn resets it back.
   setLocalSocketPath(socketPath);
-  const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
-    hostId: encodeHostLocation(LOCAL_LOCATION),
+  // Home absorbed from the already-resolved socket path (caller built it via
+  // resolveDaemonHome / padiKavalSocketPath). Gate co-located by construction.
+  const home = {
+    dir: dirname(socketPath),
     gatePath: kavalGatePath(socketPath),
     socketPath,
+  };
+  const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
+    hostId: encodeHostLocation(LOCAL_LOCATION),
+    home,
     driver: localKavalDriver(socketPath),
-    connect: () => connectKaval(socketPath),
+    // the framework hands you the path
+    connect: (path) => connectKaval(path),
     log,
     onStatus: opts.onStatus,
     // The W2.2 upgrade bridge (only when the binder hints a legacy port socket):
@@ -263,9 +271,12 @@ export async function ensureLocalEndpoint(opts: {
       legacyKavalSocket === undefined
         ? undefined
         : {
-            gatePath: kavalGatePath(legacyKavalSocket),
-            socketPath: legacyKavalSocket,
-            connect: () => connectKaval(legacyKavalSocket),
+            home: {
+              dir: dirname(legacyKavalSocket),
+              gatePath: kavalGatePath(legacyKavalSocket),
+              socketPath: legacyKavalSocket,
+            },
+            connect: (path) => connectKaval(path),
             onAdopted: () => setLocalSocketPath(legacyKavalSocket),
           },
     onSpawned: () => setLocalSocketPath(socketPath),

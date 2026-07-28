@@ -60,11 +60,26 @@ export function getRuntimeSocketPath(opts: {
   file: string;
   /** Explicit user-supplied path (a CLI flag); returned verbatim when non-empty. */
   override?: string;
+  /**
+   * Pure multi-regime evaluation for discovery — never mutates `process.env`:
+   *   - omitted — read live `$XDG_RUNTIME_DIR` (binder default)
+   *   - `null` — force the `/tmp/<app>-$UID` branch
+   *   - non-empty string — use this value as `$XDG_RUNTIME_DIR`
+   * An explicit empty string is treated as absent (same as override).
+   */
+  xdgRuntimeDir?: string | null;
 }): string {
   if (opts.override !== undefined && opts.override !== "") {
     return opts.override;
   }
-  const xdg = process.env.XDG_RUNTIME_DIR;
+  const xdg =
+    opts.xdgRuntimeDir === null
+      ? undefined
+      : opts.xdgRuntimeDir !== undefined
+        ? opts.xdgRuntimeDir === ""
+          ? undefined
+          : opts.xdgRuntimeDir
+        : process.env.XDG_RUNTIME_DIR;
   if (xdg !== undefined && xdg !== "") {
     return join(xdg, opts.app, opts.file);
   }

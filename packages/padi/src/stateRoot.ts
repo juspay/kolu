@@ -112,13 +112,14 @@ export function padiDigest(stateRoot: string): string {
 }
 
 /** Pure padi runtime home for a state-root — full `ResolvedDaemonHome` so
- *  construction can take gate + socket from one resolve (override paths still
- *  use {@link padiGatePath} beside the socket). */
-export function padiRuntimeHome(stateRoot: string) {
+ *  construction can take gate + socket from one resolve. Overrides (CLI
+ *  `--socket`) are absorbed via `socketOverride`. */
+export function padiRuntimeHome(stateRoot: string, socketOverride?: string) {
   return resolveDaemonHome({
     app: "padi",
     placement: "runtime",
     instance: padiDigest(stateRoot),
+    socketOverride,
   });
 }
 
@@ -128,8 +129,7 @@ export function padiRuntimeHome(stateRoot: string) {
  *  digest (and can't pass a state-root where a digest was expected). Path algebra
  *  is {@link resolveDaemonHome} with `instance` = the digest. */
 export function padiSocketPath(stateRoot: string, override?: string): string {
-  if (override !== undefined && override !== "") return override;
-  return padiRuntimeHome(stateRoot).socketPath;
+  return padiRuntimeHome(stateRoot, override).socketPath;
 }
 
 /** padi's single-instance gate beside a socket — for override/discovered
