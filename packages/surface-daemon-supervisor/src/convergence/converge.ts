@@ -315,10 +315,13 @@ export async function converge<
             "convergence: drain-and-replace decided without a drain budget — unreachable by Pin 1",
           );
         }
+        // Cap generics don't narrow on the runtime checks above — rebind for Pin 1.
+        const drainableProbe: DrainableProbe = probe;
+        const drainablePolicy = policy as ConvergencePolicy<"drainable">;
         return enactDrainLoop({
-          initialProbe: probe,
+          initialProbe: drainableProbe,
           axis: decision.axis,
-          policy,
+          policy: drainablePolicy,
           budget: endpoint.budget,
           bind,
           log: endpoint.log,
@@ -597,24 +600,19 @@ async function evaluateBoundResident(args: {
       "convergence: admit said drain for a non-drainable bound resident — unreachable by Pin 1",
     );
   }
-  // Re-fold into the drain loop. The admit above already counted one attempt —
-  // but enactDrainLoop will admit again. That double-counts.
-
-  // Fix: reverse the admit — we already admitted. Better restructure:
-  // enactDrainLoop always admits at the top. For evaluateBoundResident when
-  // admission is drain, we should drain THIS probe without re-admitting.
-
-  // Undo double-count by draining here with the already-granted admission, then
-  // re-entering evaluation after bind.
+  // Capability check above; Cap-union doesn't narrow — rebind as DrainableProbe.
+  const drainable: DrainableProbe = args.probe;
+  // Already admitted once — drain with that grant, then re-evaluate the successor
+  // (do not re-enter enactDrainLoop, which would double-count the admit).
   const axis = args.axis ?? "build";
   args.log.info(
     { axis, attempt: admission.attempt },
     "convergence: draining a bound mismatched resident (budget admits another attempt)",
   );
   const drain = await drainAndAwaitExit(
-    () => args.probe.fireDrain(),
-    (signal) => args.probe.awaitExit(signal),
-    { ceilingMs: args.probe.drainCeilingMs },
+    () => drainable.fireDrain(),
+    (signal) => drainable.awaitExit(signal),
+    { ceilingMs: drainable.drainCeilingMs },
   );
   if (!drain.took) {
     return enactGiveUp({
@@ -624,7 +622,7 @@ async function evaluateBoundResident(args: {
         axisHint: why,
         attempts: admission.attempt,
         maxAttempts: drainBudgetOf(args.budget).maxAttempts,
-        instanceKey: args.probe.instanceKey,
+        instanceKey: drainable.instanceKey,
       },
       onGiveUp: drainBudgetOf(args.budget).onGiveUp,
       axis,
@@ -634,7 +632,7 @@ async function evaluateBoundResident(args: {
       log: args.log,
       skewCtx: {},
       drainNotTaken: {
-        ceilingMs: args.probe.drainCeilingMs,
+        ceilingMs: drainable.drainCeilingMs,
         rejection: drain.drainRejection,
       },
     });

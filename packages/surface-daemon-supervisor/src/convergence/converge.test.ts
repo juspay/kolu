@@ -94,7 +94,9 @@ type BindMode = "spawn" | "adopt" | "refuse";
  */
 async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
   policy: ConvergencePolicy<Cap>;
-  probe: Parameters<typeof createEndpoint>[0]["probe"];
+  probe: () => Promise<
+    ReturnType<typeof drainableProbe> | ReturnType<typeof plainProbe> | null
+  >;
   bindMode?: BindMode;
 }) {
   const dir = mkdtempSync(join(tmpdir(), "sds-converge-"));
@@ -122,7 +124,9 @@ async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
     hostId: "test",
     home: { dir, gatePath, socketPath },
     policy: opts.policy,
-    probe: opts.probe,
+    // Test probes are Cap-agnostic fixtures; cast into the endpoint Cap.
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture Cap erase
+    probe: opts.probe as any,
     driver: {
       spawn: async () => {
         await listen();
