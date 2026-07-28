@@ -82,7 +82,6 @@ const REMOTE_DRAIN_TEARDOWN_CEILING_MS = 6000;
  *  {@link padiConvergencePolicy}'s production budget. */
 const MAX_BUILD_DRAINS_PER_INSTANCE = 3;
 
-
 /** The host-selection knob: an ssh host (an `~/.ssh/config` alias or `user@host`).
  *  Unset → the LOCAL padi binding (byte-identical to today). */
 export const KOLU_PADI_HOST_ENV = "KOLU_PADI_HOST";
