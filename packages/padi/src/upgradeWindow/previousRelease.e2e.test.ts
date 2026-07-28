@@ -47,7 +47,7 @@ import {
   padiSocketPath,
   writeStateRootManifest,
 } from "../stateRoot.ts";
-import type { padiSurface } from "../surface.ts";
+import type { PadiDaemonContract } from "../surface.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,7 +62,7 @@ const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), "upgrade-window-rt-"));
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
-type PadiConn = UnixSocketConnection<typeof padiSurface.contract>;
+type PadiConn = UnixSocketConnection<PadiDaemonContract>;
 
 interface Proc {
   child: ChildProcess;
@@ -314,7 +314,7 @@ describeDaemon(
       await waitForSocket(
         padiSock,
         async (path) => {
-          const conn = await unixSocketLink<typeof padiSurface.contract>({
+          const conn = await unixSocketLink<PadiDaemonContract>({
             socketPath: path,
           });
           try {
@@ -333,7 +333,7 @@ describeDaemon(
       const pidAfterBoot = gatePid(kavalGate);
       expect(pidAfterBoot).toBeTypeOf("number");
 
-      const conn: PadiConn = await unixSocketLink<typeof padiSurface.contract>({
+      const conn: PadiConn = await unixSocketLink<PadiDaemonContract>({
         socketPath: padiSock,
       });
       try {

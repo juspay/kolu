@@ -43,8 +43,12 @@ const fixtures: Array<{ dispose: () => Promise<void> }> = [];
 
 afterEach(async () => {
   for (const s of servers.splice(0)) {
+    // Destroy accepted peers so close() settles (Node's Server typing omits
+    // closeAllConnections on older @types/node; the runtime method exists).
+    (
+      s as Server & { closeAllConnections?: () => void }
+    ).closeAllConnections?.();
     s.close();
-    s.closeAllConnections?.();
   }
   for (const f of fixtures.splice(0)) await f.dispose();
 });
@@ -101,8 +105,12 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
           spawned = true;
           // Free the path the fixture held, then re-bind for the fresh connect.
           await new Promise<void>((resolve) => {
-            d.server?.close(() => resolve());
-            d.server?.closeAllConnections?.();
+            const srv = d.server as
+              | (Server & { closeAllConnections?: () => void })
+              | undefined;
+            srv?.closeAllConnections?.();
+            srv?.close(() => resolve());
+            if (!srv) resolve();
           });
           const fresh = fakeListen(d.socketPath);
           servers.push(fresh.server);

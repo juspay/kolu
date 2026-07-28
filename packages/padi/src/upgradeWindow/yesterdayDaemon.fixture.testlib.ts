@@ -213,9 +213,12 @@ export async function plantYesterdayDaemon(
     disposed = true;
     if (server !== undefined) {
       await new Promise<void>((resolve) => {
+        // Force-close established peers so close() settles. Runtime has
+        // closeAllConnections; older @types/node omit it from Server.
+        (
+          server as Server & { closeAllConnections?: () => void }
+        ).closeAllConnections?.();
         server?.close(() => resolve());
-        // Force-close established peers so close() settles.
-        server?.closeAllConnections?.();
       });
     }
     if (child !== undefined && child.pid !== undefined && isAlive(child.pid)) {
