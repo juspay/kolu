@@ -44,9 +44,12 @@ import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
+  type ConvergingEndpoint,
   converge,
+  createDrainBudget,
   createEndpoint,
   daemonBuild,
+  outcomeAnomaly,
 } from "@kolu/surface-daemon-supervisor";
 import {
   isSurfaceRelayTransportLost,
@@ -81,11 +84,14 @@ import {
 import {
   padiConvergencePolicy,
   probePadiForConvergence,
+  toPadiConvergence,
 } from "./padiConvergence.ts";
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
 import type { PadiSession } from "./padiSession.ts";
+import { asPadiSession } from "./padiSession.ts";
 import { buildAppRouter } from "../router.ts";
+import type { PadiConvergence } from "kolu-common/surface";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
  *  (the drain path logs at info/warn/error; the test keeps stdout clean). */
@@ -752,13 +758,76 @@ describe("localPadiDriver — the A8 runtime spawn leash at the real funnel (F5)
   });
 });
 
+/**
+ * UW1 done-when: budget-exhausted LOCAL adopt surfaces `adopted-stale` through
+ * the same standing map `ensurePadiBinding` wires to `convergence()` — previously
+ * always `null` (fence-spent collapsed to a silent adopt). Pure: spy endpoint
+ * (no real spawn/connect hang) + hang probe + the binder's exact
+ * outcome → standing → `asPadiSession` wire.
+ */
+describe("local arm adopted-stale via convergence() (UW1 done-when)", () => {
+  it("drain not-taken → standing adopted-stale on the session (not null)", async () => {
+    const binderBuildId = "binder-build-hex";
+    // Same Cap-gated policy padiBinding uses, maxAttempts: 1, onGiveUp adopt-stale.
+    const policy = {
+      ...padiConvergencePolicy(binderBuildId),
+      drainBudget: { maxAttempts: 1, onGiveUp: "adopt-stale" as const },
+    };
+    const endpoint: ConvergingEndpoint<"drainable"> = {
+      adoptOrSpawnOrRefuse: async () => true, // adopt-stale path binds
+      adoptOrEnsure: async () => false,
+      policy,
+      probe: async () => ({
+        capability: "drainable",
+        identity: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: daemonBuild("stale-running-build"),
+        },
+        instanceKey: 99,
+        fireDrain: async () => {},
+        // Hang until the framework aborts — drain not-taken.
+        awaitExit: async (signal) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        drainCeilingMs: 20,
+        dispose: () => {},
+      }),
+      budget: createDrainBudget(policy),
+      log: silentLog,
+    };
+
+    // ensurePadiBinding's convergePadi, line-for-line:
+    const outcome = await converge(endpoint);
+    const anomaly = outcomeAnomaly(outcome);
+    const standing: PadiConvergence | null = anomaly
+      ? toPadiConvergence(anomaly, binderBuildId)
+      : null;
+
+    // Wire like asPadiSession({ convergence: () => standingConvergence })
+    const session = asPadiSession({} as never, {
+      convergence: () => standing,
+      renew: async () => {},
+      entryFailedDetail: () => null,
+    });
+
+    expect(session.convergence()).not.toBeNull();
+    expect(session.convergence()).toMatchObject({
+      state: "adopted-stale",
+      runningBuild: "stale-running-build",
+      expectedBuild: binderBuildId,
+    });
+  });
+});
+
 describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure, no real padi)", () => {
   // Post-S9 the boot-time lifecycle is no longer a bespoke `padiStartedAt()` on a wrapper
   // class; it rides the base `session.identity()` (padi's `system.identity`), which is
   // proven generically by surface-remote's session tests. What is padi-LOCAL-arm
   // specific — and unit-testable with NO real padi (the session is side-effect-free until
-  // the first pin) — is: the arm surfaces NO convergence (local has none), `identity()`
-  // is the honest `disconnected` arm while unbound (never a fabricated 0), and `renew()`
+  // the first pin) — is: standing anomaly is null before any dial, `identity()` is the
+  // honest `disconnected` arm while unbound (never a fabricated 0), and `renew()`
   // fails LOUDLY when there is no bound padi to drain (never a phantom success). A tmp
   // state-root keeps the endpoint's digest isolated; `destroy()` tears the session down.
   const build = (): PadiSession =>
