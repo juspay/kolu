@@ -78,15 +78,10 @@ import {
  *  `DRAIN_TEARDOWN_CEILING_MS`. Sized above the local 2s because each liveness poll is
  *  a full ssh round-trip; a real drain exits well within it. Never a kill either way. */
 const REMOTE_DRAIN_TEARDOWN_CEILING_MS = 6000;
-/** Poll cadence for the post-drain liveness check (an ssh `control.core.hello`
- *  round-trip each tick). */
-const REMOTE_DRAIN_POLL_MS = 150;
 /** Default maxAttempts for the drain budget when deps do not override — matches
  *  {@link padiConvergencePolicy}'s production budget. */
 const MAX_BUILD_DRAINS_PER_INSTANCE = 3;
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((r) => setTimeout(r, ms));
 
 /** The host-selection knob: an ssh host (an `~/.ssh/config` alias or `user@host`).
  *  Unset → the LOCAL padi binding (byte-identical to today). */
@@ -267,6 +262,10 @@ export interface RemotePadiSessionDeps {
   binderBuildId?: string;
   maxBuildDrainsPerInstance?: number;
   drainTeardownCeilingMs?: number;
+  /**
+   * Legacy hello-poll cadence. Unused after F3 (process-oracle awaitExit);
+   * kept optional so existing tests that pass it keep compiling.
+   */
   drainPollMs?: number;
 }
 
@@ -328,7 +327,6 @@ export function ensureRemotePadiBinding(
     deps.maxBuildDrainsPerInstance ?? MAX_BUILD_DRAINS_PER_INSTANCE;
   const drainCeilingMs =
     deps.drainTeardownCeilingMs ?? REMOTE_DRAIN_TEARDOWN_CEILING_MS;
-  const drainPollMs = deps.drainPollMs ?? REMOTE_DRAIN_POLL_MS;
 
   // ONE policy object for both arms; budget memory is per-supervisor-boot and
   // SURVIVES adopts (no reset-on-adopt — that wiped the cross-supervisor signal).
