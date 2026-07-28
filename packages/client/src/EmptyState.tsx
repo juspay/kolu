@@ -220,17 +220,16 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                             leaving an orphaned "Asleep · restores dormant" with no
                             session above it. Let the heading scroll with its rows. */}
                         <div class="pb-1.5">
-                          <span
-                            data-testid="repo-heading"
-                            class="repo-group-band-title truncate"
-                          >
+                          <span class="repo-group-band-title truncate">
                             <RepoMonogram
                               group={group.key}
                               color={color()}
                               size="sm"
                               data-testid="restore-repo-monogram"
                             />
-                            {group.key}
+                            {/* testid on the name alone — monogram is decorative
+                             *  (aria-hidden) and must not pollute e2e textContent. */}
+                            <span data-testid="repo-heading">{group.key}</span>
                           </span>
                         </div>
                         <div class="ml-1 space-y-2.5">
