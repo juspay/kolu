@@ -58,6 +58,8 @@ export type PaletteRowMeta = {
   repoName?: string;
   repoColor?: string;
   branchLabel?: string;
+  /** Branch/intent paint — same fold as dock `annotationColor` / title bar. */
+  annotationColor?: string;
   hostKey?: HostKey;
 };
 
@@ -292,21 +294,38 @@ const PaletteRow: Component<{
         </Show>
       </span>
 
-      {/* 2 · Identity — monogram (shared atom) + branch/intent; repo name
-       *  rides the monogram title so the row stays dense. */}
+      {/* 2 · Identity — monogram + repo name (repoColor) + branch/intent
+       *  (annotationColor). Same two-hue vocabulary as the dock row. */}
       <div class="flex items-center gap-1.5 min-w-0 shrink">
         <Show when={terminalRepo()}>
           {(repo) => (
-            <RepoMonogram
-              group={repo().name}
-              color={repo().color}
-              size="sm"
-              title={repo().name}
-              data-testid="palette-repo-monogram"
-            />
+            <>
+              <RepoMonogram
+                group={repo().name}
+                color={repo().color}
+                size="sm"
+                title={repo().name}
+                data-testid="palette-repo-monogram"
+              />
+              <span
+                class="font-mono text-[0.72rem] font-semibold truncate max-w-[7rem]"
+                style={{ color: repo().color }}
+                data-testid="palette-repo-name"
+              >
+                {repo().name}
+              </span>
+            </>
           )}
         </Show>
-        <span class="truncate min-w-0">
+        <span
+          class="truncate min-w-0"
+          style={
+            row()?.annotationColor
+              ? { color: row()!.annotationColor }
+              : undefined
+          }
+          data-testid="palette-branch"
+        >
           <Show
             when={kind() === "terminal" && row()?.terminalMeta?.intent}
             fallback={

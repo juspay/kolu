@@ -117,11 +117,13 @@ const WorkSection: Component<{
   terminalId: TerminalId | null;
 }> = (props) => {
   const store = useTerminalStore();
-  const repoColor = () => {
+  const display = () => {
     const id = props.terminalId;
-    if (!id) return undefined;
-    return store.getDisplayInfo(id)?.repoColor;
+    return id ? store.getDisplayInfo(id) : undefined;
   };
+  const repoColor = () => display()?.repoColor;
+  /** Same hue the dock paints on the branch/intent label. */
+  const branchColor = () => display()?.annotationColor;
   const active = () => activeArm(props.meta);
   // PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
   // resolution (same gate the old Pull Request section used).
@@ -160,16 +162,35 @@ const WorkSection: Component<{
           <Show when={props.meta.git}>
             {(git) => (
               <>
-                <Chip
-                  tone="accent"
-                  title={git().isWorktree ? "worktree" : undefined}
-                  data-testid="inspector-branch"
+                <Show
+                  when={branchColor()}
+                  fallback={
+                    <Chip
+                      tone="accent"
+                      title={git().isWorktree ? "worktree" : undefined}
+                      data-testid="inspector-branch"
+                    >
+                      <Show when={git().isWorktree}>
+                        <WorktreeIcon class="h-3 w-3 shrink-0 text-fg-3/60" />
+                      </Show>
+                      <span class="truncate font-semibold">{git().branch}</span>
+                    </Chip>
+                  }
                 >
-                  <Show when={git().isWorktree}>
-                    <WorktreeIcon class="h-3 w-3 shrink-0 text-fg-3/60" />
-                  </Show>
-                  <span class="truncate font-semibold">{git().branch}</span>
-                </Chip>
+                  {(c) => (
+                    <span
+                      class="repo-branch-chip"
+                      style={{ "--branch-color": c() }}
+                      title={git().isWorktree ? "worktree" : undefined}
+                      data-testid="inspector-branch"
+                    >
+                      <Show when={git().isWorktree}>
+                        <WorktreeIcon class="h-3 w-3 shrink-0 opacity-60" />
+                      </Show>
+                      <span class="truncate font-semibold">{git().branch}</span>
+                    </span>
+                  )}
+                </Show>
                 <Show when={repoColor()}>
                   {(c) => (
                     <RepoIdentityChip name={git().repoName} color={c()} />

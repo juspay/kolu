@@ -668,6 +668,47 @@ body {
   font-weight: 600;
   line-height: 1.5;
 }
+/* Branch chip (inspector) — `--branch-color` = dock annotationColor. */
+.repo-branch-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  border-radius: 6px;
+  border: 1px solid
+    color-mix(in oklab, var(--branch-color) 45%, var(--color-edge));
+  background: color-mix(
+    in oklab,
+    var(--branch-color) 14%,
+    var(--color-surface-1)
+  );
+  color: color-mix(in oklch, var(--branch-color) 78%, white);
+  padding: 1px 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+:root.dark .repo-branch-chip {
+  color: color-mix(in oklch, var(--branch-color) 85%, white);
+}
+/* Minimap — faint monogram watermark on rects big enough to hold it. */
+.minimap-repo-glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 800;
+  font-size: clamp(7px, 38%, 13px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: color-mix(in oklab, var(--repo-color) 48%, transparent);
+  pointer-events: none;
+  user-select: none;
+  text-shadow: 0 0 1px color-mix(in oklab, black 25%, transparent);
+}
 /* Restore / soft group band. */
 .repo-group-band {
   border-left: 4px solid var(--repo-color);

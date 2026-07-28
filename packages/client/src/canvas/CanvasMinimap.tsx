@@ -16,6 +16,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
+import { repoMonogram } from "../ui/repoMonogram";
 import { bucketDescriptor, metaBucket } from "./dockModel";
 import {
   handleMinimapClick,
@@ -340,12 +341,17 @@ const CanvasMinimap: Component<{
               if (!l || !i || !meta()) return null;
               const s = minimapScale();
               const p = toMinimap(l.x, l.y, s);
+              const w = l.w * s;
+              const h = l.h * s;
               return {
                 x: p.x,
                 y: p.y,
-                w: l.w * s,
-                h: l.h * s,
+                w,
+                h,
                 repoColor: i.repoColor,
+                // Shared monogram fold — only painted when the rect has room.
+                monogram: repoMonogram(i.key.group),
+                showMonogram: Math.min(w, h) >= 14,
               };
             });
             // Reactive accessor: which presence visual this tile gets, as ONE
@@ -439,6 +445,7 @@ const CanvasMinimap: Component<{
                   height: `${t.h}px`,
                   "background-color": MOONLIT.tileBg,
                   border: `1px dashed ${MOONLIT.accent}`,
+                  "--repo-color": t.repoColor,
                 };
               }
               if (parked()) {
@@ -459,6 +466,7 @@ const CanvasMinimap: Component<{
                 height: `${t.h}px`,
                 "background-color": `color-mix(in oklab, ${t.repoColor} 32%, ${theme().bg})`,
                 border: `1.5px solid ${t.repoColor}`,
+                "--repo-color": t.repoColor,
               };
             };
             return (
@@ -471,7 +479,7 @@ const CanvasMinimap: Component<{
                     data-tile-id={id}
                     data-bucket={state().bucket}
                     data-parked={parked() ? "" : undefined}
-                    class={`absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
+                    class={`absolute cursor-pointer overflow-hidden ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
                     classList={{
                       "rounded-full bg-fg-3/40": parked(),
                       "rounded-sm hover:opacity-100": !parked(),
@@ -488,6 +496,17 @@ const CanvasMinimap: Component<{
                     onPointerDown={handleTilePointerDown}
                     onClick={handleTileClick}
                   >
+                    {/* Faint monogram watermark — shared repoMonogram fold.
+                     *  Skipped on parked ghosts (6px) and tiny rects. */}
+                    <Show when={!parked() && t().showMonogram}>
+                      <span
+                        class="minimap-repo-glyph"
+                        aria-hidden="true"
+                        data-testid="minimap-repo-glyph"
+                      >
+                        {t().monogram}
+                      </span>
+                    </Show>
                     {/* Mount-gate stays open while parked so a bucket→none
                         flip mid-park doesn't cut the opacity fade short. */}
                     <Show when={hasAgent() || parked()}>
