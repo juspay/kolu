@@ -115,12 +115,12 @@ Feature: Dock
     Then the dock should show 1 active row indicator
 
   Scenario: Repo sections carry a colour spine and a sticky tinted header
-    # Repo identity rides two high-mass surfaces, not a 9.6px label: a
-    # repo-coloured spine down the section's left edge (the section
-    # element draws it from the per-section `--repo-color` custom
-    # property) and a sticky header band so the repo label survives the
-    # scroll. Assert the structural facts via computed style, never a
-    # class selector (see .claude/rules/e2e-testing.md).
+    # Repo identity rides a card: a repo-coloured spine down the section's
+    # left edge (from the per-section `--repo-color` custom property, width
+    # from `--dock-edge-stripe-w`), a monogram + sticky header band so the
+    # repo label survives the scroll, and air between cards. Assert the
+    # structural facts via computed style, never a class selector
+    # (see .claude/rules/e2e-testing.md).
     Given I create a terminal
     When the dock is expanded
     Then the dock section should carry a repo-colour spine
