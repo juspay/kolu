@@ -25,9 +25,11 @@ import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
+import RepoMonogram from "../ui/RepoMonogram";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
 import AgentStatusCard from "./AgentStatusCard";
@@ -88,11 +90,38 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
 
+/** Repo identity chip — monogram + name in the shared repo-colour frame.
+ *  Colour is the live terminal's `repoColor` (fleet-wide assignColors), so the
+ *  chip matches the dock monogram for the same terminal. Not a status chip. */
+const RepoIdentityChip: Component<{ name: string; color: string }> = (
+  props,
+) => (
+  <span
+    class="repo-identity-chip"
+    style={{ "--repo-color": props.color }}
+    title={props.name}
+    data-testid="inspector-repo"
+  >
+    <RepoMonogram group={props.name} color={props.color} size="xs" />
+    <span class="truncate">{props.name}</span>
+  </span>
+);
+
 /** The "Work" cluster — what you're working ON, told once: branch/repo/PR/CI
  *  as a chip row, the PR title, the working directory, and the deep detail
  *  (per-check list, repo paths) behind disclosures. Replaces the former
  *  Directory + Git + Pull Request label/value sections. */
-const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
+const WorkSection: Component<{
+  meta: TerminalMetadata;
+  /** Active tile id — used only to read the fleet-wide `repoColor`. */
+  terminalId: TerminalId | null;
+}> = (props) => {
+  const store = useTerminalStore();
+  const repoColor = () => {
+    const id = props.terminalId;
+    if (!id) return undefined;
+    return store.getDisplayInfo(id)?.repoColor;
+  };
   const active = () => activeArm(props.meta);
   // PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
   // resolution (same gate the old Pull Request section used).
@@ -141,7 +170,14 @@ const WorkSection: Component<{ meta: TerminalMetadata }> = (props) => {
                   </Show>
                   <span class="truncate font-semibold">{git().branch}</span>
                 </Chip>
-                <Chip>{git().repoName}</Chip>
+                <Show when={repoColor()}>
+                  {(c) => (
+                    <RepoIdentityChip name={git().repoName} color={c()} />
+                  )}
+                </Show>
+                <Show when={!repoColor()}>
+                  <Chip>{git().repoName}</Chip>
+                </Show>
               </>
             )}
           </Show>
@@ -296,7 +332,7 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Work — directory + git + PR as one identity cluster. */}
-          <WorkSection meta={meta()} />
+          <WorkSection meta={meta()} terminalId={props.terminalId} />
 
           {/* Ports — what this TILE is serving, its splits included (a dev server
               usually runs in a split, so a main-pane-only reading shows nothing in

@@ -1,7 +1,8 @@
 import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { chipInitials, repoMonogram } from "./chipInitials";
+import { repoMonogram } from "../../ui/repoMonogram";
+import { chipInitials } from "./chipInitials";
 
 function info(group: string, label: string): TerminalDisplayInfo {
   return {

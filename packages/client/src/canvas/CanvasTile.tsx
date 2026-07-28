@@ -305,13 +305,14 @@ const CanvasTile: Component<{
        *  a wide action cluster (agent status + theme + icons). */}
       <div
         data-testid="canvas-tile-titlebar"
-        class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none"
+        class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
         classList={{
           "cursor-grab active:cursor-grabbing": !isMaximized(),
         }}
         style={{
           "background-color": tileTitleBarBg(props.theme),
           "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,
+          "border-left-color": props.repoColor,
           // Scope theme-derived foreground tiers to the title bar so
           // chrome buttons read sensible defaults via var(--color-fg-3,
           // currentColor) without leaking the override into the tile body

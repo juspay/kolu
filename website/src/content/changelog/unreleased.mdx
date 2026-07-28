@@ -6,6 +6,22 @@ version: Unreleased
 
 - <Change kind="changed" title="Repo cards you can actually tell apart" pr={2035}>With many repos open, the dock's section cues — a 3px spine, a 7px swatch, and a 9% pastel header wash — all dissolved into one pale list. Each repo is now a **card**: thicker spine, solid monogram tile (first letter of the repo, the same glyph the rail chip already uses), a stronger sticky header wash, and a little air between sections, so a fleet of eight still passes a squint test. Attention (violet needs-you, amber unread) stays the loudest row signal — repo paint is ambient structure, not another interrupt.</Change>
 
+### [The Switcher](/switcher)
+
+- <Change kind="changed" title="Terminal rows wear the dock monogram">Terminal rows in the command palette now lead with the same **repo monogram tile** and a thin colour spine the dock uses, so a multi-repo fleet is scannable without reading the full name. Host section headers pick up a soft **host-hue wash**. Attention and selection stay separate channels.</Change>
+
+### [Sessions, Sleep &amp; Wake](/sessions)
+
+- <Change kind="changed" title="Restore groups match live repo colours">The restore-session card's repo groups now share the dock's monogram and colour spine — the same hue map as your live terminals, so "which repo was that?" is obvious before you restore.</Change>
+
+### [The Right Panel](/right-panel)
+
+- <Change kind="changed" title="The Work repo chip matches the dock">The inspector's repo chip wears the shared monogram and a soft repo-colour frame, so "where am I?" agrees with the dock and the tile title.</Change>
+
+### [Tiles](/tiles)
+
+- <Change kind="changed" title="Title bar monogram + a more scannable minimap">Each tile's title bar carries the shared monogram and a short repo-colour spine; the minimap tints each rect with a touch of repo colour so small tiles stay distinguishable at a glance.</Change>
+
 ### [Padi](/padi)
 
 - <Change kind="fixed" title="A shutting-down kaval reaps every terminal it owns — deterministically" pr={2014}>Each terminal kaval spawns lives in its own process session, so nothing the operating system does when kaval dies is guaranteed to take the terminal along — and on macOS, a terminal killed in the first instants after its spawn could dodge the polite hang-up kaval sent on shutdown and sit orphaned for days (aged <code>spawn-helper</code> processes were found accumulating on a CI machine exactly this way). Shutdown now kills each terminal outright instead of asking nicely — the same choice the explicit close-a-terminal path has always made — so a daemon that goes away leaves nothing behind, on any platform.</Change>

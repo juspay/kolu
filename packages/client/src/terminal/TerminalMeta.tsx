@@ -23,13 +23,14 @@ import { annotationLine } from "../intent/text";
 import { agentWorkflow } from "../ui/agentDisplay";
 import { SLEEPING_RECEDE_CLASS } from "../ui/chromeSpacing";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
+import RepoMonogram from "../ui/RepoMonogram";
 import Tip from "../ui/Tip";
+import { encActiveHost } from "../wire";
 import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
-import { encActiveHost } from "../wire";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
@@ -290,11 +291,18 @@ const NameSpan: Component<{
 }> = (props) => (
   <span
     data-testid="terminal-meta-name"
-    class="truncate shrink-0 max-w-[20ch]"
-    style={{ color: props.info.repoColor }}
+    class="inline-flex items-center gap-1.5 truncate shrink-0 max-w-[22ch]"
     title={props.meta.cwd}
   >
-    {props.info.key.group}
+    <RepoMonogram
+      group={props.info.key.group}
+      color={props.info.repoColor}
+      size="xs"
+      data-testid="terminal-meta-monogram"
+    />
+    <span class="truncate" style={{ color: props.info.repoColor }}>
+      {props.info.key.group}
+    </span>
   </span>
 );
 

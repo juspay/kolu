@@ -15,8 +15,9 @@ import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { rowSubline } from "../canvas/dock/rowSubline";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
+import { rowSubline } from "../canvas/dock/rowSubline";
+import { HostIdentityLabel } from "../host/HostIdentityLabel";
 import {
   dotClass,
   hostHue,
@@ -25,7 +26,6 @@ import {
   sameHost,
   statusTitle,
 } from "../host/hostChipTone";
-import { HostIdentityLabel } from "../host/HostIdentityLabel";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -33,6 +33,7 @@ import { useStatePip } from "../terminal/statePipBind";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { compactDelta } from "../time/duration";
 import Kbd from "../ui/Kbd";
+import RepoMonogram from "../ui/RepoMonogram";
 import { activeHost, padiMap } from "../wire";
 import HighlightedText from "./highlightMatch";
 import type { ResultKind } from "./rootIndex";
@@ -134,11 +135,11 @@ const TerminalHostChip: Component<{ host: HostKey }> = (props) => {
       data-testid="palette-host-chip"
       data-host={encodeHostAttr(props.host)}
       title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
-      class="inline-flex items-center gap-1 max-w-[7.5rem] shrink-0 rounded-md border border-edge/70 px-1.5 py-0.5 font-mono text-[0.62rem] text-fg-2 bg-surface-2/40"
+      class="palette-host-chip inline-flex items-center gap-1 max-w-[7.5rem] shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[0.62rem] text-fg-2"
       style={{ "--host-hue": hostHue(props.host) }}
     >
       <span
-        class={`host-hue-ring inline-block h-1.5 w-1.5 rounded-full shrink-0 ${dotClass(state())}`}
+        class={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${dotClass(state())}`}
         aria-hidden="true"
       />
       <HostIdentityLabel
@@ -235,6 +236,12 @@ const PaletteRow: Component<{
     return r.hostKey;
   };
 
+  const terminalRepo = (): { name: string; color: string } | undefined => {
+    const r = row();
+    if (r?.kind !== "terminal" || !r.repoName || !r.repoColor) return undefined;
+    return { name: r.repoName, color: r.repoColor };
+  };
+
   return (
     <div
       role="option"
@@ -244,12 +251,17 @@ const PaletteRow: Component<{
       data-palette-kind={kind()}
       data-palette-name={props.cmd.name}
       data-host={row()?.hostKey ? encodeHostAttr(row()!.hostKey!) : undefined}
-      class="flex items-center gap-2.5 px-2.5 py-1.5 text-[0.86rem] rounded-lg cursor-pointer transition-colors duration-100 min-w-0"
+      class="flex items-center gap-2 py-1.5 pr-2.5 text-[0.86rem] rounded-lg cursor-pointer transition-colors duration-100 min-w-0"
       classList={{
         "bg-accent/[0.14] text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_38%,transparent)]":
           props.selected,
         "text-fg-2 hover:bg-surface-2/50": !props.selected,
+        "repo-spine pl-2": !!terminalRepo(),
+        "pl-2.5": !terminalRepo(),
       }}
+      style={
+        terminalRepo() ? { "--repo-color": terminalRepo()!.color } : undefined
+      }
       onMouseEnter={() => props.onHover()}
       onClick={() => props.onSelect()}
       onKeyDown={(e) => {
@@ -280,15 +292,19 @@ const PaletteRow: Component<{
         </Show>
       </span>
 
-      {/* 2 · Identity */}
-      <div class="flex items-baseline gap-1.5 min-w-0 shrink">
-        <Show when={kind() === "terminal" && row()?.repoName}>
-          <span
-            class="font-mono text-[0.72rem] font-semibold truncate max-w-[7rem]"
-            style={{ color: row()?.repoColor }}
-          >
-            {row()?.repoName}
-          </span>
+      {/* 2 · Identity — monogram (shared atom) + branch/intent; repo name
+       *  rides the monogram title so the row stays dense. */}
+      <div class="flex items-center gap-1.5 min-w-0 shrink">
+        <Show when={terminalRepo()}>
+          {(repo) => (
+            <RepoMonogram
+              group={repo().name}
+              color={repo().color}
+              size="sm"
+              title={repo().name}
+              data-testid="palette-repo-monogram"
+            />
+          )}
         </Show>
         <span class="truncate min-w-0">
           <Show

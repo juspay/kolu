@@ -31,17 +31,17 @@ import {
   DOCK_ROW_GRID,
   SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
-import { repoMonogram } from "./chipInitials";
+import RepoMonogram from "../../ui/RepoMonogram";
+import { encActiveHost } from "../../wire";
 import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
-import { encActiveHost } from "../../wire";
 import type { DockGroup } from "./dockTree";
-import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell, { recencyMode } from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
+import { useSectionAttention } from "./useSectionAttention";
 
 export function DockList(props: { onSelect: (id: TerminalId) => void }) {
   const tree = useDockOrder();
@@ -107,13 +107,11 @@ function DockListSection(props: {
         data-testid="mobile-dock-section-header"
         class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5"
       >
-        <span
-          class="dock-cards-section-monogram"
-          aria-hidden="true"
+        <RepoMonogram
+          group={props.group.name}
+          color={props.group.color}
           data-testid="mobile-dock-section-monogram"
-        >
-          {repoMonogram(props.group.name)}
-        </span>
+        />
         <span
           data-testid="mobile-dock-section-name"
           class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
