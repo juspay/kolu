@@ -65,14 +65,15 @@
 
   <rect x="605" y="216" width="545" height="230" rx="9" fill="#1a2130" stroke="#3a4356" stroke-width="1.4"/>
   <text x="877" y="240" fill="#e6eaf2" font-size="13.5" font-weight="600" text-anchor="middle">@kolu/surface-daemon</text>
-  <text x="627" y="264" fill="#8b95a7" font-size="11">exists: pid gate · daemonMain · frontDaemonOverStdio · ConvergenceIdentity</text>
-  <text x="627" y="292" fill="#a78bfa" font-size="11.5" font-weight="600">UW2 — identity across the socket seam:</text>
-  <text x="641" y="312" fill="#e6eaf2" font-size="11">frozen control core fragment (hello + drain) + probeDaemonIdentity</text>
-  <text x="627" y="338" fill="#a78bfa" font-size="11.5" font-weight="600">UW2 — ./upgrade-window.testlib subpath:</text>
-  <text x="641" y="358" fill="#e6eaf2" font-size="11">yesterday-daemon fixture · shared-artifact registry + watchdog</text>
-  <text x="641" y="376" fill="#e6eaf2" font-size="11">contract-skew harness · previous-release window harness</text>
-  <text x="627" y="402" fill="#a78bfa" font-size="11.5" font-weight="600">UW4 — versioned gate identity (the capstone):</text>
-  <text x="641" y="422" fill="#e6eaf2" font-size="11">writes pid + start-instant · pid stays the first token — every reader can signal the holder</text>
+  <text x="627" y="262" fill="#8b95a7" font-size="11">exists: pid gate · daemonMain · frontDaemonOverStdio · ConvergenceIdentity</text>
+  <text x="627" y="286" fill="#a78bfa" font-size="11.5" font-weight="600">UW0 — daemonHome:</text>
+  <text x="641" y="304" fill="#e6eaf2" font-size="11">state-vs-runtime placement · 0700 dirs · artifacts registered by construction</text>
+  <text x="627" y="328" fill="#a78bfa" font-size="11.5" font-weight="600">UW2 — identity across the socket seam:</text>
+  <text x="641" y="346" fill="#e6eaf2" font-size="11">frozen control core fragment (hello + drain) — probe lands supervisor-side</text>
+  <text x="627" y="370" fill="#a78bfa" font-size="11.5" font-weight="600">UW2 — ./upgrade-window.testlib subpath:</text>
+  <text x="641" y="388" fill="#e6eaf2" font-size="11">yesterday-daemon fixture · watchdog · skew + previous-release harnesses</text>
+  <text x="627" y="412" fill="#a78bfa" font-size="11.5" font-weight="600">UW4 — versioned gate identity (the capstone):</text>
+  <text x="641" y="430" fill="#e6eaf2" font-size="11">writes pid + start-instant · pid stays the first token — every reader can signal the holder</text>
 
   <line x1="575" y1="330" x2="605" y2="330" stroke="#8b95a7" stroke-width="1.4" marker-end="url(#arr)"/>
   <text x="590" y="320" fill="#8b95a7" font-size="9.5" text-anchor="middle">dep</text>
