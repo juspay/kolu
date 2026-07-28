@@ -1,6 +1,6 @@
 ---
 title: The Surface framework
-description: "The hub for @kolu/surface and its satellite packages — what the framework is, every surface note filed in one map: the active consolidation plan, the primers, the package notes, and the design records."
+description: "The hub for @kolu/surface and its satellite packages — what the framework is, every surface note filed in one map: primers, package notes, design records, and the shipped runtime shape."
 parents: [reference, feature]
 maturity: evergreen
 updated: 2026-07-13
@@ -17,11 +17,11 @@ The packages, one line each:
 - **`@kolu/surface-app`** — the app shell for browser apps run against your own server (delivery, identity, connection lifecycle).
 - **`@kolu/surface-mcp`** — any surface re-exposed as an MCP server.
 
-## The active plan
+## How the runtime is shaped
 
-- [A Complete Surface Runtime](surface-runtime-boundary.html) — **the plan of record** for the surface-framework consolidation: the six kernel moves SR1–SR6 (runtime, procedures, membership, failure, mirror, adoptions), then the bridge spine, each proven by what a consumer deletes.
-- [The reactive bridge](surface-reactive-bridge.html) — the ratified backend-reactivity design the plan's SR7–SR10 implement: state is a signal, derived state is a computed, the wire is a signal boundary.
-- [The reactor engine — decided](surface-reactor-engine.html) — the engine ruling behind the bridge (`@preact/signals-core` now; `@solidjs/signals` the named swap target).
+- [The reactive bridge](surface-reactive-bridge.html) — backend reactivity: state is a signal, derived state is a computed, the wire is a signal boundary.
+- [The reactor engine — decided](surface-reactor-engine.html) — the engine behind the bridge (`@preact/signals-core` now; `@solidjs/signals` the named swap target).
+- The surface-framework consolidation plan ([surface-runtime-boundary](archived-notes.html)) is **shipped and archived**.
 
 ## Learn it — the primers
 
@@ -33,9 +33,8 @@ The packages, one line each:
 ## The package notes
 
 - [surface-daemon](surface-daemon.html) — one spine for kaval and `odu serve`.
-- [surface-app](surface-app.html) — the app-shell electricity and its lifecycle.
-- [surface-connection](surface-connection.html) — the WebSocket assembly (partysocket + oRPC) lifted upstream.
-- [surface-mcp](surface-mcp.html) — the MCP adapter and its subscribe/teardown lifecycle.
+- [surface-app](surface-app.html) — the app-shell electricity and its lifecycle (includes the connection plumbing that [surface-connection](archived-notes.html) graduated).
+- `@kolu/surface-mcp` — the MCP adapter ([archived plan](archived-notes.html)).
 - [remoteSurfaces](remote-surfaces.html) — the keyed map of re-served remote surfaces the host switch stands on.
 
 ## The design records

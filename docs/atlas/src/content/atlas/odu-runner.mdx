@@ -1,7 +1,7 @@
 ---
 title: odu-runner — a runner you can reach with nothing running
 description: 'Phase 0 of odu-web, owned by the runner: split serve from run so the socket outlives any single pipeline, give runs an identity a ledger can hold (repo × sha × seq × node), and decide who keeps the long-lived coordinator alive — priced against the warm pu-box pool. Everything odu-web consumes; nothing odu-web should have to build.'
-parents: [odu, feature]
+parents: [electricity, feature]
 status: accepted
 maturity: seedling
 updated: 2026-06-12
@@ -16,7 +16,7 @@ import Terminal from "../../components/Terminal.astro";
 import Roadmap from "../../components/Roadmap.astro";
 import Milestone from "../../components/Milestone.astro";
 
-*[odu-web](./odu-web.html) opens with "Phase 0 · prerequisites in the runner" and points back at [odu](./odu.html)'s backlog. This note is that phase given its own work order: what the runner must become before a service can sit on top of it — and why each piece is the runner's job rather than the service's.* <Pill variant="done">accepted · R2 shipped</Pill>
+*[odu-web](./odu-web.html) opens with "Phase 0 · prerequisites in the runner" and points back at [odu (archived)](./archived-notes.html)'s backlog. This note is that phase given its own work order: what the runner must become before a service can sit on top of it — and why each piece is the runner's job rather than the service's.* <Pill variant="done">accepted · R2 shipped</Pill>
 
 <p>Status: <Pill variant="done">accepted</Pill> · maturity <Pill variant="todo">seedling</Pill> · **R2 (run identity) shipped** — <PrLink pr={28} repo="juspay/odu" label="juspay/odu#28" />, consumed here via the `npins update odu` bump in this PR; **R1 (serve/run split)** rides the [surface-daemon](./surface-daemon.html) spine (sequenced behind kaval B1/B2) and **R3 (lifecycle)** follows it · consumer: [odu-web](./odu-web.html) Phase 1 (the ledger R2 just built) and Phase 2 (the live observer, still waiting on R1's idle attach)</p>
 
@@ -52,7 +52,7 @@ exec -> trail: "on settle — survives the server"
 
 ## Serve, don't spawn — the socket outlives the run
 
-Today the answer to "is CI okay?" depends on whether a process happens to be alive. `odu status`, `logs`, `attach`, and the MCP face all dial `.ci/odu.sock` — in-band, typed, the whole point — but the coordinator serving that socket exists only between `run`'s first node and its verdict. [The odu note](./odu.html) flagged this honestly at Phase 1 ("idle attach — a runner you can reach with no run live — moved to Phase 2 with the long-lived-runner question") and the MCP face inherited the shape: its `run` tool *spawns the coordinator*, which is why `run` is an MCP tool at all rather than just another surface call.
+Today the answer to "is CI okay?" depends on whether a process happens to be alive. `odu status`, `logs`, `attach`, and the MCP face all dial `.ci/odu.sock` — in-band, typed, the whole point — but the coordinator serving that socket exists only between `run`'s first node and its verdict. [The odu note (archived)](./archived-notes.html) flagged this honestly at Phase 1 ("idle attach — a runner you can reach with no run live — moved to Phase 2 with the long-lived-runner question") and the MCP face inherited the shape: its `run` tool *spawns the coordinator*, which is why `run` is an MCP tool at all rather than just another surface call.
 
 The split: **`odu serve` owns the socket; `run` becomes a procedure on the surface.** The CLI UX does not change — `odu run` ensures a server (starting one if absent) and invokes the procedure; `attach` connects whether anything is running or not. What changes is what attach shows when nothing is live:
 
@@ -92,7 +92,7 @@ The defaulting rule is the compatibility story: latest-run scope is exactly toda
 
 ## Lifecycle and pricing — who keeps it alive
 
-A long-lived process is a cost, and [the odu note](./odu.html) priced the warning into its own roadmap: *"price the idle-runner lifecycle against the warm pu-box pool."* The pool (`kolu-ci-1..8`, leased via `ci/pu/lease.sh`) already solved the adjacent problem — keep the *expensive* thing warm (a Nix store on a Linux box) so the *cheap* thing (a run) starts fast. Phase 0 should not blur that: the coordinator is not the expensive thing. It is a small node process serving a socket, and its lifecycle has three honest options, not one:
+A long-lived process is a cost, and [the odu note (archived)](./archived-notes.html) priced the warning into its own roadmap: *"price the idle-runner lifecycle against the warm pu-box pool."* The pool (`kolu-ci-1..8`, leased via `ci/pu/lease.sh`) already solved the adjacent problem — keep the *expensive* thing warm (a Nix store on a Linux box) so the *cheap* thing (a run) starts fast. Phase 0 should not blur that: the coordinator is not the expensive thing. It is a small node process serving a socket, and its lifecycle has three honest options, not one:
 
 - **Foreground, operator-owned** — `odu serve` in a terminal (or under the kolu app), dying with the session. Zero new infrastructure; idle attach works while you work. The right default for the single-operator loop, and Phase 0's exit bar.
 - **Supervised, machine-owned** — a home-manager / systemd unit, already named on odu's graduation roadmap. The right shape *under odu-web*, where the server and the service share a host and the unit is the service's substrate, not the operator's.

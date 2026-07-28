@@ -226,8 +226,9 @@ interactive bits.</p></div></aside>
 <h3 id="proposals--the-contributor-intake-lane">Proposals — the contributor intake lane</h3>
 <ul>
 <li>A proposal is an Atlas note filed under its <strong>real index</strong> (<code>parents: [feature]</code>, <code>[bug]</code>, …) carrying <strong><code>status: proposed</code></strong> — it shows in that index’s card, flagged <em>proposed</em>. There’s no separate proposal category; the status badge <em>is</em> the queue. Contributors open an Atlas PR; the flow lives in <code>CONTRIBUTING.md</code>.</li>
-<li><strong>Accepting = a status flip.</strong> On acceptance a maintainer sets <code>status: accepted</code> (then <code>implemented</code>); the index parent was right from the start, so nothing moves. The note stays <strong>living</strong> — git is the record, so there’s no frozen copy and no separate numbered log.</li>
-<li><code>proposed → accepted → implemented → superseded</code> is a <em>lifecycle</em> (the <code>status</code> field); supersession links via <code>parents</code> + status. No <code>docs/proposals/</code> and no <code>docs/decisions/</code> dir needed.</li>
+<li><strong>Accepting = a status flip.</strong> On acceptance a maintainer sets <code>status: accepted</code> (then <code>implemented</code>); the index parent was right from the start, so nothing moves while work is open.</li>
+<li><strong>A finished feature plan is archived, not kept as a page.</strong> When a <em>feature</em> note reaches <code>status: implemented</code>, delete the note and add a one-line entry to <a href="./archived-notes.html">Archived notes</a>. Git is the archaeology; product docs or durable reference/pedagogy notes hold anything still true. Implemented <em>bugs</em>, <em>analysis</em>, and <em>reference</em> notes may stay if they still teach.</li>
+<li><code>proposed → accepted → implemented</code> (then archive for features) is the lifecycle. No <code>docs/proposals/</code> and no <code>docs/decisions/</code> dir needed.</li>
 </ul>
 <h2 id="the-component-kit">The component kit</h2>
 <p>Because a note can be <code>.mdx</code>, every component below is a <strong>live import</strong> from
@@ -451,7 +452,7 @@ markdown-first; Astro was then chosen for rendering, the Atlas extracted into a
 self-contained <code>docs/atlas/</code> project, and notes moved to MDX with a typed
 component kit. This note is the merge of the original <code>second-brain</code> design
 rationale into the <code>meta</code> comparison + roadmap, so the Atlas’s note about itself
-lives in one place.</em></p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./graph-moc.html" data-astro-cid-aziudkuj>Graph view + Maps of Content</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+lives in one place.</em></p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./archived-notes.html" data-astro-cid-aziudkuj>Archived notes</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(
       document.querySelectorAll(".fn[data-fn]"),

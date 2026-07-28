@@ -1,0 +1,49 @@
+---
+title: Archived notes
+description: Finished feature plans removed from the live Atlas — one entry each so history stays findable without keeping plan archaeology as pages.
+parents: [reference]
+maturity: evergreen
+updated: 2026-07-28
+---
+
+import PrLink from "../../components/PrLink.astro";
+import Callout from "../../components/Callout.astro";
+
+When a **feature plan** reaches `status: implemented`, the plan page is **deleted**
+and a row lands here. The live Atlas stays about current and future work; git
+still holds every old note. Product behaviour that users need lives on
+[kolu.dev docs](https://kolu.dev/) or in a durable reference/pedagogy note — not
+in a finished plan of record.
+
+<Callout kind="note" title="What this is not">
+Implemented **bugs**, **analysis**, and **reference** notes stay as notes when
+they still teach something (root cause, measurement, how a subsystem works).
+Only finished **feature** plans graduate here.
+</Callout>
+
+## Entries
+
+| Former slug | What shipped | Look here instead |
+| --- | --- | --- |
+| `sleeping-terminals` | Sleep / Wake — `Terminal = active \| sleeping` in one registry; wake resumes by conversation id | [Sessions, Sleep & Wake](https://kolu.dev/sessions) · <PrLink pr={1449} /> · <PrLink pr={1487} /> · <PrLink pr={1593} /> |
+| `scrollback-backfill` | Bounded attach snapshot; scroll-up prepends older kaval history into xterm's own buffer | `@kolu/xterm-kit` backfill · <PrLink pr={1783} /> |
+| `grok-cli-support` | Grok Build as a fourth full agent adapter (dock / tile / resume) | [Agent detection](https://kolu.dev/agent-detection) · <PrLink pr={1732} /> |
+| `xterm-kit` | `@kolu/xterm-kit` — core + `/solid` for xterm hazards and scrollback surgery | [Electricity](./electricity.html) · <PrLink pr={1795} /> · <PrLink pr={1808} /> |
+| `solid-browser` | `@kolu/solid-browser` — Code-tab location, history, link interception | [Electricity](./electricity.html) · <PrLink pr={1191} /> |
+| `surface-connection` | WebSocket / pid-echo / upgrade gate lifted into `@kolu/surface-app` connect primitives | [Electricity](./electricity.html) · [surface-app](./surface-app.html) · <PrLink pr={1234} /> |
+| `surface-mcp` | `@kolu/surface-mcp` — any surface as an MCP server with lifecycle + authz gate | Surface package docs · <PrLink pr={1270} /> |
+| `surface-runtime-boundary` | Surface-framework consolidation (kernel, membership, mirror, reactive-bridge spine) | [surface-app](./surface-app.html) · [reactive bridge pedagogy](./surface-reactive-bridge.html) · many PRs through <PrLink pr={1852} /> |
+| `stdio-agent-lifetime` | stdio agent exit owned by the framework (no orphan agents on link death) | [surface-lifetime-audit](./surface-lifetime-audit.html) · <PrLink pr={1858} /> |
+| `graph-moc` | Atlas index as force-directed graph; categories are `moc: true` notes | [The kolu Atlas](./meta.html) · <PrLink pr={1434} /> |
+| `odu` | CI runner you attach to (TUI + MCP faces); graduated beyond justci | [odu-runner](./odu-runner.html) · [odu-web](./odu-web.html) · juspay/odu |
+| `pulam-tui` | Thin CLI client for the (now buried) pulam daemon | [pulam](./pulam.html) (historical) · <PrLink pr={1582} /> |
+
+## Recovering a deleted plan
+
+The full MDX still lives in git history under
+`docs/atlas/src/content/atlas/<slug>.mdx`. Example:
+
+```bash
+git log --oneline -- docs/atlas/src/content/atlas/sleeping-terminals.mdx
+git show <commit>:docs/atlas/src/content/atlas/sleeping-terminals.mdx
+```

@@ -18,7 +18,7 @@ Per the fleet model's three layers, "user" splits in two. **The human sees:** th
 ```yaml
 - id: SR8.b
   title: incremental per-key urgency fold
-  note: surface-runtime-boundary#sr8b          # prose design; lint asserts it resolves
+  note: surface-reactive-bridge          # prose design; lint asserts it resolves
   deps: [SR8]
   state: { kind: parked,                       # HUMAN-owned lifecycle union:
            gate: { kind: fact,                 #   active | parked | declined
@@ -35,7 +35,7 @@ Per the fleet model's three layers, "user" splits in two. **The human sees:** th
 
 - id: SR10
   title: the padi registry as signalMap
-  note: surface-runtime-boundary#sr10
+  note: surface-reactive-bridge
   deps: [SR7, SR8, SR9]
   state: { kind: declined, date: 2026-07-15,
            revive: [{ kind: fact, text: a second writable-keyed-store consumer },
