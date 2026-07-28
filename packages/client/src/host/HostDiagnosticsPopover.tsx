@@ -36,7 +36,7 @@ import { failedEpisode } from "../kaval/useDaemonStatus";
 import {
   LOG_TAIL_LINE,
   LOG_TAIL_SURFACE,
-  type LogLine,
+  NO_LOG_LINES,
 } from "../ui/logTailChrome";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -55,10 +55,6 @@ import { removeHost } from "./removeHost";
 /** How many trailing lines of a failed episode this popover shows — the last few, not the
  *  whole post-mortem the host-down card renders: this is a popover anchored to a status pip. */
 const POPOVER_TAIL_LINES = 4;
-
-/** The ONE empty tail — a shared reference, so a non-failed entry hands `<For>` the SAME
- *  array on every repaint instead of a fresh literal. */
-const NO_LINES: readonly LogLine[] = [];
 
 const popoverChrome = surface({
   radius: "lg",
@@ -245,7 +241,7 @@ export const HostDiagnosticsPopover: Component<{
   // A MEMO because both the `Show` guard and the `For` read it: called twice per render it
   // folded the entry twice and handed `For` a fresh array each time, so the tail's rows tore
   // down and rebuilt on every unrelated repaint (the same `Show`+`For` pairing ConnectCanvas
-  // already memoizes). TOTAL — a non-failed entry yields the shared {@link NO_LINES}, not
+  // already memoizes). TOTAL — a non-failed entry yields the shared {@link NO_LOG_LINES}, not
   // `undefined`. Nothing here can tell the two apart (`length > 0` and `<For>` both read an
   // empty array exactly as they read an absent one), and `failure()` already answers "is
   // this entry failed", so an `| undefined` would be a distinction with no reader. That is
@@ -254,7 +250,7 @@ export const HostDiagnosticsPopover: Component<{
   const failureLog = createMemo(() => {
     const episode = failure();
     return episode === undefined
-      ? NO_LINES
+      ? NO_LOG_LINES
       : tailOf(episode.log, POPOVER_TAIL_LINES);
   });
 

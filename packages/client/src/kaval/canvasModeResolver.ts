@@ -38,7 +38,11 @@
 
 import type { DaemonState } from "@kolu/padi/surface";
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
-import type { LogAbsence, LogLine } from "../ui/logTailChrome";
+import {
+  NO_LOG_LINES,
+  type LogAbsence,
+  type LogLine,
+} from "../ui/logTailChrome";
 import { match, P } from "ts-pattern";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
 import type { DaemonDownState } from "./daemonPresentation";
@@ -48,12 +52,6 @@ import type { DaemonDownState } from "./daemonPresentation";
  *  exists to kill (a link-live frozen `provisioning` would never escape). The concrete
  *  millisecond values live beside the anchor in `bootDeadline.ts`. */
 export type CeilingClass = "local" | "remote-provisioning" | "remote-handshake";
-
-/** The ONE empty tail — a shared reference, so an arm that has no output to narrate hands
- *  every downstream `<For>` the SAME array across each of the canvas's ~1s re-resolves
- *  instead of a fresh literal per tick. (`@kolu/surface-map`'s `NO_EVIDENCE` is the same
- *  idea one layer down.) */
-const NO_LOG: readonly LogLine[] = [];
 
 /** Which boot leg is still unsettled when the deadline fires — carried on the escape
  *  surface so the failure card can NAME what never arrived (not a mute spinner).
@@ -374,7 +372,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
               // A connected fact carries no connection-cell narration either — and its
               // absence is a fact about this ARM, not about the link, so no reason.
               phase: undefined,
-              log: NO_LOG,
+              log: NO_LOG_LINES,
               logAbsence: undefined,
             },
           };

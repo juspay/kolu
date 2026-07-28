@@ -27,7 +27,7 @@ import {
 } from "./canvasModeResolver";
 import { isConnectPhase } from "../host/connectCanvasCopy";
 import { activeHost, connectionInfo, hostKeys, padiMap } from "../wire";
-import type { LogAbsence, LogLine } from "../ui/logTailChrome";
+import { NO_LOG_LINES, type LogAbsence } from "../ui/logTailChrome";
 import {
   bootDeadlineExceeded,
   pruneBootAnchors,
@@ -45,10 +45,6 @@ import {
 } from "./useDaemonStatus";
 
 export type { CanvasMode } from "./canvasModeResolver";
-
-/** The ONE empty tail — a shared reference so a host with no connection frame hands the
- *  resolver the SAME array on every ~1s re-resolve rather than a fresh literal per tick. */
-const NO_LOG: readonly LogLine[] = [];
 
 /** Resolve the canvas surface in strict precedence order. Reads the ACTIVE
  *  entry's connection state for the discriminant and the daemon accessors for
@@ -91,7 +87,7 @@ export function canvasMode(deps: {
   // problem. Deciding it here means the boot-stalled card renders a reason it was TOLD;
   // it used to infer "kolu's link to this browser went quiet" from a bare `undefined`,
   // which was true only via a four-file chain no type expressed.
-  const connectLog = info?.log ?? NO_LOG;
+  const connectLog = info?.log ?? NO_LOG_LINES;
   const connectLogAbsence: LogAbsence | undefined =
     info === undefined && !padiMap.live() ? "link-down" : undefined;
   // The active entry's connection state is the discriminant. A non-`connected`

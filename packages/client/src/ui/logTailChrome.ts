@@ -23,6 +23,15 @@
  *  renders none. */
 export type LogLine = { readonly line: string };
 
+/** The ONE empty tail every log-tail consumer reaches for — a shared reference so a
+ *  site with no output to narrate hands its `<For>` the SAME array across every
+ *  re-resolve/repaint instead of a fresh `[]` literal (which would churn identity-keyed
+ *  DOM on every tick even though nothing changed). Named once here, beside {@link LogLine},
+ *  rather than redeclared per call site — four call sites each declaring their own
+ *  `NO_LOG`/`NO_LINES` is the exact "identical content that must stay in sync" the
+ *  dry-rule-of-three guards against: same shape, same rationale comment, same type. */
+export const NO_LOG_LINES: readonly LogLine[] = [];
+
 /** WHY a tail is empty, when the emptiness is not the episode's own fact — a reason a
  *  surface is TOLD, never one it infers from the emptiness.
  *

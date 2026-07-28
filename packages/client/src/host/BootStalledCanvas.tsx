@@ -31,7 +31,7 @@
  */
 
 import { type Component, createMemo } from "solid-js";
-import type { LogLine } from "../ui/logTailChrome";
+import { NO_LOG_LINES } from "../ui/logTailChrome";
 import {
   bootStalledCopy,
   bootStalledPhaseDetail,
@@ -44,11 +44,6 @@ import {
   reconnectAction,
   switchToLocalAction,
 } from "./CanvasFailureCard";
-
-/** The ONE empty tail this component hands the card — a shared reference, so the client
- *  arm (which has no campaign to narrate) never churns the card's `<For>` with a fresh
- *  `[]` on each 1s re-resolve. Same idea as `@kolu/surface-map`'s `NO_EVIDENCE`. */
-const NO_LOG: readonly LogLine[] = [];
 
 const BootStalledCanvas: Component<{
   /** The whole verdict, tail included: only the `connector` arm carries a `log`, so the
@@ -85,7 +80,7 @@ const BootStalledCanvas: Component<{
   // The connector campaign's own output tail, and — separately — why it is empty when
   // that is not the campaign's own fact. Memos like the two above, so the `<For>` inside
   // the card sees a stable array across every 1s re-resolve instead of a fresh reference
-  // per tick: the client arm yields the SHARED {@link NO_LOG}, never a fresh `[]` literal
+  // per tick: the client arm yields the SHARED {@link NO_LOG_LINES}, never a fresh `[]` literal
   // (a fresh literal per tick is what falsified this very comment last round).
   //
   //  The two arms hand the card DIFFERENT absences, and the difference is load-bearing.
@@ -95,7 +90,7 @@ const BootStalledCanvas: Component<{
   //  word. Neither arm INFERS its reason from the emptiness; the card renders what it was
   //  told, so a client-side stall can never claim a link problem it does not have.
   const connectorLog = createMemo(() =>
-    props.recovery.via === "connector" ? props.recovery.log : NO_LOG,
+    props.recovery.via === "connector" ? props.recovery.log : NO_LOG_LINES,
   );
   const connectorLogAbsence = createMemo(() =>
     props.recovery.via === "connector" ? props.recovery.logAbsence : undefined,
