@@ -9,14 +9,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   OsfactsClientError,
-  parseOsfactsOutput,
+  parseHostOutput,
+  parseSnapshotOutput,
   OSFACTS_FORMAT_VERSION,
   snapshotHost,
 } from "./client.ts";
 
 const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
 
-const SAMPLE = [
+const SNAPSHOT_SAMPLE = [
   "V\t2",
   "P\t1\t0\tlaunchd",
   "P\t4200\t1\tzsh",
@@ -32,14 +33,25 @@ const SAMPLE = [
   `L\tunclaimed\t-\t0\t8081\t${V4_MAPPED_LOOPBACK}`,
   "U\t991\tports\tEACCES",
   "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY",
-  'HCPU\t0\t10\t20\t30\t40\t"Apple M1 Max"\t-',
-  "HDISK\t/\t1000\t700\t800",
   "",
 ].join("\n");
 
-describe("parseOsfactsOutput", () => {
-  it("reads the v2 P/M/S/C/L/U/E contract", () => {
-    const r = parseOsfactsOutput(SAMPLE);
+const HOST_SAMPLE = [
+  "V\t2",
+  "HLOAD\t0.5\t1\t1.5",
+  "HMEM\t16000\t8000",
+  "HSWAP\t2000\t100",
+  "HUP\t123456",
+  'HCPU\t0\t10\t20\t30\t40\t"Apple M1 Max"\t-',
+  "HNET\ten0\t100\t200",
+  "HDISK\t/\t1000\t700\t800",
+  "E\tsysinfo_networks\tnet\tBLIND_OR_EMPTY",
+  "",
+].join("\n");
+
+describe("parseSnapshotOutput", () => {
+  it("reads the v2 P/M/S/C/UID/CWD/STAT/ARGV/L/U/E contract", () => {
+    const r = parseSnapshotOutput(SNAPSHOT_SAMPLE);
     expect(r.procs).toEqual([
       { pid: 1, ppid: 0, name: "launchd" },
       { pid: 4200, ppid: 1, name: "zsh" },
@@ -83,20 +95,6 @@ describe("parseOsfactsOutput", () => {
         code: "BLIND_OR_EMPTY",
       },
     ]);
-    expect(r.cpus).toEqual([
-      {
-        core: 0,
-        userUs: 10,
-        systemUs: 20,
-        idleUs: 30,
-        otherUs: 40,
-        model: "Apple M1 Max",
-        frequencyMhz: null,
-      },
-    ]);
-    expect(r.disks).toEqual([
-      { mount: "/", totalBytes: 1000, availableBytes: 700, freeBytes: 800 },
-    ]);
   });
 
   it("offers a host-wide process snapshot without a fake pid scope", async () => {
@@ -117,14 +115,14 @@ describe("parseOsfactsOutput", () => {
   });
 
   it("refuses a version it does not speak", () => {
-    expect(() => parseOsfactsOutput("V\t1\nP\t1\t0\tlaunchd\n")).toThrow(
+    expect(() => parseSnapshotOutput("V\t1\nP\t1\t0\tlaunchd\n")).toThrow(
       OsfactsClientError,
     );
-    expect(() => parseOsfactsOutput("P\t1\t0\tlaunchd\n")).toThrow(
+    expect(() => parseSnapshotOutput("P\t1\t0\tlaunchd\n")).toThrow(
       OsfactsClientError,
     );
     try {
-      parseOsfactsOutput("V\t1\n");
+      parseSnapshotOutput("V\t1\n");
     } catch (e) {
       expect(e).toBeInstanceOf(OsfactsClientError);
       expect((e as OsfactsClientError).kind).toBe("version");
@@ -146,10 +144,52 @@ describe("parseOsfactsOutput", () => {
       "V\t2\nL\tclaimed\t1\t-\t8080\tzz000000\n",
       "V\t2\nU\tnotapid\tports\tEACCES\n",
       "V\t2\nU\t1\tunknown\tEACCES\n",
+      "V\t2\nE\tproc_net_dev\tnet\tEPERM\n",
       "V\t2\nX\t1\t2\t3\n",
     ];
     for (const body of bad) {
-      expect(() => parseOsfactsOutput(body)).toThrow(OsfactsClientError);
+      expect(() => parseSnapshotOutput(body)).toThrow(OsfactsClientError);
     }
+  });
+
+  it("refuses a host document — the two verbs are two contracts", () => {
+    expect(() => parseSnapshotOutput(HOST_SAMPLE)).toThrow(OsfactsClientError);
+  });
+});
+
+describe("parseHostOutput", () => {
+  it("reads the v2 HLOAD/HMEM/HSWAP/HUP/HCPU/HNET/HDISK/E contract", () => {
+    const r = parseHostOutput(HOST_SAMPLE);
+    expect(r.load).toEqual({ one: 0.5, five: 1, fifteen: 1.5 });
+    // The field is `memory`, matching the JSON face. It could not be, while
+    // one type stood for both verbs and `memory` meant per-process RSS.
+    expect(r.memory).toEqual({ totalBytes: 16000, availableBytes: 8000 });
+    expect(r.swap).toEqual({ totalBytes: 2000, usedBytes: 100 });
+    expect(r.uptimeUs).toBe(123456);
+    expect(r.cpus).toEqual([
+      {
+        core: 0,
+        userUs: 10,
+        systemUs: 20,
+        idleUs: 30,
+        otherUs: 40,
+        model: "Apple M1 Max",
+        frequencyMhz: null,
+      },
+    ]);
+    expect(r.networks).toEqual([{ name: "en0", rxBytes: 100, txBytes: 200 }]);
+    expect(r.disks).toEqual([
+      { mount: "/", totalBytes: 1000, availableBytes: 700, freeBytes: 800 },
+    ]);
+    expect(r.errors).toEqual([
+      { source: "sysinfo_networks", facet: "net", code: "BLIND_OR_EMPTY" },
+    ]);
+  });
+
+  it("refuses a snapshot document — and a snapshot's facet vocabulary", () => {
+    expect(() => parseHostOutput(SNAPSHOT_SAMPLE)).toThrow(OsfactsClientError);
+    expect(() =>
+      parseHostOutput("V\t2\nE\tdarwin_tcp_pcblist\tports_unclaimed\tX\n"),
+    ).toThrow(OsfactsClientError);
   });
 });

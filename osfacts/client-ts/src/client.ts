@@ -1,6 +1,6 @@
 /** Spawn osfacts and parse its versioned TSV. Node builtins only. */
 
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -9,7 +9,10 @@ export const OSFACTS_COMMAND_TIMEOUT_MS = 5_000;
 const TCP_PORT_MIN = 1;
 const TCP_PORT_MAX = 65_535;
 
-export function isTcpPort(port: number): boolean {
+/** The parser's own guard on an `L` row. Not a consumer-facing predicate: a
+ * reading's listeners have already passed it, so a consumer re-checking is
+ * checking something unreachable. */
+function isTcpPort(port: number): boolean {
   return Number.isInteger(port) && port >= TCP_PORT_MIN && port <= TCP_PORT_MAX;
 }
 
@@ -67,8 +70,17 @@ interface ListenerFact {
 export type ListenerRow =
   | (ListenerFact & { status: "claimed"; pid: number })
   | (ListenerFact & { status: "unclaimed" });
-/** Per-pid facets a `U` row can name. One list, so the type and the parser's
- * check can never drift apart. */
+
+// ── The facet vocabulary ────────────────────────────────────────────────
+//
+// These three lists are the TypeScript face of the `Facet` enum in
+// `osfacts/src/schema.rs`. They are not independently maintained: `facets.json`
+// is checked in beside the binary, a Rust test pins it to the enum, and
+// `facets.test.ts` pins these lists to the same file. Adding a facet on one
+// side without the other fails the fast unit lane rather than surfacing as a
+// consumer parse error at runtime.
+
+/** Per-pid facets a `U` row can name — what one unreadable *pid* costs. */
 export const UNREADABLE_FACETS = [
   "proc",
   "ports",
@@ -87,21 +99,40 @@ export interface UnreadableRow {
   facet: UnreadableFacet;
   errno: string;
 }
+
 /**
- * Facets an `E` row can name — what a blind *source* costs, as opposed to what
- * a blind *pid* costs.
+ * Facets an `E` row of the `snapshot` verb can name — what a blind *source*
+ * costs, as opposed to what a blind *pid* costs.
  *
- * `ports` and `ports_unclaimed` are the distinction that matters: the first
- * means no listener survived, the second that only listeners nobody claimed
- * are missing. A consumer that folds listeners per subtree is untouched by the
- * second and must not treat it as blindness.
+ * `ports`, `ports_unclaimed`, and `ports_uid` are the distinctions that
+ * matter. `ports` means no listener survived. `ports_unclaimed` means only
+ * listeners nobody claimed are missing — a consumer that folds listeners per
+ * subtree is untouched by it and must not treat it as blindness.
+ * `ports_uid` is darwin reporting that neither of its listener sources carries
+ * a socket's owning uid, so the `uid` field is absent there for every row.
  */
-export const SOURCE_FACETS = [
+export const SNAPSHOT_SOURCE_FACETS = [
   "proc",
   "ports",
   "ports_unclaimed",
+  "ports_uid",
+  "mem",
   "start_time",
   "cpu_time",
+  "uid",
+  "status",
+] as const;
+export type SnapshotSourceFacet = (typeof SNAPSHOT_SOURCE_FACETS)[number];
+
+/**
+ * Facets an `E` row of the `host` verb can name.
+ *
+ * A separate list from `SNAPSHOT_SOURCE_FACETS` because the two verbs are
+ * separate contracts, and one wire token means different things across them:
+ * `mem` here is host RAM, `mem` there is process RSS. Keeping them in one
+ * union let a consumer match across verbs by accident.
+ */
+export const HOST_SOURCE_FACETS = [
   "uptime",
   "load",
   "mem",
@@ -109,13 +140,21 @@ export const SOURCE_FACETS = [
   "net",
   "disk",
 ] as const;
-export type SourceFacet = (typeof SOURCE_FACETS)[number];
-export interface SourceErrorRow {
+export type HostSourceFacet = (typeof HOST_SOURCE_FACETS)[number];
+
+export interface SnapshotSourceErrorRow {
   source: string;
   /** Which facet this source's silence costs. */
-  facet: SourceFacet;
+  facet: SnapshotSourceFacet;
   code: string;
 }
+export interface HostSourceErrorRow {
+  source: string;
+  /** Which facet this source's silence costs. */
+  facet: HostSourceFacet;
+  code: string;
+}
+
 export interface LoadRow {
   one: number;
   five: number;
@@ -150,7 +189,15 @@ export interface DiskRow {
   freeBytes: number;
 }
 
-export interface OsfactsReading {
+/**
+ * What the `snapshot` verb returns. Mirrors Rust's `Snapshot`.
+ *
+ * Separate from `HostReading` because they are separate documents the binary
+ * can never mix: one union type left every caller carrying the other verb's
+ * permanently-empty fields, with no way to tell "empty because I did not ask"
+ * from "empty because the source was blind".
+ */
+export interface SnapshotReading {
   procs: ProcessRow[];
   memory: MemoryRow[];
   startTimes: StartTimeRow[];
@@ -162,14 +209,20 @@ export interface OsfactsReading {
   ports: ListenerRow[];
   unreadable: UnreadableRow[];
   /** Requested sources that were blind. Partial output still exits successfully. */
-  errors: SourceErrorRow[];
+  errors: SnapshotSourceErrorRow[];
+}
+
+/** What the `host` verb returns. Mirrors Rust's `HostSnapshot`. */
+export interface HostReading {
   load?: LoadRow;
-  hostMemory?: HostMemoryRow;
+  memory?: HostMemoryRow;
   swap?: SwapRow;
   uptimeUs?: number;
   cpus: CpuRow[];
   networks: NetworkRow[];
   disks: DiskRow[];
+  /** Requested sources that were blind. Partial output still exits successfully. */
+  errors: HostSourceErrorRow[];
 }
 
 export interface SnapshotFacets {
@@ -189,6 +242,52 @@ export interface HostFacets {
   cpu?: boolean;
   net?: boolean;
   disk?: boolean;
+}
+
+/**
+ * Which wire facets each `snapshot` flag can be reported against.
+ *
+ * The flag→facet map is NOT mechanical — `procs` names `proc` (singular) and
+ * `ports` names three — so every consumer that hand-wrote it wrote tool
+ * knowledge in a second vocabulary with nothing keeping the two in step. It
+ * lives here, beside the flags it translates. This is a statement of fact
+ * about the binary, not policy: whether a named facet's blindness *matters* is
+ * still the consumer's call.
+ */
+const SNAPSHOT_FACET_NAMES = {
+  procs: { unreadable: ["proc"], source: ["proc"] },
+  ports: {
+    unreadable: ["ports"],
+    source: ["ports", "ports_unclaimed", "ports_uid"],
+  },
+  mem: { unreadable: ["mem"], source: ["mem"] },
+  startTime: { unreadable: ["start_time"], source: ["start_time"] },
+  cpuTime: { unreadable: ["cpu_time"], source: ["cpu_time"] },
+  uid: { unreadable: ["uid"], source: ["uid"] },
+  cwd: { unreadable: ["cwd"], source: [] },
+  status: { unreadable: ["status", "status_threads"], source: ["status"] },
+  argv: { unreadable: ["argv"], source: [] },
+} as const satisfies Record<
+  keyof SnapshotFacets,
+  {
+    unreadable: readonly UnreadableFacet[];
+    source: readonly SnapshotSourceFacet[];
+  }
+>;
+
+/** The `U` and `E` facet names a given ask can be answered with. */
+export function snapshotFacetNames(facets: SnapshotFacets): {
+  unreadable: readonly UnreadableFacet[];
+  source: readonly SnapshotSourceFacet[];
+} {
+  const unreadable: UnreadableFacet[] = [];
+  const source: SnapshotSourceFacet[] = [];
+  for (const [flag, names] of Object.entries(SNAPSHOT_FACET_NAMES)) {
+    if (!facets[flag as keyof SnapshotFacets]) continue;
+    unreadable.push(...names.unreadable);
+    source.push(...names.source);
+  }
+  return { unreadable, source };
 }
 
 function errnoOf(err: unknown): string | undefined {
@@ -262,8 +361,15 @@ function arity(f: string[], n: number, row: string): void {
   if (f.length !== n)
     throw new OsfactsClientError("parse", `unreadable osfacts row: ${row}`);
 }
+function unknownTag(f: string[], line: string): never {
+  throw new OsfactsClientError(
+    "parse",
+    `unknown osfacts row tag ${JSON.stringify(f[0] ?? "")}: ${line}`,
+  );
+}
 
-export function parseOsfactsOutput(body: string): OsfactsReading {
+/** Check the version header both verbs share and return the body's rows. */
+function bodyRows(body: string): string[] {
   const lines = body.split("\n");
   const first = lines[0] ?? "";
   const version = /^V\t(\d+)$/.exec(first);
@@ -277,8 +383,30 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
       "version",
       `osfacts speaks format ${version[1]}, this reader speaks ${OSFACTS_FORMAT_VERSION} — binary and client are from different sources`,
     );
+  return lines.slice(1);
+}
 
-  const out: OsfactsReading = {
+/** The `E` row, shared by both verbs but validated against each one's own
+ * closed facet vocabulary. */
+function sourceErrorRow<F extends string>(
+  f: string[],
+  line: string,
+  allowed: readonly F[],
+): { source: string; facet: F; code: string } {
+  arity(f, 4, line);
+  if (!f[1] || !f[3])
+    throw new OsfactsClientError("parse", `empty source error: ${line}`);
+  const facet = f[2];
+  if (!(allowed as readonly string[]).includes(facet!))
+    throw new OsfactsClientError(
+      "parse",
+      `unknown source-error facet: ${line}`,
+    );
+  return { source: f[1], facet: facet as F, code: f[3] };
+}
+
+export function emptySnapshotReading(): SnapshotReading {
+  return {
     procs: [],
     memory: [],
     startTimes: [],
@@ -290,11 +418,12 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
     ports: [],
     unreadable: [],
     errors: [],
-    cpus: [],
-    networks: [],
-    disks: [],
   };
-  for (const line of lines.slice(1)) {
+}
+
+export function parseSnapshotOutput(body: string): SnapshotReading {
+  const out = emptySnapshotReading();
+  for (const line of bodyRows(body)) {
     if (line === "") continue;
     const f = line.split("\t");
     switch (f[0]) {
@@ -428,23 +557,29 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         });
         break;
       }
-      case "E": {
-        arity(f, 4, line);
-        if (!f[1] || !f[3])
-          throw new OsfactsClientError("parse", `empty source error: ${line}`);
-        const errorFacet = f[2];
-        if (!(SOURCE_FACETS as readonly string[]).includes(errorFacet!))
-          throw new OsfactsClientError(
-            "parse",
-            `unknown source-error facet: ${line}`,
-          );
-        out.errors.push({
-          source: f[1],
-          facet: errorFacet as SourceFacet,
-          code: f[3],
-        });
+      case "E":
+        out.errors.push(sourceErrorRow(f, line, SNAPSHOT_SOURCE_FACETS));
         break;
-      }
+      // A `host` tag here means the caller matched the wrong verb to the wrong
+      // parser. Loud, rather than a silently-empty field.
+      default:
+        unknownTag(f, line);
+    }
+  }
+  return out;
+}
+
+export function parseHostOutput(body: string): HostReading {
+  const out: HostReading = {
+    cpus: [],
+    networks: [],
+    disks: [],
+    errors: [],
+  };
+  for (const line of bodyRows(body)) {
+    if (line === "") continue;
+    const f = line.split("\t");
+    switch (f[0]) {
       case "HLOAD":
         arity(f, 4, line);
         out.load = {
@@ -455,7 +590,7 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
         break;
       case "HMEM":
         arity(f, 3, line);
-        out.hostMemory = {
+        out.memory = {
           totalBytes: integer(f[1], "memory total"),
           availableBytes: integer(f[2], "memory available"),
         };
@@ -505,55 +640,29 @@ export function parseOsfactsOutput(body: string): OsfactsReading {
           freeBytes: integer(f[4], "disk free"),
         });
         break;
+      case "E":
+        out.errors.push(sourceErrorRow(f, line, HOST_SOURCE_FACETS));
+        break;
       default:
-        throw new OsfactsClientError(
-          "parse",
-          `unknown osfacts row tag ${JSON.stringify(f[0] ?? "")}: ${line}`,
-        );
+        unknownTag(f, line);
     }
   }
   return out;
 }
 
-async function runOsfacts(
-  bin: string,
-  args: string[],
-): Promise<OsfactsReading> {
+async function runOsfacts(bin: string, args: string[]): Promise<string> {
   if (!bin)
     throw new OsfactsClientError(
       "spawn",
       "osfacts binary path is empty — the caller must supply an absolute path",
     );
-  let stdout: string;
   try {
-    ({ stdout } = await execFileAsync(bin, args, {
+    const { stdout } = await execFileAsync(bin, args, {
       timeout: OSFACTS_COMMAND_TIMEOUT_MS,
       killSignal: "SIGKILL",
       maxBuffer: 8 * 1024 * 1024,
-    }));
-  } catch (err) {
-    throw new OsfactsClientError(
-      "spawn",
-      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
-      { cause: err },
-    );
-  }
-  return parseOsfactsOutput(stdout);
-}
-function runOsfactsSync(bin: string, args: string[]): OsfactsReading {
-  if (!bin)
-    throw new OsfactsClientError(
-      "spawn",
-      "osfacts binary path is empty — the caller must supply an absolute path",
-    );
-  let stdout: string;
-  try {
-    stdout = execFileSync(bin, args, {
-      timeout: OSFACTS_COMMAND_TIMEOUT_MS,
-      killSignal: "SIGKILL",
-      maxBuffer: 8 * 1024 * 1024,
-      encoding: "utf8",
     });
+    return stdout;
   } catch (err) {
     throw new OsfactsClientError(
       "spawn",
@@ -561,7 +670,6 @@ function runOsfactsSync(bin: string, args: string[]): OsfactsReading {
       { cause: err },
     );
   }
-  return parseOsfactsOutput(stdout);
 }
 function appendSnapshotFacets(
   args: string[],
@@ -586,89 +694,44 @@ function snapshotArgs(
   return appendSnapshotFacets(["snapshot", scopeFlag, pids.join(",")], facets);
 }
 const DEFAULT_SNAPSHOT: SnapshotFacets = { procs: true, ports: true };
-function emptyReading(): OsfactsReading {
-  return {
-    procs: [],
-    memory: [],
-    startTimes: [],
-    cpuTimes: [],
-    uids: [],
-    cwds: [],
-    statuses: [],
-    argv: [],
-    ports: [],
-    unreadable: [],
-    errors: [],
-    cpus: [],
-    networks: [],
-    disks: [],
-  };
+
+async function snapshot(bin: string, args: string[]): Promise<SnapshotReading> {
+  return parseSnapshotOutput(await runOsfacts(bin, args));
 }
+
 export function snapshotSubtree(
   bin: string,
   rootPids: readonly number[],
   facets: SnapshotFacets = DEFAULT_SNAPSHOT,
-): Promise<OsfactsReading> {
+): Promise<SnapshotReading> {
   return rootPids.length === 0
-    ? Promise.resolve(emptyReading())
-    : runOsfacts(bin, snapshotArgs("--roots", rootPids, facets));
+    ? Promise.resolve(emptySnapshotReading())
+    : snapshot(bin, snapshotArgs("--roots", rootPids, facets));
 }
 export function snapshotHost(
   bin: string,
   facets: SnapshotFacets = DEFAULT_SNAPSHOT,
-): Promise<OsfactsReading> {
-  return runOsfacts(bin, appendSnapshotFacets(["snapshot"], facets));
+): Promise<SnapshotReading> {
+  return snapshot(bin, appendSnapshotFacets(["snapshot"], facets));
 }
 export function snapshotPids(
   bin: string,
   pids: readonly number[],
   facets: SnapshotFacets = DEFAULT_SNAPSHOT,
-): Promise<OsfactsReading> {
+): Promise<SnapshotReading> {
   return pids.length === 0
-    ? Promise.resolve(emptyReading())
-    : runOsfacts(bin, snapshotArgs("--pids", pids, facets));
+    ? Promise.resolve(emptySnapshotReading())
+    : snapshot(bin, snapshotArgs("--pids", pids, facets));
 }
-export function snapshotPidsSync(
+export async function host(
   bin: string,
-  pids: readonly number[],
-  facets: SnapshotFacets = DEFAULT_SNAPSHOT,
-): OsfactsReading {
-  return pids.length === 0
-    ? emptyReading()
-    : runOsfactsSync(bin, snapshotArgs("--pids", pids, facets));
-}
-export interface ProcessIdentity {
-  pid: number;
-  startUnixUs: number;
-}
-export function processIdentity(
-  bin: string,
-  pid: number,
-): ProcessIdentity | undefined {
-  const reading = snapshotPidsSync(bin, [pid], { startTime: true });
-  const row = reading.startTimes.find((value) => value.pid === pid);
-  if (row !== undefined) return { pid: row.pid, startUnixUs: row.startUnixUs };
-  const unreadable = reading.unreadable.find(
-    (value) => value.pid === pid && value.facet === "start_time",
-  );
-  if (
-    unreadable !== undefined &&
-    ["ESRCH", "ENOENT"].includes(unreadable.errno)
-  )
-    return undefined;
-  throw new OsfactsClientError(
-    "parse",
-    unreadable !== undefined
-      ? `osfacts could not read pid ${pid} start time (${unreadable.errno})`
-      : `osfacts returned no start time for pid ${pid}`,
-  );
-}
-export function host(bin: string, facets: HostFacets): Promise<OsfactsReading> {
+  facets: HostFacets,
+): Promise<HostReading> {
   const args = ["host"];
   if (facets.load) args.push("--load");
   if (facets.mem) args.push("--mem");
   if (facets.cpu) args.push("--cpu");
   if (facets.net) args.push("--net");
   if (facets.disk) args.push("--disk");
-  return runOsfacts(bin, args);
+  return parseHostOutput(await runOsfacts(bin, args));
 }

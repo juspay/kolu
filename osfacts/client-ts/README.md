@@ -48,10 +48,36 @@ the next (replacing a hand-rolled `lsof` path). Policy about what a bind
   listener rows with explicit
   claimed/unclaimed status and network-order hex addresses; host gauges and
   cumulative counters; unreadable facets; and source errors.
+- Keep the two verbs apart. `snapshot*` returns a `SnapshotReading` and
+  `host` returns a `HostReading` — separate types, separate parsers, separate
+  facet vocabularies. Feeding one verb's output to the other's parser is a
+  loud error, not a silently empty field, and `mem` can mean process RSS in
+  one and host RAM in the other without a consumer matching across them by
+  accident.
+- Name the facets an ask can be answered with. `snapshotFacetNames({ procs:
+  true, ports: true })` returns
+  `{ unreadable: ["proc", "ports"], source: ["proc", "ports",
+  "ports_unclaimed", "ports_uid"] }` — the flag-to-wire-name map is not
+  mechanical, so it lives here instead of being re-derived by every consumer.
+  Which of those named facets counts as blindness is still the consumer's
+  call.
 
 ## What it does not
 
 - Read `KOLU_OSFACTS_BIN` (or any env) — the caller owns the path.
 - Classify addresses into any / loopback / interface.
 - Fold ports, rank scopes, or decide that a U row blinds a terminal.
+- Spawn synchronously, or answer identity questions ("is this still the same
+  process?"). That is a supervisor's gate policy, and it belongs beside the
+  supervisor that owns it.
 - Depend on zod, pino, or anything that is not a Node built-in.
+
+## The facet vocabulary
+
+`UNREADABLE_FACETS`, `SNAPSHOT_SOURCE_FACETS`, and `HOST_SOURCE_FACETS` are
+not maintained by hand against the binary. `osfacts/facets.json` is checked in
+beside the Rust crate, a Rust test pins it to the `Facet` enum that produces
+every wire name, and `src/facets.test.ts` pins these three lists to the same
+file. Adding a facet on one side without the other fails the unit lane on both
+— it used to surface as `unknown unreadable facet` in a consumer's parse, at
+runtime, on whichever platform emitted it.

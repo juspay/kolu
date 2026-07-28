@@ -3,9 +3,9 @@
  *
  * Zero kolu imports. Zero npm runtime dependencies. The binary's contract
  * only: spawn at a path you supply, refuse a schema version you do not speak,
- * parse typed process, listener, unreadable, and source-error rows.
- * Classification, fold, and blindness policy are the
- * consumer's (kolu/padi today; drishti next).
+ * parse typed process, listener, unreadable, and source-error rows, and name
+ * the facets a given ask can be answered with. Classification, fold, and
+ * blindness policy are the consumer's (kolu/padi today; drishti next).
  */
 
 export {
@@ -13,7 +13,6 @@ export {
   OSFACTS_COMMAND_TIMEOUT_MS,
   OsfactsClientError,
   type ProcessRow,
-  type ProcessIdentity,
   type MemoryRow,
   type StartTimeRow,
   type ProcessCpuTimeRow,
@@ -25,9 +24,12 @@ export {
   UNREADABLE_FACETS,
   type UnreadableFacet,
   type UnreadableRow,
-  SOURCE_FACETS,
-  type SourceFacet,
-  type SourceErrorRow,
+  SNAPSHOT_SOURCE_FACETS,
+  type SnapshotSourceFacet,
+  type SnapshotSourceErrorRow,
+  HOST_SOURCE_FACETS,
+  type HostSourceFacet,
+  type HostSourceErrorRow,
   type LoadRow,
   type HostMemoryRow,
   type SwapRow,
@@ -36,13 +38,14 @@ export {
   type DiskRow,
   type SnapshotFacets,
   type HostFacets,
-  type OsfactsReading,
-  parseOsfactsOutput,
-  processIdentity,
+  type SnapshotReading,
+  type HostReading,
+  emptySnapshotReading,
+  snapshotFacetNames,
+  parseSnapshotOutput,
+  parseHostOutput,
   snapshotSubtree,
   snapshotHost,
   snapshotPids,
-  snapshotPidsSync,
   host,
-  isTcpPort,
 } from "./client.ts";
