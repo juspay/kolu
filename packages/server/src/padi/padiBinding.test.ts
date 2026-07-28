@@ -31,7 +31,6 @@ import {
   openSync,
   readFileSync,
   rmSync,
-  writeFileSync,
   writeSync,
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -878,9 +877,9 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
             };
           },
           driver: { spawn: async () => {} },
-          // biome-ignore lint/suspicious/noExplicitAny: fake PadiDaemonClient for seam
           connect: async () =>
             ({
+              // biome-ignore lint/suspicious/noExplicitAny: fake PadiDaemonClient for seam
               client: fakeClient as any,
               identity: {
                 surfaceVersion: PADI_SURFACE_VERSION,
@@ -894,6 +893,7 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
               },
               dispose: () => {},
               onClose: () => {},
+              // biome-ignore lint/suspicious/noExplicitAny: fake DaemonConnection for seam
             }) as any,
         },
       });
