@@ -53,7 +53,7 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
         </span>
       </div>
       <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="dock-cards-stack">
+        <div class="flex flex-col gap-2.5 p-2">
           <For each={tree().groups}>
             {(group) => (
               <DockListSection group={group} onSelect={props.onSelect} />

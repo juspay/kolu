@@ -25,6 +25,10 @@ import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
+import {
+  assignColors,
+  type TerminalDisplayInfo,
+} from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
@@ -117,13 +121,34 @@ const WorkSection: Component<{
   terminalId: TerminalId | null;
 }> = (props) => {
   const store = useTerminalStore();
-  const display = () => {
+  /** Prefer fleet display projection; fall back to stable assignColors on
+   *  the live git names so chips never soft-degrade to neutral chrome. */
+  const identityColors = (): {
+    repoColor: string;
+    annotationColor: string;
+  } | null => {
+    const git = props.meta.git;
+    if (!git) return null;
     const id = props.terminalId;
-    return id ? store.getDisplayInfo(id) : undefined;
+    const display: TerminalDisplayInfo | undefined = id
+      ? store.getDisplayInfo(id)
+      : undefined;
+    if (display) {
+      return {
+        repoColor: display.repoColor,
+        annotationColor: display.annotationColor,
+      };
+    }
+    const colors = assignColors([git.repoName, git.branch]);
+    const repoColor = colors.get(git.repoName);
+    const annotationColor = colors.get(git.branch);
+    if (!repoColor || !annotationColor) {
+      throw new Error(
+        `assignColors missing inspector keys for ${git.repoName}/${git.branch}`,
+      );
+    }
+    return { repoColor, annotationColor };
   };
-  const repoColor = () => display()?.repoColor;
-  /** Same hue the dock paints on the branch/intent label (annotationColor). */
-  const annotationColor = () => display()?.annotationColor;
   const active = () => activeArm(props.meta);
   // PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
   // resolution (same gate the old Pull Request section used).
@@ -159,48 +184,31 @@ const WorkSection: Component<{
          *  repo name alone would satisfy a non-empty assertion and an empty
          *  branch would pass. */}
         <div class="flex flex-wrap items-center gap-1.5">
-          <Show when={props.meta.git}>
-            {(git) => (
-              <>
-                <Show
-                  when={annotationColor()}
-                  fallback={
-                    <Chip
-                      tone="accent"
-                      title={git().isWorktree ? "worktree" : undefined}
-                      data-testid="inspector-branch"
-                    >
-                      <Show when={git().isWorktree}>
-                        <WorktreeIcon class="h-3 w-3 shrink-0 text-fg-3/60" />
-                      </Show>
-                      <span class="truncate font-semibold">{git().branch}</span>
-                    </Chip>
-                  }
-                >
-                  {(c) => (
-                    <span
-                      class="fleet-hue-chip"
-                      style={{ "--chip-hue": c() }}
-                      title={git().isWorktree ? "worktree" : undefined}
-                      data-testid="inspector-branch"
-                    >
-                      <Show when={git().isWorktree}>
-                        <WorktreeIcon class="h-3 w-3 shrink-0 opacity-60" />
-                      </Show>
-                      <span class="truncate font-semibold">{git().branch}</span>
-                    </span>
-                  )}
-                </Show>
-                <Show when={repoColor()}>
-                  {(c) => (
-                    <RepoIdentityChip name={git().repoName} color={c()} />
-                  )}
-                </Show>
-                <Show when={!repoColor()}>
-                  <Chip>{git().repoName}</Chip>
-                </Show>
-              </>
-            )}
+          <Show when={props.meta.git && identityColors()}>
+            {(gitAndColors) => {
+              // Show when={A && B} narrows to truthy B (colors); re-read git.
+              const colors = gitAndColors();
+              const git = props.meta.git!;
+              return (
+                <>
+                  <span
+                    class="fleet-hue-chip"
+                    style={{ "--chip-hue": colors.annotationColor }}
+                    title={git.isWorktree ? "worktree" : undefined}
+                    data-testid="inspector-branch"
+                  >
+                    <Show when={git.isWorktree}>
+                      <WorktreeIcon class="h-3 w-3 shrink-0 opacity-60" />
+                    </Show>
+                    <span class="truncate font-semibold">{git.branch}</span>
+                  </span>
+                  <RepoIdentityChip
+                    name={git.repoName}
+                    color={colors.repoColor}
+                  />
+                </>
+              );
+            }}
           </Show>
           <Show when={pr()}>
             {(p) => (

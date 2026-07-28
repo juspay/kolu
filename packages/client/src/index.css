@@ -648,9 +648,16 @@ body {
 .repo-spine {
   border-left: 4px solid var(--repo-color);
 }
-/* Inspector identity chips — one frame; call site sets `--chip-hue`
- * (repo or annotation colour). Light: ink toward black for ≥4.5:1 contrast
- * on surface-1; dark: lighten. Monogram-bearing variant adds left pad. */
+/* Readable fleet-hue text (light → black; dark → white). Used by chips,
+ * annotation labels, and host headers so contrast cannot drift. */
+.hue-ink {
+  color: color-mix(in oklch, var(--hue) 42%, black);
+}
+:root.dark .hue-ink {
+  color: color-mix(in oklch, var(--hue) 78%, white);
+}
+/* Inspector identity chips — frame + hue-ink; call site sets `--chip-hue`
+ * (and `--hue` for text). Monogram-bearing variant adds left pad. */
 .fleet-hue-chip {
   display: inline-flex;
   max-width: 100%;
@@ -660,29 +667,32 @@ body {
   border-radius: 6px;
   border: 1px solid color-mix(in oklab, var(--chip-hue) 40%, var(--color-edge));
   background: color-mix(in oklab, var(--chip-hue) 12%, var(--color-surface-1));
-  color: color-mix(in oklch, var(--chip-hue) 42%, black);
   padding: 1px 6px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.5;
+  /* Text colour from .hue-ink via --hue = --chip-hue */
+  --hue: var(--chip-hue);
+  color: color-mix(in oklch, var(--hue) 42%, black);
 }
 .fleet-hue-chip--with-mono {
   padding-left: 3px;
 }
 :root.dark .fleet-hue-chip {
-  color: color-mix(in oklch, var(--chip-hue) 78%, white);
+  color: color-mix(in oklch, var(--hue) 78%, white);
 }
 /* Repo name text — readable ink over fleet hue (parent sets --repo-color). */
 .repo-name-ink {
   color: var(--repo-ink);
 }
-/* Branch / intent text (parent sets --annotation-color). */
+/* Branch / intent text (parent sets --annotation-color → --hue). */
 .annotation-ink {
-  color: color-mix(in oklch, var(--annotation-color) 42%, black);
+  --hue: var(--annotation-color);
+  color: color-mix(in oklch, var(--hue) 42%, black);
 }
 :root.dark .annotation-ink {
-  color: color-mix(in oklch, var(--annotation-color) 78%, white);
+  color: color-mix(in oklch, var(--hue) 78%, white);
 }
 /* Restore / soft group band. */
 .repo-group-band {
@@ -723,10 +733,12 @@ body {
     color-mix(in oklab, var(--host-hue) 20%, var(--color-surface-1)) 0%,
     color-mix(in oklab, var(--host-hue) 5%, var(--color-surface-1)) 100%
   );
-  color: color-mix(in oklch, var(--host-hue) 42%, black);
+  /* Host text ink — same formula as .hue-ink via --hue. */
+  --hue: var(--host-hue);
+  color: color-mix(in oklch, var(--hue) 42%, black);
 }
 :root.dark .palette-host-header {
-  color: color-mix(in oklch, var(--host-hue) 72%, white);
+  color: color-mix(in oklch, var(--hue) 78%, white);
 }
 .palette-host-header:hover {
   filter: brightness(1.06);
@@ -736,19 +748,8 @@ body {
   border-color: color-mix(in oklab, var(--host-hue) 40%, var(--color-edge));
   background: color-mix(in oklab, var(--host-hue) 12%, var(--color-surface-2));
 }
-/* Vertical air between repo cards — structure does half the grouping
- * work colour alone cannot. Horizontal inset keeps card edges off the
- * scrollport chrome. */
-/* No stack fill: a second surface under the cards reads as nested
- * chrome (dock → tray → card) and steals contrast from the monogram/
- * spine without buying more grouping. Gap + card border do the
- * separation; the dock's own surface is the ground. */
-.dock-cards-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 8px 8px 10px;
-}
+/* Stack air lives as Tailwind on Dock/DockList (flex flex-col gap-2.5 p-2).
+ * No layout-only custom class — styling-tailwind-only. */
 .dock-cards-section {
   border: 1px solid
     color-mix(in oklab, var(--repo-color) 22%, var(--color-edge));

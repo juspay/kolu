@@ -112,16 +112,11 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
     const session = props.savedSession;
     return session ? groupSavedTerminals(session.terminals) : [];
   });
-  // Stable per-key hues (same `assignColors` as the live dock). Keys are
-  // every top-level group+label so restore monograms match dock even when
-  // a branch name would have shifted a set-relative allocator.
-  const groupColors = createMemo(() => {
-    const keys = groups().flatMap((g) => [
-      g.key,
-      ...g.terminals.map((t) => terminalKey(t).label),
-    ]);
-    return assignColors(keys);
-  });
+  // Stable per-key hues (same `assignColors` as the live dock). Pure
+  // function of each group name — co-set membership does not shift hue.
+  const groupColors = createMemo(() =>
+    assignColors(groups().map((g) => g.key)),
+  );
   const subCount = createMemo(
     () => props.savedSession?.terminals.filter((t) => t.parentId).length ?? 0,
   );

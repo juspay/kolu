@@ -382,7 +382,7 @@ const RailOrCards: Component<{
         <Show
           when={props.mode === "rail"}
           fallback={
-            <div class="dock-cards-stack">
+            <div class="flex flex-col gap-2.5 p-2">
               <For each={props.tree.groups}>
                 {(group) => (
                   <RepoSection group={group} flatIndexOf={flatIndexOf()} />

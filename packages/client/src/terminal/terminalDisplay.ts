@@ -59,9 +59,11 @@ export function pairDisplayRow(
  *  hue even when their key sets differ. Using the full 32-bit range
  *  (not `% 360`) keeps ordinary names from colliding on exact hues. */
 function stableHue(key: string): number {
+  // NFC so hue matches monogram for NFD/NFC-equivalent names (macOS paths).
+  const s = key.normalize("NFC");
   let h = 0x811c9dc5;
-  for (let i = 0; i < key.length; i++) {
-    h ^= key.charCodeAt(i);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
     h = Math.imul(h, 0x01000193);
   }
   return ((h >>> 0) / 0x1_0000_0000) * 360;
@@ -78,10 +80,10 @@ export function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-/** Build display info for all terminals. Resolves colors from the full
- *  terminal list (global hue uniqueness), computes collision-aware
- *  identity keys in one pass (`computeTerminalKeys`), and bundles
- *  sub-count so consumers get one complete object. Pure — same inputs
+/** Build display info for all terminals. Resolves stable per-key colours
+ *  (`assignColors` — pure function of each name, not of co-set size),
+ *  computes collision-aware identity keys in one pass
+ *  (`computeTerminalKeys`), and bundles sub-count. Pure — same inputs
  *  produce the same outputs on every client, so suffixes stay in sync
  *  without server broadcast. */
 export function buildTerminalDisplayInfos(
