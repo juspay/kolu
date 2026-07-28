@@ -1,9 +1,9 @@
 /**
  * Shared-artifact watchdog — every file both daemon generations touch must
  * either have a mixed-version test registered in the coverage manifest
- * (`sharedArtifacts.ts`) or declare an explicit version field. Adding a new
- * shared file to the inventory without either fails this test with a message
- * explaining what to do.
+ * (`sharedArtifacts.testlib.ts`) or declare an explicit version field. Adding
+ * a new shared file to the inventory without either fails this test with a
+ * message explaining what to do.
  *
  * Logs are exempt (diagnostics, not a protocol surface). Everything else
  * needs coverage.
@@ -13,7 +13,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { SHARED_ARTIFACTS } from "./sharedArtifacts.ts";
+import { SHARED_ARTIFACTS } from "./sharedArtifacts.testlib.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -52,7 +52,7 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
         ? undefined
         : `Shared artifacts missing mixed-version coverage:\n${gaps.join("\n")}\n\n` +
             `Add a test that pins the mixed-version window for each, register it in ` +
-            `sharedArtifacts.ts, or declare the artifact's version field.`,
+            `sharedArtifacts.testlib.ts, or declare the artifact's version field.`,
     ).toEqual([]);
   });
 
