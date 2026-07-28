@@ -242,7 +242,9 @@ async function realEndpoint(recycleMs: number) {
 
   // Warm so current() is held before restart (drain's killAll needs it).
   await recycle(ep, destructiveRecycleSteps());
-  return ep;
+  // Minimal client shape for the restart path; production Endpoint is wider.
+  // biome-ignore lint/suspicious/noExplicitAny: test stand-in for recycle timing
+  return ep as any;
 }
 
 // When set (by the ordering test), every autosave-callback evaluation records the
