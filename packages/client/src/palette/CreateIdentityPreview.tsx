@@ -65,12 +65,34 @@ function buildModel(
   const colorKeys: string[] = [];
   if (!provisionalRepo) colorKeys.push(repoName);
   if (!provisionalAnno) colorKeys.push(annotation);
+  // Fail loud like fleet/inspector — assignColors covers every key it was
+  // given; a miss is a programmer bug, not a soft neutral.
   const colors = colorKeys.length > 0 ? assignColors(colorKeys) : null;
+  let repoColor = NEUTRAL_REPO_COLOR;
+  if (!provisionalRepo) {
+    const c = colors?.get(repoName);
+    if (c === undefined) {
+      throw new Error(
+        `assignColors missing create-preview repo "${repoName}" — map must cover every key`,
+      );
+    }
+    repoColor = c;
+  }
+  let annotationColor: string | null = null;
+  if (!provisionalAnno) {
+    const c = colors?.get(annotation);
+    if (c === undefined) {
+      throw new Error(
+        `assignColors missing create-preview annotation "${annotation}" — map must cover every key`,
+      );
+    }
+    annotationColor = c;
+  }
   return {
     repoName,
-    repoColor: provisionalRepo ? NEUTRAL_REPO_COLOR : colors!.get(repoName)!,
+    repoColor,
     annotation,
-    annotationColor: provisionalAnno ? null : colors!.get(annotation)!,
+    annotationColor,
     agentLabel,
     AgentIcon,
   };
