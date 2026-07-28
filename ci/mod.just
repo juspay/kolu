@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -193,6 +193,91 @@ unit: install
 # CI boxes are leased/contained, so the fork storm cannot reach production.
 daemon: install
     KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
+
+# Mixed-version daemon upgrade-window — the REAL previous-release e2e (boot the
+# previous tag's kaval, current padi against it, Restart kaval). Slow by design:
+# fetches tags, nix-builds previous-tag #kaval AND current #kaval, refuses if
+# their store paths are identical (that would collapse the window to a
+# same-version recycle — the failure mode that green-washed a first landing),
+# then runs one vitest file under the daemon gate. Both platforms.
+# KOLU_UPGRADE_WINDOW_REQUIRE=1 makes a missing/non-tag/identical previous a
+# hard fail (so CI never silently skips or same-versions). Depends on `nix`
+# so the current flake is already warm; the previous-ref build is additional.
+upgrade-window: install nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # CI checkouts are SHA-only and often have NO local tags AND no usable
+    # `origin` remote (odu fetches a single SHA into a worktree). A bare
+    # `git tag` list is empty → the old "last kaval-touching rev" fallback
+    # built a kaval IDENTICAL to current and the e2e green-washed a
+    # same-version recycle. Discover the latest vX.Y.Z from every candidate
+    # remote URL, fetch THAT tag into the local object store, then nix-build.
+    latest_version_tag() {
+      local url="$1"
+      git ls-remote --tags --refs "$url" 2>/dev/null \
+        | awk '{print $2}' \
+        | sed 's|refs/tags/||' \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -V \
+        | tail -1 \
+      || true
+    }
+    # Candidate remotes: configured remotes first, then the known GitHub URL
+    # odu itself fetches from (see _ci-setup: "fetching … from https://github.com/juspay/kolu").
+    candidates=()
+    while IFS= read -r r; do
+      [ -n "$r" ] || continue
+      u="$(git remote get-url "$r" 2>/dev/null || true)"
+      [ -n "$u" ] && candidates+=("$u")
+    done < <(git remote 2>/dev/null || true)
+    candidates+=("https://github.com/juspay/kolu" "https://github.com/juspay/kolu.git")
+    ref=""
+    source_url=""
+    for url in "${candidates[@]}"; do
+      echo "upgrade-window: probing tags at ${url}"
+      t="$(latest_version_tag "$url")"
+      if [[ "${t}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        ref="$t"
+        source_url="$url"
+        break
+      fi
+    done
+    if ! [[ "${ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      # Last resort: local tags after an opportunistic fetch.
+      git fetch --tags --force 2>/dev/null || true
+      ref="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+    fi
+    if ! [[ "${ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo "upgrade-window: REFUSING — no version tag (vX.Y.Z) via ls-remote/fetch; refusing the last-kaval-commit fallback that collapses the window" >&2
+      exit 1
+    fi
+    # Materialise the tag object locally so git+file?ref= can resolve it.
+    fetch_url="${source_url:-https://github.com/juspay/kolu}"
+    git fetch --force "$fetch_url" "refs/tags/${ref}:refs/tags/${ref}" \
+      || { echo "upgrade-window: REFUSING — could not fetch tag ${ref} from ${fetch_url}" >&2; exit 1; }
+    git rev-parse --verify "refs/tags/${ref}" >/dev/null \
+      || { echo "upgrade-window: REFUSING — tag ${ref} not in local object store after fetch" >&2; exit 1; }
+    echo "upgrade-window: previous ref=${ref} (version tag required)"
+    prev_out="$(nix build --no-link --print-out-paths "git+file://${PWD}?ref=${ref}#kaval")"
+    curr_out="$(nix build --no-link --print-out-paths ".#kaval")"
+    echo "upgrade-window: previous kaval store=${prev_out}"
+    echo "upgrade-window: current  kaval store=${curr_out}"
+    if [ "${prev_out}" = "${curr_out}" ]; then
+      echo "upgrade-window: REFUSING — previous kaval store path equals current (${prev_out}); mixed-version window collapsed to same-version" >&2
+      exit 1
+    fi
+    echo "upgrade-window: store paths differ — window is real"
+    export KOLU_PREVIOUS_KAVAL_BIN="${prev_out}/bin/kaval"
+    export KOLU_PREVIOUS_KAVAL_REF="${ref}"
+    export KOLU_PREVIOUS_KAVAL_STORE="${prev_out}"
+    export KOLU_CURRENT_KAVAL_STORE="${curr_out}"
+    test -x "$KOLU_PREVIOUS_KAVAL_BIN"
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ KOLU_UPGRADE_WINDOW_REQUIRE=1 \
+      KOLU_PREVIOUS_KAVAL_BIN="$KOLU_PREVIOUS_KAVAL_BIN" \
+      KOLU_PREVIOUS_KAVAL_REF="$KOLU_PREVIOUS_KAVAL_REF" \
+      KOLU_PREVIOUS_KAVAL_STORE="$KOLU_PREVIOUS_KAVAL_STORE" \
+      KOLU_CURRENT_KAVAL_STORE="$KOLU_CURRENT_KAVAL_STORE" \
+      {{ nix_shell }} pnpm --filter @kolu/padi exec vitest run src/upgradeWindow/previousRelease.e2e.test.ts
 
 # Build EVERY @kolu/surface example client (the base example, remote-process-monitor,
 # and the fleet-top tutorial parts) — the `@kolu/surface-example*` filter runs
