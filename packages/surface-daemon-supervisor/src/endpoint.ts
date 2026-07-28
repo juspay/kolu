@@ -39,7 +39,10 @@ import type {
   BindResult,
   BoundResidentCharacterization,
 } from "./convergence/bindResult.ts";
-import { instanceKeyFromStartedAt } from "./convergence/instanceKey.ts";
+import {
+  instanceKeyFromStartedAt,
+  instanceKeyTag,
+} from "./convergence/instanceKey.ts";
 import {
   type DrainBudgetHandle,
   createDrainBudget,
@@ -623,10 +626,11 @@ export function createEndpoint<
   };
 
   /**
-   * W5: after holding `heldConn` at `socketPath`, probe THAT rendezvous for
-   * ConvergenceIdentity. Three-valued — never catch-to-null (W4.4 residue).
-   * Correlates named instance keys with `heldConn.startedAt` and verifies the
-   * same connection is still current after the probe.
+   * After holding `heldConn` at `socketPath`, probe THAT rendezvous for
+   * ConvergenceIdentity. Four-valued — never catch-to-null. Correlates a NAMED
+   * probe instance key with `instanceKeyFromStartedAt(heldConn.startedAt)`;
+   * mismatch (or connection replaced mid-probe) ⇒ uncorrelated. Never overwrites
+   * the probe's instance key with the connection key.
    */
   const characterizeHeld = async (
     socketPath: string,
@@ -645,16 +649,21 @@ export function createEndpoint<
     try {
       // Connection must still be the one we held (no rebind mid-probe).
       if (conn !== heldConn) return { kind: "uncorrelated" };
-      // Identity (contract/build) from the held-socket probe. Instance key from
-      // the held connection's startedAt (handshake) when named, else the probe's
-      // key. Uncorrelated only when the connection object was replaced mid-probe
-      // (checked above) — key mismatch after a real handshake is a probe lag,
-      // not a different connection object.
-      const fromConn = instanceKeyFromStartedAt(heldConn.startedAt);
+      // Named probe key must match the held connection's startedAt-derived key.
+      if (p.instanceKey.kind === "instance") {
+        const fromConn = instanceKeyFromStartedAt(heldConn.startedAt);
+        if (
+          fromConn.kind !== "instance" ||
+          instanceKeyTag(p.instanceKey) !== instanceKeyTag(fromConn)
+        ) {
+          return { kind: "uncorrelated" };
+        }
+      }
+      // Always the probe's own key — never overwrite with the connection key.
       return {
         kind: "characterized",
         identity: p.identity,
-        instanceKey: fromConn.kind === "instance" ? fromConn : p.instanceKey,
+        instanceKey: p.instanceKey,
       };
     } finally {
       p.dispose();

@@ -24,6 +24,7 @@ import {
   DaemonContractSkewError,
   daemonBuild,
   dialSocket,
+  instanceKeyFromStartedAt,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { withTimeout } from "../withTimeout.ts";
@@ -171,14 +172,28 @@ export async function connectKaval(
  * `buildId` folds an absent/off-nix `staleKey` to `""` (an honest "unknown", never a
  * fabricated match), exactly as the client-side currency nudge reads it.
  */
+/** True when the dial failure means "nothing listening" (honest null probe). */
+function isNoListenerError(err: unknown): boolean {
+  const e = err as { code?: string; cause?: { code?: string } };
+  const code = e.code ?? e.cause?.code;
+  return code === "ECONNREFUSED" || code === "ENOENT";
+}
+
+/**
+ * Returns `null` only for honest no-listener (ECONNREFUSED / ENOENT). Any other
+ * dial or handshake failure **throws** — never collapses into "no daemon".
+ * Instance key is derived from `version.startedAt` (never hard-coded pre-instance
+ * when the handshake carries a startedAt).
+ */
 export async function probeKavalForConvergence(
   socketPath: string,
 ): Promise<ConvergenceProbe<"not-drainable"> | null> {
   let socket: Awaited<ReturnType<typeof dialSocket>>;
   try {
     socket = await dialSocket(socketPath);
-  } catch {
-    return null; // no kaval answering — nothing to converge; the spawn path handles it.
+  } catch (err) {
+    if (isNoListenerError(err)) return null;
+    throw err;
   }
   const client = stdioLink<typeof ptyHostSurface.contract>({
     read: socket,
@@ -190,11 +205,11 @@ export async function probeKavalForConvergence(
   try {
     // Bounded like `connectKaval` (F2): converge probes BEFORE the recovery runs, so
     // a silent-accept holder here would hang boot before `adoptOrEnsure` could reach
-    // the recovery's foreign refusal. The deadline turns it into a clean `null`.
+    // the recovery's foreign refusal. Other failures stay failures (not null).
     version = await readSystemVersionBounded(client);
-  } catch {
+  } catch (err) {
     socket.destroy();
-    return null; // the daemon is there but did not answer the probe — treat as none.
+    throw err;
   }
   return {
     capability: "not-drainable",
@@ -202,8 +217,8 @@ export async function probeKavalForConvergence(
       contractVersion: version.contractVersion,
       build: daemonBuild(version.identity?.staleKey ?? ""),
     },
-    // kaval does not drain; instance key is still required on the probe face.
-    instanceKey: { kind: "pre-instance" },
+    // kaval does not drain; instance key still required — from the handshake.
+    instanceKey: instanceKeyFromStartedAt(version.startedAt),
     dispose: () => socket.destroy(),
   };
 }

@@ -4,13 +4,16 @@
  *
  * Accepts only a genuine {@link createEndpoint} handle (F12 WeakMap brand).
  *
- * **W5 — single observation authority (`foldObserved`).** Every observed identity
+ * **Single observation authority (`foldObserved`).** Every observed identity
  * (initial probe, bind characterization, post-drain successor, post-give-up bind,
- * drainable re-probe) flows through that function alone:
- *   1. folds through `decide(policy, identity)` — never a hand-copied subset;
- *   2. owns connection lifecycle — non-adopt returns have released any hold;
- *   3. preserves three-valued observations (identity | absent | failed);
- *   4. reports `running: null` when unknown (never fabricates expected).
+ * drainable re-probe) and every bind transition routes through that function:
+ *   1. folds through `decide(policy, identity | null)` — never a hand-copied subset;
+ *   2. owns connection lifecycle — refused / not-adopted / probe-failed always call
+ *      the idempotent `releaseHeld` (no `holding` mirror);
+ *   3. preserves four-valued characterizations (characterized | absent | failed |
+ *      uncorrelated);
+ *   4. reports `running: null` when unknown (never fabricates expected);
+ *   5. owns dispose of every identity observation (transfer only into drain loop).
  */
 
 import {
@@ -33,7 +36,11 @@ import {
 } from "./drainAndAwaitExit.ts";
 import { decide, type Decision } from "./decide.ts";
 import { giveUpOutcome } from "./giveUp.ts";
-import { type InstanceKey, instanceKeyFromStartedAt } from "./instanceKey.ts";
+import {
+  type InstanceKey,
+  instanceKeyFromStartedAt,
+  instanceKeyTag,
+} from "./instanceKey.ts";
 import type { ConvergencePolicy, DrainCapability } from "./policy.ts";
 import { endpointPrivate } from "../endpoint.private.ts";
 import type { Endpoint } from "../endpoint.ts";
@@ -129,6 +136,11 @@ export function outcomeAnomaly(
 
 // ── Observation model ───────────────────────────────────────────────────────
 
+/**
+ * Four-valued observation. `bound` distinguishes a probe-origin observation
+ * (may still need a bind) from a characterization of an already-held connection
+ * — encoded here so the fold never consults a separate `holding` mirror.
+ */
 type Observation =
   | {
       readonly kind: "identity";
@@ -136,8 +148,15 @@ type Observation =
       readonly instanceKey: InstanceKey;
       readonly drainable: DrainableProbe | null;
       readonly dispose: () => void;
+      /** True when this identity came from a held bind's characterization. */
+      readonly bound: boolean;
     }
-  | { readonly kind: "absent" }
+  | {
+      readonly kind: "absent";
+      /** True when a held bind's characterization was empty (unverifiable). */
+      readonly bound: boolean;
+    }
+  | { readonly kind: "uncorrelated" }
   | { readonly kind: "failed"; readonly message: string };
 
 type FoldCtx = {
@@ -147,14 +166,13 @@ type FoldCtx = {
   readonly log: Logger;
   readonly bind: () => Promise<BindResult>;
   readonly releaseHeld: () => void;
-  holding: boolean;
   lastKnownRunning: ConvergenceIdentity | null;
   resolveDrainable: () => Promise<Observation>;
   heldBind: BindResult | null;
   /**
    * When non-null, the drain budget is already spent (give-up path). decide still
-   * folds every identity; enactment of drain-and-replace / adopt / spawn rides
-   * the held resident as adopted-stale instead of re-entering the drain loop.
+   * folds every identity; enactment of drain-and-replace rides adopted-stale,
+   * while a clean `adopt` returns adopted (W6.6).
    */
   rideStale: Extract<ConvergenceAnomaly, { kind: "adopted-stale" }> | null;
 };
@@ -183,13 +201,14 @@ async function observeProbe(
 ): Promise<Observation> {
   try {
     const p = await run();
-    if (p === null) return { kind: "absent" };
+    if (p === null) return { kind: "absent", bound: false };
     return {
       kind: "identity",
       identity: p.identity,
       instanceKey: p.instanceKey,
       drainable: p.capability === "drainable" ? p : null,
       dispose: () => p.dispose(),
+      bound: false,
     };
   } catch (err) {
     return {
@@ -210,10 +229,12 @@ function observationFromCharacterization(
         instanceKey: c.instanceKey,
         drainable: null,
         dispose: () => {},
+        bound: true,
       };
     case "absent":
+      return { kind: "absent", bound: true };
     case "uncorrelated":
-      return { kind: "absent" };
+      return { kind: "uncorrelated" };
     case "failed":
       return { kind: "failed", message: c.message };
     default: {
@@ -228,7 +249,9 @@ function probeFailedOutcome(args: {
   expected: ConvergenceIdentity;
   running: ConvergenceIdentity | null;
   log: Logger;
+  releaseHeld: () => void;
 }): ConvergenceOutcome {
+  args.releaseHeld();
   const cause = { kind: "probe-failed" as const, message: args.message };
   const detail = `convergence probe failed: ${args.message}`;
   args.log.error({}, `convergence: UNCONVERGED — ${detail}`);
@@ -249,7 +272,9 @@ function identityUnverifiableOutcome(args: {
   running: ConvergenceIdentity | null;
   expected: ConvergenceIdentity;
   log: Logger;
+  releaseHeld: () => void;
 }): ConvergenceOutcome {
+  args.releaseHeld();
   const cause = { kind: "identity-unverifiable" as const };
   const runLabel =
     args.running === null ? "unknown" : buildLabel(args.running.build);
@@ -270,16 +295,29 @@ function identityUnverifiableOutcome(args: {
   };
 }
 
-/** Drop hold if set — lifecycle side of non-adopt returns. */
-function dropHold(ctx: FoldCtx): void {
-  if (ctx.holding) {
-    ctx.releaseHeld();
-    ctx.holding = false;
-  }
+function skewRefusedOutcome(args: {
+  running: ConvergenceIdentity;
+  expected: ConvergenceIdentity;
+  log: Logger;
+  releaseHeld: () => void;
+  detail: string;
+}): ConvergenceOutcome {
+  args.releaseHeld();
+  args.log.warn(skewCtxOf(args.running, args.expected), args.detail);
+  return {
+    kind: "refused",
+    adopted: false,
+    anomaly: {
+      kind: "skew-refused",
+      running: args.running,
+      expected: args.expected,
+      detail: args.detail,
+    },
+  };
 }
 
 /**
- * THE single authority. Every observed identity / failure / absence that
+ * THE single authority. Every observation and every bind transition that
  * participates in a convergence decision routes here.
  */
 async function foldObserved(
@@ -287,47 +325,72 @@ async function foldObserved(
   ctx: FoldCtx,
 ): Promise<ConvergenceOutcome> {
   if (obs.kind === "failed") {
-    dropHold(ctx);
     return probeFailedOutcome({
       message: obs.message,
       expected: ctx.expected,
       running: ctx.lastKnownRunning,
       log: ctx.log,
+      releaseHeld: ctx.releaseHeld,
+    });
+  }
+
+  if (obs.kind === "uncorrelated") {
+    return identityUnverifiableOutcome({
+      running: ctx.lastKnownRunning,
+      expected: ctx.expected,
+      log: ctx.log,
+      releaseHeld: ctx.releaseHeld,
     });
   }
 
   if (obs.kind === "absent") {
-    if (ctx.holding) {
-      dropHold(ctx);
+    if (obs.bound) {
       return identityUnverifiableOutcome({
         running: ctx.lastKnownRunning,
         expected: ctx.expected,
         log: ctx.log,
+        releaseHeld: ctx.releaseHeld,
       });
     }
-    return { kind: "not-adopted" };
+    // Probe-origin absence → decide(null) → spawn/bind via the authority.
+    return enactDecision(decide(ctx.policy, null), null, ctx);
   }
 
-  ctx.lastKnownRunning = obs.identity;
-  return enactDecision(decide(ctx.policy, obs.identity), obs, ctx);
+  // Identity: foldObserved owns dispose unless transferred into the drain loop.
+  let transferred = false;
+  try {
+    ctx.lastKnownRunning = obs.identity;
+    return await enactDecision(decide(ctx.policy, obs.identity), obs, ctx, {
+      transferDispose: () => {
+        transferred = true;
+      },
+    });
+  } finally {
+    if (!transferred) obs.dispose();
+  }
 }
 
 async function enactDecision(
   decision: Decision,
-  obs: Extract<Observation, { kind: "identity" }>,
+  obs: Extract<Observation, { kind: "identity" }> | null,
   ctx: FoldCtx,
+  dispose?: { transferDispose: () => void },
 ): Promise<ConvergenceOutcome> {
-  const skew = skewCtxOf(obs.identity, ctx.expected);
-
-  // Budget already spent (give-up): decide still owns the fold; only enactment
-  // of "keep riding" arms differs — never re-enter the drain loop.
+  // Budget already spent (give-up): decide still owns the fold.
   if (ctx.rideStale !== null) {
     switch (decision.kind) {
       case "spawn":
       case "adopt":
+        // W6.6: exact match after give-up is clean adopted, not mislabeled stale.
+        return { kind: "adopted" };
       case "drain-and-replace":
         return { kind: "adopted-stale", anomaly: ctx.rideStale };
-      case "report-mismatch":
+      case "report-mismatch": {
+        if (obs === null) {
+          throw new Error(
+            "convergence: report-mismatch without identity observation",
+          );
+        }
         return {
           kind: "mismatch-reported",
           running: decision.running,
@@ -342,25 +405,29 @@ async function enactDecision(
               },
             } satisfies BindResult),
         };
-      case "refuse": {
-        dropHold(ctx);
-        const detail =
-          `convergence: REFUSING give-up bind resident — left standing + degraded ` +
-          `(running contract ${obs.identity.contractVersion}, mine ${ctx.expected.contractVersion})`;
-        ctx.log.warn(skew, detail);
-        return {
-          kind: "refused",
-          adopted: false,
-          anomaly: {
-            kind: "skew-refused",
-            running: obs.identity,
-            expected: ctx.expected,
-            detail,
-          },
-        };
       }
-      case "recycle":
-        return { kind: "recycled", bind: await ctx.bind() };
+      case "refuse": {
+        if (obs === null) {
+          throw new Error("convergence: refuse without identity observation");
+        }
+        return skewRefusedOutcome({
+          running: obs.identity,
+          expected: ctx.expected,
+          log: ctx.log,
+          releaseHeld: ctx.releaseHeld,
+          detail:
+            `convergence: REFUSING give-up bind resident — left standing + degraded ` +
+            `(running contract ${obs.identity.contractVersion}, mine ${ctx.expected.contractVersion})`,
+        });
+      }
+      case "recycle": {
+        const r = await ctx.bind();
+        const folded = await foldBindResult(r, ctx);
+        if (folded.kind === "spawned-fresh") {
+          return { kind: "recycled", bind: r };
+        }
+        return folded;
+      }
       default: {
         const _e: never = decision;
         throw new Error(`unreachable decision: ${JSON.stringify(_e)}`);
@@ -370,47 +437,55 @@ async function enactDecision(
 
   switch (decision.kind) {
     case "spawn":
-    case "adopt":
-      return { kind: "adopted" };
+    case "adopt": {
+      // Already holding a characterized resident that matches → keep it.
+      if (obs?.bound) return { kind: "adopted" };
+      // Need a bind; fold its result through the authority (never return bind raw).
+      return foldBindResult(await ctx.bind(), ctx);
+    }
 
     case "report-mismatch": {
-      const bind: BindResult =
-        ctx.heldBind ??
-        ({
-          kind: "adopted-resident",
-          characterization: {
-            kind: "characterized",
-            identity: obs.identity,
-            instanceKey: obs.instanceKey,
-          },
-        } satisfies BindResult);
-      return {
-        kind: "mismatch-reported",
-        running: decision.running,
-        bind,
-      };
+      if (obs === null) {
+        throw new Error(
+          "convergence: report-mismatch without identity observation",
+        );
+      }
+      // Already holding — report against the held characterization.
+      if (obs.bound && ctx.heldBind !== null) {
+        return {
+          kind: "mismatch-reported",
+          running: decision.running,
+          bind: ctx.heldBind,
+        };
+      }
+      // Probe-origin mismatch: bind, then re-fold the NEW characterization
+      // (never report the stale probe identity over a different held resident).
+      return foldBindResult(await ctx.bind(), ctx);
     }
 
     case "refuse": {
-      dropHold(ctx);
-      const detail =
-        `convergence: REFUSING a skewed survivor — left standing + degraded, never touched ` +
-        `(running contract ${obs.identity.contractVersion}, mine ${ctx.expected.contractVersion})`;
-      ctx.log.warn(skew, detail);
-      return {
-        kind: "refused",
-        adopted: false,
-        anomaly: {
-          kind: "skew-refused",
-          running: obs.identity,
-          expected: ctx.expected,
-          detail,
-        },
-      };
+      if (obs === null) {
+        throw new Error("convergence: refuse without identity observation");
+      }
+      return skewRefusedOutcome({
+        running: obs.identity,
+        expected: ctx.expected,
+        log: ctx.log,
+        releaseHeld: ctx.releaseHeld,
+        detail:
+          `convergence: REFUSING a skewed survivor — left standing + degraded, never touched ` +
+          `(running contract ${obs.identity.contractVersion}, mine ${ctx.expected.contractVersion})`,
+      });
     }
 
-    case "recycle":
-      return { kind: "recycled", bind: await ctx.bind() };
+    case "recycle": {
+      const r = await ctx.bind();
+      const folded = await foldBindResult(r, ctx);
+      if (folded.kind === "spawned-fresh") {
+        return { kind: "recycled", bind: r };
+      }
+      return folded;
+    }
 
     case "drain-and-replace": {
       if (ctx.budget === null || ctx.policy.capability !== "drainable") {
@@ -418,16 +493,22 @@ async function enactDecision(
           "convergence: drain-and-replace without drain budget — unreachable by Pin 1",
         );
       }
+      if (obs === null) {
+        throw new Error(
+          "convergence: drain-and-replace without identity observation",
+        );
+      }
 
       // Need drainable probe. If missing, resolve then re-fold (re-decide).
+      // Current obs is disposed by foldObserved's finally after we return.
       if (obs.drainable === null) {
         const resolved = await ctx.resolveDrainable();
-        obs.dispose();
         return foldObserved(resolved, ctx);
       }
 
-      // Loop takes ownership of this drainable (disposes via disposeInitial).
-      return enactDrainLoop({
+      // Transfer dispose ownership into the drain body.
+      dispose?.transferDispose();
+      return enactDrainOnce({
         initial: obs.drainable,
         disposeInitial: obs.dispose,
         axis: decision.axis,
@@ -436,11 +517,7 @@ async function enactDecision(
         bind: ctx.bind,
         log: ctx.log,
         expected: ctx.expected,
-        // Unconditional release (give-up bind may hold without ctx.holding set).
-        releaseHeld: () => {
-          ctx.releaseHeld();
-          ctx.holding = false;
-        },
+        releaseHeld: ctx.releaseHeld,
         resolveDrainable: ctx.resolveDrainable,
         baseCtx: ctx,
       });
@@ -459,13 +536,12 @@ async function foldBindResult(
 ): Promise<ConvergenceOutcome> {
   switch (r.kind) {
     case "spawned-fresh":
-      ctx.holding = true;
       ctx.heldBind = r;
       return { kind: "spawned-fresh" };
     case "refused-or-failed":
+      ctx.releaseHeld();
       return { kind: "not-adopted" };
     case "adopted-resident": {
-      ctx.holding = true;
       ctx.heldBind = r;
       return foldObserved(
         observationFromCharacterization(r.characterization),
@@ -479,9 +555,9 @@ async function foldBindResult(
   }
 }
 
-// ── Drain loop ──────────────────────────────────────────────────────────────
+// ── Drain enactment (single body; successor re-entry is recursive) ──────────
 
-async function enactDrainLoop(args: {
+async function enactDrainOnce(args: {
   initial: DrainableProbe;
   disposeInitial: () => void;
   axis: "contract" | "build";
@@ -495,135 +571,119 @@ async function enactDrainLoop(args: {
   baseCtx: FoldCtx;
 }): Promise<ConvergenceOutcome> {
   const baked = args.expected;
-  // Successor re-entry is recursive (foldBindResult → foldObserved → enactDrainLoop),
-  // so these are fixed for this loop body — never reassigned in place.
   const current = args.initial;
   const axis = args.axis;
 
   try {
-    for (;;) {
-      const why =
-        axis === "contract"
-          ? `contract skew (mine ${baked.contractVersion} newer than running ${current.identity.contractVersion})`
-          : `build mismatch (running=${buildLabel(current.identity.build)} expected=${buildLabel(baked.build)})`;
-      const admission = budgetInternal(args.budget).admit(
-        lineageOf(current.identity, current.instanceKey),
-        why,
-      );
+    const why =
+      axis === "contract"
+        ? `contract skew (mine ${baked.contractVersion} newer than running ${current.identity.contractVersion})`
+        : `build mismatch (running=${buildLabel(current.identity.build)} expected=${buildLabel(baked.build)})`;
+    const admission = budgetInternal(args.budget).admit(
+      lineageOf(current.identity, current.instanceKey),
+      why,
+    );
 
-      if (admission.kind === "giveUp") {
-        return enactGiveUp({
-          admission,
-          onGiveUp: drainBudgetOf(args.budget).onGiveUp,
-          axis,
-          running: current.identity,
-          expected: baked,
-          bind: args.bind,
-          log: args.log,
-          policy: args.policy,
-          releaseHeld: args.releaseHeld,
-          baseCtx: args.baseCtx,
-        });
-      }
-
-      args.log.info(
-        {
-          axis,
-          attempt: admission.attempt,
-          ...skewCtxOf(current.identity, baked),
-        },
-        "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
-      );
-      const drain = await drainAndAwaitExit(
-        () => current.fireDrain(),
-        (signal) => current.awaitExit(signal),
-        { ceilingMs: current.drainCeilingMs },
-      );
-      if (!drain.took) {
-        args.log.error(
-          { axis, ...skewCtxOf(current.identity, baked) },
-          `convergence: drain FAILED — not taken within ${current.drainCeilingMs}ms` +
-            drainRejectionSuffix(drain.drainRejection),
-        );
-        return enactGiveUp({
-          admission: {
-            kind: "giveUp",
-            why: "budget",
-            axisHint: why,
-            attempts: admission.attempt,
-            maxAttempts: drainBudgetOf(args.budget).maxAttempts,
-            instanceKey: current.instanceKey,
-          },
-          onGiveUp: drainBudgetOf(args.budget).onGiveUp,
-          axis,
-          running: current.identity,
-          expected: baked,
-          bind: args.bind,
-          log: args.log,
-          policy: args.policy,
-          drainNotTaken: {
-            ceilingMs: current.drainCeilingMs,
-            rejection: drain.drainRejection,
-          },
-          releaseHeld: args.releaseHeld,
-          baseCtx: args.baseCtx,
-        });
-      }
-
-      const r = await args.bind();
-      if (r.kind === "spawned-fresh") {
-        return {
-          kind: "drained-replacing",
-          axis,
-          running: current.identity,
-          bind: r,
-        };
-      }
-      if (r.kind === "refused-or-failed") {
-        args.releaseHeld();
-        return {
-          kind: "refused",
-          adopted: false,
-          anomaly: {
-            kind: "unconverged",
-            running: current.identity,
-            expected: baked,
-            cause: { kind: "adopt-bind-failed", axis },
-            detail:
-              "bind refused or failed after admitted drain of bound resident",
-          },
-        };
-      }
-
-      // adopted-resident — fold through the single authority.
-      // That may re-enter drain (nested enactDrainLoop) if decide says drain again
-      // and a drainable probe is resolved — correct recursive structure.
-      args.baseCtx.holding = true;
-      args.baseCtx.heldBind = r;
-      args.baseCtx.lastKnownRunning = current.identity;
-      const folded = await foldBindResult(r, args.baseCtx);
-
-      if (folded.kind === "adopted") {
-        return {
-          kind: "drained-replacing",
-          axis,
-          running: current.identity,
-          bind: r,
-        };
-      }
-
-      // Authority returned a terminal outcome (refuse / mismatch / unconverged /
-      // nested drained-replacing / adopted-stale / recycled). For nested drain,
-      // foldObserved already ran a full enactDrainLoop — trust the result.
-      //
-      // Special case: if fold re-entered drain via resolveDrainable and returned
-      // a recursive outcome, we're done. If fold returned adopted-stale etc., done.
-      //
-      // We do NOT continue the outer loop after foldBindResult — the authority
-      // owns the successor transition. That means nested drain handles multi-step
-      // same-lineage continuation.
-      return folded;
+    if (admission.kind === "giveUp") {
+      return enactGiveUp({
+        admission,
+        onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+        axis,
+        running: current.identity,
+        expected: baked,
+        bind: args.bind,
+        log: args.log,
+        policy: args.policy,
+        releaseHeld: args.releaseHeld,
+        baseCtx: args.baseCtx,
+      });
     }
+
+    args.log.info(
+      {
+        axis,
+        attempt: admission.attempt,
+        ...skewCtxOf(current.identity, baked),
+      },
+      "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
+    );
+    const drain = await drainAndAwaitExit(
+      () => current.fireDrain(),
+      (signal) => current.awaitExit(signal),
+      { ceilingMs: current.drainCeilingMs },
+    );
+    if (!drain.took) {
+      args.log.error(
+        { axis, ...skewCtxOf(current.identity, baked) },
+        `convergence: drain FAILED — not taken within ${current.drainCeilingMs}ms` +
+          drainRejectionSuffix(drain.drainRejection),
+      );
+      return enactGiveUp({
+        admission: {
+          kind: "giveUp",
+          why: "budget",
+          axisHint: why,
+          attempts: admission.attempt,
+          maxAttempts: drainBudgetOf(args.budget).maxAttempts,
+          instanceKey: current.instanceKey,
+        },
+        onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+        axis,
+        running: current.identity,
+        expected: baked,
+        bind: args.bind,
+        log: args.log,
+        policy: args.policy,
+        drainNotTaken: {
+          ceilingMs: current.drainCeilingMs,
+          rejection: drain.drainRejection,
+        },
+        releaseHeld: args.releaseHeld,
+        baseCtx: args.baseCtx,
+      });
+    }
+
+    const r = await args.bind();
+    if (r.kind === "spawned-fresh") {
+      return {
+        kind: "drained-replacing",
+        axis,
+        running: current.identity,
+        bind: r,
+      };
+    }
+    if (r.kind === "refused-or-failed") {
+      args.releaseHeld();
+      return {
+        kind: "refused",
+        adopted: false,
+        anomaly: {
+          kind: "unconverged",
+          running: current.identity,
+          expected: baked,
+          cause: { kind: "adopt-bind-failed", axis },
+          detail:
+            "bind refused or failed after admitted drain of bound resident",
+        },
+      };
+    }
+
+    // adopted-resident — fold through the single authority (may re-enter drain).
+    args.baseCtx.heldBind = r;
+    args.baseCtx.lastKnownRunning = current.identity;
+    const folded = await foldBindResult(r, args.baseCtx);
+
+    if (folded.kind === "adopted") {
+      return {
+        kind: "drained-replacing",
+        axis,
+        running: current.identity,
+        bind: r,
+      };
+    }
+
+    // Authority owns the successor transition (recursive drain / refuse / stale).
+    return folded;
   } finally {
     args.disposeInitial();
   }
@@ -657,6 +717,7 @@ async function enactGiveUp(args: {
   if (g.kind === "adopt-stale") {
     const r = await args.bind();
     if (r.kind === "refused-or-failed") {
+      args.releaseHeld();
       return {
         kind: "refused",
         adopted: false,
@@ -669,8 +730,7 @@ async function enactGiveUp(args: {
         },
       };
     }
-    // Single authority: fold the bind characterization with rideStale so
-    // decide still owns the fold, but drain is never re-enacted.
+    // Fold characterization with rideStale (no re-drain; clean adopt if exact).
     args.baseCtx.rideStale = g.anomaly;
     args.baseCtx.lastKnownRunning = args.running;
     return foldBindResult(r, args.baseCtx);
@@ -708,68 +768,16 @@ export async function converge<
     log: endpoint.log,
     bind,
     releaseHeld,
-    holding: false,
     lastKnownRunning: null,
     resolveDrainable,
     heldBind: null,
     rideStale: null,
   };
 
+  // Every observation — including initial absence and failure — through the
+  // single authority. No public-tail bind shortcuts.
   const initial = await observeProbe(() => endpoint.probe());
-
-  // Absent primary → bind, then fold the bind characterization through the
-  // single authority (same path as every other identity observation).
-  if (initial.kind === "absent") {
-    return foldBindResult(await bind(), ctx);
-  }
-
-  // Failed probe → foldObserved (running-unknown: lastKnownRunning is null).
-  if (initial.kind === "failed") {
-    return foldObserved(initial, ctx);
-  }
-
-  // Identity observation. foldObserved may transfer drainable ownership into
-  // enactDrainLoop (which calls disposeInitial). Track whether dispose is owed.
-  let disposed = false;
-  const disposeOnce = (): void => {
-    if (!disposed) {
-      disposed = true;
-      initial.dispose();
-    }
-  };
-
-  // Wrap dispose so enactDrainLoop's disposeInitial uses disposeOnce.
-  const obs: Observation = {
-    kind: "identity",
-    identity: initial.identity,
-    instanceKey: initial.instanceKey,
-    drainable: initial.drainable,
-    dispose: disposeOnce,
-  };
-
-  try {
-    const out = await foldObserved(obs, ctx);
-
-    if (out.kind === "adopted" && !ctx.holding) {
-      return foldBindResult(await bind(), ctx);
-    }
-
-    if (out.kind === "mismatch-reported" && !ctx.holding) {
-      const r = await bind();
-      if (r.kind === "adopted-resident") {
-        return {
-          kind: "mismatch-reported",
-          running: out.running,
-          bind: r,
-        };
-      }
-      return foldBindResult(r, ctx);
-    }
-
-    return out;
-  } finally {
-    disposeOnce();
-  }
+  return foldObserved(initial, ctx);
 }
 
-export { instanceKeyFromStartedAt };
+export { instanceKeyFromStartedAt, instanceKeyTag };

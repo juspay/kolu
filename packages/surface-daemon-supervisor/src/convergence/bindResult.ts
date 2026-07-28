@@ -3,8 +3,8 @@
  * `adoptOrSpawnOrRefuse`). Replaces the overloaded boolean that conflated
  * "spawned a fresh expected daemon" with "failed".
  *
- * An adopted resident carries a **three-valued characterization** of the held
- * rendezvous (W5): characterized identity | honest absent | thrown failure.
+ * An adopted resident carries a **four-valued characterization** of the held
+ * rendezvous: characterized | honest absent | thrown failure | uncorrelated.
  * Never catch-to-null — that collapsed probe-failed into identity-unverifiable.
  */
 
@@ -13,7 +13,7 @@ import type { InstanceKey } from "./instanceKey.ts";
 
 /**
  * Package-owned characterization of a just-adopted resident at the held
- * rendezvous. Three arms — never a silent null for throws.
+ * rendezvous. Four arms — never a silent null for throws or key mismatches.
  */
 export type BoundResidentCharacterization =
   | {
@@ -26,7 +26,7 @@ export type BoundResidentCharacterization =
   /** Identity probe threw — message preserved for probe-failed. */
   | { readonly kind: "failed"; readonly message: string }
   /**
-   * Probe answered but did not describe the held connection (instance key
+   * Probe answered but did not describe the held connection (named instance key
    * uncorrelated with conn.startedAt, or connection replaced mid-probe).
    */
   | { readonly kind: "uncorrelated" };
@@ -34,7 +34,7 @@ export type BoundResidentCharacterization =
 export type BindResult =
   /**
    * Connected to a live resident survivor (children preserved).
-   * Characterization is always populated (three-valued).
+   * Characterization is always populated (four-valued).
    */
   | {
       readonly kind: "adopted-resident";
