@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-28T00:46:25.348567+00:00'
+generated_at: '2026-07-28T15:42:14.716570+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -23,6 +23,8 @@ dependencies:
   - .agents/skills/bridge/dashboard/index.html
   - .agents/skills/bridge/dashboard/index.js
   - .agents/skills/bridge/dashboard/red-alert.mp3
+  - .agents/skills/coordinator
+  - .agents/skills/coordinator/SKILL.md
   - .agents/skills/diataxis
   - .agents/skills/diataxis/SKILL.md
   - .agents/skills/kolu
@@ -51,6 +53,8 @@ dependencies:
   - .claude/skills/bridge/dashboard/index.html
   - .claude/skills/bridge/dashboard/index.js
   - .claude/skills/bridge/dashboard/red-alert.mp3
+  - .claude/skills/coordinator
+  - .claude/skills/coordinator/SKILL.md
   - .claude/skills/diataxis
   - .claude/skills/diataxis/SKILL.md
   - .claude/skills/kolu
@@ -75,6 +79,7 @@ dependencies:
     .agents/skills/bridge/dashboard/index.html: sha256:7289bb60245087ce5b57c833bd8bb2b766153cec31b92a413647547b3e9742b0
     .agents/skills/bridge/dashboard/index.js: sha256:f58c4b996f6b9df7f13f30fbd061404cbc95ab3e5881f53066cde199f3501f38
     .agents/skills/bridge/dashboard/red-alert.mp3: sha256:61a535db70bb68738df7929c29b11a3bcb11ca23bf5eb7793a0b84f3e699e0fb
+    .agents/skills/coordinator/SKILL.md: sha256:abac6960f10c8ce2603f94e9101cbbd3e876f073c13e6b3741698d98eaff39c7
     .agents/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .agents/skills/kolu/SKILL.md: sha256:4688c89300aca3571358285502c0dbb8612656020baee760c86f34ff6b979291
     .agents/skills/kolu/TUI.md: sha256:e7a206b1f1d2738bdaf2e2af3bdfdb785da94872df03d45e7ac47ae92361244c
@@ -93,6 +98,7 @@ dependencies:
     .claude/skills/bridge/dashboard/index.html: sha256:7289bb60245087ce5b57c833bd8bb2b766153cec31b92a413647547b3e9742b0
     .claude/skills/bridge/dashboard/index.js: sha256:f58c4b996f6b9df7f13f30fbd061404cbc95ab3e5881f53066cde199f3501f38
     .claude/skills/bridge/dashboard/red-alert.mp3: sha256:61a535db70bb68738df7929c29b11a3bcb11ca23bf5eb7793a0b84f3e699e0fb
+    .claude/skills/coordinator/SKILL.md: sha256:abac6960f10c8ce2603f94e9101cbbd3e876f073c13e6b3741698d98eaff39c7
     .claude/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .claude/skills/kolu/SKILL.md: sha256:4688c89300aca3571358285502c0dbb8612656020baee760c86f34ff6b979291
     .claude/skills/kolu/TUI.md: sha256:e7a206b1f1d2738bdaf2e2af3bdfdb785da94872df03d45e7ac47ae92361244c
@@ -1060,6 +1066,24 @@ deployments:
   content_hash: sha256:8d188754eaf56063de720a0c02fa927db3b56ff5fa30d0e612893ca8798da899
 - kind: project-relative
   target: claude
+  value: .claude/skills/coordinator
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/coordinator/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: sha256:abac6960f10c8ce2603f94e9101cbbd3e876f073c13e6b3741698d98eaff39c7
+- kind: project-relative
+  target: claude
   value: .claude/skills/dev-server
   runtime: null
   scope: project
@@ -1877,6 +1901,24 @@ deployments:
   - srid/agency
   active_owner: srid/agency
   content_hash: sha256:8d188754eaf56063de720a0c02fa927db3b56ff5fa30d0e612893ca8798da899
+- kind: project-relative
+  target: codex
+  value: .agents/skills/coordinator
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/coordinator/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: sha256:abac6960f10c8ce2603f94e9101cbbd3e876f073c13e6b3741698d98eaff39c7
 - kind: project-relative
   target: codex
   value: .agents/skills/diataxis
