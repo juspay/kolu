@@ -50,6 +50,15 @@ import {
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
+import type { FailureEvidence } from "./evidence";
+import { FailureEvidenceSchema } from "./evidence";
+
+export {
+  type EvidenceLine,
+  EvidenceLineSchema,
+  type FailureEvidence,
+  FailureEvidenceSchema,
+} from "./evidence";
 
 // ── Membership identity (PR3) ───────────────────────────────────────────
 
@@ -77,47 +86,10 @@ export const PENDING_MEMBERSHIP_ID: MembershipId =
   MembershipIdSchema.parse("pending");
 
 // ── Failure evidence ───────────────────────────────────────────────────
-
-/** One retained output line of a failed entry's episode — the WHOLE structural
- *  vocabulary {@link FailureEvidence} is built from. `source` says WHERE the line
- *  came from (`"local"` = the serving process's own chatter, `"remote"` = the far
- *  end's forwarded output); it is a FIELD, never an in-band `[local] ` prefix.
- *
- *  Deliberately a FIXED structural type owned by this package, NOT a third generic
- *  parameter beside `Failure`/`Conn`. Evidence is not domain volatility: every
- *  transport that can fail can produce provenance-tagged output lines, and
- *  `@kolu/surface-remote`'s own `SessionState.log` (`readonly LogEntry[]`) is
- *  structurally exactly this — so the producer passes its retained tail straight
- *  through (reuse of the existing source of truth; there is no second evidence
- *  pipe to keep in sync, and nothing to inject). */
-export interface EvidenceLine {
-  readonly source: "local" | "remote";
-  readonly line: string;
-}
-
-/** The retained output tail STAPLED to a failure record — the EVIDENCE for the
- *  reason, pinned at the classification seam from the same frame the reason was
- *  classified from. A post-mortem record, not a live view.
- *
- *  It rides the FAILURE, not the live `connection` payload, and that is the whole
- *  point: `floorOnLiveness` DROPS `connection` over a dead link (a frozen live word
- *  keeps narrating work that is no longer happening) while keeping `failure` — so
- *  before this existed, a consumer could hold a reason with its evidence already
- *  floored away, and kolu did exactly that for a year (juspay/kolu#2007). Carrying
- *  the tail on the failure record makes reason-without-evidence UNSPELLABLE: the
- *  type requires it on both down arms, {@link entryStatusSchema} requires it on the
- *  wire, and the floor keeps it by construction.
- *
- *  The move is only complete because the OLD home was also closed: the published
- *  `failed` arm carries no `connection` at all. Had it kept one, the same frame's tail
- *  would ride the entry twice and `connection?.log` would still be the spellable,
- *  compiling, floorable read the whole change exists to remove — the defect relocated
- *  rather than eliminated. One tail, one home, one arm that can hold it.
- *
- *  `[]` is a REAL value with ONE meaning — "the failure genuinely produced no
- *  output" — minted only by the seam that knows. It is never a fallback for
- *  "we couldn't see it": there is no such state on a failed arm any more. */
-export type FailureEvidence = readonly EvidenceLine[];
+//
+// The vocabulary itself lives in the zod-only leaf `./evidence` (see its header for
+// why), and is re-exported here so `define.ts` remains the one import site for a map's
+// whole contract vocabulary.
 
 /** A domain failure and the EVIDENCE for it — ONE record, with ONE name. Wherever a
  *  down state carries a reason it carries this whole record, so the pairing rule is a
@@ -134,19 +106,6 @@ export interface FailureRecord<Failure = unknown> {
   readonly failure: Failure;
   readonly evidence: FailureEvidence;
 }
-
-/** The wire/zod schema for {@link FailureEvidence}. A module const (not a function
- *  of a domain schema like the failure value): evidence is a fixed structural type
- *  this package owns, so there is exactly one schema for it.
- *
- *  MODULE-PRIVATE on purpose. Evidence reaches the wire through exactly one door —
- *  {@link entryStatusSchema}'s failed arm — so nothing outside this file has a reason to
- *  hold the schema, and exporting it would invite a SECOND validation site for a value
- *  the entry status already validates. Export it the day a consumer genuinely needs it,
- *  not before. */
-const FailureEvidenceSchema: ZodType<FailureEvidence> = z
-  .array(z.object({ source: z.enum(["local", "remote"]), line: z.string() }))
-  .readonly();
 
 // ── Membership status ──────────────────────────────────────────────────
 

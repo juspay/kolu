@@ -15,11 +15,19 @@
  * the coarse dot (see `serveHostMap`). This module keeps only the browser-safe TYPE +
  * schema + the pure {@link projectConnection} leaf a consumer derives the word from the
  * entry with; the cell, its gate-closed seed, its readiness `liveWhen`, and the
- * `mirroredSurface` seam that composed it are gone. THIS module imports only `zod` (and
- * type-only session shapes), so it rides the browser bundle.
+ * `mirroredSurface` seam that composed it are gone. THIS module imports only `zod`,
+ * `@kolu/surface-map/evidence` (itself zod-only), and type-only session shapes — so it
+ * rides the browser bundle.
  */
 
-import type { EvidenceLine } from "@kolu/surface-map";
+// The failure-evidence vocabulary, from `@kolu/surface-map`'s zod-only `./evidence`
+// leaf rather than its default entry: the default entry is the CONTRACT half, which
+// imports `@orpc/contract` and `@kolu/surface/define` as VALUES, and this module's
+// browser-bundle constraint (below) is that it pulls neither.
+import {
+  type EvidenceLine,
+  EvidenceLineSchema,
+} from "@kolu/surface-map/evidence";
 import { z } from "zod";
 // TYPE-ONLY (erased at runtime): the connection value IS `SessionState<SshProv>`, so this
 // module keeps ONE connection-state type family. Neither import pulls the node/server
@@ -37,19 +45,19 @@ import type { SshProv } from "./sshConnector";
  *  session's retained tail straight through (`evidence: down.log`); that only ever
  *  compiled because the two vocabularies were element-for-element identical, and this
  *  alias makes the identity the DEFINITION rather than a fact a separate file had to
- *  monitor. `import type` is erased, so this module's browser-bundle constraint (zod +
- *  type-only shapes) is untouched. */
+ *  monitor. */
 export type LogEntry = EvidenceLine;
 
-/** The wire validator for {@link LogEntry}. A zod schema must exist (a wire value needs a
- *  concrete browser-safe validator, which a TS type is not) — annotating it
- *  `ZodType<LogEntry>` is what makes a one-sided edit to either vocabulary a compile
- *  error HERE, in the file that owns the schema, rather than a confusing assignment
- *  failure inside `serveHostMap` in another package. */
-export const LogEntrySchema: z.ZodType<LogEntry> = z.object({
-  source: z.enum(["local", "remote"]),
-  line: z.string(),
-});
+/** The wire validator for {@link LogEntry} — it IS `@kolu/surface-map`'s
+ *  {@link EvidenceLineSchema}, for the same reason {@link LogEntry} is `EvidenceLine`:
+ *  one definition beats two definitions plus a guard.
+ *
+ *  A re-declared twin annotated `z.ZodType<LogEntry>` was the guard here before, and it
+ *  did not guard in the likelier edit direction — TypeScript accepts a NARROWER schema
+ *  annotated as a wider type, so adding a third `source` provenance upstream would have
+ *  left this twin silently rejecting the new value at runtime while compiling clean. An
+ *  alias has no direction to be blind in. */
+export const LogEntrySchema = EvidenceLineSchema;
 
 const logSchema = z.array(LogEntrySchema).readonly();
 

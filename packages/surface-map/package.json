@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./evidence": "./src/evidence.ts",
     "./server": "./src/server.ts",
     "./client": "./src/client.ts",
     "./testing": "./src/testing.ts"

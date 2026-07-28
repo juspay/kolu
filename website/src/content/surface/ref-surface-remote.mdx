@@ -237,7 +237,7 @@ is the `source` field.
 | `sessionConnection(raw)` | `/connection` | the total `(raw: SessionState<string> \| undefined) → ConnectionInfo` projection a host map feeds to `serveHostMap`'s `connection.project`: folds the gate-closed pending value for a not-yet-seeded member, validates the erased frame against `ConnectionInfoSchema` (fail-loud on a non-ssh / malformed frame), and returns the frame (reference-stable) otherwise |
 | `ConnectionInfo` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the browser-safe type + wire schema (the host map validates the entry's `connection` payload against it) + the gate-closed pending value |
 | `ConnectPhase` | `/connection` | the up-but-not-yet-connected phase subset a connect/progress UI narrates — `Exclude<ConnectionInfo["phase"], "connected" \| "disconnected" \| "failed">` (i.e. `SshProv \| "connecting"`), the ONE vocabulary a UI's exhaustive `switch`/`Record` keys on so a new provisioning phase fails to compile until handled (never a silent hand-listed copy) |
-| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — a type alias of `@kolu/surface-map`'s `EvidenceLine` (the same concept, so the same type), with the zod validator annotated `ZodType<LogEntry>` |
+| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — aliases of `@kolu/surface-map`'s `EvidenceLine` / `EvidenceLineSchema` (the same concept, so the same type *and* the same validator, taken from the zod-only `@kolu/surface-map/evidence` leaf so this browser-safe module still pulls no contract code) |
 
 ## A mirror, end to end
 
