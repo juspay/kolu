@@ -102,6 +102,16 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         gatePath: d.gatePath,
         socketPath: d.socketPath,
       },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           // The recycle must have killed the survivor before we spawn.
@@ -184,6 +194,16 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         gatePath: d.gatePath,
         socketPath: d.socketPath,
       },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawned = true;

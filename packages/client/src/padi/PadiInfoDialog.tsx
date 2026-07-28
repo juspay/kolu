@@ -117,6 +117,10 @@ const CONVERGENCE_PRESENTATION: Record<
   },
   "skew-refused": { title: "Contract skew — refused", tone: "down" },
   unconverged: { title: "Could not converge the remote padi", tone: "down" },
+  "cross-supervisor": {
+    title: "Another supervisor owns this host",
+    tone: "down",
+  },
   "link-failed": { title: "Remote link failed", tone: "down" },
 };
 

@@ -45,7 +45,6 @@ import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
-  createBuildDrainFence,
   createEndpoint,
   daemonBuild,
 } from "@kolu/surface-daemon-supervisor";
@@ -80,7 +79,7 @@ import {
 } from "./padiBinding.ts";
 // padi's convergence declaration + probe moved to `./padiConvergence.ts` in L6.
 import {
-  PADI_CONVERGENCE_POLICY,
+  padiConvergencePolicy,
   probePadiForConvergence,
 } from "./padiConvergence.ts";
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
@@ -671,7 +670,15 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     const newerBinderVersion = `${maj}.${Number(min) + 1}`;
 
     // Build the SAME endpoint `ensurePadiBinding` builds, and run the REAL
-    // `converge` (`probePadiForConvergence` → drain) as that newer binder.
+    // `converge(ep)` as that newer binder. Policy carries the strictly-NEWER
+    // contract; baked build is off-nix so only the CONTRACT axis fires.
+    const newerPolicy = {
+      ...padiConvergencePolicy(""),
+      baked: {
+        contractVersion: newerBinderVersion,
+        build: daemonBuild(""),
+      },
+    };
     const ep = createEndpoint({
       hostId: PADI_HOST_ID,
       home: {
@@ -679,6 +686,8 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
         gatePath: padiGatePath(socketPath),
         socketPath,
       },
+      policy: newerPolicy,
+      probe: (path) => probePadiForConvergence(path),
       driver: localPadiDriver(
         stateRoot,
         socketPath,
@@ -691,18 +700,7 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
       log: silentLog,
       onStatus: () => {},
     });
-    await converge({
-      endpoint: ep,
-      // strictly NEWER contract than the running padi. From-source padi has no baked
-      // PADI_BUILD_ID, and this exercises the CONTRACT drain — so the baked build is the
-      // null-free `off-nix` DaemonBuild (RB6: the "" sentinel is gone), keeping the BUILD
-      // axis dormant.
-      baked: { contractVersion: newerBinderVersion, build: daemonBuild("") },
-      probe: () => probePadiForConvergence(socketPath),
-      policy: PADI_CONVERGENCE_POLICY,
-      buildFence: createBuildDrainFence(),
-      log: silentLog,
-    });
+    await converge(ep);
 
     // padi gate pid CHANGED — the old padi drained (persist + exit), a fresh (this
     // binder's own) padi spawned in its place.
@@ -766,7 +764,7 @@ describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure
   const build = (): PadiSession =>
     ensurePadiBinding({ stateRoot: makeStateRoot(), reconnectDelayMs: 10_000 });
 
-  it("surfaces NO convergence anomaly (the LOCAL arm's `convergence()` is always null)", () => {
+  it("surfaces no convergence anomaly before any dial (standing anomaly is set by converge)", () => {
     const s = build();
     expect(s.convergence()).toBeNull();
     s.destroy();

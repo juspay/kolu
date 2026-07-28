@@ -33,7 +33,11 @@ import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
 } from "@kolu/padi/surface";
-import { daemonBuild, decide } from "@kolu/surface-daemon-supervisor";
+import {
+  convergeAdmit,
+  createDrainBudget,
+  daemonBuild,
+} from "@kolu/surface-daemon-supervisor";
 import {
   type Admit,
   type AdmitVerdict,
@@ -55,12 +59,13 @@ import {
   LOCAL_HOST,
 } from "kolu-common/surfacesWithPadi";
 import { log } from "../log.ts";
-// padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
-// feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
+// padi's convergence policy — ONE declaration for BOTH arms. The remote arm enacts
+// via `convergeAdmit` (same decision table + budget as the local `converge(endpoint)`).
 import {
   drainAndAwaitExit,
   drainRejectionSuffix,
-  PADI_CONVERGENCE_POLICY,
+  padiConvergencePolicy,
+  toPadiConvergence,
 } from "./padiConvergence.ts";
 import {
   asPadiSession,
@@ -76,9 +81,8 @@ const REMOTE_DRAIN_TEARDOWN_CEILING_MS = 6000;
 /** Poll cadence for the post-drain liveness check (an ssh `control.core.hello`
  *  round-trip each tick). */
 const REMOTE_DRAIN_POLL_MS = 150;
-/** How many times a SINGLE build-mismatched padi instance may be drained before the
- *  binder gives up and adopts it loudly. Bounds a flapping ssh link so it converges to
- *  a loud state instead of re-draining forever. */
+/** Default maxAttempts for the drain budget when deps do not override — matches
+ *  {@link padiConvergencePolicy}'s production budget. */
 const MAX_BUILD_DRAINS_PER_INSTANCE = 3;
 
 const sleep = (ms: number): Promise<void> =>
@@ -257,18 +261,7 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
   };
 }
 
-/** {@link admitDrain}'s verdict: drain this instance (with the attempt number), or GIVE
- *  UP draining it. Give-up carries `why` so the caller can distinguish the two
- *  anti-livelock exits — `cross-supervisor` (a DIFFERENT live instance keeps replacing
- *  the one we drained: another supervisor is fighting us → D3 fail-honest, both axes),
- *  vs `budget` (the SAME instance survived every drain: a flapping link → the axis's own
- *  fallback, `unconverged` for contract / `adopt-stale` for build). */
-type DrainAdmission =
-  | { kind: "drain"; attempt: number }
-  | { kind: "giveUp"; why: "cross-supervisor" | "budget"; reason: string };
-
-/** The convergence deps — the binder's side of the two-axis drain decision + the
- *  instance-keyed drain budget. All default to production values; injected in tests. */
+/** The convergence deps — binder identity + budget/ceiling knobs for tests. */
 export interface RemotePadiSessionDeps {
   binderVersion?: string;
   binderBuildId?: string;
@@ -337,61 +330,52 @@ export function ensureRemotePadiBinding(
     deps.drainTeardownCeilingMs ?? REMOTE_DRAIN_TEARDOWN_CEILING_MS;
   const drainPollMs = deps.drainPollMs ?? REMOTE_DRAIN_POLL_MS;
 
+  // ONE policy object for both arms; budget memory is per-supervisor-boot and
+  // SURVIVES adopts (no reset-on-adopt — that wiped the cross-supervisor signal).
+  const policy = {
+    ...padiConvergencePolicy(binderBuildId),
+    // Tests may tighten the budget; production uses the policy's own maxAttempts.
+    drainBudget: {
+      maxAttempts: maxDrains,
+      onGiveUp: "adopt-stale" as const,
+    },
+    // Allow a test to pin a different contract version than PADI_SURFACE_VERSION.
+    baked: {
+      contractVersion: binderVersion,
+      build: daemonBuild(binderBuildId),
+    },
+  };
+  const budget = createDrainBudget(policy.drainBudget);
+
   // ── Arm-local convergence state (closures, not class fields) ────────────────
   // The standing convergence anomaly `convergence()` surfaces (adopted-stale / skew /
-  // unconverged / link-failed), or null when healthy/bound.
+  // unconverged / cross-supervisor / link-failed), or null when healthy/bound.
+  // Framework anomalies ride here; `link-failed` is session-owned (set by onState).
   let convergence: PadiConvergence | null = null;
   // The COMBINED dialed client (control.core + padi), stashed by the connector so the
   // post-connect `admit` + `renew` can reach `control.core.hello`/`.drain`. The
   // SESSION's client is the padi-SCOPED view; both are one connection.
   let combined: PadiDaemonClient | null = null;
-  // Instance-keyed build-drain state (NOT a global boolean fence — over ssh a hello()
-  // rejection can be a link BLIP, so a once-per-boot boolean would falsely spend and
-  // then adopt the stale build forever). `drainedInstance` is the `startedAt` of the
-  // instance we are converging; `drainAttempts` how many drains that SAME instance
-  // survived. Reset only when a matched build is adopted.
-  let drainedInstance: number | null = null;
-  let drainAttempts = 0;
   // D2: the running/expected padiSurface CONTRACT version pair for a STANDING
-  // `skew-refused` verdict — set alongside `convergence` in the "refuse" branch below,
-  // cleared alongside it on "adopt". `entryFailedDetail()` (below) attaches it as the
-  // TYPED sidecar on the `contract-skew-refused` cause (D2's "zero string-scans").
+  // `skew-refused` verdict — set from the framework anomaly, cleared on clean adopt.
   let skewVersions: { running: string; expected: string } | null = null;
-  // D3: a STANDING cross-supervisor verdict's detail (a DIFFERENT live supervisor is
-  // respawning this host's padi — `admitDrain`'s different-instance fight-detection),
-  // or `null`. Set alongside `convergence` in `crossSupervisor()`, cleared everywhere a
-  // NON-cross convergence lands (each set-site owns it, mirroring `skewVersions`). Drives
-  // the map's TYPED `cross-supervisor` cause (checked FIRST in `computeEntryFailedDetail`,
-  // since `crossSupervisor` parks under the `unconverged` convergence banner).
-  let crossSupervisorDetail: string | null = null;
-  // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null` —
-  // set by the `resolveDrvPath` wrapper below (via `PadiDrvFault`), reset at the START
-  // of every attempt so a later successful resolve clears a stale fault.
+  // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null`.
   let drvFaultCause: DrvFaultCause | null = null;
 
   /** The D1+D2 domain detail for the map's `EntryStatus` — derived from the SAME
-   *  `convergence`/`skewVersions`/`drvFaultCause` closures above rather than a
-   *  separately-maintained parallel state machine, so it can never drift out of sync
-   *  with `convergence()`'s own (already-correct) lifecycle. `cross-supervisor` is
-   *  RESERVED (see `EntryFailedCause`'s doc) — never returned here yet. */
+   *  `convergence`/`skewVersions`/`drvFaultCause` closures above. Cross-supervisor
+   *  is a real framework anomaly arm now (no sidecar flag). */
   function computeEntryFailedDetail(): PadiEntryFailedDetail | null {
-    // FIRST: a cross-supervisor fight parks under the `unconverged` convergence banner
-    // (no dedicated PadiConvergence state), so its dedicated flag must win over the
-    // `unconverged` cause below — else a genuine cross-supervisor would misreport.
-    if (crossSupervisorDetail !== null) return { cause: "cross-supervisor" };
+    if (convergence?.state === "cross-supervisor") {
+      return { cause: "cross-supervisor" };
+    }
     if (convergence?.state === "skew-refused") {
       return skewVersions
         ? { cause: "contract-skew-refused", ...skewVersions }
         : { cause: "contract-skew-refused" };
     }
     if (convergence?.state === "unconverged") return { cause: "unconverged" };
-    // A standing drv fault BEFORE the generic link banner: a terminal give-up
-    // sets `convergence = link-failed` (the `onState` tracker below), but when
-    // the dial's own resolution named a finer fault — an ssh refusal, an
-    // unbaked source — THAT is the actionable truth, and "can't reach this
-    // host" would mask its remedy. `drvFaultCause` resets at the start of
-    // every attempt, so it is always the CURRENT campaign's finding, never a
-    // stale one outliving a recovery.
+    // A standing drv fault BEFORE the generic link banner.
     if (drvFaultCause !== null) return { cause: drvFaultCause };
     if (convergence?.state === "link-failed") return { cause: "link-failed" };
     return null;
@@ -429,23 +413,13 @@ export function ensureRemotePadiBinding(
     return { ...conn, client: scopePadiSurface(conn.client) };
   };
 
-  // ── Drain plumbing: the ssh arm's plug into the shared drainAndAwaitExit ──────
-  /** Drain the combined client over the frozen control core, then confirm the daemon
-   *  exited. The shared {@link drainAndAwaitExit} skeleton owns the arm-before-drain,
-   *  fire-and-forget, and ceiling race; this arm supplies only the ssh exit signal —
-   *  a `hello` POLL until it rejects (ssh has no socket-close event). Returns
-   *  `took: true` if the link died within the window (drain took → reconnect respawns),
-   *  `false` if the daemon kept answering (drain did not take — adopt/refuse, NEVER a
-   *  kill). */
+  // ── Drain plumbing: the ssh arm's plugs into the framework drainAndAwaitExit ──
+  /** Fire the control-core drain + await exit via hello-poll (ssh has no socket-close). */
   function drainAndAwaitClose(
     c: PadiDaemonClient,
   ): Promise<{ took: boolean; drainRejection: string | null }> {
     return drainAndAwaitExit(
-      c,
-      // The ssh exit signal: keep pinging the frozen control core until `hello`
-      // rejects (the daemon is gone). The abort signal — raised the instant the
-      // skeleton's ceiling wins — stops the poll so a not-taken drain never leaks
-      // an ssh hello every tick after it returns.
+      () => c.surface.control.core.drain(),
       async (signal) => {
         while (!signal.aborted) {
           try {
@@ -461,31 +435,9 @@ export function ensureRemotePadiBinding(
     );
   }
 
-  /** Instance-keyed drain ADMISSION — shared by both convergence axes. Re-draining the
-   *  SAME never-exited instance (a blip) is admitted up to a per-instance budget; a
-   *  DIFFERENT instance still wrong after a drain this boot (two supervisors / the
-   *  absent-id dev loop) is the treadmill → give up. */
-  function admitDrain(instance: number | null, why: string): DrainAdmission {
-    if (drainedInstance !== null && instance !== drainedInstance) {
-      return {
-        kind: "giveUp",
-        why: "cross-supervisor",
-        reason: `${why}: a DIFFERENT padi instance (startedAt ${instance}) is still wrong after draining ${drainedInstance} this boot — another supervisor is respawning it (anti-livelock)`,
-      };
-    }
-    if (instance === drainedInstance && drainAttempts >= maxDrains) {
-      return {
-        kind: "giveUp",
-        why: "budget",
-        reason: `${why}: instance startedAt ${instance} survived ${drainAttempts} drain attempts without exiting — a flapping link / respawn loop that will not converge`,
-      };
-    }
-    drainedInstance = instance;
-    drainAttempts += 1;
-    return { kind: "drain", attempt: drainAttempts };
-  }
-
-  // ── The admit hook: control-core hello + decide → adopt / refuse / replaced ──
+  // ── The admit hook: control-core hello → convergeAdmit ─────────────────────
+  // No raw decide(), no admitDrain, no convergeNewerContract / convergeBuildMismatch —
+  // the framework owns the decision table, budget, race, and cross-supervisor memory.
   const admit: Admit<PadiSurfaceClient> = async (): Promise<AdmitVerdict> => {
     const c = combined;
     if (c === null) {
@@ -493,226 +445,96 @@ export function ensureRemotePadiBinding(
       throw new Error("remote padi admit: no combined client stashed");
     }
     const hello = await c.surface.control.core.hello();
-    // The far-end clock offset is no longer hand-measured here: `makeSession` samples
-    // it off the framework-reserved `system.clockNow` when it adopts this connection
-    // and carries it on the session's own `connected` state (a keyed map reads it there).
-    const running = hello.surfaceVersion;
-    const instance = hello.startedAt ?? null;
     const runningBuild = hello.buildId ?? "";
 
-    // The SAME pure `decide()` table the LOCAL arm runs, over ONE PADI_CONVERGENCE_POLICY.
-    // `buildFenceSpent: false` — the kit's once-per-boot boolean fence is the LOCAL
-    // arm's; over ssh `admitDrain`'s instance-keyed budget owns the drain decision.
-    const decision = decide(
-      { contractVersion: binderVersion, build: daemonBuild(binderBuildId) },
-      { contractVersion: running, build: daemonBuild(runningBuild) },
-      PADI_CONVERGENCE_POLICY,
-      false,
-    );
+    // Preserve the #1670 build-change breadcrumb when a build-axis drain fires —
+    // the VM adoption arm greps this string. Logged here (before convergeAdmit)
+    // only when the pure decision would drain on build; the framework logs its own
+    // generic line too.
+    const verdict = await convergeAdmit({
+      running: {
+        contractVersion: hello.surfaceVersion,
+        build: daemonBuild(runningBuild),
+        instanceKey: hello.startedAt ?? null,
+      },
+      policy,
+      budget,
+      drain: () => c.surface.control.core.drain(),
+      awaitExit: async (signal) => {
+        while (!signal.aborted) {
+          try {
+            await c.surface.control.core.hello();
+          } catch {
+            return;
+          }
+          if (signal.aborted) return;
+          await sleep(drainPollMs);
+        }
+      },
+      ceilingMs: drainCeilingMs,
+      log: log.child({ host }),
+    });
 
-    switch (decision.kind) {
-      case "adopt":
-        // Contract-compatible + build match (or off-nix binder) → ADOPT. Any prior
-        // drain genuinely took (a fresh instance replaced the drained one) — clear the
-        // instance tracker so a later genuine mismatch starts its own budget fresh.
-        drainedInstance = null;
-        drainAttempts = 0;
+    // Breadcrumb for build-axis drains that took (or attempted) — keep the VM arm green.
+    if (
+      verdict.kind === "replaced" &&
+      runningBuild !== "" &&
+      runningBuild !== binderBuildId
+    ) {
+      log.info(
+        { host, binderBuildId, runningBuild },
+        `padi build change on boot: running=${runningBuild} expected=${binderBuildId}` +
+          " — draining the survivor (persist + exit, its kaval + PTYs survive) and respawning this binder's own build (drain-on-build-mismatch, #1670)",
+      );
+    }
+
+    switch (verdict.kind) {
+      case "adopt": {
+        if (verdict.anomaly) {
+          convergence = toPadiConvergence(verdict.anomaly, binderBuildId);
+          skewVersions =
+            verdict.anomaly.kind === "skew-refused"
+              ? {
+                  running: verdict.anomaly.running.contractVersion,
+                  expected: binderVersion,
+                }
+              : null;
+        } else {
+          // Clean adopt — budget memory SURVIVES (not reset). Clear standing anomaly.
+          convergence = null;
+          skewVersions = null;
+        }
+        return { kind: "adopt" };
+      }
+      case "replaced": {
+        // Drain took → reconnect will re-handshake. Standing anomaly cleared; budget
+        // retains the drained lineage so a foreign respawn is cross-supervisor.
         convergence = null;
         skewVersions = null;
-        crossSupervisorDetail = null;
-        return { kind: "adopt" };
-
+        return { kind: "replaced", reason: verdict.reason };
+      }
       case "refuse": {
-        // Contract skew + this binder OLDER/behind → REFUSE, never drain (#1313 +
-        // monotonicity): leave the survivor standing + degraded, upgrade kolu-server.
-        const msg = `padi contract skew: remote padi serves padiSurface ${running}, kolu-server needs ${binderVersion} — this binder is OLDER/behind, refusing`;
-        log.warn(
-          { host, binderVersion, running },
-          "remote padi survivor is a padiSurface skew and this binder is OLDER/behind — " +
-            "REFUSING (never draining a running padi; it is left standing + degraded).",
-        );
-        convergence = {
-          state: "skew-refused",
-          runningBuild: null,
-          expectedBuild: null,
-          detail: msg,
-        };
-        // D2: the TYPED contract-version pair — never re-scanned from `msg` by a
-        // consumer (kills the last version string-scan).
-        skewVersions = { running, expected: binderVersion };
-        crossSupervisorDetail = null;
+        convergence = toPadiConvergence(verdict.anomaly, binderBuildId);
+        skewVersions =
+          verdict.anomaly.kind === "skew-refused"
+            ? {
+                running: verdict.anomaly.running.contractVersion,
+                expected: binderVersion,
+              }
+            : null;
         return {
           kind: "refuse",
-          state: { error: msg, cause: "remote" },
+          state: { error: verdict.error, cause: "remote" },
         };
       }
-
-      case "drain-and-replace":
-        return decision.axis === "contract"
-          ? convergeNewerContract(running, instance)
-          : convergeBuildMismatch(c, running, runningBuild, instance);
-
-      default:
+      default: {
+        const _exhaustive: never = verdict;
         throw new Error(
-          `remote padi convergence: unreachable decision "${decision.kind}" for padi's policy with a live survivor`,
+          `remote padi admit: unreachable verdict ${JSON.stringify(_exhaustive)}`,
         );
+      }
     }
   };
-
-  /** ENACT a NEWER-contract drain. Instance-keyed + BOUNDED via {@link admitDrain}. A
-   *  treadmill / budget exhaustion → LOUD `unconverged`: an INCOMPATIBLE contract can
-   *  never be adopted (unlike a build mismatch), so there is no working canvas to ride. */
-  async function convergeNewerContract(
-    running: string,
-    instance: number | null,
-  ): Promise<AdmitVerdict> {
-    const admission = admitDrain(
-      instance,
-      `contract skew (binder ${binderVersion} newer than running ${running})`,
-    );
-    if (admission.kind === "giveUp")
-      return admission.why === "cross-supervisor"
-        ? crossSupervisor(admission.reason)
-        : unconverged(admission.reason);
-    const c = combined;
-    if (c === null)
-      throw new Error("remote padi: combined client gone mid-drain");
-    log.info(
-      { host, binderVersion, running, instance, attempt: admission.attempt },
-      `remote padi is a padiSurface skew and this binder is NEWER — draining it (instance ` +
-        `startedAt ${instance}, attempt ${admission.attempt}/${maxDrains})`,
-    );
-    const drain = await drainAndAwaitClose(c);
-    if (drain.took) {
-      // The reconnect brings up the newer closure; the cursor waits for it.
-      convergence = null;
-      crossSupervisorDetail = null;
-      return {
-        kind: "replaced",
-        reason:
-          "remote padi drained (newer contract) — reconnecting to the respawned newer build",
-      };
-    }
-    return unconverged(
-      `newer-binder drain did not take within ${drainCeilingMs}ms — the skewed padi kept answering (serves ${running}, kolu-server needs ${binderVersion})` +
-        drainRejectionSuffix(drain.drainRejection),
-    );
-  }
-
-  /** ENACT a build-mismatch drain (#1670). Instance-keyed + BOUNDED. A DIFFERENT
-   *  still-mismatched instance / budget exhaustion → ADOPT-LOUDLY the resident (canvas
-   *  WORKS, mismatch surfaced) — parity with the local kit's fence-spent→adopt row. */
-  async function convergeBuildMismatch(
-    c: PadiDaemonClient,
-    running: string,
-    runningBuild: string,
-    instance: number | null,
-  ): Promise<AdmitVerdict> {
-    const admission = admitDrain(
-      instance,
-      `build mismatch (running=${runningBuild} expected=${binderBuildId})`,
-    );
-    if (admission.kind === "giveUp") {
-      // A DIFFERENT instance keeps replacing the one we drained → another supervisor
-      // is fighting us (D3): STOP + fail-honest with `cross-supervisor`, do NOT ride a
-      // contested build (`adoptStale`) — the build we'd adopt is the loser of a race.
-      // Only the SAME-instance budget exhaustion (a flapping link) adopts-stale.
-      return admission.why === "cross-supervisor"
-        ? crossSupervisor(admission.reason)
-        : adoptStale(runningBuild, admission.reason);
-    }
-    log.info(
-      {
-        host,
-        binderBuildId,
-        runningBuild,
-        running,
-        instance,
-        attempt: admission.attempt,
-      },
-      `padi build change on boot: running=${runningBuild} expected=${binderBuildId}` +
-        ` — draining the survivor (instance startedAt ${instance}, attempt ${admission.attempt}/${maxDrains}; persist + exit, its kaval + PTYs survive) and respawning this binder's own build (drain-on-build-mismatch, #1670)`,
-    );
-    const drain = await drainAndAwaitClose(c);
-    if (drain.took) {
-      // Link died within the window — reconnect + re-handshake decides on the NEXT
-      // hello's startedAt (drain took → fresh instance adopts; a blip → re-drain the
-      // same, up to budget). NEVER adopt on this reply.
-      return {
-        kind: "replaced",
-        reason:
-          "remote padi drain / link death (build mismatch) — reconnecting to re-handshake the survivor",
-      };
-    }
-    // The daemon kept ANSWERING past the window — alive, wedged. Could not drain-replace
-    // → ADOPT-LOUDLY the resident build. Never a silent stale adopt.
-    return adoptStale(
-      runningBuild,
-      `remote padi drain did not take within ${drainCeilingMs}ms — the daemon kept answering (running=${runningBuild} expected=${binderBuildId})` +
-        drainRejectionSuffix(drain.drainRejection),
-    );
-  }
-
-  /** ADOPT-LOUDLY a build-mismatched survivor we could NOT drain-replace. Ride the
-   *  RESIDENT daemon (canvas WORKS — a LIVE client, `adopt`) and record a STANDING
-   *  `adopted-stale` state via {@link convergence}, surfaced in the Padi dialog. */
-  function adoptStale(runningBuild: string, reason: string): AdmitVerdict {
-    const detail = `${reason} — riding the resident daemon; upgrade the winner or stop the respawner to converge`;
-    log.warn(
-      { host, runningBuild, expectedBuild: binderBuildId },
-      `remote padi ADOPTED STALE (build mismatch, could not converge) — ${detail}`,
-    );
-    convergence = {
-      state: "adopted-stale",
-      runningBuild,
-      expectedBuild: binderBuildId,
-      detail,
-    };
-    crossSupervisorDetail = null;
-    return { kind: "adopt" };
-  }
-
-  /** D3 — a DIFFERENT live supervisor is respawning this host's padi (the remote twin
-   *  of the local `supervisor.pid` gate). The EXISTING anti-livelock fight-detection
-   *  (`admitDrain`'s different-instance give-up) IS the signal; rather than spin
-   *  (`unconverged`) or ride a contested build (`adoptStale`), STOP and fail HONEST with
-   *  the TYPED `cross-supervisor` cause — the primary isolation lever is
-   *  {@link KOLU_REMOTE_PADI_STATE_DIR_ENV}. REFUSE so the pump keeps the entry down +
-   *  degraded and re-decides on the next handshake (never a kill). Parked under the
-   *  `unconverged` convergence banner (no dedicated PadiConvergence state); the dedicated
-   *  `crossSupervisorDetail` flag is what makes the map's cause `cross-supervisor`. */
-  function crossSupervisor(msg: string): AdmitVerdict {
-    log.error({ host }, `remote padi CROSS-SUPERVISOR — ${msg}`);
-    convergence = {
-      state: "unconverged",
-      runningBuild: null,
-      expectedBuild: null,
-      detail: msg,
-    };
-    crossSupervisorDetail = msg;
-    return {
-      kind: "refuse",
-      state: { error: msg, cause: "remote" },
-    };
-  }
-
-  /** LOUD DEGRADED for the CONTRACT axis only — a NEWER-contract skew we could not
-   *  drain away. An incompatible padiSurface can never be adopted, so surface the
-   *  reason (like `refuse`) AND at `log.error`, and REFUSE so the pump keeps waiting. */
-  function unconverged(msg: string): AdmitVerdict {
-    log.error({ host }, `remote padi UNCONVERGED — ${msg}`);
-    convergence = {
-      state: "unconverged",
-      runningBuild: null,
-      expectedBuild: null,
-      detail: msg,
-    };
-    crossSupervisorDetail = null;
-    return {
-      kind: "refuse",
-      state: { error: msg, cause: "remote" },
-    };
-  }
 
   // ── The base session + the daemon-member spread ─────────────────────────────
   const base: Session<PadiSurfaceClient, SshProv> = makeSession<
@@ -746,9 +568,6 @@ export function ensureRemotePadiBinding(
         expectedBuild: null,
         detail: s.error,
       };
-      // A genuine ssh link death supersedes a standing cross-supervisor verdict — the
-      // link is now the honest failure; a reconnect re-decides ownership from scratch.
-      crossSupervisorDetail = null;
       combined = null;
     } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the

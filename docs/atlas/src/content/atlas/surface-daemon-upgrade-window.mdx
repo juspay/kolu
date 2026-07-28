@@ -82,33 +82,58 @@ daemonProcessMain({
   }),
 });
 
-// ── supervisor side: runs wherever the app supervises from ────────────────
-import {
-  createEndpoint, converge, survivableSpawnDriver, type ConvergencePolicy,
-} from "@kolu/surface-daemon-supervisor";
-
+// ── the policy IS the consumer's entire convergence surface ────────────────
+// baked folds into the policy: who I am + how I converge, stated once, read by
+// both enactments. (UW1 human-negotiated contract.)
 const POLICY: ConvergencePolicy<"drainable"> = {
   capability: "drainable",
+  baked: { contractVersion: PULSE_CONTRACT_VERSION, build: daemonBuild(myBakedId) },
   onContractSkew: { kind: "drain-newer-else-refuse" },
   onBuildMismatch: { kind: "drain-and-replace" },
-  drainBudget: { maxAttempts: 2, onGiveUp: "adopt-stale" }, // won't typecheck on "not-drainable"
+  drainBudget: { maxAttempts: 2, onGiveUp: "adopt-stale" }, // unspellable on "not-drainable"
 };
 
+// not-drainable consumer (kaval): drainBudget is UNSPELLABLE (type error) —
+// today's inert-fence ritual is DELETED, not renamed.
+const KAVAL_POLICY: ConvergencePolicy<"not-drainable"> = {
+  capability: "not-drainable",
+  baked: { contractVersion: PTY_HOST_CONTRACT_VERSION, build: daemonBuild(kavalBakedId) },
+  onContractSkew: { kind: "recycle" },
+  onBuildMismatch: { kind: "nudge-human" },
+};
+
+// ── endpoint arm (local supervisor) ──────────────────────────────────────
 const endpoint = createEndpoint({
   home: daemonHome({ app: "pulse", placement: "state" }), // SAME call — disagreement impossible
-  policy: POLICY,                              // stated once, here — no boot-method trio
-  baked: { contractVersion: PULSE_CONTRACT_VERSION, build: daemonBuild(myBakedId) },
+  policy: POLICY,                              // fixed here — boot-method trio goes INTERNAL
+  probe: (socketPath) => probePulse(socketPath),
   driver: survivableSpawnDriver({ binPath, args: ["--daemon"], env, unitPrefix: "pulse" }),
   connect: (socketPath) => connectPulse(socketPath), // the framework hands you the path
   log, onStatus,
 });
 
-const outcome = await converge(endpoint);      // probe → decide → drain/adopt/spawn, typed
-if (outcome.anomaly) showOnEntry(outcome.anomaly);
-// anomaly: adopted-stale | skew-refused | unconverged | cross-supervisor — never silence
+const outcome = await converge(endpoint);    // the ONLY boot verb
+showOnEntry(outcome.anomaly);
+// anomaly?: adopted-stale | skew-refused | unconverged | cross-supervisor
+// each arm carries evidence; absence = converged clean. link-failed is NOT
+// a framework arm (session-owned; consumers union it in app-side).
+
+await recycle(endpoint, { capture, drain, reattach });  // the ONLY replace verb
+
+// ── connector arm (ssh — SAME policy object, no endpoint) ────────────────
+const verdict = await convergeAdmit({
+  running: identityFrom(hello),              // what the dial found
+  policy: POLICY,
+  budget,                                    // per-boot memory; survives adopts
+  drain: () => client.control.drain(),       // fire-the-verb plug only
+  awaitExit: (signal) => pollHelloGone(signal), // framework races exit vs ceiling
+  ceilingMs: 6000,
+  log,
+});
+// verdict: adopt | replaced | refuse — same anomaly type as the endpoint arm
 ```
 
-A connector-shaped consumer (drishti over ssh, kolu's remote padi) calls `convergeAdmit(...)` instead of `converge(endpoint)`, with the *same* policy object. Everything underneath is shared.
+Commitments in that example: (1) policy object = whole surface, no fence object, no admit hook, no boot-method choice; (2) endpoint public verbs are exactly `converge` + `recycle`; (3) `convergeAdmit` takes plugs (fire + observe), the framework owns the race/ceiling/budget/cross-supervisor memory; (4) one anomaly type across both arms.
 
 ## Drishti: the second user
 
@@ -157,7 +182,7 @@ Lands: `daemonHome({ app, placement: "state" | "runtime", instance? })` in `surf
 
 **TL;DR:** the convergence kit becomes complete — one decision table, one drain protocol, one budget, every outcome a typed state, working over both endpoints and connectors. kolu's three arms delete their hand-rolled versions. Users see nothing new except states that used to be silent now show up in the host UI.
 
-Lands: `drainAndAwaitExit` (framework-run in both enactments), the Cap-gated policy budget (survives adopts; `BuildDrainFence` dies), `adopted-stale`, the four-arm `ConvergenceAnomaly`, `convergeAdmit`, boot-method trio goes private. kolu's local and ssh padi arms migrate in the same PR.
+Lands: `drainAndAwaitExit` (framework-run in both enactments), the Cap-gated policy budget (survives adopts; `BuildDrainFence` dies; `baked` folds into the policy), `adopted-stale`, the four-arm `ConvergenceAnomaly`, `convergeAdmit`, boot-method trio goes private (`converge` + `recycle` are the public verbs). kolu's local and ssh padi arms migrate in the same PR.
 
 **Done when:** `remotePadiBinding.ts` calls no raw `decide()` and defines no converge functions of its own; the `crossSupervisorDetail` flag and its check-me-first hazard are deleted; kaval's call site builds no budget and no fence; the VM adoption test still greps its breadcrumb; a unit test pins local `adopted-stale` (previously inexpressible); and a framework unit test proves the two-supervisor drain war ends in `cross-supervisor`, not livelock.<Footnote>Also: `daemonSession.ts`'s comment about convergence vocabulary gets updated. No drishti pair needed yet; odu verdict required.</Footnote>
 

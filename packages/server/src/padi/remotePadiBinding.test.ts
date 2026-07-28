@@ -577,14 +577,14 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(handles[1]!.drainCount).toBe(0);
   });
 
-  it("reset-on-adopt: adopting a matched build CLEARS the instance tracker, so a LATER mismatch drains AFRESH", async () => {
+  it("budget SURVIVES adopts: a drained build reappearing under a foreign instance is cross-supervisor (not a fresh drain)", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
       drainPollMs: POLL,
     });
-    // 1. build-MISMATCH survivor (1000, build-OLD) → drain took → reject. Tracker now:
-    //    drainedInstance=1000, drainAttempts=1.
+    // 1. build-MISMATCH survivor (1000, build-OLD) → drain took → reject. Budget remembers
+    //    the drained (build-OLD, 1000) lineage.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
     const p = session.pin();
     p.catch(() => {});
@@ -592,8 +592,9 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/build mismatch/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // 2. reconnect brings up a MATCHED build (2000) → ADOPT → the adopt path CLEARS the
-    //    tracker (drainedInstance=null, drainAttempts=0).
+    // 2. reconnect brings up a MATCHED build (2000) → ADOPT. Budget is NOT reset
+    //    (survives adopts — the old reset-on-adopt wiped the memory needed to notice
+    //    a cross-supervisor fight).
     enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
@@ -603,17 +604,19 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(scoped.surface.marker).toBe("padi-scoped");
     expect(handles[1]!.drainCount).toBe(0);
 
-    // 3. LATER a NEW mismatched instance (3000, build-OLD) appears. BECAUSE the tracker
-    //    was cleared on adopt, this is a FRESH convergence → DRAIN AFRESH (drainCount 1),
-    //    NOT anti-livelock. A missing reset would instead adopt-stale with drainCount 0.
+    // 3. LATER a NEW instance of the ALREADY-DRAINED build-OLD appears (3000). That is
+    //    another supervisor respawning the old build → cross-supervisor, NOT a fresh
+    //    drain (drainCount stays 0).
     handles[1]!.kill(); // the matched build's link drops → reconnect
     await flush();
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 3000 })));
     await flush(RECONNECT);
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
-      /build mismatch/i,
+      /another supervisor|cross-supervisor|DIFFERENT instance/i,
     );
-    expect(handles[2]!.drainCount).toBe(1);
+    expect(handles[2]!.drainCount).toBe(0);
+    expect(session.convergence()?.state).toBe("cross-supervisor");
+    expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
   it("a link BLIP misread as an exit → the SAME instance RE-DRAINS, then ADOPTS LOUDLY on budget exhaustion (M4)", async () => {
@@ -689,7 +692,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(handles[1]!.drainCount).toBe(0);
     // Parked under the `unconverged` convergence banner, but the TYPED map cause is
     // `cross-supervisor` (the dedicated flag wins over `unconverged` in the detail hook).
-    expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.convergence()?.state).toBe("cross-supervisor");
     expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
@@ -827,7 +830,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
 
     // reconnect brings up a DIFFERENT instance (2000), STILL old contract — another
     // supervisor is respawning it. Do NOT re-drain: STOP + fail-honest with the TYPED
-    // `cross-supervisor` cause (parked under the `unconverged` banner). The isolation
+    // `cross-supervisor` cause (framework anomaly arm). The isolation
     // lever is KOLU_REMOTE_PADI_STATE_DIR; the client card offers [Switch to local].
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 2000 })));
     await flush(RECONNECT);
@@ -836,7 +839,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       /anti-livelock|treadmill|respawning/i,
     );
     expect(handles[1]!.drainCount).toBe(0);
-    expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.convergence()?.state).toBe("cross-supervisor");
     expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 

@@ -105,6 +105,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     >({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => conn,
       log: silentLog,
@@ -134,6 +144,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => ({
         client: "C",
@@ -170,6 +190,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => {
         throw new Error("skew");
@@ -193,6 +223,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       // A bad binPath / un-forkable systemd-run surfaces as a rejecting spawn.
       driver: {
         spawn: async () => {
@@ -242,6 +282,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           // The recycle must have killed the survivor before we spawn.
@@ -288,6 +338,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       // The fresh daemon brings the socket up — the stranger's pid is untouched.
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => ({
@@ -333,6 +393,16 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: async () => {} }, // the fake is already serving
       connect: async (_socketPath) => {
         connects += 1;
@@ -400,6 +470,16 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: async () => {} },
       connect: async (_socketPath) => {
         connects += 1;
@@ -499,6 +579,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawnCalled = true;
@@ -557,6 +647,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawnCalled = true;
@@ -613,6 +713,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawned = true;
@@ -681,6 +791,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: async () => {} },
       // EVERY connect skews — the survivor AND the fresh spawn: the closure on
       // this host cannot speak the required contract, whoever runs it.
@@ -729,6 +849,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: async () => {} },
       connect: async (_socketPath) => {
         throw skewError();
@@ -780,6 +910,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawnCalled = true;
@@ -820,6 +960,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => ({
         client: "FRESH",
@@ -871,6 +1021,16 @@ describeDaemon(
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
         home: { dir: dirname(socketPath), gatePath, socketPath },
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             spawnCalled = true;
@@ -937,6 +1097,16 @@ describeDaemon(
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
         home: { dir: dirname(socketPath), gatePath, socketPath },
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             spawnCalled = true;
@@ -973,6 +1143,16 @@ describeDaemon(
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
         home: { dir: dirname(socketPath), gatePath, socketPath },
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: { spawn: () => fake.listen() },
         connect: async (_socketPath) => ({
           client: "FRESH",
@@ -1055,6 +1235,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
@@ -1107,6 +1297,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
@@ -1157,6 +1357,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
@@ -1221,6 +1431,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             await fakePrimary.listen();
@@ -1288,6 +1508,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: { spawn: () => fakePrimary.listen() },
         connect: async (_socketPath) => conn("primary-fresh"),
         log: silentLog,
@@ -1338,6 +1568,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             driverSpawnCalled += 1;

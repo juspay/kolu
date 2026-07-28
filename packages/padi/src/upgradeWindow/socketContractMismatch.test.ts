@@ -142,6 +142,16 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
       const endpoint = createEndpoint<string, { staleKey: string }>({
         hostId: "local",
         home: { dir: dirname(socketPath), gatePath, socketPath },
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             throw new Error("spawn must not run on a refuse-policy skew");

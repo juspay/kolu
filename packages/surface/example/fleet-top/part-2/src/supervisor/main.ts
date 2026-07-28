@@ -51,6 +51,16 @@ async function main(): Promise<void> {
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     home: HOME, // SAME home declaration as the daemon — disagreement impossible
+    policy: {
+      capability: "not-drainable",
+      baked: {
+        contractVersion: "1.0",
+        build: { kind: "known", id: "fleet-top" },
+      },
+      onContractSkew: { kind: "recycle" },
+      onBuildMismatch: { kind: "nudge-human" },
+    },
+    probe: async () => null,
     driver: survivableSpawnDriver({
       binPath: process.execPath, // node
       args: ["--import", "tsx/esm", daemonEntry],

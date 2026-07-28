@@ -9,7 +9,7 @@
  * a padi arm adds ONLY supervision: `convergence()` (a standing anomaly, or null when
  * healthy), `preservation` (padi's children survive a renew — its PTYs live in kaval),
  * and `renew()` (the "restart" drain). The two arms share this spread + the ONE
- * `PADI_CONVERGENCE_POLICY`/`decide()` table + the ONE `drainAndAwaitExit` skeleton
+ * `padiConvergencePolicy`/`decide()` table + the ONE `drainAndAwaitExit` skeleton
  * (each arm plugs in its own transport exit signal — the local socket-close, the
  * remote hello-poll); they differ only in their transport (a self-converging local
  * `endpointConnector` vs an ssh `sshConnector` + a post-connect `padiAdmit`) and in

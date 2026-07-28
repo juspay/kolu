@@ -135,6 +135,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: freshDaemon(socketPath),
       connect: async (_socketPath) => {
         if (isHolderLive(holderPid)) {
@@ -178,6 +188,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: freshDaemon(socketPath),
       // Never completes the kaval handshake — a plain (non-skew) failure, the way
       // a foreign speaker (or a schema-invalid version response) presents.
@@ -221,6 +241,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: freshDaemon(socketPath),
       // A schema-invalid version response surfaces as a plain handshake error
       // (oRPC output validation throws) — the same non-skew path as foreign.
@@ -267,6 +297,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         gatePath: join(d, "primary.pid"), // gate-less
         socketPath: primarySock,
       },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: freshDaemon(primarySock),
       connect: async (_socketPath) =>
         isHolderLive(primaryPid)
@@ -308,6 +348,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         gatePath: join(d, "primary.pid"),
         socketPath: primarySock,
       },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: freshDaemon(primarySock),
       connect: async (_socketPath) => compatibleConn(), // the fresh primary spawn
       adoptHint: {
@@ -352,6 +402,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         gatePath: join(d, "primary.pid"),
         socketPath: primarySock,
       },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: freshDaemon(primarySock),
       connect: async (_socketPath) => compatibleConn(), // the primary fresh spawn
       adoptHint: {
@@ -398,6 +458,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: freshDaemon(socketPath),
       connect: async (_socketPath) => {
         throw new DaemonContractSkewError({
@@ -434,6 +504,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       // Never spawns — the recovery adopts the proven connection directly.
       driver: {
         spawn: async () => {
@@ -465,6 +545,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       // The socket is already held by the compatible orphan, so the "spawn" is a
       // no-op that leaves the holder's socket up (as a real fail-to-bind exit does).
       driver: { spawn: async () => {} },

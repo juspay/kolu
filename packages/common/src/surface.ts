@@ -412,6 +412,14 @@ export const PadiConvergenceSchema = z.discriminatedUnion("state", [
     detail: z.string(),
   }),
   z.object({
+    /** Another supervisor is respawning this host's padi (framework budget
+     *  fight-detection) — fail-honest, never ride a contested build. */
+    state: z.literal("cross-supervisor"),
+    runningBuild: z.null(),
+    expectedBuild: z.null(),
+    detail: z.string(),
+  }),
+  z.object({
     /** The ssh link gave up (host unreachable / provisioning failed). */
     state: z.literal("link-failed"),
     runningBuild: z.null(),

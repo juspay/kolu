@@ -19,12 +19,11 @@ import {
 import {
   converge,
   type ConvergencePolicy,
-  createBuildDrainFence,
   createEndpoint,
   type DaemonConnection,
   dialSocket,
   type PlainProbe,
-  restart,
+  recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { stdioLink } from "@kolu/surface/links/stdio";
@@ -91,9 +90,18 @@ async function connectTop(
 
 export async function bootSupervisor(): Promise<void> {
   // #region endpoint
+  const policy: ConvergencePolicy<"not-drainable"> = {
+    capability: "not-drainable",
+    baked,
+    onContractSkew: { kind: "recycle" },
+    onBuildMismatch: { kind: "nudge-human" },
+  };
+
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     home, // SAME call as the daemon — disagreement impossible
+    policy,
+    probe: () => probeIdentity(home.socketPath),
     driver: survivableSpawnDriver({
       binPath: daemonEntry,
       args: [],
@@ -117,14 +125,18 @@ export async function bootSupervisor(): Promise<void> {
 
   // The live recycle: kill the daemon under a connected client and stand a fresh
   // one up. Every step is required; the degenerate steps make no survival promise.
-  await restart(endpoint, {
+  await recycle(endpoint, {
     capture: async () => undefined,
     drain: async () => {},
     reattach: async () => {},
   });
   // #endregion endpoint
 
-  await upgradeInPlace(endpoint);
+  // #region converge
+  // The only boot verb — policy (who I am + how I converge) is fixed on the endpoint.
+  const outcome = await converge(endpoint);
+  // #endregion converge
+  process.stderr.write(`converge outcome: ${outcome.kind}\n`);
 }
 
 // The supervisor's OWN baked expectation — the daemon it would spawn.
@@ -142,28 +154,4 @@ async function probeIdentity(socketPath: string): Promise<PlainProbe | null> {
     identity: baked,
     dispose: () => socket.destroy(),
   };
-}
-
-async function upgradeInPlace(
-  endpoint: Parameters<typeof converge>[0]["endpoint"],
-): Promise<void> {
-  // #region converge
-  // recycle-on-skew (kaval): a mismatched daemon is killed and respawned; a
-  // same-contract build change is reported to a human rather than auto-recycled.
-  const policy: ConvergencePolicy<"not-drainable"> = {
-    capability: "not-drainable",
-    onContractSkew: { kind: "recycle" },
-    onBuildMismatch: { kind: "nudge-human" },
-  };
-
-  const outcome = await converge({
-    endpoint,
-    baked, // expected build id + contract version
-    probe: () => probeIdentity(home.socketPath), // identity over a version-agnostic channel
-    policy,
-    buildFence: createBuildDrainFence(), // once-per-boot drain fence
-    log: stderrLogger(),
-  });
-  // #endregion converge
-  process.stderr.write(`converge outcome: ${outcome.kind}\n`);
 }

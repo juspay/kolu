@@ -35,6 +35,16 @@ import {
   isHolderLive,
   type Logger,
 } from "@kolu/surface-daemon";
+import type { DrainBudgetMemory } from "./convergence/budget.ts";
+import { createDrainBudget } from "./convergence/budget.ts";
+import type {
+  ConvergenceProbe,
+  ConvergingEndpoint,
+} from "./convergence/converge.ts";
+import type {
+  ConvergencePolicy,
+  DrainCapability,
+} from "./convergence/policy.ts";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
 import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
@@ -249,7 +259,12 @@ export type DaemonConnection<C, I, M = undefined> = {
   onClose(cb: () => void): void;
 } & ConnectedMetadata<M>;
 
-export interface EndpointSpec<C, I, M = undefined> {
+export interface EndpointSpec<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+> {
   /** Which host this endpoint is for. The status is reported per-host so the
    *  shapes stay host-count-agnostic (one local host today; ssh hosts at R-2). */
   hostId: string;
@@ -259,6 +274,19 @@ export interface EndpointSpec<C, I, M = undefined> {
    * strings. Build with `resolveDaemonHome` / `daemonHome`.
    */
   home: DaemonHomePaths;
+  /**
+   * The consumer's entire convergence surface — who I am + how I converge —
+   * stated once here. `converge(endpoint)` is the only public boot verb; the
+   * boot-method trio is internal (chosen by this policy). Cap-gates the drain
+   * arms and `drainBudget` (unspellable on not-drainable).
+   */
+  policy: ConvergencePolicy<Cap>;
+  /**
+   * Read the running daemon's identity over a version-agnostic channel (Pin 3),
+   * or `null` if none answers. The framework hands the primary socket path.
+   * Bound into `converge(endpoint)` — never re-threaded at the call site.
+   */
+  probe: (socketPath: string) => Promise<ConvergenceProbe<Cap> | null>;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -316,43 +344,45 @@ export interface EndpointSpec<C, I, M = undefined> {
   onSpawned?(): void;
 }
 
-export interface Endpoint<C, I, M = undefined> {
-  /** Take the daemon to a live connection under the always-recycle boot policy.
-   *  Throws (after reporting `dead`) if it cannot. */
+/**
+ * The endpoint — the supervisor's view of one daemon.
+ *
+ * **Public verbs:** `converge(endpoint)` (the only boot) and `recycle(endpoint, steps)`
+ * (the only replace). The boot-method trio (`ensure` / `adoptOrEnsure` /
+ * `adoptOrSpawnOrRefuse`) is **internal** — `converge` picks the method from
+ * `policy` so a consumer cannot cross-wire policy and method. They remain on the
+ * object for the kit and for package tests; production call sites use the two
+ * public verbs only.
+ *
+ * Also a {@link ConvergingEndpoint}: carries the fixed `policy`, the bound
+ * `probe`, the per-boot `budget` (drainable only), and `log` that `converge`
+ * reads.
+ */
+export interface Endpoint<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+> extends ConvergingEndpoint<Cap> {
+  /**
+   * @internal Always-recycle boot. Prefer `recycle(endpoint, steps)` for a
+   * deliberate replace; `converge(endpoint)` for ordinary boot.
+   */
   ensure(): Promise<void>;
-  /** Take the daemon to a live connection under the **adopt-or-recycle** boot
-   *  policy (B3.3): a live, handshake-compatible survivor is ADOPTED (connected
-   *  to, never killed) so its PTYs survive a supervisor restart; an absent / dead
-   *  survivor — or a live one that is a genuine contract skew — is recycled. A
-   *  live survivor that merely cannot be reached (a non-skew connect failure that
-   *  outlasts the retries) is left STANDING and reported `degraded`, never killed
-   *  (F4) — preserving its PTYs. Resolves `true` iff it adopted a surviving daemon
-   *  — the caller then reconciles that daemon's live PTYs against its saved
-   *  session; `false` on a fresh / recycled / left-degraded boot, where there is
-   *  nothing to reconcile. Throws (after reporting `dead`) if it cannot bring a
-   *  daemon up at all. */
+  /**
+   * @internal Adopt-or-recycle bind. Chosen by `converge` when
+   * `policy.onContractSkew.kind === "recycle"`.
+   */
   adoptOrEnsure(): Promise<boolean>;
-  /** Take the daemon to a live connection under the **adopt-or-spawn-or-refuse**
-   *  boot policy — the padi binder's policy, distinct from `adoptOrEnsure` in ONE
-   *  way: a live survivor that is a genuine contract SKEW is NOT recycled. Clients
-   *  never kill a running padi (the #1313 inversion — a dev/second binder must not
-   *  SIGTERM the daemon that owns another's PTYs), so a skewed survivor is left
-   *  STANDING and reported `degraded` (the same non-killing shape an unreachable
-   *  survivor already gets), never SIGTERM'd. An absent survivor is spawned fresh;
-   *  a compatible one is adopted. Resolves `true` iff it adopted a surviving daemon
-   *  (the caller then reconciles), `false` on a fresh-spawn / left-degraded boot.
-   *  Throws (after `dead`) only if it cannot bring a daemon up at all. */
+  /**
+   * @internal Adopt-or-spawn-or-refuse bind. Chosen by `converge` for
+   * refuse/drain policies.
+   */
   adoptOrSpawnOrRefuse(): Promise<boolean>;
-  /** The live connection, or `undefined` before `ensure()` or after the daemon
-   *  died (`degraded`). */
+  /** The live connection, or `undefined` before boot or after the daemon died. */
   current(): DaemonConnection<C, I, M> | undefined;
-  /** Run `body` (a session-preserving restart's inner sequence) with the status
-   *  **held at `restarting`** — the emit-guard. While held, the transient
-   *  transitions the recycle would otherwise surface (the old connection's
-   *  `degraded` close, the fresh daemon's `connecting`) are reported as
-   *  `restarting`, so an observer sees one honest "restarting" rather than a
-   *  degraded→connecting→connected flicker; only the terminal `connected` /
-   *  `dead` pass through to end the hold. */
+  /** Run `body` with the status **held at `restarting`** — the emit-guard used by
+   *  {@link recycle}. */
   holdRestarting(body: () => Promise<void>): Promise<void>;
 }
 
@@ -408,13 +438,27 @@ async function externalHolders(socketPath: string): Promise<SocketHolder[]> {
   return (await socketHolders(socketPath)).filter((h) => h.pid !== process.pid);
 }
 
-export function createEndpoint<C, I, M = undefined>(
-  spec: EndpointSpec<C, I, M>,
-): Endpoint<C, I, M> {
+export function createEndpoint<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+>(spec: EndpointSpec<C, I, M, Cap>): Endpoint<C, I, M, Cap> {
   const socketReadyMs = spec.socketReadyMs ?? 30_000;
   const socketPollMs = spec.socketPollMs ?? 50;
   const adoptConnectAttempts = spec.adoptConnectAttempts ?? 3;
   const adoptConnectRetryMs = spec.adoptConnectRetryMs ?? 100;
+  // Per-boot budget memory — drainable only. Survives adopts; shared by every
+  // `converge(endpoint)` of this endpoint's life. Not-drainable policies get
+  // `null` (and cannot spell `drainBudget` at the type level). Cap generics don't
+  // narrow on `capability === "drainable"`, so read the budget via a cast once
+  // the runtime discriminant has been checked.
+  const budget: DrainBudgetMemory | null =
+    spec.policy.capability === "drainable"
+      ? createDrainBudget(
+          (spec.policy as ConvergencePolicy<"drainable">).drainBudget,
+        )
+      : null;
   // How many times the gate-less-squatter recovery re-reads the holder + re-runs the
   // handshake when the holder CHANGES between identify and kill. A bounded backstop
   // on a flapping holder; a stable holder is decided on the first pass.
@@ -1316,5 +1360,15 @@ export function createEndpoint<C, I, M = undefined>(
       // the shared `adoptSurvivor` sequence.
       return adoptSurvivor("refuse");
     },
+
+    // ── ConvergingEndpoint face — `converge(endpoint)` reads these ──────────
+    policy: spec.policy,
+    probe: () => spec.probe(primaryRv.socketPath),
+    // Drainable policies always mint a budget above; not-drainable leave null.
+    // The Cap generic makes `budget` non-null when Cap is "drainable".
+    budget: budget as Cap extends "drainable"
+      ? DrainBudgetMemory
+      : DrainBudgetMemory | null,
+    log: spec.log,
   };
 }

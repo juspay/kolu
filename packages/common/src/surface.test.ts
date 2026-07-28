@@ -60,7 +60,12 @@ describe("PadiConvergenceSchema — a discriminated union: build fields can't di
         detail: "mismatch",
       }).success,
     ).toBe(true);
-    for (const state of ["skew-refused", "unconverged", "link-failed"]) {
+    for (const state of [
+      "skew-refused",
+      "unconverged",
+      "cross-supervisor",
+      "link-failed",
+    ]) {
       expect(
         PadiConvergenceSchema.safeParse({
           state,
