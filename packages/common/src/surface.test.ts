@@ -95,6 +95,13 @@ describe("PadiConvergenceSchema — framework-shaped arms, no z.null() padding",
       PadiConvergenceSchema.safeParse({
         kind: "unconverged",
         running: identity("1.0", "x"),
+        expected: identity("1.0", "y"),
+        cause: {
+          kind: "budget-exhausted",
+          axis: "build",
+          attempts: 3,
+          maxAttempts: 3,
+        },
         detail: "budget",
       }).success,
     ).toBe(true);

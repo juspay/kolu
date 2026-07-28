@@ -5,8 +5,14 @@
  * identity and two plugs (fire the drain verb; observe exit), and the framework owns
  * the race/ceiling/budget/cross-supervisor memory.
  *
- * Verdict kinds either **always** carry their anomaly or **never** do — no optionals.
- * `link-failed` is never produced here (session-owned).
+ * **Budget must be a {@link ConnectorDrainBudget}** (F7) — recycle / nudge-human are
+ * unspellable at the type level; no runtime throws for wrong policy arms.
+ *
+ * **`awaitExit` contract (F3):** resolve ONLY when an independent process/instance
+ * oracle confirms the daemon is gone (gate gone, pid reaped, ssh process exit).
+ * Sustained RPC/`hello` failure is NOT exit — if the link is down and the oracle
+ * cannot confirm, leave the wait hanging until the ceiling (drain-not-taken), never
+ * report `replaced`.
  */
 
 import {
@@ -14,12 +20,15 @@ import {
   type ConvergenceIdentity,
   type Logger,
 } from "@kolu/surface-daemon";
-import type { ConvergenceAnomaly } from "./anomaly.ts";
-import type { DrainBudgetMemory, DrainLineage } from "./budget.ts";
+import type { ConvergenceAnomaly, RefusedAnomaly } from "./anomaly.ts";
 import {
-  drainAndAwaitExit,
-  drainRejectionSuffix,
-} from "./drainAndAwaitExit.ts";
+  type ConnectorDrainBudget,
+  type DrainLineage,
+  budgetInternal,
+  drainBudgetOf,
+  policyOf,
+} from "./budget.ts";
+import { drainAndAwaitExit } from "./drainAndAwaitExit.ts";
 import { decide } from "./decide.ts";
 import { giveUpOutcome } from "./giveUp.ts";
 import type { InstanceKey } from "./instanceKey.ts";
@@ -46,7 +55,7 @@ export type ConvergeAdmitVerdict =
     }
   | {
       readonly kind: "refuse";
-      readonly anomaly: ConvergenceAnomaly;
+      readonly anomaly: RefusedAnomaly;
       /** Human message for the session's refuse state. */
       readonly error: string;
     };
@@ -54,22 +63,26 @@ export type ConvergeAdmitVerdict =
 export async function convergeAdmit(args: {
   /** What the dial found — the running daemon's identity (+ instance key). */
   running: RunningDaemon;
-  /** Per-boot budget memory — owns the whole policy (created via
-   *  `createDrainBudget(policy)`). Shared across every admit of this boot;
-   *  survives adopts. There is no separate policy arg so the two cannot diverge. */
-  budget: DrainBudgetMemory;
+  /**
+   * Connector budget from {@link createConnectorDrainBudget} (F7). Typed as
+   * {@link ConnectorDrainBudget} so recycle/nudge-human policies are unspellable.
+   */
+  budget: ConnectorDrainBudget;
   /** Fire the drain verb (the daemon's control-core `drain`). Fire-and-forget;
    *  ground truth is `awaitExit`. */
   drain: () => Promise<void>;
-  /** Observe that the daemon actually left. Armed before `drain`; must honour
-   *  the abort signal so a not-taken drain never leaks a poll. */
+  /**
+   * Observe that the daemon process actually left (F3). Armed before `drain`.
+   * Resolve only from an independent process oracle — NOT from a single RPC
+   * rejection. Honour the abort signal when the ceiling wins.
+   */
   awaitExit: (signal: AbortSignal) => Promise<void>;
   /** Ceiling for the exit wait (transport-adapted: local ~2s, ssh ~6s). */
   ceilingMs: number;
   log: Logger;
 }): Promise<ConvergeAdmitVerdict> {
   const { running, budget, log } = args;
-  const policy = budget.policy;
+  const policy = policyOf(budget);
   const baked = policy.baked;
   const identity: ConvergenceIdentity = {
     contractVersion: running.contractVersion,
@@ -80,7 +93,7 @@ export async function convergeAdmit(args: {
     instanceKey: running.instanceKey,
   };
 
-  const decision = decide(baked, identity, policy);
+  const decision = decide(policy, identity);
   const skewCtx = {
     runningContract: identity.contractVersion,
     mineContract: baked.contractVersion,
@@ -90,7 +103,6 @@ export async function convergeAdmit(args: {
 
   switch (decision.kind) {
     case "spawn":
-      // A connector only admits a LIVE running daemon — spawn is unreachable.
       throw new Error(
         "convergeAdmit: decide returned spawn for a live running identity — unreachable",
       );
@@ -99,17 +111,11 @@ export async function convergeAdmit(args: {
       return { kind: "adopt" };
 
     case "report-mismatch":
-      // nudge-human is endpoint-only (mismatch-reported has no connector surface).
-      // ConnectorPolicy makes this unspellable; fail loud if a budget is mis-minted.
-      throw new Error(
-        "convergeAdmit: onBuildMismatch: nudge-human is endpoint-only — use drain-and-replace on the connector policy",
-      );
-
     case "recycle":
-      // recycle-on-skew is endpoint-only (kill). Unspellable for a connector
-      // drainable policy that should use refuse / drain-newer-else-refuse.
+      // Unspellable for ConnectorPolicy — type gate (F7), not a runtime throw for
+      // the common path. If a forged budget slips through, fail loud.
       throw new Error(
-        "convergeAdmit: onContractSkew: recycle is endpoint-only — use refuse or drain-newer-else-refuse on the connector policy",
+        `convergeAdmit: decision ${decision.kind} is endpoint-only — use createConnectorDrainBudget`,
       );
 
     case "refuse": {
@@ -137,12 +143,12 @@ export async function convergeAdmit(args: {
         decision.axis === "contract"
           ? `contract skew (mine ${baked.contractVersion} newer than running ${identity.contractVersion})`
           : `build mismatch (running=${buildLabel(identity.build)} expected=${buildLabel(baked.build)})`;
-      const admission = budget.admit(lineage, why);
+      const admission = budgetInternal(budget).admit(lineage, why);
       if (admission.kind === "giveUp") {
         return toAdmitVerdict(
           giveUpOutcome({
             admission,
-            onGiveUp: budget.drainBudget.onGiveUp,
+            onGiveUp: drainBudgetOf(budget).onGiveUp,
             axis: decision.axis,
             running: identity,
             expected: baked,
@@ -168,20 +174,29 @@ export async function convergeAdmit(args: {
               : "daemon drained (build mismatch) — reconnecting to re-handshake the survivor",
         };
       }
-      // Drain did not take — same give-up path as budget exhaustion / endpoint arm.
-      const notTaken =
-        `${why}: drain did not take within ${args.ceilingMs}ms — the daemon kept answering` +
-        drainRejectionSuffix(drain.drainRejection);
+      // Drain not taken (ceiling or link-down without process oracle) — never
+      // replaced (F3).
       return toAdmitVerdict(
         giveUpOutcome({
-          admission: { kind: "giveUp", why: "budget", reason: notTaken },
-          onGiveUp: budget.drainBudget.onGiveUp,
+          admission: {
+            kind: "giveUp",
+            why: "budget",
+            axisHint: why,
+            attempts: admission.attempt,
+            maxAttempts: drainBudgetOf(budget).maxAttempts,
+            instanceKey: running.instanceKey,
+          },
+          onGiveUp: drainBudgetOf(budget).onGiveUp,
           axis: decision.axis,
           running: identity,
           expected: baked,
           log,
           skewCtx,
           logPrefix: "convergence admit",
+          drainNotTaken: {
+            ceilingMs: args.ceilingMs,
+            rejection: drain.drainRejection,
+          },
         }),
       );
     }

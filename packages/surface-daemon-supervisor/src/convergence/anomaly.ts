@@ -15,6 +15,26 @@
 import type { ConvergenceIdentity } from "@kolu/surface-daemon";
 import type { InstanceKey } from "./instanceKey.ts";
 
+/** Typed cause for {@link ConvergenceAnomaly} `unconverged` — evidence as data. */
+export type UnconvergedCause =
+  | {
+      readonly kind: "budget-exhausted";
+      readonly axis: "contract" | "build";
+      readonly attempts: number;
+      readonly maxAttempts: number;
+    }
+  | {
+      readonly kind: "drain-not-taken";
+      readonly axis: "contract" | "build";
+      readonly ceilingMs: number;
+      /** Mid-write drain rejection text, if any; null when the drain call resolved. */
+      readonly rejection: string | null;
+    }
+  | {
+      readonly kind: "adopt-bind-failed";
+      readonly axis: "contract" | "build" | null;
+    };
+
 export type ConvergenceAnomaly =
   | {
       readonly kind: "adopted-stale";
@@ -33,6 +53,8 @@ export type ConvergenceAnomaly =
   | {
       readonly kind: "unconverged";
       readonly running: ConvergenceIdentity;
+      readonly expected: ConvergenceIdentity;
+      readonly cause: UnconvergedCause;
       readonly detail: string;
     }
   | {
@@ -44,3 +66,9 @@ export type ConvergenceAnomaly =
       readonly running: ConvergenceIdentity;
       readonly detail: string;
     };
+
+/** Anomalies that may ride a `refused` outcome — never adopted-stale. */
+export type RefusedAnomaly = Exclude<
+  ConvergenceAnomaly,
+  { kind: "adopted-stale" }
+>;

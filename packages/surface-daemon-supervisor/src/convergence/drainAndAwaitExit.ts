@@ -4,8 +4,11 @@
  * A drainable probe/connector only supplies two plugs:
  *   - `drain` — fire the daemon's drain verb (fire-and-forget; its resolve/reject
  *     is not ground truth)
- *   - `awaitExit` — observe that the daemon actually left (socket close, hello
- *     poll rejecting, …)
+ *   - `awaitExit` — observe that the daemon process actually left. **Contract (F3 /
+ *     F10):** resolve ONLY from an independent process/instance oracle (local
+ *     socket close of the daemon process, gate/pid gone over ssh). Sustained RPC
+ *     failure alone is NOT exit — a link blip must not report `took: true`. Arm
+ *     this wait **before** `drain` fires (the framework enforces that order).
  *
  * The framework owns the race against a ceiling, the arm-before-drain ordering,
  * and aborting the wait when the ceiling wins. Consumers never re-implement this.

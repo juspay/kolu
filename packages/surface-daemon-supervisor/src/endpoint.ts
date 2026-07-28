@@ -35,8 +35,11 @@ import {
   isHolderLive,
   type Logger,
 } from "@kolu/surface-daemon";
-import type { DrainBudgetMemory } from "./convergence/budget.ts";
-import { createDrainBudget } from "./convergence/budget.ts";
+import type { BindResult } from "./convergence/bindResult.ts";
+import {
+  type DrainBudgetHandle,
+  createDrainBudget,
+} from "./convergence/budget.ts";
 import type { ConvergenceProbe } from "./convergence/converge.ts";
 import type {
   ConvergencePolicy,
@@ -44,6 +47,7 @@ import type {
 } from "./convergence/policy.ts";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
+import { registerEndpointPrivate } from "./endpoint.private.ts";
 import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
 import { type SocketHolder, socketHolders } from "./socketHolder.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
@@ -346,9 +350,9 @@ export interface EndpointSpec<
  *
  * Public surface: the fixed `policy` / `probe` / `budget` / `log` that
  * `converge(endpoint)` reads, plus `current()` and `holdRestarting` for
- * `recycle(endpoint, steps)`. The boot-method trio is **not on this type** —
- * a comment is not a lock; absence from the type is. Package tests that need
- * the trio cast through {@link asEndpointInternal}.
+ * `recycle(endpoint, steps)`. The boot-method trio is **not on this type and
+ * not on the runtime object** — private binds live in a package WeakMap keyed
+ * by handles from {@link createEndpoint} (F4 / F12).
  */
 export interface Endpoint<
   C,
@@ -359,41 +363,14 @@ export interface Endpoint<
   readonly policy: ConvergencePolicy<Cap>;
   probe: () => Promise<ConvergenceProbe<Cap> | null>;
   readonly budget: Cap extends "drainable"
-    ? DrainBudgetMemory
-    : DrainBudgetMemory | null;
+    ? DrainBudgetHandle
+    : DrainBudgetHandle | null;
   readonly log: Logger;
   /** The live connection, or `undefined` before boot or after the daemon died. */
   current(): DaemonConnection<C, I, M> | undefined;
   /** Run `body` with the status **held at `restarting`** — the emit-guard used by
    *  {@link recycle}. */
   holdRestarting(body: () => Promise<void>): Promise<void>;
-}
-
-/**
- * Full endpoint including the private boot-method trio. Runtime objects from
- * {@link createEndpoint} always have these methods; the public {@link Endpoint}
- * type deliberately omits them so production call sites cannot spell a
- * cross-wire. Package tests and {@link recycle} use {@link asEndpointInternal}.
- */
-export type EndpointInternal<
-  C,
-  I,
-  M = undefined,
-  Cap extends DrainCapability = DrainCapability,
-> = Endpoint<C, I, M, Cap> & {
-  ensure(): Promise<void>;
-  adoptOrEnsure(): Promise<boolean>;
-  adoptOrSpawnOrRefuse(): Promise<boolean>;
-};
-
-/** Widen a public endpoint to the internal trio — only for kit/tests. */
-export function asEndpointInternal<
-  C,
-  I,
-  M = undefined,
-  Cap extends DrainCapability = DrainCapability,
->(ep: Endpoint<C, I, M, Cap>): EndpointInternal<C, I, M, Cap> {
-  return ep as EndpointInternal<C, I, M, Cap>;
 }
 
 /** Poll until a connection to `socketPath` is accepted, or the ceiling passes.
@@ -463,7 +440,7 @@ export function createEndpoint<
   // `null` (and cannot spell `drainBudget` at the type level). Cap generics don't
   // narrow on `capability === "drainable"`, so read the budget via a cast once
   // the runtime discriminant has been checked.
-  const budget: DrainBudgetMemory | null =
+  const budget: DrainBudgetHandle | null =
     spec.policy.capability === "drainable"
       ? createDrainBudget(spec.policy as ConvergencePolicy<"drainable">)
       : null;
@@ -1094,13 +1071,13 @@ export function createEndpoint<
     onSkew: (
       holder: number,
       err: DaemonContractSkewError,
-    ) => void | Promise<void>,
+    ) => BindResult | Promise<BindResult>,
     // Which rendezvous this adoption is against — `primary` (the digest socket) or
     // `upgrade-hint` (the pre-W2.2 legacy port socket, the migration bridge). Stamped
     // on the adopted log so an operator can grep "did the W2.2 upgrade bridge fire?"
     // without decoding the socket path.
     via: "primary" | "upgrade-hint",
-  ): Promise<boolean> => {
+  ): Promise<BindResult> => {
     held = rv;
     // A single failure is NOT proof of skew (F4): only a `DaemonContractSkewError`
     // raised by the soul's `connect` proves incompatibility. A transport-dial or
@@ -1121,14 +1098,13 @@ export function createEndpoint<
         "adopted a surviving daemon (its PTYs are preserved)",
       );
       holdConnection(outcome.conn);
-      return true;
+      return { kind: "adopted-resident" };
     }
     if (outcome.kind === "skew") {
       // Proven incompatible: `adoptOrEnsure` RECYCLES (kill this holder + respawn at
       // the primary — converging a skewed legacy kaval to the digest keying);
       // `adoptOrSpawnOrRefuse` REFUSES (leave standing + report `incompatible`).
-      await onSkew(holder, outcome.err);
-      return false;
+      return await onSkew(holder, outcome.err);
     }
     // `unreachable`: alive but every NON-skew connect attempt failed. NOT proven
     // incompatible, so must NOT kill it (that would destroy the live PTYs adoption
@@ -1145,7 +1121,7 @@ export function createEndpoint<
         "leaving it up to preserve its PTYs; reporting degraded",
     );
     emit({ state: "degraded" });
-    return false;
+    return { kind: "refused-or-failed" };
   };
 
   // The shared survivor-adoption sequence, factored from `adoptOrEnsure` and
@@ -1163,7 +1139,7 @@ export function createEndpoint<
     // no-gate-holder branches. One statement of the policy, so the two paths can't
     // drift and the illegal cross-pairing (recycle-here + refuse-there) is unrepresentable.
     policy: GatelessSkewPolicy,
-  ): Promise<boolean> => {
+  ): Promise<BindResult> => {
     // Derived from `policy`, so the gate-recorded skew disposition is the SAME
     // recycle-vs-refuse choice the gate-less path takes — never a hand-synced twin.
     // recycle (kaval): SIGTERM the skewed holder and spawn fresh. refuse (padi):
@@ -1171,30 +1147,31 @@ export function createEndpoint<
     const onSkew = async (
       holder: number,
       err: DaemonContractSkewError,
-    ): Promise<void> => {
+    ): Promise<BindResult> => {
       if (policy === "recycle") {
         spec.log.warn(
           { hostId: spec.hostId, pid: holder },
           "live daemon survivor is a contract skew — recycling it",
         );
         await recycle(holder);
-      } else {
-        spec.log.error(
-          { hostId: spec.hostId, pid: holder },
-          "live padi survivor is a contract skew — REFUSING (never killing a " +
-            "running padi); leaving it up and reporting incompatible. Upgrade " +
-            "the binder or drain the daemon via its control core to converge.",
-        );
-        // The verdict is PROVEN skew — name it (SK4). Reporting it as plain
-        // `degraded` made a contract skew indistinguishable on the wire from
-        // "unreachable" / "died mid-session", which is exactly the collapse
-        // this arm exists to kill.
-        emit({
-          state: "incompatible",
-          daemonVersion: err.daemonVersion,
-          requiredVersion: err.requiredVersion,
-        });
+        return { kind: "spawned-fresh" };
       }
+      spec.log.error(
+        { hostId: spec.hostId, pid: holder },
+        "live padi survivor is a contract skew — REFUSING (never killing a " +
+          "running padi); leaving it up and reporting incompatible. Upgrade " +
+          "the binder or drain the daemon via its control core to converge.",
+      );
+      // The verdict is PROVEN skew — name it (SK4). Reporting it as plain
+      // `degraded` made a contract skew indistinguishable on the wire from
+      // "unreachable" / "died mid-session", which is exactly the collapse
+      // this arm exists to kill.
+      emit({
+        state: "incompatible",
+        daemonVersion: err.daemonVersion,
+        requiredVersion: err.requiredVersion,
+      });
+      return { kind: "refused-or-failed" };
     };
     emit({ state: "connecting" });
     const primaryHolder = await liveServingHolder(primaryRv);
@@ -1222,16 +1199,16 @@ export function createEndpoint<
     const settle = async (
       outcome: "free" | "refused" | "adopted" | "recycled",
       onAdopted?: () => void,
-    ): Promise<boolean | undefined> => {
+    ): Promise<BindResult | undefined> => {
       switch (outcome) {
         case "adopted":
           runHook(onAdopted, "onAdopted");
-          return true;
+          return { kind: "adopted-resident" };
         case "refused":
-          return false;
+          return { kind: "refused-or-failed" };
         case "recycled":
           await spawnConnectHold();
-          return false;
+          return { kind: "spawned-fresh" };
         case "free":
           return undefined; // nothing recovered here — the caller falls through
       }
@@ -1277,12 +1254,11 @@ export function createEndpoint<
     }
     // Nothing live anywhere — a fresh boot; spawn fresh at the PRIMARY.
     await spawnConnectHold();
-    return false;
+    return { kind: "spawned-fresh" };
   };
 
-  // Runtime object always carries the private trio; the public return type is
-  // the narrow {@link Endpoint} so production call sites cannot spell a cross-wire.
-  const endpoint: EndpointInternal<C, I, M, Cap> = {
+  // Public handle — private boot binds live only in the package WeakMap (F12).
+  const endpoint: Endpoint<C, I, M, Cap> = {
     current: () => conn,
 
     async holdRestarting(body: () => Promise<void>): Promise<void> {
@@ -1316,14 +1292,24 @@ export function createEndpoint<
       }
     },
 
+    // ── ConvergingEndpoint face — `converge(endpoint)` reads these ──────────
+    policy: spec.policy,
+    probe: () => spec.probe(primaryRv.socketPath),
+    // Drainable policies always mint a budget above; not-drainable leave null.
+    // The Cap generic makes `budget` non-null when Cap is "drainable".
+    budget: budget as Cap extends "drainable"
+      ? DrainBudgetHandle
+      : DrainBudgetHandle | null,
+    log: spec.log,
+  };
+
+  registerEndpointPrivate(endpoint, {
     async ensure(): Promise<void> {
       emit({ state: "connecting" });
       // ALWAYS RECYCLE (B2, "the door"): a live serving survivor is killed,
       // never adopted, so no survival hazard can open (no orphan, no skew older
       // than one boot). `liveServingHolder` proves a holder is really the daemon
       // before we SIGTERM it; a stale gate over a reused pid is left alone.
-      // (Adoption that *preserves* a session is B3's `adoptOrEnsure` — it reuses
-      // these same helpers but connects to the survivor instead of killing it.)
       //
       // Probe the HELD rendezvous — the socket the endpoint currently holds a daemon
       // at, which is the adopt-HINT (legacy port) socket after an upgrade adoption,
@@ -1345,41 +1331,18 @@ export function createEndpoint<
       }
     },
 
-    async adoptOrEnsure(): Promise<boolean> {
-      // ADOPT-OR-RECYCLE (B3.3): unlike `ensure`'s always-kill, a live serving
-      // survivor that is handshake-COMPATIBLE is ADOPTED — connected + held, never
-      // killed, so the PTYs it holds (and the session they carry) survive a client
-      // redeploy that did not change the daemon's source. Only an absent / dead /
-      // skewed survivor is recycled. A proven SKEW is RECYCLED here (kill, then spawn
-      // fresh) — the deliberate OPPOSITE of `adoptOrSpawnOrRefuse`, and the only arm
-      // that differs from it; everything else is the shared `adoptSurvivor` sequence.
+    async adoptOrEnsure(): Promise<BindResult> {
+      // ADOPT-OR-RECYCLE (B3.3): a live serving handshake-COMPATIBLE survivor is
+      // ADOPTED; a proven SKEW is RECYCLED. Returns BindResult (F5).
       return adoptSurvivor("recycle");
     },
 
-    async adoptOrSpawnOrRefuse(): Promise<boolean> {
-      // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): the padi binder's policy — `adoptOrEnsure`
-      // with ONE deliberate difference: a proven contract SKEW is REFUSED, not
-      // recycled. Clients never kill a running padi: a second binder (a dev kolu,
-      // another worktree) that speaks an incompatible contract must NOT SIGTERM the
-      // padi that owns the real PTYs (the #1313 inversion the state-root identity
-      // exists to enforce). So a skewed survivor is left STANDING and reported
-      // `incompatible` (SK4) — the same NON-KILLING shape an unreachable survivor
-      // gets, under its honest verdict — and the operator
-      // resolves the skew (upgrade the binder, or drain the daemon through the frozen
-      // control core). Only this skew arm differs from `adoptOrEnsure`; the rest is
-      // the shared `adoptSurvivor` sequence.
+    async adoptOrSpawnOrRefuse(): Promise<BindResult> {
+      // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): a proven contract SKEW is REFUSED, not
+      // recycled (#1313). Returns BindResult (F5).
       return adoptSurvivor("refuse");
     },
+  });
 
-    // ── ConvergingEndpoint face — `converge(endpoint)` reads these ──────────
-    policy: spec.policy,
-    probe: () => spec.probe(primaryRv.socketPath),
-    // Drainable policies always mint a budget above; not-drainable leave null.
-    // The Cap generic makes `budget` non-null when Cap is "drainable".
-    budget: budget as Cap extends "drainable"
-      ? DrainBudgetMemory
-      : DrainBudgetMemory | null,
-    log: spec.log,
-  };
   return endpoint;
 }

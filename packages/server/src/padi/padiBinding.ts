@@ -469,13 +469,8 @@ export function padiConnectFailure(
           `padi unconverged: ${outcome.anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath})`,
           "remote",
         );
-      case "adopted-stale":
-        // Adopted-stale is never a refuse outcome — if it lands here, reconnect.
-        return new ConnectError(
-          `padi refused with unexpected adopted-stale anomaly: ${outcome.anomaly.detail}`,
-          "network",
-        );
       default: {
+        // F13: refused.anomaly excludes adopted-stale — impossible arm deleted.
         const _exhaustive: never = outcome.anomaly;
         throw new Error(
           `unreachable refuse anomaly: ${JSON.stringify(_exhaustive)}`,

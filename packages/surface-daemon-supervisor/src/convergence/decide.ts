@@ -45,11 +45,15 @@ export type Decision =
   | { readonly kind: "refuse" }
   | { readonly kind: "report-mismatch"; readonly running: ConvergenceIdentity };
 
+/**
+ * Pure decision fold. Reads `policy.baked` — never a free-standing `baked`
+ * parameter (F8: cannot cross-wire baked ≠ policy.baked).
+ */
 export function decide(
-  baked: ConvergenceIdentity,
-  running: ConvergenceIdentity | null,
   policy: AnyConvergencePolicy,
+  running: ConvergenceIdentity | null,
 ): Decision {
+  const baked = policy.baked;
   // No live survivor → spawn fresh.
   if (running === null) return { kind: "spawn" };
 

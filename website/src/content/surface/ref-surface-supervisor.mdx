@@ -40,8 +40,8 @@ It is generic over the client `C` and identity `I`.
 
 | Export | Role |
 | --- | --- |
-| `createEndpoint({ home, policy, probe, connect, … })` | returns a public `Endpoint` (no boot trio); `home` is `DaemonHomePaths`, `policy` is the fixed convergence surface, `probe`/`connect` receive the socket path |
-| `asEndpointInternal(endpoint)` · `EndpointInternal` | widen to the private boot trio — kit/tests only |
+| `createEndpoint({ home, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths` |
+| `destructiveRecycleSteps()` | named no-preservation steps for fail-closed recycle (all steps still required) |
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
 | `recycle(endpoint, steps)` · `serializeRestart(endpoint)` | `recycle` is the composed `capture → drain → recycle → reattach` sequence; `serializeRestart` returns a single-flight `triggerRestart` wrapper |
 | `waitForPidGone(pid, opts?)` | poll `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |
@@ -85,10 +85,10 @@ garnish only.
 
 | Export | Role |
 | --- | --- |
-| `converge(endpoint)` | probe → decide → budget → enact; returns a `ConvergenceOutcome` (anomaly required XOR absent per kind) |
-| `convergeAdmit({ running, budget, drain, awaitExit, … })` | the connector-arm twin — same decision table/budget; plugs fire drain and observe exit; `running.instanceKey` is an `InstanceKey` |
-| `decide(baked, running, policy)` | the pure, zero-I/O decision fold — the policy table, unit-tested directly |
-| `ConvergencePolicy<Cap>` · `createDrainBudget(policy)` · `outcomeAdopted` · `outcomeAnomaly` | the declared policy (`baked` + Cap-gated `drainBudget`), the per-boot budget memory (survives adopts), outcome readers |
+| `converge(endpoint)` | probe → decide → budget → enact; only a genuine createEndpoint handle; post-drain successor re-probed (F1) |
+| `convergeAdmit({ running, budget, drain, awaitExit, … })` | connector arm; `budget` is `ConnectorDrainBudget`; `awaitExit` is a process oracle (not RPC blip) |
+| `decide(policy, running)` | pure fold — reads `policy.baked` (no free-standing baked arg) |
+| `createDrainBudget` · `createConnectorDrainBudget` · `outcomeAdopted` · `outcomeAnomaly` | opaque budget handles; connector mint is type-gated |
 | `InstanceKey` · `instanceKeyFromStartedAt` · `instanceKeyTag` | named instance or `pre-instance` (absent startedAt = older — never overloaded null) |
 | `drainAndAwaitExit(drain, awaitExit, { ceilingMs })` | framework-run drain-and-confirm-exit skeleton both enactments share |
 | `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `link-failed` is session-owned |

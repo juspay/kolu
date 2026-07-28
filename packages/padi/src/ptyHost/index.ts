@@ -18,13 +18,14 @@
 
 import {
   type ConvergencePolicy,
-  asEndpointInternal,
   converge,
   createEndpoint,
   daemonBuild,
+  destructiveRecycleSteps,
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
+  recycle,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
@@ -290,7 +291,7 @@ export async function ensureLocalEndpoint(opts: {
           { err },
           "surviving-session reconciliation failed — recycling the adopted daemon",
         );
-        await asEndpointInternal(ep).ensure();
+        await recycle(ep, destructiveRecycleSteps());
         // The recycle spawned a FRESH daemon — nothing live survives now, so this
         // is the no-survivor path: park the saved session for the restore card.
         opts.onNotAdopted?.();

@@ -2,16 +2,10 @@
  * Drain budget memory — the anti-livelock state that lives inside the supervisor for
  * one boot and **survives adopts**.
  *
- * Two facts it tracks:
- *   1. How many times the SAME (build, instance) lineage has been drained this boot —
- *      bounded by `maxAttempts`. A SAME-instance flap that never exits gives up with
- *      the policy's `onGiveUp` (`adopt-stale` | `refuse`).
- *   2. Every (build, instance) lineage this supervisor has drained. A drained *build*
- *      reappearing under a **different** instance means another supervisor is
- *      respawning it → `cross-supervisor` give-up (not a fresh budget, not adopt).
+ * Public handles are **opaque** (no `admit` / dual `drainBudget` on the type).
+ * Enactment reaches internals via package-owned storage keyed by the handle.
  *
- * Instance keys are {@link InstanceKey}: named instances or `pre-instance` (absent
- * startedAt = older daemon, never an overloaded null).
+ * Instance keys are {@link InstanceKey}: named instances or `pre-instance`.
  */
 
 import type { DaemonBuild } from "@kolu/surface-daemon";
@@ -28,33 +22,72 @@ export type DrainLineage = {
   readonly instanceKey: InstanceKey;
 };
 
-/** Admission verdict for one drain attempt. */
-export type DrainAdmission =
-  | { readonly kind: "drain"; readonly attempt: number }
+/** Typed give-up evidence — not a free-form reason string alone. */
+export type DrainGiveUp =
   | {
       readonly kind: "giveUp";
       readonly why: "budget";
-      readonly reason: string;
+      readonly axisHint: string;
+      readonly attempts: number;
+      readonly maxAttempts: number;
+      readonly instanceKey: InstanceKey;
     }
   | {
       readonly kind: "giveUp";
       readonly why: "cross-supervisor";
-      /** Instance this supervisor previously drained for this build. */
       readonly drained: InstanceKey;
-      /** Instance key of the daemon currently observed. */
       readonly observed: InstanceKey;
-      readonly reason: string;
+      readonly axisHint: string;
     };
 
-export interface DrainBudgetMemory {
-  /** May we drain this lineage? Records the attempt on `"drain"`. */
-  admit(lineage: DrainLineage, why: string): DrainAdmission;
-  /**
-   * The whole policy this memory was created from. Endpoint arms may pass any
-   * drainable policy; connector arms should pass {@link ConnectorPolicy}.
-   */
+/** Admission verdict for one drain attempt. */
+export type DrainAdmission =
+  | { readonly kind: "drain"; readonly attempt: number }
+  | DrainGiveUp;
+
+const budgetBrand = Symbol("DrainBudgetHandle");
+
+/**
+ * Opaque public handle — no `admit` method on the type. Created only by
+ * {@link createDrainBudget} / {@link createConnectorDrainBudget}.
+ */
+export type DrainBudgetHandle = {
+  readonly [budgetBrand]: true;
+};
+
+/** Connector-arm budget — type-level pin for {@link convergeAdmit}. */
+export type ConnectorDrainBudget = DrainBudgetHandle & {
+  readonly __connectorPolicy: true;
+};
+
+type BudgetInternal = {
+  admit(lineage: DrainLineage, axisHint: string): DrainAdmission;
   readonly policy: ConvergencePolicy<"drainable"> | ConnectorPolicy;
-  readonly drainBudget: DrainBudget;
+};
+
+const BUDGET_INTERNALS = new WeakMap<DrainBudgetHandle, BudgetInternal>();
+
+/** Package-internal: resolve a handle (throws if forged). */
+export function budgetInternal(handle: DrainBudgetHandle): BudgetInternal {
+  const inner = BUDGET_INTERNALS.get(handle);
+  if (inner === undefined) {
+    throw new Error(
+      "DrainBudgetHandle is not from createDrainBudget — use the kit factory",
+    );
+  }
+  return inner;
+}
+
+/** Policy drainBudget field from a genuine handle. */
+export function drainBudgetOf(handle: DrainBudgetHandle): DrainBudget {
+  return budgetInternal(handle).policy.drainBudget;
+}
+
+/** Policy from a genuine handle. */
+export function policyOf(
+  handle: DrainBudgetHandle,
+): ConvergencePolicy<"drainable"> | ConnectorPolicy {
+  return budgetInternal(handle).policy;
 }
 
 function lineageKey(lineage: DrainLineage): string {
@@ -76,13 +109,9 @@ function buildKey(build: DaemonBuild): string {
   }
 }
 
-/**
- * For a drained *build*, remember one drained instance key so a foreign reappearance
- * can report both keys as data on the cross-supervisor anomaly.
- */
-export function createDrainBudget(
+function mintBudget(
   policy: ConvergencePolicy<"drainable"> | ConnectorPolicy,
-): DrainBudgetMemory {
+): DrainBudgetHandle {
   const drainBudget = policy.drainBudget;
   if (
     !Number.isInteger(drainBudget.maxAttempts) ||
@@ -93,14 +122,13 @@ export function createDrainBudget(
     );
   }
   const drainedLineages = new Set<string>();
-  /** buildKey → last drained InstanceKey for that build. */
   const drainedInstanceByBuild = new Map<string, InstanceKey>();
   const attemptsByLineage = new Map<string, number>();
 
-  return {
+  const handle = { [budgetBrand]: true as const };
+  BUDGET_INTERNALS.set(handle, {
     policy,
-    drainBudget,
-    admit(lineage, why) {
+    admit(lineage, axisHint) {
       const lkey = lineageKey(lineage);
       const bkey = buildKey(lineage.build);
 
@@ -111,10 +139,7 @@ export function createDrainBudget(
           why: "cross-supervisor",
           drained: priorDrained,
           observed: lineage.instanceKey,
-          reason:
-            `${why}: a DIFFERENT instance of a build this supervisor already drained ` +
-            `this boot is still wrong — another supervisor is respawning it (anti-livelock; ` +
-            `multi-supervisor-per-host is not a supported topology)`,
+          axisHint,
         };
       }
 
@@ -123,20 +148,44 @@ export function createDrainBudget(
         return {
           kind: "giveUp",
           why: "budget",
-          reason:
-            `${why}: lineage ${instanceKeyTag(lineage.instanceKey)} survived ` +
-            `${attempts} drain attempts without converging — a flapping link / respawn ` +
-            `loop that will not converge`,
+          axisHint,
+          attempts,
+          maxAttempts: drainBudget.maxAttempts,
+          instanceKey: lineage.instanceKey,
         };
       }
 
-      // pre-instance: absent startedAt means older — still budgetable as one lineage,
-      // but never collides with a named instance under the same build (different lkey).
       const next = attempts + 1;
       attemptsByLineage.set(lkey, next);
       drainedLineages.add(lkey);
       drainedInstanceByBuild.set(bkey, lineage.instanceKey);
       return { kind: "drain", attempt: next };
     },
-  };
+  });
+  return handle;
 }
+
+/**
+ * Endpoint-arm budget — any drainable {@link ConvergencePolicy}.
+ */
+export function createDrainBudget(
+  policy: ConvergencePolicy<"drainable">,
+): DrainBudgetHandle {
+  return mintBudget(policy);
+}
+
+/**
+ * Connector-arm budget — only {@link ConnectorPolicy} (unspellable recycle /
+ * nudge-human). The only handle {@link convergeAdmit} accepts.
+ */
+export function createConnectorDrainBudget(
+  policy: ConnectorPolicy,
+): ConnectorDrainBudget {
+  return mintBudget(policy) as ConnectorDrainBudget;
+}
+
+/**
+ * @deprecated Prefer {@link createDrainBudget} / {@link createConnectorDrainBudget}.
+ * Retained as alias of createDrainBudget for endpoint call sites mid-migration.
+ */
+export type DrainBudgetMemory = DrainBudgetHandle;

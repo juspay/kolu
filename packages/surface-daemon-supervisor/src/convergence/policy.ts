@@ -91,8 +91,12 @@ export type ConnectorPolicy = {
 
 /** The widened, all-arms view the PURE `decide()` consumes. Every `ConvergencePolicy<Cap>`
  *  is assignable to this (its arms are a subset of the drainable arms), so `decide` stays
- *  exhaustive over a concrete union while Pin 1 is enforced at the enactment boundary. */
+ *  exhaustive over a concrete union while Pin 1 is enforced at the enactment boundary.
+ *  Includes `baked` so decide never takes a free-standing baked arg (F8). */
 export interface AnyConvergencePolicy {
+  readonly capability: DrainCapability;
+  readonly baked: ConvergenceIdentity;
   readonly onContractSkew: ContractSkewPolicy<"drainable">;
   readonly onBuildMismatch: BuildMismatchPolicy<"drainable">;
+  readonly drainBudget?: DrainBudget;
 }

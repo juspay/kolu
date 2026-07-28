@@ -6,12 +6,12 @@ import { join, dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
-  asEndpointInternal,
   createEndpoint,
   type DaemonConnection,
   DaemonContractSkewError,
   type EndpointStatus,
 } from "./endpoint.ts";
+import { endpointPrivate } from "./endpoint.private.ts";
 import { serializeRestart } from "./restart.ts";
 
 const silentLog = {
@@ -123,7 +123,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await asEndpointInternal(endpoint).ensure();
+    await endpointPrivate(endpoint).ensure();
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
     const connected = statuses.find((s) => s.state === "connected");
     expect(connected?.identity).toEqual({ staleKey: "abc" });
@@ -170,7 +170,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await asEndpointInternal(endpoint).ensure();
+    await endpointPrivate(endpoint).ensure();
     closeCb?.();
     expect(statuses.map((s) => s.state)).toEqual([
       "connecting",
@@ -210,7 +210,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await expect(asEndpointInternal(endpoint).ensure()).rejects.toThrow("skew");
+    await expect(endpointPrivate(endpoint).ensure()).rejects.toThrow("skew");
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
   });
 
@@ -249,9 +249,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await expect(asEndpointInternal(endpoint).ensure()).rejects.toThrow(
-      "ENOENT",
-    );
+    await expect(endpointPrivate(endpoint).ensure()).rejects.toThrow("ENOENT");
     // The contract: failures publish `dead` before they throw, so the UI never
     // sticks at `connecting`. And a failed spawn must not reach the handshake.
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
@@ -313,7 +311,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await asEndpointInternal(endpoint).ensure();
+    await endpointPrivate(endpoint).ensure();
     await survivorExited; // the boot policy killed it
     expect(spawned).toBe(true);
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
@@ -365,7 +363,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await asEndpointInternal(endpoint).ensure();
+    await endpointPrivate(endpoint).ensure();
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
     expect(strangerSignalled).toBe(false);
@@ -421,7 +419,7 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
-    await asEndpointInternal(endpoint).ensure(); // boot: connecting → connected
+    await endpointPrivate(endpoint).ensure(); // boot: connecting → connected
     statuses.length = 0; // focus the assertions on the restart
     return { endpoint, statuses, connectCount: () => connects };
   }
@@ -501,7 +499,7 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
-    await asEndpointInternal(endpoint).ensure(); // boot ok
+    await endpointPrivate(endpoint).ensure(); // boot ok
     statuses.length = 0;
 
     await expect(serializeRestart(endpoint)(noopSteps)).rejects.toThrow("skew");
@@ -610,7 +608,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       socketPollMs: 5,
     });
 
-    const adopted = await asEndpointInternal(endpoint).adoptOrEnsure();
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
 
@@ -682,7 +680,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1, // keep the test fast
     });
 
-    const adopted = await asEndpointInternal(endpoint).adoptOrEnsure();
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await new Promise((r) => setTimeout(r, 20));
 
     expect(adopted).toBe(true); // adopted on the retry, not recycled
@@ -755,7 +753,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1,
     });
 
-    const adopted = await asEndpointInternal(endpoint).adoptOrEnsure();
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await survivorExited; // the skewed survivor was killed before the fresh spawn
 
     expect(adopted).toBe(false); // recycled, not adopted
@@ -818,7 +816,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     });
 
     await expect(
-      asEndpointInternal(endpoint).adoptOrEnsure(),
+      endpointPrivate(endpoint).adoptOrEnsure(),
     ).rejects.toMatchObject({
       isContractSkew: true,
     });
@@ -874,7 +872,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     });
 
     await endpoint.holdRestarting(async () => {
-      await asEndpointInternal(endpoint)
+      await endpointPrivate(endpoint)
         .ensure()
         .catch(() => {});
     });
@@ -945,7 +943,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1,
     });
 
-    const adopted = await asEndpointInternal(endpoint).adoptOrEnsure();
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await new Promise((r) => setTimeout(r, 20));
 
     expect(adopted).toBe(false); // nothing adopted, nothing to reconcile
@@ -990,8 +988,8 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       socketPollMs: 5,
     });
 
-    const adopted = await asEndpointInternal(endpoint).adoptOrEnsure();
-    expect(adopted).toBe(false);
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    expect(adopted.kind).not.toBe("adopted-resident");
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
   });
 });
@@ -1058,7 +1056,7 @@ describeDaemon(
         adoptConnectRetryMs: 1,
       });
 
-      const adopted = await asEndpointInternal(endpoint).adoptOrSpawnOrRefuse();
+      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
       // Give any (erroneous) SIGTERM a tick to land.
       await new Promise((r) => setTimeout(r, 50));
 
@@ -1131,7 +1129,7 @@ describeDaemon(
         socketPollMs: 5,
       });
 
-      const adopted = await asEndpointInternal(endpoint).adoptOrSpawnOrRefuse();
+      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
       await new Promise((r) => setTimeout(r, 50));
 
       expect(adopted).toBe(true);
@@ -1173,8 +1171,8 @@ describeDaemon(
         socketPollMs: 5,
       });
 
-      const adopted = await asEndpointInternal(endpoint).adoptOrSpawnOrRefuse();
-      expect(adopted).toBe(false);
+      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
+      expect(adopted.kind).not.toBe("adopted-resident");
       expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
     });
   },
@@ -1274,7 +1272,7 @@ describeDaemon(
         onSpawned: () => {},
       });
 
-      const adopted = await asEndpointInternal(ep).adoptOrEnsure();
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
       expect(adopted).toBe(true);
@@ -1333,7 +1331,7 @@ describeDaemon(
         onSpawned: () => {},
       });
 
-      const adopted = await asEndpointInternal(ep).adoptOrEnsure();
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
       expect(adopted).toBe(true);
@@ -1401,7 +1399,7 @@ describeDaemon(
         },
       });
 
-      const adopted = await asEndpointInternal(ep).adoptOrEnsure();
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
       expect(adopted).toBe(false);
@@ -1482,9 +1480,7 @@ describeDaemon(
         },
       });
 
-      await expect(
-        asEndpointInternal(ep).adoptOrEnsure(),
-      ).rejects.toMatchObject({
+      await expect(endpointPrivate(ep).adoptOrEnsure()).rejects.toMatchObject({
         isContractSkew: true,
       });
       await tick();
@@ -1547,8 +1543,8 @@ describeDaemon(
         },
       });
 
-      const adopted = await asEndpointInternal(ep).adoptOrEnsure();
-      expect(adopted).toBe(false);
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      expect(adopted.kind).not.toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "primary-fresh" });
       expect(hintConnectCalled).toBe(false); // no live daemon at the hint gate to connect to
       expect(onAdoptedCalled).toBe(false);
@@ -1610,8 +1606,8 @@ describeDaemon(
       });
 
       // Boot: no digest survivor, adopt the legacy hint.
-      const adopted = await asEndpointInternal(ep).adoptOrEnsure();
-      expect(adopted).toBe(true);
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      expect(adopted.kind).toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "legacy" });
       expect(onAdoptedCalled).toBe(true);
       expect(driverSpawnCalled).toBe(0); // adopted, never spawned
@@ -1619,7 +1615,7 @@ describeDaemon(
       // A Restart-kaval recycle (`ensure()`) probes the HELD rendezvous — the adopted
       // legacy socket, not the primary — so it SIGTERMs the legacy daemon and spawns
       // fresh at the PRIMARY (digest). The bounded migration converges here.
-      await asEndpointInternal(ep).ensure();
+      await endpointPrivate(ep).ensure();
       await tick();
 
       expect(legacy.exited()).toBe(true); // the adopted legacy kaval was killed by the recycle

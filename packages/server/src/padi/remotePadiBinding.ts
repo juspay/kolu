@@ -35,7 +35,7 @@ import {
 } from "@kolu/padi/surface";
 import {
   convergeAdmit,
-  createDrainBudget,
+  createConnectorDrainBudget,
   daemonBuild,
   instanceKeyFromStartedAt,
 } from "@kolu/surface-daemon-supervisor";
@@ -332,9 +332,11 @@ export function ensureRemotePadiBinding(
 
   // ONE policy object for both arms; budget memory is per-supervisor-boot and
   // SURVIVES adopts (no reset-on-adopt — that wiped the cross-supervisor signal).
-  // createDrainBudget takes the whole policy so admit cannot cross-wire another.
+  // Connector budget (F7) — ConnectorPolicy only; recycle/nudge-human unspellable.
   const policy = {
-    ...padiConvergencePolicy(binderBuildId),
+    capability: "drainable" as const,
+    onContractSkew: { kind: "drain-newer-else-refuse" as const },
+    onBuildMismatch: { kind: "drain-and-replace" as const },
     // Tests may tighten the budget; production uses the policy's own maxAttempts.
     drainBudget: {
       maxAttempts: maxDrains,
@@ -346,7 +348,7 @@ export function ensureRemotePadiBinding(
       build: daemonBuild(binderBuildId),
     },
   };
-  const budget = createDrainBudget(policy);
+  const budget = createConnectorDrainBudget(policy);
 
   // ── Arm-local convergence state (closures, not class fields) ────────────────
   // The standing convergence anomaly `convergence()` surfaces (adopted-stale / skew /
@@ -427,37 +429,56 @@ export function ensureRemotePadiBinding(
       }
     },
   });
+  // Process-exit oracle for F3: resolve only when the transport reports the
+  // remote process/link truly closed — never from a single hello rejection
+  // (a link blip is not process exit).
+  let processExit: Promise<void> | null = null;
+
   const rawConnector: Connector<PadiSurfaceClient, SshProv> = async (ctx) => {
     const conn = await inner(ctx);
     combined = conn.client;
+    processExit = conn.closed.then(() => undefined);
     return { ...conn, client: scopePadiSurface(conn.client) };
   };
 
-  // ── Drain plumbing: the ssh arm's plugs into the framework drainAndAwaitExit ──
-  /** Observe exit via hello-poll (ssh has no socket-close). Shared by drain + admit. */
-  function awaitExitViaHello(
-    c: PadiDaemonClient,
-  ): (signal: AbortSignal) => Promise<void> {
-    return async (signal) => {
-      while (!signal.aborted) {
-        try {
-          await c.surface.control.core.hello();
-        } catch {
-          return; // hello rejected — the daemon exited
-        }
-        if (signal.aborted) return;
-        await sleep(drainPollMs);
+  // ── Drain plumbing: process oracle, not hello-poll (F3) ────────────────────
+  /** awaitExit resolves only from the connection's process-exit signal (closed).
+   *  Link-down without close + ceiling → drain-not-taken, never replaced. */
+  function awaitExitViaProcessOracle(signal: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (signal.aborted) {
+        resolve();
+        return;
       }
-    };
+      const onAbort = (): void => {
+        cleanup();
+        resolve();
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      let done = false;
+      const cleanup = (): void => {
+        if (done) return;
+        done = true;
+        signal.removeEventListener("abort", onAbort);
+      };
+      if (processExit === null) {
+        // No oracle (not bound) — wait for ceiling abort only.
+        return;
+      }
+      void processExit.then(() => {
+        cleanup();
+        resolve();
+      });
+    });
   }
 
-  /** Fire the control-core drain + await exit via hello-poll. */
+  /** Fire the control-core drain + await process exit (not hello rejection). */
   function drainAndAwaitClose(
     c: PadiDaemonClient,
   ): Promise<{ took: boolean; drainRejection: string | null }> {
     return drainAndAwaitExit(
       () => c.surface.control.core.drain(),
-      awaitExitViaHello(c),
+      awaitExitViaProcessOracle,
       { ceilingMs: drainCeilingMs },
     );
   }
@@ -486,7 +507,7 @@ export function ensureRemotePadiBinding(
       },
       budget,
       drain: () => c.surface.control.core.drain(),
-      awaitExit: awaitExitViaHello(c),
+      awaitExit: awaitExitViaProcessOracle,
       ceilingMs: drainCeilingMs,
       log: log.child({ host }),
     });

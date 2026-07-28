@@ -2,20 +2,25 @@
  * `converge(endpoint)` — the endpoint-arm enactment of the kit. The ONLY boot verb on
  * an endpoint: probe → decide → budget-gated drain → private bind methods.
  *
- * Outcome kinds either **always** carry their anomaly or **never** do — no optionals.
- * Standing anomalies put evidence in typed fields (`detail` is garnish only).
+ * Accepts only a genuine {@link createEndpoint} handle (F12 WeakMap brand).
+ * Outcome kinds either **always** carry their anomaly or **never** do.
  */
 
 import {
   buildLabel,
+  buildsMatch,
   type ConvergenceIdentity,
+  contractIsCompatible,
   type Logger,
 } from "@kolu/surface-daemon";
-import type { ConvergenceAnomaly } from "./anomaly.ts";
-import type {
-  DrainAdmission,
-  DrainBudgetMemory,
-  DrainLineage,
+import type { ConvergenceAnomaly, RefusedAnomaly } from "./anomaly.ts";
+import type { BindResult } from "./bindResult.ts";
+import {
+  type DrainAdmission,
+  type DrainBudgetHandle,
+  type DrainLineage,
+  budgetInternal,
+  drainBudgetOf,
 } from "./budget.ts";
 import {
   drainAndAwaitExit,
@@ -25,29 +30,8 @@ import { decide } from "./decide.ts";
 import { giveUpOutcome } from "./giveUp.ts";
 import { type InstanceKey, instanceKeyFromStartedAt } from "./instanceKey.ts";
 import type { ConvergencePolicy, DrainCapability } from "./policy.ts";
-
-/**
- * The face `converge` enacts through — the public Endpoint fields it needs.
- * Private bind methods are NOT on this type (or on Endpoint); runtime objects
- * from createEndpoint still carry them, and {@link converge} reaches them via
- * a structural cast after checking they exist.
- */
-export interface ConvergingEndpoint<
-  Cap extends DrainCapability = DrainCapability,
-> {
-  readonly policy: ConvergencePolicy<Cap>;
-  probe: () => Promise<ConvergenceProbe<Cap> | null>;
-  readonly budget: Cap extends "drainable"
-    ? DrainBudgetMemory
-    : DrainBudgetMemory | null;
-  readonly log: Logger;
-}
-
-/** Runtime bind methods — present on createEndpoint objects, absent from the type. */
-type EndpointBinds = {
-  adoptOrSpawnOrRefuse: () => Promise<boolean>;
-  adoptOrEnsure: () => Promise<boolean>;
-};
+import { endpointPrivate } from "../endpoint.private.ts";
+import type { Endpoint } from "../endpoint.ts";
 
 export interface ConvergenceProbeBase {
   readonly identity: ConvergenceIdentity;
@@ -62,6 +46,11 @@ export interface ConvergenceProbeBase {
 export interface DrainableProbe extends ConvergenceProbeBase {
   readonly capability: "drainable";
   fireDrain(): Promise<void>;
+  /**
+   * Observe that the daemon process actually left. MUST resolve only from an
+   * independent process/instance oracle (gate/pid gone, socket close of the
+   * daemon process). Sustained RPC failure alone is NOT exit (F3).
+   */
   awaitExit(signal: AbortSignal): Promise<void>;
   readonly drainCeilingMs: number;
 }
@@ -77,37 +66,33 @@ type AnyConvergenceProbe = DrainableProbe | PlainProbe;
 
 /**
  * Outcome of `converge`. Anomaly is required on kinds that can be degraded and
- * **absent** on kinds that cannot — never optional.
+ * **absent** on kinds that cannot — never optional. `not-adopted-stale` deleted
+ * (F5): adopted-stale only when a resident was adopted.
  */
 export type ConvergenceOutcome =
-  /** Clean adopt — no anomaly field (cannot disagree). */
   | { readonly kind: "adopted" }
-  /** Adopted a stale build — anomaly always present. */
   | {
       readonly kind: "adopted-stale";
       readonly anomaly: Extract<ConvergenceAnomaly, { kind: "adopted-stale" }>;
     }
   | { readonly kind: "not-adopted" }
-  | {
-      readonly kind: "not-adopted-stale";
-      readonly anomaly: Extract<ConvergenceAnomaly, { kind: "adopted-stale" }>;
-    }
-  | { readonly kind: "recycled"; readonly adopted: boolean }
+  | { readonly kind: "spawned-fresh" }
+  | { readonly kind: "recycled"; readonly bind: BindResult }
   | {
       readonly kind: "refused";
       readonly adopted: false;
-      readonly anomaly: ConvergenceAnomaly;
+      readonly anomaly: RefusedAnomaly;
     }
   | {
       readonly kind: "drained-replacing";
       readonly axis: "contract" | "build";
       readonly running: ConvergenceIdentity;
-      readonly adopted: boolean;
+      readonly bind: BindResult;
     }
   | {
       readonly kind: "mismatch-reported";
       readonly running: ConvergenceIdentity;
-      readonly adopted: boolean;
+      readonly bind: BindResult;
     };
 
 /** Whether a survivor was ADOPTED (its children preserved). */
@@ -117,14 +102,13 @@ export function outcomeAdopted(outcome: ConvergenceOutcome): boolean {
     case "adopted-stale":
       return true;
     case "not-adopted":
-    case "not-adopted-stale":
+    case "spawned-fresh":
+    case "refused":
       return false;
     case "recycled":
     case "drained-replacing":
     case "mismatch-reported":
-      return outcome.adopted;
-    case "refused":
-      return false;
+      return outcome.bind.kind === "adopted-resident";
     default: {
       const _exhaustive: never = outcome;
       throw new Error(`unreachable outcome: ${JSON.stringify(_exhaustive)}`);
@@ -138,11 +122,11 @@ export function outcomeAnomaly(
 ): ConvergenceAnomaly | null {
   switch (outcome.kind) {
     case "adopted-stale":
-    case "not-adopted-stale":
     case "refused":
       return outcome.anomaly;
     case "adopted":
     case "not-adopted":
+    case "spawned-fresh":
     case "recycled":
     case "drained-replacing":
     case "mismatch-reported":
@@ -154,48 +138,74 @@ export function outcomeAnomaly(
   }
 }
 
-function lineageOf(probe: AnyConvergenceProbe): DrainLineage {
-  return {
-    build: probe.identity.build,
-    instanceKey: probe.instanceKey,
-  };
+function lineageOf(
+  identity: ConvergenceIdentity,
+  instanceKey: InstanceKey,
+): DrainLineage {
+  return { build: identity.build, instanceKey };
+}
+
+function bindOutcomeFromResult(r: BindResult): ConvergenceOutcome {
+  switch (r.kind) {
+    case "adopted-resident":
+      return { kind: "adopted" };
+    case "spawned-fresh":
+      return { kind: "spawned-fresh" };
+    case "refused-or-failed":
+      return { kind: "not-adopted" };
+    default: {
+      const _e: never = r;
+      throw new Error(`unreachable BindResult: ${JSON.stringify(_e)}`);
+    }
+  }
 }
 
 /**
- * Accept a spy {@link ConvergingEndpoint} (tests) or a public {@link Endpoint}
- * from createEndpoint (runtime object still carries private binds).
+ * `converge` — only a genuine createEndpoint handle (F12).
  */
-export async function converge<Cap extends DrainCapability>(
-  endpoint: ConvergingEndpoint<Cap>,
-): Promise<ConvergenceOutcome> {
-  // Runtime createEndpoint objects include the private binds even though the
-  // public Endpoint / ConvergingEndpoint types omit them.
-  const binds = endpoint as ConvergingEndpoint<Cap> & Partial<EndpointBinds>;
-  if (
-    typeof binds.adoptOrEnsure !== "function" ||
-    typeof binds.adoptOrSpawnOrRefuse !== "function"
-  ) {
-    throw new Error(
-      "converge: endpoint is missing private bind methods — use createEndpoint",
-    );
-  }
-  const face = binds as ConvergingEndpoint<Cap> & EndpointBinds;
-  const policy = face.policy;
+export async function converge<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+>(endpoint: Endpoint<C, I, M, Cap>): Promise<ConvergenceOutcome> {
+  const binds = endpointPrivate(endpoint);
+  const policy = endpoint.policy;
   const baked = policy.baked;
-  const probe: AnyConvergenceProbe | null = await face.probe();
+  const probeResult = await endpoint.probe();
 
   const bind =
     policy.onContractSkew.kind === "recycle"
-      ? face.adoptOrEnsure
-      : face.adoptOrSpawnOrRefuse;
+      ? () => binds.adoptOrEnsure()
+      : () => binds.adoptOrSpawnOrRefuse();
 
-  if (probe === null) {
-    const adopted = await bind();
-    return adopted ? { kind: "adopted" } : { kind: "not-adopted" };
+  if (probeResult === null) {
+    // F2: null means honest no-listener. If bind adopts a resident anyway, that is
+    // a race — re-probe and never silently ride a mismatch.
+    const r = await bind();
+    if (r.kind === "adopted-resident") {
+      const again = await endpoint.probe();
+      if (again !== null) {
+        try {
+          return await evaluateBoundResident({
+            probe: again,
+            policy,
+            budget: endpoint.budget,
+            bindResult: r,
+            log: endpoint.log,
+            axis: null,
+          });
+        } finally {
+          again.dispose();
+        }
+      }
+    }
+    return bindOutcomeFromResult(r);
   }
 
+  const probe: AnyConvergenceProbe = probeResult;
   try {
-    const decision = decide(baked, probe.identity, policy);
+    const decision = decide(policy, probe.identity);
     const skewCtx = {
       runningContract: probe.identity.contractVersion,
       mineContract: baked.contractVersion,
@@ -205,24 +215,22 @@ export async function converge<Cap extends DrainCapability>(
     switch (decision.kind) {
       case "spawn":
       case "adopt": {
-        const adopted = await bind();
-        return adopted ? { kind: "adopted" } : { kind: "not-adopted" };
+        return bindOutcomeFromResult(await bind());
       }
       case "recycle": {
-        face.log.warn(
+        endpoint.log.warn(
           skewCtx,
           "convergence: recycling a contract-skewed survivor (kill + respawn)",
         );
-        const adopted = await bind();
-        return { kind: "recycled", adopted };
+        return { kind: "recycled", bind: await bind() };
       }
       case "refuse": {
         const detail =
           `convergence: REFUSING a skewed survivor — left standing + degraded, never touched ` +
           `(running contract ${probe.identity.contractVersion}, mine ${baked.contractVersion})`;
-        face.log.warn(skewCtx, detail);
-        const adopted = await bind();
-        if (adopted) {
+        endpoint.log.warn(skewCtx, detail);
+        const r = await bind();
+        if (r.kind === "adopted-resident") {
           return { kind: "adopted" };
         }
         return {
@@ -242,30 +250,33 @@ export async function converge<Cap extends DrainCapability>(
             "convergence: drain-and-replace decided for a non-drainable probe — unreachable by Pin 1",
           );
         }
-        if (policy.capability !== "drainable" || face.budget === null) {
+        if (policy.capability !== "drainable" || endpoint.budget === null) {
           throw new Error(
             "convergence: drain-and-replace decided without a drain budget — unreachable by Pin 1",
           );
         }
-        const budget = face.budget;
+        const budget = endpoint.budget;
         const why =
           decision.axis === "contract"
             ? `contract skew (mine ${baked.contractVersion} newer than running ${probe.identity.contractVersion})`
             : `build mismatch (running=${buildLabel(probe.identity.build)} expected=${buildLabel(baked.build)})`;
-        const admission = budget.admit(lineageOf(probe), why);
+        const admission = budgetInternal(budget).admit(
+          lineageOf(probe.identity, probe.instanceKey),
+          why,
+        );
         if (admission.kind === "giveUp") {
           return enactGiveUp({
             admission,
-            onGiveUp: budget.drainBudget.onGiveUp,
+            onGiveUp: drainBudgetOf(budget).onGiveUp,
             axis: decision.axis,
             running: probe.identity,
             expected: baked,
             bind,
-            log: face.log,
+            log: endpoint.log,
             skewCtx,
           });
         }
-        face.log.info(
+        endpoint.log.info(
           { axis: decision.axis, attempt: admission.attempt, ...skewCtx },
           "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
         );
@@ -275,42 +286,92 @@ export async function converge<Cap extends DrainCapability>(
           { ceilingMs: probe.drainCeilingMs },
         );
         if (!drain.took) {
-          const notTaken =
-            `${why}: drain did not take within ${probe.drainCeilingMs}ms — the daemon kept answering` +
-            drainRejectionSuffix(drain.drainRejection);
-          face.log.error(
+          endpoint.log.error(
             { axis: decision.axis, ...skewCtx },
-            `convergence: drain FAILED — ${notTaken}`,
+            `convergence: drain FAILED — not taken within ${probe.drainCeilingMs}ms` +
+              drainRejectionSuffix(drain.drainRejection),
           );
           return enactGiveUp({
             admission: {
               kind: "giveUp",
               why: "budget",
-              reason: notTaken,
+              axisHint: why,
+              attempts: admission.attempt,
+              maxAttempts: drainBudgetOf(budget).maxAttempts,
+              instanceKey: probe.instanceKey,
             },
-            onGiveUp: budget.drainBudget.onGiveUp,
+            onGiveUp: drainBudgetOf(budget).onGiveUp,
             axis: decision.axis,
             running: probe.identity,
             expected: baked,
             bind,
-            log: face.log,
+            log: endpoint.log,
             skewCtx,
+            drainNotTaken: {
+              ceilingMs: probe.drainCeilingMs,
+              rejection: drain.drainRejection,
+            },
           });
         }
-        const adopted = await bind();
-        return {
-          kind: "drained-replacing",
-          axis: decision.axis,
-          running: probe.identity,
-          adopted,
-        };
+        // F1: bind then verify successor through budget fold — never silent ride.
+        const r = await bind();
+        if (r.kind === "spawned-fresh") {
+          return {
+            kind: "drained-replacing",
+            axis: decision.axis,
+            running: probe.identity,
+            bind: r,
+          };
+        }
+        if (r.kind === "refused-or-failed") {
+          return enactGiveUp({
+            admission: {
+              kind: "giveUp",
+              why: "budget",
+              axisHint: why,
+              attempts: admission.attempt,
+              maxAttempts: drainBudgetOf(budget).maxAttempts,
+              instanceKey: probe.instanceKey,
+            },
+            onGiveUp: "refuse",
+            axis: decision.axis,
+            running: probe.identity,
+            expected: baked,
+            bind: async () => ({ kind: "refused-or-failed" }),
+            log: endpoint.log,
+            skewCtx,
+            forceUnconverged: true,
+          });
+        }
+        // adopted-resident after drain — re-probe successor (F1).
+        const successor = await endpoint.probe();
+        if (successor === null) {
+          return {
+            kind: "drained-replacing",
+            axis: decision.axis,
+            running: probe.identity,
+            bind: r,
+          };
+        }
+        try {
+          return await evaluateBoundResident({
+            probe: successor,
+            policy,
+            budget,
+            bindResult: r,
+            log: endpoint.log,
+            axis: decision.axis,
+            drainedProbe: probe,
+          });
+        } finally {
+          successor.dispose();
+        }
       }
       case "report-mismatch": {
-        const adopted = await bind();
         return {
           kind: "mismatch-reported",
           running: decision.running,
-          adopted,
+          bind: await bind(),
         };
       }
       default: {
@@ -325,34 +386,153 @@ export async function converge<Cap extends DrainCapability>(
   }
 }
 
+/**
+ * F1: after bind retained a resident, verify via decide + budget fold.
+ * Expected match → clean; foreign instance of drained build → cross-supervisor;
+ * same wrong lineage → budget give-up.
+ */
+async function evaluateBoundResident(args: {
+  probe: AnyConvergenceProbe;
+  policy: ConvergencePolicy<DrainCapability>;
+  budget: DrainBudgetHandle | null;
+  bindResult: BindResult;
+  log: Logger;
+  axis: "contract" | "build" | null;
+  drainedProbe?: AnyConvergenceProbe;
+}): Promise<ConvergenceOutcome> {
+  const baked = args.policy.baked;
+  const running = args.probe.identity;
+  if (
+    contractIsCompatible(baked.contractVersion, running.contractVersion) &&
+    buildsMatch(baked.build, running.build)
+  ) {
+    return { kind: "adopted" };
+  }
+  if (args.budget === null || args.policy.capability !== "drainable") {
+    // Not drainable — report mismatch / refuse via decide
+    const d = decide(args.policy, running);
+    if (d.kind === "report-mismatch") {
+      return {
+        kind: "mismatch-reported",
+        running,
+        bind: args.bindResult,
+      };
+    }
+    return {
+      kind: "refused",
+      adopted: false,
+      anomaly: {
+        kind: "skew-refused",
+        running,
+        expected: baked,
+        detail: "bound resident is not the expected identity",
+      },
+    };
+  }
+  const why =
+    args.axis === "contract"
+      ? `post-drain successor contract skew`
+      : `post-drain successor build mismatch (running=${buildLabel(running.build)} expected=${buildLabel(baked.build)})`;
+  const admission = budgetInternal(args.budget).admit(
+    lineageOf(running, args.probe.instanceKey),
+    why,
+  );
+  if (admission.kind === "giveUp" && admission.why === "cross-supervisor") {
+    const g = giveUpOutcome({
+      admission,
+      onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+      axis: args.axis ?? "build",
+      running,
+      expected: baked,
+      log: args.log,
+      skewCtx: {},
+      logPrefix: "convergence",
+    });
+    return {
+      kind: "refused",
+      adopted: false,
+      anomaly: g.anomaly as RefusedAnomaly,
+    };
+  }
+  if (admission.kind === "giveUp") {
+    const g = giveUpOutcome({
+      admission,
+      onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+      axis: args.axis ?? "build",
+      running,
+      expected: baked,
+      log: args.log,
+      skewCtx: {},
+      logPrefix: "convergence",
+    });
+    if (g.kind === "adopt-stale") {
+      return { kind: "adopted-stale", anomaly: g.anomaly };
+    }
+    return { kind: "refused", adopted: false, anomaly: g.anomaly };
+  }
+  // Budget would allow another drain — still wrong identity after adopt: ride stale.
+  const detail = `post-drain successor is still not the expected build (running=${buildLabel(running.build)} expected=${buildLabel(baked.build)}) — riding the resident`;
+  args.log.warn({}, `convergence: ADOPTED STALE — ${detail}`);
+  return {
+    kind: "adopted-stale",
+    anomaly: {
+      kind: "adopted-stale",
+      running,
+      expected: baked,
+      detail,
+    },
+  };
+}
+
 async function enactGiveUp(args: {
   admission: Extract<DrainAdmission, { kind: "giveUp" }>;
   onGiveUp: "refuse" | "adopt-stale";
   axis: "contract" | "build";
   running: ConvergenceIdentity;
   expected: ConvergenceIdentity;
-  bind: () => Promise<boolean>;
+  bind: () => Promise<BindResult>;
   log: Logger;
   skewCtx: Record<string, string>;
+  drainNotTaken?: { ceilingMs: number; rejection: string | null };
+  forceUnconverged?: boolean;
 }): Promise<ConvergenceOutcome> {
   const g = giveUpOutcome({
     admission: args.admission,
-    onGiveUp: args.onGiveUp,
+    onGiveUp: args.forceUnconverged ? "refuse" : args.onGiveUp,
     axis: args.axis,
     running: args.running,
     expected: args.expected,
     log: args.log,
     skewCtx: args.skewCtx,
     logPrefix: "convergence",
+    drainNotTaken: args.drainNotTaken,
   });
   if (g.kind === "adopt-stale") {
-    const adopted = await args.bind();
-    return adopted
-      ? { kind: "adopted-stale", anomaly: g.anomaly }
-      : { kind: "not-adopted-stale", anomaly: g.anomaly };
+    const r = await args.bind();
+    if (r.kind === "adopted-resident") {
+      return { kind: "adopted-stale", anomaly: g.anomaly };
+    }
+    if (r.kind === "spawned-fresh") {
+      // F5: spawned expected is clean, not stale.
+      return { kind: "spawned-fresh" };
+    }
+    // bind failed after adopt-stale intent → unconverged
+    return {
+      kind: "refused",
+      adopted: false,
+      anomaly: {
+        kind: "unconverged",
+        running: args.running,
+        expected: args.expected,
+        cause: {
+          kind: "adopt-bind-failed",
+          axis: args.axis,
+        },
+        detail: g.anomaly.detail,
+      },
+    };
   }
   return { kind: "refused", adopted: false, anomaly: g.anomaly };
 }
 
-// Re-export for probe authors that still think in startedAt.
 export { instanceKeyFromStartedAt };

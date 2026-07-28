@@ -423,9 +423,28 @@ export const PadiConvergenceSchema = z.discriminatedUnion("kind", [
     detail: z.string(),
   }),
   z.object({
-    /** A newer-contract drain that never provably took (canvas dead). */
+    /** Drain/budget give-up that left canvas dead — typed cause evidence. */
     kind: z.literal("unconverged"),
     running: ConvergenceIdentitySchema,
+    expected: ConvergenceIdentitySchema,
+    cause: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("budget-exhausted"),
+        axis: z.enum(["contract", "build"]),
+        attempts: z.number().int(),
+        maxAttempts: z.number().int(),
+      }),
+      z.object({
+        kind: z.literal("drain-not-taken"),
+        axis: z.enum(["contract", "build"]),
+        ceilingMs: z.number(),
+        rejection: z.string().nullable(),
+      }),
+      z.object({
+        kind: z.literal("adopt-bind-failed"),
+        axis: z.enum(["contract", "build"]).nullable(),
+      }),
+    ]),
     detail: z.string(),
   }),
   z.object({

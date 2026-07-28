@@ -23,12 +23,10 @@ export {
   type DaemonConnection,
   DaemonContractSkewError,
   type Endpoint,
-  type EndpointInternal,
   type EndpointSpec,
   type EndpointState,
   type EndpointStatus,
   type IncompatibleEndpointStatus,
-  asEndpointInternal,
   ENDPOINT_STATES,
   createEndpoint,
   isContractSkewError,
@@ -53,6 +51,7 @@ export {
 } from "./driver.ts";
 export {
   type RestartSteps,
+  destructiveRecycleSteps,
   recycle,
   serializeRestart,
 } from "./restart.ts";

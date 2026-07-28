@@ -99,14 +99,27 @@ export async function drainViaControlCore(conn: DrainableConn): Promise<void> {
  * The kit's identity probe for padi: dial the running padi's FROZEN control core and
  * expose its identity + instance key + a `drain`, or `null` if none answers.
  */
+/** True when the dial failure means "nothing listening" (honest null probe). */
+function isNoListenerError(err: unknown): boolean {
+  const e = err as { code?: string; cause?: { code?: string } };
+  const code = e.code ?? e.cause?.code;
+  return code === "ECONNREFUSED" || code === "ENOENT";
+}
+
+/**
+ * Probe a running padi. Returns `null` only for no-listener (ECONNREFUSED /
+ * ENOENT). Any other dial/handshake failure **throws** (F2) — never collapses
+ * into "no daemon" so a mismatched survivor is not silently adopted.
+ */
 export async function probePadiForConvergence(
   socketPath: string,
 ): Promise<ConvergenceProbe<"drainable"> | null> {
   let dialed: PadiDial;
   try {
     dialed = await dialPadiHello(socketPath);
-  } catch {
-    return null; // no live padi answering — spawn will handle it.
+  } catch (err) {
+    if (isNoListenerError(err)) return null;
+    throw err; // F2: typed failure — converge must not treat as empty socket
   }
   const { socket, client, hello } = dialed;
   let closed = false;

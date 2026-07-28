@@ -205,6 +205,14 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
             drain: async (): Promise<void> => {
               handle.drainCount += 1;
               drained = true;
+              // F3 process oracle: close transport after grace window (not on hello
+              // rejection). Models multi-poll death without treating link blips as exit.
+              if (dies && !spec.wedgeAfterDrain) {
+                const graceMs = (spec.graceHellos ?? 0) * 20 + 5;
+                setTimeout(() => {
+                  resolveClosed({ kind: "exit", code: 0, signal: null });
+                }, graceMs);
+              }
             },
           },
         },
