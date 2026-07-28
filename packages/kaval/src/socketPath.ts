@@ -99,15 +99,6 @@ export function readStateRootManifest(runtimeDir: string): string | undefined {
  *  one literal that ties construction and discovery together. */
 export const KAVAL_NS_PREFIX = "kaval";
 
-/** The legacy per-port app namespace — the retired in-process kolu-server keying
- *  (`kaval-<port>/`). No longer used to CONSTRUCT a live socket (padi keys by a
- *  state-root digest now); kept because discovery below probes it with a sentinel
- *  to learn the `<prefix>-<...>` decoration shape, and still recognizes such dirs
- *  for the transition. */
-export function kavalNamespace(port: number): string {
-  return `${KAVAL_NS_PREFIX}-${port}`;
-}
-
 /** The socket path: `override` if given, else `$XDG_RUNTIME_DIR/<app>/
  *  pty-host.sock` on systemd Linux, else the `$TMPDIR`-independent per-user
  *  fallback `/tmp/<app>-$UID/pty-host.sock`. `app` is a bare stem (default
@@ -169,8 +160,8 @@ export { isPrivateOwnedDir };
  *  decoration with a `(\d+)` capture substituted for the port, learnt from a probe
  *  build with port `0`.
  *
- *  Labeling is the INVERSE of `kavalNamespace`, derived from THIS match — not a
- *  later re-parse of the basename. That distinction matters: a re-parse of a bare
+ *  Labeling is derived from THIS match — not a later re-parse of the basename.
+ *  That distinction matters: a re-parse of a bare
  *  `kaval-7692` basename alone can't tell a port from an off-XDG `-$UID` suffix
  *  and would have to hedge ("port 7692, or a standalone kaval"). Here, a name that
  *  equals `bareName` IS the standalone daemon and a name that matches the ported

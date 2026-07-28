@@ -33,6 +33,7 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
+import { createConnection } from "node:net";
 import { dirname } from "node:path";
 import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 
@@ -75,10 +76,10 @@ export function gatePid(gatePath: string): number | undefined {
 }
 
 /** Take the gate for *this* process, atomically. Returns `acquired` (with a
- *  `release` to call at teardown) or `held` (a live daemon already serves —
- *  exit 0). Bounded retry: each pass either acquires, observes a live holder,
- *  or clears one stale gate and tries again; the cap stops an adversarial
- *  unlink/recreate race from spinning forever. */
+ *  `release` to call at teardown) or `held` (a live process owns the PID in the
+ *  gate file — call {@link confirmHeldGate} with the co-located socket to tell a
+ *  real daemon from a reboot-stale PID reuse). Bounded retry: each pass either
+ *  acquires, observes a live holder, or clears one stale gate and tries again. */
 export function acquirePidGate(gatePath: string): GateAcquisition {
   const dir = dirname(gatePath);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -134,9 +135,11 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
       }
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
 
-      // The gate exists. A live holder wins; a dead one is stale — reap it and
-      // retry. (Concurrent reapers are safe: ENOENT on unlink just means a
-      // peer reaped first, and the next pass re-reads the new state.)
+      // The gate exists. A live holder wins at this layer; a dead one is stale —
+      // reap and retry. (Confirm with {@link confirmHeldGate} that a co-located
+      // socket is actually serving — reboot can reuse a PID while the socket is
+      // dead.) Concurrent reapers are safe: ENOENT on unlink just means a peer
+      // reaped first.
       const pid = gatePid(gatePath);
       if (pid !== undefined && isHolderLive(pid)) {
         return { kind: "held", pid };
@@ -152,4 +155,40 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
   throw new Error(
     `could not acquire pid-gate at ${gatePath} after repeated contention`,
   );
+}
+
+/** Does anything accept connections on this unix-socket path? */
+export function socketIsServing(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = createConnection(socketPath);
+    const done = (v: boolean) => {
+      sock.removeAllListeners();
+      sock.destroy();
+      resolve(v);
+    };
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+}
+
+/**
+ * After {@link acquirePidGate} returns `held`, confirm the co-located socket
+ * is still serving. If not (reboot PID reuse, crashed daemon left a gate),
+ * unlink the gate and re-acquire so a new daemon can start.
+ *
+ * Call sites that build a {@link DaemonHomePaths} should always pass its
+ * `socketPath` here — that is the F1 reboot-stale-gate fix for state placement.
+ */
+export async function confirmHeldGate(
+  held: Extract<GateAcquisition, { kind: "held" }>,
+  gatePath: string,
+  socketPath: string,
+): Promise<GateAcquisition> {
+  if (await socketIsServing(socketPath)) return held;
+  try {
+    unlinkSync(gatePath);
+  } catch {
+    // Peer already reaped — fall through to re-acquire.
+  }
+  return acquirePidGate(gatePath);
 }

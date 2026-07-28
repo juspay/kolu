@@ -11,11 +11,14 @@
  *
  * Placement is the one decision that actually matters:
  *
- *   - `"state"`  → `${XDG_STATE_HOME:-~/.local/state}/<app>/`
+ *   - `"state"`  → `~/.local/state/<app>/` ($HOME / passwd home — **not**
+ *     `$XDG_STATE_HOME`, which splits identity across launch contexts).
  *     Durable across reboots. A daemon that must outlive user sessions —
  *     anything supervised over ssh — takes this: logind deletes the runtime
  *     dir with the user's last session, leaving an orphan daemon whose
- *     socket and gate vanished while the process kept running.
+ *     socket and gate vanished while the process kept running. A held gate
+ *     whose co-located socket is dead is reclaimed ({@link confirmHeldGate})
+ *     so a reboot PID reuse cannot strand a start as already-running.
  *   - `"runtime"` → `$XDG_RUNTIME_DIR/<app>/`, falling back to
  *     `/tmp/<app>-$UID/` (via `@kolu/surface/unix-socket`'s
  *     `getRuntimeSocketPath`). Boot-wiped; fine for a single-machine daemon
@@ -147,18 +150,15 @@ function resolveDir(
 ): { dir: string; pathShapeRoot: string } {
   switch (placement) {
     case "state": {
-      const xdg = process.env.XDG_STATE_HOME;
-      if (xdg !== undefined && xdg !== "") {
-        return {
-          dir: join(xdg, appNamespace),
-          pathShapeRoot: `$XDG_STATE_HOME/${appNamespace}`,
-        };
-      }
+      // HOME-only — deliberately ignore $XDG_STATE_HOME. That env varies by
+      // launch context (login shell vs bare ssh vs systemd unit); two contexts
+      // computing two "state" homes would split one daemon's identity. Same
+      // lesson as productionPadiStateRoot. $HOME (or passwd home) is stable.
       const home = process.env.HOME || homedir();
       if (!home) {
         throw new Error(
           `daemonHome: cannot resolve state placement for app "${appNamespace}" — ` +
-            `set $XDG_STATE_HOME or $HOME`,
+            `set $HOME`,
         );
       }
       return {

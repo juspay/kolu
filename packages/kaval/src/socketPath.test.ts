@@ -119,16 +119,21 @@ describe("legacyKavalSocketPath — the W2.2 upgrade adopt-hint (binder hints it
     else process.env.XDG_RUNTIME_DIR = savedXdg;
   });
 
-  it("is the port-keyed kaval-<port>/pty-host.sock — the same namespace as kavalNamespace(port)", () => {
+  it("legacy port path is instance-mode kaval-<port>/pty-host.sock with bare kaval.pid", async () => {
     process.env.XDG_RUNTIME_DIR = "/run/user/1000";
     expect(legacyKavalSocketPath(7681)).toBe(
       "/run/user/1000/kaval-7681/pty-host.sock",
     );
-    // Derived purely from the port via the ONE `kaval-<port>` literal, so the hint
-    // and legacy discovery can never spell it differently.
-    expect(legacyKavalSocketPath(7681)).toBe(
-      "/run/user/1000/kaval-7681/pty-host.sock",
-    );
+    // Gate stem stays bare under instance mode (never kaval-7681.pid).
+    const { resolveDaemonHome } = await import("@kolu/surface-daemon");
+    expect(
+      resolveDaemonHome({
+        app: KAVAL_NS_PREFIX,
+        placement: "runtime",
+        instance: "7681",
+        socketFile: PTY_HOST_SOCK_FILE,
+      }).gatePath,
+    ).toBe("/run/user/1000/kaval-7681/kaval.pid");
   });
 
   it("is a pure function of the port — a DIFFERENT listen port yields a DIFFERENT hint (a dev instance at another port is never adopted)", () => {

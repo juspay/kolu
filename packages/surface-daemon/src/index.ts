@@ -87,9 +87,11 @@ export {
 export { type Logger, stderrLogger } from "./logger.ts";
 export {
   acquirePidGate,
+  confirmHeldGate,
   type GateAcquisition,
   gatePid,
   isHolderLive,
+  socketIsServing,
 } from "./pidGate.ts";
 export type { SharedArtifact } from "./sharedArtifact.ts";
 export { daemonProcessMain } from "./tenure.ts";

@@ -31,7 +31,7 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import type { surface } from "./surface";
 
 // Same home declaration the daemon uses — disagreement about gate/socket impossible.
-const home = daemonHome({ app: "fleet-top", placement: "runtime" });
+const home = daemonHome({ app: "fleet-top", placement: "state" });
 const daemonEntry = "/nix/store/…/bin/fleet-top-daemon";
 
 // A supervisor's DETACHED spawn runs the daemon under `cfg.env` ALONE — no parent

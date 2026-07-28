@@ -167,21 +167,26 @@ export function padiStderrLogPath(stateRoot: string): string {
   return join(resolve(stateRoot), PADI_STDERR_LOG_FILE);
 }
 
-/** The socket padi's kaval serves on: `$XDG_RUNTIME_DIR/kaval-<digest>/
- *  pty-host.sock`, keyed by the SAME digest as padi (retires the legacy
- *  `kaval-<port>`). Via {@link resolveDaemonHome} instance mode so construction
- *  matches kaval discovery under `kaval-*`. */
-export function padiKavalSocketPath(
-  stateRoot: string,
-  override?: string,
-): string {
-  if (override !== undefined && override !== "") return override;
+/** Pure kaval home for this padi — `kaval-<digest>/` under runtime, same digest
+ *  as padi. Construction and the supervisor both take this home object. */
+export function padiKavalHome(stateRoot: string, socketOverride?: string) {
   return resolveDaemonHome({
     app: KAVAL_NS_PREFIX,
     placement: "runtime",
     instance: padiDigest(stateRoot),
     socketFile: PTY_HOST_SOCK_FILE,
-  }).socketPath;
+    socketOverride,
+  });
+}
+
+/** The socket padi's kaval serves on: `$XDG_RUNTIME_DIR/kaval-<digest>/
+ *  pty-host.sock`, keyed by the SAME digest as padi (retires the legacy
+ *  `kaval-<port>`). Via {@link padiKavalHome}. */
+export function padiKavalSocketPath(
+  stateRoot: string,
+  override?: string,
+): string {
+  return padiKavalHome(stateRoot, override).socketPath;
 }
 
 /** A discovered padi daemon — its socket, the state-root its `state-root` manifest

@@ -31,7 +31,7 @@ sites. `connect` receives the socket path from the framework.
 
 | `placement` | Directory |
 | --- | --- |
-| `"state"` | `${XDG_STATE_HOME:-~/.local/state}/<app>/` — durable across reboots |
+| `"state"` | `~/.local/state/<app>/` ($HOME only — ignores `$XDG_STATE_HOME`) — durable across reboots |
 | `"runtime"` | `$XDG_RUNTIME_DIR/<app>/`, falling back to `/tmp/<app>-$UID/` — boot-wiped |
 
 Optional `instance` (padi's state-root digest, or a legacy port string) is the
@@ -134,25 +134,24 @@ broken expansion, distinct from unset), non-canonical decimal, fractional, or ou
 
 ## The anchor self-reap
 
-`anchor: () => string | undefined` is a **required** `DaemonSpec` field, armed
-under **every** lifetime (it is an independent trigger, not a lifetime arm —
-`forever ∧ anchored` and `boundToPid ∧ anchored` both occur): the thunk resolves
-the directory the daemon's existence is anchored to — its identity/state root,
-the path whose deletion makes the daemon garbage. Once that directory has been
-**proven** gone for two consecutive polls (5s apart in production;
-`anchorPollMs?` is the test seam), the daemon reaps itself through the normal
-teardown — socket unlinked, gate released, `{ kind: "shutdown", reason:
-"anchor-gone" }`, exit code 0 — instead of lingering as a zombie holding its
-sockets and RSS forever after a `git worktree remove`.
+`anchor` defaults to `() => home.dir` — gate, socket, and anchor all ride the
+home. Override only when the on-disk identity is **not** the rendezvous home
+(kaval's anchor is its padi's state-root, learned from a manifest; padi's is
+its state-root). The thunk is armed under **every** lifetime (an independent
+trigger, not a lifetime arm): once the directory has been **proven** gone for
+two consecutive polls (5s apart in production; `anchorPollMs?` is the test
+seam), the daemon reaps itself through the normal teardown — socket unlinked,
+gate released, `{ kind: "shutdown", reason: "anchor-gone" }`, exit code 0 —
+instead of lingering as a zombie holding its sockets and RSS forever after a
+`git worktree remove`.
 
 Proof is ENOENT-only (`anchorGone(path)`): any other `lstat` failure — EACCES,
 EIO, ENOTDIR — means "I could not read whether it exists", which never counts
 toward a reap. The thunk is re-evaluated every tick, so an anchor learned after
 boot self-corrects (kaval reads the `state-root` manifest its padi writes around
-kaval's own boot), and `undefined` means "not anchored right now" — never
-reaped, and also the honest, visible spelling (`() => undefined`) for a daemon
-with genuinely no on-disk identity. There is deliberately no opt-out knob: a
-daemon author must answer "what is my anchor?" to compile.
+kaval's own boot). `() => undefined` is the honest spelling for a daemon with
+genuinely no on-disk identity (never reaped). Omitting `anchor` is the normal
+case — it defaults to the home.
 
 ## Serving the surface
 

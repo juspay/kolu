@@ -95,6 +95,7 @@ export {
   type PadiDaemon,
   padiDigest,
   padiGatePath,
+  padiKavalHome,
   padiKavalSocketPath,
   padiLogPath,
   padiRuntimeHome,

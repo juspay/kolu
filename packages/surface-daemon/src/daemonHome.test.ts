@@ -53,32 +53,24 @@ afterEach(() => {
   }
 });
 
-it("state placement creates a 0700 dir under XDG_STATE_HOME/<app>", () => {
-  const root = scratch();
-  pinEnv("XDG_STATE_HOME", root);
+it("state placement is HOME-only ~/.local/state/<app> — ignores XDG_STATE_HOME", () => {
+  const fakeHome = scratch();
+  const xdgTrap = scratch();
+  pinEnv("HOME", fakeHome);
+  pinEnv("XDG_STATE_HOME", xdgTrap); // must NOT win
 
   const home = daemonHome({ app: "pulse", placement: "state" });
 
-  expect(home.dir).toBe(join(root, "pulse"));
+  expect(home.dir).toBe(join(fakeHome, ".local", "state", "pulse"));
   expect(existsSync(home.dir)).toBe(true);
-  const mode = lstatSync(home.dir).mode & 0o777;
-  expect(mode).toBe(0o700);
+  expect(lstatSync(home.dir).mode & 0o777).toBe(0o700);
   expect(home.gatePath).toBe(join(home.dir, "pulse.pid"));
   expect(home.socketPath).toBe(join(home.dir, "pulse.sock"));
   expect(home.file("history.ring.json")).toBe(
     join(home.dir, "history.ring.json"),
   );
-});
-
-it("state placement falls back to ~/.local/state/<app> when XDG_STATE_HOME is unset", () => {
-  const fakeHome = scratch();
-  pinEnv("XDG_STATE_HOME", undefined);
-  pinEnv("HOME", fakeHome);
-
-  const home = daemonHome({ app: "pulse", placement: "state" });
-
-  expect(home.dir).toBe(join(fakeHome, ".local", "state", "pulse"));
-  expect(lstatSync(home.dir).mode & 0o777).toBe(0o700);
+  // Trap dir must stay empty — we never wrote under XDG_STATE_HOME.
+  expect(existsSync(join(xdgTrap, "pulse"))).toBe(false);
 });
 
 it("runtime placement creates a 0700 dir under XDG_RUNTIME_DIR/<app>", () => {
@@ -112,9 +104,9 @@ it("refuses a non-private (group/other-accessible) pre-existing home", () => {
     // No uid semantics — privacy check is a no-op.
     return;
   }
-  const root = scratch();
-  pinEnv("XDG_STATE_HOME", root);
-  const dir = join(root, "pulse");
+  const fakeHome = scratch();
+  pinEnv("HOME", fakeHome);
+  const dir = join(fakeHome, ".local", "state", "pulse");
   mkdirSync(dir, { recursive: true, mode: 0o755 });
   chmodSync(dir, 0o755);
 
@@ -125,9 +117,9 @@ it("refuses a non-private (group/other-accessible) pre-existing home", () => {
 
 it("refuses a private-but-unusable (no owner rwx) pre-existing home", () => {
   if (process.getuid === undefined) return;
-  const root = scratch();
-  pinEnv("XDG_STATE_HOME", root);
-  const dir = join(root, "pulse");
+  const fakeHome = scratch();
+  pinEnv("HOME", fakeHome);
+  const dir = join(fakeHome, ".local", "state", "pulse");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Owner-only but not usable (no owner bits) — privacy alone is not enough.
   chmodSync(dir, 0o000);
@@ -140,8 +132,8 @@ it("refuses a private-but-unusable (no owner rwx) pre-existing home", () => {
 });
 
 it("returns SharedArtifact entries for gate and socket by construction", () => {
-  const root = scratch();
-  pinEnv("XDG_STATE_HOME", root);
+  const fakeHome = scratch();
+  pinEnv("HOME", fakeHome);
 
   const home = daemonHome({ app: "pulse", placement: "state" });
 
@@ -173,8 +165,8 @@ it("rejects an empty, dot, or multi-segment app name", () => {
 });
 
 it("file() rejects empty, dot, and multi-segment names", () => {
-  const root = scratch();
-  pinEnv("XDG_STATE_HOME", root);
+  const fakeHome = scratch();
+  pinEnv("HOME", fakeHome);
   const home = daemonHome({ app: "pulse", placement: "state" });
   expect(() => home.file("../escape")).toThrow(/name must/);
   expect(() => home.file("..")).toThrow(/name must/);

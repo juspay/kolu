@@ -30,6 +30,7 @@ import type { DaemonHomePaths } from "./daemonHome.ts";
 import type { Logger } from "./logger.ts";
 import {
   acquirePidGate,
+  confirmHeldGate,
   type GateAcquisition,
   isHolderLive,
 } from "./pidGate.ts";
@@ -277,8 +278,13 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   const anchor = spec.anchor ?? (() => home.dir);
 
   // The caller may have claimed the gate already (padi, to fence its boot side
-  // effects behind it); otherwise acquire it here (kaval).
-  const gate = spec.gate ?? acquirePidGate(gatePath);
+  // effects behind it); otherwise acquire it here (kaval). Always confirm a
+  // held gate against the co-located socket so a reboot-stale PID reuse cannot
+  // strand us as already-running with no listener.
+  let gate = spec.gate ?? acquirePidGate(gatePath);
+  if (gate.kind === "held") {
+    gate = await confirmHeldGate(gate, gatePath, socketPath);
+  }
   if (gate.kind === "held") {
     log.info(
       { gatePath, pid: gate.pid },
