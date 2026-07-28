@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -193,6 +193,33 @@ unit: install
 # CI boxes are leased/contained, so the fork storm cannot reach production.
 daemon: install
     KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
+
+# Mixed-version daemon upgrade-window — the REAL previous-release e2e (boot the
+# previous tag's kaval, current padi against it, Restart kaval). Slow by design:
+# nix-builds the previous #kaval when KOLU_PREVIOUS_KAVAL_BIN is unset, then runs
+# one vitest file under the daemon gate. Both platforms: the window is real on
+# linux and darwin; cost is one kaval build + one recycle, not a full e2e suite.
+# KOLU_UPGRADE_WINDOW_REQUIRE=1 makes a missing previous binary a hard fail (so
+# CI never silently skips). Depends on `nix` so the current flake is already warm;
+# the previous-ref build is an additional fetch.
+upgrade-window: install nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Resolve previous release tag (latest vX.Y.Z) for the nix build of #kaval.
+    ref="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+    if [ -z "$ref" ]; then
+      ref="$(git log -1 --format=%H -- packages/kaval)"
+    fi
+    echo "upgrade-window: previous ref=$ref"
+    if [ -z "${KOLU_PREVIOUS_KAVAL_BIN:-}" ]; then
+      out="$(nix build --no-link --print-out-paths "git+file://$PWD?ref=$ref#kaval")"
+      export KOLU_PREVIOUS_KAVAL_BIN="$out/bin/kaval"
+    fi
+    echo "upgrade-window: previous kaval=$KOLU_PREVIOUS_KAVAL_BIN"
+    test -x "$KOLU_PREVIOUS_KAVAL_BIN"
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ KOLU_UPGRADE_WINDOW_REQUIRE=1 \
+      KOLU_PREVIOUS_KAVAL_BIN="$KOLU_PREVIOUS_KAVAL_BIN" \
+      {{ nix_shell }} pnpm --filter @kolu/padi exec vitest run src/upgradeWindow/previousRelease.e2e.test.ts
 
 # Build EVERY @kolu/surface example client (the base example, remote-process-monitor,
 # and the fleet-top tutorial parts) — the `@kolu/surface-example*` filter runs
