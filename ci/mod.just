@@ -206,23 +206,45 @@ daemon: install
 upgrade-window: install nix
     #!/usr/bin/env bash
     set -euo pipefail
-    # CI checkouts are SHA-only and often have NO local tags. A bare
+    # CI checkouts are SHA-only and often have NO local tags AND no usable
+    # `origin` remote (odu fetches a single SHA into a worktree). A bare
     # `git tag` list is empty → the old "last kaval-touching rev" fallback
     # built a kaval IDENTICAL to current and the e2e green-washed a
-    # same-version recycle. Discover the latest vX.Y.Z from the remote,
-    # fetch THAT tag into the local object store, then nix-build it.
-    ref="$(
-      git ls-remote --tags --refs origin 2>/dev/null \
+    # same-version recycle. Discover the latest vX.Y.Z from every candidate
+    # remote URL, fetch THAT tag into the local object store, then nix-build.
+    latest_version_tag() {
+      local url="$1"
+      git ls-remote --tags --refs "$url" 2>/dev/null \
         | awk '{print $2}' \
         | sed 's|refs/tags/||' \
         | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
         | sort -V \
         | tail -1 \
       || true
-    )"
-    if [ -z "${ref}" ]; then
-      # Local-dev fallback: fetch all tags then read the local list.
-      git fetch --tags --force origin 2>/dev/null || git fetch --tags --force || true
+    }
+    # Candidate remotes: configured remotes first, then the known GitHub URL
+    # odu itself fetches from (see _ci-setup: "fetching … from https://github.com/juspay/kolu").
+    candidates=()
+    while IFS= read -r r; do
+      [ -n "$r" ] || continue
+      u="$(git remote get-url "$r" 2>/dev/null || true)"
+      [ -n "$u" ] && candidates+=("$u")
+    done < <(git remote 2>/dev/null || true)
+    candidates+=("https://github.com/juspay/kolu" "https://github.com/juspay/kolu.git")
+    ref=""
+    source_url=""
+    for url in "${candidates[@]}"; do
+      echo "upgrade-window: probing tags at ${url}"
+      t="$(latest_version_tag "$url")"
+      if [[ "${t}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        ref="$t"
+        source_url="$url"
+        break
+      fi
+    done
+    if ! [[ "${ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      # Last resort: local tags after an opportunistic fetch.
+      git fetch --tags --force 2>/dev/null || true
       ref="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
     fi
     if ! [[ "${ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -230,8 +252,9 @@ upgrade-window: install nix
       exit 1
     fi
     # Materialise the tag object locally so git+file?ref= can resolve it.
-    git fetch --force origin "refs/tags/${ref}:refs/tags/${ref}" \
-      || { echo "upgrade-window: REFUSING — could not fetch tag ${ref} from origin" >&2; exit 1; }
+    fetch_url="${source_url:-https://github.com/juspay/kolu}"
+    git fetch --force "$fetch_url" "refs/tags/${ref}:refs/tags/${ref}" \
+      || { echo "upgrade-window: REFUSING — could not fetch tag ${ref} from ${fetch_url}" >&2; exit 1; }
     git rev-parse --verify "refs/tags/${ref}" >/dev/null \
       || { echo "upgrade-window: REFUSING — tag ${ref} not in local object store after fetch" >&2; exit 1; }
     echo "upgrade-window: previous ref=${ref} (version tag required)"

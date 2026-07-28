@@ -43,8 +43,10 @@ test("the `upgrade-window` recipe requires the previous binary + anti-collapse r
   expect(recipe).toContain("KOLU_UPGRADE_WINDOW_REQUIRE=1");
   expect(recipe).toContain("previousRelease.e2e.test.ts");
   expect(recipe).toContain("KOLU_DAEMON_TESTS=1");
-  // CI checkouts are tag-less — discover via ls-remote, then fetch that tag.
+  // CI checkouts are tag-less — discover via ls-remote (origin + github URL),
+  // then fetch that specific tag into the object store.
   expect(recipe).toContain("git ls-remote --tags");
+  expect(recipe).toContain("https://github.com/juspay/kolu");
   expect(recipe).toContain("refs/tags/");
   // Version-tag only — no silent SHA fallback.
   expect(recipe).toMatch(/v\[0-9\]/);
