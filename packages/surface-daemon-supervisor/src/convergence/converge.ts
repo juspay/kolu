@@ -232,8 +232,9 @@ export async function converge<
       : () => binds.adoptOrSpawnOrRefuse();
 
   if (probeResult === null) {
-    // F2: null means honest no-listener. If bind adopts a resident anyway, that is
-    // a race — re-probe and never silently ride a mismatch.
+    // F2: null means honest no-listener at the primary. If bind adopts a resident
+    // anyway, re-probe the primary and never silently ride a mismatch when we
+    // CAN characterize it there.
     const r = await bind();
     if (r.kind === "adopted-resident") {
       const again = await endpoint.probe();
@@ -253,7 +254,14 @@ export async function converge<
           again.dispose();
         }
       }
-      // F1b: adopted a resident the probe cannot characterize — never clean.
+      // Primary re-probe is still empty. Two real cases:
+      //   1. adopt-hint (W2.2): bind adopted a legacy daemon at a NON-primary
+      //      rendezvous; primary has no listener by design. The connect handshake
+      //      already characterized the resident — clean adopt when held.
+      //   2. bind claimed adopt but holds nothing — identity-unverifiable (F1b).
+      if (endpoint.current() !== undefined) {
+        return { kind: "adopted" };
+      }
       return identityUnverifiable({
         running: baked,
         expected: baked,
