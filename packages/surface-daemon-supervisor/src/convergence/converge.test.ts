@@ -291,7 +291,7 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
       probe: async () =>
         drainableProbe(id("1.1", "A"), {
           instanceKey: instance,
-          hang: instance === 1 ? false : true, // first drain takes; second would hang
+          hang: instance !== 1, // first drain takes; second would hang
           ceilingMs: 20,
         }),
     });
