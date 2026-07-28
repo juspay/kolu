@@ -22,7 +22,6 @@ import {
 } from "./drainAndAwaitExit.ts";
 import { decide } from "./decide.ts";
 import { giveUpOutcome } from "./giveUp.ts";
-import type { ConvergencePolicy } from "./policy.ts";
 
 /** A running daemon's identity + the instance key the budget tracks. */
 export type RunningDaemon = ConvergenceIdentity & {
