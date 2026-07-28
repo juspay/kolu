@@ -478,7 +478,7 @@ describe("converge — enactment + outcomes", () => {
   it("W5.1: null→bind-characterized stale build → resolveDrainable newer contract ⇒ zero drains, refused", async () => {
     let drains = 0;
     let probeN = 0;
-    let refusedProbe: ReturnType<typeof drainableProbe> | null = null;
+    let refusedDisposed = false;
     const endpoint = await realEndpoint({
       bindMode: "adopt",
       policy: padiPolicy(id("1.1", "mine"), 3),
@@ -495,13 +495,18 @@ describe("converge — enactment + outcomes", () => {
           });
         }
         // resolveDrainable: newer incompatible contract — fold must refuse, dispose.
-        refusedProbe = drainableProbe(id("9.0", "stale"), {
+        const p = drainableProbe(id("9.0", "stale"), {
           instanceKey: ik(1),
           onDrain: () => {
             drains += 1;
           },
         });
-        return refusedProbe;
+        const origDispose = p.dispose;
+        p.dispose = () => {
+          refusedDisposed = true;
+          origDispose();
+        };
+        return p;
       },
     });
     const out = await converge(endpoint);
@@ -509,7 +514,7 @@ describe("converge — enactment + outcomes", () => {
     expect(out.kind).toBe("refused");
     expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
     // W6.5: foldObserved owns dispose of the refused fresh probe.
-    expect(refusedProbe?.disposed).toBe(true);
+    expect(refusedDisposed).toBe(true);
   });
 
   it("W5.2: drain-not-taken → give-up bind newer-contract characterization ⇒ refused, never adopted-stale", async () => {
