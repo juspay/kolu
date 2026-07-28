@@ -79,8 +79,10 @@ function drainableProbe(
   identity: ConvergenceIdentity,
   hooks: {
     onDrain?: () => void;
-    throws?: boolean;
+    /** When true, awaitExit never resolves → drain not-taken. */
+    hang?: boolean;
     instanceKey?: number | null;
+    ceilingMs?: number;
   } = {},
 ) {
   const p = {
@@ -89,10 +91,20 @@ function drainableProbe(
     instanceKey: hooks.instanceKey ?? null,
     disposed: false,
     drained: false,
-    drain: async () => {
+    drainCeilingMs: hooks.ceilingMs ?? 50,
+    fireDrain: async () => {
       p.drained = true;
       hooks.onDrain?.();
-      if (hooks.throws) throw new Error("drain never landed");
+    },
+    awaitExit: async (signal: AbortSignal) => {
+      if (hooks.hang) {
+        // Never exits; honour abort so the ceiling wins cleanly.
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return;
+      }
+      // Exit immediately (drain took).
     },
     dispose: () => {
       p.disposed = true;
@@ -215,10 +227,11 @@ describe("converge — enactment + outcomes", () => {
     expect(budget).not.toBeNull();
   });
 
-  it("padi drain FAILURE does not throw; attempt stays spent; endpoint still binds", async () => {
+  it("padi drain not-taken → adopted-stale anomaly (same path as convergeAdmit)", async () => {
     const probe = drainableProbe(id("1.1", "A"), {
-      throws: true,
+      hang: true,
       instanceKey: 1,
+      ceilingMs: 20,
     });
     const { endpoint, calls } = fakeEndpoint({
       adopted: true,
@@ -226,7 +239,9 @@ describe("converge — enactment + outcomes", () => {
       probe: async () => probe,
     });
     const out = await converge(endpoint);
-    expect(out.kind).toBe("drained-replacing");
+    // Not-taken is give-up, not a silent drained-replacing.
+    expect(out.kind).toBe("adopted");
+    expect(outcomeAnomaly(out)?.kind).toBe("adopted-stale");
     expect(calls).toEqual(["adoptOrSpawnOrRefuse"]);
     expect(probe.disposed).toBe(true);
   });

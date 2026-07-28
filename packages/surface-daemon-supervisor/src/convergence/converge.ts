@@ -24,7 +24,12 @@ import {
 } from "@kolu/surface-daemon";
 import type { ConvergenceAnomaly } from "./anomaly.ts";
 import type { DrainBudgetMemory, DrainLineage } from "./budget.ts";
+import {
+  drainAndAwaitExit,
+  drainRejectionSuffix,
+} from "./drainAndAwaitExit.ts";
 import { decide } from "./decide.ts";
+import { giveUpOutcome } from "./giveUp.ts";
 import type { ConvergencePolicy, DrainCapability } from "./policy.ts";
 
 /** The endpoint face `converge` enacts through — a Pick of the real `Endpoint` plus the
@@ -61,12 +66,16 @@ export interface ConvergenceProbeBase {
 }
 
 /** A drain-capable probe — its handshake exposes a `drain` verb, so a `drain-and-replace`
- *  policy is spellable for it (Pin 1). */
+ *  policy is spellable for it (Pin 1). The probe supplies only the two plugs; the
+ *  framework runs {@link drainAndAwaitExit} (same skeleton as `convergeAdmit`). */
 export interface DrainableProbe extends ConvergenceProbeBase {
   readonly capability: "drainable";
-  /** Persist + exit the running daemon (its children survive), the caller observing the
-   *  socket close. */
-  drain(): Promise<void>;
+  /** Fire the daemon's drain verb (fire-and-forget; resolve/reject is not ground truth). */
+  fireDrain(): Promise<void>;
+  /** Observe that the daemon actually left (socket close, …). Honour the abort signal. */
+  awaitExit(signal: AbortSignal): Promise<void>;
+  /** Ceiling for the framework's exit-vs-timeout race. */
+  readonly drainCeilingMs: number;
 }
 
 /** A non-drainable probe — no `drain` verb, so no drain policy can be declared for it. */
@@ -240,13 +249,31 @@ export async function converge<Cap extends DrainCapability>(
           { axis: decision.axis, attempt: admission.attempt, ...skewCtx },
           "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
         );
-        try {
-          await probe.drain();
-        } catch (err) {
+        // Framework-run drain — same skeleton as convergeAdmit. Ground truth is
+        // exit observation, never the drain call's resolve/reject.
+        const drain = await drainAndAwaitExit(
+          () => probe.fireDrain(),
+          (signal) => probe.awaitExit(signal),
+          { ceilingMs: probe.drainCeilingMs },
+        );
+        if (!drain.took) {
+          const notTaken =
+            `${why}: drain did not take within ${probe.drainCeilingMs}ms — the daemon kept answering` +
+            drainRejectionSuffix(drain.drainRejection);
           endpoint.log.error(
-            { err, axis: decision.axis, ...skewCtx },
-            "convergence: drain FAILED (daemon did not exit) — NOT killing it; the follow-on bind adopts/refuses the still-standing survivor (degraded, logged), and the attempt stays spent so no reconnect re-drains free",
+            { axis: decision.axis, ...skewCtx },
+            `convergence: drain FAILED — ${notTaken}`,
           );
+          return enactGiveUp({
+            why: "budget",
+            reason: notTaken,
+            onGiveUp: budget.policy.onGiveUp,
+            axis: decision.axis,
+            running: probe.identity,
+            bind,
+            log: endpoint.log,
+            skewCtx,
+          });
         }
         const adopted = await bind();
         return {
@@ -278,6 +305,7 @@ export async function converge<Cap extends DrainCapability>(
   }
 }
 
+/** Endpoint-arm give-up: shared anomaly table, then bind so the endpoint settles. */
 async function enactGiveUp(args: {
   why: "cross-supervisor" | "budget";
   reason: string;
@@ -288,50 +316,22 @@ async function enactGiveUp(args: {
   log: Logger;
   skewCtx: Record<string, string>;
 }): Promise<ConvergenceOutcome> {
-  if (args.why === "cross-supervisor") {
-    const detail = args.reason;
-    args.log.error(args.skewCtx, `convergence: CROSS-SUPERVISOR — ${detail}`);
-    // Cross-supervisor always refuses the contested build — never ride a fight.
-    const adopted = await args.bind();
-    return {
-      kind: "refused",
-      adopted,
-      anomaly: {
-        kind: "cross-supervisor",
-        running: args.running,
-        detail,
-      },
-    };
-  }
-
-  // Budget exhaustion.
-  // Contract axis: an incompatible wire can never be adopted as a working canvas —
-  // always unconverged (refuse), regardless of onGiveUp.
-  if (args.axis === "contract" || args.onGiveUp === "refuse") {
-    const detail = args.reason;
-    args.log.error(args.skewCtx, `convergence: UNCONVERGED — ${detail}`);
-    const adopted = await args.bind();
-    return {
-      kind: "refused",
-      adopted,
-      anomaly: {
-        kind: "unconverged",
-        running: args.running,
-        detail,
-      },
-    };
-  }
-
-  // Build axis + onGiveUp adopt-stale → ride the resident, surface adopted-stale.
-  const detail = `${args.reason} — riding the resident daemon; upgrade the winner or stop the respawner to converge`;
-  args.log.warn(args.skewCtx, `convergence: ADOPTED STALE — ${detail}`);
+  const g = giveUpOutcome({
+    why: args.why,
+    reason: args.reason,
+    onGiveUp: args.onGiveUp,
+    axis: args.axis,
+    running: args.running,
+    log: args.log,
+    skewCtx: args.skewCtx,
+    logPrefix: "convergence",
+  });
   const adopted = await args.bind();
-  return {
-    kind: adopted ? "adopted" : "not-adopted",
-    anomaly: {
-      kind: "adopted-stale",
-      running: args.running,
-      detail,
-    },
-  };
+  if (g.kind === "adopt-stale") {
+    return {
+      kind: adopted ? "adopted" : "not-adopted",
+      anomaly: g.anomaly,
+    };
+  }
+  return { kind: "refused", adopted, anomaly: g.anomaly };
 }

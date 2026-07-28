@@ -21,6 +21,7 @@ import {
   drainRejectionSuffix,
 } from "./drainAndAwaitExit.ts";
 import { decide } from "./decide.ts";
+import { giveUpOutcome } from "./giveUp.ts";
 import type { ConvergencePolicy } from "./policy.ts";
 
 /** A running daemon's identity + the instance key the budget tracks. */
@@ -130,15 +131,18 @@ export async function convergeAdmit(args: {
           : `build mismatch (running=${buildLabel(identity.build)} expected=${buildLabel(baked.build)})`;
       const admission = budget.admit(lineage, why);
       if (admission.kind === "giveUp") {
-        return giveUpVerdict({
-          why: admission.why,
-          reason: admission.reason,
-          onGiveUp: budget.policy.onGiveUp,
-          axis: decision.axis,
-          running: identity,
-          log,
-          skewCtx,
-        });
+        return toAdmitVerdict(
+          giveUpOutcome({
+            why: admission.why,
+            reason: admission.reason,
+            onGiveUp: budget.policy.onGiveUp,
+            axis: decision.axis,
+            running: identity,
+            log,
+            skewCtx,
+            logPrefix: "convergence admit",
+          }),
+        );
       }
       log.info(
         { axis: decision.axis, attempt: admission.attempt, ...skewCtx },
@@ -156,19 +160,22 @@ export async function convergeAdmit(args: {
               : "daemon drained (build mismatch) — reconnecting to re-handshake the survivor",
         };
       }
-      // Drain did not take — daemon kept answering. Axis-dependent fallback.
+      // Drain did not take — same give-up path as budget exhaustion / endpoint arm.
       const notTaken =
         `${why}: drain did not take within ${args.ceilingMs}ms — the daemon kept answering` +
         drainRejectionSuffix(drain.drainRejection);
-      return giveUpVerdict({
-        why: "budget",
-        reason: notTaken,
-        onGiveUp: budget.policy.onGiveUp,
-        axis: decision.axis,
-        running: identity,
-        log,
-        skewCtx,
-      });
+      return toAdmitVerdict(
+        giveUpOutcome({
+          why: "budget",
+          reason: notTaken,
+          onGiveUp: budget.policy.onGiveUp,
+          axis: decision.axis,
+          running: identity,
+          log,
+          skewCtx,
+          logPrefix: "convergence admit",
+        }),
+      );
     }
 
     default: {
@@ -180,54 +187,11 @@ export async function convergeAdmit(args: {
   }
 }
 
-function giveUpVerdict(args: {
-  why: "cross-supervisor" | "budget";
-  reason: string;
-  onGiveUp: "refuse" | "adopt-stale";
-  axis: "contract" | "build";
-  running: ConvergenceIdentity;
-  log: Logger;
-  skewCtx: Record<string, string>;
-}): ConvergeAdmitVerdict {
-  if (args.why === "cross-supervisor") {
-    const detail = args.reason;
-    args.log.error(
-      args.skewCtx,
-      `convergence admit: CROSS-SUPERVISOR — ${detail}`,
-    );
-    return {
-      kind: "refuse",
-      error: detail,
-      anomaly: {
-        kind: "cross-supervisor",
-        running: args.running,
-        detail,
-      },
-    };
+function toAdmitVerdict(
+  g: ReturnType<typeof giveUpOutcome>,
+): ConvergeAdmitVerdict {
+  if (g.kind === "adopt-stale") {
+    return { kind: "adopt", anomaly: g.anomaly };
   }
-
-  if (args.axis === "contract" || args.onGiveUp === "refuse") {
-    const detail = args.reason;
-    args.log.error(args.skewCtx, `convergence admit: UNCONVERGED — ${detail}`);
-    return {
-      kind: "refuse",
-      error: detail,
-      anomaly: {
-        kind: "unconverged",
-        running: args.running,
-        detail,
-      },
-    };
-  }
-
-  const detail = `${args.reason} — riding the resident daemon; upgrade the winner or stop the respawner to converge`;
-  args.log.warn(args.skewCtx, `convergence admit: ADOPTED STALE — ${detail}`);
-  return {
-    kind: "adopt",
-    anomaly: {
-      kind: "adopted-stale",
-      running: args.running,
-      detail,
-    },
-  };
+  return { kind: "refuse", error: g.error, anomaly: g.anomaly };
 }

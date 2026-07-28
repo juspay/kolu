@@ -169,14 +169,26 @@ export async function probePadiForConvergence(
     },
     // Instance key for the drain budget — the fragment's startedAt.
     instanceKey: hello.startedAt ?? null,
-    drain: () =>
-      drainViaControlCore({
-        client,
-        onClose: (cb) => {
-          if (closed) queueMicrotask(cb);
-          else socket.once("close", cb);
-        },
+    // Plugs only — the framework runs drainAndAwaitExit (same as convergeAdmit).
+    fireDrain: () => client.surface.control.core.drain(),
+    awaitExit: (signal) =>
+      new Promise<void>((resolve) => {
+        if (closed) {
+          queueMicrotask(resolve);
+          return;
+        }
+        const onClose = () => resolve();
+        socket.once("close", onClose);
+        signal.addEventListener(
+          "abort",
+          () => {
+            socket.off("close", onClose);
+            resolve();
+          },
+          { once: true },
+        );
       }),
+    drainCeilingMs: DRAIN_TEARDOWN_CEILING_MS,
     dispose: () => socket.destroy(),
   };
 }
