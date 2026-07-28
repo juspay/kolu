@@ -783,6 +783,9 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
     const home = padiRuntimeHome(stateRoot, residentPadiSocket(stateRoot));
     mkdirSync(home.dir, { recursive: true, mode: 0o700 });
     const { spawn: spawnChild } = await import("node:child_process");
+    // Leash the disposable gate-holder spawn for daemon-test-gate hygiene.
+    const { assertDaemonSpawnAllowed } = await import("@kolu/daemon-test-gate");
+    assertDaemonSpawnAllowed();
     const holder = spawnChild("sleep", ["3600"], { stdio: "ignore" });
     if (holder.pid === undefined)
       throw new Error("sleep spawn produced no pid");

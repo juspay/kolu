@@ -64,6 +64,7 @@ import {
   destructiveRecycleSteps,
   recycle,
 } from "@kolu/surface-daemon-supervisor";
+import { assertDaemonSpawnAllowed } from "@kolu/daemon-test-gate";
 import { spawn as spawnChild, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -185,6 +186,8 @@ async function realEndpoint(recycleMs: number) {
       s.once("error", reject);
       s.listen(socketPath, () => resolve());
     });
+    // Disposable gate holder for recycle SIGTERM (not this vitest process).
+    assertDaemonSpawnAllowed();
     const child = spawnChild("sleep", ["3600"], { stdio: "ignore" });
     epChildren.push(child);
     if (child.pid === undefined) throw new Error("sleep spawn produced no pid");
