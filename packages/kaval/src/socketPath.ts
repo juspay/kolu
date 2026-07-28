@@ -8,8 +8,9 @@
  * is a fixed `/tmp/<app>-$UID/`, NOT `os.tmpdir()` whose `$TMPDIR` form
  * diverged between a launchd server and a `nix run` CLI on macOS — the
  * "no pty-host socket at /tmp/kolu/..." bug) live with
- * `getRuntimeSocketPath` in `@kolu/surface/unix-socket`; this module just
- * pins kolu's names.
+ * `resolveDaemonHome` / `daemonHome` in `@kolu/surface-daemon` (which reuses
+ * `getRuntimeSocketPath` for the runtime-dir algebra); this module pins
+ * kaval's names and discovery on top of that home.
  *
  * padi spawns its kaval under a DIGEST-keyed namespace (`kaval-<digest>/`, the
  * digest taken from padi's state-root, with a `state-root` manifest beside the
@@ -30,8 +31,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { gatePid } from "@kolu/surface-daemon";
-import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
+import { gatePid, resolveDaemonHome } from "@kolu/surface-daemon";
 
 /** The socket filename inside every kaval rendezvous dir. */
 export const PTY_HOST_SOCK_FILE = "pty-host.sock";
@@ -108,13 +108,15 @@ export function kavalNamespace(port: number): string {
  *  pty-host.sock` on systemd Linux, else the `$TMPDIR`-independent per-user
  *  fallback `/tmp/<app>-$UID/pty-host.sock`. `app` is parameterized (default
  *  `"kolu"`) so a standalone daemon can own its own rendezvous namespace
- *  without the host name being hardcoded into the path. */
+ *  without the host name being hardcoded into the path. Path algebra is
+ *  {@link resolveDaemonHome} — same builder discovery reads for its shape. */
 export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
-  return getRuntimeSocketPath({
+  if (override !== undefined && override !== "") return override;
+  return resolveDaemonHome({
     app,
-    file: PTY_HOST_SOCK_FILE,
-    override,
-  });
+    placement: "runtime",
+    socketFile: PTY_HOST_SOCK_FILE,
+  }).socketPath;
 }
 
 /** The LEGACY per-port kaval socket path — `$XDG_RUNTIME_DIR/kaval-<port>/
@@ -169,7 +171,7 @@ export function isPrivateOwnedDir(dir: string): boolean {
  *  per-root scan.
  *
  *  Neither root nor the env's namespace decoration is re-spelled here: both are
- *  READ BACK from `getRuntimeSocketPath` itself (the /tmp spelling via the builder
+ *  READ BACK from `resolveDaemonHome` itself (the /tmp spelling via the builder
  *  with XDG forced off), so discovery can never spell the path shape differently
  *  than construction. Build the bare daemon's socket path, then walk back up — its
  *  grandparent is the root to scan, its parent's basename is the (possibly
@@ -201,7 +203,7 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
   // report DISJOINT sets on the same box. So union BOTH roots: the env-derived
   // one AND the fixed `/tmp` fallback, ALWAYS, whatever this process's env says.
   //
-  // Both roots are read back from `getRuntimeSocketPath` — the SAME construction
+  // Both roots are read back from `resolveDaemonHome` — the SAME construction
   // the binder uses — so discovery can never spell a path the binder wouldn't.
   // The `/tmp` spelling is obtained by asking the builder with XDG forced off
   // (`forceTmp`), NOT by hand-writing `/tmp/kaval-$UID`.
@@ -225,7 +227,7 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
   return unique;
 }
 
-/** Build a kaval socket path exactly as {@link getRuntimeSocketPath} would, but
+/** Build a kaval socket path exactly as {@link resolveDaemonHome} would, but
  *  under a chosen runtime-root regime: `forceTmp` evaluates the builder with
  *  `$XDG_RUNTIME_DIR` momentarily unset so it yields the fixed `/tmp/<app>-$UID`
  *  fallback even when this process has XDG set. The save/restore is synchronous
@@ -235,12 +237,20 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
  *  construction's provably identical. */
 function socketPathForApp(app: string, forceTmp: boolean): string {
   if (!forceTmp) {
-    return getRuntimeSocketPath({ app, file: PTY_HOST_SOCK_FILE });
+    return resolveDaemonHome({
+      app,
+      placement: "runtime",
+      socketFile: PTY_HOST_SOCK_FILE,
+    }).socketPath;
   }
   const saved = process.env.XDG_RUNTIME_DIR;
   delete process.env.XDG_RUNTIME_DIR;
   try {
-    return getRuntimeSocketPath({ app, file: PTY_HOST_SOCK_FILE });
+    return resolveDaemonHome({
+      app,
+      placement: "runtime",
+      socketFile: PTY_HOST_SOCK_FILE,
+    }).socketPath;
   } finally {
     if (saved !== undefined) process.env.XDG_RUNTIME_DIR = saved;
   }

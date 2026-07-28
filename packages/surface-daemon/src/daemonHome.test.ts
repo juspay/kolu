@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { daemonHome } from "./daemonHome.ts";
+import { daemonHome, resolveDaemonHome } from "./daemonHome.ts";
 
 const scratchDirs: string[] = [];
 const savedEnv: Record<string, string | undefined> = {};
@@ -180,4 +180,70 @@ it("file() rejects empty, dot, and multi-segment names", () => {
   expect(() => home.file("..")).toThrow(/name must/);
   expect(() => home.file(".")).toThrow(/name must/);
   expect(() => home.file("")).toThrow(/name must/);
+});
+
+it("instance mode puts the home under <app>-<instance>/ with bare-stem gate/socket", () => {
+  const root = scratch();
+  pinEnv("XDG_RUNTIME_DIR", root);
+
+  const home = daemonHome({
+    app: "padi",
+    placement: "runtime",
+    instance: "abcdef0123456789",
+  });
+
+  expect(home.dir).toBe(join(root, "padi-abcdef0123456789"));
+  expect(home.gatePath).toBe(join(home.dir, "padi.pid"));
+  expect(home.socketPath).toBe(join(home.dir, "padi.sock"));
+  // Stem stays bare — never padi-abcdef0123456789.pid
+  expect(home.gatePath.endsWith("padi.pid")).toBe(true);
+  expect(home.gatePath.includes("padi-abcdef0123456789.pid")).toBe(false);
+});
+
+it("socketFile overrides the socket basename (kaval's pty-host.sock)", () => {
+  const root = scratch();
+  pinEnv("XDG_RUNTIME_DIR", root);
+
+  const home = daemonHome({
+    app: "kaval",
+    placement: "runtime",
+    instance: "deadbeefcafebabe",
+    socketFile: "pty-host.sock",
+  });
+
+  expect(home.dir).toBe(join(root, "kaval-deadbeefcafebabe"));
+  expect(home.gatePath).toBe(join(home.dir, "kaval.pid"));
+  expect(home.socketPath).toBe(join(home.dir, "pty-host.sock"));
+  expect(home.file("kaval.log")).toBe(join(home.dir, "kaval.log"));
+  expect(home.file("rc")).toBe(join(home.dir, "rc"));
+  expect(home.file("state-root")).toBe(join(home.dir, "state-root"));
+});
+
+it("resolveDaemonHome is pure path algebra (no mkdir)", () => {
+  const root = scratch();
+  pinEnv("XDG_RUNTIME_DIR", root);
+  const missing = join(root, "never-created");
+  // Point at a namespace that does not exist yet.
+  pinEnv("XDG_RUNTIME_DIR", missing);
+
+  const resolved = resolveDaemonHome({
+    app: "padi",
+    placement: "runtime",
+    instance: "abc",
+  });
+  expect(resolved.dir).toBe(join(missing, "padi-abc"));
+  expect(existsSync(resolved.dir)).toBe(false);
+});
+
+it("rejects empty/dot/multi-segment instance and socketFile", () => {
+  expect(() =>
+    resolveDaemonHome({ app: "padi", placement: "runtime", instance: ".." }),
+  ).toThrow(/instance must/);
+  expect(() =>
+    resolveDaemonHome({
+      app: "kaval",
+      placement: "runtime",
+      socketFile: "a/b.sock",
+    }),
+  ).toThrow(/socketFile must/);
 });

@@ -14,12 +14,15 @@
  *     `@kolu/surface/unix-socket`'s `getRuntimeSocketPath`). Boot-wiped;
  *     fine for a single-machine daemon that dies with the session.
  *
- * Creates the home `0700` and refuses (throws) if it is not a private,
- * owner-only directory we own — the same security boundary
- * `acquirePidGate` / `serveOverUnixSocket` enforce. Multi-instance
- * namespacing (padi's digest-keyed dirs) is deliberately not built: its
- * only would-be consumers keep their hand-rolled paths, and we don't ship
- * knobs with zero callers.
+ * Multi-instance namespacing (`instance`) carries padi's digest-keyed shape
+ * (`padi-<digest>/`, `kaval-<digest>/`): the directory is
+ * `<app>-<instance>/`, while gate/socket basenames keep the bare app stem
+ * (`padi.pid`, not `padi-<digest>.pid`). kaval and padi are the real callers.
+ *
+ * `resolveDaemonHome` is the pure path algebra (no I/O) path helpers and
+ * discovery consume. `daemonHome` materialises the dir `0700` and refuses
+ * (throws) if it is not a private, owner-only directory we own — the same
+ * security boundary `acquirePidGate` / `serveOverUnixSocket` enforce.
  */
 
 import { lstatSync, mkdirSync } from "node:fs";
@@ -30,7 +33,8 @@ import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 import type { SharedArtifact } from "./sharedArtifact.ts";
 
 /** A single non-empty path segment — not empty, not `.`/`..`, no separators.
- *  Package-private so `app` and `file(name)` share one containment rule. */
+ *  Package-private so `app`, `instance`, and `file(name)` share one
+ *  containment rule. */
 function assertPathSegment(kind: string, name: string): void {
   if (
     name === "" ||
@@ -48,13 +52,57 @@ function assertPathSegment(kind: string, name: string): void {
 /** Where the daemon home sits on disk. See the module doc for the rule. */
 export type DaemonHomePlacement = "state" | "runtime";
 
+/** Options for {@link resolveDaemonHome} / {@link daemonHome}. */
+export type DaemonHomeOptions = {
+  /** App stem — basename for `<app>.pid` (and default `<app>.sock`), and the
+   *  directory component when `instance` is unset. Must be a single path
+   *  segment: non-empty, no `/` or `\`, not `.` or `..` (those would escape
+   *  the private home via `path.join`). */
+  app: string;
+  /** Durable state dir vs session-scoped runtime dir — see module doc. */
+  placement: DaemonHomePlacement;
+  /**
+   * Multi-instance key (padi's state-root digest). When set, the home
+   * directory is `<app>-<instance>/` instead of bare `<app>/`. Gate and
+   * default socket basenames keep the bare app stem so the instance key
+   * only namespaces the directory. Must be a single path segment.
+   */
+  instance?: string;
+  /**
+   * Socket basename inside the home. Defaults to `<app>.sock`. kaval's
+   * historical name is `pty-host.sock` — a real caller, not a zero-use knob.
+   */
+  socketFile?: string;
+};
+
+/** Pure path algebra — no I/O. Path helpers and discovery use this so they
+ *  never create dirs and never disagree with {@link daemonHome}. */
+export type ResolvedDaemonHome = {
+  /** Directory component: bare `<app>` or `<app>-<instance>`. */
+  appNamespace: string;
+  /** The daemon's on-disk home directory path (not created). */
+  dir: string;
+  /** Single-instance gate: `<dir>/<app>.pid`. */
+  gatePath: string;
+  /** Serving socket: `<dir>/<socketFile ?? app.sock>`. */
+  socketPath: string;
+  /** Path for any extra file the consumer names under the home. */
+  file: (name: string) => string;
+  /** Human `pathShape` root for inventory entries (same branch as `dir`). */
+  pathShapeRoot: string;
+  /** Gate basename (`<app>.pid`). */
+  gateName: string;
+  /** Socket basename. */
+  sockName: string;
+};
+
 /** The home `daemonHome` materialises — paths + registry entries. */
 export type DaemonHome = {
   /** The daemon's on-disk home directory (created `0700`, ownership-checked). */
   dir: string;
   /** Single-instance gate: `<dir>/<app>.pid`. */
   gatePath: string;
-  /** Serving socket: `<dir>/<app>.sock`. */
+  /** Serving socket: `<dir>/<socketFile ?? app.sock>`. */
   socketPath: string;
   /** Path for any extra file the consumer names under the home. */
   file: (name: string) => string;
@@ -66,24 +114,12 @@ export type DaemonHome = {
   artifacts: readonly SharedArtifact[];
 };
 
-/** Options for {@link daemonHome}. */
-export type DaemonHomeOptions = {
-  /** App namespace — the directory component under state/runtime, and the
-   *  basename stem for `<app>.pid` / `<app>.sock`. Must be a single path
-   *  segment: non-empty, no `/` or `\`, not `.` or `..` (those would escape
-   *  the private home via `path.join`). */
-  app: string;
-  /** Durable state dir vs session-scoped runtime dir — see module doc. */
-  placement: DaemonHomePlacement;
-};
-
 /**
- * Resolve the home directory for `app` under `placement` — no I/O.
- * Also returns the human `pathShape` root for inventory entries, derived
- * from the SAME branch as `dir` so the two cannot drift.
+ * Resolve the home directory namespace under `placement` — no I/O.
+ * `appNamespace` is bare `app` or `app-instance`.
  */
 function resolveDir(
-  app: string,
+  appNamespace: string,
   placement: DaemonHomePlacement,
 ): { dir: string; pathShapeRoot: string } {
   switch (placement) {
@@ -91,32 +127,34 @@ function resolveDir(
       const xdg = process.env.XDG_STATE_HOME;
       if (xdg !== undefined && xdg !== "") {
         return {
-          dir: join(xdg, app),
-          pathShapeRoot: `$XDG_STATE_HOME/${app}`,
+          dir: join(xdg, appNamespace),
+          pathShapeRoot: `$XDG_STATE_HOME/${appNamespace}`,
         };
       }
       const home = process.env.HOME || homedir();
       if (!home) {
         throw new Error(
-          `daemonHome: cannot resolve state placement for app "${app}" — ` +
+          `daemonHome: cannot resolve state placement for app "${appNamespace}" — ` +
             `set $XDG_STATE_HOME or $HOME`,
         );
       }
       return {
-        dir: join(home, ".local", "state", app),
-        pathShapeRoot: `~/.local/state/${app}`,
+        dir: join(home, ".local", "state", appNamespace),
+        pathShapeRoot: `~/.local/state/${appNamespace}`,
       };
     }
     case "runtime": {
       // Same XDG / `/tmp/<app>-$UID` convention as getRuntimeSocketPath.
       // Derive the dir from a dummy file under the app namespace so the path
       // algebra stays single-sourced in @kolu/surface/unix-socket.
-      const dir = dirname(getRuntimeSocketPath({ app, file: "x" }));
+      const dir = dirname(
+        getRuntimeSocketPath({ app: appNamespace, file: "x" }),
+      );
       const pathShapeRoot =
         process.env.XDG_RUNTIME_DIR !== undefined &&
         process.env.XDG_RUNTIME_DIR !== ""
-          ? `$XDG_RUNTIME_DIR/${app}`
-          : `/tmp/${app}-$UID`;
+          ? `$XDG_RUNTIME_DIR/${appNamespace}`
+          : `/tmp/${appNamespace}-$UID`;
       return { dir, pathShapeRoot };
     }
     default: {
@@ -129,35 +167,52 @@ function resolveDir(
 }
 
 /**
- * Materialise a daemon's on-disk home: create the dir `0700`, verify it is
- * owner-only with owner rwx, and return the well-known paths + registry entries.
- *
- * Throws if `app` is not a single path segment (empty, `.`, `..`, or contains a
- * separator), or if the home directory is not private and usable by the current
- * user.
+ * Pure path algebra for a daemon home — no mkdir, no ownership check.
+ * kaval/padi path helpers and discovery use this so construction and
+ * discovery cannot spell different shapes than {@link daemonHome}.
  */
-export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
-  const { app, placement } = opts;
+export function resolveDaemonHome(opts: DaemonHomeOptions): ResolvedDaemonHome {
+  const { app, placement, instance, socketFile } = opts;
   assertPathSegment("daemonHome: app", app);
-
-  const { dir, pathShapeRoot } = resolveDir(app, placement);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  // Owner-only (no group/other) AND usable owner rwx — the API promises 0700.
-  // `isPrivateOwnedDir` only forbids group/other bits; a pre-existing 000 or
-  // 0500 dir would pass it and fail later on gate/socket create.
-  if (!isPrivateOwnedDir(dir) || (lstatSync(dir).mode & 0o700) !== 0o700) {
-    throw new Error(
-      `daemonHome: ${dir} is not a private owner-only directory ` +
-        `(must be owned by the current user with mode 0700)`,
-    );
+  if (instance !== undefined) {
+    assertPathSegment("daemonHome: instance", instance);
+  }
+  if (socketFile !== undefined) {
+    assertPathSegment("daemonHome: socketFile", socketFile);
   }
 
+  const appNamespace = instance !== undefined ? `${app}-${instance}` : app;
+  const { dir, pathShapeRoot } = resolveDir(appNamespace, placement);
+
+  // Gate/socket basenames keep the bare app stem even when instance
+  // decorates the directory — `padi-<digest>/padi.pid`, never
+  // `padi-<digest>/padi-<digest>.pid`.
   const gateName = `${app}.pid`;
-  const sockName = `${app}.sock`;
+  const sockName = socketFile ?? `${app}.sock`;
   const gatePath = join(dir, gateName);
   const socketPath = join(dir, sockName);
 
-  const artifacts: readonly SharedArtifact[] = [
+  return {
+    appNamespace,
+    dir,
+    gatePath,
+    socketPath,
+    pathShapeRoot,
+    gateName,
+    sockName,
+    file: (name: string) => {
+      assertPathSegment("daemonHome.file: name", name);
+      return join(dir, name);
+    },
+  };
+}
+
+function artifactsFor(
+  app: string,
+  resolved: ResolvedDaemonHome,
+): readonly SharedArtifact[] {
+  const { pathShapeRoot, gateName, sockName } = resolved;
+  return [
     {
       id: `${app}-gate`,
       pathShape: `${pathShapeRoot}/${gateName}`,
@@ -179,15 +234,35 @@ export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
       why: `Serving socket for ${app}; co-located with the gate by daemonHome.`,
     },
   ];
+}
+
+/**
+ * Materialise a daemon's on-disk home: create the dir `0700`, verify it is
+ * owner-only with owner rwx, and return the well-known paths + registry entries.
+ *
+ * Throws if `app` / `instance` / `socketFile` is not a single path segment, or
+ * if the home directory is not private and usable by the current user.
+ */
+export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
+  const resolved = resolveDaemonHome(opts);
+  const { dir, gatePath, socketPath, file } = resolved;
+
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Owner-only (no group/other) AND usable owner rwx — the API promises 0700.
+  // `isPrivateOwnedDir` only forbids group/other bits; a pre-existing 000 or
+  // 0500 dir would pass it and fail later on gate/socket create.
+  if (!isPrivateOwnedDir(dir) || (lstatSync(dir).mode & 0o700) !== 0o700) {
+    throw new Error(
+      `daemonHome: ${dir} is not a private owner-only directory ` +
+        `(must be owned by the current user with mode 0700)`,
+    );
+  }
 
   return {
     dir,
     gatePath,
     socketPath,
-    file: (name: string) => {
-      assertPathSegment("daemonHome.file: name", name);
-      return join(dir, name);
-    },
-    artifacts,
+    file,
+    artifacts: artifactsFor(opts.app, resolved),
   };
 }

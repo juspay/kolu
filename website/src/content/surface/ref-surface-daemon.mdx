@@ -15,30 +15,37 @@ point, no subpaths.
 
 ## The on-disk home
 
-`daemonHome({ app, placement })` is the one call that decides where a daemon's
-files live. It creates the directory `0700`, verifies it is owner-only (throws
-on a non-private dir), and returns the well-known paths with gate and socket
-side by side — so those two can never drift apart. The returned `artifacts`
-array is a pair of `SharedArtifact` registry entries for the gate and socket, so
-a mixed-version inventory (UW2) is fed by construction.
+`daemonHome({ app, placement, instance?, socketFile? })` is the one call that
+decides where a daemon's files live. It creates the directory `0700`, verifies
+it is owner-only (throws on a non-private dir), and returns the well-known paths
+with gate and socket side by side — so those two can never drift apart. The
+returned `artifacts` array is a pair of `SharedArtifact` registry entries for
+the gate and socket, so a mixed-version inventory (UW2) is fed by construction.
 
 | `placement` | Directory |
 | --- | --- |
 | `"state"` | `${XDG_STATE_HOME:-~/.local/state}/<app>/` — durable across reboots |
 | `"runtime"` | `$XDG_RUNTIME_DIR/<app>/`, falling back to `/tmp/<app>-$UID/` — boot-wiped |
 
+Optional `instance` (padi's state-root digest) namespaces the directory as
+`<app>-<instance>/` while gate/socket basenames keep the bare app stem
+(`padi-<digest>/padi.pid`, never `padi-<digest>.pid`). Optional `socketFile`
+overrides the socket basename (kaval's historical `pty-host.sock`). kaval and
+padi both ride this API — their path helpers call `resolveDaemonHome` (the pure
+path algebra, no I/O) so discovery and construction cannot drift; golden tests
+pin every derived path byte-identical to the pre-migration formula.
+
 A daemon that must outlive user sessions (anything supervised over ssh) takes
 `"state"`: logind deletes the runtime dir with the user's last session, leaving
-an orphan process whose socket and gate have vanished. There is deliberately no
-instance-namespacing knob — multi-instance consumers (kaval/padi) keep their
-hand-rolled path modules until a real migration needs it.
+an orphan process whose socket and gate have vanished.
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="home" />
 
 | Export | Role |
 | --- | --- |
-| `daemonHome({ app, placement })` | create + verify the home; returns `dir` · `gatePath` · `socketPath` · `file(name)` · `artifacts` |
-| `DaemonHome` · `DaemonHomeOptions` · `DaemonHomePlacement` | the return type, options, and `"state" \| "runtime"` placement |
+| `daemonHome({ app, placement, instance?, socketFile? })` | create + verify the home; returns `dir` · `gatePath` · `socketPath` · `file(name)` · `artifacts` |
+| `resolveDaemonHome(…)` | pure path algebra (no mkdir); what path helpers and discovery consume |
+| `DaemonHome` · `ResolvedDaemonHome` · `DaemonHomeOptions` · `DaemonHomePlacement` | return types, options, and `"state" \| "runtime"` placement |
 | `SharedArtifact` | one shared on-disk file both generations touch (inventory entry shape) |
 
 ## The lifecycle

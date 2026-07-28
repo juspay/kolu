@@ -34,12 +34,12 @@ import { createHash } from "node:crypto";
 import { readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
-import { gatePid, isHolderLive } from "@kolu/surface-daemon";
+import { gatePid, isHolderLive, resolveDaemonHome } from "@kolu/surface-daemon";
 import {
-  getPtyHostSocketPath,
   isPrivateOwnedDir,
   isSocketInode,
+  KAVAL_NS_PREFIX,
+  PTY_HOST_SOCK_FILE,
   readStateRootManifest,
 } from "kaval";
 
@@ -127,13 +127,15 @@ export function kavalNamespaceForDigest(digest: string): string {
 /** The socket path padi serves on: `$XDG_RUNTIME_DIR/padi-<digest>/padi.sock`
  *  (override wins verbatim). Takes the STATE-ROOT and derives the digest itself —
  *  the same shape as {@link padiKavalSocketPath}, so a caller never hand-threads a
- *  digest (and can't pass a state-root where a digest was expected). */
+ *  digest (and can't pass a state-root where a digest was expected). Path algebra
+ *  is {@link resolveDaemonHome} with `instance` = the digest. */
 export function padiSocketPath(stateRoot: string, override?: string): string {
-  return getRuntimeSocketPath({
-    app: padiNamespace(padiDigest(stateRoot)),
-    file: PADI_SOCK_FILE,
-    override,
-  });
+  if (override !== undefined && override !== "") return override;
+  return resolveDaemonHome({
+    app: "padi",
+    placement: "runtime",
+    instance: padiDigest(stateRoot),
+  }).socketPath;
 }
 
 /** padi's single-instance gate, beside its socket — the same path padi's
@@ -172,16 +174,19 @@ export function padiStderrLogPath(stateRoot: string): string {
 
 /** The socket padi's kaval serves on: `$XDG_RUNTIME_DIR/kaval-<digest>/
  *  pty-host.sock`, keyed by the SAME digest as padi (retires the legacy
- *  `kaval-<port>`). Reuses kaval's own path builder with the digest namespace, so
- *  a flag-less `kaval-tui` discovers it under `kaval-*` just as before. */
+ *  `kaval-<port>`). Via {@link resolveDaemonHome} instance mode so construction
+ *  matches kaval discovery under `kaval-*`. */
 export function padiKavalSocketPath(
   stateRoot: string,
   override?: string,
 ): string {
-  return getPtyHostSocketPath(
-    override,
-    kavalNamespaceForDigest(padiDigest(stateRoot)),
-  );
+  if (override !== undefined && override !== "") return override;
+  return resolveDaemonHome({
+    app: KAVAL_NS_PREFIX,
+    placement: "runtime",
+    instance: padiDigest(stateRoot),
+    socketFile: PTY_HOST_SOCK_FILE,
+  }).socketPath;
 }
 
 /** A discovered padi daemon — its socket, the state-root its `state-root` manifest
@@ -213,7 +218,7 @@ function standardXdgRuntimeDir(): string | undefined {
 
 /** Compute the decorated sentinel-digest dir `discoverPadiDaemons` pattern-matches
  *  against, evaluated under a SPECIFIC `$XDG_RUNTIME_DIR` value (`undefined` forces
- *  the `/tmp` fallback, mirroring {@link getRuntimeSocketPath}'s own branch) rather
+ *  the `/tmp` fallback, mirroring {@link resolveDaemonHome}'s own branch) rather
  *  than this process's live env — the save/restore is synchronous (no `await`
  *  between), so it can't race another caller's view of the env (the same pattern
  *  kaval's `discoverKavalCandidates` uses via its own `socketPathForApp`). */
@@ -224,9 +229,13 @@ function sentinelDecoratedDirUnderRegime(
   if (xdgRuntimeDir === undefined) delete process.env.XDG_RUNTIME_DIR;
   else process.env.XDG_RUNTIME_DIR = xdgRuntimeDir;
   try {
-    return dirname(
-      getRuntimeSocketPath({ app: padiNamespace("0"), file: PADI_SOCK_FILE }),
-    );
+    // Sentinel digest `0` — same decoration shape construction uses for a real
+    // digest; instance mode so the stem stays `padi` (gate/socket basenames).
+    return resolveDaemonHome({
+      app: "padi",
+      placement: "runtime",
+      instance: "0",
+    }).dir;
   } finally {
     if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
     else process.env.XDG_RUNTIME_DIR = saved;
@@ -237,13 +246,13 @@ function sentinelDecoratedDirUnderRegime(
  *  the forced `/tmp` fallback, or the systemd-standard `/run/user/$UID` guess) —
  *  the single-regime scan {@link discoverPadiDaemons} unions across every regime
  *  it checks. Reads the runtime root and the `padi-<digest>` decoration back from
- *  the SAME {@link getRuntimeSocketPath} builder a live padi constructs its socket
+ *  the SAME {@link resolveDaemonHome} builder a live padi constructs its socket
  *  with (a sentinel digest whose literal `0` becomes a `([0-9a-f]+)` capture), so
  *  discovery can never spell the path shape differently than construction. */
 function padiCandidatesUnderRegime(
   xdgRuntimeDir: string | undefined,
 ): PadiDaemon[] {
-  // The decorated dir for a sentinel digest: `<root>/padi-0[-$UID]/padi.sock`.
+  // The decorated dir for a sentinel digest: `<root>/padi-0[-$UID]/`.
   // Whatever shape surface gives it (XDG `padi-0/`, or `/tmp` `padi-0-$UID/`) the
   // decoration is baked in, never re-decided here.
   const decoratedDir = sentinelDecoratedDirUnderRegime(xdgRuntimeDir);

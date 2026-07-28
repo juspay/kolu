@@ -56,9 +56,11 @@ export {
 } from "./convergenceIdentity.ts";
 export {
   daemonHome,
+  resolveDaemonHome,
   type DaemonHome,
   type DaemonHomeOptions,
   type DaemonHomePlacement,
+  type ResolvedDaemonHome,
 } from "./daemonHome.ts";
 export {
   anchorGone,
