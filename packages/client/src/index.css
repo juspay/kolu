@@ -689,13 +689,6 @@ body {
 }
 /* Dark mode: lift the wash a notch so the card doesn't read as sludge
  * over near-black — same pattern as the attention row washes below. */
-:root.dark .dock-cards-stack {
-  background: color-mix(
-    in oklab,
-    var(--color-surface-2) 60%,
-    var(--color-surface-1)
-  );
-}
 :root.dark .dock-cards-section-header {
   background: linear-gradient(
     90deg,
