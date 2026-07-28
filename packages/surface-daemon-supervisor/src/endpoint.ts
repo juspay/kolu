@@ -35,7 +35,10 @@ import {
   isHolderLive,
   type Logger,
 } from "@kolu/surface-daemon";
-import type { BindResult } from "./convergence/bindResult.ts";
+import type {
+  BindResult,
+  BoundResidentCharacterization,
+} from "./convergence/bindResult.ts";
 import {
   type DrainBudgetHandle,
   createDrainBudget,
@@ -618,6 +621,27 @@ export function createEndpoint<
     emit(connectedStatus(next));
   };
 
+  /**
+   * W4.2: after holding a resident at `socketPath`, probe THAT rendezvous for
+   * ConvergenceIdentity (not the app's unconstrained `I` on current()). null
+   * if the identity probe cannot characterize the held daemon.
+   */
+  const characterizeHeld = async (
+    socketPath: string,
+  ): Promise<BoundResidentCharacterization | null> => {
+    try {
+      const p = await spec.probe(socketPath);
+      if (p === null) return null;
+      try {
+        return { identity: p.identity, instanceKey: p.instanceKey };
+      } finally {
+        p.dispose();
+      }
+    } catch {
+      return null;
+    }
+  };
+
   // Resolve an ACCEPTING-but-unattributable rendezvous to a SAFE outcome: `free`
   // (→ the caller may spawn) ONLY when a fresh probe proves the socket NOT accepting
   // (a holder that just closed); otherwise the socket is still accepting and we
@@ -1098,7 +1122,11 @@ export function createEndpoint<
         "adopted a surviving daemon (its PTYs are preserved)",
       );
       holdConnection(outcome.conn);
-      return { kind: "adopted-resident" };
+      // Characterize the held rendezvous (W4.2) — primary or upgrade-hint socket.
+      return {
+        kind: "adopted-resident",
+        characterization: await characterizeHeld(rv.socketPath),
+      };
     }
     if (outcome.kind === "skew") {
       // Proven incompatible: `adoptOrEnsure` RECYCLES (kill this holder + respawn at
@@ -1203,7 +1231,11 @@ export function createEndpoint<
       switch (outcome) {
         case "adopted":
           runHook(onAdopted, "onAdopted");
-          return { kind: "adopted-resident" };
+          // held was set in recoverGuarded; characterize that rendezvous (W4.2).
+          return {
+            kind: "adopted-resident",
+            characterization: await characterizeHeld(held.socketPath),
+          };
         case "refused":
           return { kind: "refused-or-failed" };
         case "recycled":
@@ -1341,6 +1373,15 @@ export function createEndpoint<
       // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): a proven contract SKEW is REFUSED, not
       // recycled (#1313). Returns BindResult (F5).
       return adoptSurvivor("refuse");
+    },
+
+    releaseHeld(): void {
+      // W4.2: drop held connection so a non-adopt converge verdict matches reality.
+      if (conn === undefined) return;
+      const c = conn;
+      conn = undefined;
+      c.dispose();
+      emit({ state: "degraded" });
     },
   });
 

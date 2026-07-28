@@ -79,6 +79,7 @@ import {
   AGENT_DIR_ENV_KEYS,
   daemonEnv,
   ensurePadiBinding,
+  ensurePadiBindingWith,
   handlePadiBootFailure,
   localPadiDriver,
   PADI_HOST_ID,
@@ -766,17 +767,15 @@ describe("localPadiDriver — the A8 runtime spawn leash at the real funnel (F5)
 
 /**
  * F9 / UW1 done-when: budget-exhausted LOCAL adopt surfaces `adopted-stale`
- * through the REAL ensurePadiBinding → convergePadi path:
+ * through the REAL ensurePadiBindingWith → convergePadi path:
  *   standingConvergence = outcomeAnomaly(outcome)   // padiBinding.ts convergePadi
  *
- * MUTATION CHECK (performed before claim): temporarily setting that assignment
- * to `standingConvergence = null` turns this test RED (session.convergence() is
- * null). Restored the real assignment; this asserts the production line, not a
- * re-enactment. Injection is only EndpointSpec seams (probe/driver/connect/policy)
- * on a genuine createEndpoint product — no forged binds (F4/F12).
+ * MUTATION CHECK (re-verified wave 4): standingConvergence = null turns this RED.
+ * Injection is via the NON-EXPORTED ensurePadiBindingWith (W4.1) — public options
+ * stay domain-only; no endpointSeams on EnsurePadiBindingOptions.
  */
 describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () => {
-  it("ensurePadiBinding pin → drain not-taken → session.convergence() adopted-stale", async () => {
+  it("ensurePadiBindingWith pin → drain not-taken → session.convergence() adopted-stale", async () => {
     const stateRoot = makeStateRoot();
     activeStateRoots.add(stateRoot);
     // Live gate holder + accepting socket so post-give-up bind ADOPTS
@@ -848,10 +847,10 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
 
       let drainCalls = 0;
       let probeCalls = 0;
-      const session = ensurePadiBinding({
-        stateRoot,
-        reconnectDelayMs: 10_000,
-        endpointSeams: {
+      // W4.1: inject via non-exported ensurePadiBindingWith — never a public knob.
+      const session = ensurePadiBindingWith(
+        { stateRoot, reconnectDelayMs: 10_000 },
+        {
           policy,
           probe: async () => {
             probeCalls += 1;
@@ -896,7 +895,7 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
               // biome-ignore lint/suspicious/noExplicitAny: fake DaemonConnection for seam
             }) as any,
         },
-      });
+      );
       activeSessions.push(session);
 
       // Drive the REAL connector → convergePadi → standingConvergence = outcomeAnomaly(...)

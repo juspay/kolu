@@ -295,21 +295,15 @@ describe("converge — enactment + outcomes", () => {
     let probeN = 0;
     let drains = 0;
     const endpoint = await realEndpoint({
-      // First drain: adopt resident (successor still wrong). Second drain: match.
+      // After drain, bind re-probes for characterization then again for the
+      // drainable loop body — keep same-lineage wrong until enough drain cycles.
       bindMode: "adopt",
       policy: padiPolicy(id("1.1", "mine"), 3),
       probe: async () => {
         probeN += 1;
-        if (probeN === 1) {
-          return drainableProbe(id("1.1", "stale"), {
-            instanceKey: ik(1),
-            onDrain: () => {
-              drains += 1;
-            },
-          });
-        }
-        if (probeN === 2) {
-          // Same lineage still wrong — loop must admit another drain, not ride stale.
+        // Probes 1–3: still wrong build (initial + post-drain characterize + loop).
+        // Probe 4+: expected build so the second drain converges.
+        if (probeN <= 3) {
           return drainableProbe(id("1.1", "stale"), {
             instanceKey: ik(1),
             onDrain: () => {
@@ -329,7 +323,7 @@ describe("converge — enactment + outcomes", () => {
     }
   });
 
-  it("F1b: adopted-resident + null re-probe → identity-unverifiable unconverged", async () => {
+  it("F1b / W4.2: adopted-resident + null characterization → identity-unverifiable AND current() empty", async () => {
     let probeN = 0;
     const endpoint = await realEndpoint({
       bindMode: "adopt",
@@ -339,12 +333,15 @@ describe("converge — enactment + outcomes", () => {
         if (probeN === 1) {
           return drainableProbe(id("1.1", "stale"), { instanceKey: ik(1) });
         }
-        // Post-drain re-probe cannot characterize the resident.
+        // Post-drain characterizeHeld / re-probe cannot characterize.
         return null;
       },
     });
     const out = await converge(endpoint);
     expect(out.kind).toBe("refused");
+    expect(outcomeAdopted(out)).toBe(false);
+    // Outcome and reality agree: held connection was released.
+    expect(endpoint.current()).toBeUndefined();
     const a = outcomeAnomaly(out);
     expect(a?.kind).toBe("unconverged");
     if (a?.kind === "unconverged") {
@@ -352,7 +349,90 @@ describe("converge — enactment + outcomes", () => {
     }
   });
 
-  it("F2: probe throw surfaces typed probe-failed unconverged (not unhandled)", async () => {
+  it("W4.2(a): adopt-hint-style mismatched build is mismatch/nudge, never clean adopt", async () => {
+    // Primary probe null; bind adopts via live gate; characterization returns wrong build.
+    // Kaval-shaped policy: build mismatch → report-mismatch (nudge-human), never silent adopt.
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      policy: {
+        capability: "not-drainable",
+        baked: id("5.0", "test-build"),
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) return null; // primary empty
+        // characterizeHeld after adopt — wrong build (legacy).
+        return plainProbe(id("5.0", "legacy"));
+      },
+    });
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("mismatch-reported");
+    if (out.kind === "mismatch-reported") {
+      expect(out.running.build).toEqual(daemonBuild("legacy"));
+    }
+    expect(outcomeAnomaly(out)).toBeNull();
+  });
+
+  it("W4.3: newer-incompatible-contract successor is refused (zero second drain)", async () => {
+    let drains = 0;
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      policy: padiPolicy(id("1.1", "mine"), 3),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) {
+          // Initial: same contract, wrong build → drain-and-replace.
+          return drainableProbe(id("1.1", "stale"), {
+            instanceKey: ik(1),
+            onDrain: () => {
+              drains += 1;
+            },
+          });
+        }
+        // Post-drain: same lineage instance, but NEWER incompatible contract —
+        // drain-newer-else-refuse must REFUSE (not drain again).
+        return drainableProbe(id("9.0", "stale"), {
+          instanceKey: ik(1),
+          onDrain: () => {
+            drains += 1;
+          },
+        });
+      },
+    });
+    const out = await converge(endpoint);
+    expect(drains).toBe(1);
+    expect(out.kind).toBe("refused");
+    expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
+    expect(endpoint.current()).toBeUndefined();
+  });
+
+  it("F2 / W4.4: probe throw on successor re-probe is typed probe-failed", async () => {
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      policy: padiPolicy(id("1.1", "mine"), 2),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) {
+          return drainableProbe(id("1.1", "stale"), { instanceKey: ik(1) });
+        }
+        throw new Error("ECONNRESET: successor dial failed");
+      },
+    });
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("refused");
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("unconverged");
+    if (a?.kind === "unconverged" && a.cause.kind === "probe-failed") {
+      expect(a.cause.message).toMatch(/ECONNRESET/);
+    }
+  });
+
+  it("F2: probe throw on first probe surfaces typed probe-failed unconverged (not unhandled)", async () => {
     const endpoint = await realEndpoint({
       bindMode: "spawn",
       policy: padiPolicy(),

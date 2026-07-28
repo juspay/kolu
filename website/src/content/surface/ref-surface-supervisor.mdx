@@ -22,9 +22,11 @@ socket path from the framework so callers never re-thread it. The policy is the
 consumer's whole convergence surface (who I am + how I converge); the public
 verbs are `converge(endpoint)` and `recycle(endpoint, steps)` — the boot-method
 trio (`ensure` / `adoptOrEnsure` / `adoptOrSpawnOrRefuse`) is **absent from the
-public `Endpoint` type** (a comment is not a lock; absence is). Runtime objects
-still carry the methods; kit code and package tests reach them via
-`asEndpointInternal(endpoint)`.
+public `Endpoint` type and from the runtime object**. Private binds live only in
+a package `WeakMap` keyed by the genuine `createEndpoint` handle; kit modules
+(`converge`, `recycle`) and same-package tests resolve them via a
+package-internal relative import of `endpoint.private.ts` — there is no public
+`asEndpointInternal` or `./testing` subpath.
 `incompatible` is the PROVEN contract-skew verdict — a respawn from the
 realised closure already skewed (or a refuse-policy survivor skews at
 handshake) — reported with both contract versions on the status

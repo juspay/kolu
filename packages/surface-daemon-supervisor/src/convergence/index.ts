@@ -21,7 +21,10 @@ export type {
   RefusedAnomaly,
   UnconvergedCause,
 } from "./anomaly.ts";
-export type { BindResult } from "./bindResult.ts";
+export type {
+  BindResult,
+  BoundResidentCharacterization,
+} from "./bindResult.ts";
 export {
   type ConnectorDrainBudget,
   type DrainAdmission,

@@ -13,6 +13,12 @@ export type EndpointPrivateBinds = {
   ensure(): Promise<void>;
   adoptOrEnsure(): Promise<BindResult>;
   adoptOrSpawnOrRefuse(): Promise<BindResult>;
+  /**
+   * Drop the held connection (W4.2): when converge returns a non-adopt
+   * verdict after a bind that held a resident, release so outcome and
+   * `current()` agree.
+   */
+  releaseHeld(): void;
 };
 
 const ENDPOINT_PRIVATE = new WeakMap<object, EndpointPrivateBinds>();

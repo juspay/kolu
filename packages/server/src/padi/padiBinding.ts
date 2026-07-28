@@ -372,19 +372,19 @@ export interface EnsurePadiBindingOptions {
    *  here, once via the boot pin's own catch — is a harmless, deliberate
    *  redundancy, not a bug). */
   onFatalBindingError?: (err: PadiBindingFatalError) => void;
-  /**
-   * Optional EndpointSpec composition overrides (probe / driver / connect /
-   * policy). Production omits these. Tests and specialized binders inject at
-   * these seams on a real {@link createEndpoint} product — never by forging
-   * private binds (F9 / F12).
-   */
-  endpointSeams?: {
-    probe?: (socketPath: string) => ReturnType<typeof probePadiForConvergence>;
-    driver?: DaemonDriver;
-    connect?: (socketPath: string) => ReturnType<typeof connectPadi>;
-    policy?: ReturnType<typeof padiConvergencePolicy>;
-  };
 }
+
+/**
+ * Non-exported dependency injection for tests (W4.1). Public
+ * {@link ensurePadiBinding} always supplies the canonical policy / probe /
+ * driver / connect — never a public override knob.
+ */
+export type PadiBindingDeps = {
+  probe: (socketPath: string) => ReturnType<typeof probePadiForConvergence>;
+  driver: DaemonDriver;
+  connect: (socketPath: string) => ReturnType<typeof connectPadi>;
+  policy: ReturnType<typeof padiConvergencePolicy>;
+};
 
 /** The single local padi host id — the endpoint's status key. Distinct from
  *  kaval's daemon-status key (padi's own `HostLocation` axis, encoded via
@@ -555,8 +555,34 @@ export function handlePadiBootFailure(
  *
  * Fail-open on boot error: the endpoint already reported `dead`; don't crash the
  * server boot (same stance as `ensureLocalEndpoint`).
+ *
+ * Public options are domain-only (W4.1) — policy/probe/driver/connect are always
+ * the canonical padi values. Tests inject via {@link ensurePadiBindingWith}.
  */
 export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
+  const binderBuildId = currentPadiBuildId();
+  return ensurePadiBindingWith(opts, {
+    policy: padiConvergencePolicy(binderBuildId),
+    probe: (socketPath) => probePadiForConvergence(socketPath),
+    driver: null, // resolved after home is known
+    connect: (path) => connectPadi(path),
+  });
+}
+
+/**
+ * Package-internal entry with injectable deps (W4.1). NOT a public production
+ * API — deep-import for tests only. Public {@link ensurePadiBinding} always
+ * supplies canonical padi values.
+ *
+ * `deps.driver: null` means "build localPadiDriver after home is resolved"
+ * (the public wrapper cannot know the socket path before home discovery).
+ */
+export function ensurePadiBindingWith(
+  opts: EnsurePadiBindingOptions,
+  deps: Omit<PadiBindingDeps, "driver"> & {
+    driver: DaemonDriver | null;
+  },
+): PadiSession {
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
   // The binder OWNS the state root's creation, once per boot. This is what makes
   // the connector's gone-root check below sound on a fresh machine: after this
@@ -584,17 +610,19 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // CURRENT dial's `closed`, so `makeSession`'s loop reconnects (re-runs converge). The
   // endpoint holds ONE connection and does NOT self-reconnect — the loop owns that.
   let currentClosed: ((info: ClosedInfo) => void) | null = null;
-  const binderBuildId = currentPadiBuildId();
   // Standing convergence anomaly from the last converge — surfaces via
   // `convergence()` (adopted-stale when the budget is spent, etc.). Null when clean.
   let standingConvergence: PadiConvergence | null = null;
-  const seams = opts.endpointSeams;
-  const defaultPolicy = padiConvergencePolicy(binderBuildId);
-  const policy = seams?.policy ?? defaultPolicy;
-  const probeFn =
-    seams?.probe ??
-    ((socketPath: string) => probePadiForConvergence(socketPath));
-  const connectFn = seams?.connect ?? ((path: string) => connectPadi(path));
+  const driver =
+    deps.driver ??
+    localPadiDriver(
+      stateRoot,
+      home.socketPath,
+      opts.nixShellWhitelist,
+      opts.spawnVersion,
+      opts.verbose ?? false,
+      opts.legacyKavalSocket,
+    );
   const ep = createEndpoint<
     PadiDaemonClient,
     PadiHelloIdentity,
@@ -603,24 +631,12 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     hostId: PADI_HOST_ID,
     home,
     // Policy stated once — baked identity + Cap-gated budget. The only boot verb is
-    // `converge(ep)`; boot methods are internal. Seams may override composition.
-    policy,
-    probe: async (socketPath) => {
-      const r = await probeFn(socketPath);
-      return r;
-    },
-    driver:
-      seams?.driver ??
-      localPadiDriver(
-        stateRoot,
-        home.socketPath,
-        opts.nixShellWhitelist,
-        opts.spawnVersion,
-        opts.verbose ?? false,
-        opts.legacyKavalSocket,
-      ),
+    // `converge(ep)`; boot methods are internal.
+    policy: deps.policy,
+    probe: (socketPath) => deps.probe(socketPath),
+    driver,
     // the framework hands you the path
-    connect: (path) => connectFn(path),
+    connect: (path) => deps.connect(path),
     log,
     onStatus: (_hostId, status) => {
       // A down/terminal close ends the current dial → resolve its `closed` so
@@ -657,13 +673,14 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     // Preserve the #1670 build-change breadcrumb — the binder's OWN domain line. The
     // adoption-padi-upgrade VM arm greps `padi build change on boot: running=<hex>`.
     if (outcome.kind === "drained-replacing" && outcome.axis === "build") {
+      const expectedBuild = buildLabel(deps.policy.baked.build);
       log.info(
         {
-          binderBuildId,
+          binderBuildId: expectedBuild,
           runningBuild: buildLabel(outcome.running.build),
           running: outcome.running,
         },
-        `padi build change on boot: running=${buildLabel(outcome.running.build)} expected=${binderBuildId}` +
+        `padi build change on boot: running=${buildLabel(outcome.running.build)} expected=${expectedBuild}` +
           " — draining the survivor once (persist + exit; its kaval + PTYs survive) and " +
           "respawning this binder's own build (drain-on-build-mismatch, #1670).",
       );
