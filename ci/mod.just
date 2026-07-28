@@ -196,29 +196,45 @@ daemon: install
 
 # Mixed-version daemon upgrade-window — the REAL previous-release e2e (boot the
 # previous tag's kaval, current padi against it, Restart kaval). Slow by design:
-# nix-builds the previous #kaval when KOLU_PREVIOUS_KAVAL_BIN is unset, then runs
-# one vitest file under the daemon gate. Both platforms: the window is real on
-# linux and darwin; cost is one kaval build + one recycle, not a full e2e suite.
-# KOLU_UPGRADE_WINDOW_REQUIRE=1 makes a missing previous binary a hard fail (so
-# CI never silently skips). Depends on `nix` so the current flake is already warm;
-# the previous-ref build is an additional fetch.
+# fetches tags, nix-builds previous-tag #kaval AND current #kaval, refuses if
+# their store paths are identical (that would collapse the window to a
+# same-version recycle — the failure mode that green-washed a first landing),
+# then runs one vitest file under the daemon gate. Both platforms.
+# KOLU_UPGRADE_WINDOW_REQUIRE=1 makes a missing/non-tag/identical previous a
+# hard fail (so CI never silently skips or same-versions). Depends on `nix`
+# so the current flake is already warm; the previous-ref build is additional.
 upgrade-window: install nix
     #!/usr/bin/env bash
     set -euo pipefail
-    # Resolve previous release tag (latest vX.Y.Z) for the nix build of #kaval.
+    # CI checkouts often have NO tags (shallow / tag-less fetch). Without this
+    # the old "last kaval-touching rev" fallback built a kaval IDENTICAL to
+    # current and the e2e exercised a same-version recycle while staying green.
+    git fetch --tags --force origin 2>/dev/null || git fetch --tags --force
     ref="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
-    if [ -z "$ref" ]; then
-      ref="$(git log -1 --format=%H -- packages/kaval)"
+    if ! [[ "${ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo "upgrade-window: REFUSING — no version tag (vX.Y.Z) after git fetch --tags; refusing the last-kaval-commit fallback that collapses the window" >&2
+      exit 1
     fi
-    echo "upgrade-window: previous ref=$ref"
-    if [ -z "${KOLU_PREVIOUS_KAVAL_BIN:-}" ]; then
-      out="$(nix build --no-link --print-out-paths "git+file://$PWD?ref=$ref#kaval")"
-      export KOLU_PREVIOUS_KAVAL_BIN="$out/bin/kaval"
+    echo "upgrade-window: previous ref=$ref (version tag required)"
+    prev_out="$(nix build --no-link --print-out-paths "git+file://${PWD}?ref=${ref}#kaval")"
+    curr_out="$(nix build --no-link --print-out-paths ".#kaval")"
+    echo "upgrade-window: previous kaval store=${prev_out}"
+    echo "upgrade-window: current  kaval store=${curr_out}"
+    if [ "${prev_out}" = "${curr_out}" ]; then
+      echo "upgrade-window: REFUSING — previous kaval store path equals current (${prev_out}); mixed-version window collapsed to same-version" >&2
+      exit 1
     fi
-    echo "upgrade-window: previous kaval=$KOLU_PREVIOUS_KAVAL_BIN"
+    echo "upgrade-window: store paths differ — window is real"
+    export KOLU_PREVIOUS_KAVAL_BIN="${prev_out}/bin/kaval"
+    export KOLU_PREVIOUS_KAVAL_REF="${ref}"
+    export KOLU_PREVIOUS_KAVAL_STORE="${prev_out}"
+    export KOLU_CURRENT_KAVAL_STORE="${curr_out}"
     test -x "$KOLU_PREVIOUS_KAVAL_BIN"
     KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ KOLU_UPGRADE_WINDOW_REQUIRE=1 \
       KOLU_PREVIOUS_KAVAL_BIN="$KOLU_PREVIOUS_KAVAL_BIN" \
+      KOLU_PREVIOUS_KAVAL_REF="$KOLU_PREVIOUS_KAVAL_REF" \
+      KOLU_PREVIOUS_KAVAL_STORE="$KOLU_PREVIOUS_KAVAL_STORE" \
+      KOLU_CURRENT_KAVAL_STORE="$KOLU_CURRENT_KAVAL_STORE" \
       {{ nix_shell }} pnpm --filter @kolu/padi exec vitest run src/upgradeWindow/previousRelease.e2e.test.ts
 
 # Build EVERY @kolu/surface example client (the base example, remote-process-monitor,

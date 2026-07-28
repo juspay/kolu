@@ -2,27 +2,35 @@
  * The real thing, once — boot the PREVIOUS RELEASE's kaval, then bring up the
  * CURRENT build's padi against it and drive Restart kaval (`lifecycle.recycleKaval`).
  *
- * Slow by design: resolves the previous kaval binary (env override, or
- * `nix build` of the latest git tag / last kaval-touching rev), spawns it at
- * the digest-keyed socket for a private state-root, starts current padi, creates
- * a terminal, recycles, asserts the daemon was replaced and the session
- * survived (parked for restore).
+ * Slow by design: resolves the previous kaval binary (env override from the CI
+ * recipe, or `nix build` of the latest version tag after `git fetch --tags`),
+ * spawns it at the digest-keyed socket for a private state-root, starts current
+ * padi, creates a terminal, recycles, asserts the daemon was replaced and the
+ * session survived (parked for restore). Also grounds the shared-artifact
+ * inventory against the live runtime dir + state-root (unknown non-log files
+ * fail the suite).
  *
  * Own CI recipe (`ci::upgrade-window`) so the ordinary daemon lane stays
  * fast. Generous timeouts; deterministic waits (poll readiness, never
  * sleep-and-hope).
  *
- * Skip (not fail) when the previous binary cannot be resolved — a bare
- * workstation without nix / tags. CI always supplies it.
+ * Under `KOLU_UPGRADE_WINDOW_REQUIRE=1` (CI): the previous ref MUST be a version
+ * tag and the previous kaval store path MUST differ from current #kaval — a
+ * same-version collapse is a hard fail, not a green same-checkout recycle.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   type UnixSocketConnection,
@@ -42,6 +50,10 @@ import {
   writeStateRootManifest,
 } from "../stateRoot.ts";
 import type { PadiDaemonContract } from "../surface.ts";
+import {
+  unknownProtocolFilesOnDisk,
+  unknownSharedFileMessage,
+} from "./sharedArtifacts.testlib.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -64,6 +76,7 @@ interface Proc {
 }
 
 const procs: Proc[] = [];
+const required = (): boolean => process.env.KOLU_UPGRADE_WINDOW_REQUIRE === "1";
 
 beforeAll(() => {
   vi.stubEnv(DAEMON_BIND_PID_ENV, String(process.pid));
@@ -111,76 +124,174 @@ function isAlive(pid: number): boolean {
   }
 }
 
-/** Resolve the previous-release kaval binary.
- *
- *  Order:
- *    1. `KOLU_PREVIOUS_KAVAL_BIN` (CI recipe sets this after `nix build`)
- *    2. `nix build` of the latest usable git tag's `#kaval` package
- *    3. last master rev that touched packages/kaval (fallback)
- *
- *  Returns null when none of those work (local skip). */
-async function resolvePreviousKavalBin(): Promise<string | null> {
-  const envBin = process.env.KOLU_PREVIOUS_KAVAL_BIN;
-  if (envBin && existsSync(envBin)) return envBin;
+const VERSION_TAG = /^v\d+\.\d+\.\d+$/;
 
-  // Prefer the latest tag; fall back to last rev that changed kaval.
-  let ref = "v2.0.0";
+/** Store path of a kaval bin (…/nix/store/HASH-kaval/bin/kaval → …/HASH-kaval). */
+function storePathOfBin(bin: string): string {
+  // realpath so symlinked result → /nix/store/.../bin/kaval resolves.
+  const real = realpathSync(bin);
+  return dirname(dirname(real));
+}
+
+/**
+ * Assert the mixed-version window is real: previous ref is a version tag and
+ * previous kaval's nix store path differs from current. Called under REQUIRE
+ * and when the CI recipe has already stamped the env.
+ */
+function assertWindowIsReal(opts: {
+  ref: string;
+  previousStore: string;
+  currentStore: string;
+}): void {
+  expect(
+    opts.ref,
+    `previous ref must be a version tag (vX.Y.Z), got ${opts.ref}`,
+  ).toMatch(VERSION_TAG);
+  expect(
+    opts.previousStore,
+    "previous kaval store path must be set",
+  ).toBeTruthy();
+  expect(
+    opts.currentStore,
+    "current kaval store path must be set",
+  ).toBeTruthy();
+  expect(
+    opts.previousStore,
+    `mixed-version window collapsed: previous kaval store equals current (${opts.previousStore})`,
+  ).not.toBe(opts.currentStore);
+  // Loud, greppable proof lines for CI evidence.
+  console.log(`previousRelease.e2e: previous ref=${opts.ref}`);
+  console.log(
+    `previousRelease.e2e: previous kaval store=${opts.previousStore}`,
+  );
+  console.log(`previousRelease.e2e: current  kaval store=${opts.currentStore}`);
+  console.log("previousRelease.e2e: store paths differ — window is real");
+}
+
+/** Resolve previous-release kaval binary + window identity for the e2e.
+ *
+ *  Prefer the CI recipe's stamped env (tag + both store paths already proven
+ *  unequal). Local fallback: fetch tags, build latest vX.Y.Z + current, refuse
+ *  non-tag / identical stores under REQUIRE. */
+async function resolvePreviousWindow(): Promise<{
+  bin: string;
+  ref: string;
+  previousStore: string;
+  currentStore: string;
+} | null> {
+  const envBin = process.env.KOLU_PREVIOUS_KAVAL_BIN;
+  const envRef = process.env.KOLU_PREVIOUS_KAVAL_REF;
+  const envPrevStore = process.env.KOLU_PREVIOUS_KAVAL_STORE;
+  const envCurrStore = process.env.KOLU_CURRENT_KAVAL_STORE;
+
+  if (envBin && existsSync(envBin)) {
+    const previousStore = envPrevStore ?? storePathOfBin(envBin);
+    let currentStore = envCurrStore;
+    if (!currentStore) {
+      // Local: build current for the inequality check.
+      try {
+        const { stdout } = await execFileAsync(
+          "nix",
+          ["build", "--no-link", "--print-out-paths", ".#kaval"],
+          { cwd: REPO_ROOT, env: process.env, maxBuffer: 10 * 1024 * 1024 },
+        );
+        currentStore = stdout.trim().split("\n").at(-1) ?? "";
+      } catch {
+        currentStore = "";
+      }
+    }
+    const ref = envRef ?? "unknown";
+    if (required()) {
+      if (!VERSION_TAG.test(ref)) {
+        throw new Error(
+          `KOLU_UPGRADE_WINDOW_REQUIRE=1 but KOLU_PREVIOUS_KAVAL_REF='${ref}' is not a version tag — ` +
+            `the recipe must git fetch --tags and refuse the last-kaval-commit fallback`,
+        );
+      }
+      if (!currentStore) {
+        throw new Error(
+          "KOLU_UPGRADE_WINDOW_REQUIRE=1 but current kaval store path is unknown — " +
+            "set KOLU_CURRENT_KAVAL_STORE (the recipe builds .#kaval)",
+        );
+      }
+      assertWindowIsReal({ ref, previousStore, currentStore });
+    } else if (VERSION_TAG.test(ref) && currentStore) {
+      assertWindowIsReal({ ref, previousStore, currentStore });
+    }
+    return {
+      bin: envBin,
+      ref,
+      previousStore,
+      currentStore: currentStore || previousStore,
+    };
+  }
+
+  // Local / unstamped path: fetch tags, require a version tag under REQUIRE.
+  try {
+    await execFileAsync("git", ["fetch", "--tags", "--force"], {
+      cwd: REPO_ROOT,
+    }).catch(() =>
+      execFileAsync("git", ["fetch", "--tags", "--force", "origin"], {
+        cwd: REPO_ROOT,
+      }),
+    );
+  } catch {
+    // offline — fall through
+  }
+
+  let ref: string | undefined;
   try {
     const { stdout } = await execFileAsync(
       "git",
       ["tag", "--sort=-v:refname"],
       { cwd: REPO_ROOT },
     );
-    const tag = stdout
+    ref = stdout
       .split("\n")
       .map((t) => t.trim())
-      .find((t) => /^v\d+\.\d+\.\d+$/.test(t));
-    if (tag) ref = tag;
+      .find((t) => VERSION_TAG.test(t));
   } catch {
-    // keep default
+    ref = undefined;
   }
 
-  // Confirm the ref exists; else last kaval-touching rev.
-  try {
-    await execFileAsync("git", ["rev-parse", "--verify", ref], {
-      cwd: REPO_ROOT,
-    });
-  } catch {
-    try {
-      const { stdout } = await execFileAsync(
-        "git",
-        ["log", "-1", "--format=%H", "--", "packages/kaval"],
-        { cwd: REPO_ROOT },
+  if (!ref || !VERSION_TAG.test(ref)) {
+    if (required()) {
+      throw new Error(
+        "KOLU_UPGRADE_WINDOW_REQUIRE=1 but no version tag (vX.Y.Z) after git fetch --tags — " +
+          "refusing the last-kaval-commit fallback that collapses the window",
       );
-      ref = stdout.trim() || ref;
-    } catch {
-      return null;
     }
+    return null;
   }
 
-  // Build that ref's kaval via nix (slow; CI recipe pre-builds when it can).
   try {
-    const { stdout } = await execFileAsync(
-      "nix",
-      [
-        "build",
-        "--no-link",
-        "--print-out-paths",
-        `git+file://${REPO_ROOT}?ref=${ref}#kaval`,
-      ],
-      {
-        cwd: REPO_ROOT,
-        env: process.env,
-        maxBuffer: 10 * 1024 * 1024,
-      },
-    );
-    const out = stdout.trim().split("\n").at(-1);
-    if (!out) return null;
-    const bin = join(out, "bin", "kaval");
-    return existsSync(bin) ? bin : null;
+    const [prev, curr] = await Promise.all([
+      execFileAsync(
+        "nix",
+        [
+          "build",
+          "--no-link",
+          "--print-out-paths",
+          `git+file://${REPO_ROOT}?ref=${ref}#kaval`,
+        ],
+        { cwd: REPO_ROOT, env: process.env, maxBuffer: 10 * 1024 * 1024 },
+      ),
+      execFileAsync(
+        "nix",
+        ["build", "--no-link", "--print-out-paths", ".#kaval"],
+        { cwd: REPO_ROOT, env: process.env, maxBuffer: 10 * 1024 * 1024 },
+      ),
+    ]);
+    const previousStore = prev.stdout.trim().split("\n").at(-1) ?? "";
+    const currentStore = curr.stdout.trim().split("\n").at(-1) ?? "";
+    const bin = join(previousStore, "bin", "kaval");
+    if (!existsSync(bin)) return null;
+    assertWindowIsReal({ ref, previousStore, currentStore });
+    return { bin, ref, previousStore, currentStore };
   } catch (err) {
+    if (required()) throw err;
     console.warn(
-      "previousRelease.e2e: could not nix-build previous kaval:",
+      "previousRelease.e2e: could not nix-build previous/current kaval:",
       (err as Error).message,
     );
     return null;
@@ -214,15 +325,11 @@ describeDaemon(
   "previous-release kaval × current padi (upgrade-window e2e)",
   () => {
     it("adopts yesterday's kaval, recycleKaval replaces it, session survives for restore", async () => {
-      const previousBin = await resolvePreviousKavalBin();
-      if (!previousBin) {
-        // CI's upgrade-window recipe pre-resolves the binary and sets
-        // KOLU_UPGRADE_WINDOW_REQUIRE=1 so a missing binary is a hard fail.
-        // Local bare runs without nix/tags skip rather than red.
-        if (process.env.KOLU_UPGRADE_WINDOW_REQUIRE === "1") {
+      const window = await resolvePreviousWindow();
+      if (!window) {
+        if (required()) {
           throw new Error(
-            "previous-release kaval binary unavailable under KOLU_UPGRADE_WINDOW_REQUIRE=1 — " +
-              "set KOLU_PREVIOUS_KAVAL_BIN or ensure nix can build the latest tag's #kaval",
+            "previous-release kaval unavailable under KOLU_UPGRADE_WINDOW_REQUIRE=1",
           );
         }
         console.warn(
@@ -244,7 +351,7 @@ describeDaemon(
 
       // 1) Boot PREVIOUS-release kaval at the digest-keyed path current padi will dial.
       track(
-        spawn(previousBin, ["--socket", kavalSocket], {
+        spawn(window.bin, ["--socket", kavalSocket], {
           stdio: "ignore",
           env: {
             ...process.env,
@@ -359,6 +466,13 @@ describeDaemon(
         }
         expect(sessionPresent).toBe(true);
 
+        // Ground the shared-artifact inventory against the LIVE runtime +
+        // state-root: every non-log file must match an inventory diskBasename.
+        // An unregistered shared file (the miss a hand-list-only watchdog
+        // cannot catch) fails here with instructions.
+        const unknown = unknownProtocolFilesOnDisk(RUNTIME_ROOT, stateRoot);
+        expect(unknown, unknownSharedFileMessage(unknown)).toEqual([]);
+
         const pidBeforeRecycle = gatePid(kavalGate) as number;
 
         // 4) Restart kaval — the production recycle path.
@@ -391,6 +505,16 @@ describeDaemon(
         const padiPid = gatePid(padiGatePath(padiSock));
         expect(padiPid).toBeTypeOf("number");
         expect(isAlive(padiPid as number)).toBe(true);
+
+        // Re-ground after recycle — a new shared file introduced by the fresh
+        // kaval must still match the inventory.
+        const unknownAfter = unknownProtocolFilesOnDisk(
+          RUNTIME_ROOT,
+          stateRoot,
+        );
+        expect(unknownAfter, unknownSharedFileMessage(unknownAfter)).toEqual(
+          [],
+        );
       } finally {
         await conn.dispose();
         // Reap kaval (current + any leftover) + padi.
