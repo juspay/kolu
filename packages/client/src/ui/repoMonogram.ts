@@ -28,10 +28,14 @@ export function caseToOneGlyph(glyph: string, mode: "upper" | "lower"): string {
  *  Prefers the first alphanumeric in any script, uppercased (`"kolu"` →
  *  `"K"`, `"répo"` → `"R"`, `".dotfiles"` → `"D"`). When there is none —
  *  home `~`, pure punctuation — falls through to the first grapheme as-is.
- *  Empty string is the only path to `?`. */
+ *  Empty string is the only path to `?`.
+ *
+ *  Always NFC-normalizes first so NFC/NFD-equivalent names (macOS NFD
+ *  paths vs Linux NFC) yield the same glyph. */
 export function repoMonogram(group: string): string {
-  const alnum = group.match(ALPHANUM)?.[0];
+  const nfc = group.normalize("NFC");
+  const alnum = nfc.match(ALPHANUM)?.[0];
   if (alnum) return caseToOneGlyph(alnum, "upper");
-  const lead = firstGrapheme(group.normalize("NFC"));
+  const lead = firstGrapheme(nfc);
   return lead || "?";
 }

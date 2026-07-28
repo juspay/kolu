@@ -304,7 +304,6 @@ const PaletteRow: Component<{
                 group={repo().name}
                 color={repo().color}
                 size="sm"
-                title={repo().name}
                 data-testid="palette-repo-monogram"
               />
               <span
@@ -317,10 +316,10 @@ const PaletteRow: Component<{
           )}
         </Show>
         <span
-          class="truncate min-w-0"
+          class="annotation-ink truncate min-w-0"
           style={
             row()?.annotationColor
-              ? { color: row()!.annotationColor }
+              ? { "--annotation-color": row()!.annotationColor }
               : undefined
           }
           data-testid="palette-branch"

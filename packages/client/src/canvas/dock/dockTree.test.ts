@@ -24,7 +24,6 @@ function makeGetInfo(
     return {
       repoColor: e.color,
       annotationColor: e.color,
-      annotationColor: e.color,
       subCount: 0,
       key: { group: e.group, label: e.label ?? "main" },
     };

@@ -53,13 +53,27 @@ export function pairDisplayRow(
   return info && meta ? { info, meta } : null;
 }
 
-/** Assign OKLCH colors via golden-angle hue spacing.
- *  All keys share one sequence so no two get the same color. */
+/** Stable 32-bit FNV-1a → hue in [0, 360). Identity colour is a pure
+ *  function of the key string, not of co-set order — so dock, palette,
+ *  and restore paint the same repo the same hue even when their key
+ *  sets differ (activity filter, host scope, restore-only groups). */
+function stableHue(key: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) % 360;
+}
+
+/** Assign OKLCH colours from a stable per-key hue. The iterable only
+ *  names which keys appear; it does not affect the hue of any key. */
 export function assignColors(keys: Iterable<string>): Map<string, string> {
   return new Map(
-    [...new Set(keys)]
-      .sort()
-      .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
+    [...new Set(keys)].map((key) => [
+      key,
+      `oklch(0.75 0.14 ${stableHue(key)})`,
+    ]),
   );
 }
 
@@ -94,7 +108,11 @@ export function buildTerminalDisplayInfos(
     // strings, so every entry has matching values. The skip is
     // defence-in-depth for an unreachable case — the consumer simply
     // gets fewer entries.
-    if (!key || !repoColor || !annotationColor) continue;
+    if (!key || !repoColor || !annotationColor) {
+      throw new Error(
+        `buildTerminalDisplayInfos invariant: missing key/colour for terminal ${id} (group=${group}, label=${label})`,
+      );
+    }
     result.set(id, {
       repoColor,
       annotationColor,

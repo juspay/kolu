@@ -649,7 +649,8 @@ body {
   border-left: 4px solid var(--repo-color);
 }
 /* Inspector identity chips — one frame; call site sets `--chip-hue`
- * (repo or annotation colour). Monogram-bearing variant adds left pad. */
+ * (repo or annotation colour). Light: ink toward black for ≥4.5:1 contrast
+ * on surface-1; dark: lighten. Monogram-bearing variant adds left pad. */
 .fleet-hue-chip {
   display: inline-flex;
   max-width: 100%;
@@ -657,9 +658,9 @@ body {
   gap: 5px;
   white-space: nowrap;
   border-radius: 6px;
-  border: 1px solid color-mix(in oklab, var(--chip-hue) 45%, var(--color-edge));
-  background: color-mix(in oklab, var(--chip-hue) 15%, var(--color-surface-1));
-  color: color-mix(in oklch, var(--chip-hue) 75%, white);
+  border: 1px solid color-mix(in oklab, var(--chip-hue) 40%, var(--color-edge));
+  background: color-mix(in oklab, var(--chip-hue) 12%, var(--color-surface-1));
+  color: color-mix(in oklch, var(--chip-hue) 42%, black);
   padding: 1px 6px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10px;
@@ -670,11 +671,18 @@ body {
   padding-left: 3px;
 }
 :root.dark .fleet-hue-chip {
-  color: color-mix(in oklch, var(--chip-hue) 85%, white);
+  color: color-mix(in oklch, var(--chip-hue) 78%, white);
 }
 /* Repo name text — readable ink over fleet hue (parent sets --repo-color). */
 .repo-name-ink {
   color: var(--repo-ink);
+}
+/* Branch / intent text (parent sets --annotation-color). */
+.annotation-ink {
+  color: color-mix(in oklch, var(--annotation-color) 42%, black);
+}
+:root.dark .annotation-ink {
+  color: color-mix(in oklch, var(--annotation-color) 78%, white);
 }
 /* Restore / soft group band. */
 .repo-group-band {
@@ -715,7 +723,10 @@ body {
     color-mix(in oklab, var(--host-hue) 20%, var(--color-surface-1)) 0%,
     color-mix(in oklab, var(--host-hue) 5%, var(--color-surface-1)) 100%
   );
-  color: color-mix(in oklch, var(--host-hue) 70%, white);
+  color: color-mix(in oklch, var(--host-hue) 42%, black);
+}
+:root.dark .palette-host-header {
+  color: color-mix(in oklch, var(--host-hue) 72%, white);
 }
 .palette-host-header:hover {
   filter: brightness(1.06);

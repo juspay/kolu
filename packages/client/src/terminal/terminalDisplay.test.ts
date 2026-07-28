@@ -48,11 +48,16 @@ describe("assignColors", () => {
     expect(assignColors(["a", "a", "b"]).size).toBe(2);
   });
 
-  it("sorts keys before assigning (deterministic)", () => {
+  it("hue is a pure function of the key — co-set order and size do not shift it", () => {
     const r1 = assignColors(["b", "a"]);
     const r2 = assignColors(["a", "b"]);
+    const r3 = assignColors(["a", "b", "zeta"]);
     expect(r1.get("a")).toBe(r2.get("a"));
     expect(r1.get("b")).toBe(r2.get("b"));
+    // Adding keys that would sort earlier under a set-relative allocator
+    // must not recolour an existing identity.
+    expect(r3.get("a")).toBe(r1.get("a"));
+    expect(r3.get("b")).toBe(r1.get("b"));
   });
 
   it("produces different colors for different keys", () => {

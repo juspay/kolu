@@ -18,4 +18,12 @@ describe("repoMonogram", () => {
   it("returns ? only for an empty group", () => {
     expect(repoMonogram("")).toBe("?");
   });
+
+  it("NFC and NFD equivalent names yield the same monogram", () => {
+    const nfc = "éclair";
+    const nfd = "e\u0301clair";
+    expect(nfc.normalize("NFC")).not.toBe(nfd);
+    expect(repoMonogram(nfc)).toBe(repoMonogram(nfd));
+    expect(repoMonogram(nfc)).toBe("É");
+  });
 });
