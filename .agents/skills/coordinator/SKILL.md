@@ -18,10 +18,14 @@ problem; this skill is what you send, not how.
    the debate peer, and exactly which branch/PR the work lands on — the agent
    should never have to guess where its commits go.
 
-2. **Hand over your terminal id.** Questions come to *you*, not the human:
-   tell the agent to message your terminal on any ambiguity and wait, and that
-   your replies are authoritative. You pull the human in only when a call is
-   genuinely theirs.
+2. **Hand over your terminal id.** The agent's questions come to *you*, not
+   the human: tell it to message your terminal on any ambiguity and wait, and
+   that your replies are authoritative. But you're a router, not an oracle:
+   mechanical unblocks (a path, a flag, a fact in the repo) you answer
+   yourself; anything judgment-shaped — scope, API feel, a tradeoff, "which
+   way did the human mean" — goes to the human as an AskUserQuestion with
+   concrete options, liberally. A wrong confident answer costs a re-run; a
+   question costs a click.
 
 3. **Set the goal** (verbatim, it's task-independent — `/be` carries the
    specifics): *"All of /be is complete — verified against reality (green CI,
