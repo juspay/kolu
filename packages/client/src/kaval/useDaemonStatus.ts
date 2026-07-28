@@ -135,9 +135,10 @@ export function activeEntryState(): PadiEntry {
  *  host-diagnostics popover (the only failure surface reachable for a host WITHOUT switching
  *  to it).
  *
- *  `log` stays `undefined` rather than collapsing to `[]` — see the `log` prop doc on
- *  `host/CanvasFailureCard.tsx`, which owns that distinction. `undefined` when this reader
- *  cannot see the output at all, and every consumer must pass that through unchanged.
+ *  `log` is NON-OPTIONAL because it reads `entry.evidence` — a field of the failure record
+ *  rather than the live `connection` payload, so "we cannot see the output" is not a state
+ *  this arm can be in, and `[]` keeps its one meaning (the failure genuinely produced no
+ *  output). See `@kolu/surface-map`'s `FailureEvidence` for why the tail lives there.
  *
  *  Takes the entry rather than reading the active one, because the popover asks about a host
  *  that is NOT the active one. `undefined` when the entry is in any other state — the caller
@@ -149,14 +150,14 @@ export function failedEpisode(entry: PadiEntry):
   | {
       cause: EntryFailedCause;
       reason: string;
-      log: readonly LogLine[] | undefined;
+      log: readonly LogLine[];
     }
   | undefined {
   if (entry.kind !== "failed") return undefined;
   return {
     cause: entry.failure.cause,
     reason: entry.failure.reason,
-    log: entry.connection?.log,
+    log: entry.evidence,
   };
 }
 

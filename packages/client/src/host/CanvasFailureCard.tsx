@@ -26,6 +26,7 @@ import { WarningIcon } from "../ui/Icons";
 import {
   LOG_TAIL_LINE,
   LOG_TAIL_SURFACE,
+  type LogAbsence,
   type LogLine,
 } from "../ui/logTailChrome";
 import { activeHost, setActiveHost } from "../wire";
@@ -97,20 +98,34 @@ export function CanvasFailureCard(props: {
   /** The failing episode's retained output, newest last — rendered verbatim in a bounded
    *  scroll beneath `detail`. Structural ({@link LogLine} — `{ line }` only, no domain type,
    *  no `source` provenance): the shell stays pure presentation, and a caller hands it
-   *  whatever tail it retained. REQUIRED, though it accepts `undefined`: an optional prop is
-   *  how one of two callers silently dropped the evidence, so "this surface has no tail" must
-   *  be said out loud.
+   *  whatever tail it retained. TOTAL: `[]` is the whole vocabulary for "no lines", so the
+   *  card never has to guess what an absence meant. */
+  log: readonly LogLine[];
+  /** WHY `log` is empty, when the emptiness is not the episode's own fact — `undefined`
+   *  for the ordinary case (those lines ARE what it printed, however few).
    *
-   *  THE HOME of the `undefined` vs `[]` distinction every surface that carries a tail
-   *  preserves: `undefined` means WE CANNOT SEE the output — the padi map's liveness floor
-   *  DROPS the `connection` word over a dead link while keeping `failure`, so the reason
-   *  survives and the evidence does not — while `[]` means the failure genuinely produced
-   *  none. Both render nothing here, but only the caller can tell them apart, so no reader
-   *  upstream may collapse one into the other.
+   *  This card renders the two absences DIFFERENTLY, which is what earns the distinction
+   *  its place: `"link-down"` draws a short note saying the output is unavailable, an
+   *  ordinary empty tail draws nothing at all (there is nothing to say about a step that
+   *  printed nothing). What the card must NOT do is infer WHICH it is looking at — it
+   *  cannot. Only the caller holds the liveness fact, so the caller states it and this
+   *  shell renders a reason it was TOLD. The card said "kolu's link to this browser went
+   *  quiet" off a bare `log === undefined` before, which was true only via a four-file
+   *  chain nothing in this type expressed: a second caller passing `undefined` for any
+   *  other reason made the card lie confidently.
+   *
+   *  A FAILED-arm caller (`HostDownCanvas`) always passes `undefined` here — its tail is
+   *  the failure record's own `evidence`, stapled at classification and carried past the
+   *  floor with the reason (juspay/kolu#2007), so "we cannot see it" is not a state that
+   *  arm can be in. `HostDiagnosticsPopover`, reading the same `failedEpisode`, is under
+   *  the identical guarantee even though it renders its own tail block rather than this
+   *  card (it is not a caller of this prop).
+   *  REQUIRED, though it accepts `undefined` — an optional prop is how one of two callers
+   *  silently dropped the evidence, so a caller with nothing to declare declares it.
    *
    *  Chrome shared with the other tails is named in `ui/logTailChrome.ts`; everything else
    *  stays local, because the three differ by decision rather than by accident. */
-  log: readonly LogLine[] | undefined;
+  logAbsence: LogAbsence | undefined;
   /** Test handle for the tail block, supplied by the caller like every other handle on this
    *  shell (`dataTestid` / `dataAttrs` / `action.testid`) — two callers now render a tail, so
    *  a selector has to be able to say WHICH card's it found. */
@@ -138,7 +153,19 @@ export function CanvasFailureCard(props: {
                 </p>
               )}
             </Show>
-            <Show when={(props.log?.length ?? 0) > 0}>
+            {/* The caller TOLD us its tail is missing rather than empty, and why. Say so,
+                rather than rendering the same nothing an actually-silent step renders:
+                the whole point of keeping the two apart is that a reader can tell which
+                one they are looking at. */}
+            <Show when={props.logAbsence === "link-down"}>
+              <p
+                data-testid={`${props.logTestid}-unavailable`}
+                class="mt-2 text-xs leading-relaxed text-fg-4 italic"
+              >
+                Output unavailable — kolu's link to this browser went quiet.
+              </p>
+            </Show>
+            <Show when={props.log.length > 0}>
               <div
                 data-testid={props.logTestid}
                 class={`mt-2 max-h-40 overflow-y-auto px-3 py-2 text-[11px] leading-relaxed ${LOG_TAIL_SURFACE}`}

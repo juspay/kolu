@@ -354,6 +354,10 @@ export function serveHostMap<
             "defect; failing loud rather than publishing a malformed down state as warming.",
         );
       }
+      // Classified FRESH per resolve. The map's republish gate compares the published
+      // status STRUCTURALLY, so a classifier that mints an equal literal per call (every
+      // real one does) is suppressed by the gate rather than by a cache this adapter
+      // would have to hold on the classifier's behalf.
       const failure = opts.failureOf(k, session, down);
       if (projected.kind === "failed") {
         // A terminal `failed` session that yields NO domain failure is a producer
@@ -364,13 +368,23 @@ export function serveHostMap<
         // published arm cannot even hold.
         if (failure === null)
           throw new UnclassifiedHostFailureError(enc, down.error);
-        state = { kind: "failed", failure };
+        // EVIDENCE, stapled here: the retained log tail off the SAME `raw` frame
+        // `failureOf` just classified. `down.log` is the existing source of truth
+        // (`SessionState.log`, carried forward into the failed arm by `session.ts`'s
+        // `setDown`) — passed straight through, never a second evidence pipe. See
+        // `@kolu/surface-map`'s `FailureEvidence` for why it rides the record.
+        state = { kind: "failed", failure, evidence: down.log };
       } else {
-        // `disconnected`: `null` = transient drop → keep `failure` ABSENT (→ warming); a
-        // domain failure → attach it (a standing refuse → failed).
+        // `disconnected`: `null` = transient drop → keep the `refuse` record ABSENT
+        // (→ warming); a domain failure → attach the whole record (a standing refuse →
+        // failed), reason and evidence in one value. A standing refuse is published as
+        // `failed`, so it gets exactly the same stapling as a terminal give-up.
         state =
           failure !== null
-            ? { kind: "disconnected", failure }
+            ? {
+                kind: "disconnected",
+                refuse: { failure, evidence: down.log },
+              }
             : { kind: "disconnected" };
       }
     } else {

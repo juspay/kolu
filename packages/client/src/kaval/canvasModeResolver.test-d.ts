@@ -139,7 +139,8 @@ const warmingArm: Extract<CanvasFacts, { entry: "warming" }> = {
   ...liveness,
   entry: "warming",
   connectPhase: undefined,
-  connectLog: undefined,
+  connectLog: [],
+  connectLogAbsence: undefined,
 };
 // @ts-expect-error — `terminalCount` does not exist on the `warming` arm.
 void warmingArm.terminalCount;

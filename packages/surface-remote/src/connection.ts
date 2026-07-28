@@ -15,10 +15,19 @@
  * the coarse dot (see `serveHostMap`). This module keeps only the browser-safe TYPE +
  * schema + the pure {@link projectConnection} leaf a consumer derives the word from the
  * entry with; the cell, its gate-closed seed, its readiness `liveWhen`, and the
- * `mirroredSurface` seam that composed it are gone. THIS module imports only `zod` (and
- * type-only session shapes), so it rides the browser bundle.
+ * `mirroredSurface` seam that composed it are gone. THIS module imports only `zod`,
+ * `@kolu/surface-map/evidence` (itself zod-only), and type-only session shapes — so it
+ * rides the browser bundle.
  */
 
+// The failure-evidence vocabulary, from `@kolu/surface-map`'s zod-only `./evidence`
+// leaf rather than its default entry: the default entry is the CONTRACT half, which
+// imports `@orpc/contract` and `@kolu/surface/define` as VALUES, and this module's
+// browser-bundle constraint (below) is that it pulls neither.
+import {
+  type EvidenceLine,
+  EvidenceLineSchema,
+} from "@kolu/surface-map/evidence";
 import { z } from "zod";
 // TYPE-ONLY (erased at runtime): the connection value IS `SessionState<SshProv>`, so this
 // module keeps ONE connection-state type family. Neither import pulls the node/server
@@ -26,16 +35,29 @@ import { z } from "zod";
 import type { SessionState } from "./session";
 import type { SshProv } from "./sshConnector";
 
-/** One line of the link's provenance-tagged log tail — the browser mirror of a
- *  session's {@link SessionState.log} entry: `source` is WHERE the line came from
- *  (`"local"` = the parent's own provisioning / lifecycle chatter, `"remote"` =
- *  the far agent's forwarded stderr), a FIELD now rather than an in-band
- *  `[local] `/`[remote] ` string prefix. */
-export const LogEntrySchema = z.object({
-  source: z.enum(["local", "remote"]),
-  line: z.string(),
-});
-export type LogEntry = z.infer<typeof LogEntrySchema>;
+/** One line of the link's provenance-tagged log tail: `source` is WHERE the line came
+ *  from (`"local"` = the parent's own provisioning / lifecycle chatter, `"remote"` = the
+ *  far agent's forwarded stderr), a FIELD rather than an in-band `[local] `/`[remote] `
+ *  string prefix.
+ *
+ *  It IS `@kolu/surface-map`'s `EvidenceLine` — the same concept, so the same type, not
+ *  a pinned twin. `serveHostMap` stamps a failed entry's evidence by passing the
+ *  session's retained tail straight through (`evidence: down.log`); that only ever
+ *  compiled because the two vocabularies were element-for-element identical, and this
+ *  alias makes the identity the DEFINITION rather than a fact a separate file had to
+ *  monitor. */
+export type LogEntry = EvidenceLine;
+
+/** The wire validator for {@link LogEntry} — it IS `@kolu/surface-map`'s
+ *  {@link EvidenceLineSchema}, for the same reason {@link LogEntry} is `EvidenceLine`:
+ *  one definition beats two definitions plus a guard.
+ *
+ *  A re-declared twin annotated `z.ZodType<LogEntry>` was the guard here before, and it
+ *  did not guard in the likelier edit direction — TypeScript accepts a NARROWER schema
+ *  annotated as a wider type, so adding a third `source` provenance upstream would have
+ *  left this twin silently rejecting the new value at runtime while compiling clean. An
+ *  alias has no direction to be blind in. */
+export const LogEntrySchema = EvidenceLineSchema;
 
 const logSchema = z.array(LogEntrySchema).readonly();
 

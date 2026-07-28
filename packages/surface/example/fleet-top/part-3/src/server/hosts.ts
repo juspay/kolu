@@ -80,9 +80,13 @@ function projectState(
     }))
     .with({ phase: "failed" }, (failed) => ({
       // A bounded terminal give-up — a failed entry must carry the schema-valid
-      // domain failure it publishes.
+      // domain failure it publishes, AND that failure's evidence: the session's own
+      // retained log tail off this same frame, so the reason and the output that
+      // produced it travel together (they survive the client's liveness floor as one
+      // record, unlike the live `connection` word).
       kind: "failed" as const,
       failure: { reason: failed.error },
+      evidence: failed.log,
     }))
     .exhaustive();
 }

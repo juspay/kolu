@@ -141,7 +141,29 @@ verdict, never a fabrication) and a schema-valid domain `Failure` for a standing
 terminal `failed` state that yields `null` fails loud with `UnclassifiedHostFailureError`
 (a failed entry cannot exist without a domain failure); the distinct member-with-no-session
 (unknown-host) race fails loud with `UnclassifiedHostSessionError`. There is no `"other"`
-fallback cause. These are genuine producer defects, so they **crash the process** even when
+fallback cause.
+
+`failureOf` is invoked **fresh on every resolve** — potentially once per member per
+sibling's tick, with nothing held or cached against a frame. That is safe because the
+O(M²) re-publish risk (every failed member re-publishing on every sibling's tick) is
+closed one layer down: `@kolu/surface-map`'s republish gate compares the published
+status **structurally** (`dequal`), so a classifier that mints a fresh-but-equal literal
+per call — every real one does — is suppressed by the gate itself rather than by an
+adapter-side hold this module would otherwise have to keep in sync with the gate.
+
+At that same classification seam, `serveHostMap` mints the failure's **evidence**: the
+session frame's retained `log` tail — the very frame `failureOf` just classified — is
+stapled onto the published failure record as `evidence` (see `@kolu/surface-map`'s
+`FailureEvidence`). Both down arms get it: a terminal `failed`, and a `disconnected` the
+classifier called a standing refuse (which publishes as `failed` too). A transient
+`disconnected` publishes `warming` and carries neither a reason nor evidence. Because
+`SessionState.log` is structurally identical to `FailureEvidence`, `raw.log` is passed
+straight through — there is no injected evidence hook and no second evidence pipe to keep
+in sync. The tail is pinned at classification (a post-mortem record, not a live view), so
+it survives the client's liveness floor with the reason it belongs to, whereas the live
+`connection` word is dropped over a dead link.
+
+The fail-loud seams above are genuine producer defects, so they **crash the process** even when
 raised deep in the internal per-member republish: the loop catches synchronously (so one
 member's defect never freezes a sibling's status stream mid-frame) and then rethrows
 out-of-band on the next microtask, an uncaught exception — never a swallowed
@@ -215,7 +237,7 @@ is the `source` field.
 | `sessionConnection(raw)` | `/connection` | the total `(raw: SessionState<string> \| undefined) → ConnectionInfo` projection a host map feeds to `serveHostMap`'s `connection.project`: folds the gate-closed pending value for a not-yet-seeded member, validates the erased frame against `ConnectionInfoSchema` (fail-loud on a non-ssh / malformed frame), and returns the frame (reference-stable) otherwise |
 | `ConnectionInfo` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the browser-safe type + wire schema (the host map validates the entry's `connection` payload against it) + the gate-closed pending value |
 | `ConnectPhase` | `/connection` | the up-but-not-yet-connected phase subset a connect/progress UI narrates — `Exclude<ConnectionInfo["phase"], "connected" \| "disconnected" \| "failed">` (i.e. `SshProv \| "connecting"`), the ONE vocabulary a UI's exhaustive `switch`/`Record` keys on so a new provisioning phase fails to compile until handled (never a silent hand-listed copy) |
-| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — the browser type of a `SessionState.log` line |
+| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — aliases of `@kolu/surface-map`'s `EvidenceLine` / `EvidenceLineSchema` (the same concept, so the same type *and* the same validator, taken from the zod-only `@kolu/surface-map/evidence` leaf so this browser-safe module still pulls no contract code) |
 
 ## A mirror, end to end
 
