@@ -18,7 +18,7 @@ import type { AgentBucketKind } from "./dockModel";
 export type TileAura =
   | "alert" // unread: a fresh, missed "needs you" — fastest, brightest sweep, loudest
   | "waiting-fresh" // awaiting + recent — a steady repo-color comet sweeps the ring
-  | "working" // thinking / tools / background — runs as marching ants; busy, asks nothing
+  | "working" // thinking / tools / background — double moat + rotating outer arc; busy, asks nothing
   | "waiting-stale" // awaiting but aged past the activity window — same comet, slowed and dimmed
   | "finished" // post-turn linger — one-shot exhale, then a soft held ring (not a comet)
   | "none"; // idle / parked / no agent — no glow
