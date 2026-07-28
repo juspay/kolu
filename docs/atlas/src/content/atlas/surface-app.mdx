@@ -349,7 +349,7 @@ c.admin.collections.hosts.use();      // surface.admin.hosts...
 
 | Seam today | After |
 | --- | --- |
-| `composeSurfaces` / `ComposedSurfaceSpec` | **gone** — no merge; the surfaces are siblings _(the name `ComposedSurfaceSpec` was later reintroduced by SR5 for an unrelated concept — `extendSurface`'s flat spec merge; see [surface-runtime-boundary](surface-runtime-boundary))_ |
+| `composeSurfaces` / `ComposedSurfaceSpec` | **gone** — no merge; the surfaces are siblings _(the name `ComposedSurfaceSpec` was later reintroduced by SR5 for an unrelated concept — `extendSurface`'s flat spec merge; see [archived notes](archived-notes.html))_ |
 | `assertNoOverride` dup-key throw | **gone** — each surface is its own top key; nothing to collide |
 | `implementSurfaceApp()` | **gone** — `implementSurfaces(surfaces, base, deps)` takes each surface's deps in a keyed map; `surfaceAppServer()` survives as surface-app's per-key deps bundle |
 | app-visible `connect` (republish late `buildInfo`) | **gone** — `connect?` is a cell-impl dep the runtime fires once after wiring |

@@ -18,3 +18,8 @@ The invariant whenever you touch Atlas content:
 - **Enforced** — `ci::atlas-sync` (`just atlas::check-sync`) rebuilds and fails
   if the committed `dist/` is stale or host-dependent, so forgetting to
   regenerate is caught, not silently merged.
+- **Finished feature plans archive, they do not linger** — when a feature
+  plan-of-record reaches `status: implemented`, delete the note and add a row to
+  `archived-notes.mdx` (reparent children, retarget links, rebuild). Full
+  procedure: `/atlas` skill §4 Lifecycle. Do not leave a shipped build plan as a
+  living page.

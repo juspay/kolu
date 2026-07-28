@@ -1,7 +1,7 @@
 ---
 title: odu-web — the service face of odu
 description: 'The browser face of odu is not a tab watching one live run — it is the service layer above the runner: a run ledger that outlives coordinators, the page a commit status Details link points at, forge triggers, and a multi-repo fleet dashboard. That territory belongs to juspay/vira today, so this is also the plan for whether odu-web replaces it. Proposed in five phases, with UI prototypes.'
-parents: [odu, surface-app, feature]
+parents: [electricity, surface-app, feature]
 status: proposed
 maturity: seedling
 updated: 2026-06-12
@@ -15,9 +15,9 @@ import D2 from "../../components/D2.astro";
 import Roadmap from "../../components/Roadmap.astro";
 import Milestone from "../../components/Milestone.astro";
 
-*The question that produced this note: now that [odu](./odu.html) has a TUI and an MCP face, what would the web app look like — and should it replace [juspay/vira](https://github.com/juspay/vira)? The answer reframes the question: the web app worth building is not a third rendering of the attach surface. It is a **new program above the runner** — ledger, triggers, fleet — and the browser is merely how you look at it.* <Pill variant="new">proposed</Pill>
+*The question that produced this note: now that [odu (archived)](./archived-notes.html) has a TUI and an MCP face, what would the web app look like — and should it replace [juspay/vira](https://github.com/juspay/vira)? The answer reframes the question: the web app worth building is not a third rendering of the attach surface. It is a **new program above the runner** — ledger, triggers, fleet — and the browser is merely how you look at it.* <Pill variant="new">proposed</Pill>
 
-<p>Status: <Pill variant="warn">proposed</Pill> · maturity <Pill variant="todo">seedling</Pill> · the runner this builds on is [odu](./odu.html) (Phase 1 + MCP face shipped) · the app shell is [surface-app](./surface-app.html) (kolu and drishti are its two consumers; odu-web would be the third)</p>
+<p>Status: <Pill variant="warn">proposed</Pill> · maturity <Pill variant="todo">seedling</Pill> · the runner this builds on is [odu (archived)](./archived-notes.html) (Phase 1 + MCP face shipped) · the app shell is [surface-app](./surface-app.html) (kolu and drishti are its two consumers; odu-web would be the third)</p>
 
 <Callout kind="accent" title="The idea in one paragraph">
 odu today is **run-centric and ephemeral**: an operator — human or agent — starts a run, a coordinator owns the DAG as live state, and when the coordinator dies only the per-SHA log files survive. vira is the inverse: **repo-centric and persistent** — it watches registered repos, builds on its own initiative, and keeps history behind a web UI. Each is strong exactly where the other is weak. odu-web closes that gap *without growing the runner*: a second program that ingests forge events, spawns odu runs per repo × SHA, persists verdicts in a run ledger that outlives every coordinator, and serves the browser — including the one page CI cannot do without, the page a red check's **Details** link lands on. The runner stays the small, proven thing it is; odu-web attaches to it as just another client of the same typed surface.
@@ -76,7 +76,7 @@ export const Chrome = (props) => (
 
 ## Two products hide in "the web app"
 
-The first is the **attach face**: a browser tab rendering one live run — the TUI with rounder corners. [The odu note](./odu.html) already judged this one correctly, and the judgement stands: nobody opens a tab to watch a run they kicked off from their shell, the TUI and MCP faces serve the single-operator case better, and a hosted page is the one client that drags in the authz boundary the other faces dodge. Built alone, the attach face is cost with no constituency.
+The first is the **attach face**: a browser tab rendering one live run — the TUI with rounder corners. [The odu note (archived)](./archived-notes.html) already judged this one correctly, and the judgement stands: nobody opens a tab to watch a run they kicked off from their shell, the TUI and MCP faces serve the single-operator case better, and a hosted page is the one client that drags in the authz boundary the other faces dodge. Built alone, the attach face is cost with no constituency.
 
 The second is the **service face**, and it has three constituencies the runner cannot reach today:
 
@@ -134,7 +134,7 @@ The smallest shippable slice of the service face is also the highest-value one: 
 
 Three properties make this the wedge and not just the first feature:
 
-- **It is the first moment odu is visible to people who never invoked it.** Every hosted CI's adoption loop runs through the Details link; odu's gate half (statuses, branch protection) shipped in Phase 1 of [the odu note](./odu.html) — this completes that loop.
+- **It is the first moment odu is visible to people who never invoked it.** Every hosted CI's adoption loop runs through the Details link; odu's gate half (statuses, branch protection) shipped in Phase 1 of [the odu note (archived)](./archived-notes.html) — this completes that loop.
 - **It forces the ledger, and nothing else.** No triggers, no live protocol in the browser, and almost no authz — a read-only page behind whatever the team already uses (tailnet, basic auth). The greyed-out rerun button in the mockup is the Phase 4 boundary, visible but inert.
 - **It survives everything.** The page renders from the ledger, not from a live coordinator — a run that finished last week and a runner that died mid-flight both have a page.
 
@@ -191,7 +191,7 @@ Because the browser speaks the same `useCell` / `useStream` Solid hooks every ot
   </div>
 </Chrome>
 
-And the fleet view is the same data one level up — **repo is just another fan-in axis**, the generalization of the lane matrix that [the odu note](./odu.html) catalogued as open:
+And the fleet view is the same data one level up — **repo is just another fan-in axis**, the generalization of the lane matrix that [the odu note (archived)](./archived-notes.html) catalogued as open:
 
 <Chrome url="odu.srid.ca">
   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".7rem .95rem", background: "#fff", borderBottom: "1px solid #efeadd" }}>
@@ -228,7 +228,7 @@ The boundary the browser alone forces arrives on schedule, not up front: **read-
 
 ## Does it replace vira?
 
-It should — on the timescale where the service face actually exists, and not before. [vira](https://github.com/juspay/vira) is *"no-frills CI for small teams using Nix"*: a Haskell web app with acid-state persistence, managing registered repos and building them in Nix environments. It works today; nothing here argues for switching anything off this week. The argument is structural, and it is the same one [the odu note](./odu.html) ran against justci:
+It should — on the timescale where the service face actually exists, and not before. [vira](https://github.com/juspay/vira) is *"no-frills CI for small teams using Nix"*: a Haskell web app with acid-state persistence, managing registered repos and building them in Nix environments. It works today; nothing here argues for switching anything off this week. The argument is structural, and it is the same one [the odu note (archived)](./archived-notes.html) ran against justci:
 
 | Axis | vira today | odu-web as planned |
 | --- | --- | --- |
@@ -245,7 +245,7 @@ Two stacks under one author is a losing position — justci already taught that 
 
 ## Phases
 
-Phase 0 lives in the runner and is already on [odu's Phase 2 backlog](./odu.html); everything after it lives in odu-web, each phase shippable on its own.
+Phase 0 lives in the runner and is already on [odu's Phase 2 backlog](./archived-notes.html); everything after it lives in odu-web, each phase shippable on its own.
 
 <Roadmap>
   <Milestone status="now" label="Phase 0 · prerequisites in the runner">Idle attach + the long-lived runner — a coordinator you can reach with nothing running — plus run identity stable enough for a ledger to reference (repo, SHA, run, node). Both named on the odu roadmap; odu-web is the consumer that makes them load-bearing. This phase has its own work order — **[odu-runner](./odu-runner.html)**. **Run identity shipped** (<PrLink pr={28} repo="juspay/odu" label="juspay/odu#28" />): every run now writes a durable `(repo, sha, seq)` `RunRecord` to `.ci/<sha7>/runs/<seq>.json`, listable via `odu runs` — *the ledger Phase 1 reads is now real on disk.* Still ahead: the serve/run split + idle attach (R1, riding the [surface-daemon](./surface-daemon.html) spine) and the lifecycle (R3).</Milestone>
