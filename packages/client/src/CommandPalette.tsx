@@ -1011,11 +1011,7 @@ const CommandPalette: Component<{
                       class="palette-host-header first:pt-1"
                       style={
                         entry.group.row?.hostKey
-                          ? {
-                              "--host-hue": hostHue(entry.group.row.hostKey),
-                              // Monogram reuses --repo-color socket.
-                              "--repo-color": hostHue(entry.group.row.hostKey),
-                            }
+                          ? { "--host-hue": hostHue(entry.group.row.hostKey) }
                           : undefined
                       }
                       title={`Show only ${entry.name}`}

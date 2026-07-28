@@ -82,7 +82,7 @@ describe("buildTerminalDisplayInfos", () => {
     expect(info?.key.group).toBe("repo");
     expect(info?.key.label).toBe("main");
     expect(info?.repoColor).toMatch(/^oklch\(/);
-    expect(info?.branchColor).toMatch(/^oklch\(/);
+    expect(info?.annotationColor).toMatch(/^oklch\(/);
     expect(info?.subCount).toBe(0);
   });
 

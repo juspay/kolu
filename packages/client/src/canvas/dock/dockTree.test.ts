@@ -23,7 +23,7 @@ function makeGetInfo(
     if (!e) return undefined;
     return {
       repoColor: e.color,
-      branchColor: e.color,
+      annotationColor: e.color,
       annotationColor: e.color,
       subCount: 0,
       key: { group: e.group, label: e.label ?? "main" },

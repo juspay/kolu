@@ -30,8 +30,8 @@ import { readStoredActivityWindow } from "../hostScope/createHostPrefs";
 import { hostScopeOf } from "../hostScope/hostScopes";
 import { windowOption } from "../terminal/activityWindow";
 import { reprojectTerminalClock } from "../terminal/reprojectClock";
-import { isParked } from "../terminal/useTerminalMetadata";
 import { isStale as isStaleAt } from "../terminal/staleness";
+import { isParked } from "../terminal/useTerminalMetadata";
 import { getClockNow } from "../time/clock";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 

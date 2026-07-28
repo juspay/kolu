@@ -308,8 +308,7 @@ const PaletteRow: Component<{
                 data-testid="palette-repo-monogram"
               />
               <span
-                class="font-mono text-[0.72rem] font-semibold truncate max-w-[7rem]"
-                style={{ color: repo().color }}
+                class="repo-name-ink font-mono text-[0.72rem] font-semibold truncate max-w-[7rem]"
                 data-testid="palette-repo-name"
               >
                 {repo().name}

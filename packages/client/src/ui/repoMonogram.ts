@@ -11,13 +11,14 @@
 
 import { firstGrapheme } from "../intent/text";
 
-// Unicode-aware alphanumeric: any letter or number in any script.
-// `\p{L}`/`\p{N}` need the `u` flag.
-const ALPHANUM = /[\p{L}\p{N}]/u;
+/** Unicode-aware alphanumeric: any letter or number in any script.
+ *  Shared with `chipInitials` sub-glyph path so case-expand rules stay one fold. */
+export const ALPHANUM = /[\p{L}\p{N}]/u;
 
 /** Case `glyph` but keep the one-glyph invariant: unicode case conversion
- *  can *expand* a single letter (`ß` → `"SS"`). Re-clamp after casing. */
-function caseToOneGlyph(glyph: string, mode: "upper" | "lower"): string {
+ *  can *expand* a single letter (`ß` → `"SS"`). Re-clamp after casing.
+ *  Shared monogram + rail chip sub half. */
+export function caseToOneGlyph(glyph: string, mode: "upper" | "lower"): string {
   const cased = mode === "upper" ? glyph.toUpperCase() : glyph.toLowerCase();
   return firstGrapheme(cased) || cased;
 }

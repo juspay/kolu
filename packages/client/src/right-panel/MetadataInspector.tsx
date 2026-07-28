@@ -97,8 +97,8 @@ const RepoIdentityChip: Component<{ name: string; color: string }> = (
   props,
 ) => (
   <span
-    class="repo-identity-chip"
-    style={{ "--repo-color": props.color }}
+    class="fleet-hue-chip fleet-hue-chip--with-mono"
+    style={{ "--chip-hue": props.color }}
     title={props.name}
     data-testid="inspector-repo"
   >
@@ -122,8 +122,8 @@ const WorkSection: Component<{
     return id ? store.getDisplayInfo(id) : undefined;
   };
   const repoColor = () => display()?.repoColor;
-  /** Same hue the dock paints on the branch/intent label. */
-  const branchColor = () => display()?.annotationColor;
+  /** Same hue the dock paints on the branch/intent label (annotationColor). */
+  const annotationColor = () => display()?.annotationColor;
   const active = () => activeArm(props.meta);
   // PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
   // resolution (same gate the old Pull Request section used).
@@ -163,7 +163,7 @@ const WorkSection: Component<{
             {(git) => (
               <>
                 <Show
-                  when={branchColor()}
+                  when={annotationColor()}
                   fallback={
                     <Chip
                       tone="accent"
@@ -179,8 +179,8 @@ const WorkSection: Component<{
                 >
                   {(c) => (
                     <span
-                      class="repo-branch-chip"
-                      style={{ "--branch-color": c() }}
+                      class="fleet-hue-chip"
+                      style={{ "--chip-hue": c() }}
                       title={git().isWorktree ? "worktree" : undefined}
                       data-testid="inspector-branch"
                     >

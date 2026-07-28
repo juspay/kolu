@@ -22,8 +22,8 @@
 
 import type { Component, JSX } from "solid-js";
 import { Show } from "solid-js";
-import { ChevronRightIcon } from "./Icons";
 import { SUMMARY_RESET } from "./disclosureChrome";
+import { ChevronRightIcon } from "./Icons";
 
 const HEADER_CLASS =
   "text-[10px] font-bold uppercase tracking-[0.1em] text-fg-3/60";

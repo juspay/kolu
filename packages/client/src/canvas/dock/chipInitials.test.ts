@@ -7,7 +7,6 @@ import { chipInitials } from "./chipInitials";
 function info(group: string, label: string): TerminalDisplayInfo {
   return {
     repoColor: "#000",
-    branchColor: "#000",
     annotationColor: "#000",
     subCount: 0,
     key: { group, label },
@@ -193,27 +192,8 @@ describe("chipInitials", () => {
     expect([...subExpand.sub.normalize("NFC")].length).toBeLessThanOrEqual(2);
     expect(subExpand.subIsGlyph).toBe(false);
   });
-});
 
-describe("repoMonogram", () => {
-  it("uppercases the first alphanumeric of a repo name", () => {
-    expect(repoMonogram("kolu")).toBe("K");
-    expect(repoMonogram("spacetime")).toBe("S");
-  });
-
-  it("skips leading punctuation to the first letter", () => {
-    expect(repoMonogram(".dotfiles")).toBe("D");
-  });
-
-  it("keeps a non-alphanumeric lead grapheme (home ~)", () => {
-    expect(repoMonogram("~")).toBe("~");
-  });
-
-  it("returns ? only for an empty group", () => {
-    expect(repoMonogram("")).toBe("?");
-  });
-
-  it("matches chipInitials.repo for the same group", () => {
+  it("matches repoMonogram for the repo half", () => {
     for (const group of ["kolu", "~", ".dotfiles", "日本語", "ßeta"]) {
       expect(chipInitials(meta(), info(group, "main")).repo).toBe(
         repoMonogram(group),

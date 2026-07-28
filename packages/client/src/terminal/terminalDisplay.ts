@@ -24,13 +24,9 @@ export type TerminalDisplayInfo = {
    *  is non-null in `terminalKey` (git repoName or cwd basename) and
    *  `assignColors` covers every key passed in. */
   repoColor: string;
-  /** Same OKLCH scheme keyed on the branch `label`. Always defined for
-   *  the same reason. */
-  branchColor: string;
-  /** Color for the supplant-rule annotation slot — currently mirrors
-   *  `branchColor`, but lives behind its own name so a future tint
-   *  policy (theme-aware, intent-vs-branch distinction, …) lands in
-   *  one place instead of touching every render site. */
+  /** Paint for the annotation slot (branch / intent line) — same OKLCH
+   *  scheme keyed on the branch `label`. One socket only; do not add a
+   *  parallel `branchColor` twin. */
   annotationColor: string;
   subCount: number;
   /** Collision-aware identity key. `suffix` is set only when another
@@ -92,17 +88,16 @@ export function buildTerminalDisplayInfos(
   for (const { id, group, label } of entries) {
     const key = keys.get(id);
     const repoColor = colors.get(group);
-    const branchColor = colors.get(label);
+    const annotationColor = colors.get(label);
     // `computeTerminalKeys` keys its map by the ids we just passed in,
     // and `assignColors` was just built from these same group/label
     // strings, so every entry has matching values. The skip is
     // defence-in-depth for an unreachable case — the consumer simply
     // gets fewer entries.
-    if (!key || !repoColor || !branchColor) continue;
+    if (!key || !repoColor || !annotationColor) continue;
     result.set(id, {
       repoColor,
-      branchColor,
-      annotationColor: branchColor,
+      annotationColor,
       subCount: getSubTerminalIds(id).length,
       key,
     });

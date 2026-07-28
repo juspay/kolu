@@ -601,8 +601,10 @@ body {
    * stays dock-local; the *atoms* live here so palette / restore /
    * inspector / title cannot drift. */
   --repo-ink: color-mix(in oklch, var(--repo-color) 82%, black);
-  /* Alias kept so any leftover dock-only readers stay honest. */
-  --dock-repo-ink: var(--repo-ink);
+}
+:root.dark {
+  /* Theme the ink token once — not re-spelled per surface. */
+  --repo-ink: color-mix(in oklch, var(--repo-color) 72%, white);
 }
 
 /* ── Shared monogram tile (`.repo-monogram`) ───────────────────
@@ -646,52 +648,33 @@ body {
 .repo-spine {
   border-left: 4px solid var(--repo-color);
 }
-/* Soft identity chip frame (inspector repo). */
-.repo-identity-chip {
+/* Inspector identity chips — one frame; call site sets `--chip-hue`
+ * (repo or annotation colour). Monogram-bearing variant adds left pad. */
+.fleet-hue-chip {
   display: inline-flex;
   max-width: 100%;
   align-items: center;
   gap: 5px;
   white-space: nowrap;
   border-radius: 6px;
-  border: 1px solid
-    color-mix(in oklab, var(--repo-color) 45%, var(--color-edge));
-  background: color-mix(
-    in oklab,
-    var(--repo-color) 16%,
-    var(--color-surface-1)
-  );
-  color: color-mix(in oklch, var(--repo-color) 72%, white);
-  padding: 1px 6px 1px 3px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.5;
-}
-/* Branch chip (inspector) — `--branch-color` = dock annotationColor. */
-.repo-branch-chip {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-  border-radius: 6px;
-  border: 1px solid
-    color-mix(in oklab, var(--branch-color) 45%, var(--color-edge));
-  background: color-mix(
-    in oklab,
-    var(--branch-color) 14%,
-    var(--color-surface-1)
-  );
-  color: color-mix(in oklch, var(--branch-color) 78%, white);
+  border: 1px solid color-mix(in oklab, var(--chip-hue) 45%, var(--color-edge));
+  background: color-mix(in oklab, var(--chip-hue) 15%, var(--color-surface-1));
+  color: color-mix(in oklch, var(--chip-hue) 75%, white);
   padding: 1px 6px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.5;
 }
-:root.dark .repo-branch-chip {
-  color: color-mix(in oklch, var(--branch-color) 85%, white);
+.fleet-hue-chip--with-mono {
+  padding-left: 3px;
+}
+:root.dark .fleet-hue-chip {
+  color: color-mix(in oklch, var(--chip-hue) 85%, white);
+}
+/* Repo name text — readable ink over fleet hue (parent sets --repo-color). */
+.repo-name-ink {
+  color: var(--repo-ink);
 }
 /* Restore / soft group band. */
 .repo-group-band {
@@ -710,9 +693,6 @@ body {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--repo-ink);
-}
-:root.dark .repo-group-band-title {
-  color: color-mix(in oklch, var(--repo-color) 72%, white);
 }
 /* Palette host section header — host-hue wash (not attention). */
 .palette-host-header {
@@ -814,11 +794,6 @@ body {
     color-mix(in oklab, var(--repo-color) 32%, var(--color-surface-1)) 0%,
     color-mix(in oklab, var(--repo-color) 16%, var(--color-surface-1)) 100%
   );
-}
-:root.dark .dock-cards-section-name {
-  /* On dark surfaces the raw repo colour already has contrast; ink
-   * toward black would muddy it. Prefer a lightened mix. */
-  color: color-mix(in oklch, var(--repo-color) 72%, white);
 }
 /* Branch / intent label on a cards row — slightly denser than body text so
  * the primary line reads as the row title; colour still comes from the

@@ -292,6 +292,7 @@ const NameSpan: Component<{
   <span
     data-testid="terminal-meta-name"
     class="inline-flex items-center gap-1.5 truncate shrink-0 max-w-[22ch]"
+    style={{ "--repo-color": props.info.repoColor }}
     title={props.meta.cwd}
   >
     <RepoMonogram
@@ -300,9 +301,7 @@ const NameSpan: Component<{
       size="xs"
       data-testid="terminal-meta-monogram"
     />
-    <span class="truncate" style={{ color: props.info.repoColor }}>
-      {props.info.key.group}
-    </span>
+    <span class="repo-name-ink truncate">{props.info.key.group}</span>
   </span>
 );
 

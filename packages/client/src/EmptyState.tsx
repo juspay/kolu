@@ -198,8 +198,15 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               <div class="space-y-4">
                 <For each={groups()}>
                   {(group) => {
-                    const color = () =>
-                      groupColors().get(group.key) ?? "oklch(0.75 0.14 0)";
+                    const color = () => {
+                      const c = groupColors().get(group.key);
+                      if (c === undefined) {
+                        throw new Error(
+                          `assignColors missing restore group "${group.key}" — map must cover every group key`,
+                        );
+                      }
+                      return c;
+                    };
                     return (
                       <div
                         data-testid="repo-group"
