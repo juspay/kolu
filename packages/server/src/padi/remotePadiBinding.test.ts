@@ -347,7 +347,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     );
 
     // …and the reason is a STANDING, surfaced convergence state so the Padi dialog shows WHY.
-    expect(session.convergence()?.state).toBe("skew-refused");
+    expect(session.convergence()?.kind).toBe("skew-refused");
     expect(session.convergence()?.detail).toMatch(/contract skew|refusing/i);
 
     // THE PROJECTION INVARIANT (`@kolu/surface-map`'s `projectStatus` discriminates the
@@ -382,7 +382,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     expect(session.currentClient()).toBeNull();
     // …but the REASON is a standing, surfaced convergence state.
     const conv = session.convergence();
-    expect(conv?.state).toBe("link-failed");
+    expect(conv?.kind).toBe("link-failed");
     expect(conv?.detail).toMatch(/nix build|exited with code/i);
   });
 
@@ -400,7 +400,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const p = session.pin();
     p.catch(() => {});
     await flush(60_000);
-    expect(session.convergence()?.state).toBe("link-failed");
+    expect(session.convergence()?.kind).toBe("link-failed");
 
     const rejections: unknown[] = [];
     const onUnhandled = (r: unknown): void => {
@@ -615,7 +615,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       /another supervisor|cross-supervisor|DIFFERENT instance/i,
     );
     expect(handles[2]!.drainCount).toBe(0);
-    expect(session.convergence()?.state).toBe("cross-supervisor");
+    expect(session.convergence()?.kind).toBe("cross-supervisor");
     expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
@@ -652,9 +652,11 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(client).toBeTruthy();
     expect(handles[2]!.drainCount).toBe(0);
     const conv = session.convergence();
-    expect(conv?.state).toBe("adopted-stale");
-    expect(conv?.runningBuild).toBe("build-OLD");
-    expect(conv?.expectedBuild).toBe("build-NEW");
+    expect(conv?.kind).toBe("adopted-stale");
+    if (conv?.kind === "adopted-stale") {
+      expect(conv.running.build).toEqual({ kind: "known", id: "build-OLD" });
+      expect(conv.expected.build).toEqual({ kind: "known", id: "build-NEW" });
+    }
     expect(conv?.detail).toMatch(
       /flapping|will not converge|riding the resident/i,
     );
@@ -692,7 +694,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(handles[1]!.drainCount).toBe(0);
     // Parked under the `unconverged` convergence banner, but the TYPED map cause is
     // `cross-supervisor` (the dedicated flag wins over `unconverged` in the detail hook).
-    expect(session.convergence()?.state).toBe("cross-supervisor");
+    expect(session.convergence()?.kind).toBe("cross-supervisor");
     expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
@@ -715,7 +717,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await flush(RECONNECT);
     await flush();
     await session.currentClient(); // adopts-stale the resident (a LIVE daemon)
-    expect(session.convergence()?.state).toBe("adopted-stale");
+    expect(session.convergence()?.kind).toBe("adopted-stale");
 
     // Restart the resident: renew must DRAIN it (it exits), not reject "not bound" —
     // adopted-stale is a live adopted daemon.
@@ -768,7 +770,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(client).toBeTruthy();
     expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
     const conv = session.convergence();
-    expect(conv?.state).toBe("adopted-stale");
+    expect(conv?.kind).toBe("adopted-stale");
     expect(conv?.detail).toMatch(/did not take|kept answering/i);
     expect(session.currentState().phase).toBe("connected"); // canvas stays live
   });
@@ -839,7 +841,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       /anti-livelock|treadmill|respawning/i,
     );
     expect(handles[1]!.drainCount).toBe(0);
-    expect(session.convergence()?.state).toBe("cross-supervisor");
+    expect(session.convergence()?.kind).toBe("cross-supervisor");
     expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
@@ -885,7 +887,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(session.identity().kind).toBe("disconnected");
     // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
     // can't be ridden, unlike a build mismatch).
-    expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.convergence()?.kind).toBe("unconverged");
     // THE PROJECTION INVARIANT: `unconverged` is a REFUSE, so it sets a SPECIFIC cause on
     // the down state (→ `failed` + card, never masked as warming).
     expect(session.entryFailedDetail()).toEqual({ cause: "unconverged" });
@@ -934,7 +936,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     // `currentClient()` RESOLVING at all (to a live client) is the bound-ceiling proof.
     const client = await p;
     expect(client).toBeTruthy();
-    expect(session.convergence()?.state).toBe("adopted-stale");
+    expect(session.convergence()?.kind).toBe("adopted-stale");
     expect(session.convergence()?.detail).toMatch(
       /did not take|kept answering/i,
     );

@@ -345,45 +345,58 @@ export interface EndpointSpec<
 }
 
 /**
- * The endpoint — the supervisor's view of one daemon.
+ * The **public** endpoint — the supervisor's view of one daemon.
  *
- * **Public verbs:** `converge(endpoint)` (the only boot) and `recycle(endpoint, steps)`
- * (the only replace). The boot-method trio (`ensure` / `adoptOrEnsure` /
- * `adoptOrSpawnOrRefuse`) is **internal** — `converge` picks the method from
- * `policy` so a consumer cannot cross-wire policy and method. They remain on the
- * object for the kit and for package tests; production call sites use the two
- * public verbs only.
- *
- * Also a {@link ConvergingEndpoint}: carries the fixed `policy`, the bound
- * `probe`, the per-boot `budget` (drainable only), and `log` that `converge`
- * reads.
+ * Public surface: the fixed `policy` / `probe` / `budget` / `log` that
+ * `converge(endpoint)` reads, plus `current()` and `holdRestarting` for
+ * `recycle(endpoint, steps)`. The boot-method trio is **not on this type** —
+ * a comment is not a lock; absence from the type is. Package tests that need
+ * the trio cast through {@link asEndpointInternal}.
  */
 export interface Endpoint<
   C,
   I,
   M = undefined,
   Cap extends DrainCapability = DrainCapability,
-> extends ConvergingEndpoint<Cap> {
-  /**
-   * @internal Always-recycle boot. Prefer `recycle(endpoint, steps)` for a
-   * deliberate replace; `converge(endpoint)` for ordinary boot.
-   */
-  ensure(): Promise<void>;
-  /**
-   * @internal Adopt-or-recycle bind. Chosen by `converge` when
-   * `policy.onContractSkew.kind === "recycle"`.
-   */
-  adoptOrEnsure(): Promise<boolean>;
-  /**
-   * @internal Adopt-or-spawn-or-refuse bind. Chosen by `converge` for
-   * refuse/drain policies.
-   */
-  adoptOrSpawnOrRefuse(): Promise<boolean>;
+> {
+  readonly policy: ConvergencePolicy<Cap>;
+  probe: () => Promise<ConvergenceProbe<Cap> | null>;
+  readonly budget: Cap extends "drainable"
+    ? DrainBudgetMemory
+    : DrainBudgetMemory | null;
+  readonly log: Logger;
   /** The live connection, or `undefined` before boot or after the daemon died. */
   current(): DaemonConnection<C, I, M> | undefined;
   /** Run `body` with the status **held at `restarting`** — the emit-guard used by
    *  {@link recycle}. */
   holdRestarting(body: () => Promise<void>): Promise<void>;
+}
+
+/**
+ * Full endpoint including the private boot-method trio. Runtime objects from
+ * {@link createEndpoint} always have these methods; the public {@link Endpoint}
+ * type deliberately omits them so production call sites cannot spell a
+ * cross-wire. Package tests and {@link recycle} use {@link asEndpointInternal}.
+ */
+export type EndpointInternal<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+> = Endpoint<C, I, M, Cap> & {
+  ensure(): Promise<void>;
+  adoptOrEnsure(): Promise<boolean>;
+  adoptOrSpawnOrRefuse(): Promise<boolean>;
+};
+
+/** Widen a public endpoint to the internal trio — only for kit/tests. */
+export function asEndpointInternal<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+>(ep: Endpoint<C, I, M, Cap>): EndpointInternal<C, I, M, Cap> {
+  return ep as EndpointInternal<C, I, M, Cap>;
 }
 
 /** Poll until a connection to `socketPath` is accepted, or the ceiling passes.
@@ -1270,7 +1283,9 @@ export function createEndpoint<
     return false;
   };
 
-  return {
+  // Runtime object always carries the private trio; the public return type is
+  // the narrow {@link Endpoint} so production call sites cannot spell a cross-wire.
+  const endpoint: EndpointInternal<C, I, M, Cap> = {
     current: () => conn,
 
     async holdRestarting(body: () => Promise<void>): Promise<void> {
@@ -1369,4 +1384,5 @@ export function createEndpoint<
       : DrainBudgetMemory | null,
     log: spec.log,
   };
+  return endpoint;
 }

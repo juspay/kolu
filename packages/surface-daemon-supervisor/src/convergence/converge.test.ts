@@ -17,6 +17,7 @@ import {
   outcomeAdopted,
   outcomeAnomaly,
 } from "./converge.ts";
+import { type InstanceKey, instanceKeyFromStartedAt } from "./instanceKey.ts";
 import type { ConvergencePolicy } from "./policy.ts";
 
 const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
@@ -73,20 +74,24 @@ function fakeEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
   return { endpoint, calls, budget };
 }
 
+function ik(n: number): InstanceKey {
+  return instanceKeyFromStartedAt(n);
+}
+
 function drainableProbe(
   identity: ConvergenceIdentity,
   hooks: {
     onDrain?: () => void;
     /** When true, awaitExit never resolves → drain not-taken. */
     hang?: boolean;
-    instanceKey?: number | null;
+    instanceKey?: InstanceKey;
     ceilingMs?: number;
   } = {},
 ) {
   const p = {
     capability: "drainable" as const,
     identity,
-    instanceKey: hooks.instanceKey ?? null,
+    instanceKey: hooks.instanceKey ?? ik(0),
     disposed: false,
     drained: false,
     drainCeilingMs: hooks.ceilingMs ?? 50,
@@ -115,6 +120,7 @@ function plainProbe(identity: ConvergenceIdentity) {
   const p = {
     capability: "not-drainable" as const,
     identity,
+    instanceKey: ik(0),
     disposed: false,
     dispose: () => {
       p.disposed = true;
@@ -160,7 +166,7 @@ describe("converge — enactment + outcomes", () => {
     expect(outcomeAdopted(out)).toBe(true);
   });
 
-  it("padi OLDER contract → refuse + skew-refused anomaly", async () => {
+  it("padi OLDER contract → refuse + skew-refused anomaly (typed identities)", async () => {
     const probe = drainableProbe(id("2.0", "A"));
     const { endpoint, calls } = fakeEndpoint({
       adopted: false,
@@ -170,7 +176,12 @@ describe("converge — enactment + outcomes", () => {
     const out = await converge(endpoint);
     expect(probe.drained).toBe(false);
     expect(out.kind).toBe("refused");
-    expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("skew-refused");
+    if (a?.kind === "skew-refused") {
+      expect(a.running).toEqual(id("2.0", "A"));
+      expect(a.expected).toEqual(id("1.0", "B"));
+    }
     expect(calls).toEqual(["adoptOrSpawnOrRefuse"]);
   });
 
@@ -190,7 +201,7 @@ describe("converge — enactment + outcomes", () => {
   });
 
   it("padi build mismatch → drains once then spawns; outcome drained-replacing(build)", async () => {
-    const probe = drainableProbe(id("1.1", "A"), { instanceKey: 1 });
+    const probe = drainableProbe(id("1.1", "A"), { instanceKey: ik(1) });
     const { endpoint, calls } = fakeEndpoint({
       adopted: false,
       policy: padiPolicy(),
@@ -211,7 +222,7 @@ describe("converge — enactment + outcomes", () => {
       policy,
       probe: async () =>
         drainableProbe(id("1.1", "A"), {
-          instanceKey: 1,
+          instanceKey: ik(1),
           onDrain: () => drains++,
         }),
     });
@@ -221,6 +232,7 @@ describe("converge — enactment + outcomes", () => {
     // Second: budget spent → adopt-stale, no further drain.
     const out2 = await converge(endpoint);
     expect(drains).toBe(1);
+    expect(out2.kind).toBe("adopted-stale");
     expect(outcomeAnomaly(out2)?.kind).toBe("adopted-stale");
     expect(budget).not.toBeNull();
   });
@@ -228,7 +240,7 @@ describe("converge — enactment + outcomes", () => {
   it("padi drain not-taken → adopted-stale anomaly (same path as convergeAdmit)", async () => {
     const probe = drainableProbe(id("1.1", "A"), {
       hang: true,
-      instanceKey: 1,
+      instanceKey: ik(1),
       ceilingMs: 20,
     });
     const { endpoint, calls } = fakeEndpoint({
@@ -238,8 +250,12 @@ describe("converge — enactment + outcomes", () => {
     });
     const out = await converge(endpoint);
     // Not-taken is give-up, not a silent drained-replacing.
-    expect(out.kind).toBe("adopted");
+    expect(out.kind).toBe("adopted-stale");
     expect(outcomeAnomaly(out)?.kind).toBe("adopted-stale");
+    if (out.kind === "adopted-stale") {
+      expect(out.anomaly.running).toEqual(id("1.1", "A"));
+      expect(out.anomaly.expected).toEqual(id("1.1", "B"));
+    }
     expect(calls).toEqual(["adoptOrSpawnOrRefuse"]);
     expect(probe.disposed).toBe(true);
   });
@@ -250,7 +266,7 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
     const policy = padiPolicy(id("1.1", "B"));
     const budget = createDrainBudget(policy);
     const out = await convergeAdmit({
-      running: { ...id("1.1", "B"), instanceKey: 1 },
+      running: { ...id("1.1", "B"), instanceKey: ik(1) },
       budget,
       drain: async () => {
         throw new Error("should not drain");
@@ -267,7 +283,7 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
     const budget = createDrainBudget(policy);
     let drained = false;
     const out = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: 1 },
+      running: { ...id("1.1", "A"), instanceKey: ik(1) },
       budget,
       drain: async () => {
         drained = true;
@@ -290,7 +306,7 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
       policy,
       probe: async () =>
         drainableProbe(id("1.1", "A"), {
-          instanceKey: instance,
+          instanceKey: ik(instance),
           hang: instance !== 1, // first drain takes; second would hang
           ceilingMs: 20,
         }),
@@ -300,24 +316,29 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
     instance = 2;
     const out = await converge(endpoint);
     expect(out.kind).toBe("refused");
-    expect(outcomeAnomaly(out)?.kind).toBe("cross-supervisor");
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("cross-supervisor");
+    if (a?.kind === "cross-supervisor") {
+      expect(a.drained).toEqual(ik(1));
+      expect(a.observed).toEqual(ik(2));
+    }
     if (out.kind === "refused") expect(out.adopted).toBe(false);
     // Second converge must NOT have called the adopt bind.
     // calls from first converge: one adoptOrSpawnOrRefuse; second: none extra for refuse path.
     expect(calls.filter((c) => c === "adoptOrSpawnOrRefuse").length).toBe(1);
   });
 
-  it("two-supervisor drain war ends in cross-supervisor, not livelock", async () => {
+  it("two-supervisor drain war ends in cross-supervisor with BOTH instance keys as data", async () => {
     // Supervisor drains lineage (A, instance 1). The "other supervisor" respawns
     // the same build under a NEW instance. Budget must give up as cross-supervisor
-    // rather than draining forever.
+    // rather than draining forever — and the anomaly carries drained + observed.
     const policy = padiPolicy(id("1.1", "mine"), 3);
     const budget = createDrainBudget(policy);
     let drains = 0;
 
     // First dial: drain old build instance 1 (takes).
     const first = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: 1 },
+      running: { ...id("1.1", "A"), instanceKey: ik(1) },
       budget,
       drain: async () => {
         drains++;
@@ -331,7 +352,7 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
 
     // Second dial: same build, DIFFERENT instance → cross-supervisor, no drain.
     const second = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: 2 },
+      running: { ...id("1.1", "A"), instanceKey: ik(2) },
       budget,
       drain: async () => {
         drains++;
@@ -344,6 +365,10 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
     expect(second.kind).toBe("refuse");
     if (second.kind === "refuse") {
       expect(second.anomaly.kind).toBe("cross-supervisor");
+      if (second.anomaly.kind === "cross-supervisor") {
+        expect(second.anomaly.drained).toEqual(ik(1));
+        expect(second.anomaly.observed).toEqual(ik(2));
+      }
     }
   });
 
@@ -353,7 +378,7 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
     // Drain does not take (awaitExit never resolves before ceiling).
     const hang = () => new Promise<void>(() => {});
     const first = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: 1 },
+      running: { ...id("1.1", "A"), instanceKey: ik(1) },
       budget,
       drain: async () => {},
       awaitExit: hang,
@@ -361,14 +386,16 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
       log: silent,
     });
     // Not-taken path falls through to give-up with adopt-stale.
-    expect(first.kind).toBe("adopt");
-    if (first.kind === "adopt") {
-      expect(first.anomaly?.kind).toBe("adopted-stale");
+    expect(first.kind).toBe("adopt-stale");
+    if (first.kind === "adopt-stale") {
+      expect(first.anomaly.kind).toBe("adopted-stale");
+      expect(first.anomaly.running).toEqual(id("1.1", "A"));
+      expect(first.anomaly.expected).toEqual(id("1.1", "B"));
     }
 
     // Second attempt: already at maxAttempts → immediate give-up, no hang.
     const second = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: 1 },
+      running: { ...id("1.1", "A"), instanceKey: ik(1) },
       budget,
       drain: async () => {
         throw new Error("should not drain again");
@@ -377,9 +404,9 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
       ceilingMs: 20,
       log: silent,
     });
-    expect(second.kind).toBe("adopt");
-    if (second.kind === "adopt") {
-      expect(second.anomaly?.kind).toBe("adopted-stale");
+    expect(second.kind).toBe("adopt-stale");
+    if (second.kind === "adopt-stale") {
+      expect(second.anomaly.kind).toBe("adopted-stale");
     }
   });
 });

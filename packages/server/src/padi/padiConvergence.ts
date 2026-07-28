@@ -15,6 +15,9 @@
  *   - {@link probePadiForConvergence} — the kit's identity probe for padi.
  *   - {@link drainViaControlCore} — the endpoint arm's drain, built on the framework's
  *     {@link drainAndAwaitExit}.
+ *
+ * Framework anomalies ride the wire AS-IS ({@link PadiConvergence} re-derives the
+ * framework union shape + app-only `link-failed`). There is no converter.
  */
 
 import {
@@ -24,14 +27,13 @@ import {
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
-  type ConvergenceAnomaly,
   type ConvergencePolicy,
   type ConvergenceProbe,
   daemonBuild,
   drainAndAwaitExit,
   drainRejectionSuffix,
+  instanceKeyFromStartedAt,
 } from "@kolu/surface-daemon-supervisor";
-import type { PadiConvergence } from "kolu-common/surface";
 
 // Re-export the framework drain skeleton so the remote arm's existing import path
 // (`./padiConvergence`) keeps working; the implementation lives in the supervisor.
@@ -63,56 +65,6 @@ export function padiConvergencePolicy(
     // budget's cross-supervisor memory survives adopts on both arms.
     drainBudget: { maxAttempts: 3, onGiveUp: "adopt-stale" },
   };
-}
-
-/** Map a framework {@link ConvergenceAnomaly} onto padi's wire-facing
- *  {@link PadiConvergence} (adds the build-pair shape for `adopted-stale`; other
- *  arms carry literal nulls). `link-failed` is session-owned and never arrives here. */
-export function toPadiConvergence(
-  anomaly: ConvergenceAnomaly,
-  expectedBuildId: string,
-): PadiConvergence {
-  switch (anomaly.kind) {
-    case "adopted-stale": {
-      const runningBuild =
-        anomaly.running.build.kind === "known"
-          ? anomaly.running.build.id
-          : "(off-nix)";
-      return {
-        state: "adopted-stale",
-        runningBuild,
-        expectedBuild: expectedBuildId,
-        detail: anomaly.detail,
-      };
-    }
-    case "skew-refused":
-      return {
-        state: "skew-refused",
-        runningBuild: null,
-        expectedBuild: null,
-        detail: anomaly.detail,
-      };
-    case "unconverged":
-      return {
-        state: "unconverged",
-        runningBuild: null,
-        expectedBuild: null,
-        detail: anomaly.detail,
-      };
-    case "cross-supervisor":
-      return {
-        state: "cross-supervisor",
-        runningBuild: null,
-        expectedBuild: null,
-        detail: anomaly.detail,
-      };
-    default: {
-      const _exhaustive: never = anomaly;
-      throw new Error(
-        `unreachable ConvergenceAnomaly: ${JSON.stringify(_exhaustive)}`,
-      );
-    }
-  }
 }
 
 /** The minimal connection shape the drain plumbing needs. */
@@ -167,8 +119,8 @@ export async function probePadiForConvergence(
       contractVersion: hello.surfaceVersion,
       build: daemonBuild(hello.buildId ?? ""),
     },
-    // Instance key for the drain budget — the fragment's startedAt.
-    instanceKey: hello.startedAt ?? null,
+    // Absent startedAt → pre-instance (older daemon), never overloaded null.
+    instanceKey: instanceKeyFromStartedAt(hello.startedAt),
     // Plugs only — the framework runs drainAndAwaitExit (same as convergeAdmit).
     fireDrain: () => client.surface.control.core.drain(),
     awaitExit: (signal) =>

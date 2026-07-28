@@ -108,7 +108,7 @@ export const PADI_LOGO_URL = new URL("../../../padi/logo.svg", import.meta.url)
  *  degraded-but-WORKING (a warning tone — the canvas is live on the resident build); the
  *  rest are canvas-dead (a danger tone). */
 const CONVERGENCE_PRESENTATION: Record<
-  PadiConvergence["state"],
+  PadiConvergence["kind"],
   { title: string; tone: "warn" | "down" }
 > = {
   "adopted-stale": {
@@ -124,12 +124,18 @@ const CONVERGENCE_PRESENTATION: Record<
   "link-failed": { title: "Remote link failed", tone: "down" },
 };
 
+function buildIdLabel(
+  build: { kind: "known"; id: string } | { kind: "off-nix" },
+): string {
+  return build.kind === "known" ? build.id : "(off-nix)";
+}
+
 /** A STANDING degraded-bind banner — so a convergence anomaly the (remote) binder hit is a
  *  VISIBLE state in the dialog, never swallowed into server logs (the whole point of the
- *  dialog). Shows running-vs-expected build for the build-mismatch case, and the reason. */
+ *  dialog). Shows typed evidence from the anomaly arms (never parses `detail`). */
 const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (props) => {
   const p = (): { title: string; tone: "warn" | "down" } =>
-    CONVERGENCE_PRESENTATION[props.conv.state];
+    CONVERGENCE_PRESENTATION[props.conv.kind];
   return (
     <div
       classList={{
@@ -140,18 +146,51 @@ const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (props) => {
       role="status"
     >
       <div class="font-medium">{p().title}</div>
-      <Show when={props.conv.state === "adopted-stale"}>
-        <div class="mt-0.5 font-mono text-[10px] text-fg-3">
-          {/* `|| "—"`, not `??`: a pre-field survivor's build folds to "" (not null), and an
-              honest "—" beats a blank per #1034. */}
-          running {props.conv.runningBuild || "—"} · expected{" "}
-          {props.conv.expectedBuild || "—"}
-        </div>
+      <Show
+        when={
+          props.conv.kind === "adopted-stale" ||
+          props.conv.kind === "skew-refused"
+            ? props.conv
+            : false
+        }
+      >
+        {(conv) => {
+          const c = conv();
+          return (
+            <div class="mt-0.5 font-mono text-[10px] text-fg-3">
+              {c.kind === "adopted-stale" ? (
+                <>
+                  running {buildIdLabel(c.running.build)} · expected{" "}
+                  {buildIdLabel(c.expected.build)}
+                </>
+              ) : (
+                <>
+                  running contract {c.running.contractVersion} · expected{" "}
+                  {c.expected.contractVersion}
+                </>
+              )}
+            </div>
+          );
+        }}
+      </Show>
+      <Show when={props.conv.kind === "cross-supervisor" ? props.conv : false}>
+        {(conv) => (
+          <div class="mt-0.5 font-mono text-[10px] text-fg-3">
+            drained {instanceKeyLabel(conv().drained)} · observed{" "}
+            {instanceKeyLabel(conv().observed)}
+          </div>
+        )}
       </Show>
       <div class="mt-0.5 text-fg-3">{props.conv.detail}</div>
     </div>
   );
 };
+
+function instanceKeyLabel(
+  k: { kind: "instance"; key: string | number } | { kind: "pre-instance" },
+): string {
+  return k.kind === "instance" ? String(k.key) : "pre-instance";
+}
 
 const PadiInfoDialog: Component<{
   open: boolean;

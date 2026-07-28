@@ -18,6 +18,7 @@
 
 import {
   type ConvergencePolicy,
+  asEndpointInternal,
   converge,
   createEndpoint,
   daemonBuild,
@@ -289,7 +290,7 @@ export async function ensureLocalEndpoint(opts: {
           { err },
           "surviving-session reconciliation failed — recycling the adopted daemon",
         );
-        await ep.ensure();
+        await asEndpointInternal(ep).ensure();
         // The recycle spawned a FRESH daemon — nothing live survives now, so this
         // is the no-survivor path: park the saved session for the restore card.
         opts.onNotAdopted?.();

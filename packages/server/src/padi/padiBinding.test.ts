@@ -84,7 +84,6 @@ import {
 import {
   padiConvergencePolicy,
   probePadiForConvergence,
-  toPadiConvergence,
 } from "./padiConvergence.ts";
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
@@ -773,20 +772,22 @@ describe("local arm adopted-stale via convergence() (UW1 done-when)", () => {
       ...padiConvergencePolicy(binderBuildId),
       drainBudget: { maxAttempts: 1, onGiveUp: "adopt-stale" as const },
     };
-    const endpoint: ConvergingEndpoint<"drainable"> = {
+    // Runtime bind methods ride the object (createEndpoint style); ConvergingEndpoint
+    // type omits them so the public face stays private.
+    const endpoint = {
       adoptOrSpawnOrRefuse: async () => true, // adopt-stale path binds
       adoptOrEnsure: async () => false,
       policy,
       probe: async () => ({
-        capability: "drainable",
+        capability: "drainable" as const,
         identity: {
           contractVersion: PADI_SURFACE_VERSION,
           build: daemonBuild("stale-running-build"),
         },
-        instanceKey: 99,
+        instanceKey: { kind: "instance" as const, key: 99 },
         fireDrain: async () => {},
         // Hang until the framework aborts — drain not-taken.
-        awaitExit: async (signal) => {
+        awaitExit: async (signal: AbortSignal) => {
           await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => resolve(), { once: true });
           });
@@ -796,14 +797,16 @@ describe("local arm adopted-stale via convergence() (UW1 done-when)", () => {
       }),
       budget: createDrainBudget(policy),
       log: silentLog,
+    } satisfies ConvergingEndpoint<"drainable"> & {
+      adoptOrSpawnOrRefuse: () => Promise<boolean>;
+      adoptOrEnsure: () => Promise<boolean>;
     };
 
     // ensurePadiBinding's convergePadi, line-for-line:
     const outcome = await converge(endpoint);
     const anomaly = outcomeAnomaly(outcome);
-    const standing: PadiConvergence | null = anomaly
-      ? toPadiConvergence(anomaly, binderBuildId)
-      : null;
+    // Framework anomaly rides the wire as-is (no converter).
+    const standing: PadiConvergence | null = anomaly;
 
     // Wire like asPadiSession({ convergence: () => standingConvergence })
     const session = asPadiSession({} as never, {
@@ -814,9 +817,14 @@ describe("local arm adopted-stale via convergence() (UW1 done-when)", () => {
 
     expect(session.convergence()).not.toBeNull();
     expect(session.convergence()).toMatchObject({
-      state: "adopted-stale",
-      runningBuild: "stale-running-build",
-      expectedBuild: binderBuildId,
+      kind: "adopted-stale",
+      running: {
+        contractVersion: PADI_SURFACE_VERSION,
+        build: { kind: "known", id: "stale-running-build" },
+      },
+      expected: {
+        build: { kind: "known", id: binderBuildId },
+      },
     });
   });
 });
@@ -1067,6 +1075,10 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
           contractVersion: "9.0",
           build: daemonBuild("x"),
         },
+        expected: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: daemonBuild("mine"),
+        },
         detail: "skew",
       },
     };
@@ -1084,6 +1096,8 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
         adopted: false,
         anomaly: {
           kind: "cross-supervisor",
+          drained: { kind: "instance", key: 1 },
+          observed: { kind: "instance", key: 2 },
           running: null,
           detail: "foreign instance of drained build",
         },
@@ -1184,6 +1198,10 @@ describe("reportFatalBindingError — a refusal reported on EVERY dial, not just
           running: {
             contractVersion: "9.0",
             build: daemonBuild(""),
+          },
+          expected: {
+            contractVersion: PADI_SURFACE_VERSION,
+            build: daemonBuild("mine"),
           },
           detail: "skew",
         },

@@ -20,6 +20,7 @@ import { implementSurface } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import type { Router } from "@orpc/server";
 import {
+  asEndpointInternal,
   createEndpoint,
   DaemonContractSkewError,
   type EndpointStatus,
@@ -176,7 +177,7 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
       // survivor. Pin the incompatible arm via adoptOrSpawnOrRefuse (refuse
       // policy) — the same status shape kaval emits mid-recycle when a FRESH
       // spawn still skews (SK4). For the refuse path:
-      const adopted = await endpoint.adoptOrSpawnOrRefuse();
+      const adopted = await asEndpointInternal(endpoint).adoptOrSpawnOrRefuse();
       expect(adopted).toBe(false);
       expect(statuses.map((s) => s.state)).toContain("incompatible");
       const last = statuses.at(-1);

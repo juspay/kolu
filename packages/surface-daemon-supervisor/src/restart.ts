@@ -22,7 +22,11 @@
  * caller's steps around it.
  */
 
-import type { DaemonConnection, Endpoint } from "./endpoint.ts";
+import {
+  asEndpointInternal,
+  type DaemonConnection,
+  type Endpoint,
+} from "./endpoint.ts";
 
 export interface RestartSteps<C, I, Ctx, M = undefined> {
   /** Snapshot whatever must outlive the restart, BEFORE the old daemon dies.
@@ -44,7 +48,7 @@ export async function recycle<C, I, Ctx, M = undefined>(
 ): Promise<void> {
   const ctx = await steps.capture();
   await steps.drain(ctx);
-  await endpoint.ensure();
+  await asEndpointInternal(endpoint).ensure();
   const connection = endpoint.current();
   if (!connection) {
     throw new Error("recycle: no connection after recycle");

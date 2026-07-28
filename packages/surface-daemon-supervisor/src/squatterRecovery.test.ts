@@ -22,6 +22,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import {
+  asEndpointInternal,
   createEndpoint,
   type DaemonConnection,
   DaemonContractSkewError,
@@ -163,7 +164,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    await endpoint.ensure();
+    await asEndpointInternal(endpoint).ensure();
 
     // The squatter is GONE (SIGTERM + waitForPidGone actually reaped it).
     expect(isHolderLive(holderPid)).toBe(false);
@@ -211,12 +212,14 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    const err = await endpoint.ensure().then(
-      () => {
-        throw new Error("expected the foreign socket holder to be rejected");
-      },
-      (caught: unknown) => caught,
-    );
+    const err = await asEndpointInternal(endpoint)
+      .ensure()
+      .then(
+        () => {
+          throw new Error("expected the foreign socket holder to be rejected");
+        },
+        (caught: unknown) => caught,
+      );
     expect(isSocketSquatterForeignError(err)).toBe(true);
     if (!isSocketSquatterForeignError(err)) return;
 
@@ -266,7 +269,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    await expect(endpoint.ensure()).rejects.toSatisfy(
+    await expect(asEndpointInternal(endpoint).ensure()).rejects.toSatisfy(
       isSocketSquatterForeignError,
     );
     expect(isHolderLive(holderPid)).toBe(true); // never killed
@@ -329,7 +332,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    const adopted = await endpoint.adoptOrEnsure();
+    const adopted = await asEndpointInternal(endpoint).adoptOrEnsure();
     expect(isHolderLive(primaryPid)).toBe(false); // primary squatter recycled...
     expect(hintDialed).toBe(false); // ...before the hint was ever consulted (not masked)
     expect(adopted).toBe(false); // fresh spawn at the primary
@@ -377,7 +380,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    await endpoint.adoptOrEnsure();
+    await asEndpointInternal(endpoint).adoptOrEnsure();
     // The gate-less hint skew is RECYCLED (kaval policy) — not left abandoned; the
     // follow-on spawn lands at the primary, converging the migration.
     expect(isHolderLive(hintPid)).toBe(false);
@@ -435,7 +438,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     });
 
     // 1) adopt the compatible gate-less hint (primary is free).
-    const adopted = await endpoint.adoptOrEnsure();
+    const adopted = await asEndpointInternal(endpoint).adoptOrEnsure();
     expect(adopted).toBe(true);
     expect(onAdoptedCalled).toBe(true);
     expect(isHolderLive(hintPid)).toBe(true); // adopted, not killed
@@ -444,7 +447,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     //    recycle it — killing the hint child. If `held` had wrongly stayed the
     //    primary, ensure would spawn at the free primary and ABANDON the hint daemon.
     hintSkews = true;
-    await endpoint.ensure();
+    await asEndpointInternal(endpoint).ensure();
     expect(isHolderLive(hintPid)).toBe(false);
   });
 
@@ -483,7 +486,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    const adopted = await endpoint.adoptOrSpawnOrRefuse();
+    const adopted = await asEndpointInternal(endpoint).adoptOrSpawnOrRefuse();
     expect(adopted).toBe(false);
     // A client NEVER SIGTERMs a running (padi) daemon, even a skewed gate-less one.
     expect(isHolderLive(holderPid)).toBe(true);
@@ -528,7 +531,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       socketPollMs: 5,
     });
 
-    const adopted = await endpoint.adoptOrEnsure();
+    const adopted = await asEndpointInternal(endpoint).adoptOrEnsure();
     expect(adopted).toBe(true); // NOT a blind false → converge reconciles the session
     expect(isHolderLive(holderPid)).toBe(true); // never killed
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
@@ -564,7 +567,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await asEndpointInternal(endpoint).ensure();
 
     // The compatible holder is preserved (its PTYs survive) — NOT recycled.
     expect(isHolderLive(holderPid)).toBe(true);

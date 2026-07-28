@@ -5,8 +5,8 @@
  * identity and two plugs (fire the drain verb; observe exit), and the framework owns
  * the race/ceiling/budget/cross-supervisor memory.
  *
- * Verdict: `adopt` | `replaced` | `refuse` — same {@link ConvergenceAnomaly} type as
- * the endpoint arm. `link-failed` is never produced here (session-owned).
+ * Verdict kinds either **always** carry their anomaly or **never** do — no optionals.
+ * `link-failed` is never produced here (session-owned).
  */
 
 import {
@@ -22,22 +22,27 @@ import {
 } from "./drainAndAwaitExit.ts";
 import { decide } from "./decide.ts";
 import { giveUpOutcome } from "./giveUp.ts";
+import type { InstanceKey } from "./instanceKey.ts";
 
 /** A running daemon's identity + the instance key the budget tracks. */
 export type RunningDaemon = ConvergenceIdentity & {
-  /** Instance key for the drain budget — typically the fragment's `startedAt`. */
-  readonly instanceKey?: string | number | null;
+  /** Instance key for the drain budget — prefer {@link instanceKeyFromStartedAt}. */
+  readonly instanceKey: InstanceKey;
 };
 
+/**
+ * Verdict of `convergeAdmit`. Anomaly is required on kinds that can be degraded and
+ * **absent** on kinds that cannot — never optional.
+ */
 export type ConvergeAdmitVerdict =
+  | { readonly kind: "adopt" }
   | {
-      readonly kind: "adopt";
-      readonly anomaly?: ConvergenceAnomaly;
+      readonly kind: "adopt-stale";
+      readonly anomaly: Extract<ConvergenceAnomaly, { kind: "adopted-stale" }>;
     }
   | {
       readonly kind: "replaced";
       readonly reason: string;
-      readonly anomaly?: ConvergenceAnomaly;
     }
   | {
       readonly kind: "refuse";
@@ -72,7 +77,7 @@ export async function convergeAdmit(args: {
   };
   const lineage: DrainLineage = {
     build: running.build,
-    instanceKey: running.instanceKey ?? null,
+    instanceKey: running.instanceKey,
   };
 
   const decision = decide(baked, identity, policy);
@@ -119,6 +124,7 @@ export async function convergeAdmit(args: {
         anomaly: {
           kind: "skew-refused",
           running: identity,
+          expected: baked,
           detail,
         },
       };
@@ -138,9 +144,18 @@ export async function convergeAdmit(args: {
             onGiveUp: budget.drainBudget.onGiveUp,
             axis: decision.axis,
             running: identity,
+            expected: baked,
             log,
             skewCtx,
             logPrefix: "convergence admit",
+            drained:
+              admission.why === "cross-supervisor"
+                ? admission.drained
+                : undefined,
+            observed:
+              admission.why === "cross-supervisor"
+                ? admission.observed
+                : undefined,
           }),
         );
       }
@@ -171,6 +186,7 @@ export async function convergeAdmit(args: {
           onGiveUp: budget.drainBudget.onGiveUp,
           axis: decision.axis,
           running: identity,
+          expected: baked,
           log,
           skewCtx,
           logPrefix: "convergence admit",
@@ -191,7 +207,7 @@ function toAdmitVerdict(
   g: ReturnType<typeof giveUpOutcome>,
 ): ConvergeAdmitVerdict {
   if (g.kind === "adopt-stale") {
-    return { kind: "adopt", anomaly: g.anomaly };
+    return { kind: "adopt-stale", anomaly: g.anomaly };
   }
   return { kind: "refuse", error: g.error, anomaly: g.anomaly };
 }

@@ -27,6 +27,7 @@ import { afterEach, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { acquirePidGate, gatePid, isHolderLive } from "@kolu/surface-daemon";
 import {
+  asEndpointInternal,
   createEndpoint,
   type EndpointStatus,
 } from "@kolu/surface-daemon-supervisor";
@@ -146,7 +147,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await asEndpointInternal(endpoint).ensure();
     await survivorExited;
     expect(spawned).toBe(true);
     expect(isHolderLive(survivorPid)).toBe(false);
@@ -224,7 +225,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await asEndpointInternal(endpoint).ensure();
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
 

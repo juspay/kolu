@@ -148,9 +148,15 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
         activePadiSurfaceVersion: () => null,
         activePadiBuildCommit: () => null,
         activePadiConvergence: () => ({
-          state: "skew-refused",
-          runningBuild: null,
-          expectedBuild: null,
+          kind: "skew-refused",
+          running: {
+            contractVersion: "99.0",
+            build: { kind: "known", id: "x" },
+          },
+          expected: {
+            contractVersion: "5.0",
+            build: { kind: "known", id: "y" },
+          },
           detail:
             "padi contract skew: remote serves 99.0, kolu-server needs 5.0 — refusing",
         }),
@@ -162,9 +168,15 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
       surfaceVersion: null,
       buildCommit: null,
       convergence: {
-        state: "skew-refused",
-        runningBuild: null,
-        expectedBuild: null,
+        kind: "skew-refused",
+        running: {
+          contractVersion: "99.0",
+          build: { kind: "known", id: "x" },
+        },
+        expected: {
+          contractVersion: "5.0",
+          build: { kind: "known", id: "y" },
+        },
         detail:
           "padi contract skew: remote serves 99.0, kolu-server needs 5.0 — refusing",
       },

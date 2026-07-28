@@ -37,6 +37,7 @@ import {
   convergeAdmit,
   createDrainBudget,
   daemonBuild,
+  instanceKeyFromStartedAt,
 } from "@kolu/surface-daemon-supervisor";
 import {
   type Admit,
@@ -65,7 +66,6 @@ import {
   drainAndAwaitExit,
   drainRejectionSuffix,
   padiConvergencePolicy,
-  toPadiConvergence,
 } from "./padiConvergence.ts";
 import {
   asPadiSession,
@@ -351,35 +351,54 @@ export function ensureRemotePadiBinding(
   // ── Arm-local convergence state (closures, not class fields) ────────────────
   // The standing convergence anomaly `convergence()` surfaces (adopted-stale / skew /
   // unconverged / cross-supervisor / link-failed), or null when healthy/bound.
-  // Framework anomalies ride here; `link-failed` is session-owned (set by onState).
+  // Framework anomalies ride here AS-IS; `link-failed` is session-owned (set by onState).
   let convergence: PadiConvergence | null = null;
   // The COMBINED dialed client (control.core + padi), stashed by the connector so the
   // post-connect `admit` + `renew` can reach `control.core.hello`/`.drain`. The
   // SESSION's client is the padi-SCOPED view; both are one connection.
   let combined: PadiDaemonClient | null = null;
-  // D2: the running/expected padiSurface CONTRACT version pair for a STANDING
-  // `skew-refused` verdict — set from the framework anomaly, cleared on clean adopt.
-  let skewVersions: { running: string; expected: string } | null = null;
   // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null`.
+  // Separate axis from convergence (drv resolution fails before admit runs).
   let drvFaultCause: DrvFaultCause | null = null;
 
-  /** The D1+D2 domain detail for the map's `EntryStatus` — derived from the SAME
-   *  `convergence`/`skewVersions`/`drvFaultCause` closures above. Cross-supervisor
-   *  is a real framework anomaly arm now (no sidecar flag). */
+  /**
+   * The D1+D2 domain detail for the map's `EntryStatus` — a single switch over
+   * the standing convergence kind (typed evidence lives on the anomaly; no
+   * sidecar). `drvFaultCause` is the one legitimate separate axis (pre-admit).
+   */
   function computeEntryFailedDetail(): PadiEntryFailedDetail | null {
-    if (convergence?.state === "cross-supervisor") {
-      return { cause: "cross-supervisor" };
+    // Single switch over the standing convergence kind — no ordering hazard
+    // between convergence-derived causes. `drvFaultCause` is the one separate
+    // axis (pre-admit drv resolution); it outranks the generic link-failed
+    // banner but never masks a real admit verdict.
+    switch (convergence?.kind) {
+      case "cross-supervisor":
+        return { cause: "cross-supervisor" };
+      case "skew-refused":
+        return {
+          cause: "contract-skew-refused",
+          running: convergence.running.contractVersion,
+          expected: convergence.expected.contractVersion,
+        };
+      case "unconverged":
+        return { cause: "unconverged" };
+      case "adopted-stale":
+        // Canvas-live degraded bind — not an entry failure.
+        return null;
+      case "link-failed":
+      case undefined:
+        if (drvFaultCause !== null) return { cause: drvFaultCause };
+        if (convergence?.kind === "link-failed") {
+          return { cause: "link-failed" };
+        }
+        return null;
+      default: {
+        const _exhaustive: never = convergence;
+        throw new Error(
+          `unreachable PadiConvergence: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
     }
-    if (convergence?.state === "skew-refused") {
-      return skewVersions
-        ? { cause: "contract-skew-refused", ...skewVersions }
-        : { cause: "contract-skew-refused" };
-    }
-    if (convergence?.state === "unconverged") return { cause: "unconverged" };
-    // A standing drv fault BEFORE the generic link banner.
-    if (drvFaultCause !== null) return { cause: drvFaultCause };
-    if (convergence?.state === "link-failed") return { cause: "link-failed" };
-    return null;
   }
 
   // ── The ssh connector, wrapped to SCOPE + STASH ─────────────────────────────
@@ -456,7 +475,7 @@ export function ensureRemotePadiBinding(
       running: {
         contractVersion: hello.surfaceVersion,
         build: daemonBuild(runningBuild),
-        instanceKey: hello.startedAt ?? null,
+        instanceKey: instanceKeyFromStartedAt(hello.startedAt),
       },
       budget,
       drain: () => c.surface.control.core.drain(),
@@ -490,38 +509,23 @@ export function ensureRemotePadiBinding(
 
     switch (verdict.kind) {
       case "adopt": {
-        if (verdict.anomaly) {
-          convergence = toPadiConvergence(verdict.anomaly, binderBuildId);
-          skewVersions =
-            verdict.anomaly.kind === "skew-refused"
-              ? {
-                  running: verdict.anomaly.running.contractVersion,
-                  expected: binderVersion,
-                }
-              : null;
-        } else {
-          // Clean adopt — budget memory SURVIVES (not reset). Clear standing anomaly.
-          convergence = null;
-          skewVersions = null;
-        }
+        // Clean adopt — budget memory SURVIVES (not reset). Clear standing anomaly.
+        convergence = null;
+        return { kind: "adopt" };
+      }
+      case "adopt-stale": {
+        // Framework anomaly rides the wire as-is (typed running + expected).
+        convergence = verdict.anomaly;
         return { kind: "adopt" };
       }
       case "replaced": {
         // Drain took → reconnect will re-handshake. Standing anomaly cleared; budget
         // retains the drained lineage so a foreign respawn is cross-supervisor.
         convergence = null;
-        skewVersions = null;
         return { kind: "replaced", reason: verdict.reason };
       }
       case "refuse": {
-        convergence = toPadiConvergence(verdict.anomaly, binderBuildId);
-        skewVersions =
-          verdict.anomaly.kind === "skew-refused"
-            ? {
-                running: verdict.anomaly.running.contractVersion,
-                expected: binderVersion,
-              }
-            : null;
+        convergence = verdict.anomaly;
         return {
           kind: "refuse",
           state: { error: verdict.error, cause: "remote" },
@@ -563,16 +567,14 @@ export function ensureRemotePadiBinding(
       // split) — a `failed` session always carries the real reason it gave up,
       // so there is no invented fallback text left to write here.
       convergence = {
-        state: "link-failed",
-        runningBuild: null,
-        expectedBuild: null,
+        kind: "link-failed",
         detail: s.error,
       };
       combined = null;
     } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the
       // next handshake); only a previously-healthy bind clears to null.
-      if (convergence === null || convergence.state === "link-failed") {
+      if (convergence === null || convergence.kind === "link-failed") {
         convergence = null;
       }
       combined = null;

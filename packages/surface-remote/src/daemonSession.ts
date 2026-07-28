@@ -13,19 +13,20 @@
  * `unconverged` · `cross-supervisor`) is the shared convergence vocabulary; apps
  * re-derive their wire descriptor from it and union session-owned states
  * (`link-failed`) at the edge. The base {@link DaemonConvergence} is the minimal
- * shared contract every such descriptor honors (a named state + a human reason).
+ * shared contract every such descriptor honors (a named `kind` + a human reason).
  */
 
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import type { Session } from "./session";
 
-/** The minimal shared shape of a daemon-convergence anomaly — a named `state` and a
+/** The minimal shared shape of a daemon-convergence anomaly — a named `kind` and a
  *  human-readable `detail` for a UI banner. A consumer's richer descriptor (padi's
- *  `PadiConvergence`, carrying running-vs-expected build) EXTENDS this; the framework
- *  never names the app's specific states. */
+ *  `PadiConvergence`, carrying typed evidence per arm) extends this; the framework
+ *  never names the app's specific states. Discriminant is `kind` (matches the
+ *  framework anomaly union). */
 export interface DaemonConvergence {
-  /** The convergence state (the app narrows this to its own union). */
-  readonly state: string;
+  /** The convergence kind (the app narrows this to its own union). */
+  readonly kind: string;
   /** A human-readable reason for the degraded bind, for a dialog banner. */
   readonly detail: string;
 }

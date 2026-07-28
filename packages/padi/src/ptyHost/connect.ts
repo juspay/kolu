@@ -202,6 +202,8 @@ export async function probeKavalForConvergence(
       contractVersion: version.contractVersion,
       build: daemonBuild(version.identity?.staleKey ?? ""),
     },
+    // kaval does not drain; instance key is still required on the probe face.
+    instanceKey: { kind: "pre-instance" },
     dispose: () => socket.destroy(),
   };
 }

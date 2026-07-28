@@ -5,6 +5,7 @@
 
 import type { ConvergenceIdentity, Logger } from "@kolu/surface-daemon";
 import type { ConvergenceAnomaly } from "./anomaly.ts";
+import type { InstanceKey } from "./instanceKey.ts";
 
 export type GiveUpKind =
   | {
@@ -14,15 +15,15 @@ export type GiveUpKind =
     }
   | {
       readonly kind: "adopt-stale";
-      readonly anomaly: ConvergenceAnomaly;
+      readonly anomaly: Extract<ConvergenceAnomaly, { kind: "adopted-stale" }>;
     };
 
 /**
- * Map a budget/cross-supervisor give-up to the typed anomaly.
+ * Map a budget/cross-supervisor give-up to the typed anomaly (evidence as data).
  * - cross-supervisor → always refuse (never ride a contested build)
- * - contract axis budget → always unconverged (incompatible wire can't be a canvas)
+ * - contract axis budget → always unconverged
  * - build axis + onGiveUp refuse → unconverged
- * - build axis + onGiveUp adopt-stale → adopt-stale
+ * - build axis + onGiveUp adopt-stale → adopt-stale (running + expected identities)
  */
 export function giveUpOutcome(args: {
   why: "cross-supervisor" | "budget";
@@ -30,12 +31,20 @@ export function giveUpOutcome(args: {
   onGiveUp: "refuse" | "adopt-stale";
   axis: "contract" | "build";
   running: ConvergenceIdentity;
+  expected: ConvergenceIdentity;
   log: Logger;
   skewCtx: Record<string, string>;
-  /** Log line prefix — "convergence" vs "convergence admit". */
   logPrefix: string;
+  /** Required when why === "cross-supervisor". */
+  drained?: InstanceKey;
+  observed?: InstanceKey;
 }): GiveUpKind {
   if (args.why === "cross-supervisor") {
+    if (args.drained === undefined || args.observed === undefined) {
+      throw new Error(
+        "giveUpOutcome: cross-supervisor requires drained + observed instance keys",
+      );
+    }
     const detail = args.reason;
     args.log.error(
       args.skewCtx,
@@ -46,6 +55,8 @@ export function giveUpOutcome(args: {
       error: detail,
       anomaly: {
         kind: "cross-supervisor",
+        drained: args.drained,
+        observed: args.observed,
         running: args.running,
         detail,
       },
@@ -73,6 +84,7 @@ export function giveUpOutcome(args: {
     anomaly: {
       kind: "adopted-stale",
       running: args.running,
+      expected: args.expected,
       detail,
     },
   };

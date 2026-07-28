@@ -21,7 +21,10 @@ state machine: `connecting → connected | dead | incompatible`, then
 socket path from the framework so callers never re-thread it. The policy is the
 consumer's whole convergence surface (who I am + how I converge); the public
 verbs are `converge(endpoint)` and `recycle(endpoint, steps)` — the boot-method
-trio is internal.
+trio (`ensure` / `adoptOrEnsure` / `adoptOrSpawnOrRefuse`) is **absent from the
+public `Endpoint` type** (a comment is not a lock; absence is). Runtime objects
+still carry the methods; kit code and package tests reach them via
+`asEndpointInternal(endpoint)`.
 `incompatible` is the PROVEN contract-skew verdict — a respawn from the
 realised closure already skewed (or a refuse-policy survivor skews at
 handshake) — reported with both contract versions on the status
@@ -30,14 +33,15 @@ into `dead`/`degraded`: a consumer deriving affordances from the state sum
 must not offer a restart against it (restarting cannot fix a skew; only
 changing the closure can). It is deliberately NOT coerced by a restart hold —
 a skew inside a restart is that restart's terminal verdict, not a transition.
-`ensure()` runs the always-recycle boot; `current()` is the live connection.
+`current()` is the live connection; `holdRestarting` is the recycle emit-guard.
 It is generic over the client `C` and identity `I`.
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="endpoint" />
 
 | Export | Role |
 | --- | --- |
-| `createEndpoint({ home, policy, probe, connect, … })` | the endpoint state machine; `home` is `DaemonHomePaths`, `policy` is the fixed convergence surface, `probe`/`connect` receive the socket path |
+| `createEndpoint({ home, policy, probe, connect, … })` | returns a public `Endpoint` (no boot trio); `home` is `DaemonHomePaths`, `policy` is the fixed convergence surface, `probe`/`connect` receive the socket path |
+| `asEndpointInternal(endpoint)` · `EndpointInternal` | widen to the private boot trio — kit/tests only |
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
 | `recycle(endpoint, steps)` · `restart(endpoint, steps)` | the composed `capture → drain → recycle → reattach` sequence (`recycle` is the public name; `restart` is a synonym) |
 | `waitForPidGone(pid, opts?)` | poll `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |
@@ -71,19 +75,23 @@ It is generic over the client `C` and identity `I`.
 `converge(endpoint)` is the only boot verb: it probes the running daemon's
 identity, asks a pure `decide`, admits drain via the per-boot budget (when
 drainable), and enacts through the endpoint's private boot methods, returning a
-typed `ConvergenceOutcome` with an optional `ConvergenceAnomaly`. Connector arms
-(ssh) use `convergeAdmit` with the *same* policy object.
+typed `ConvergenceOutcome` whose kinds either **always** carry their anomaly or
+**never** do (no optionals). Connector arms (ssh) use `convergeAdmit` with the
+*same* policy object. Anomaly arms carry typed evidence as data (`running` /
+`expected` identities, `drained` / `observed` instance keys); `detail` is human
+garnish only.
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="converge" />
 
 | Export | Role |
 | --- | --- |
-| `converge(endpoint)` | probe → decide → budget → enact; returns a `ConvergenceOutcome` (+ optional anomaly) |
-| `convergeAdmit({ running, policy, budget, drain, awaitExit, … })` | the connector-arm twin — same decision table/budget; plugs fire drain and observe exit |
+| `converge(endpoint)` | probe → decide → budget → enact; returns a `ConvergenceOutcome` (anomaly required XOR absent per kind) |
+| `convergeAdmit({ running, budget, drain, awaitExit, … })` | the connector-arm twin — same decision table/budget; plugs fire drain and observe exit; `running.instanceKey` is an `InstanceKey` |
 | `decide(baked, running, policy)` | the pure, zero-I/O decision fold — the policy table, unit-tested directly |
-| `ConvergencePolicy<Cap>` · `createDrainBudget(budget)` · `outcomeAdopted(outcome)` | the declared policy (`baked` + Cap-gated `drainBudget`), the per-boot budget memory (survives adopts), the uniform "was a survivor adopted?" reader |
+| `ConvergencePolicy<Cap>` · `createDrainBudget(policy)` · `outcomeAdopted` · `outcomeAnomaly` | the declared policy (`baked` + Cap-gated `drainBudget`), the per-boot budget memory (survives adopts), outcome readers |
+| `InstanceKey` · `instanceKeyFromStartedAt` · `instanceKeyTag` | named instance or `pre-instance` (absent startedAt = older — never overloaded null) |
 | `drainAndAwaitExit(drain, awaitExit, { ceilingMs })` | framework-run drain-and-confirm-exit skeleton both enactments share |
-| `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — `link-failed` is session-owned |
+| `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `link-failed` is session-owned |
 | `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
 
 <Aside type="note" title="Two policies in the wild">

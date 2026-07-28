@@ -49,9 +49,16 @@ export {
   type DrainableProbe,
   type PlainProbe,
   converge,
+  instanceKeyFromStartedAt,
   outcomeAdopted,
   outcomeAnomaly,
 } from "./converge.ts";
+export {
+  type InstanceKey,
+  type NamedInstanceKey,
+  type PreInstanceKey,
+  instanceKeyTag,
+} from "./instanceKey.ts";
 export { type Decision, decide } from "./decide.ts";
 export {
   type DrainAndAwaitExitResult,

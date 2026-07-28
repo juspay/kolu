@@ -94,7 +94,6 @@ import {
   drainViaControlCore,
   padiConvergencePolicy,
   probePadiForConvergence,
-  toPadiConvergence,
 } from "./padiConvergence.ts";
 import { asPadiSession, type PadiSession } from "./padiSession.ts";
 
@@ -633,10 +632,9 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // endpoint (budget survives adopts across dials of this boot).
   const convergePadi = async (): Promise<ConvergenceOutcome> => {
     const outcome = await converge(ep);
-    const anomaly = outcomeAnomaly(outcome);
-    standingConvergence = anomaly
-      ? toPadiConvergence(anomaly, binderBuildId)
-      : null;
+    // Framework anomaly rides the wire as-is (PadiConvergence re-derives the
+    // framework shape). No converter.
+    standingConvergence = outcomeAnomaly(outcome);
     // Preserve the #1670 build-change breadcrumb — the binder's OWN domain line. The
     // adoption-padi-upgrade VM arm greps `padi build change on boot: running=<hex>`.
     if (outcome.kind === "drained-replacing" && outcome.axis === "build") {
