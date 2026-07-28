@@ -70,7 +70,8 @@ export type DaemonHome = {
 export type DaemonHomeOptions = {
   /** App namespace — the directory component under state/runtime, and the
    *  basename stem for `<app>.pid` / `<app>.sock`. Must be a single path
-   *  segment (no `/`, no empty). */
+   *  segment: non-empty, no `/` or `\`, not `.` or `..` (those would escape
+   *  the private home via `path.join`). */
   app: string;
   /** Durable state dir vs session-scoped runtime dir — see module doc. */
   placement: DaemonHomePlacement;
@@ -85,44 +86,55 @@ function resolveDir(
   app: string,
   placement: DaemonHomePlacement,
 ): { dir: string; pathShapeRoot: string } {
-  if (placement === "state") {
-    const xdg = process.env.XDG_STATE_HOME;
-    if (xdg !== undefined && xdg !== "") {
+  switch (placement) {
+    case "state": {
+      const xdg = process.env.XDG_STATE_HOME;
+      if (xdg !== undefined && xdg !== "") {
+        return {
+          dir: join(xdg, app),
+          pathShapeRoot: `$XDG_STATE_HOME/${app}`,
+        };
+      }
+      const home = process.env.HOME || homedir();
+      if (!home) {
+        throw new Error(
+          `daemonHome: cannot resolve state placement for app "${app}" — ` +
+            `set $XDG_STATE_HOME or $HOME`,
+        );
+      }
       return {
-        dir: join(xdg, app),
-        pathShapeRoot: `$XDG_STATE_HOME/${app}`,
+        dir: join(home, ".local", "state", app),
+        pathShapeRoot: `~/.local/state/${app}`,
       };
     }
-    const home = process.env.HOME || homedir();
-    if (!home) {
+    case "runtime": {
+      // Same XDG / `/tmp/<app>-$UID` convention as getRuntimeSocketPath.
+      // Derive the dir from a dummy file under the app namespace so the path
+      // algebra stays single-sourced in @kolu/surface/unix-socket.
+      const dir = dirname(getRuntimeSocketPath({ app, file: "x" }));
+      const pathShapeRoot =
+        process.env.XDG_RUNTIME_DIR !== undefined &&
+        process.env.XDG_RUNTIME_DIR !== ""
+          ? `$XDG_RUNTIME_DIR/${app}`
+          : `/tmp/${app}-$UID`;
+      return { dir, pathShapeRoot };
+    }
+    default: {
+      const _exhaustive: never = placement;
       throw new Error(
-        `daemonHome: cannot resolve state placement for app "${app}" — ` +
-          `set $XDG_STATE_HOME or $HOME`,
+        `daemonHome: unknown placement ${JSON.stringify(_exhaustive)}`,
       );
     }
-    return {
-      dir: join(home, ".local", "state", app),
-      pathShapeRoot: `~/.local/state/${app}`,
-    };
   }
-  // Runtime: same XDG / `/tmp/<app>-$UID` convention as getRuntimeSocketPath.
-  // Derive the dir from a dummy file under the app namespace so the path
-  // algebra stays single-sourced in @kolu/surface/unix-socket.
-  const dir = dirname(getRuntimeSocketPath({ app, file: "x" }));
-  const pathShapeRoot =
-    process.env.XDG_RUNTIME_DIR !== undefined &&
-    process.env.XDG_RUNTIME_DIR !== ""
-      ? `$XDG_RUNTIME_DIR/${app}`
-      : `/tmp/${app}-$UID`;
-  return { dir, pathShapeRoot };
 }
 
 /**
  * Materialise a daemon's on-disk home: create the dir `0700`, verify it is
- * owner-only, and return the well-known paths + registry entries.
+ * owner-only with owner rwx, and return the well-known paths + registry entries.
  *
- * Throws if `app` is empty or contains a path separator, or if the home
- * directory exists but is not private and owned by the current user.
+ * Throws if `app` is not a single path segment (empty, `.`, `..`, or contains a
+ * separator), or if the home directory is not private and usable by the current
+ * user.
  */
 export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
   const { app, placement } = opts;
