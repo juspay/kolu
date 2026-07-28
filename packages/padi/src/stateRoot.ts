@@ -212,15 +212,12 @@ function standardXdgRuntimeDir(): string | undefined {
 }
 
 /** Compute the decorated sentinel-digest dir `discoverPadiDaemons` pattern-matches
- *  against, evaluated under a SPECIFIC `$XDG_RUNTIME_DIR` value (`undefined` forces
- *  the `/tmp` fallback, mirroring {@link resolveDaemonHome}'s own branch) rather
- *  than this process's live env — the save/restore is synchronous (no `await`
- *  between), so it can't race another caller's view of the env (the same pattern
- *  kaval's `discoverKavalCandidates` uses via its own `socketPathForApp`). */
+ *  against under a chosen runtime regime. Pure: passes `runtimeRoot` into
+ *  {@link resolveDaemonHome} — never mutates `process.env`. `undefined` maps to
+ *  `runtimeRoot: null` (force `/tmp`); a string is that drawer as XDG. */
 function sentinelDecoratedDirUnderRegime(
   xdgRuntimeDir: string | undefined,
 ): string {
-  // Pure regime plug — never mutates process.env. `undefined` forces `/tmp`.
   return resolveDaemonHome({
     app: "padi",
     placement: "runtime",
