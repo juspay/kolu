@@ -43,7 +43,7 @@ export const HOST_DOWN_COPY = {
     body:
       "The agent source isn't baked into this run (SURFACE_AGENT_FLAKE_REF is " +
       "unset), so padi cannot resolve the matching build for this host. Launch " +
-      "kolu through its Nix wrapper, which bakes the source in, then try again.",
+      "via just dev or the Nix wrapper (both bake the source in), then try again.",
   },
   "agent-cache-unbaked": {
     title: "This kolu build predates the agent binary-cache contract",

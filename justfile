@@ -163,7 +163,19 @@ lint: install
 # boot beside a live `kolu.service` (its padi is already supervised). A per-port
 # dev state root gives each dev instance its OWN padi to supervise — the local
 # twin of the KOLU_REMOTE_PADI_STATE_DIR isolation the remote arm uses.
+#
+# SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
+# source tree so a remote dial can resolve padi for the host's arch. `just dev`
+# runs from source (no wrapper), so this recipe materialises the same
+# `.#agent-flake-source` derivation and exports the env — identical handoff,
+# no parallel path. Env name comes from agent-env.json so a rename moves every
+# consumer together (same pattern as the surface examples).
 server:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    agent_env=$({{ nix_shell }} node -p "require('./packages/surface-remote/agent-env.json').flakeRef")
+    agent_ref=$(nix build --no-link --print-out-paths .#agent-flake-source)
+    export "${agent_env}=${agent_ref}"
     {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
 # Run client with Vite dev server (HMR)

@@ -98,7 +98,9 @@ nix:
 agent-flake-nix: nix
     #!/usr/bin/env bash
     set -euo pipefail
-    agent_flake_ref="$(nix build ./ci#agent-flake-source --no-link --print-out-paths)"
+    # Same package the production wrapper bakes and `just server` exports —
+    # root flake owns it; ./ci re-exports for historical callers only.
+    agent_flake_ref="$(nix build .#agent-flake-source --no-link --print-out-paths)"
     system="$(nix eval --impure --raw --expr builtins.currentSystem)"
     agent_packages="$({{ nix_shell }} jq -r '.[]' nix/agent-packages.json)"
     [[ -n "$agent_packages" ]]
