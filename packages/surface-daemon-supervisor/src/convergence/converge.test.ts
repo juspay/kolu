@@ -795,18 +795,15 @@ describe("converge — enactment + outcomes", () => {
   // ── W7/W8 named tests ───────────────────────────────────────────────────
 
   /**
-   * W8.1 / W9 (F28): pin bind-call TOPOLOGY via Babel AST (not regex spelling).
+   * W8–W10: pin bind-call TOPOLOGY via Babel AST — receiver-neutral, fail-closed.
    *
-   * Every *call* `ctx.bind()` / `args.bind()` must be exactly:
-   *   consumeBindResult(await <receiver>.bind(), …)
-   * (callee MemberExpression → parent CallExpression → grand AwaitExpression →
-   * great CallExpression consumeBindResult with that await as arguments[0]).
-   *
-   * Rejects: un-awaited calls, stored promises (`const p = args.bind()`),
-   * assignments of the awaited result, destructuring, and method aliases
-   * (`const bind = ctx.bind` then `bind()`). Allows structural pass-through
-   * `bind: ctx.bind` into helpers (not a BindResult consumer).
-   * `outcome.bind.kind` is a different chain and is never matched.
+   * Floor (finding 29 / round 10 consensus endpoint): every CallExpression whose
+   * callee has static property name `"bind"` (dot **or** computed string), on
+   * **any** object, must sit as `consumeBindResult(await <call>, …)`. Reject
+   * destructuring/extraction of a bind property and calls of resulting aliases.
+   * Object-literal pass-through `{ bind: <recv>.bind }` stays allowed only because
+   * later `.bind()` calls on the receiving object are themselves checked.
+   * Field reads like `outcome.bind.kind` (parent MemberExpression) are not calls.
    */
   type AstNode = { type: string; [key: string]: unknown };
 
@@ -815,7 +812,6 @@ describe("converge — enactment + outcomes", () => {
     v !== null &&
     typeof (v as AstNode).type === "string";
 
-  /** Skip babel location/comment bookkeeping so Object.values walk stays pure. */
   const SKIP_KEYS = new Set([
     "loc",
     "start",
@@ -829,22 +825,31 @@ describe("converge — enactment + outcomes", () => {
     "errors",
   ]);
 
-  function isCtxOrArgsBindMember(node: AstNode): boolean {
-    if (node.type !== "MemberExpression" || node.computed === true)
+  /** True when `node` is a MemberExpression with static property name `"bind"`. */
+  function isBindPropertyMember(node: AstNode): boolean {
+    if (
+      node.type !== "MemberExpression" &&
+      node.type !== "OptionalMemberExpression"
+    ) {
       return false;
+    }
     const prop = node.property;
-    const obj = node.object;
-    return (
-      isAstNode(prop) &&
-      prop.type === "Identifier" &&
-      (prop.name as string) === "bind" &&
-      isAstNode(obj) &&
-      obj.type === "Identifier" &&
-      ((obj.name as string) === "ctx" || (obj.name as string) === "args")
-    );
+    if (!isAstNode(prop)) return false;
+    // Dot: obj.bind  — computed: obj["bind"]
+    if (node.computed === true) {
+      return prop.type === "StringLiteral" && prop.value === "bind";
+    }
+    return prop.type === "Identifier" && (prop.name as string) === "bind";
   }
 
-  /** `bind: ctx.bind` / `bind: args.bind` in an object literal — re-pass the fn. */
+  function isBindPropertyKey(key: AstNode, computed: unknown): boolean {
+    if (computed === true) {
+      return key.type === "StringLiteral" && key.value === "bind";
+    }
+    return key.type === "Identifier" && (key.name as string) === "bind";
+  }
+
+  /** `{ bind: <expr> }` — structural pass-through of the method reference. */
   function isBindPassThroughProperty(
     member: AstNode,
     parent: AstNode | null,
@@ -852,11 +857,8 @@ describe("converge — enactment + outcomes", () => {
     if (!parent || parent.type !== "ObjectProperty") return false;
     if (parent.value !== member) return false;
     const key = parent.key;
-    return (
-      isAstNode(key) &&
-      key.type === "Identifier" &&
-      (key.name as string) === "bind"
-    );
+    if (!isAstNode(key)) return false;
+    return isBindPropertyKey(key, parent.computed);
   }
 
   function assertBindCallTopology(src: string): void {
@@ -868,7 +870,7 @@ describe("converge — enactment + outcomes", () => {
 
     let bindCallCount = 0;
     const violations: string[] = [];
-    /** Identifiers bound to a ctx.bind / args.bind method reference (aliases). */
+    /** Identifiers bound from a `.bind` / `["bind"]` extraction or destructure. */
     const bindAliases = new Set<string>();
 
     function isConsumeBindResultCall(call: AstNode): boolean {
@@ -880,17 +882,30 @@ describe("converge — enactment + outcomes", () => {
       );
     }
 
+    function localNameOfPatternProp(prop: AstNode): string | null {
+      // { bind } or { bind: local } or { "bind": local }
+      if (prop.type !== "ObjectProperty") return null;
+      const key = prop.key;
+      if (!isAstNode(key) || !isBindPropertyKey(key, prop.computed))
+        return null;
+      if (prop.shorthand === true && key.type === "Identifier") {
+        return key.name as string;
+      }
+      const val = prop.value;
+      if (isAstNode(val) && val.type === "Identifier") {
+        return val.name as string;
+      }
+      return null;
+    }
+
     function checkBindCallTopology(
-      _callNode: AstNode,
       parent: AstNode | null,
       grand: AstNode | null,
     ): void {
       bindCallCount += 1;
-      // _callNode is CallExpression(.bind()); parent should be AwaitExpression;
-      // grand should be CallExpression(consumeBindResult) with await as arg0.
       if (!parent || parent.type !== "AwaitExpression") {
         violations.push(
-          "ctx/args.bind() call is not directly awaited (stored-promise or bare call)",
+          "bind() call is not directly awaited (stored-promise or bare call)",
         );
         return;
       }
@@ -902,7 +917,7 @@ describe("converge — enactment + outcomes", () => {
         grand.arguments[0] !== parent
       ) {
         violations.push(
-          "awaited ctx/args.bind() is not the first argument of consumeBindResult",
+          "awaited bind() is not the first argument of consumeBindResult",
         );
       }
     }
@@ -912,21 +927,40 @@ describe("converge — enactment + outcomes", () => {
       parent: AstNode | null,
       grand: AstNode | null,
     ): void {
-      // Track aliases: const bind = ctx.bind / let b = args.bind
+      // Destructure alias: const { bind } = fold  /  const { bind: b } = x
+      if (
+        node.type === "VariableDeclarator" &&
+        isAstNode(node.id) &&
+        node.id.type === "ObjectPattern" &&
+        Array.isArray(node.id.properties)
+      ) {
+        for (const prop of node.id.properties) {
+          if (!isAstNode(prop)) continue;
+          const local = localNameOfPatternProp(prop);
+          if (local !== null) {
+            bindAliases.add(local);
+            violations.push(
+              "bind property destructured (must not extract bind outside pass-through)",
+            );
+          }
+        }
+      }
+
+      // Method extraction alias: const bind = fold.bind / const b = x["bind"]
       if (
         node.type === "VariableDeclarator" &&
         isAstNode(node.id) &&
         node.id.type === "Identifier" &&
         isAstNode(node.init) &&
-        isCtxOrArgsBindMember(node.init)
+        isBindPropertyMember(node.init)
       ) {
         bindAliases.add(node.id.name as string);
         violations.push(
-          "ctx/args.bind extracted or aliased (must only appear as call callee or bind: pass-through)",
+          "bind property extracted or aliased (must only appear as call callee or bind: pass-through)",
         );
       }
 
-      // Call of an aliased bind identifier
+      // Call of an extracted alias
       if (
         node.type === "CallExpression" &&
         isAstNode(node.callee) &&
@@ -934,32 +968,34 @@ describe("converge — enactment + outcomes", () => {
         bindAliases.has(node.callee.name as string)
       ) {
         violations.push(
-          "call of bind alias (must call ctx.bind/args.bind only inside consumeBindResult(await …))",
+          "call of bind alias (must call <.bind()> only as consumeBindResult(await …))",
         );
       }
 
-      // CallExpression whose callee is ctx.bind / args.bind
+      // Every CallExpression whose callee is *any*.bind / *["bind"]
       if (
         node.type === "CallExpression" &&
         isAstNode(node.callee) &&
-        isCtxOrArgsBindMember(node.callee)
+        isBindPropertyMember(node.callee)
       ) {
-        checkBindCallTopology(node, parent, grand);
+        checkBindCallTopology(parent, grand);
       }
 
-      // Non-call use of ctx.bind / args.bind MemberExpression
-      if (isCtxOrArgsBindMember(node)) {
+      // Non-call use of a .bind / ["bind"] member (not pass-through, not field chain)
+      if (isBindPropertyMember(node)) {
         const isCallee =
           parent?.type === "CallExpression" && parent.callee === node;
-        if (!isCallee && !isBindPassThroughProperty(node, parent)) {
-          // VariableDeclarator init already flagged above; other extractions too.
-          if (
-            !(parent?.type === "VariableDeclarator" && parent.init === node)
-          ) {
-            violations.push(
-              "ctx/args.bind extracted outside call/pass-through",
-            );
-          }
+        const isFieldChain =
+          (parent?.type === "MemberExpression" ||
+            parent?.type === "OptionalMemberExpression") &&
+          parent.object === node;
+        if (
+          !isCallee &&
+          !isBindPassThroughProperty(node, parent) &&
+          !isFieldChain &&
+          !(parent?.type === "VariableDeclarator" && parent.init === node)
+        ) {
+          violations.push("bind property extracted outside call/pass-through");
         }
       }
 
@@ -979,7 +1015,7 @@ describe("converge — enactment + outcomes", () => {
 
     if (bindCallCount === 0) {
       throw new Error(
-        "no ctx.bind()/args.bind() calls found — topology pin vacuous",
+        'no <.bind()>/["bind"]() calls found — topology pin vacuous',
       );
     }
     if (violations.length > 0) {
@@ -987,7 +1023,14 @@ describe("converge — enactment + outcomes", () => {
     }
   }
 
-  it("W8.1/W9 confinement: every ctx/args.bind site is consumeBindResult(await …)", () => {
+  /** Legitimate consumer kept beside each escape so count-only pins cannot pass. */
+  const LEGIT = `
+async function ok(ctx: { bind: () => Promise<unknown> }, c: unknown) {
+  return consumeBindResult(await ctx.bind(), c, { kind: "plain" });
+}
+`;
+
+  it("W8–W10 confinement: every .bind() call is consumeBindResult(await …) (receiver-neutral)", () => {
     const src = readFileSync(
       fileURLToPath(new URL("./converge.ts", import.meta.url)),
       "utf8",
@@ -1023,8 +1066,6 @@ async function bad(ctx: { bind: () => Promise<BindResult> }) {
   });
 
   it("W9 confinement is red against stored-promise and alias escapes (proven)", () => {
-    // Finding 28: the W8 regex required literal `await args.bind()`, so storing
-    // the promise first left the pin green. AST pin must go red.
     const storedPromiseFixture = `
 async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHeld: () => void }) {
   const pending = args.bind();
@@ -1035,10 +1076,7 @@ async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHe
   }
   return consumeBindResult(result, args as never, { kind: "post-drain" });
 }
-// Keep a legitimate call so a count-only pin would stay non-vacuous:
-async function ok(ctx: { bind: () => Promise<BindResult> }, c: unknown) {
-  return consumeBindResult(await ctx.bind(), c, { kind: "plain" });
-}
+${LEGIT}
 `;
     expect(() => assertBindCallTopology(storedPromiseFixture)).toThrow(
       /not directly awaited|stored-promise/,
@@ -1050,12 +1088,51 @@ async function bad(ctx: { bind: () => Promise<BindResult> }, c: unknown) {
   const result = await bind();
   return result;
 }
-async function ok(ctx: { bind: () => Promise<BindResult> }, c: unknown) {
-  return consumeBindResult(await ctx.bind(), c, { kind: "plain" });
-}
+${LEGIT}
 `;
     expect(() => assertBindCallTopology(aliasFixture)).toThrow(
-      /extracted or aliased/,
+      /extracted or aliased|call of bind alias/,
+    );
+  });
+
+  it("W10 confinement is red against renamed-receiver, computed-member, destructured-alias (proven)", () => {
+    // Finding 29: receiver-name pin stayed green under these; property-name floor must red.
+    const renamedReceiver = `
+async function bad(fold: { bind: () => Promise<BindResult>; releaseHeld: () => void }) {
+  const r = await fold.bind();
+  if (r.kind === "refused-or-failed") {
+    fold.releaseHeld();
+    return { kind: "refused" as const };
+  }
+  return r;
+}
+${LEGIT}
+`;
+    expect(() => assertBindCallTopology(renamedReceiver)).toThrow(
+      /not the first argument of consumeBindResult/,
+    );
+
+    const computedMember = `
+async function bad(args: { bind: () => Promise<BindResult> }) {
+  const r = await args["bind"]();
+  return r;
+}
+${LEGIT}
+`;
+    expect(() => assertBindCallTopology(computedMember)).toThrow(
+      /not the first argument of consumeBindResult/,
+    );
+
+    const destructuredAlias = `
+async function bad(ctx: { bind: () => Promise<BindResult> }) {
+  const { bind } = ctx;
+  const r = await bind();
+  return r;
+}
+${LEGIT}
+`;
+    expect(() => assertBindCallTopology(destructuredAlias)).toThrow(
+      /destructured|call of bind alias/,
     );
   });
 
