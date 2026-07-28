@@ -52,6 +52,7 @@ const skewSurface = defineSurface({
   },
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: the shape serveOverUnixSocket accepts (Router<any, any>).
 function skewedRouter(daemonVersion: string): Router<any, any> {
   const runtime = implementSurface(skewSurface, {
     procedures: {
@@ -64,6 +65,7 @@ function skewedRouter(daemonVersion: string): Router<any, any> {
       },
     },
   });
+  // biome-ignore lint/suspicious/noExplicitAny: runtime.router is typed unknown; narrow to the Router serving wants.
   return runtime.router as Router<any, any>;
 }
 

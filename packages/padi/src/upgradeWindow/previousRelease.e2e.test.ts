@@ -17,13 +17,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -249,7 +243,7 @@ describeDaemon(
       writeStateRootManifest(dirname(kavalSocket), stateRoot);
 
       // 1) Boot PREVIOUS-release kaval at the digest-keyed path current padi will dial.
-      const oldKaval = track(
+      track(
         spawn(previousBin, ["--socket", kavalSocket], {
           stdio: "ignore",
           env: {
@@ -295,7 +289,7 @@ describeDaemon(
       delete env.KOLU_KAVAL_SOCKET;
       delete env.KOLU_STATE_DIR;
 
-      const padi = track(
+      track(
         spawn(
           process.execPath,
           [
