@@ -24,7 +24,7 @@ import {
   Show,
 } from "solid-js";
 import { match } from "ts-pattern";
-import { hostLabel } from "./host/hostChipTone";
+import { hostHue, hostLabel } from "./host/hostChipTone";
 import { ACTIONS } from "./input/actions";
 import type { Keybind } from "./input/keyboard";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
@@ -39,6 +39,7 @@ import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
+import RepoMonogram from "./ui/RepoMonogram";
 import { useViewState } from "./useViewState";
 import { activeHost } from "./wire";
 
@@ -1007,12 +1008,25 @@ const CommandPalette: Component<{
                       data-testid="palette-host-header"
                       data-host-name={entry.name}
                       data-count={entry.count}
-                      class="flex w-full items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1 hover:text-fg transition-colors text-left cursor-pointer"
+                      class="palette-host-header first:pt-1"
+                      style={
+                        entry.group.row?.hostKey
+                          ? { "--host-hue": hostHue(entry.group.row.hostKey) }
+                          : undefined
+                      }
                       title={`Show only ${entry.name}`}
                       onClick={() => drillInto(entry.group)}
                     >
+                      <Show when={entry.group.row?.hostKey}>
+                        <RepoMonogram
+                          group={entry.name}
+                          color={hostHue(entry.group.row!.hostKey!)}
+                          size="xs"
+                          data-testid="palette-host-monogram"
+                        />
+                      </Show>
                       <span class="truncate">{entry.name}</span>
-                      <span class="font-mono font-normal tracking-normal normal-case text-fg-3/60">
+                      <span class="ml-auto font-mono font-normal tracking-normal normal-case opacity-70">
                         {entry.count === 1
                           ? "1 terminal"
                           : `${entry.count} terminals`}

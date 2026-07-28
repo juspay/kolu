@@ -19,8 +19,8 @@ import { hostLabel, hostRowContext, sameHost } from "../host/hostChipTone";
 import { assignColors } from "../terminal/terminalDisplay";
 import {
   useVisitRecency,
-  visitedAtOf,
   type VisitEntry,
+  visitedAtOf,
 } from "../terminal/visitRecency";
 import { padiMap } from "../wire";
 import {
@@ -87,6 +87,13 @@ function terminalSwitchActionsForHost(
         `assignColors missing repo key "${repoName}" — map must cover every fleet group`,
       );
     }
+    // Same socket as dock/title `annotationColor` — hue of the branch label.
+    const annotationColor = colors.get(k.label);
+    if (annotationColor === undefined) {
+      throw new Error(
+        `assignColors missing branch key "${k.label}" — map must cover every fleet label`,
+      );
+    }
     const hostName = hostLabel(row.host);
     const hostKey = encodeHostKey(row.host);
     // activity clock for paint; rankScore for sort — never jam them into one field.
@@ -111,6 +118,7 @@ function terminalSwitchActionsForHost(
         repoName,
         repoColor,
         branchLabel,
+        annotationColor,
         recencyAt: activityAt,
         rankAt,
         searchText: [

@@ -48,16 +48,27 @@ describe("assignColors", () => {
     expect(assignColors(["a", "a", "b"]).size).toBe(2);
   });
 
-  it("sorts keys before assigning (deterministic)", () => {
+  it("hue is a pure function of the key — co-set order and size do not shift it", () => {
     const r1 = assignColors(["b", "a"]);
     const r2 = assignColors(["a", "b"]);
+    const r3 = assignColors(["a", "b", "zeta"]);
     expect(r1.get("a")).toBe(r2.get("a"));
     expect(r1.get("b")).toBe(r2.get("b"));
+    // Adding keys that would sort earlier under a set-relative allocator
+    // must not recolour an existing identity.
+    expect(r3.get("a")).toBe(r1.get("a"));
+    expect(r3.get("b")).toBe(r1.get("b"));
   });
 
   it("produces different colors for different keys", () => {
     const result = assignColors(["x", "y"]);
     expect(result.get("x")).not.toBe(result.get("y"));
+  });
+
+  it("does not collide ordinary distinct names that shared a % 360 bucket", () => {
+    // Regression: integer `% 360` made `repo-15` and `repo-28` identical.
+    const result = assignColors(["repo-15", "repo-28"]);
+    expect(result.get("repo-15")).not.toBe(result.get("repo-28"));
   });
 });
 
@@ -82,7 +93,7 @@ describe("buildTerminalDisplayInfos", () => {
     expect(info?.key.group).toBe("repo");
     expect(info?.key.label).toBe("main");
     expect(info?.repoColor).toMatch(/^oklch\(/);
-    expect(info?.branchColor).toMatch(/^oklch\(/);
+    expect(info?.annotationColor).toMatch(/^oklch\(/);
     expect(info?.subCount).toBe(0);
   });
 

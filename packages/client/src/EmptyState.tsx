@@ -9,8 +9,10 @@ import { showsWelcome } from "./capabilities";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { resumableTerminalIds } from "./restoreModel";
+import { assignColors } from "./terminal/terminalDisplay";
 import DocLink from "./ui/DocLink";
 import Kbd from "./ui/Kbd";
+import RepoMonogram from "./ui/RepoMonogram";
 import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
 import { isDesktop } from "./useMobile";
@@ -110,6 +112,11 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
     const session = props.savedSession;
     return session ? groupSavedTerminals(session.terminals) : [];
   });
+  // Stable per-key hues (same `assignColors` as the live dock). Pure
+  // function of each group name — co-set membership does not shift hue.
+  const groupColors = createMemo(() =>
+    assignColors(groups().map((g) => g.key)),
+  );
   const subCount = createMemo(
     () => props.savedSession?.terminals.filter((t) => t.parentId).length ?? 0,
   );
@@ -190,81 +197,102 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               </div>
               <div class="space-y-4">
                 <For each={groups()}>
-                  {(group) => (
-                    <div data-testid="repo-group" data-repo-name={group.key}>
-                      {/* NOT sticky. A pinned, opaque heading masks its own
+                  {(group) => {
+                    const color = () => {
+                      const c = groupColors().get(group.key);
+                      if (c === undefined) {
+                        throw new Error(
+                          `assignColors missing restore group "${group.key}" — map must cover every group key`,
+                        );
+                      }
+                      return c;
+                    };
+                    return (
+                      <div
+                        data-testid="repo-group"
+                        data-repo-name={group.key}
+                        class="repo-group-band"
+                        style={{ "--repo-color": color() }}
+                      >
+                        {/* NOT sticky. A pinned, opaque heading masks its own
                             two-line rows as they scroll under it — the name line
                             hides behind the heading while the subtitle peeks out,
                             leaving an orphaned "Asleep · restores dormant" with no
                             session above it. Let the heading scroll with its rows. */}
-                      <div class="pb-1.5">
-                        <span
-                          data-testid="repo-heading"
-                          class="text-sm font-semibold text-fg truncate"
-                        >
-                          {group.key}
-                        </span>
-                      </div>
-                      <div class="ml-1 pl-3 border-l border-edge/70 space-y-2.5">
-                        <For each={group.terminals}>
-                          {(t) => (
-                            <div title={t.cwd}>
-                              <div
-                                class="text-sm text-fg-2 truncate leading-snug"
-                                classList={{
-                                  "opacity-60": t.state === "sleeping",
-                                }}
-                              >
-                                <Show when={t.state === "sleeping"}>
-                                  <span
-                                    data-testid="restore-sleeping"
-                                    data-terminal-id={t.id}
-                                    class="mr-1 text-fg-3"
-                                    title="Asleep — restores dormant; wake it later"
-                                    aria-hidden="true"
-                                  >
-                                    ☾
-                                  </span>
-                                </Show>
-                                {terminalKey(t).label}
-                              </div>
-                              <Show
-                                when={t.state === "sleeping"}
-                                fallback={
-                                  <Show
-                                    when={
-                                      resumeAgents()
-                                        ? resumableCommand(t.restoreTarget)
-                                        : undefined
-                                    }
-                                  >
-                                    {(cmd) => (
-                                      <div
-                                        data-testid="resume-command"
-                                        data-terminal-id={t.id}
-                                        title={cmd()}
-                                        class="mt-1 font-mono text-[11px] text-fg-3/80 truncate leading-relaxed"
-                                      >
-                                        {cmd()}
-                                      </div>
-                                    )}
+                        <div class="pb-1.5">
+                          <span class="repo-group-band-title truncate">
+                            <RepoMonogram
+                              group={group.key}
+                              color={color()}
+                              size="sm"
+                              data-testid="restore-repo-monogram"
+                            />
+                            {/* testid on the name alone — monogram is decorative
+                             *  (aria-hidden) and must not pollute e2e textContent. */}
+                            <span data-testid="repo-heading">{group.key}</span>
+                          </span>
+                        </div>
+                        <div class="ml-1 space-y-2.5">
+                          <For each={group.terminals}>
+                            {(t) => (
+                              <div title={t.cwd}>
+                                <div
+                                  class="text-sm text-fg-2 truncate leading-snug"
+                                  classList={{
+                                    "opacity-60": t.state === "sleeping",
+                                  }}
+                                >
+                                  <Show when={t.state === "sleeping"}>
+                                    <span
+                                      data-testid="restore-sleeping"
+                                      data-terminal-id={t.id}
+                                      class="mr-1 text-fg-3"
+                                      title="Asleep — restores dormant; wake it later"
+                                      aria-hidden="true"
+                                    >
+                                      ☾
+                                    </span>
                                   </Show>
-                                }
-                              >
-                                {/* A sleeping record restores DORMANT — no agent
+                                  {terminalKey(t).label}
+                                </div>
+                                <Show
+                                  when={t.state === "sleeping"}
+                                  fallback={
+                                    <Show
+                                      when={
+                                        resumeAgents()
+                                          ? resumableCommand(t.restoreTarget)
+                                          : undefined
+                                      }
+                                    >
+                                      {(cmd) => (
+                                        <div
+                                          data-testid="resume-command"
+                                          data-terminal-id={t.id}
+                                          title={cmd()}
+                                          class="mt-1 font-mono text-[11px] text-fg-3/80 truncate leading-relaxed"
+                                        >
+                                          {cmd()}
+                                        </div>
+                                      )}
+                                    </Show>
+                                  }
+                                >
+                                  {/* A sleeping record restores DORMANT — no agent
                                       relaunches on restore; it comes back asleep
                                       and the user wakes it later. Say so plainly
                                       instead of a resume-command line. */}
-                                <div class="mt-1 text-[11px] text-fg-3/60 truncate leading-relaxed italic">
-                                  Asleep · restores dormant
-                                </div>
-                              </Show>
-                            </div>
-                          )}
-                        </For>
+                                  <div class="mt-1 text-[11px] text-fg-3/60 truncate leading-relaxed italic">
+                                    Asleep · restores dormant
+                                  </div>
+                                </Show>
+                              </div>
+                            )}
+                          </For>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  }}
                 </For>
                 <Show when={subCount() > 0}>
                   <div class="text-xs text-fg-3/50 ml-1">

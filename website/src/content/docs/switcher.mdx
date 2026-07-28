@@ -51,6 +51,10 @@ brings its splits with it, same as the Dock.
 
 - **Plain shells** appear (no agent required), with the same state pip language
   as the Dock (shell mark / idle paint).
+- **Repo identity** matches the Dock: each terminal row leads with a solid
+  **monogram tile**, the **repo name** in repo colour, the **branch** in the
+  same branch hue the dock uses, and a thin repo-coloured spine — one paint
+  vocabulary, not a second colour scheme.
 - **Order** is fleet-wide `max(visit, activity)` (visit = last time you made
   the tile active; activity is the Dock's reprojected clock). Parked rows the
   activity window would hide are dropped here too.
@@ -63,10 +67,11 @@ brings its splits with it, same as the Dock.
 ### Browse Terminals: flat list, host-grouped headers
 
 **⌘⇧K → Terminals** shows **every connected host's terminals immediately** —
-no host drill required. The list is **visually grouped** under small-caps
-headers (`local · 3 terminals`, `zest · 6 terminals`); active host's group is
-first; within a group, recency order. Hosts with zero terminals still get a
-header so the fleet map is complete.
+no host drill required. The list is **visually grouped** under host headers
+(`local · 3 terminals`, `zest · 6 terminals`) with a soft **host-hue wash** and
+monogram so machines stay scannable; active host's group is first; within a
+group, recency order. Hosts with zero terminals still get a header so the fleet
+map is complete.
 
 **Host-scoping is optional.** Click a host header (or use the dock search
 icon) to narrow to that host; the breadcrumb becomes

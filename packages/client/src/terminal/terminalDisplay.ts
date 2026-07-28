@@ -24,13 +24,9 @@ export type TerminalDisplayInfo = {
    *  is non-null in `terminalKey` (git repoName or cwd basename) and
    *  `assignColors` covers every key passed in. */
   repoColor: string;
-  /** Same OKLCH scheme keyed on the branch `label`. Always defined for
-   *  the same reason. */
-  branchColor: string;
-  /** Color for the supplant-rule annotation slot — currently mirrors
-   *  `branchColor`, but lives behind its own name so a future tint
-   *  policy (theme-aware, intent-vs-branch distinction, …) lands in
-   *  one place instead of touching every render site. */
+  /** Paint for the annotation slot (branch / intent line) — same OKLCH
+   *  scheme keyed on the branch `label`. One socket only; do not add a
+   *  parallel `branchColor` twin. */
   annotationColor: string;
   subCount: number;
   /** Collision-aware identity key. `suffix` is set only when another
@@ -57,20 +53,40 @@ export function pairDisplayRow(
   return info && meta ? { info, meta } : null;
 }
 
-/** Assign OKLCH colors via golden-angle hue spacing.
- *  All keys share one sequence so no two get the same color. */
+/** Stable 32-bit FNV-1a → hue in [0, 360) with full-hash precision.
+ *  Identity colour is a pure function of the key string, not of co-set
+ *  order — so dock, palette, and restore paint the same repo the same
+ *  hue even when their key sets differ. Using the full 32-bit range
+ *  (not `% 360`) keeps ordinary names from colliding on exact hues. */
+function stableHue(key: string): number {
+  // NFC so hue matches monogram for NFD/NFC-equivalent names (macOS paths).
+  // Empty / unexpected keys still get a deterministic hue (callers usually
+  // only pass non-empty terminalKey group/label strings).
+  const s = (key ?? "").normalize("NFC");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return ((h >>> 0) / 0x1_0000_0000) * 360;
+}
+
+/** Assign OKLCH colours from a stable per-key hue. The iterable only
+ *  names which keys appear; it does not affect the hue of any key.
+ *  Non-string entries are dropped (tests / partial meta can yield them). */
 export function assignColors(keys: Iterable<string>): Map<string, string> {
+  const unique = [
+    ...new Set([...keys].filter((k): k is string => typeof k === "string")),
+  ];
   return new Map(
-    [...new Set(keys)]
-      .sort()
-      .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
+    unique.map((key) => [key, `oklch(0.75 0.14 ${stableHue(key)})`]),
   );
 }
 
-/** Build display info for all terminals. Resolves colors from the full
- *  terminal list (global hue uniqueness), computes collision-aware
- *  identity keys in one pass (`computeTerminalKeys`), and bundles
- *  sub-count so consumers get one complete object. Pure — same inputs
+/** Build display info for all terminals. Resolves stable per-key colours
+ *  (`assignColors` — pure function of each name, not of co-set size),
+ *  computes collision-aware identity keys in one pass
+ *  (`computeTerminalKeys`), and bundles sub-count. Pure — same inputs
  *  produce the same outputs on every client, so suffixes stay in sync
  *  without server broadcast. */
 export function buildTerminalDisplayInfos(
@@ -92,17 +108,19 @@ export function buildTerminalDisplayInfos(
   for (const { id, group, label } of entries) {
     const key = keys.get(id);
     const repoColor = colors.get(group);
-    const branchColor = colors.get(label);
-    // `computeTerminalKeys` keys its map by the ids we just passed in,
-    // and `assignColors` was just built from these same group/label
-    // strings, so every entry has matching values. The skip is
-    // defence-in-depth for an unreachable case — the consumer simply
-    // gets fewer entries.
-    if (!key || !repoColor || !branchColor) continue;
+    const annotationColor = colors.get(label);
+    // `computeTerminalKeys` and `assignColors` were just built from these
+    // same ids/group/label strings — a miss is a programmer bug, not a
+    // soft skip. Fail loud so a broken projection never silently drops a
+    // terminal's decorations.
+    if (!key || !repoColor || !annotationColor) {
+      throw new Error(
+        `buildTerminalDisplayInfos invariant: missing key/colour for terminal ${id} (group=${group}, label=${label})`,
+      );
+    }
     result.set(id, {
       repoColor,
-      branchColor,
-      annotationColor: branchColor,
+      annotationColor,
       subCount: getSubTerminalIds(id).length,
       key,
     });

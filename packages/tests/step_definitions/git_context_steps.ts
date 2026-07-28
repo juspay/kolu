@@ -51,14 +51,33 @@ When(
   },
 );
 
+/** Active tile title-bar branch — the always-visible "header" annotation.
+ *  Prefer this over `inspector-branch` for "header" steps: the inspector is
+ *  only user-visible when the right panel is open, and e2e keeps it collapsed
+ *  by default. Title bar tracks the active terminal without that gate. */
+async function waitForActiveTitleBranch(
+  world: KoluWorld,
+  includes?: string,
+): Promise<void> {
+  await world.page.waitForFunction(
+    ({ sel, includes }) => {
+      const el = document.querySelector(sel);
+      const text = el?.textContent ?? "";
+      return includes ? text.includes(includes) : text.length > 0;
+    },
+    { sel: ACTIVE_TITLE_BRANCH_SELECTOR, includes },
+    { timeout: POLL_TIMEOUT },
+  );
+}
+
 Then("the header should show a branch name", async function (this: KoluWorld) {
-  await waitForTestIdText(this, "inspector-branch");
+  await waitForActiveTitleBranch(this);
 });
 
 Then(
   "the header branch should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    await waitForTestIdText(this, "inspector-branch", expected);
+    await waitForActiveTitleBranch(this, expected);
   },
 );
 
