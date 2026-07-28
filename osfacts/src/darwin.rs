@@ -929,21 +929,15 @@ fn read_cpus() -> Result<Vec<Cpu>, (&'static str, i32)> {
             return Err(("host_processor_info", libc::EINVAL));
         }
         if count < cores.saturating_mul(4) {
-            let _ = libc::vm_deallocate(
-                libc::mach_task_self_,
-                info as libc::vm_address_t,
-                count as libc::vm_size_t * mem::size_of::<c_int>(),
-            );
+            // Already failing; the release status cannot improve the report.
+            let _ = release_processor_info(info, count);
             return Err(("host_processor_info", libc::EINVAL));
         }
         let ticks = std::slice::from_raw_parts(info, count as usize);
         let hz = libc::sysconf(libc::_SC_CLK_TCK);
         if hz <= 0 {
-            let _ = libc::vm_deallocate(
-                libc::mach_task_self_,
-                info as libc::vm_address_t,
-                count as libc::vm_size_t * mem::size_of::<c_int>(),
-            );
+            // Already failing; the release status cannot improve the report.
+            let _ = release_processor_info(info, count);
             return Err(("sysconf_clk_tck", libc::EINVAL));
         }
         let to_us = |value: c_int| (value as u64).saturating_mul(1_000_000) / hz as u64;
@@ -961,17 +955,35 @@ fn read_cpus() -> Result<Vec<Cpu>, (&'static str, i32)> {
                 }
             })
             .collect();
-        let status = libc::vm_deallocate(
-            libc::mach_task_self_,
-            info as libc::vm_address_t,
-            count as libc::vm_size_t * mem::size_of::<c_int>(),
-        );
+        let status = release_processor_info(info, count);
         if status == 0 {
             Ok(rows)
         } else {
             Err(("vm_deallocate", status))
         }
     }
+}
+
+/// Give the `host_processor_info` buffer back to the kernel, returning the
+/// mach status.
+///
+/// The size arithmetic was written out at all three call sites; it has to
+/// match the allocation exactly, so it belongs in one place.
+///
+/// The success path checks the status and fails loudly. The two error paths
+/// deliberately discard it — they are already returning the failure that
+/// actually blinded the read, and replacing it with a release error would
+/// report the wrong cause.
+///
+/// # Safety
+/// `info` must be the buffer `host_processor_info` returned with `count`
+/// entries, and must not be used afterwards.
+unsafe fn release_processor_info(info: *mut c_int, count: c_uint) -> c_int {
+    libc::vm_deallocate(
+        libc::mach_task_self_,
+        info as libc::vm_address_t,
+        count as libc::vm_size_t * mem::size_of::<c_int>(),
+    )
 }
 
 /// Interface counters via `sysinfo`'s network module.

@@ -290,7 +290,9 @@ fn collect_pids(scope: &Scope, snap: &mut Snapshot) -> Result<Vec<u32>, i32> {
                     continue;
                 }
                 out.push(root);
-                descend(root, &mut seen, &mut out);
+                if let Err(err) = descend(root, &mut seen, &mut out) {
+                    snap.push_unreadable(root, Facet::Proc, err);
+                }
             }
             Ok(out)
         }
@@ -304,7 +306,11 @@ fn host_pids() -> Result<Vec<u32>, i32> {
     // hands the consumer a successful, empty, entirely plausible "this host
     // has no processes".
     let rd = fs::read_dir("/proc").map_err(|err| raw_errno(&err))?;
-    for e in rd.flatten() {
+    for e in rd {
+        // Not `.flatten()`. An entry that fails mid-listing drops a pid, and a
+        // shorter-than-real process table looks exactly like a healthy one —
+        // the same blindness as a failed open, one level down.
+        let e = e.map_err(|err| raw_errno(&err))?;
         if let Ok(pid) = e.file_name().to_string_lossy().parse() {
             p.push(pid)
         }
@@ -312,34 +318,42 @@ fn host_pids() -> Result<Vec<u32>, i32> {
     p.sort_unstable();
     Ok(p)
 }
-fn descend(root: u32, seen: &mut HashSet<u32>, out: &mut Vec<u32>) {
+fn descend(root: u32, seen: &mut HashSet<u32>, out: &mut Vec<u32>) -> Result<(), i32> {
     let mut q = vec![root];
     while let Some(pid) = q.pop() {
-        for child in children_of(pid) {
+        for child in children_of(pid)? {
             if seen.insert(child) {
                 out.push(child);
                 q.push(child)
             }
         }
     }
+    Ok(())
 }
-fn children_of(pid: u32) -> Vec<u32> {
+fn children_of(pid: u32) -> Result<Vec<u32>, i32> {
     let mut out = Vec::new();
-    if let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) {
-        for task in tasks.flatten() {
-            if let Ok(body) = read_string(&format!(
-                "/proc/{pid}/task/{}/children",
-                task.file_name().to_string_lossy()
-            )) {
-                for part in body.split_whitespace() {
-                    if let Ok(v) = part.parse() {
-                        out.push(v)
-                    }
+    // A pid that vanished mid-walk has no task dir; that is an exit race, not
+    // blindness, and the subtree below it is genuinely gone. An entry that
+    // fails WHILE listing is different — it hides descendants that still
+    // exist, so it travels up as the root's `U proc` row rather than shrinking
+    // the subtree silently.
+    let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else {
+        return Ok(out);
+    };
+    for task in tasks {
+        let task = task.map_err(|err| raw_errno(&err))?;
+        if let Ok(body) = read_string(&format!(
+            "/proc/{pid}/task/{}/children",
+            task.file_name().to_string_lossy()
+        )) {
+            for part in body.split_whitespace() {
+                if let Ok(v) = part.parse() {
+                    out.push(v)
                 }
             }
         }
     }
-    out
+    Ok(out)
 }
 
 struct ProcRow {
@@ -786,13 +800,15 @@ fn read_bytes(path: &str) -> Result<Vec<u8>, i32> {
     Ok(body)
 }
 fn read_dir_names(path: &str) -> Result<Vec<String>, i32> {
-    fs::read_dir(path)
-        .map(|rd| {
-            rd.flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .map_err(|e| raw_errno(&e))
+    // Every entry is propagated, not flattened away: a dropped fd entry is a
+    // listener this scan never sees, reported as a complete walk.
+    let rd = fs::read_dir(path).map_err(|e| raw_errno(&e))?;
+    rd.map(|entry| {
+        entry
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .map_err(|e| raw_errno(&e))
+    })
+    .collect()
 }
 fn raw_errno(e: &io::Error) -> i32 {
     e.raw_os_error().unwrap_or(libc::EIO)

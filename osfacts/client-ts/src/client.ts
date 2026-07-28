@@ -311,32 +311,62 @@ function errnoOf(err: unknown): string | undefined {
     ? String((err as { code: unknown }).code)
     : undefined;
 }
-function integer(raw: string | undefined, what: string): number {
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < 0)
+/**
+ * Parse one numeric TSV field, or fail loudly.
+ *
+ * `shape` is checked BEFORE coercion because `Number("")` and `Number(" ")` are
+ * `0`, not `NaN` — so an empty (as opposed to missing) field used to parse as a
+ * perfectly plausible zero. `arity` counts fields and never looks at their
+ * content, so nothing downstream caught it: an empty `nice` read as "default
+ * priority", indistinguishable from a real reading. The three callers differ
+ * only in that shape and predicate, which is why they share this body.
+ */
+function numeric(
+  raw: string | undefined,
+  what: string,
+  shape: RegExp,
+  valid: (value: number) => boolean,
+  expected: string,
+): number {
+  if (raw === undefined || !shape.test(raw))
     throw new OsfactsClientError(
       "parse",
-      `osfacts ${what} is not a safe non-negative integer: ${raw}`,
+      `osfacts ${what} is not ${expected}: ${raw}`,
+    );
+  const value = Number(raw);
+  if (!valid(value))
+    throw new OsfactsClientError(
+      "parse",
+      `osfacts ${what} is not ${expected}: ${raw}`,
     );
   return value;
+}
+function integer(raw: string | undefined, what: string): number {
+  return numeric(
+    raw,
+    what,
+    /^\d+$/,
+    (value) => Number.isSafeInteger(value),
+    "a safe non-negative integer",
+  );
 }
 function float(raw: string | undefined, what: string): number {
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < 0)
-    throw new OsfactsClientError(
-      "parse",
-      `osfacts ${what} is not finite and non-negative: ${raw}`,
-    );
-  return value;
+  return numeric(
+    raw,
+    what,
+    /^\d+(\.\d+)?$/,
+    (value) => Number.isFinite(value),
+    "finite and non-negative",
+  );
 }
 function signedInteger(raw: string | undefined, what: string): number {
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value))
-    throw new OsfactsClientError(
-      "parse",
-      `osfacts ${what} is not a safe integer: ${raw}`,
-    );
-  return value;
+  return numeric(
+    raw,
+    what,
+    /^-?\d+$/,
+    (value) => Number.isSafeInteger(value),
+    "a safe integer",
+  );
 }
 function positiveInteger(raw: string | undefined, what: string): number {
   const value = integer(raw, what);

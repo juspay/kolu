@@ -182,6 +182,13 @@ describe("parseSnapshotOutput", () => {
       "V\t2\nU\t1\tunknown\tEACCES\n",
       "V\t2\nE\tproc_net_dev\tnet\tEPERM\n",
       "V\t2\nX\t1\t2\t3\n",
+      // An EMPTY field, not a missing one: `Number("")` is 0, so these used to
+      // parse as a plausible reading. `arity` counts fields and never looks
+      // inside them, so nothing downstream caught it.
+      "V\t2\nP\t\t0\tlaunchd\n",
+      "V\t2\nM\t1\t\n",
+      "V\t2\nSTAT\t1\tR\t\t12\n",
+      "V\t2\nSTAT\t1\tR\t \t12\n",
     ];
     for (const body of bad) {
       expect(() => parseSnapshotOutput(body)).toThrow(OsfactsClientError);

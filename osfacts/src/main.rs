@@ -27,6 +27,9 @@ fn main() -> ExitCode {
     match cli::parse(std::env::args_os().skip(1)) {
         Ok(Command::Snapshot(args)) => run_snapshot(args),
         Ok(Command::Host(args)) => run_host(args),
+        // The discards below are the end of the line: stderr is the only place
+        // left to report anything, so a failure to write there has no channel
+        // of its own. The exit code still carries the outcome.
         Err(cli::CliError::Help(msg)) => {
             let _ = write_version_only();
             let _ = writeln!(io::stderr(), "{msg}");
@@ -51,6 +54,9 @@ fn run_snapshot(args: SnapshotArgs) -> ExitCode {
     }
     .and_then(|()| out.flush());
     if let Err(e) = written {
+        // stdout is already broken; stderr is the only channel left, and a
+        // failure to write there cannot be reported anywhere. The nonzero exit
+        // is what the caller actually reads.
         let _ = writeln!(io::stderr(), "osfacts: write failed: {e}");
         return ExitCode::from(1);
     }
@@ -98,6 +104,9 @@ fn run_host(args: HostArgs) -> ExitCode {
     }
     .and_then(|()| out.flush());
     if let Err(e) = written {
+        // stdout is already broken; stderr is the only channel left, and a
+        // failure to write there cannot be reported anywhere. The nonzero exit
+        // is what the caller actually reads.
         let _ = writeln!(io::stderr(), "osfacts: write failed: {e}");
         return ExitCode::from(1);
     }
