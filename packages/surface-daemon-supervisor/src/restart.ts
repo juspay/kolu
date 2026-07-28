@@ -36,13 +36,9 @@ export interface RestartSteps<C, I, Ctx, M = undefined> {
   reattach(ctx: Ctx, connection: DaemonConnection<C, I, M>): Promise<void>;
 }
 
-/** Run the composed restart: capture, drain, recycle the endpoint, reattach.
- *  Throws if the recycle leaves no connection (a failed boot already reported
- *  `dead`/`degraded` via the endpoint's status).
- *
- *  Prefer {@link recycle} — the public replace verb paired with `converge`.
- *  `restart` remains as a synonym so existing call sites keep compiling. */
-export async function restart<C, I, Ctx, M = undefined>(
+/** The public replace verb — capture → drain → recycle → reattach. Pairs with
+ *  `converge` on the endpoint. Throws if the recycle leaves no connection. */
+export async function recycle<C, I, Ctx, M = undefined>(
   endpoint: Endpoint<C, I, M>,
   steps: RestartSteps<C, I, Ctx, M>,
 ): Promise<void> {
@@ -51,14 +47,10 @@ export async function restart<C, I, Ctx, M = undefined>(
   await endpoint.ensure();
   const connection = endpoint.current();
   if (!connection) {
-    throw new Error("restart: no connection after recycle");
+    throw new Error("recycle: no connection after recycle");
   }
   await steps.reattach(ctx, connection);
 }
-
-/** The public replace verb — capture → drain → recycle → reattach. Alias of
- *  {@link restart}; the name that pairs with `converge` on the endpoint. */
-export const recycle = restart;
 
 /**
  * Bind a **serialized** session-preserving restart to one endpoint.
@@ -91,7 +83,7 @@ export function serializeRestart<C, I, M = undefined>(
     // truthiness check, so it reads as "is one running", not a misused await.)
     if (inFlight !== undefined) return inFlight;
     inFlight = endpoint
-      .holdRestarting(() => restart(endpoint, steps))
+      .holdRestarting(() => recycle(endpoint, steps))
       .finally(() => {
         inFlight = undefined;
       });

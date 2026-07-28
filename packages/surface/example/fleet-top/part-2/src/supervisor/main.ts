@@ -25,6 +25,7 @@
 import { fileURLToPath } from "node:url";
 import { stderrLogger } from "@kolu/surface-daemon";
 import {
+  converge,
   createEndpoint,
   recycle,
   survivableSpawnDriver,
@@ -84,7 +85,7 @@ async function main(): Promise<void> {
 
   // Boot: always-recycle → spawn → connect. Throws (after reporting `dead`) if
   // it cannot bring the daemon up.
-  await endpoint.ensure();
+  await converge(endpoint);
 
   const conn = endpoint.current();
   if (conn === undefined)

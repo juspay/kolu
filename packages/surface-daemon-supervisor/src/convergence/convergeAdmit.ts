@@ -95,13 +95,15 @@ export async function convergeAdmit(args: {
       return { kind: "adopt" };
 
     case "report-mismatch":
-      // Nudge-human is not a connector drain path; treat as adopt (caller surfaces).
+      // Nudge-human on a connector: adopt (canvas works) and let the caller surface
+      // the mismatch — same as endpoint's mismatch-reported without a drain.
       return { kind: "adopt" };
 
     case "recycle":
-      // A drainable connector never recycles (kill). Recycle is the endpoint-only arm.
+      // recycle-on-skew is endpoint-only (kill). Unspellable for a connector
+      // drainable policy that should use refuse / drain-newer-else-refuse.
       throw new Error(
-        "convergeAdmit: decide returned recycle for a drainable policy — unreachable (use the endpoint arm)",
+        "convergeAdmit: onContractSkew: recycle is endpoint-only — use refuse or drain-newer-else-refuse on the connector policy",
       );
 
     case "refuse": {

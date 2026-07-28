@@ -52,7 +52,6 @@ export {
 export {
   type RestartSteps,
   recycle,
-  restart,
   serializeRestart,
 } from "./restart.ts";
 export {

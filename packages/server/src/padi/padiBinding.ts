@@ -433,27 +433,46 @@ export class PadiStateRootGoneError extends PadiBindingFatalError {
 /** The connector's `conn === undefined` failure, classified — extracted as its own
  *  pure function (no I/O, no closures) so the ONE branch-point between "structurally
  *  unresolvable, exit" and "possibly transient, retry" is unit-testable directly off a
- *  hand-built {@link ConvergenceOutcome}, without booting a real padi. `outcome.kind
- *  === "refused"` reaching here (i.e. with no connection adopted — a raced
- *  refuse-but-actually-adopted never reaches this branch, see the connector) is the
- *  ONE case #1313's REFUSE policy produces: a genuine padiSurface CONTRACT skew
- *  against a survivor this binder must never touch. Every other reason `conn` is
- *  undefined (unreachable survivor, "not-adopted") is possibly transient — the
- *  existing fail-open `ConnectError`/`"network"` reconnect stance, unchanged. */
+ *  hand-built {@link ConvergenceOutcome}, without booting a real padi.
+ *
+ *  Classification keys off `outcome.anomaly.kind` when present:
+ *   - `skew-refused` → fatal {@link PadiAdoptionRefusedError} (#1313 contract skew)
+ *   - `cross-supervisor` / `unconverged` → fatal-ish ConnectError with the anomaly
+ *     detail (not mislabeled as contract skew)
+ *   - everything else (no anomaly) → transient network reconnect
+ */
 export function padiConnectFailure(
   outcome: ConvergenceOutcome,
   stateRoot: string,
   socketPath: string,
 ): Error {
   if (outcome.kind === "refused") {
-    return new PadiAdoptionRefusedError(
-      "a padi is already serving this workspace at a padiSurface contract this " +
-        `kolu cannot speak (state dir: ${stateRoot}; its socket: ${socketPath}) — ` +
-        "left standing, never touched (#1313: a binder never kills a running padi). " +
-        "If a kolu is already running against it, use that one. To run a second, " +
-        "independent instance here, set KOLU_STATE_DIR=<dir> (and " +
-        "KOLU_PADI_STATE_DIR=<dir> for an isolated padi too).",
-    );
+    const anomaly = outcome.anomaly;
+    if (anomaly?.kind === "skew-refused") {
+      return new PadiAdoptionRefusedError(
+        "a padi is already serving this workspace at a padiSurface contract this " +
+          `kolu cannot speak (state dir: ${stateRoot}; its socket: ${socketPath}) — ` +
+          "left standing, never touched (#1313: a binder never kills a running padi). " +
+          "If a kolu is already running against it, use that one. To run a second, " +
+          "independent instance here, set KOLU_STATE_DIR=<dir> (and " +
+          "KOLU_PADI_STATE_DIR=<dir> for an isolated padi too).",
+      );
+    }
+    if (anomaly?.kind === "cross-supervisor") {
+      return new ConnectError(
+        `padi cross-supervisor: ${anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath}) — ` +
+          "another supervisor is respawning this workspace's padi; isolate with " +
+          "KOLU_STATE_DIR / KOLU_REMOTE_PADI_STATE_DIR rather than fighting",
+        "remote",
+      );
+    }
+    if (anomaly?.kind === "unconverged") {
+      return new ConnectError(
+        `padi unconverged: ${anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath})`,
+        "remote",
+      );
+    }
+    // refused without a typed anomaly — fall through to transient reconnect
   }
   // converge left padi standing + degraded (unreachable, or a raced refuse that
   // still holds no connection) — reconnect (network, retry with backoff) rather

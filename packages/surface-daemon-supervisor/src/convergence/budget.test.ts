@@ -8,7 +8,10 @@ import { describe, expect, it } from "vitest";
 import { createDrainBudget } from "./budget.ts";
 import type { ConvergencePolicy } from "./policy.ts";
 
-function drainable(maxAttempts: number, onGiveUp: "adopt-stale" | "refuse" = "adopt-stale"): ConvergencePolicy<"drainable"> {
+function drainable(
+  maxAttempts: number,
+  onGiveUp: "adopt-stale" | "refuse" = "adopt-stale",
+): ConvergencePolicy<"drainable"> {
   return {
     capability: "drainable",
     baked: { contractVersion: "1.0", build: daemonBuild("mine") },
@@ -54,8 +57,8 @@ describe("createDrainBudget", () => {
   });
 
   it("refuses non-positive maxAttempts at construction", () => {
-    expect(() =>
-      createDrainBudget(drainable(0, "refuse")),
-    ).toThrow(/positive integer/);
+    expect(() => createDrainBudget(drainable(0, "refuse"))).toThrow(
+      /positive integer/,
+    );
   });
 });

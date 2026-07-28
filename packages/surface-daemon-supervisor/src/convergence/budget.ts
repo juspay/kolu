@@ -50,8 +50,21 @@ export interface DrainBudgetMemory {
 /** Structural keys — never display-string concatenation (so 1 ≠ "1", null ≠ "null"). */
 function lineageKey(lineage: DrainLineage): string {
   const b = lineage.build;
-  const buildPart =
-    b.kind === "known" ? `known:${b.id}` : b.kind === "off-nix" ? "off-nix" : "unknown";
+  let buildPart: string;
+  switch (b.kind) {
+    case "known":
+      buildPart = `known:${b.id}`;
+      break;
+    case "off-nix":
+      buildPart = "off-nix";
+      break;
+    default: {
+      const _exhaustive: never = b;
+      throw new Error(
+        `unreachable DaemonBuild: ${JSON.stringify(_exhaustive)}`,
+      );
+    }
+  }
   const inst = lineage.instanceKey;
   const instPart =
     inst === null
@@ -63,7 +76,18 @@ function lineageKey(lineage: DrainLineage): string {
 }
 
 function buildKey(build: DaemonBuild): string {
-  return build.kind === "known" ? `known:${build.id}` : "off-nix";
+  switch (build.kind) {
+    case "known":
+      return `known:${build.id}`;
+    case "off-nix":
+      return "off-nix";
+    default: {
+      const _exhaustive: never = build;
+      throw new Error(
+        `unreachable DaemonBuild: ${JSON.stringify(_exhaustive)}`,
+      );
+    }
+  }
 }
 
 /** A fresh, empty budget memory for one supervisor boot. Exactly one per boot;
@@ -73,7 +97,10 @@ export function createDrainBudget(
   policy: ConvergencePolicy<"drainable">,
 ): DrainBudgetMemory {
   const drainBudget = policy.drainBudget;
-  if (!Number.isInteger(drainBudget.maxAttempts) || drainBudget.maxAttempts < 1) {
+  if (
+    !Number.isInteger(drainBudget.maxAttempts) ||
+    drainBudget.maxAttempts < 1
+  ) {
     throw new Error(
       `drainBudget.maxAttempts must be a positive integer, got ${drainBudget.maxAttempts}`,
     );
