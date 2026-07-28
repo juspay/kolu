@@ -113,6 +113,10 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
     writeFileSync(join(kavalDir, "state-root"), `${state}\n`);
     writeFileSync(join(kavalDir, "kaval.log"), ""); // log — exempt
     writeFileSync(join(kavalDir, `bashrc-${termId}`), "# wrapper\n");
+    // Darwin default shell is zsh — init lives under rc/zdotdir-<uuid>/.zshrc.
+    const zdot = join(kavalDir, "rc", `zdotdir-${termId}`);
+    mkdirSync(zdot, { recursive: true, mode: 0o700 });
+    writeFileSync(join(zdot, ".zshrc"), "# zsh wrapper\n");
     writeFileSync(join(padiDir, "padi.pid"), "2\n");
     writeFileSync(join(padiDir, "padi.sock"), "");
     writeFileSync(join(state, "config.json"), "{}");

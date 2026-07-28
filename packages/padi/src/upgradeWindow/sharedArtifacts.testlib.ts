@@ -142,11 +142,13 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     coveredByTest: "previousRelease.e2e.test.ts",
     versionField: null,
     diskBasenames: [],
-    // kolu-pty prepareShellInit: bashrc-<uuid> file, or zdotdir-<uuid>/.zshrc.
+    // kolu-pty prepareShellInit: bashrc-<uuid> file, or zdotdir-<uuid>/.zshrc
+    // under kaval's rcDir (often `<rendezvous>/rc/…` — match anywhere in the
+    // relative path, not only at the root of the runtime dir).
     diskBasenamePatterns: [
-      /^bashrc-[0-9a-f-]{36}$/i,
-      /^zdotdir-[0-9a-f-]{36}$/i,
-      /^zdotdir-[0-9a-f-]{36}\/\.zshrc$/i,
+      /(^|\/)bashrc-[0-9a-f-]{36}$/i,
+      /(^|\/)zdotdir-[0-9a-f-]{36}$/i,
+      /(^|\/)zdotdir-[0-9a-f-]{36}\/\.zshrc$/i,
     ],
     why: "Per-PTY shell wrapper rcfiles kaval materialises under its rcDir (beside the socket). A mixed-version window must not leave an unaccounted init shape.",
   },
