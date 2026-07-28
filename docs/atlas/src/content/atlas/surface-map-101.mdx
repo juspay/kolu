@@ -37,10 +37,12 @@ The map publishes a single collection: `entries: Collection<Key, EntryStatus<Fai
 ```ts
 | { kind: "warming"; membershipId: string }                          // in motion — coming up, or coming back on its own
 | { kind: "connected"; membershipId: string; clockOffset: number | null } // live (link-liveness); offset null = not-yet-measured
-| { kind: "failed"; membershipId: string; failure: Failure }         // NOT proceeding without intervention
+| { kind: "failed"; membershipId: string; failure: Failure; evidence: FailureEvidence } // NOT proceeding without intervention
 ```
 
 Every arm carries a `membershipId` — an opaque, never-reused identity stamped when the key is added. A same-key remove/re-add mints a *new* one, so a client keys owners on `{key, membershipId}` and never mistakes a fresh occupant for the old one.
+
+The `failed` arm's two fields are **one record**: the reason, and the retained output tail that evidences it (`FailureEvidence`, a framework-owned `{source, line}[]`). Neither is optional, and that pairing is what survives the client's liveness floor — the floor drops the live connection payload over a dead browser link, so a tail carried there was silently floored away from the reason it belonged to <PrLink pr={2022} />; carried on the failure record it cannot be separated from it.
 
 The arm meanings are a **projection contract**, not vibes: `warming` = the system is doing something and will resolve on its own (first provision *and* a transient reconnect-backoff both land here); `failed` = it will *not* resolve without someone acting (a terminal give-up, or a *standing refuse* like "another kolu owns this host's padi").<Footnote>Both halves of that contract were paid for in blood the week this shipped. First a retriable reconnect window rendered as a steady red "failed" chip (indistinguishable from dead — the architecture review's one confirmed defect); the fix over-corrected, and standing refuses got masked as an eternal "Connecting…" spinner. The settled contract discriminates the session's down state by its **domain cause**: a specific cause (cross-supervisor, contract-skew) is a standing condition → `failed` + an actionable card; no specific cause is a transient drop → `warming`. The invariant "every refuse verdict carries a specific cause" is pinned at the session layer so the discrimination can't rot.</Footnote>
 

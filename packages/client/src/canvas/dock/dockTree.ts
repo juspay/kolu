@@ -4,13 +4,15 @@
  *  this module rearranges that into repo-bucketed sections so the user
  *  sees `repo → branches` as the primary structure.
  *
- *  **Pure recency at every layer.** Sections sort by their newest row's
- *  `ts`. Clusters (same-branch siblings) sort by their newest row's
- *  `ts`. Rows inside a cluster sort by `ts`. The bucket no longer
- *  promotes a row's position — "needs attention" is carried by the
- *  state pip's color and animation (`RowPips.tsx`), not by where it
- *  sits in the list. This keeps the order's mental model consistent
- *  with how the user thinks about it: "what did I just touch?"
+ *  **Blocked-on-you first, then pure recency.** Within a section, rows whose
+ *  agent is genuinely blocked on the user (`bucket === "awaiting"`, i.e.
+ *  `awaiting_user` — the post-turn `waiting` linger ranks idle, per the
+ *  order≠colour law) sort ABOVE everything else; recency decides the rest.
+ *  An agent that has waited 20 hours must not hide under fresher busy rows —
+ *  colour and animation alone demonstrably failed to surface it (fucknotif).
+ *  Sections themselves still sort by pure recency: the section header's
+ *  attention triplet + the host tab capsule carry cross-section discovery,
+ *  so the macro-order keeps the "what did I just touch?" mental model.
  *
  *  Inside a section, rows are **clustered by branch/intent label** so
  *  two terminals on the same branch stay adjacent even when an
@@ -40,9 +42,13 @@
  *  `placementPolicy.ts:getBucketFor` uses for canvas tile clustering,
  *  so the dock's "what counts as one repo" agrees with the canvas. */
 
-import type { TerminalId } from "kolu-common/surface";
+import { type TerminalId, URGENCY_RANK } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { type RankedDockRow, tsRank } from "./dockRowRanking";
+import {
+  DOCK_ROW_BUCKET_PRIORITY,
+  type RankedDockRow,
+  tsRank,
+} from "./dockRowRanking";
 
 export type DockGroup = {
   /** `info.key.group` — git repo name or cwd basename. */
@@ -52,6 +58,14 @@ export type DockGroup = {
   /** Rows inside this group, sorted by recency (newest first), with
    *  same-branch siblings kept adjacent via cluster grouping. */
   rows: RankedDockRow[];
+  /** Every row belonging to this repo, INCLUDING the ones the activity window
+   *  parked and the ☾ toggle is hiding — what the header's attention summary
+   *  counts. The counts must not move when you toggle a filter: an agent that
+   *  has been blocked on you long enough to fall out of the activity window is
+   *  the one you most need told about, and folding over the visible rows alone
+   *  reported it as zero — the header quietly agreeing with a dock that had
+   *  hidden the problem. Same order as `rows`, filters not applied. */
+  allRows: RankedDockRow[];
 };
 
 export type DockTree = {
@@ -93,12 +107,26 @@ export function buildDockTree(
 ): DockTree {
   const byName = new Map<
     string,
-    { color: string; byLabel: Map<string, RankedDockRow[]> }
+    {
+      color: string;
+      byLabel: Map<string, RankedDockRow[]>;
+      allRows: RankedDockRow[];
+    }
   >();
   let parkedCount = 0;
   let sleepingCount = 0;
 
   for (const row of ranked) {
+    // Resolve the repo BEFORE the filters, so a hidden row still joins its
+    // group's `allRows` and its attention still reaches the header.
+    const info = getDisplayInfo(row.id);
+    if (!info) continue;
+    let group = byName.get(info.key.group);
+    if (!group) {
+      group = { color: info.repoColor, byLabel: new Map(), allRows: [] };
+      byName.set(info.key.group, group);
+    }
+    group.allRows.push(row);
     if (row.bucket === "parked") {
       parkedCount++;
       continue;
@@ -110,23 +138,21 @@ export function buildDockTree(
       sleepingCount++;
       if (hideSleeping) continue;
     }
-    const info = getDisplayInfo(row.id);
-    if (!info) continue;
-    let group = byName.get(info.key.group);
-    if (!group) {
-      group = { color: info.repoColor, byLabel: new Map() };
-      byName.set(info.key.group, group);
-    }
     const list = group.byLabel.get(info.key.label);
     if (list) list.push(row);
     else group.byLabel.set(info.key.label, [row]);
   }
 
-  const groups: DockGroup[] = [...byName.entries()].map(([name, g]) => ({
-    name,
-    color: g.color,
-    rows: flattenLabelClusters(g.byLabel),
-  }));
+  const groups: DockGroup[] = [...byName.entries()]
+    .map(([name, g]) => ({
+      name,
+      color: g.color,
+      rows: flattenLabelClusters(g.byLabel),
+      allRows: g.allRows,
+    }))
+    // A repo whose every row is filtered out has no header to hang its
+    // attention on; the footer's "N hidden" disclosure is what surfaces it.
+    .filter((g) => g.rows.length > 0);
 
   groups.sort(compareGroups);
 
@@ -141,11 +167,13 @@ export function buildDockTree(
   };
 }
 
-/** Sort rows inside each label cluster by `-ts`, then order clusters
- *  by their already-sorted top row using the same key — so the same-
+/** Sort rows inside each label cluster (blocked-first, then `-ts`), then order
+ *  clusters by their already-sorted top row using the same key — so the same-
  *  branch sibling of a recent row stays adjacent to it even when
  *  another branch in the same repo has activity falling between the
- *  pair in pure-recency time. */
+ *  pair in pure-recency time, and a cluster holding a blocked row
+ *  floats to the top of its section (siblings ride along — the cluster
+ *  is the grouping primitive). */
 function flattenLabelClusters(
   byLabel: Map<string, RankedDockRow[]>,
 ): RankedDockRow[] {
@@ -162,12 +190,30 @@ function flattenLabelClusters(
 }
 
 function compareRows(a: RankedDockRow, b: RankedDockRow): number {
+  // Blocked-on-you floats first — `awaiting` is exactly `awaiting_user`
+  // (the ORDER bucket; linger ranks idle), so only genuinely blocked rows
+  // promote. Everything else stays pure recency.
+  const blocked = blockedFirstRank(a) - blockedFirstRank(b);
+  if (blocked !== 0) return blocked;
   const ra = tsRank(a.ts);
   const rb = tsRank(b.ts);
   // Guard the subtraction: `tsRank` can return `-Infinity` (never-active), and
   // `-Infinity - -Infinity` is `NaN`. Equal ranks (including two never-active
   // rows) short-circuit to the explicit tie before that can happen.
   return ra === rb ? 0 : rb - ra;
+}
+
+/** 0 for a row blocked on you, 1 for everything else — the blocked-first leg of
+ *  the top-level order, read OFF the shared `DOCK_ROW_BUCKET_PRIORITY` rather
+ *  than off a one-entry table of its own.
+ *
+ *  `awaiting` is the one bucket carrying the needs-you rank, so membership is a
+ *  lookup in the table that already decides bucket priority everywhere else. It
+ *  was a hand-written `row.bucket === "awaiting" ? 0 : 1` — a SECOND priority
+ *  table for one ordering, sitting beside the shared one and free to disagree
+ *  with it the moment either moved. */
+function blockedFirstRank(row: RankedDockRow): number {
+  return DOCK_ROW_BUCKET_PRIORITY[row.bucket] === URGENCY_RANK.need ? 0 : 1;
 }
 
 /** Sections sort by recency too — the most recently-active row in the

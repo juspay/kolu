@@ -13,6 +13,7 @@
  * `@ts-expect-error` lines below compile and fail the pin.
  */
 
+import type { FailureEvidence } from "./define";
 import type { EntryConnectionState, EntrySession, MapRegistry } from "./server";
 
 // The default (provisioning / mixed) arm still admits "copying" — unchanged.
@@ -45,21 +46,85 @@ const failedNoFailure: EntryConnectionState<"copying", { reason: string }> = {
 };
 void failedNoFailure;
 
-// A `failed` arm WITH the domain failure is the ONLY constructible form.
-const failedOk: EntryConnectionState<"copying", { reason: string }> = {
+// ── The `failed` arm REQUIRES the failure's EVIDENCE too ─────────────────────────
+// A reason without its retained output tail is the defect this pairing removes
+// (juspay/kolu#2007: kolu held a reason whose evidence the liveness floor had already
+// dropped). It is UNSPELLABLE, not merely discouraged.
+// @ts-expect-error — `failed` requires `evidence`; reason-without-evidence cannot be spelled.
+const failedNoEvidence: EntryConnectionState<"copying", { reason: string }> = {
   kind: "failed",
   failure: { reason: "gave up for good" },
 };
+void failedNoEvidence;
+
+// A `failed` arm WITH the domain failure AND its evidence is the ONLY constructible form.
+const failedOk: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "failed",
+  failure: { reason: "gave up for good" },
+  evidence: [{ source: "remote", line: "error: build failed" }],
+};
 void failedOk;
 
-// `disconnected.failure` stays OPTIONAL — a transient drop legitimately carries
+// `[]` is a REAL, spellable evidence value — "the failure genuinely produced no
+// output", stated by the seam that knows. (It is never a stand-in for "we can't see it":
+// no such state exists on this arm any more.)
+const failedNoOutput: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "failed",
+  failure: { reason: "gave up for good" },
+  evidence: [],
+};
+void failedNoOutput;
+
+// `disconnected.refuse` stays OPTIONAL — a transient drop legitimately carries
 // none (→ warming). That per-arm optionality is exactly what does NOT bleed onto
-// `failed`, so an omitted `failure` here is valid, not an error.
+// `failed`, so an omitted `refuse` here is valid, not an error.
 const disconnectedTransient: EntryConnectionState<
   "copying",
   { reason: string }
 > = { kind: "disconnected" };
 void disconnectedTransient;
+
+// ── A standing refuse is ONE `FailureRecord`, carried on `disconnected.refuse` ────
+// A standing refuse publishes the `failed` status, so it gets the same stapling as a
+// terminal give-up. Because the pair is ONE optional value rather than two correlated
+// fields, "a reason without its evidence" is unspellable at the shape level.
+const refuseNoEvidence: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "disconnected",
+  // @ts-expect-error — a refuse record must carry BOTH halves; `evidence` is missing.
+  refuse: { failure: { reason: "contract skew — refused" } },
+};
+void refuseNoEvidence;
+
+// The paired form is the only constructible standing refuse.
+const refuseOk: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "disconnected",
+  refuse: {
+    failure: { reason: "contract skew — refused" },
+    evidence: [{ source: "local", line: "padi: refusing, version skew" }],
+  },
+};
+void refuseOk;
+
+// And evidence cannot ride a transient drop ALONE either — same record, same rule.
+const evidenceNoRefuse: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "disconnected",
+  // @ts-expect-error — a refuse record must carry BOTH halves; `failure` is missing.
+  refuse: { evidence: [{ source: "local", line: "dropped" }] },
+};
+void evidenceNoRefuse;
+
+// The RECORD's presence is what narrows — no dependence on `Failure` being a usable
+// discriminant, which a bare `failure === undefined` test on the old two-same-tag-member
+// spelling did NOT give (`tsc` on that spelling left `evidence` as
+// `FailureEvidence | undefined`, contradicting the rationale it was written under).
+declare const someDisconnected: Extract<
+  EntryConnectionState<"copying", undefined>,
+  { kind: "disconnected" }
+>;
+if (someDisconnected.refuse !== undefined) {
+  const pinned: FailureEvidence = someDisconnected.refuse.evidence;
+  void pinned;
+}
 
 // The same split, one layer up: an `EntrySession<never>` (a LOCAL entry's
 // resolved session) cannot carry a "copying" `state` either.

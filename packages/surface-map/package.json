@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./evidence": "./src/evidence.ts",
     "./server": "./src/server.ts",
     "./client": "./src/client.ts",
     "./testing": "./src/testing.ts"
@@ -29,7 +30,9 @@
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",
     "@solid-primitives/keyed": "^1.5.3",
+    "dequal": "^2.0.3",
     "solid-js": "^1.9.0",
+    "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   }
 }

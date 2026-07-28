@@ -29,6 +29,7 @@ import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
+import { encActiveHost } from "../wire";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
@@ -58,6 +59,7 @@ const TerminalMeta: Component<{
       {(v) => {
         // T1: brand mark lives once on StatePip; AgentIndicator is words only.
         const pip = useStatePip(
+          encActiveHost,
           () => props.terminalId,
           () => v().meta,
           () => props.unread,

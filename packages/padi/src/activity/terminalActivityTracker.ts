@@ -12,7 +12,7 @@
  * (`liveActivity` streams the sorted `snapshot()`; finish reads `isLive(id)` to
  * tell a still-noisy `waiting` terminal from a settled one) — both parameterized
  * here, so the fold itself is one source of truth. This is the padi twin of the
- * client's `useTerminalActivity` (a different runtime — browser store, no timer
+ * client's `useAttentionFacts` mirror (a different runtime — browser store, no timer
  * `unref`).
  */
 

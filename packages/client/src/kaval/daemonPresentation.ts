@@ -116,8 +116,13 @@ export const DAEMON_UNKNOWN_LABEL = "unknown";
  *  dual-unit form of the shared {@link compactDelta} ladder (the sub-tier where
  *  one exists), so the sec/min/hr/day thresholds stay defined in one place. */
 export function formatUptime(ms: number): string {
-  const { value, unit, sub } = compactDelta(ms);
-  return sub ? `${value}${unit} ${sub.value}${sub.unit}` : `${value}${unit}`;
+  const d = compactDelta(ms);
+  // A daemon cannot have started in the future — that delta is host clock
+  // skew, and the shared ladder now says so rather than clamping it to `0s`.
+  if (d.kind === "unknown") return DAEMON_UNKNOWN_LABEL;
+  return d.sub
+    ? `${d.value}${d.unit} ${d.sub.value}${d.sub.unit}`
+    : `${d.value}${d.unit}`;
 }
 
 /** A WebSocket transport status → its coarse tone — `connecting` is transient

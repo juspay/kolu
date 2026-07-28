@@ -27,6 +27,7 @@ import {
 const paintCases: Array<[AgentPaintClass, PipVariant]> = [
   ["working", "working"],
   ["awaiting", "awaiting"],
+  ["linger", "linger"],
   ["none", "empty"],
 ];
 
@@ -39,16 +40,18 @@ describe("pipForPaintClass", () => {
 });
 
 // The cross-surface contract, stated as a test: a given agent STATE renders the
-// same pip on the Dock and pulam-web, because both fold the state through the
-// SAME `agentPaintClass` → `pipForPaintClass` path. `waiting` paints `awaiting`
-// (the lingering "just finished" cue), not `idle` — order≠colour, the
-// dock-fleet-mirror contract.
+// same pip on every surface, because all fold the state through the SAME
+// `agentPaintClass` → `pipForPaintClass` path. `awaiting_user` paints the
+// FULL-strength `awaiting` (needs-you); `waiting` paints `linger` (the dim
+// "just finished" cue), not `idle` — order≠colour, the dock-fleet-mirror
+// contract, now with the two violet states split so needs-you can never again
+// render at linger strength (fucknotif).
 const stateCases: Array<[Parameters<typeof agentPaintClass>[0], PipVariant]> = [
   ["thinking", "working"],
   ["tool_use", "working"],
   ["running_background", "working"],
   ["awaiting_user", "awaiting"],
-  ["waiting", "awaiting"],
+  ["waiting", "linger"],
 ];
 
 describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
@@ -60,9 +63,11 @@ describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
 });
 
 // Paint and motion are separate so a post-turn `waiting` agent can keep the
-// lingering violet paint (agentPaintClass → awaiting) while holding still.
+// lingering violet paint (agentPaintClass → linger) while holding still.
+// Needs-you is FULL `text-alert` — the 55% alpha belongs to linger alone.
 const bodyCases: Array<[PipVariant, string[]]> = [
-  ["awaiting", ["text-alert/55"]],
+  ["awaiting", ["text-alert"]],
+  ["linger", ["text-alert/55"]],
   ["working", ["text-busy"]],
   ["idle", ["text-fg-3"]],
   ["sleeping", ["text-moonlit/65"]],

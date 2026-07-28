@@ -73,6 +73,11 @@ const HostDownCanvas: Component = () => {
       body={copy().body}
       detail={failure().reason}
       log={failure().log}
+      // Nothing to explain: the tail IS the failure record's own `evidence`, stapled at
+      // classification and carried past the liveness floor with the reason
+      // (juspay/kolu#2007). "We cannot see the output" is not a state this arm can be in,
+      // so this card never draws the unavailable note.
+      logAbsence={undefined}
       logTestid="host-down-log"
       footer={<DocLink slug="remote-hosts">Learn more →</DocLink>}
       actions={actions()}

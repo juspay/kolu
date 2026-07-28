@@ -91,6 +91,11 @@ const classify = (
 const st = (
   phase: Exclude<SessionState<SshProv>["phase"], "connected">,
   error?: string,
+  // The episode's RETAINED output tail. Defaults to `[]` ("this episode retained no
+  // lines") for the many pins that don't care; the evidence pins below pass a real tail,
+  // because the whole point of evidence is that it is the SESSION's own log, not a
+  // value the map invents.
+  log: SessionState<SshProv>["log"] = [],
 ): SessionState<SshProv> => {
   if (phase === "disconnected" || phase === "failed") {
     if (error === undefined) {
@@ -98,14 +103,14 @@ const st = (
     }
     return {
       phase,
-      log: [],
+      log,
       error,
       cause: "remote",
       sinceMs: 0,
       campaignEpoch: 0,
     };
   }
-  return { phase, log: [], sinceMs: 0, campaignEpoch: 0 };
+  return { phase, log, sinceMs: 0, campaignEpoch: 0 };
 };
 
 /** A `connected` `SessionState` carrying the measured `clockOffset` — `null` until
@@ -339,6 +344,143 @@ describe("serveHostMap — entries authority", () => {
     expect((await keysIter.next()).value).toEqual([]); // no members yet
     pf.add("a", fakeSession(connected(0)));
     expect((await keysIter.next()).value).toEqual(["a"]);
+    served.dispose();
+  });
+});
+
+describe("serveHostMap — failure EVIDENCE is minted at the classification seam", () => {
+  // THE producer half of "reason without evidence is unspellable". `failureOf` classifies
+  // the reason off a down `SessionState`; the SAME frame's retained `log` is stapled onto
+  // the failure record as its `evidence`, so the two are co-produced and travel together
+  // from here on (the liveness floor drops `connection`, never `failure`/`evidence`).
+  const buildTail = [
+    { source: "local" as const, line: "copying closure to remote…" },
+    { source: "remote" as const, line: "error: attribute 'kolu' missing" },
+  ];
+
+  it("a TERMINAL failed session publishes the session frame's retained log as `evidence`", async () => {
+    const pf = fakePool();
+    const served = serveHostMap(map, pf.pool, {
+      linkFor: () => ({ surface: {} }),
+      failureOf: classify,
+      connection,
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    pf.add(
+      "a",
+      fakeSession(st("failed", "remote store build failed", buildTail)),
+    );
+    const iter = await entriesGet(link, "a");
+    const status = (await iter.next()).value;
+    expect(status).toMatchObject({
+      kind: "failed",
+      failure: { cause: "link-failed", reason: "remote store build failed" },
+      evidence: buildTail,
+    });
+    served.dispose();
+  });
+
+  it("a STANDING REFUSE (disconnected + a classified failure) gets the SAME stapling", async () => {
+    const pf = fakePool();
+    const served = serveHostMap(map, pf.pool, {
+      linkFor: () => ({ surface: {} }),
+      // A `disconnected` frame the domain DOES classify — the refuse that publishes as
+      // `failed` (cross-supervisor / contract skew), not the transient drop below.
+      failureOf: (_h, _s, state) => ({ cause: "refused", reason: state.error }),
+      connection,
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    pf.add(
+      "a",
+      fakeSession(st("disconnected", "version skew — refused", buildTail)),
+    );
+    const iter = await entriesGet(link, "a");
+    expect((await iter.next()).value).toMatchObject({
+      kind: "failed",
+      failure: { cause: "refused", reason: "version skew — refused" },
+      evidence: buildTail,
+    });
+    served.dispose();
+  });
+
+  it("a TRANSIENT disconnected (no classified failure) publishes warming with NO evidence field", async () => {
+    // Evidence belongs to a FAILURE record. A drop the classifier declines to call a
+    // standing failure is still coming back, so it publishes `warming` — which carries
+    // neither a reason nor evidence. (`toMatchObject` ignores extra keys, so assert the
+    // absence explicitly.)
+    const pf = fakePool();
+    const served = serveHostMap(map, pf.pool, {
+      linkFor: () => ({ surface: {} }),
+      failureOf: () => null, // "not a standing failure — keep it warming"
+      connection,
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    pf.add("a", fakeSession(st("disconnected", "link dropped", buildTail)));
+    const iter = await entriesGet(link, "a");
+    const status = (await iter.next()).value as Record<string, unknown>;
+    expect(status.kind).toBe("warming");
+    expect("evidence" in status).toBe(false);
+    expect("failure" in status).toBe(false);
+    served.dispose();
+  });
+
+  it("an episode that genuinely produced no output publishes `[]` — a real value, not an absence", async () => {
+    const pf = fakePool();
+    const served = serveHostMap(map, pf.pool, {
+      linkFor: () => ({ surface: {} }),
+      failureOf: classify,
+      connection,
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    pf.add("a", fakeSession(st("failed", "connection refused")));
+    const iter = await entriesGet(link, "a");
+    expect((await iter.next()).value).toMatchObject({
+      kind: "failed",
+      evidence: [],
+    });
+    served.dispose();
+  });
+});
+
+describe("serveHostMap — a re-classified failure does not re-publish", () => {
+  it("does NOT re-publish a failed member on a SIBLING's session frame", async () => {
+    // The SUPPRESSING half of the republish gate, pinned through a real producer.
+    // `classify` here — deliberately the same shape as kolu's `padiFailureOf` — mints a
+    // FRESH `failure` literal on every call, and nothing downstream memoises
+    // (`derived.registry.resolve` re-runs the projection, and the republish loop calls
+    // `statusOf` for every member on every member's frame). So the ONLY thing standing
+    // between this and a wire frame per failed member per sibling tick (O(M²) across a
+    // pool, on the arm most likely to sit occupied for hours) is `samePublished`
+    // comparing the published status STRUCTURALLY rather than by reference. This test is
+    // that guarantee: it must hold for producers that mint fresh literals, without any
+    // of them being asked to build a cache.
+    const pf = fakePool();
+    const served = serveHostMap(map, pf.pool, {
+      linkFor: () => ({ surface: {} }),
+      failureOf: classify,
+      connection,
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    pf.add(
+      "a",
+      fakeSession(
+        st("failed", "ssh gave up", [{ source: "local", line: "dial 1" }]),
+      ),
+    );
+    const b = fakeSession(connected(0));
+    pf.add("b", b);
+
+    const iter = await entriesGet(link, "a");
+    expect((await iter.next()).value).toMatchObject({ kind: "failed" });
+
+    // A sibling's own session frame fires the family: every member is re-resolved and
+    // re-classified. `a` did not change, so it must publish nothing.
+    b.setState(connected(5));
+    const verdict = await Promise.race([
+      iter.next().then(() => "re-published" as const),
+      new Promise<"quiet">((r) => setTimeout(() => r("quiet"), 25)),
+    ]);
+    expect(verdict).toBe("quiet");
     served.dispose();
   });
 });

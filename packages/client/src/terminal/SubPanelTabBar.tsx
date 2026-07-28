@@ -8,7 +8,8 @@ import { ACTIONS } from "../input/actions";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import LiveActivityDot from "./LiveActivityDot";
-import { useTerminalActivity } from "./useTerminalActivity";
+import { useAttentionFacts } from "../attention/useAttentionFacts";
+import { encActiveHost } from "../wire";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
@@ -22,8 +23,11 @@ const SubPanelTabBar: Component<{
   // Sub-terminals mount the same `Terminal` component, so each one already
   // records output under its own `subId` — but the top-level dock/title readers
   // are keyed by the PARENT id and never surface it. This tab bar is the only
-  // per-sub UI, so it owns the sub-terminal's live-output reader.
-  const activity = useTerminalActivity();
+  // per-sub UI, so it owns the sub-terminal's live-output reader. It reads the
+  // ONE attention value and takes the live leg off it, rather than a separate
+  // `isLive` ingredient: every export beside the value is a route back to the
+  // loose-booleans shape the one-value fact closed.
+  const facts = useAttentionFacts();
   return (
     <div
       data-testid="sub-panel-tab-bar"
@@ -53,7 +57,7 @@ const SubPanelTabBar: Component<{
                 data-active={isActive() || undefined}
                 onClick={() => props.onSelect(id)}
               >
-                <Show when={activity.isLive(id)}>
+                <Show when={facts.attentionOf(encActiveHost(), id).live}>
                   <LiveActivityDot />
                 </Show>
                 <span class="truncate">

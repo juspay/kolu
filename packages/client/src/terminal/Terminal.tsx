@@ -385,7 +385,7 @@ const Terminal: Component<{
     // (scrollback), not live output — see `terminal.attach` in router.ts. The
     // snapshot is still WRITTEN to xterm; live-dot activity no longer rides this
     // attach sink (it mirrors padi's activity set off the wire — see
-    // `useTerminalActivity`), so the client no longer needs a snapshot-vs-delta
+    // `attention/useAttentionFacts`), so the client no longer needs a snapshot-vs-delta
     // boundary here: the backfill controller keys off the frame's own
     // `kind === "snapshot"` discriminator below.
     // Reset xterm + the scroll lock so the NEXT stream's first frame (a fresh
@@ -462,7 +462,7 @@ const Terminal: Component<{
           // The live-activity dot is no longer lit from this attach sink — it
           // mirrors padi's `activity` set (kaval's resize-excluded edge) off the
           // wire, so it works for background terminals and never flashes on a
-          // reveal/resize repaint. See `useTerminalActivity`.
+          // reveal/resize repaint. See `attention/useAttentionFacts`.
           // Key the render-stall watchdog to xterm's PARSE, not stream receipt:
           // `term.write` returns immediately and parses the chunk asynchronously
           // (off a setTimeout), so noteData() run here synchronously would arm a

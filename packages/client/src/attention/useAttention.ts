@@ -12,12 +12,15 @@
  *  are staring at is "seen"). Everything else is host-agnostic.
  *
  *  ── The rules ──────────────────────────────────────────────────────────────
- *  Two attention states, read cross-host off each host's tiny `urgency` cell
- *  (`{ awaitingIds, finishedIds }`, the deliberately-small member kept hot on
- *  every bound host — never a full terminals mirror):
+ *  Two attention states, read cross-host off the per-host attention frame
+ *  `useAttentionFacts` mirrors — padi's `attentionClass` partition as four
+ *  disjoint id lists (asking · working · linger · finished), the
+ *  deliberately-small member kept hot on every bound host, never a full
+ *  terminals mirror. This module consumes that store rather than opening its
+ *  own subscription, and reads two of the four:
  *    • ASKING (`awaiting_user`) — blocked on your input.
- *    • FINISHED (`waiting`) — just ended its turn.
- *  For each host we diff that cell frame-to-frame and, per terminal:
+ *    • FINISHED (EF2 quiet) — just ended its turn.
+ *  For each host we diff those two lists frame-to-frame and, per terminal:
  *    • fire the loud channels (sound + OS popup) ONCE per attention episode, only
  *      if the terminal isn't currently `watched` and the pref allows it;
  *    • an escalation FINISHED→ASKING re-arms a fire (a real gate over an idle
@@ -46,20 +49,23 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
-import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
+import { createEffect, mapArray, onCleanup } from "solid-js";
 import { createAttentionCore } from "./attentionCore";
-import { liveAskingTotal, writeHostMarks } from "./attentionMarks";
+import {
+  hostAskingIds,
+  hostFrame,
+  liveAskingTotal,
+  markedHosts,
+  writeHostMarks,
+} from "./attentionMarks";
+import { registerAttentionJump } from "./attentionNav";
+import { useAttentionFacts } from "./useAttentionFacts";
+import { nextAfter } from "../ui/nextAfter";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel, sameHost } from "../host/hostChipTone";
 import type { TerminalSubject } from "../terminal/terminalSubject";
-import {
-  activeHost,
-  hostKeys,
-  padiMap,
-  preferences,
-  setActiveHost,
-} from "../wire";
+import { activeHost, preferences, setActiveHost } from "../wire";
 
 /** What the active host can tell us about its terminals — the rich notification
  *  copy, the dock unread write, and the e2e simulate targets. Background hosts
@@ -166,56 +172,33 @@ export function useAttention(deps: AttentionDeps): {
     //   `asking` + `live`. Both merge into the ONE per-host marks record.
   });
 
-  // Eager per-host roots over the FULL member set (a background host is precisely
-  // the one you must hear from), each disposed when its host leaves the pool.
-  // Keyed on the ENCODED host string (a stable primitive) so `mapArray` gives one
-  // retained owner per host, disposed on membership exit — not a fresh owner every
-  // time `hostKeys()` re-decodes.
-  const roots = mapArray(
-    () => hostKeys().map(encodeHostKey),
-    (encHost) => {
-      const host = decodeHostKey(encHost);
-      const entry = padiMap.entry(host);
-      // Bare `.use()` — the `urgency` cell declares its own `onError` policy
-      // (`hostToast`, host-prefixed) on the spec, so per SR11 the use-site carries
-      // NO policy; the declared interpreter surfaces a per-host cell failure.
-      const { value, sub } = entry.cells.urgency.use();
-      // Live only when the link is up AND this cell's own sub is neither errored nor
-      // ended — urgency is no `liveWhen` gate, so a stale value must read STALE (dim,
-      // uncounted), never lie live.
-      const live = createMemo(
-        () =>
-          entry.state().kind === "connected" &&
-          !sub.error() &&
-          !(sub.complete?.() ?? false),
-      );
+  // The per-host MIRROR (one subscription root per host, over the full member
+  // set — a background host is precisely the one you must hear from) belongs to
+  // `useAttentionFacts`; instantiating it here is what guarantees it is running
+  // even when no surface has read a pip yet, because attention must reach you
+  // on a host you are not looking at. This module is a CONSUMER of that mirror.
+  useAttentionFacts();
 
-      // Feed every urgency frame to the engine. The engine holds the prev-frame,
-      // so this effect is a thin bridge: the FIRST defined value is its baseline
-      // (no fire), every later change diffs and may fire. The upstream `equals`
-      // (`urgencyEqual`) means `value()` only ticks on a real change.
-      createEffect(() => {
-        const v = value();
-        if (v === undefined) return; // no frame yet — the mirror is silent.
-        core.observe(encHost, v);
-      });
-      // Reflect this host's asking-count + liveness into the ONE marks store — the
-      // same store the chips and the badge read. Separate from the transition
-      // effect so a link flap (live changes, value doesn't) still repaints the
-      // badge, and a value change doesn't depend on `live`.
-      createEffect(() => {
-        const asking = value()?.awaitingIds.length ?? 0;
-        writeHostMarks(encHost, { asking, live: live() });
-      });
-      onCleanup(() => {
-        core.forgetHost(encHost);
-        writeHostMarks(encHost, undefined);
-      });
-      return null;
-    },
-  );
-  // Instantiate the roots (mapArray is lazy until read).
-  createEffect(() => void roots());
+  // Feed every host's attention frame to the engine, off the marks store. One
+  // owner per marked host (so a host leaving the pool disposes its engine state
+  // exactly once), and inside it a thin effect: the engine holds the prev-frame,
+  // so the FIRST frame is its baseline (no fire) and every later change diffs
+  // and may fire.
+  const observers = mapArray(markedHosts, (encHost) => {
+    createEffect(() => {
+      const frame = hostFrame(encHost);
+      // Silence is not an empty frame — see `HostMarks.reported`.
+      if (!frame.reported) return;
+      // The frame's own class map, handed straight over — the engine's type is
+      // a `Pick` of it, so there is no adapter object to mint per host per
+      // frame and no second name for the same two lists.
+      core.observe(encHost, frame.byClass);
+    });
+    onCleanup(() => core.forgetHost(encHost));
+    return null;
+  });
+  // Instantiate the observers (mapArray is lazy until read).
+  createEffect(() => void observers());
 
   // Clear a host's unseen-finished dot the moment you switch TO it — "you looked".
   // The engine also zeroes it on any active-host cell tick, but a switch with no
@@ -249,6 +232,20 @@ export function useAttention(deps: AttentionDeps): {
     }
     paintBadge(liveAskingTotal());
   });
+
+  // The violet-capsule JUMP verb (see `attentionNav`): switch to the host, then
+  // focus the next terminal blocked on you — cycling past the currently-active
+  // one so repeated clicks walk every blocked agent. Navigation only; the count
+  // clears exclusively when an agent leaves `awaiting_user`.
+  onCleanup(
+    registerAttentionJump((encHost) => {
+      const ids = hostAskingIds(encHost);
+      if (ids.length === 0) return;
+      setActiveHost(decodeHostKey(encHost));
+      const next = nextAfter(ids, deps.activeId());
+      if (next !== undefined) deps.activate(next);
+    }),
+  );
 
   // The SINGLE notification-click router: switch to the originating host first (a
   // notification outlives the active-host selection), then focus. Both the current

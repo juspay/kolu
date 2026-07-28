@@ -20,7 +20,8 @@ import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { directAgentDerivation, provisionAgent } from "./nixCopy";
+import { directAgentDerivation } from "./agentDerivation";
+import { provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
   type Connector,
@@ -28,6 +29,7 @@ import {
   type SessionState,
 } from "./session";
 import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 vi.mock("./nixCopy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./nixCopy")>()),
@@ -91,7 +93,9 @@ function buildSession(extra: Record<string, unknown> = {}) {
       binary: "agent",
       localEnv: {},
       resolveDrvPath: () =>
-        Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
+        Promise.resolve(
+          directAgentDerivation("/nix/store/x-agent.drv", TEST_BINARY_CACHE),
+        ),
     }),
     reconnectDelayMs: 50,
     // One `liveness` knob: tune the cadence as an object (the same 15s/10s the

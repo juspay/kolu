@@ -76,6 +76,7 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "@kolu/padi/surface";
 export type {
   AgentPaintClass,
   AlertClass,
+  AttentionClass,
   Urgency,
 } from "@kolu/terminal-vocab/agentProjection";
 // The renderer-agnostic agent-state projection (bucket · urgency · needs-you
@@ -89,6 +90,12 @@ export {
   agentPaintClass,
   agentUrgency,
   alertClass,
+  ATTENTION_CLASSES,
+  attentionActive,
+  attentionClass,
+  attentionCounted,
+  DASH,
+  paintClassOf,
   URGENCY_RANK,
 } from "@kolu/terminal-vocab/agentProjection";
 export type {

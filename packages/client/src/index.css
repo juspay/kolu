@@ -104,37 +104,53 @@ body {
     inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
     0 -6px 16px -12px var(--host-hue);
 }
-/* Finished-unseen tab — the AREA channel. `HostUnseenPill` carries the count;
- * this washes the whole tab amber so the mark survives peripheral vision.
- * Doubling a dot is a 4× area change and still gets missed; tinting the tab
- * behind it is ~100× (#1990).
+/* Host-tab attention wash — the AREA channel, ONE rule, two hues.
  *
- * Amber `--color-attention` and NOT `--host-hue`: obligation is a fact about
- * work, not about which host it happened on, and the hue-per-host palette
- * already spends colour on identity. The two-hue rule still holds — amber
- * unseen here, violet needs-you in `HostAwaitingPill`.
+ * The `AttentionTriplet`'s capsule carries the count; this washes the whole tab
+ * so the mark survives peripheral vision. Doubling a dot is a 4× area change and
+ * still gets missed; tinting the tab behind it is ~100× (#1990).
  *
- * Only ever paints an IDLE tab: `data-unseen` is suppressed on the active host
- * (same predicate as the pill), so this can never fight the active tab's
- * host-hue belly. Placed after `.host-tab-idle:hover` so a hovered unread tab
- * keeps reading as unread. */
+ * Two states share the one rule through `--attn`, exactly as the dock row's wash
+ * below does — per-state spelling is how needs-you ended up with no wash at all
+ * (fucknotif), and it is also how these two blocks drifted 2-4 percentage points
+ * apart while a comment claimed they carried "the same lift". The numbers below
+ * are the AMBER set: those shipped and were tuned, so they are the ones that win.
+ *   · amber `--color-attention` — unseen (finished, unopened). Amber and NOT
+ *     `--host-hue`: obligation is a fact about work, not about which host it
+ *     happened on, and the hue-per-host palette already spends colour on identity.
+ *   · violet `--color-alert` — asking (blocked on you). Declared AFTER amber so
+ *     violet wins; the two attributes are also mutually exclusive by predicate
+ *     (`HostChip` sets `data-unseen` only when asking is zero), an agent blocked
+ *     on you outranking work you haven't opened.
+ *
+ * Only ever paints an IDLE tab: both attributes are suppressed on the active host
+ * (same predicate as the capsule), so this can never fight the active tab's
+ * host-hue belly. Placed after `.host-tab-idle:hover` so a hovered washed tab
+ * keeps reading as washed. */
 .host-tab[data-unseen] {
-  color: var(--color-fg);
-  background: color-mix(in oklch, var(--color-attention) 18%, transparent);
-  border-color: color-mix(in oklch, var(--color-attention) 45%, transparent);
+  --attn: var(--color-attention);
 }
-.host-tab[data-unseen]:hover {
-  background: color-mix(in oklch, var(--color-attention) 26%, transparent);
-  border-color: color-mix(in oklch, var(--color-attention) 60%, transparent);
+.host-tab[data-asking] {
+  --attn: var(--color-alert);
+}
+.host-tab:is([data-unseen], [data-asking]) {
+  color: var(--color-fg);
+  background: color-mix(in oklch, var(--attn) 18%, transparent);
+  border-color: color-mix(in oklch, var(--attn) 45%, transparent);
+}
+.host-tab:is([data-unseen], [data-asking]):hover {
+  background: color-mix(in oklch, var(--attn) 26%, transparent);
+  border-color: color-mix(in oklch, var(--attn) 60%, transparent);
 }
 /* Dark mode: same reason the active tab needs 32% instead of 13% — a low mix
- * over near-black collapses to muddy grey and the tab stops reading as amber. */
-:root.dark .host-tab[data-unseen] {
-  background: color-mix(in oklch, var(--color-attention) 26%, transparent);
-  border-color: color-mix(in oklch, var(--color-attention) 55%, transparent);
+ * over near-black collapses to muddy grey and the tab stops reading as coloured
+ * at all. */
+:root.dark .host-tab:is([data-unseen], [data-asking]) {
+  background: color-mix(in oklch, var(--attn) 26%, transparent);
+  border-color: color-mix(in oklch, var(--attn) 55%, transparent);
 }
-:root.dark .host-tab[data-unseen]:hover {
-  background: color-mix(in oklch, var(--color-attention) 34%, transparent);
+:root.dark .host-tab:is([data-unseen], [data-asking]):hover {
+  background: color-mix(in oklch, var(--attn) 34%, transparent);
 }
 /* Unreachable host — desaturate the tab; struck label is classed in JSX.
  * Active+down keeps the host-hue belly so the selected failed host is still
@@ -609,18 +625,15 @@ body {
 .dock-cards-section-name {
   color: var(--repo-color);
 }
-/* Terminal count — a quiet capsule so the number doesn't float as bare
- * type against a tinted band. */
+/* Terminal count — deliberately BARE quiet type, no capsule: the capsule
+ * silhouette is reserved for the actionable attention counts (the header's
+ * `AttentionTriplet`), so a number in a pill always means "act on this".
+ * The old capsule styling made six row-tallies read as notification badges
+ * (fucknotif). Sits right after the name; the triplet takes the right edge. */
 .dock-cards-section-count {
   flex: none;
-  margin-left: auto;
-  min-width: 1.25rem;
-  padding: 0.05rem 0.4rem;
-  border-radius: 9999px;
   font-variant-numeric: tabular-nums;
   color: var(--color-fg-3);
-  background: color-mix(in oklab, var(--color-surface-0) 55%, transparent);
-  border: 1px solid color-mix(in oklab, var(--color-edge) 55%, transparent);
 }
 /* Branch / intent label on a cards row — slightly denser than body text so
  * the primary line reads as the row title; colour still comes from the
@@ -646,61 +659,92 @@ body {
   border-bottom: 0;
 }
 
-/* ── Unread row wash ───────────────────────────────────────────
- * The row is the biggest surface the dock has, so it carries the unread
- * signal — a tint across the whole row plus the leading amber stripe. The
- * StatePip corner badge (7 px, pulsing) stays as the precise mark, but it was
- * never the thing that catches your eye from across the room: it ALREADY
- * pulsed and unread threads still went unnoticed for hours (#1990). Motion on
- * a 7 px object doesn't buy attention; area does.
+/* ── Attention row washes — ONE rule, two hues ─────────────────
+ * The row is the biggest surface the dock has, so it carries the attention
+ * signal — a tint across the whole row plus the leading stripe. The StatePip
+ * corner badge (7 px, pulsing) stays as the precise mark, but it was never the
+ * thing that catches your eye from across the room: it ALREADY pulsed and
+ * unread threads still went unnoticed for hours (#1990). Motion on a 7 px
+ * object doesn't buy attention; area does.
+ *
+ * Two attention states share the ONE wash rule through the `--attn` hue —
+ * defined once so the violet treatment can never drift from the proven amber
+ * one (fucknotif: the old per-state spelling is exactly how needs-you ended
+ * up with no wash at all):
+ *   · amber `--color-attention` — unread (finished, unopened); cleared by
+ *     opening the terminal;
+ *   · violet `--color-alert` — asking (blocked on you); cleared only by the
+ *     agent leaving `awaiting_user`. Declared AFTER amber so a row holding
+ *     both washes violet — blocked beats unopened.
  *
  * The stripe costs no new geometry — the row already reserves
  * `border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent` for the
- * active-row accent, so unread just fills the same 3 px channel. No reflow
- * between read and unread, same as active.
+ * active-row accent, so the wash just fills the same 3 px channel. No reflow.
  *
- * `:not([data-active])` is belt-and-braces: activating a tile clears unread
- * (`createViewState`), so the two can't co-occur — but if they ever did, the
- * row you're LOOKING at should win over an obligation you're already
- * discharging.
+ * `:not([data-active])` : the row you're LOOKING at should win over an
+ * obligation you're already discharging (and for asking, the active row's
+ * accent treatment + glowing pip + wait chip still carry the state).
  *
  * Read rows are deliberately NOT dimmed to push the contrast further: the dock
  * already spends opacity on sleeping (`SLEEPING_RECEDE_CLASS`, 55%), and a
  * second opacity channel at a neighbouring value would make "read" and
- * "asleep" the same mark. */
-.dock-cards-section > [data-testid="dock-row"][data-unread]:not([data-active]),
+ * "asleep" the same mark.
+ *
+ * `[data-dock-row]` is the shared hook every row surface carries — desktop row
+ * and touch row. Enumerating the row types by test id instead meant a new
+ * surface was silently outside the wash rather than by anyone's decision. */
+/* The ACTIVE-row highlight, keyed on the shared hook rather than spelled as a
+ * Tailwind variant per row component — a row surface can no longer be outside
+ * this rule, because the rule reads the same attribute the row already has to
+ * carry. */
+.dock-cards-section > [data-dock-row][data-active] {
+  background: color-mix(in oklab, var(--color-accent) 15%, transparent);
+  border-left-color: var(--color-accent);
+}
+.dock-cards-section > [data-dock-row][data-unread] {
+  --attn: var(--color-attention);
+}
+.dock-cards-section > [data-dock-row][data-asking] {
+  --attn: var(--color-alert);
+}
 .dock-cards-section
-  > [data-testid="mobile-dock-row"][data-unread]:not([data-active]) {
-  background: color-mix(in oklab, var(--color-attention) 13%, transparent);
-  border-left-color: var(--color-attention);
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
+  background: color-mix(in oklab, var(--attn) 13%, transparent);
+  border-left-color: var(--attn);
 }
 /* Hover still has to answer — the wash out-specifies Tailwind's
- * `hover:bg-surface-2/40`, so an unread row would otherwise go dead under the
- * pointer. Deepen the amber instead of replacing it with the neutral hover. */
+ * `hover:bg-surface-2/40`, so a washed row would otherwise go dead under the
+ * pointer. Deepen the hue instead of replacing it with the neutral hover. */
 .dock-cards-section
-> [data-testid="dock-row"][data-unread]:not([data-active]):hover {
-  background: color-mix(in oklab, var(--color-attention) 20%, transparent);
+> [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
+  background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
-/* Dark mode: the same mix over near-black reads as brown sludge rather than
- * amber — lift it, exactly as the host tab does. */
+/* Dark mode: the same mix over near-black reads as sludge — lift it, exactly
+ * as the host tab does. */
 :root.dark
   .dock-cards-section
-  > [data-testid="dock-row"][data-unread]:not([data-active]),
-:root.dark
-  .dock-cards-section
-  > [data-testid="mobile-dock-row"][data-unread]:not([data-active]) {
-  background: color-mix(in oklab, var(--color-attention) 20%, transparent);
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
+  background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
 :root.dark
   .dock-cards-section
-  > [data-testid="dock-row"][data-unread]:not([data-active]):hover {
-  background: color-mix(in oklab, var(--color-attention) 27%, transparent);
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
+  background: color-mix(in oklab, var(--attn) 27%, transparent);
 }
 /* The label leans in with the row — weight is the one contrast channel that
  * survives both the squint test and a greyscale display. */
-[data-testid="dock-row"][data-unread] .dock-cards-row-label,
-[data-testid="mobile-dock-row"][data-unread] .dock-cards-row-label {
+[data-dock-row]:is([data-unread], [data-asking]) .dock-cards-row-label {
   font-weight: 700;
+}
+/* A blocked row's subline speaks needs-you violet — the words ("Awaiting
+ * input …") wear the same hue as the wash, chip, and pip.
+ *
+ * Keyed on the SHARED `[data-dock-row]` / `[data-dock-subline]` hooks, not on an
+ * enumeration of per-surface test ids — the same reason the wash above is:
+ * an enumeration silently leaves a new row surface out. Test ids stay on the
+ * spans for e2e; they are not what styling reads. */
+[data-dock-row][data-asking] [data-dock-subline] {
+  color: var(--color-alert);
 }
 
 /* ── Rail-mode chip ────────────────────────────────────────────

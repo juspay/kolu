@@ -8,6 +8,7 @@
 # detection the root justfile does so `just dev` inside `nix develop`
 # skips the re-entry.
 
+
 repo_root := justfile_directory() / "../../.."
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + repo_root + ' --accept-flake-config -c' }
 

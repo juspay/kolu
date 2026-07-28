@@ -31,6 +31,7 @@
  */
 
 import { type Component, createMemo } from "solid-js";
+import { NO_LOG_LINES } from "../ui/logTailChrome";
 import {
   bootStalledCopy,
   bootStalledPhaseDetail,
@@ -76,11 +77,23 @@ const BootStalledCanvas: Component<{
   const connectorPhase = createMemo(() =>
     props.recovery.via === "connector" ? props.recovery.phase : undefined,
   );
-  // The connector campaign's own output tail — the narration of the work the card is asking
-  // about. A memo like the two above, so the `<For>` inside the card sees a stable array
-  // across every 1s re-resolve instead of a fresh reference per tick.
+  // The connector campaign's own output tail, and — separately — why it is empty when
+  // that is not the campaign's own fact. Memos like the two above, so the `<For>` inside
+  // the card sees a stable array across every 1s re-resolve instead of a fresh reference
+  // per tick: the client arm yields the SHARED {@link NO_LOG_LINES}, never a fresh `[]` literal
+  // (a fresh literal per tick is what falsified this very comment last round).
+  //
+  //  The two arms hand the card DIFFERENT absences, and the difference is load-bearing.
+  //  A `client` leg has no connector campaign at all, so there is no output and we KNOW
+  //  it: `[]` with nothing to explain. A `connector` leg carries whatever reason the
+  //  resolver was given — today `"link-down"`, the liveness floor having dropped the live
+  //  word. Neither arm INFERS its reason from the emptiness; the card renders what it was
+  //  told, so a client-side stall can never claim a link problem it does not have.
   const connectorLog = createMemo(() =>
-    props.recovery.via === "connector" ? props.recovery.log : undefined,
+    props.recovery.via === "connector" ? props.recovery.log : NO_LOG_LINES,
+  );
+  const connectorLogAbsence = createMemo(() =>
+    props.recovery.via === "connector" ? props.recovery.logAbsence : undefined,
   );
 
   const actions = createMemo<CanvasFailureAction[]>(() => [
@@ -109,6 +122,7 @@ const BootStalledCanvas: Component<{
       body={copy().body}
       detail={detail()}
       log={connectorLog()}
+      logAbsence={connectorLogAbsence()}
       logTestid="boot-stalled-log"
       actions={actions()}
     />

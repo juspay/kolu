@@ -1,11 +1,14 @@
 import {
   type ActiveTerminal,
+  activeArm,
   LOCAL_LOCATION,
   type TerminalMetadata,
 } from "@kolu/padi/surface";
 import {
   type AgentInfo,
+  type AttentionClass,
   agentUrgency,
+  attentionClass,
   type TerminalId,
   URGENCY_RANK,
 } from "kolu-common/surface";
@@ -76,11 +79,20 @@ function pip(meta: TerminalMetadata, stale: boolean): DockRowBucket {
   return rankOne(meta, stale).pip;
 }
 
+/** Stand-in for the attention mirror: fold the fixture's own agent through the
+ *  shared partition, which is what padi publishes and the dock reads back. */
+function classOfMeta(
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+): (id: TerminalId) => AttentionClass {
+  return (id) => attentionClass(activeArm(getMeta(id))?.agent, false);
+}
+
 function rankOne(meta: TerminalMetadata, stale: boolean) {
   const rows = rankDockRows(
     ["t1"] as TerminalId[],
     () => meta,
     () => stale,
+    classOfMeta(() => meta),
   );
   const row = rows[0];
   if (!row) throw new Error("no row returned");
@@ -157,6 +169,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => makeSleepingMeta(1),
       () => true,
+      classOfMeta(() => makeSleepingMeta(1)),
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -183,6 +196,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => meta,
       realStale(NOW, WINDOW),
+      classOfMeta(() => meta),
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -199,6 +213,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => meta,
       realStale(NOW, WINDOW),
+      classOfMeta(() => meta),
     );
     expect(rows[0]?.bucket).toBe("sleeping");
   });
@@ -214,6 +229,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => meta,
       () => true,
+      classOfMeta(() => meta),
     );
     expect(meta.agent).toBe(agentBefore); // identity preserved — same object reference
     expect(meta.agent?.state).toBe("waiting");
@@ -225,13 +241,13 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
   // state must paint the SAME pip colour in both. Order (rank) is a separate
   // axis: a fresh `waiting` agent sorts as `idle` (it doesn't float into the
   // needs-you order) yet keeps its `awaiting` glow, exactly as the title does.
-  it("a fresh waiting agent ranks idle but its pip stays awaiting (glow lingers)", () => {
+  it("a fresh waiting agent ranks idle but its pip lingers (dim violet stays)", () => {
     const meta = makeMeta({
       agent: makeAgent("waiting"),
       lastActivityAt: Date.now(),
     });
     expect(bucket(meta, false)).toBe("idle"); // ORDER: not needs-you
-    expect(pip(meta, false)).toBe("awaiting"); // COLOUR: still glowing
+    expect(pip(meta, false)).toBe("linger"); // COLOUR: the dim just-finished cue
   });
 
   it("the row pip equals the tile-title paint fold for every fresh agent state", () => {

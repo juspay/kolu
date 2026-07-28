@@ -17,14 +17,44 @@ on you, and where*. kolu escalates that signal outward — from the dock row, to
 the app icon, to an OS notification, across every machine — so an agent that
 flips to **awaiting you** finds you even when you're looking elsewhere.
 
-## On the dock
+## One vocabulary, everywhere
 
-An agent that finishes in the background **washes its whole dock row amber** —
-tinted background, lit leading stripe, bold title, plus an amber **unread badge**
-on its state pip — and the dock keeps a terminal genuinely
-**awaiting you** floating in the needs-you group (a just-finished agent that
-isn't blocked drops to idle instead). The vocabulary of states is
-[Agent detection](/agent-detection); how the badge composes with the live ring is
+Three signals, three colours, and the same rendering wherever they appear — dock
+row, repo section header, host tab, phone host row:
+
+| Signal | Looks like | Goes away when |
+| --- | --- | --- |
+| **Needs you** — an agent is blocked on your input | violet count pill · violet row wash · a chip counting **how long it has waited** | you answer it — nothing else clears it |
+| **Unread** — an agent finished and you haven't looked | amber count pill · amber row wash · amber badge on the pip | you open that terminal |
+| **Active** — something is happening in a terminal | a plain rust count with a spinner | everything goes quiet |
+
+The two you can **act on** wear a pill; the activity count deliberately does not.
+So a number in a pill always means *there is something to do here*. Where kolu
+has somewhere to send you, **clicking a pill takes you there** — the violet count
+jumps to the next terminal blocked on you, cycling through them on repeat clicks.
+Clicking never dismisses: the needs-you count is a live reading of what is
+actually waiting, so only answering the agent clears it. (A host tab's amber
+count has no jump of its own — switching to that machine is what clears it, and
+the tab is already the button that does that.)
+
+**"Active" means what the marks mean.** The rust count is the same question a
+moving mark answers, asked about a whole machine or a whole repo — so it counts
+an agent thinking, an agent still settling in the moments after its turn, and a
+plain shell that is printing. That last one matters: a terminal running a build
+has no agent to ask, and its output is the only evidence there is. If three marks
+are moving, the count above them says three.
+
+One consequence worth knowing: a terminal that prints *intermittently* — a dev
+server logging a line every few seconds — counts while it prints and stops
+counting a second after it goes quiet, so the number pulses. It is doing exactly
+what the mark in the dock does, at the same moment, because both read the same
+signal. A count that held steady while the marks beneath it blinked would be the
+older, worse behaviour wearing a calmer face.
+
+An agent that finishes in the background washes its whole dock row amber — tinted
+background, lit leading stripe, bold title. A blocked one washes violet and floats
+to the top of its repo section. The vocabulary of states is
+[Agent detection](/agent-detection); how the marks compose with the state pip is
 [The Dock](/dock).
 
 ## Beyond the app
@@ -63,14 +93,19 @@ isn't blocked drops to idle instead). The vocabulary of states is
 The needs-you signal is a first-class part of the [multi-host](/remote-hosts)
 story, and it reaches you **the same way on every host** — an agent that finishes
 or starts waiting on a *background* machine chimes, shows a backgrounded-tab
-popup, and marks that host, exactly as the active machine's does. Each host chip
-shows a live **awaiting-you count** read straight off that machine (a host whose
-link drops **dims** its chip rather than dropping the count), and a host where an
-agent **finished while you weren't looking** carries a quiet **amber dot** beside
-its name until you switch to it — the softer tier of the same "needs you" amber
-the awaiting pill speaks. The whole roll-up reaches you on the machine you're
-actually looking at. On a phone, the same amber "needs you" pill rides the host
-row in the pull-down sheet — see [kolu on a phone](/mobile).
+popup, and marks that host, exactly as the active machine's does. Each host tab
+carries the **full summary for that machine** — how many terminals have something
+happening in them, how many agents are blocked on you, and how much finished work
+you haven't opened — read
+straight off it (a host whose link drops **dims** its tab rather than dropping the
+counts). A tab with an agent waiting on you **washes violet**; one with unopened
+finished work washes amber until you switch there.
+
+The summary shows on the tab you're **already on**, too. Being on a machine is no
+guarantee you can see a terminal buried in the dock — so the tab tells you what
+that host holds regardless, and clicking its violet pill takes you straight to the
+agent that's waiting. On a phone, the same three counts ride the host row in the
+pull-down sheet — see [kolu on a phone](/mobile).
 
 ## Next
 

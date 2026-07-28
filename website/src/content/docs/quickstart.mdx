@@ -77,11 +77,15 @@ nix.settings = {
 
 After editing `nix.conf`, restart the daemon (`sudo systemctl restart
 nix-daemon` on Linux, `sudo launchctl kickstart -k
-system/org.nixos.nix-daemon` on macOS). The same applies to any machine you
-[add as a remote host](/remote-hosts): kolu realises its agent there with
-that host's own Nix, whose `nix.conf` alone decides where binaries may come
-from — so put the cache in the remote machine's system config too, exactly as
-above.
+system/org.nixos.nix-daemon` on macOS).
+
+Machines you [add as a remote host](/remote-hosts) can inherit the cache
+through kolu: provisioning fetches the agent's binaries into **this** machine's
+store and copies them to the host, cross-architecture included. That copy
+lands only if the host trusts it — your ssh user is in the host's
+`trusted-users`, or the host trusts the cache's signing key. When it doesn't,
+kolu says so in the connect log and the host builds the agent itself; the fix
+is the same `nix.conf` block above, applied on that machine.
 
 ## Bind a different address
 

@@ -25,11 +25,8 @@ import {
   ResolveDrvError,
 } from "./host";
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
-import {
-  type AgentDerivation,
-  makeProvisionBudgets,
-  provisionAgent,
-} from "./nixCopy";
+import type { AgentDerivation } from "./agentDerivation";
+import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
   ConnectError,
@@ -84,9 +81,13 @@ export interface SshConnectorOptions {
    *  no derivation is baked for its system), reject with a {@link ResolveDrvError}
    *  carrying `failureCause: "remote"`.
    *
-   *  Pass `directAgentDerivation(drvPath)` when the caller already owns the
-   *  store path and has no probe to defer. `resolveAgentDrv` constructs the
-   *  nominal flake-backed arm so Nix owns evaluation through realisation. */
+   *  Pass `directAgentDerivation(drvPath, binaryCache)` when the caller already
+   *  owns the store path and has no probe to defer — obtain the cache with
+   *  `readBakedBinaryCache(source)` wherever a source is baked, so the
+   *  declaration comes from the flake's own `nixConfig` instead of a hand-typed
+   *  copy; `agentBinaryCache({…})` states one inline when there is no baked
+   *  source. `resolveAgentDrv` constructs the nominal flake-backed arm (reading
+   *  that same sidecar itself) so Nix owns evaluation through realisation. */
   resolveDrvPath: (ctx: ResolveDrvPathContext) => Promise<AgentDerivation>;
   /** Extra args appended after `--stdio` on the agent command line — a generic
    *  spawn-arg carrier; what the args mean is the caller's concern. POSIX-quoted for

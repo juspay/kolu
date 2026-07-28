@@ -55,6 +55,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
       kind: "failed",
       membershipId: testMembershipId(),
       failure: { cause: "link-failed", reason: "ssh refused" },
+      evidence: [],
     });
     expect(g.stripDot).toContain("red");
     expect(g.detailDot).toContain("red");
@@ -76,6 +77,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
         kind: "failed",
         membershipId: testMembershipId(),
         failure: { cause: "link-failed", reason: "no drv" },
+        evidence: [],
       },
       { kind: "not-a-member" },
     ];
@@ -102,6 +104,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
         kind: "failed",
         membershipId: testMembershipId(),
         failure: { cause: "link-failed", reason: "no drv" },
+        evidence: [],
       },
       { kind: "not-a-member" },
     ];
@@ -156,6 +159,7 @@ describe("hostRowContext — palette host status vocabulary", () => {
     kind: "failed" as const,
     membershipId: testMembershipId(),
     failure: { cause: "link-failed" as const, reason: "down" },
+    evidence: [],
   };
 
   it("marks only the canvas-active host as active", () => {

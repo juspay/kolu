@@ -4,7 +4,7 @@ description: When an agent finishes or asks a question, kolu can play a sound, s
 parents: [analysis]
 status: implemented
 maturity: budding
-updated: 2026-07-21
+updated: 2026-07-27
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -55,14 +55,29 @@ at a host only changes one thing: whether the terminal counts as already **seen*
 
 | Agent state | Sound + popup (once) | On-screen marks | Goes away when |
 | --- | --- | --- | --- |
-| **Asking you** (waiting for input) | if not already seen | violet host-tab count + dock pip | you answer |
-| **Just finished** (no input needed) | if not already seen | amber host-tab count on an amber-washed tab + washed dock row | you look at it |
-| Working / idle | — | (optional "live" ring) | — |
+| **Asking you** (waiting for input) | if not already seen | violet count pill · violet-washed row + tab · full-strength glowing pip · a chip counting how long it has waited | **you answer** — nothing else |
+| **Just finished** (no input needed) | if not already seen | amber count pill · amber-washed row + tab · amber pip badge | you look at it |
+| **Working** (or settling, or a shell that is printing) | — | a plain rust ACTIVE count + spinner | it stops moving |
+| Idle | — | — | — |
 
-The two host-tab marks share **one** shape — a count pill, identical geometry — and
-split by **hue**, not by intensity: violet for *asking* (blocked on you, a state)
-and amber for an *unseen finish* (an unopened obligation). Hue carries the meaning
-so neither mark has to be the quiet one.<Footnote>The amber count reads the cross-host **unseen-finished** mark `useAttention` publishes, not the raw `finishedIds` — a finished agent idles in `waiting` ~forever, so "has any finished agent" would light every host permanently. The unseen rule is the pure, unit-tested `nextUnseenFinished`.</Footnote>
+The counts share **one** shape — identical geometry — and split by **hue**, not by
+intensity: violet for *asking* (blocked on you, a state) and amber for an *unseen
+finish* (an unopened obligation). Hue carries the meaning so neither mark has to be
+the quiet one.<Footnote>The amber count reads the cross-host **unseen-finished** mark `useAttention` publishes, not the raw `finishedIds` — a finished agent idles in `waiting` ~forever, so "has any finished agent" would light every host permanently. The unseen rule is the pure, unit-tested `nextUnseenFinished`.</Footnote>
+
+Two rules keep the vocabulary honest, and both are about **what a mark promises**:
+
+- **A pill means you can act on it.** The two actionable counts wear a capsule and
+  are real buttons — clicking one jumps to the next terminal it counts, *literally*
+  that set: the section fold returns the ids it counted and the click walks them,
+  so a capsule cannot promise a target the click can't reach.<Footnote>It could: the count deliberately folded rows the activity window had parked, while the click re-filtered the *visible* rows — so the flagship case, an agent blocked long enough to fall out of the window, rendered a violet "1" that did nothing at all.</Footnote>
+  Active is informational, so it is a bare number. A number that *looks* like a
+  badge and does nothing teaches you to ignore badges, which is the failure mode
+  the whole system exists to avoid.
+- **A count clears only when its fact does.** Clicking a violet pill navigates; it
+  never dismisses. Needs-you is a live reading of what is blocked, so only the
+  agent leaving `awaiting_user` can clear it — an acknowledgement button would let
+  the count lie.
 
 **Both surfaces put the mark on the whole row, not a dot on it** (<PrLink pr={1990} />).
 Unseen-finished washes the entire host tab amber; an unread dock row washes amber and
@@ -121,6 +136,62 @@ now pings and shows a quiet host-tab mark, exactly like the active host's. The
 `activityAlerts` setting was renamed `attentionAlerts` (with a migration), and the
 "needs you now / just finished" decision is the pure, unit-tested
 `attentionTransitions`.
+
+## One vocabulary, every altitude
+
+Shipping the one *owner* did not give the one *vocabulary*. A year of surfaces had
+each hand-rolled its own presentation of the same facts, and the result was a
+20-hour miss: an agent sat blocked on a question behind a needs-you pip drawn at
+55% alpha, six repo headers wearing pill-shaped row-tallies that looked exactly
+like notification badges, and a violet host-tab count that could not be clicked.
+The real signal rendered quieter than the decoys.
+
+The cause was structural, so the fix is too — one fold, one component, and the
+old spellings deleted so drift cannot recur (<PrLink pr={2019} />):
+
+- **The paint fold split its two violet states.** `agentPaintClass` had folded
+  `awaiting_user` and post-turn `waiting` into one `awaiting` class, so "answer
+  me" was *defined* to render as quietly as "just finished". Now `awaiting` means
+  blocked-on-you at full strength — the same thing it already meant in
+  `agentBucket` — and a new `linger` carries the dim post-turn cue.<Footnote>The `satisfies never` fences did the work: splitting the union compile-failed every consumer (pip variants, tile aura, minimap buckets, dock ranking), forcing each to state a decision rather than inherit a default.</Footnote>
+- **One `<AttentionTriplet>` renders the summary everywhere** — host tab, host
+  switcher, phone host row, and both dock section headers — replacing two
+  bespoke pill components and a count capsule that were deleted, not deprecated.
+- **The urgency cell carries `workingIds`**, so a background host's tab can show
+  its in-flight count; the marks store keeps asking *ids* rather than a count, so
+  the pill's jump target and its number cannot disagree.
+- **One predicate decides "is something happening".** Four had grown up — the
+  counts read `agentBucket`, the pip's colour read `agentPaintClass`, its
+  *motion* read a third rule, and padi's urgency fold a fourth — and every bug
+  filed against 2019 was two of them disagreeing.<Footnote>A tab reading 2 beside three moving marks (a working agent kolu held no state for); a violet mark spinning beside a tab counting nothing (an agent still settling after its turn); a ⌘K palette showing every background host's terminals as idle (it fabricated `isLive:false` on the belief that activity was an active-host-only fact — it never was).</Footnote>
+  `attentionClass` now partitions a terminal (asking · working · linger ·
+  finished · idle), and two predicates answer over that class plus raw byte
+  motion: `attentionActive` (does the mark MOVE — the pip) and `attentionCounted`
+  (does a scope COUNT it — every tab and header, which is `active` minus
+  `asking`, since asking has its own violet leg). The class is derived **once**,
+  by padi; the client reads it back off the wire's id-lists (`frameClassOf`)
+  rather than recomputing it from a terminal's own metadata, and
+  `agentPaintClass` is that same partition renamed for the paint vocabulary —
+  so there is one switch over the agent-state literals in the whole stack, and
+  the tab, the pip and the section header cannot be reading two answers that
+  arrived on two subscriptions a tick apart. That the host-level fold and the
+  per-terminal predicate agree is a test, not a convention. Two consequences
+  worth stating: `lingerIds` joins the wire (the turn is over but output is
+  still landing, and the mark is still moving), and a **printing shell with no
+  agent counts** — it has no agent to ask, and its bytes are the only evidence
+  there is.
+- **Order finally promotes the blocked.** The dock had left ordering to pure
+  recency on the theory that colour and animation carry attention — the miss is
+  the counter-evidence. A genuinely blocked row now floats to the top of its
+  section, and shows *how long it has waited* where its timestamp would sit.<Footnote>An awaiting row's timestamp was previously **hidden**, because effectively-active rows suppress "Xs ago" as noise — true for a working agent, exactly wrong for one that has been blocked since yesterday.</Footnote>
+
+<Callout kind="note" title="Area beats motion, again">
+The violet row wash is generated from the *same* CSS rule as the amber one
+(<PrLink pr={1990} />) through a hue variable, rather than hand-copied beside it.
+The 1990 lesson was that area catches the eye where a pulsing 7px dot does not;
+the 2019 lesson is that a lesson learned in one hue has to be *structurally*
+shared to reach the other, or the second surface quietly relearns it the hard way.
+</Callout>
 
 ## Honest “finished” (EF2)
 

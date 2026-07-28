@@ -74,10 +74,20 @@ describe("formatDuration", () => {
     { ms: 3 * 24 * HOUR, expected: "3d" },
     {
       ms: -5 * SEC,
-      expected: "0s",
-      why: "clock skew clamps to 0, never negative",
+      expected: "—",
+      why: "an event cannot be in the future — say so, do not read 0s",
     },
   ])("$ms ms → $expected", ({ ms, expected }) => {
     expect(formatDuration(ms)).toBe(expected);
+  });
+
+  it("does not report a long wait as brand new when the host clock runs ahead", () => {
+    // These timestamps are stamped by the host the terminal runs on and
+    // subtracted from the browser clock. A remote host a minute ahead put a
+    // twenty-hour-old event in this clock's future — and the dock chip that
+    // exists to make a twenty-hour wait legible would have read "0s" on
+    // exactly the remote hosts it was built for.
+    const twentyHoursAgoByAHostRunningAhead = -(60 * SEC);
+    expect(formatDuration(twentyHoursAgoByAHostRunningAhead)).toBe("—");
   });
 });
