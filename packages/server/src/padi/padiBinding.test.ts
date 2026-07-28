@@ -56,6 +56,8 @@ import {
   daemonBuild,
   outcomeAnomaly,
 } from "@kolu/surface-daemon-supervisor";
+// Package-private test harness only (not on the public root — F4/F12).
+import { registerTestEndpointBinds } from "@kolu/surface-daemon-supervisor/testing";
 import {
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,
@@ -824,11 +826,9 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
         adoptConnectAttempts: 1,
         adoptConnectRetryMs: 1,
       });
-      // Force adopt-resident bind after give-up (no real gate pid race). Package
-      // tests deep-import the harness (F12); production never sees it.
-      const { registerTestEndpointBinds } = await import(
-        "../../../surface-daemon-supervisor/src/endpoint.private.ts"
-      );
+      // Force adopt-resident after give-up (no real gate-pid race). Harness is
+      // package-private via `@kolu/surface-daemon-supervisor/testing` (not the
+      // public root export — F4/F12).
       registerTestEndpointBinds(ep, {
         ensure: async () => {},
         adoptOrEnsure: async () => ({ kind: "adopted-resident" }),
