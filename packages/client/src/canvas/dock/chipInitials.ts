@@ -1,17 +1,16 @@
-/** Rail-chip label derivation — the two-glyph identity painted on a
- *  32 px tile in the collapsed dock. The repo half is the first
- *  alphanumeric character of the repo name in any script (`répo` → `R`,
- *  `日本語` → `日`), uppercased; the sub half is the first grapheme of the
- *  intent (an emoji or other symbol when the user leads with one), with a
- *  fallback to the first alphanumeric character of the branch tail when the
- *  intent is unset. Each half is clamped to a single grapheme so unicode
- *  case-expansion (`ß` → `SS`) can't paint two glyphs on a one-glyph tile.
+/** Repo monogram + rail-chip label derivation.
  *
- *  Cards mode renders the same intent through `IntentMarkdownInline`,
- *  which preserves emoji and symbol prefixes verbatim. The chip's sub
- *  glyph reads through `intentLeadGlyph` so the rail can't disagree
- *  with the cards header on the same source string — both surfaces
- *  share `packages/client/src/intent/text.ts`. */
+ *  Two independent facts, deliberately not one function:
+ *
+ *  - `repoMonogram(group)` — one glyph for a repo name. Cards-mode section
+ *    headers and the rail chip's *repo* half both call this, so a monogram
+ *    and a rail chip never disagree on the same group string.
+ *  - `chipInitials(meta, info)` — two-glyph rail tile: monogram + branch/
+ *    intent sub. Needs live meta (intent lead); the monogram does not.
+ *
+ *  Hickey: monogram identity is not braided into the intent/branch fold.
+ *  Löwy: monogram revs only when the repo set changes; chip sub revs with
+ *  intent — keep the clocks separate. */
 
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import { firstGrapheme, intentLeadGlyph } from "../../intent/text";
@@ -29,21 +28,33 @@ const ALPHANUM = /[\p{L}\p{N}]/u;
 // falling through to the glyph branch.
 const ALPHANUM_ANCHORED = /^[\p{L}\p{N}]\p{M}*$/u;
 
-/** Case `glyph` (upper or lower) but keep the chip's one-glyph invariant:
+/** Case `glyph` (upper or lower) but keep the one-glyph invariant:
  *  unicode case conversion can *expand* a single letter — `ß`.toUpperCase()
  *  is `"SS"`, `İ`.toLowerCase() is `i` + U+0307 — which would paint two
  *  glyphs on a tile sized for one. We re-clamp to the first grapheme cluster
- *  after casing so the rail chip stays exactly one visual glyph. */
+ *  after casing so every monogram / chip half stays exactly one visual glyph. */
 function caseToOneGlyph(glyph: string, mode: "upper" | "lower"): string {
   const cased = mode === "upper" ? glyph.toUpperCase() : glyph.toLowerCase();
   return firstGrapheme(cased) || cased;
 }
 
+/** One-glyph monogram for a repo `group` (git repo name or cwd basename).
+ *
+ *  Prefers the first alphanumeric in any script, uppercased (`"kolu"` →
+ *  `"K"`, `"répo"` → `"R"`, `".dotfiles"` → `"D"`). When there is none —
+ *  home `~`, pure punctuation — falls through to the first grapheme as-is
+ *  so the tile still carries identity rather than a generic `?`. Empty
+ *  string is the only path to `?`. */
+export function repoMonogram(group: string): string {
+  const alnum = group.match(ALPHANUM)?.[0];
+  if (alnum) return caseToOneGlyph(alnum, "upper");
+  const lead = firstGrapheme(group.normalize("NFC"));
+  return lead || "?";
+}
+
 /** Two-glyph rail-chip label.
  *
- *  - `repo` — first alphanumeric char of `info.key.group` in any script,
- *    uppercased (`"kolu"` → `"K"`, `"répo"` → `"R"`). Repo names don't carry
- *    emoji, so the alphanumeric-only match is intentional here.
+ *  - `repo` — `repoMonogram(info.key.group)` (shared with cards headers).
  *  - `sub` — first grapheme of the intent's display line (line 1, with
  *    leading markdown chrome stripped) when the intent is set;
  *    lowercased when it's a unicode letter or digit (`\p{L}`/`\p{N}`),
@@ -57,8 +68,7 @@ export function chipInitials(
   meta: TerminalMetadata,
   info: TerminalDisplayInfo,
 ): { repo: string; sub: string; subIsGlyph: boolean } {
-  const repoChar = info.key.group.match(ALPHANUM)?.[0] ?? "?";
-  const repo = caseToOneGlyph(repoChar, "upper");
+  const repo = repoMonogram(info.key.group);
   const branchTail = info.key.label.split("/").pop() ?? "";
   // Compose to NFC so a decomposed accented lead (`e` + U+0301) classifies as
   // one letter rather than falling through to the glyph branch.

@@ -568,62 +568,114 @@ body {
 }
 
 /* ── Cards-mode repo section ───────────────────────────────────
- * Repo identity carried by two high-mass surfaces instead of one
- * 9.6 px label: a continuous left-edge SPINE in the repo colour
- * that runs the section's full height (header + every row), and a
- * faintly repo-tinted, STICKY header band that pins to the top of
- * the scrollport until the next repo's header pushes it off — so
- * "which repo is this row?" is answerable at a glance and survives
- * the scroll. `--repo-color` is set inline per-section from
- * `group.color` — the same socket the rail chip and rail divider
- * read — so every repo-tinted dock surface shares one literal name.
+ * Repo identity is a CARD, not a pastel band: each section is a rounded
+ * container with air between siblings (`.dock-cards-stack`), a thick
+ * left SPINE in the repo colour, a solid monogram tile, and a sticky
+ * header wash strong enough that eight repos in a fleet stay scannable
+ * under a squint. `--repo-color` is set inline per-section from
+ * `group.color` — the same socket the rail chip and rail divider read —
+ * so every repo-tinted dock surface shares one literal name.
  *
- * The spine sits at the section's outer edge (x 0–3); the active
- * row's own accent stripe sits just inside it (x 3–6), so an active
- * row reads as "active (accent) AND in this repo (spine)" without the
- * two cues overlapping. That non-overlap depends on the two widths
- * being equal, so both read `--dock-edge-stripe-w` (defined below) —
- * the single token is the anchor: the spine here, and the rows'
- * `border-l-[length:var(--dock-edge-stripe-w)]` left stripe in
- * Dock.tsx / DockList.tsx. Change it in one place and the
- * x0-3 / x3-6 alignment stays honoured everywhere.
+ * The spine sits at the section's outer edge; the active row's own
+ * accent stripe sits just inside it (after the section's left padding),
+ * so an active row reads as "active (accent) AND in this repo (spine)"
+ * without the two cues overlapping. That non-overlap depends on the two
+ * widths being equal, so both read `--dock-edge-stripe-w` (defined
+ * below) — the single token is the anchor: the spine here, and the rows'
+ * `border-l-[length:var(--dock-edge-stripe-w)]` left stripe in Dock.tsx
+ * / DockList.tsx. Change it in one place and the alignment stays
+ * honoured everywhere.
  *
- * Custom CSS (not Tailwind utilities): the tint formula and the
- * spine colour both interpolate the per-section `var(--repo-color)`,
- * which Tailwind's static utilities can't express — same exception
- * the rail chip below takes. */
+ * Custom CSS (not Tailwind utilities): the tint formula and the spine
+ * colour both interpolate the per-section `var(--repo-color)`, which
+ * Tailwind's static utilities can't express — same exception the rail
+ * chip below takes.
+ *
+ * Attention (violet asking / amber unread) is a SEPARATE channel on the
+ * row — deliberately louder than repo identity. Repo paint is ambient
+ * structure; obligation is interrupt. */
 :root {
-  --dock-edge-stripe-w: 3px;
+  --dock-edge-stripe-w: 5px;
+  /* Darker ink for the section name: pastel `oklch(0.75 0.14 …)` on a
+   * light surface fails the squint test; mixing toward black keeps the
+   * hue while landing readable weight. */
+  --dock-repo-ink: color-mix(in oklch, var(--repo-color) 82%, black);
+}
+/* Vertical air between repo cards — structure does half the grouping
+ * work colour alone cannot. Horizontal inset keeps card edges off the
+ * scrollport chrome. */
+/* No stack fill: a second surface under the cards reads as nested
+ * chrome (dock → tray → card) and steals contrast from the monogram/
+ * spine without buying more grouping. Gap + card border do the
+ * separation; the dock's own surface is the ground. */
+.dock-cards-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 8px 10px;
 }
 .dock-cards-section {
+  border: 1px solid
+    color-mix(in oklab, var(--repo-color) 22%, var(--color-edge));
   border-left: var(--dock-edge-stripe-w) solid var(--repo-color);
+  border-radius: 10px;
+  background: var(--color-surface-1);
+  box-shadow:
+    0 1px 0 color-mix(in oklab, var(--repo-color) 8%, transparent),
+    0 1px 2px color-mix(in oklab, var(--color-fg) 4%, transparent);
+  /* No overflow:clip/hidden — that would trap `position: sticky` inside
+   * the section and break the header pin to the dock scrollport. */
 }
-/* Sticky header band — a quiet repo wash (opaque enough for scroll-under)
- * plus a hairline that borrows a hint of the repo colour so sections
- * separate without a hard edge. */
+/* Sticky header band — a readable repo wash (was 9%; that dissolved
+ * eight hues into the same off-white) plus a hairline that borrows the
+ * repo colour so the pinned header still reads as "this repo" when it
+ * covers foreign rows. Top radii match the card so the pinned band
+ * keeps the rounded corners without needing section overflow. */
 .dock-cards-section-header {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: color-mix(in oklab, var(--repo-color) 9%, var(--color-surface-1));
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--repo-color) 26%, var(--color-surface-1)) 0%,
+    color-mix(in oklab, var(--repo-color) 12%, var(--color-surface-1)) 100%
+  );
   border-bottom: 1px solid
-    color-mix(in oklab, var(--repo-color) 18%, var(--color-edge));
+    color-mix(in oklab, var(--repo-color) 28%, var(--color-edge));
 }
-/* Solid colour swatch — a 7×7 mark that anchors the section without the
- * old filled-name chip. Spine + swatch + tinted band = three echoes of
- * the same repo colour at different scales. */
-.dock-cards-section-swatch {
+/* Monogram tile — solid repo colour + first letter. Replaces the old
+ * 7×7 swatch: area is what peripheral vision catches (same lesson as
+ * the attention row wash). Glyph comes from `repoMonogram()` so rail
+ * chips and section headers share one fold. */
+.dock-cards-section-monogram {
   flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  background: var(--repo-color);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--repo-color) 35%, transparent);
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  /* Repo colours are pastel (`oklch(0.75 0.14 …)`); pure white-on-pastel
+   * fails contrast. Darken the fill so the glyph stays legible while
+   * the hue still matches the spine / name. */
+  color: #fff;
+  background: color-mix(in oklch, var(--repo-color) 72%, black);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 22%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--repo-color) 35%, black);
+  text-shadow: 0 1px 0 color-mix(in oklab, black 22%, transparent);
 }
-/* Repo name — uppercase mono label in the repo colour. Weight + tracking
- * do the identity work; the swatch and band do the grouping. */
+/* Repo name — uppercase mono in the darker repo ink so pastel hues
+ * still read on a light surface. Weight + tracking do the identity
+ * work; monogram + band + spine do the grouping. */
 .dock-cards-section-name {
-  color: var(--repo-color);
+  color: var(--dock-repo-ink);
 }
 /* Terminal count — deliberately BARE quiet type, no capsule: the capsule
  * silhouette is reserved for the actionable attention counts (the header's
@@ -634,6 +686,20 @@ body {
   flex: none;
   font-variant-numeric: tabular-nums;
   color: var(--color-fg-3);
+}
+/* Dark mode: lift the wash a notch so the card doesn't read as sludge
+ * over near-black — same pattern as the attention row washes below. */
+:root.dark .dock-cards-section-header {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--repo-color) 32%, var(--color-surface-1)) 0%,
+    color-mix(in oklab, var(--repo-color) 16%, var(--color-surface-1)) 100%
+  );
+}
+:root.dark .dock-cards-section-name {
+  /* On dark surfaces the raw repo colour already has contrast; ink
+   * toward black would muddy it. Prefer a lightened mix. */
+  color: color-mix(in oklch, var(--repo-color) 72%, white);
 }
 /* Branch / intent label on a cards row — slightly denser than body text so
  * the primary line reads as the row title; colour still comes from the

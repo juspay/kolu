@@ -31,6 +31,7 @@ import {
   DOCK_ROW_GRID,
   SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
+import { repoMonogram } from "./chipInitials";
 import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import { encActiveHost } from "../../wire";
@@ -52,11 +53,13 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
         </span>
       </div>
       <div class="flex-1 min-h-0 overflow-y-auto">
-        <For each={tree().groups}>
-          {(group) => (
-            <DockListSection group={group} onSelect={props.onSelect} />
-          )}
-        </For>
+        <div class="dock-cards-stack">
+          <For each={tree().groups}>
+            {(group) => (
+              <DockListSection group={group} onSelect={props.onSelect} />
+            )}
+          </For>
+        </div>
       </div>
       <HiddenFooter
         hiddenCount={tree().hiddenCount}
@@ -69,12 +72,10 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
   );
 }
 
-/** Repo section — a repo-colored left-edge spine plus a faintly
- *  repo-tinted sticky header (uppercase name + row count) over the
- *  group's rows, sharing the desktop dock's `.dock-cards-section*`
- *  classes so both surfaces carry one repo-identity vocabulary.
- *  Always rendered, matching the desktop dock's "section headers
- *  always on" policy. */
+/** Repo section — monogram + spine + sticky header over the group's
+ *  rows, sharing the desktop dock's `.dock-cards-section*` classes so
+ *  both surfaces carry one repo-identity vocabulary. Always rendered,
+ *  matching the desktop dock's "section headers always on" policy. */
 function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
@@ -104,12 +105,18 @@ function DockListSection(props: {
     >
       <div
         data-testid="mobile-dock-section-header"
-        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2.5"
+        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5"
       >
-        <span class="dock-cards-section-swatch" aria-hidden="true" />
+        <span
+          class="dock-cards-section-monogram"
+          aria-hidden="true"
+          data-testid="mobile-dock-section-monogram"
+        >
+          {repoMonogram(props.group.name)}
+        </span>
         <span
           data-testid="mobile-dock-section-name"
-          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
+          class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
         >
           {props.group.name}
         </span>

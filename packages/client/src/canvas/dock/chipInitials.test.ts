@@ -1,7 +1,7 @@
 import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { chipInitials } from "./chipInitials";
+import { chipInitials, repoMonogram } from "./chipInitials";
 
 function info(group: string, label: string): TerminalDisplayInfo {
   return {
@@ -128,9 +128,11 @@ describe("chipInitials", () => {
     });
   });
 
-  it("falls back to ? when repo and branch are unrenderable", () => {
+  it("falls back to first grapheme when repo has no alphanumeric", () => {
+    // Pure punctuation used to become `?`; the monogram now keeps the
+    // lead grapheme so `~` home and similar names still carry identity.
     expect(chipInitials(meta(), info("---", ""))).toEqual({
-      repo: "?",
+      repo: "-",
       sub: "?",
       subIsGlyph: false,
     });
@@ -189,5 +191,32 @@ describe("chipInitials", () => {
     // İ→ lowercased is the single grapheme cluster `i̇`; one visual glyph.
     expect([...subExpand.sub.normalize("NFC")].length).toBeLessThanOrEqual(2);
     expect(subExpand.subIsGlyph).toBe(false);
+  });
+});
+
+describe("repoMonogram", () => {
+  it("uppercases the first alphanumeric of a repo name", () => {
+    expect(repoMonogram("kolu")).toBe("K");
+    expect(repoMonogram("spacetime")).toBe("S");
+  });
+
+  it("skips leading punctuation to the first letter", () => {
+    expect(repoMonogram(".dotfiles")).toBe("D");
+  });
+
+  it("keeps a non-alphanumeric lead grapheme (home ~)", () => {
+    expect(repoMonogram("~")).toBe("~");
+  });
+
+  it("returns ? only for an empty group", () => {
+    expect(repoMonogram("")).toBe("?");
+  });
+
+  it("matches chipInitials.repo for the same group", () => {
+    for (const group of ["kolu", "~", ".dotfiles", "日本語", "ßeta"]) {
+      expect(chipInitials(meta(), info(group, "main")).repo).toBe(
+        repoMonogram(group),
+      );
+    }
   });
 });
