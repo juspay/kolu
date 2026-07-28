@@ -18,7 +18,7 @@ renders the committed `docs/atlas/dist/<slug>.html`. Sync rules:
 title: Title in Title Case
 description: One line — what this note is about.
 parents: [feature]     # REQUIRED — the one filing edge. A category (bug · feature · analysis · reference) is itself a note marked `moc: true`; there is no `kind` field. List the index note and/or topical hubs, e.g. [solid-fileview, feature].
-status: proposed       # optional — proposed → accepted → implemented → superseded
+status: proposed       # optional — proposed → accepted → implemented (features then archive — see §4)
 maturity: seedling     # seedling → budding → evergreen (a tag, not a location)
 updated: <YYYY-MM-DD>  # date of the last meaningful edit
 ---
@@ -74,6 +74,24 @@ proposal is just a note carrying `status: proposed` (see `CONTRIBUTING.md`);
 acceptance flips the status, not its `parents` (the index parent was right from
 the start).
 
+- **A finished *feature* plan is archived, not kept as a page.** When a note filed
+  under `feature` (or any pure feature plan-of-record) reaches `status: implemented`
+  — typically in the same change that ships the last PR or lands the post-ship
+  status flip — **delete the note** and add a **one-line row** to
+  `docs/atlas/src/content/atlas/archived-notes.mdx` (the [Archived notes](https://kolu.dev/atlas/archived-notes.html)
+  hub under `reference`). The row is: former slug · one sentence of what shipped ·
+  where to look now (kolu.dev product docs when the UX is documented there, else a
+  durable electricity/package/pedagogy note, else package path) · implementing
+  `<PrLink>`s. Then: reparent any children that used the deleted slug in `parents`,
+  retarget every `./slug.html` / `](slug)` link in remaining notes (or drop the
+  link and name the archive), delete note-only diagrams under `src/diagrams/`,
+  run `just atlas::build` + stage `docs/atlas/dist/`, and `just atlas::check-sync`.
+  Do **not** leave a finished feature plan as a living page that still reads like
+  a build plan, and do **not** "compact" it into a short current-state page unless
+  the substance is durable reference that belongs under `reference` / `analysis` /
+  `pedagogy` (then rewrite it as that kind of note, with a different parent — not
+  as a finished plan). Implemented **bugs**, **analysis**, and **reference** notes
+  may stay when they still teach (root cause, measurement, how a subsystem works).
 - **A plan-of-record describes current + future work, not the path that got here —
   when you re-plan, *rewrite*, don't layer.** Git already holds the archaeology, so
   superseded phases, abandoned attempts, closed-PR post-mortems, and "what we tried
