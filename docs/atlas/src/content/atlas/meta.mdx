@@ -114,8 +114,9 @@ interactive bits.
 ### Proposals — the contributor intake lane
 
 - A proposal is an Atlas note filed under its **real index** (`parents: [feature]`, `[bug]`, …) carrying **`status: proposed`** — it shows in that index's card, flagged *proposed*. There's no separate proposal category; the status badge *is* the queue. Contributors open an Atlas PR; the flow lives in `CONTRIBUTING.md`.
-- **Accepting = a status flip.** On acceptance a maintainer sets `status: accepted` (then `implemented`); the index parent was right from the start, so nothing moves. The note stays **living** — git is the record, so there's no frozen copy and no separate numbered log.
-- `proposed → accepted → implemented → superseded` is a *lifecycle* (the `status` field); supersession links via `parents` + status. No `docs/proposals/` and no `docs/decisions/` dir needed.
+- **Accepting = a status flip.** On acceptance a maintainer sets `status: accepted` (then `implemented`); the index parent was right from the start, so nothing moves while work is open.
+- **A finished feature plan is archived, not kept as a page.** When a *feature* note reaches `status: implemented`, delete the note and add a one-line entry to [Archived notes](./archived-notes.html). Git is the archaeology; product docs or durable reference/pedagogy notes hold anything still true. Implemented *bugs*, *analysis*, and *reference* notes may stay if they still teach.
+- `proposed → accepted → implemented` (then archive for features) is the lifecycle. No `docs/proposals/` and no `docs/decisions/` dir needed.
 
 ## The component kit
 
