@@ -405,8 +405,6 @@ describe("surface-map mock-entry e2e harness", () => {
           entries.get(k) ?? {
             kind: "fault",
             failure: { cause: "fault", reason: "unknown" },
-            // An unknown key produced no output — `[]` is the honest fact.
-            evidence: [],
           },
       };
       entries.set(A, { kind: "session", link: slowLink, state: connected(0) });
@@ -525,8 +523,6 @@ describe("surface-map mock-entry e2e harness", () => {
           entries.get(k) ?? {
             kind: "fault",
             failure: { cause: "fault", reason: "unknown" },
-            // An unknown key produced no output — `[]` is the honest fact.
-            evidence: [],
           },
       };
       const fire = () => {
@@ -937,8 +933,6 @@ function armableRegistry() {
         entries.get(k) ?? {
           kind: "fault",
           failure: { cause: "fault", reason: "unknown key" },
-          // An unknown key produced no output — `[]` is the honest fact.
-          evidence: [],
         }
       );
     },
@@ -1532,8 +1526,6 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
         entries.get(k.name) ?? {
           kind: "fault",
           failure: { cause: "fault", reason: "unknown" },
-          // An unknown key produced no output — `[]` is the honest fact.
-          evidence: [],
         },
     };
     return {

@@ -13,11 +13,12 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { entryStatusSchema, MembershipIdSchema } from "./define";
+import { entryStatusSchema } from "./define";
+import { testMembershipId } from "./testing";
 
 const failureSchema = z.object({ cause: z.string(), reason: z.string() });
 const statusSchema = entryStatusSchema(failureSchema);
-const membershipId = MembershipIdSchema.parse("m1");
+const membershipId = testMembershipId("m1");
 const failure = { cause: "remote-store-build-failed", reason: "build failed" };
 
 describe("entryStatusSchema — the failed arm requires its evidence", () => {
