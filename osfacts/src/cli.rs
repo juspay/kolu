@@ -9,7 +9,7 @@ pub enum Command {
     Host(HostArgs),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SnapshotArgs {
     pub scope: Scope,
     pub procs: bool,
@@ -24,7 +24,7 @@ pub struct SnapshotArgs {
     pub json: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct HostArgs {
     pub load: bool,
     pub mem: bool,
@@ -34,8 +34,11 @@ pub struct HostArgs {
     pub json: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Scope {
+    /// No scope flag: the whole host. The CLI's own default, stated here so
+    /// `SnapshotArgs` can start from `Default` instead of a positional tuple.
+    #[default]
     Host,
     Roots(Vec<u32>),
     Pids(Vec<u32>),
@@ -81,20 +84,11 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
 
 fn parse_snapshot(parser: &mut lexopt::Parser) -> Result<SnapshotArgs, CliError> {
     let (mut roots, mut pids) = (None, None);
-    let (
-        mut procs,
-        mut ports,
-        mut mem,
-        mut start_time,
-        mut cpu_time,
-        mut uid,
-        mut cwd,
-        mut status,
-        mut argv,
-        mut json,
-    ) = (
-        false, false, false, false, false, false, false, false, false, false,
-    );
+    // Start from `Default` and set fields by name. The ten positional `bool`s
+    // this replaces could be inserted at the wrong offset and swap two facets
+    // with no type error and no test failure — a wrong-facet snapshot at
+    // runtime, from a change that looked mechanical.
+    let mut out = SnapshotArgs::default();
     while let Some(arg) = parser.next().map_err(lex)? {
         match arg {
             Long("roots") => {
@@ -113,74 +107,63 @@ fn parse_snapshot(parser: &mut lexopt::Parser) -> Result<SnapshotArgs, CliError>
                 }
                 pids = Some(parse_pid_list(&parser.value().map_err(lex)?)?);
             }
-            Long("procs") => procs = true,
-            Long("ports") => ports = true,
-            Long("mem") => mem = true,
-            Long("start-time") => start_time = true,
-            Long("cpu-time") => cpu_time = true,
-            Long("uid") => uid = true,
-            Long("cwd") => cwd = true,
-            Long("status") => status = true,
-            Long("argv") => argv = true,
-            Long("json") => json = true,
+            Long("procs") => out.procs = true,
+            Long("ports") => out.ports = true,
+            Long("mem") => out.mem = true,
+            Long("start-time") => out.start_time = true,
+            Long("cpu-time") => out.cpu_time = true,
+            Long("uid") => out.uid = true,
+            Long("cwd") => out.cwd = true,
+            Long("status") => out.status = true,
+            Long("argv") => out.argv = true,
+            Long("json") => out.json = true,
             Short('h') | Long("help") => return Err(CliError::Help(HELP.into())),
             _ => return Err(CliError::Usage(format!("unexpected argument\n\n{HELP}"))),
         }
     }
-    if !procs && !ports && !mem && !start_time && !cpu_time && !uid && !cwd && !status && !argv {
+    if !out.procs
+        && !out.ports
+        && !out.mem
+        && !out.start_time
+        && !out.cpu_time
+        && !out.uid
+        && !out.cwd
+        && !out.status
+        && !out.argv
+    {
         return Err(CliError::Usage(format!(
             "at least one snapshot facet required\n\n{HELP}"
         )));
     }
-    let scope = match (roots, pids) {
+    out.scope = match (roots, pids) {
         (None, None) => Scope::Host,
         (Some(v), None) => Scope::Roots(v),
         (None, Some(v)) => Scope::Pids(v),
         _ => unreachable!(),
     };
-    Ok(SnapshotArgs {
-        scope,
-        procs,
-        ports,
-        mem,
-        start_time,
-        cpu_time,
-        uid,
-        cwd,
-        status,
-        argv,
-        json,
-    })
+    Ok(out)
 }
 
 fn parse_host(parser: &mut lexopt::Parser) -> Result<HostArgs, CliError> {
-    let (mut load, mut mem, mut cpu, mut net, mut disk, mut json) =
-        (false, false, false, false, false, false);
+    let mut out = HostArgs::default();
     while let Some(arg) = parser.next().map_err(lex)? {
         match arg {
-            Long("load") => load = true,
-            Long("mem") => mem = true,
-            Long("cpu") => cpu = true,
-            Long("net") => net = true,
-            Long("disk") => disk = true,
-            Long("json") => json = true,
+            Long("load") => out.load = true,
+            Long("mem") => out.mem = true,
+            Long("cpu") => out.cpu = true,
+            Long("net") => out.net = true,
+            Long("disk") => out.disk = true,
+            Long("json") => out.json = true,
             Short('h') | Long("help") => return Err(CliError::Help(HELP.into())),
             _ => return Err(CliError::Usage(format!("unexpected argument\n\n{HELP}"))),
         }
     }
-    if !load && !mem && !cpu && !net && !disk {
+    if !out.load && !out.mem && !out.cpu && !out.net && !out.disk {
         return Err(CliError::Usage(format!(
             "at least one host facet required\n\n{HELP}"
         )));
     }
-    Ok(HostArgs {
-        load,
-        mem,
-        cpu,
-        net,
-        disk,
-        json,
-    })
+    Ok(out)
 }
 
 fn parse_pid_list(raw: &std::ffi::OsStr) -> Result<Vec<u32>, CliError> {
