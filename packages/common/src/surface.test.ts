@@ -48,6 +48,11 @@ describe("shuffleMode", () => {
     expect(shuffleMode("auto", true)).toBe("dark");
     expect(shuffleMode("auto", false)).toBe("light");
   });
+
+  it("colourful is independent of app light/dark", () => {
+    expect(shuffleMode("colourful", true)).toBe("colourful");
+    expect(shuffleMode("colourful", false)).toBe("colourful");
+  });
 });
 
 describe("PadiConvergenceSchema — a discriminated union: build fields can't disagree with state", () => {

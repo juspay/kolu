@@ -106,9 +106,28 @@ const L_DOWNWEIGHT = 3;
  *  "garish". */
 const MAX_CANDIDATE_CHROMA = 0.08;
 
+/** Minimum background chroma for `mode: "colourful"`. Below this the bg reads
+ *  grey / near-monochrome; at-or-above is a usable saturated tint. Tuned on
+ *  the ghostty catalogue so colourful is a large non-empty subset while
+ *  pure greys (Wryan, many Black Metal greys, Spacegray) stay out. */
+const MIN_COLOURFUL_CHROMA = 0.02;
+
 function chroma(lab: OkLab): number {
   return Math.sqrt(lab.a * lab.a + lab.b * lab.b);
 }
+
+/** True when the theme's background has enough chroma to count as "colourful"
+ *  (not grey). Exported for the test suite. */
+export function themeColourful(t: NamedTheme): boolean {
+  const bg = t.theme.background;
+  const lab = bg ? getLab(bg) : undefined;
+  if (!lab) return false;
+  const c = chroma(lab);
+  return c >= MIN_COLOURFUL_CHROMA && c <= MAX_CANDIDATE_CHROMA;
+}
+
+/** Pool filter passed to {@link pickTheme}. */
+export type ThemePickMode = "light" | "dark" | "colourful";
 
 /** Anisotropic OkLab distance — luminance is scaled down so the picker
  *  prefers hue spread over luminance swaps. Exported for the test suite. */
@@ -123,16 +142,17 @@ export function okLabDistance(x: OkLab, y: OkLab): number {
  *  exhausted request never silently reintroduces a *worse* theme than the one
  *  constraint it couldn't satisfy. The quality gate (parseable, in-gamut — not
  *  garish) is ALWAYS required; distinctness (`excludeBgs`) is kept longer than
- *  the luminance `mode`, which is dropped first. So a `mode: "dark"` request
- *  that runs out of dark themes yields a *light* theme (family relaxed) before
- *  it would ever yield a garish or duplicate one — never all constraints at
- *  once. Only a degenerate catalogue with no in-gamut theme falls through to
- *  the raw list, preserving the non-emptiness type guarantee. The `??` chain
- *  short-circuits, so the common (non-empty) case runs just the first filter. */
+ *  the pool `mode` (light/dark/colourful), which is dropped first. So a
+ *  `mode: "dark"` request that runs out of dark themes yields a *light* theme
+ *  (family relaxed) before it would ever yield a garish or duplicate one —
+ *  never all constraints at once. Only a degenerate catalogue with no
+ *  in-gamut theme falls through to the raw list, preserving the non-emptiness
+ *  type guarantee. The `??` chain short-circuits, so the common (non-empty)
+ *  case runs just the first filter. */
 function filterEligible(
   candidates: NonEmpty<NamedTheme>,
   excludeBgs?: Set<string>,
-  mode?: "light" | "dark",
+  mode?: ThemePickMode,
 ): NonEmpty<NamedTheme> {
   // Quality gate — never relaxed except in a degenerate catalogue.
   const quality = candidates.filter((t) => {
@@ -141,15 +161,16 @@ function filterEligible(
     const lab = getLab(bg);
     return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
   });
-  const inFamily = (t: NamedTheme): boolean => {
+  const inMode = (t: NamedTheme): boolean => {
     if (!mode) return true;
+    if (mode === "colourful") return themeColourful(t);
     const lab = getLab(t.theme.background ?? "");
     return lab !== undefined && labFamily(lab) === mode;
   };
   const notExcluded = (t: NamedTheme): boolean =>
     !excludeBgs?.has(t.theme.background ?? "");
   return (
-    nonEmpty(quality.filter((t) => notExcluded(t) && inFamily(t))) ??
+    nonEmpty(quality.filter((t) => notExcluded(t) && inMode(t))) ??
     nonEmpty(quality.filter(notExcluded)) ??
     nonEmpty(quality) ??
     candidates
@@ -169,7 +190,7 @@ function pickSpread(
   candidates: NonEmpty<NamedTheme>,
   peerBgs: string[],
   rand: () => number,
-  mode?: "light" | "dark",
+  mode?: ThemePickMode,
 ): string {
   const pool = filterEligible(candidates, undefined, mode);
   const peerLabs: OkLab[] = [];
@@ -214,7 +235,7 @@ function pickShuffle(
   candidates: NonEmpty<NamedTheme>,
   excludeBgs: string[],
   rand: () => number,
-  mode?: "light" | "dark",
+  mode?: ThemePickMode,
 ): string {
   const pool = filterEligible(candidates, new Set(excludeBgs), mode);
   const idx = Math.floor(rand() * pool.length);
@@ -232,8 +253,8 @@ function pickShuffle(
  *
  * Both modes reject candidates with unparseable backgrounds or chroma
  * above {@link MAX_CANDIDATE_CHROMA}, and — when `mode` is set — restrict the
- * pool to that light/dark family, falling back to the full list when filtering
- * leaves nothing.
+ * pool to that light/dark family or to colourful (saturated) tints, falling
+ * back to the quality-gated list when the mode filter leaves nothing.
  *
  * Caller must pass a non-empty candidates list — empty is a compile error.
  */
@@ -244,13 +265,13 @@ export function pickTheme(
         spread: true;
         peerBgs: string[];
         rand?: () => number;
-        mode?: "light" | "dark";
+        mode?: ThemePickMode;
       }
     | {
         spread?: false;
         excludeBgs: string[];
         rand?: () => number;
-        mode?: "light" | "dark";
+        mode?: ThemePickMode;
       },
 ): string {
   const rand = config.rand ?? Math.random;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { hexToOkLab, okLabDistance, pickTheme, themeMode } from "./picker";
+import {
+  hexToOkLab,
+  okLabDistance,
+  pickTheme,
+  themeColourful,
+  themeMode,
+} from "./picker";
 import { availableThemes, type NamedTheme } from "./theme";
 
 function mk(name: string, background: string): NamedTheme {
@@ -314,6 +320,36 @@ describe("pickTheme – mode restriction", () => {
     expect(["D1", "D2"]).toContain(
       pickTheme(allDark, { spread: true, peerBgs: [], mode: "light" }),
     );
+  });
+
+  it("colourful mode picks only saturated (non-grey) backgrounds", () => {
+    // Pure greys have ~0 chroma; a deep blue bg is colourful under the floor.
+    const mixed: NonEmptyThemes = [
+      mk("Grey", "#222222"),
+      mk("Blue", "#102040"),
+      mk("Grey2", "#333333"),
+      mk("Teal", "#0a2a28"),
+    ];
+    for (const r of [0, 0.3, 0.6, 0.99]) {
+      expect(["Blue", "Teal"]).toContain(
+        pickTheme(mixed, {
+          excludeBgs: [],
+          mode: "colourful",
+          rand: () => r,
+        }),
+      );
+    }
+  });
+
+  it("colourful pool is a non-trivial subset of the real catalogue", () => {
+    let colourful = 0;
+    let grey = 0;
+    for (const t of availableThemes) {
+      if (themeColourful(t)) colourful++;
+      else if (themeMode(t) !== undefined) grey++;
+    }
+    expect(colourful).toBeGreaterThan(20);
+    expect(grey).toBeGreaterThan(10);
   });
 
   it("relaxes only the family — never quality or distinctness — when a family is empty", () => {
