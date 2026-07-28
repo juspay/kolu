@@ -46,7 +46,7 @@ let
     then
       throw
         ("${label}: ${toString flakeNix} must declare a non-empty "
-          + "nixConfig.${lib.concatStringsSep " (or nixConfig." names}) "
+          + "${lib.concatMapStringsSep " or " (n: "nixConfig.${n}") names} "
           + "— @kolu/surface-remote provisioning fetches the agent closure from "
           + "the caches baked into ${fileName} and refuses an agent source "
           + "without them")
@@ -58,10 +58,10 @@ rec {
   substituters = require [ "extra-substituters" "substituters" ];
   trustedPublicKeys = require [ "extra-trusted-public-keys" "trusted-public-keys" ];
 
-  # The wire form, and the ONE way to write it. `installToOut` is spliced into a
-  # `runCommand` that has `$out` in scope; `json` is what a non-derivation
-  # writer (the examples' dev-path justfile) evaluates.
+  # The wire form: a NAME and its CONTENTS, nothing about how they get written.
+  # Both writers — `mkAgentSourceTree`'s derivation and the examples' dev-path
+  # justfile — take these two values and use their own mechanism, so this stays
+  # a pure value module with no `$out`-in-scope shell convention baked in.
   inherit fileName;
   json = builtins.toJSON { inherit substituters trustedPublicKeys; };
-  installToOut = ''printf '%s' ${lib.escapeShellArg json} > "$out/${fileName}"'';
 }

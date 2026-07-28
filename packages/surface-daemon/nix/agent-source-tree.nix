@@ -22,9 +22,14 @@ let
   binaryCache = import ./binary-cache.nix { inherit lib; } {
     inherit flakeNix label;
   };
-  writeExtra = lib.concatStringsSep "\n" (lib.mapAttrsToList
+  # The sidecar is just another root file, so it rides the SAME writer as the
+  # caller's extras rather than carrying its own copy of the shell line. One
+  # expression escapes and writes; a change to how files land (a subdirectory,
+  # an `install -m`) is one edit.
+  rootFiles = { ${binaryCache.fileName} = binaryCache.json; } // extraFiles;
+  writeFiles = lib.concatStringsSep "\n" (lib.mapAttrsToList
     (file: text: ''printf '%s' ${lib.escapeShellArg text} > "$out/${file}"'')
-    extraFiles);
+    rootFiles);
 in
 # Store sources are mode-readonly — chmod before writing anything on top.
 pkgs.runCommand name { } ''
@@ -32,6 +37,5 @@ pkgs.runCommand name { } ''
   cp -a ${src}/. "$out/"
   chmod -R u+w "$out"
   cp ${flakeNix} "$out/flake.nix"
-  ${binaryCache.installToOut}
-  ${writeExtra}
+  ${writeFiles}
 ''

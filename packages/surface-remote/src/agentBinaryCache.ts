@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { ResolveDrvError } from "./host";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import { err, ok, type Result } from "neverthrow";
+import { z } from "zod";
 
 /** The binary-cache declaration `mkProvenAgentSource` writes next to the baked
  * flake's `commit-hash` — derived from the agent flake's own `nixConfig`, so
@@ -60,30 +61,31 @@ export interface AgentBinaryCache {
  *  provenance — a baked sidecar, or a direct-drv caller's own literal. A
  *  declaration with no substituter, no trusted key, or a blank entry is exactly
  *  the cache-blind provisioning path {@link AgentBinaryCache} exists to make
- *  unspellable, so it never becomes a value. */
+ *  unspellable, so it never becomes a value.
+ *
+ *  Declared as a schema rather than hand-rolled predicates: `zod` is already
+ *  this package's validation vocabulary (see `connection.ts`), `.trim()` makes
+ *  the value that PASSES the gate the value nix receives (an untrimmed
+ *  " https://cache…" would otherwise satisfy "non-blank" and then fail at
+ *  `nix copy` looking like a cache miss), and a field added later is one line
+ *  here instead of another hand-written check. */
+const AgentBinaryCacheSchema = z.object({
+  substituters: z.array(z.string().trim().min(1)).min(1),
+  trustedPublicKeys: z.array(z.string().trim().min(1)).min(1),
+});
+
 export function agentBinaryCache(raw: {
   substituters?: unknown;
   trustedPublicKeys?: unknown;
 }): AgentBinaryCache {
-  // TRIM as part of validating: the value that passes the gate is the value nix
-  // receives. Keeping the untrimmed string would let " https://cache…" satisfy
-  // "non-blank" and then fail at `nix copy` in a way that reads as a cache miss.
-  const list = (v: unknown): readonly string[] | null =>
-    Array.isArray(v) &&
-    v.length > 0 &&
-    v.every((s) => typeof s === "string" && s.trim().length > 0)
-      ? (v as readonly string[]).map((s) => s.trim())
-      : null;
-  const substituters = list(raw.substituters);
-  const trustedPublicKeys = list(raw.trustedPublicKeys);
-  if (substituters === null || trustedPublicKeys === null) {
+  const parsed = AgentBinaryCacheSchema.safeParse(raw);
+  if (!parsed.success) {
     throw new Error(
-      "agent binary cache must name at least one substituter and one trusted public key — an empty declaration would leave provisioning cache-blind",
+      `agent binary cache must name at least one substituter and one trusted public key — an empty declaration would leave provisioning cache-blind (${z.prettifyError(parsed.error).replace(/\s+/g, " ").trim()})`,
     );
   }
   return {
-    substituters,
-    trustedPublicKeys,
+    ...parsed.data,
     [agentBinaryCacheBrand]: "agent-binary-cache",
   };
 }
@@ -146,22 +148,14 @@ export function readBakedBinaryCache(
       ),
     );
   }
-  const file = `${local}/${AGENT_BINARY_CACHE_FILE}`;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
-  } catch (cause) {
-    return err(
-      new AgentBinaryCacheUnbakedError(
-        flakeRef,
-        cause instanceof Error ? cause.message : String(cause),
-      ),
-    );
-  }
+  // One try/catch for read + parse + validate: the three throw for different
+  // reasons but produce the SAME fault, and `cause.message` already carries
+  // which one it was ("ENOENT…" vs "Unexpected token…" vs "must name at least
+  // one substituter…"). Splitting them only duplicated the wrapper.
   try {
     return ok(
       agentBinaryCache(
-        parsed as { substituters?: unknown; trustedPublicKeys?: unknown },
+        JSON.parse(readFileSync(`${local}/${AGENT_BINARY_CACHE_FILE}`, "utf8")),
       ),
     );
   } catch (cause) {

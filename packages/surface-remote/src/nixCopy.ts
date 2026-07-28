@@ -537,25 +537,119 @@ async function shipAgentClosure(opts: {
   return "missed";
 }
 
-/** Is `outPath` valid in the LOCAL store right now? A pure store query — the
- *  same cheap, never-substituting question step 1 asks the host, asked here of
- *  ourselves. Used to decide whether there is anything to ship after a total
- *  prefetch miss (a warm binder store legitimately already holds the closure).
+/** Is `outPath` valid in `host`'s store right now? The pure, never-substituting
+ *  store query, asked at EITHER seat: `buildSshProbeCommand` already erases the
+ *  local/remote difference (it returns the bare command for a local host), so
+ *  the same question does not need two implementations that can drift.
  *
  *  Three outcomes, not two: an ABORTED probe is not an absent closure. Folding
  *  it into `false` would narrate "no local copy of the agent to ship" for a dial
  *  the user just cancelled — a false statement about the store, and the same
- *  class of lie the other copy steps take care to avoid. */
-async function localValidity(
+ *  class of lie the other copy steps take care to avoid.
+ *
+ *  `onProgress` is optional because the two seats differ in what the caller
+ *  wants from the output: the remote warm check scans its stderr for transport
+ *  evidence, while the local probe has nothing to say. */
+async function checkValidity(
+  host: string,
   outPath: string,
-  signal: AbortSignal | undefined,
+  opts: {
+    signal: AbortSignal | undefined;
+    onProgress?: (line: string) => void;
+  },
 ): Promise<"valid" | "absent" | "aborted"> {
-  const res = await runCapture("nix-store", ["--check-validity", outPath], {
+  const probe = buildSshProbeCommand(
+    host,
+    "nix-store",
+    "--check-validity",
+    outPath,
+  );
+  const res = await runCapture(probe.command, probe.args, {
+    ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
     policy: probePolicy(),
-    signal,
+    signal: opts.signal,
   });
   if (res.ok) return "valid";
   return res.kind === "aborted" ? "aborted" : "absent";
+}
+
+/** Steps 2 and 3 as ONE decision: get the agent closure into the target store
+ *  without building it there. Returns a `ProvisionResult` to BAIL with (the
+ *  `pinGcRoot` idiom this file already uses), or `null` to continue — plus
+ *  whether the target now provably HOLDS the closure, which lets the caller
+ *  skip the cold build entirely.
+ *
+ *  Order matters and is the cheap-question-first order: ask the LOCAL store
+ *  whether it already holds the closure before spending a network `nix copy`
+ *  per declared cache. A warm binder — the common case once anything has been
+ *  built or dialled — then does zero cache work, and only a genuinely absent
+ *  closure pays for the prefetch.
+ *
+ *  Both copies are SPECULATIVE, so they narrate via the caller's RAW progress
+ *  sink — never a scanning wrapper: an unreachable cache's stderr must not set
+ *  `sawNetworkError` and misclassify the required build's failure as retryable
+ *  "network". They also run under their OWN silence bound (`copyPolicy`), never
+ *  the required build's escalated one. */
+async function stageAgentClosure(opts: {
+  host: string;
+  isLocal: boolean;
+  outPath: string;
+  binaryCache: AgentBinaryCache;
+  narrate: (line: string) => void;
+  signal: AbortSignal | undefined;
+}): Promise<{ bail: ProvisionResult | null; onTarget: boolean }> {
+  const cont = (onTarget: boolean): { bail: null; onTarget: boolean } => ({
+    bail: null,
+    onTarget,
+  });
+  let held = await checkValidity("localhost", opts.outPath, {
+    signal: opts.signal,
+  });
+  if (held === "aborted") {
+    return {
+      bail: abortedDuring(opts.host, "the local validity check"),
+      onTarget: false,
+    };
+  }
+  if (held === "absent") {
+    const prefetch = await prefetchAgentClosure({
+      outPath: opts.outPath,
+      binaryCache: opts.binaryCache,
+      narrate: opts.narrate,
+      policy: copyPolicy(),
+      signal: opts.signal,
+    });
+    if (prefetch === "aborted") {
+      return {
+        bail: abortedDuring(opts.host, "the cache prefetch"),
+        onTarget: false,
+      };
+    }
+    held = prefetch === "delivered" ? "valid" : "absent";
+  }
+  // Localhost never ships: the store just checked IS the store the build
+  // realises in, so a hit there is already a hit on the target.
+  if (opts.isLocal) return cont(held === "valid");
+  if (held === "absent") {
+    opts.narrate(
+      "no local copy of the agent to ship — the host will realise it from source",
+    );
+    return cont(false);
+  }
+  const ship = await shipAgentClosure({
+    host: opts.host,
+    outPath: opts.outPath,
+    narrate: opts.narrate,
+    policy: copyPolicy(),
+    signal: opts.signal,
+  });
+  if (ship === "aborted") {
+    return {
+      bail: abortedDuring(opts.host, "the closure ship"),
+      onTarget: false,
+    };
+  }
+  return cont(ship === "delivered");
 }
 
 /** Realise an agent derivation in `$host`'s store and commit its required GC
@@ -608,6 +702,16 @@ export async function provisionAgent(
   };
 
   const rootPath = agentGcRootPath(isLocal, drvPath);
+  // No root path means no rootable agent, and every step below ends at the
+  // required root commit — so fail HERE, where the fact is known, instead of
+  // after a store query, a cache fetch and a build that are all already doomed.
+  if (rootPath === null) {
+    return {
+      ok: false,
+      reason: `${opts.host}: HOME is unset, so the agent GC root path cannot be formed`,
+      cause: "remote",
+    };
+  }
 
   // 0. The derivation's output path, computed LOCALLY (no ssh, no
   //    substitution, instant). Two consumers: the remote warm check (1) asks
@@ -634,9 +738,8 @@ export async function provisionAgent(
   //    owns a temporary root across the handoff; a direct drv-path caller
   //    owns keeping its path valid. Localhost never copies, so the fast-path
   //    is remote-only.
-  if (!isLocal && rootPath !== null) {
-    const agentPath = localAgentPath;
-    if (agentPath === undefined) {
+  if (!isLocal) {
+    if (localAgentPath === undefined) {
       // Step 0's local query missed (GC took the evaluated .drv), so there is
       // no path to ask the host about — say THAT, rather than the line below,
       // which would announce a check that never runs.
@@ -649,24 +752,18 @@ export async function provisionAgent(
       // Ask the host, bounded, whether the output is already valid there. This is a pure
       // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
       // returns non-zero instantly, no fetch).
-      const check = buildSshProbeCommand(
-        opts.host,
-        "nix-store",
-        "--check-validity",
-        agentPath,
-      );
-      const checkRes = await runCapture(check.command, check.args, {
-        onProgress: onProbeProgress,
-        policy: probePolicy(),
-        signal,
-      });
-      if (checkRes.ok) {
+      if (
+        (await checkValidity(opts.host, localAgentPath, {
+          signal,
+          onProgress: onProbeProgress,
+        })) === "valid"
+      ) {
         // Warm hit. The shared root operation is the commit point: only a rooted,
         // still-valid target may short-circuit as success.
         opts.onProvisioning?.();
         const bail = await pinGcRoot(
           opts.host,
-          agentPath,
+          localAgentPath,
           rootPath,
           opts.onProgress,
           budgets.provisioning,
@@ -675,11 +772,57 @@ export async function provisionAgent(
         if (bail) return bail;
         budgets.provisioning.reset();
         onProgress(
-          `${opts.host}: already provisioned at ${agentPath} — skipped copy`,
+          `${opts.host}: already provisioned at ${localAgentPath} — skipped copy`,
         );
-        return { ok: true, agentPath };
+        return { ok: true, agentPath: localAgentPath };
       }
     }
+  }
+
+  // The cold command establishes its own current transport evidence. Do not let
+  // a speculative warm-probe miss poison the classification of this operation.
+  sawNetworkError = false;
+  opts.onProvisioning?.();
+
+  // 2/3. Stage the closure onto the target WITHOUT building it there — the
+  //      whole point of the binary cache (see `stageAgentClosure`). Skipped
+  //      only when the output path is unknown (0 fell through); then the build
+  //      alone owns realisation, exactly as before these steps existed.
+  let onTarget = false;
+  if (localAgentPath !== undefined) {
+    const staged = await stageAgentClosure({
+      host: opts.host,
+      isLocal,
+      outPath: localAgentPath,
+      binaryCache: opts.derivation.binaryCache,
+      narrate: (line) => opts.onProgress(`${opts.host}: ${line}`),
+      signal,
+    });
+    if (staged.bail) return staged.bail;
+    onTarget = staged.onTarget;
+  }
+
+  // 4a. Staged ⇒ the agent output is already valid in the target store, so the
+  //     cold build has nothing left to do but re-derive a path we hold: skip
+  //     it and go straight to the required root commit. This is the same
+  //     short-circuit the warm fast-path takes, reached by a different route —
+  //     and it is where the cache actually pays off, since the build it skips
+  //     is a full flake evaluation plus an ssh-ng round trip.
+  if (onTarget && localAgentPath !== undefined) {
+    const bail = await pinGcRoot(
+      opts.host,
+      localAgentPath,
+      rootPath,
+      opts.onProgress,
+      budgets.provisioning,
+      signal,
+    );
+    if (bail) return bail;
+    budgets.provisioning.reset();
+    onProgress(
+      `${opts.host}: agent staged from the binary cache — no build needed`,
+    );
+    return { ok: true, agentPath: localAgentPath };
   }
 
   // 4. Provision the cold target in ONE Nix process. `--eval-store auto`
@@ -689,69 +832,6 @@ export async function provisionAgent(
   //    lifetime; there is no command boundary at which remote GC can collect the
   //    transferred derivation. Localhost uses the same installable without the
   //    remote-store split.
-  // The cold command establishes its own current transport evidence. Do not let
-  // a speculative warm-probe miss poison the classification of this operation.
-  sawNetworkError = false;
-  opts.onProvisioning?.();
-  // 2/3. Cache prefetch + ship — pull the agent closure into the LOCAL store
-  //     from the derivation's declared caches, then explicitly copy it to the
-  //     target store (the cold build alone would NOT: it copies only the .drv
-  //     closure and the remote substitutes per ITS nix.conf — see
-  //     {@link shipAgentClosure}). Skipped only when the output path is
-  //     unknown (0 fell through) — then the build alone owns realisation,
-  //     exactly as before these steps existed.
-  //
-  //     Both steps are SPECULATIVE, so they narrate via the RAW opts.onProgress
-  //     — never the scanning wrapper: an unreachable cache's stderr must not
-  //     set `sawNetworkError` and misclassify the required build's failure as
-  //     retryable "network" (the same poisoning the reset above exists to
-  //     prevent for the warm probe). They also run under their OWN silence
-  //     bound (`copyPolicy`), never the required build's escalated one.
-  if (localAgentPath !== undefined) {
-    const narrate = (line: string): void =>
-      opts.onProgress(`${opts.host}: ${line}`);
-    const prefetch = await prefetchAgentClosure({
-      outPath: localAgentPath,
-      binaryCache: opts.derivation.binaryCache,
-      narrate,
-      policy: copyPolicy(),
-      signal,
-    });
-    if (prefetch === "aborted") {
-      return abortedDuring(opts.host, "the cache prefetch");
-    }
-    // Ship only what we provably HOLD. The prefetch may have missed every
-    // declared cache and the closure still be valid locally (a warm binder
-    // store) — so ask, rather than assume: `nix copy --to` on a locally
-    // INVALID path fails for a reason that has nothing to do with trust, and
-    // this step's refusal narration names trust levers. Localhost never ships
-    // (the prefetch already filled the very store the build realises in).
-    if (!isLocal) {
-      const held =
-        prefetch === "delivered"
-          ? "valid"
-          : await localValidity(localAgentPath, signal);
-      if (held === "aborted") {
-        return abortedDuring(opts.host, "the local validity check");
-      }
-      if (held === "absent") {
-        narrate(
-          "no local copy of the agent to ship — the host will realise it from source",
-        );
-      } else {
-        const ship = await shipAgentClosure({
-          host: opts.host,
-          outPath: localAgentPath,
-          narrate,
-          policy: copyPolicy(),
-          signal,
-        });
-        if (ship === "aborted") {
-          return abortedDuring(opts.host, "the closure ship");
-        }
-      }
-    }
-  }
   onProgress(
     isLocal
       ? `localhost: realising '${drvPath}'…`
@@ -811,15 +891,10 @@ export async function provisionAgent(
   onProgress(`${opts.host}: agent realised at ${agentPath}`);
 
   // 5. Commit the realised output behind a stable, per-agent GC root. This is
-  //    the same required operation as the warm-hit path; provision success
-  //    means both "valid" and "durably rooted", never merely "was built".
-  if (rootPath === null) {
-    return {
-      ok: false,
-      reason: `${opts.host}: HOME is unset, so the agent GC root path cannot be formed`,
-      cause: "remote",
-    };
-  } else {
+  //    the same required operation as the warm-hit and staged paths; provision
+  //    success means both "valid" and "durably rooted", never merely "was
+  //    built". (`rootPath` was proven non-null before any work started.)
+  {
     const bail = await pinGcRoot(
       opts.host,
       agentPath,

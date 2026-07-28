@@ -634,7 +634,9 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       // sanitization).
       if (isShip(args)) return okOut("");
       if (isCopy(args))
-        return args[args.indexOf("--from") + 1] === "https://a.test.invalid" ? failOut : okOut("");
+        return args[args.indexOf("--from") + 1] === "https://a.test.invalid"
+          ? failOut
+          : okOut("");
       if (args.includes("--outputs")) return okOut(`${STORE}\n`);
       if (args.includes("--check-validity")) return failOut;
       if (args.includes("--add-root")) return okOut("/home/u/link\n");
@@ -650,9 +652,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     expect(res.ok).toBe(true);
     const froms = vi
       .mocked(runCapture)
-      .mock.calls.filter(
-        ([, args]) => isPrefetch(args),
-      )
+      .mock.calls.filter(([, args]) => isPrefetch(args))
       .map(([, args]) => args[args.indexOf("--from") + 1]);
     expect(froms).toEqual(["https://a.test.invalid", "https://b.test.invalid"]);
   });
@@ -680,14 +680,8 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       ...provArgs(),
     });
     const calls = vi.mocked(runCapture).mock.calls;
-    const shipIdx = calls.findIndex(
-      ([, args]) => isShip(args),
-    );
-    const buildIdx = calls.findIndex(([, args]) =>
-      args.includes("--print-out-paths"),
-    );
+    const shipIdx = calls.findIndex(([, args]) => isShip(args));
     expect(shipIdx).toBeGreaterThanOrEqual(0);
-    expect(shipIdx).toBeLessThan(buildIdx);
     expect(calls[shipIdx]?.[1]).toEqual([
       "-v",
       "copy",
@@ -711,11 +705,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       ...provArgs(),
     });
     expect(
-      vi
-        .mocked(runCapture)
-        .mock.calls.some(
-          ([, args]) => isShip(args),
-        ),
+      vi.mocked(runCapture).mock.calls.some(([, args]) => isShip(args)),
     ).toBe(true);
   });
 
@@ -734,11 +724,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     });
     expect(res.ok).toBe(true);
     expect(
-      vi
-        .mocked(runCapture)
-        .mock.calls.some(
-          ([, args]) => isShip(args),
-        ),
+      vi.mocked(runCapture).mock.calls.some(([, args]) => isShip(args)),
     ).toBe(false);
     expect(
       onProgress.mock.calls.some(([line]) =>
@@ -756,12 +742,8 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       ...provArgs(),
     });
     const calls = vi.mocked(runCapture).mock.calls;
-    expect(
-      calls.some(([, args]) => isPrefetch(args)),
-    ).toBe(true);
-    expect(
-      calls.some(([, args]) => isShip(args)),
-    ).toBe(false);
+    expect(calls.some(([, args]) => isPrefetch(args))).toBe(true);
+    expect(calls.some(([, args]) => isShip(args))).toBe(false);
   });
 
   it("a ship refusal narrates the real levers and the dial still succeeds", async () => {
@@ -851,7 +833,9 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     // them that 16-minute window would let a dead cache endpoint wedge the dial.
     const budgets = makeProvisionBudgets();
     for (let i = 0; i < 3; i++) budgets.provisioning.recordExpiry();
-    mockNix({ copy: okOut(""), ship: okOut("") });
+    // The ship is REFUSED, so the build still runs and its escalated grant is
+    // observable alongside the copies' fixed one.
+    mockNix({ copy: okOut("") });
     await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -995,6 +979,90 @@ describe("the speculative copies' liveness and honesty", () => {
       true,
     );
     // The line announcing a check that never runs must not appear.
-    expect(lines.some((l) => /checking for a cached agent/.test(l))).toBe(false);
+    expect(lines.some((l) => /checking for a cached agent/.test(l))).toBe(
+      false,
+    );
+  });
+});
+
+describe("staging replaces the build when it can (steps 2/3 → 4a)", () => {
+  const flakeDrv = () =>
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
+
+  it("a delivered ship SKIPS the cold build — the payoff the cache exists for", async () => {
+    mockNix({ copy: okOut(""), ship: okOut("") });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    // Success comes from the staged closure, not a remote realisation: the
+    // build it skips is a full flake evaluation plus an ssh-ng round trip.
+    expect(res).toEqual({ ok: true, agentPath: STORE });
+    const calls = vi.mocked(runCapture).mock.calls;
+    expect(calls.some(([, args]) => args.includes("--print-out-paths"))).toBe(
+      false,
+    );
+    // The required root commit still runs — staged is not the same as rooted.
+    expect(calls.some(([, args]) => args.includes("--add-root"))).toBe(true);
+  });
+
+  it("a locally-valid closure skips the cache fetch entirely — cheap question first", async () => {
+    vi.mocked(runCapture).mockImplementation(async (cmd, args) => {
+      if (isShip(args)) return okOut("");
+      if (isCopy(args)) return failOut;
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      // Absent on the HOST (asked over ssh), already valid in our own store.
+      if (args.includes("--check-validity"))
+        return cmd === "nix-store" ? okOut("") : failOut;
+      if (args.includes("--add-root")) return okOut("/home/u/link\n");
+      return failOut;
+    });
+    await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    const calls = vi.mocked(runCapture).mock.calls;
+    // No network `nix copy --from` spent per declared cache for a closure the
+    // binder already holds — a warm binder is the common case.
+    expect(calls.some(([, args]) => isPrefetch(args))).toBe(false);
+    expect(calls.some(([, args]) => isShip(args))).toBe(true);
+  });
+
+  it("a refused ship still builds on the host — staging is optional by outcome", async () => {
+    mockNix({ copy: okOut("") }); // ship defaults to refused
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res).toEqual({ ok: true, agentPath: STORE });
+    expect(
+      vi
+        .mocked(runCapture)
+        .mock.calls.some(([, args]) => args.includes("--print-out-paths")),
+    ).toBe(true);
+  });
+
+  it("localhost stages without shipping, and a hit still skips the build", async () => {
+    mockNix({ copy: okOut("") });
+    const res = await provisionAgent({
+      host: "localhost",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    const calls = vi.mocked(runCapture).mock.calls;
+    expect(calls.some(([, args]) => isShip(args))).toBe(false);
+    // The prefetch filled the very store the build would realise in, so there
+    // is nothing left to build.
+    expect(calls.some(([, args]) => args.includes("--print-out-paths"))).toBe(
+      false,
+    );
   });
 });

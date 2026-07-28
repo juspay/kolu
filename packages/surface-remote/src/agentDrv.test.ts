@@ -32,6 +32,7 @@ import {
 } from "./agentDrv";
 import { ResolveDrvError } from "./host";
 import { makeProvisionBudgets } from "./nixCopy";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 const success = (stdout: string) => ({
   ok: true,
@@ -40,9 +41,11 @@ const success = (stdout: string) => ({
   stdout,
 });
 
+// The sidecar bytes a baked source would carry — SERIALIZED from the shared
+// fixture, so the URL and key are never re-typed in a third place.
 const VALID_SIDECAR = JSON.stringify({
-  substituters: ["https://cache.test.invalid/oss"],
-  trustedPublicKeys: ["oss:0000000000000000000000000000000000000000000="],
+  substituters: TEST_BINARY_CACHE.substituters,
+  trustedPublicKeys: TEST_BINARY_CACHE.trustedPublicKeys,
 });
 
 const resolutionOptions = {

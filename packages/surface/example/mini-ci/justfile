@@ -28,7 +28,7 @@ run host='localhost' *args: install binary-cache
     cd {{ justfile_directory() }}
     agent_env=$({{ nix_shell }} node -p "require('{{ repo_root }}/packages/surface-remote/agent-env.json').flakeRef")
     echo "» host: {{ host }}" >&2
-    env "$agent_env={{ repo_root }}/packages/surface/example" \
+    env "$agent_env={{ agent_source_dir }}" \
       {{ nix_shell }} pnpm start -- {{ host }} {{ args }}
 
 # Typecheck this example only
