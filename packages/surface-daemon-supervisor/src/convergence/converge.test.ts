@@ -795,15 +795,17 @@ describe("converge — enactment + outcomes", () => {
   // ── W7/W8 named tests ───────────────────────────────────────────────────
 
   /**
-   * W8–W10: pin bind-call TOPOLOGY via Babel AST — receiver-neutral, fail-closed.
+   * W8–W11: pin bind-call TOPOLOGY via Babel AST — receiver-neutral, fail-closed.
    *
-   * Floor (finding 29 / round 10 consensus endpoint): every CallExpression whose
-   * callee has static property name `"bind"` (dot **or** computed string), on
-   * **any** object, must sit as `consumeBindResult(await <call>, …)`. Reject
-   * destructuring/extraction of a bind property and calls of resulting aliases.
+   * Floor: every CallExpression whose callee has static property name `"bind"`
+   * (dot **or** computed string), on **any** object, must sit as
+   * `consumeBindResult(await <call>, …)`. Reject destructuring/extraction of a
+   * bind property (every ObjectPattern, not just VariableDeclarator) and calls
+   * of resulting aliases. A `.bind` member is a safe field projection ONLY when
+   * the complete enclosing member chain is a pure read (e.g. `outcome.bind.kind`);
+   * reject when that chain becomes a call/new callee (e.g. `fold.bind.call(fold)`).
    * Object-literal pass-through `{ bind: <recv>.bind }` stays allowed only because
    * later `.bind()` calls on the receiving object are themselves checked.
-   * Field reads like `outcome.bind.kind` (parent MemberExpression) are not calls.
    */
   type AstNode = { type: string; [key: string]: unknown };
 
@@ -825,14 +827,16 @@ describe("converge — enactment + outcomes", () => {
     "errors",
   ]);
 
+  function isMemberLike(node: AstNode): boolean {
+    return (
+      node.type === "MemberExpression" ||
+      node.type === "OptionalMemberExpression"
+    );
+  }
+
   /** True when `node` is a MemberExpression with static property name `"bind"`. */
   function isBindPropertyMember(node: AstNode): boolean {
-    if (
-      node.type !== "MemberExpression" &&
-      node.type !== "OptionalMemberExpression"
-    ) {
-      return false;
-    }
+    if (!isMemberLike(node)) return false;
     const prop = node.property;
     if (!isAstNode(prop)) return false;
     // Dot: obj.bind  — computed: obj["bind"]
@@ -849,16 +853,85 @@ describe("converge — enactment + outcomes", () => {
     return key.type === "Identifier" && (key.name as string) === "bind";
   }
 
-  /** `{ bind: <expr> }` — structural pass-through of the method reference. */
+  /**
+   * `{ bind: <recv>.bind }` in an ObjectExpression — structural pass-through.
+   * Must NOT match ObjectPattern properties (those are destructure, rejected).
+   */
   function isBindPassThroughProperty(
     member: AstNode,
     parent: AstNode | null,
+    grand: AstNode | null,
   ): boolean {
     if (!parent || parent.type !== "ObjectProperty") return false;
+    if (grand?.type !== "ObjectExpression") return false;
     if (parent.value !== member) return false;
     const key = parent.key;
     if (!isAstNode(key)) return false;
     return isBindPropertyKey(key, parent.computed);
+  }
+
+  function localNameOfPatternProp(prop: AstNode): string | null {
+    // { bind } or { bind: local } or { "bind": local }
+    if (prop.type !== "ObjectProperty") return null;
+    const key = prop.key;
+    if (!isAstNode(key) || !isBindPropertyKey(key, prop.computed)) return null;
+    if (prop.shorthand === true && key.type === "Identifier") {
+      return key.name as string;
+    }
+    const val = prop.value;
+    if (isAstNode(val) && val.type === "Identifier") {
+      return val.name as string;
+    }
+    return null;
+  }
+
+  /**
+   * Walk up from a `.bind` member through a member chain. Returns whether the
+   * chain is a pure field read (safe: `outcome.bind.kind`) vs used as call/new
+   * callee or extracted (unsafe: `fold.bind.call(fold)`).
+   */
+  function memberChainIsPureRead(
+    bindMember: AstNode,
+    ancestors: AstNode[],
+  ): boolean {
+    // ancestors[n-1] is parent of bindMember. Climb while each ancestor is a
+    // MemberExpression whose object is the previous node.
+    let current: AstNode = bindMember;
+    let i = ancestors.length - 1;
+    while (i >= 0) {
+      const a = ancestors[i]!;
+      if (isMemberLike(a) && a.object === current) {
+        current = a;
+        i -= 1;
+        continue;
+      }
+      break;
+    }
+    // `current` is the outermost member in the chain; `ancestors[i]` is its parent
+    // (or undefined if chain is the root).
+    const outerParent = i >= 0 ? ancestors[i]! : null;
+    if (!outerParent) return true; // expression statement of a member — rare, treat as read
+    if (
+      (outerParent.type === "CallExpression" ||
+        outerParent.type === "OptionalCallExpression" ||
+        outerParent.type === "NewExpression") &&
+      outerParent.callee === current
+    ) {
+      return false; // chain used as call/new callee — e.g. fold.bind.call(...)
+    }
+    if (
+      outerParent.type === "VariableDeclarator" &&
+      outerParent.init === current
+    ) {
+      return false; // extracted
+    }
+    if (
+      outerParent.type === "AssignmentExpression" &&
+      outerParent.right === current
+    ) {
+      return false;
+    }
+    return true; // pure read (binary, return of .kind, etc.)
   }
 
   function assertBindCallTopology(src: string): void {
@@ -880,22 +953,6 @@ describe("converge — enactment + outcomes", () => {
         callee.type === "Identifier" &&
         (callee.name as string) === "consumeBindResult"
       );
-    }
-
-    function localNameOfPatternProp(prop: AstNode): string | null {
-      // { bind } or { bind: local } or { "bind": local }
-      if (prop.type !== "ObjectProperty") return null;
-      const key = prop.key;
-      if (!isAstNode(key) || !isBindPropertyKey(key, prop.computed))
-        return null;
-      if (prop.shorthand === true && key.type === "Identifier") {
-        return key.name as string;
-      }
-      const val = prop.value;
-      if (isAstNode(val) && val.type === "Identifier") {
-        return val.name as string;
-      }
-      return null;
     }
 
     function checkBindCallTopology(
@@ -922,27 +979,20 @@ describe("converge — enactment + outcomes", () => {
       }
     }
 
-    function walk(
-      node: AstNode,
-      parent: AstNode | null,
-      grand: AstNode | null,
-    ): void {
-      // Destructure alias: const { bind } = fold  /  const { bind: b } = x
-      if (
-        node.type === "VariableDeclarator" &&
-        isAstNode(node.id) &&
-        node.id.type === "ObjectPattern" &&
-        Array.isArray(node.id.properties)
-      ) {
-        for (const prop of node.id.properties) {
-          if (!isAstNode(prop)) continue;
-          const local = localNameOfPatternProp(prop);
-          if (local !== null) {
-            bindAliases.add(local);
-            violations.push(
-              "bind property destructured (must not extract bind outside pass-through)",
-            );
-          }
+    function walk(node: AstNode, ancestors: AstNode[]): void {
+      const parent = ancestors[ancestors.length - 1] ?? null;
+      const grand = ancestors[ancestors.length - 2] ?? null;
+
+      // (1) EVERY ObjectProperty with static key "bind" under ObjectPattern —
+      // variable decl, function param, assignment target, nested pattern.
+      if (node.type === "ObjectProperty" && parent?.type === "ObjectPattern") {
+        const key = node.key;
+        if (isAstNode(key) && isBindPropertyKey(key, node.computed)) {
+          const local = localNameOfPatternProp(node);
+          if (local !== null) bindAliases.add(local);
+          violations.push(
+            "bind property destructured (ObjectPattern — decl/param/assignment/nested)",
+          );
         }
       }
 
@@ -981,37 +1031,44 @@ describe("converge — enactment + outcomes", () => {
         checkBindCallTopology(parent, grand);
       }
 
-      // Non-call use of a .bind / ["bind"] member (not pass-through, not field chain)
+      // Non-call use of a .bind / ["bind"] member
       if (isBindPropertyMember(node)) {
         const isCallee =
           parent?.type === "CallExpression" && parent.callee === node;
-        const isFieldChain =
-          (parent?.type === "MemberExpression" ||
-            parent?.type === "OptionalMemberExpression") &&
-          parent.object === node;
-        if (
-          !isCallee &&
-          !isBindPassThroughProperty(node, parent) &&
-          !isFieldChain &&
+        if (isCallee) {
+          // handled above
+        } else if (isBindPassThroughProperty(node, parent, grand)) {
+          // structural pass-through — later .bind() on the receiver is checked
+        } else if (parent && isMemberLike(parent) && parent.object === node) {
+          // (2) Field chain: pure read only (outcome.bind.kind). Reject
+          // fold.bind.call(fold) and other call/new/extract uses of the chain.
+          if (!memberChainIsPureRead(node, ancestors)) {
+            violations.push(
+              "bind member chain used as call/new callee or extracted (e.g. .bind.call)",
+            );
+          }
+        } else if (
           !(parent?.type === "VariableDeclarator" && parent.init === node)
         ) {
+          // VariableDeclarator init already flagged as extraction above.
           violations.push("bind property extracted outside call/pass-through");
         }
       }
 
+      const next = [...ancestors, node];
       for (const [key, value] of Object.entries(node)) {
         if (SKIP_KEYS.has(key)) continue;
         if (Array.isArray(value)) {
           for (const item of value) {
-            if (isAstNode(item)) walk(item, node, parent);
+            if (isAstNode(item)) walk(item, next);
           }
         } else if (isAstNode(value)) {
-          walk(value, node, parent);
+          walk(value, next);
         }
       }
     }
 
-    walk(ast, null, null);
+    walk(ast, []);
 
     if (bindCallCount === 0) {
       throw new Error(
@@ -1096,7 +1153,6 @@ ${LEGIT}
   });
 
   it("W10 confinement is red against renamed-receiver, computed-member, destructured-alias (proven)", () => {
-    // Finding 29: receiver-name pin stayed green under these; property-name floor must red.
     const renamedReceiver = `
 async function bad(fold: { bind: () => Promise<BindResult>; releaseHeld: () => void }) {
   const r = await fold.bind();
@@ -1133,6 +1189,44 @@ ${LEGIT}
 `;
     expect(() => assertBindCallTopology(destructuredAlias)).toThrow(
       /destructured|call of bind alias/,
+    );
+  });
+
+  it("W11 confinement is red against param/assignment destructure and .bind.call (proven)", () => {
+    // Finding 30: VariableDeclarator-only destructure left these green.
+    const parameterDestructure = `
+async function bad({ bind }: { bind: () => Promise<BindResult> }) {
+  const r = await bind();
+  return r;
+}
+${LEGIT}
+`;
+    expect(() => assertBindCallTopology(parameterDestructure)).toThrow(
+      /destructured|call of bind alias/,
+    );
+
+    const assignmentDestructure = `
+async function bad(ctx: { bind: () => Promise<BindResult> }) {
+  let bind: () => Promise<BindResult>;
+  ({ bind } = ctx);
+  const r = await bind();
+  return r;
+}
+${LEGIT}
+`;
+    expect(() => assertBindCallTopology(assignmentDestructure)).toThrow(
+      /destructured|call of bind alias/,
+    );
+
+    const bindCallChain = `
+async function bad(fold: { bind: () => Promise<BindResult> }) {
+  const r = await fold.bind.call(fold);
+  return r;
+}
+${LEGIT}
+`;
+    expect(() => assertBindCallTopology(bindCallChain)).toThrow(
+      /bind member chain used as call|bind\.call/,
     );
   });
 
