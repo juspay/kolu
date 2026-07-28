@@ -66,9 +66,7 @@ const home = daemonHome({ app: "pulse", placement: "state" }); // durable ⇒ st
 daemonProcessMain({
   name: "pulse-daemon",
   run: () => daemonMain({
-    gatePath: home.gatePath,     // <home.dir>/pulse.pid — dir created 0700, ownership-checked
-    socketPath: home.socketPath, // <home.dir>/pulse.sock — gate and socket can't drift apart
-    anchor: () => home.dir,
+    home,                        // gate, socket, anchor — all derived inside the spine
     lifetime: { kind: "idleTimeout", ms: 60 * 60_000, isIdle: () => liveConnections === 0 },
     router: implementSurface(pulseSurface, {
       // the frozen fragment: hello + drain, readable at ANY version skew
@@ -97,11 +95,11 @@ const POLICY: ConvergencePolicy<"drainable"> = {
 };
 
 const endpoint = createEndpoint({
-  gatePath, socketPath,
+  home: daemonHome({ app: "pulse", placement: "state" }), // SAME call — disagreement impossible
   policy: POLICY,                              // stated once, here — no boot-method trio
   baked: { contractVersion: PULSE_CONTRACT_VERSION, build: daemonBuild(myBakedId) },
   driver: survivableSpawnDriver({ binPath, args: ["--daemon"], env, unitPrefix: "pulse" }),
-  connect: () => connectPulse(socketPath),     // your typed handshake — your business
+  connect: (socketPath) => connectPulse(socketPath), // the framework hands you the path
   log, onStatus,
 });
 

@@ -190,9 +190,7 @@
 <span class="line"><span style="color:#6F42C1">daemonProcessMain</span><span style="color:#24292E">({</span></span>
 <span class="line"><span style="color:#24292E">  name: </span><span style="color:#032F62">&quot;pulse-daemon&quot;</span><span style="color:#24292E">,</span></span>
 <span class="line"><span style="color:#6F42C1">  run</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=&gt;</span><span style="color:#6F42C1"> daemonMain</span><span style="color:#24292E">({</span></span>
-<span class="line"><span style="color:#24292E">    gatePath: home.gatePath,     </span><span style="color:#6A737D">// &lt;home.dir&gt;/pulse.pid — dir created 0700, ownership-checked</span></span>
-<span class="line"><span style="color:#24292E">    socketPath: home.socketPath, </span><span style="color:#6A737D">// &lt;home.dir&gt;/pulse.sock — gate and socket can&#39;t drift apart</span></span>
-<span class="line"><span style="color:#6F42C1">    anchor</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=&gt;</span><span style="color:#24292E"> home.dir,</span></span>
+<span class="line"><span style="color:#24292E">    home,                        </span><span style="color:#6A737D">// gate, socket, anchor — all derived inside the spine</span></span>
 <span class="line"><span style="color:#24292E">    lifetime: { kind: </span><span style="color:#032F62">&quot;idleTimeout&quot;</span><span style="color:#24292E">, ms: </span><span style="color:#005CC5">60</span><span style="color:#D73A49"> *</span><span style="color:#005CC5"> 60_000</span><span style="color:#24292E">, </span><span style="color:#6F42C1">isIdle</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=&gt;</span><span style="color:#24292E"> liveConnections </span><span style="color:#D73A49">===</span><span style="color:#005CC5"> 0</span><span style="color:#24292E"> },</span></span>
 <span class="line"><span style="color:#24292E">    router: </span><span style="color:#6F42C1">implementSurface</span><span style="color:#24292E">(pulseSurface, {</span></span>
 <span class="line"><span style="color:#6A737D">      // the frozen fragment: hello + drain, readable at ANY version skew</span></span>
@@ -221,11 +219,11 @@
 <span class="line"><span style="color:#24292E">};</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> endpoint</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> createEndpoint</span><span style="color:#24292E">({</span></span>
-<span class="line"><span style="color:#24292E">  gatePath, socketPath,</span></span>
+<span class="line"><span style="color:#24292E">  home: </span><span style="color:#6F42C1">daemonHome</span><span style="color:#24292E">({ app: </span><span style="color:#032F62">&quot;pulse&quot;</span><span style="color:#24292E">, placement: </span><span style="color:#032F62">&quot;state&quot;</span><span style="color:#24292E"> }), </span><span style="color:#6A737D">// SAME call — disagreement impossible</span></span>
 <span class="line"><span style="color:#24292E">  policy: </span><span style="color:#005CC5">POLICY</span><span style="color:#24292E">,                              </span><span style="color:#6A737D">// stated once, here — no boot-method trio</span></span>
 <span class="line"><span style="color:#24292E">  baked: { contractVersion: </span><span style="color:#005CC5">PULSE_CONTRACT_VERSION</span><span style="color:#24292E">, build: </span><span style="color:#6F42C1">daemonBuild</span><span style="color:#24292E">(myBakedId) },</span></span>
 <span class="line"><span style="color:#24292E">  driver: </span><span style="color:#6F42C1">survivableSpawnDriver</span><span style="color:#24292E">({ binPath, args: [</span><span style="color:#032F62">&quot;--daemon&quot;</span><span style="color:#24292E">], env, unitPrefix: </span><span style="color:#032F62">&quot;pulse&quot;</span><span style="color:#24292E"> }),</span></span>
-<span class="line"><span style="color:#6F42C1">  connect</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=&gt;</span><span style="color:#6F42C1"> connectPulse</span><span style="color:#24292E">(socketPath),     </span><span style="color:#6A737D">// your typed handshake — your business</span></span>
+<span class="line"><span style="color:#6F42C1">  connect</span><span style="color:#24292E">: (</span><span style="color:#E36209">socketPath</span><span style="color:#24292E">) </span><span style="color:#D73A49">=&gt;</span><span style="color:#6F42C1"> connectPulse</span><span style="color:#24292E">(socketPath), </span><span style="color:#6A737D">// the framework hands you the path</span></span>
 <span class="line"><span style="color:#24292E">  log, onStatus,</span></span>
 <span class="line"><span style="color:#24292E">});</span></span>
 <span class="line"></span>
