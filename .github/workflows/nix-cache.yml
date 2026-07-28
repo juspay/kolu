@@ -1,5 +1,5 @@
 # Build the default package on linux + darwin and push each closure to the
-# shared Attic cache (https://cache.nixos.asia/oss). The flake already lists
+# shared Cachix cache (https://kolu.cachix.org). The flake already lists
 # this cache as a substituter, so a green push here warms CI boxes and local
 # `nix build`s on both platforms.
 name: nix-cache
@@ -10,7 +10,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Least privilege — this job only needs the checkout and ATTIC_TOKEN secret.
+# Least privilege — this job only needs the checkout and CACHIX_AUTH_TOKEN secret.
 permissions:
   contents: read
 
@@ -37,39 +37,18 @@ jobs:
       - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
           nix_conf: |
-            extra-substituters = https://cache.nixos.asia/oss
-            extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+            extra-substituters = https://kolu.cachix.org
+            extra-trusted-public-keys = kolu.cachix.org-1:jXCB7PDK4v+9fcOmiFSKWHdYU31mfbCvpPiJ0l0zaRs=
             accept-flake-config = true
 
-      # ryanccn/attic-action used to do the install/login/push below, but it
-      # installs attic by resolving UNPINNED nixpkgs-unstable through the
-      # GitHub API at run time — one API 503 fails the job (it did, repo-wide,
-      # 2026-07-16), and even green runs re-fetch an unpinned rev. Its logic
-      # is four CLI calls, so do them directly, installing attic from the
-      # repo's own npins-pinned nixpkgs: the exact tarball URL nix/nixpkgs.nix
-      # builds from (no ref resolution, no api.github.com), with attic-client
-      # substituted from cache.nixos.org. Needs a Nix new enough for
-      # `nix profile add` (hence v35 above — v31's 2.29 only had
-      # `profile install`, which is why #1731 dropped the action once before).
-      # No `attic use` — the nix_conf above already wires the substituter.
-      - name: Install attic (pinned) and log in
-        run: |
-          nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
-          attic login --set-default oss https://cache.nixos.asia '${{ secrets.ATTIC_TOKEN }}'
-          nix path-info --all | sort > "$RUNNER_TEMP/pre-build-paths"
+      # Pin by commit (CodeQL: unpinned third-party action). v17 → 5f2d7c5.
+      # Pulls from kolu.cachix.org; pushes newly built paths when the auth
+      # token is present (master / same-repo PRs). Fork PRs without the
+      # secret stay pull-only.
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: kolu
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Build
         run: nix build -L --print-out-paths
-
-      # Push every store path the build produced (post minus pre snapshot,
-      # minus .drv/.check/.lock clutter) — same set attic-action pushed from
-      # its post step, without the action.
-      - name: Push to Attic
-        # Explicit `shell: bash` turns on pipefail, so a failure anywhere in
-        # the pipe fails the step — not just the final `attic push`.
-        shell: bash
-        run: |
-          nix path-info --all | sort \
-            | comm -13 "$RUNNER_TEMP/pre-build-paths" - \
-            | grep -Ev '\.(drv|drv\.chroot|check|lock)$' \
-            | attic push --stdin oss

@@ -72,7 +72,7 @@ install:
 # path doesn't exist yet. The first `nix build` realizes the path (from
 # substituter or fresh fetch); --rebuild then forces re-execution and
 # compares, so a stale cached artifact at the declared hash (local store
-# or cache.nixos.asia) can't silently satisfy a hash that no longer
+# or kolu.cachix.org) can't silently satisfy a hash that no longer
 # matches the lockfile.
 pnpm-hash-fresh: nix
     nix build .#pnpmDeps --no-link

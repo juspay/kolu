@@ -19,8 +19,8 @@
   # without any nix.conf of their own. --accept-flake-config on the local nix
   # invocations accepts this same block for eval-time use.
   nixConfig = {
-    extra-substituters = "https://cache.nixos.asia/oss";
-    extra-trusted-public-keys = "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=";
+    extra-substituters = "https://kolu.cachix.org";
+    extra-trusted-public-keys = "kolu.cachix.org-1:jXCB7PDK4v+9fcOmiFSKWHdYU31mfbCvpPiJ0l0zaRs=";
   };
 
   outputs = { ... }:
