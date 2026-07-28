@@ -9,16 +9,18 @@
 
 import {
   type ListenerRow,
-  type OsfactsReading,
   type ProcessRow,
-  type SourceErrorRow,
+  type SnapshotFacets,
+  type SnapshotReading,
+  type SnapshotSourceErrorRow,
+  type SnapshotSourceFacet,
   type UnreadableRow,
   OsfactsClientError,
+  snapshotFacetNames,
   snapshotSubtree,
 } from "osfacts-client";
 import {
   foldPorts,
-  isTcpPort,
   type PortFamily,
   type PortInfo,
   type PortScope,
@@ -43,28 +45,46 @@ export class PortScanError extends Error {
 export type { ProcessRow };
 
 /**
- * The facets this scan actually reads.
+ * The ask. A subtree port fold needs the process table and the listeners a pid
+ * claims — nothing else.
  *
- * A subtree port fold needs the process table and the listeners a pid claims —
- * nothing else. Blindness in any other facet costs this scan no fact, so it
- * must not be laundered into a blind scan. The osfacts contract is explicit:
- * a source error is not an instruction to discard facts that did arrive. In
- * particular `ports_unclaimed` — what macOS 27 gates when it hides the
- * host-wide socket table — leaves every claimed listener intact via the
- * same-uid fd walk, so treating it as blindness would black out port
- * detection on that platform while the facts sat in hand.
+ * This is the SINGLE statement of what this scan reads: it is passed to
+ * `snapshotSubtree` *and* run through `snapshotFacetNames` to get the wire
+ * facet names the gates below use. Those two used to be one hand-written
+ * literal each, in two vocabularies (camelCase flags vs snake_case wire
+ * names), with nothing keeping them in step — so widening the ask silently
+ * left the gate covering the old set.
  */
-const SCANNED_FACETS: readonly string[] = ["proc", "ports"];
+const SCAN_ASK = { procs: true, ports: true } as const satisfies SnapshotFacets;
+const SCANNED = snapshotFacetNames(SCAN_ASK);
 
-function scanned(facet: string): boolean {
-  return SCANNED_FACETS.includes(facet);
-}
+/**
+ * Facets the ask names whose blindness costs this scan no fact.
+ *
+ * Both are darwin listener honesty rows, not lost listeners.
+ * `ports_unclaimed` is what macOS 27 gates when it hides the host-wide socket
+ * table: every claimed listener survives via the same-uid fd walk, so treating
+ * it as blindness would black out port detection on that whole platform while
+ * the facts sat in hand. `ports_uid` says only that darwin cannot name a
+ * socket's owning uid — a field this fold never reads.
+ *
+ * The osfacts contract is explicit: a source error is not an instruction to
+ * discard facts that did arrive.
+ */
+const TOLERATED_SOURCE_FACETS: readonly SnapshotSourceFacet[] = [
+  "ports_unclaimed",
+  "ports_uid",
+];
 
 /** Render explicit source blindness for padi's fail-loud port policy. */
 export function sourceErrorsMessage(
-  errors: readonly SourceErrorRow[],
+  errors: readonly SnapshotSourceErrorRow[],
 ): string | null {
-  const blinding = errors.filter(({ facet }) => scanned(facet));
+  const blinding = errors.filter(
+    ({ facet }) =>
+      SCANNED.source.includes(facet) &&
+      !TOLERATED_SOURCE_FACETS.includes(facet),
+  );
   return blinding.length === 0
     ? null
     : blinding
@@ -170,7 +190,7 @@ export function unreadablePolicy(
   const skipPids = new Set<number>();
   let fatal: UnreadableRow | null = null;
   for (const u of unreadable) {
-    if (!scanned(u.facet)) continue;
+    if (!SCANNED.unreadable.includes(u.facet)) continue;
     const exitRace = u.errno === "ENOENT" || u.errno === "ESRCH";
     if (rootPids.has(u.pid)) {
       if (exitRace) {
@@ -204,14 +224,11 @@ export function osfactsBinPath(): string {
 function classifyListeners(
   ports: readonly ListenerRow[],
 ): Array<{ pid: number; port: number; scope: PortScope; family: PortFamily }> {
+  // No port re-validation here: `parseSnapshotOutput` already refuses any `L`
+  // row whose port is not a TCP port, so a second copy of that rule in the
+  // consumer is unreachable and would have to be found twice to relax.
   return ports.flatMap((l) => {
     if (l.status === "unclaimed") return [];
-    if (!isTcpPort(l.port)) {
-      throw new PortScanError(
-        "blind",
-        `port scan: listener carries no valid port: ${l.port}`,
-      );
-    }
     return [
       {
         pid: l.pid,
@@ -287,9 +304,9 @@ export async function scanSubtreePorts(
   }
 
   const bin = osfactsBinPath();
-  let reading: OsfactsReading;
+  let reading: SnapshotReading;
   try {
-    reading = await snapshotSubtree(bin, rootPids);
+    reading = await snapshotSubtree(bin, rootPids, SCAN_ASK);
   } catch (err) {
     if (err instanceof OsfactsClientError) {
       throw new PortScanError("blind", `port scan: ${err.message}`, {

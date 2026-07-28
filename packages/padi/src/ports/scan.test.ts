@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { parseOsfactsOutput } from "osfacts-client";
+import { parseSnapshotOutput } from "osfacts-client";
 import {
   addressBind,
   decodeNetworkAddress,
@@ -79,7 +79,7 @@ describe("addressBind", () => {
 
 describe("parse + classify (client raw → padi policy)", () => {
   it("judges each bind through addressBind", () => {
-    const { ports } = parseOsfactsOutput(OSFACTS_OUTPUT);
+    const { ports } = parseSnapshotOutput(OSFACTS_OUTPUT);
     const classified = ports.flatMap((l) =>
       l.status === "unclaimed"
         ? []
@@ -191,10 +191,25 @@ describe("sourceErrorsMessage", () => {
   });
 
   it("ignores blindness in facets this scan never reads", () => {
+    // `net`/`load` used to stand here. Splitting the reading by verb made them
+    // unrepresentable in a snapshot's errors — which is the point: this scan
+    // can no longer match a host facet by accident. These are snapshot facets
+    // the ask genuinely does not name.
     expect(
       sourceErrorsMessage([
-        { source: "net_rt_iflist2", facet: "net", code: "EPERM" },
-        { source: "proc_loadavg", facet: "load", code: "EACCES" },
+        { source: "sysconf_pagesize", facet: "mem", code: "EIO" },
+        { source: "sysconf_clk_tck", facet: "cpu_time", code: "EIO" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("tolerates the darwin listener honesty rows the ask does name", () => {
+    // `ports_uid` is unconditional on darwin: neither listener source carries
+    // a socket's owning uid. It costs this fold no fact, so it must not blind
+    // port detection on the whole platform.
+    expect(
+      sourceErrorsMessage([
+        { source: "darwin_listeners", facet: "ports_uid", code: "ENOTSUP" },
       ]),
     ).toBeNull();
   });
