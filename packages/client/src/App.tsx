@@ -59,6 +59,7 @@ import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import MobileTileView from "./MobileTileView";
+import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import RightPanel from "./right-panel/RightPanel";
@@ -180,7 +181,7 @@ const App: Component = () => {
    *  command palette. Spread into every Dock mount (the empty-branch Dock
    *  and the one TerminalCanvas owns) so the wiring lives in one place. */
   const dockPalette = {
-    onCreate: () => commandPalette.openGroup("New terminal"),
+    onCreate: () => commandPalette.openGroup(NEW_TERMINAL_GROUP),
     // Dock search → host-scoped terminal list (Terminals › $activeHost).
     onOpenWorkspaceSearch: () =>
       commandPalette.openPath([TERMINALS_GROUP_NAME, hostLabel(activeHost())]),
