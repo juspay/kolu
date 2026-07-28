@@ -298,18 +298,26 @@ body {
  * throughout this feature: the resting border, the active ring, and this aura
  * all share it, nothing else competes). The treatment carries the state; the
  * colour carries identity.
- *   - working   → "runs": marching ants stream calmly around all four edges
- *                 (busy, asks nothing).
+ *   - working   → "runs": same double-frame geometry as the active tile
+ *                 (solid identity border + outer moat); the OUTER rail carries
+ *                 a calm rotating highlight (busy, asks nothing).
  *   - needs-you → "sweeps": a comet orbits the ring; its SPEED is the urgency —
  *                 alert fastest, fresh medium, stale slowest (the decay, read as
  *                 a comet winding down).
  *
- * The ring lives on a `.tile-aura` child at `inset:0` — inside the tile's
- * `overflow-hidden` bounds, so it isn't clipped the way an outer glow would be.
- * The comet is a conic gradient masked to a ~3px ring (the same border-ring
- * mask trick the dock pills use); `mask` clips the spinning `::before`, so only
- * the band shows and it stays welded to all four edges. Focusing a tile clears
- * unread and mutes its aura (rule last, so it wins). */
+ * Moat geometry tokens (`--tile-moat-offset` / `--tile-moat-stroke` /
+ * `--tile-radius`) are one socket for the active outline AND the working outer
+ * rail — change them once. Outer shell is always overflow-visible; title/body
+ * clip via the inner shell (CanvasTile). Focusing a tile clears unread and
+ * mutes its aura (rule last, so it wins). */
+[data-canvas-tile] {
+  --tile-radius: 0.75rem; /* matches Tailwind rounded-xl on tiled shells */
+  --tile-moat-offset: 4px;
+  --tile-moat-stroke: 1.5px;
+  /* Working outer rail sits just outside the border-box: offset + stroke. */
+  --tile-moat-outset: calc(var(--tile-moat-offset) + var(--tile-moat-stroke));
+}
+
 .tile-aura {
   position: absolute;
   inset: 0;
@@ -323,76 +331,9 @@ body {
   contain: layout paint;
 }
 
-/* working — marching ants. The dashes STREAM via `transform: translate`, not
- * animated `background-position`. `background-position` is not a
- * compositor-accelerated property: animating it repainted all four gradient
- * edges on the MAIN THREAD every frame, for every working tile, forever — the
- * dominant idle-CPU cost this aura added (a busy canvas turned ~4 paints/6s
- * into ~2900). Here `background-position` is STATIC placement and only
- * `transform` animates, so each strip is rasterized ONCE and then streamed on
- * the compositor — no per-frame repaint. Two promoted strips: `::before`
- * carries the top + bottom dashes (translateX), `::after` the left + right
- * (translateY); the perpendicular drift reads as ants running the perimeter.
- * Each strip overhangs its edges by one 14px dash-period (clipped by the
- * parent's `overflow: hidden`) so a one-period translate loops seamlessly. */
-[data-canvas-tile][data-aura="working"] .tile-aura::before,
-[data-canvas-tile][data-aura="working"] .tile-aura::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  opacity: 0.9;
-  /* Promote once instead of letting the browser re-decide layer promotion
-   * each frame (the missing-`will-change` thrash #1308 flagged). */
-  will-change: transform;
-}
-[data-canvas-tile][data-aura="working"] .tile-aura::before {
-  /* top + bottom horizontal dashes, overhanging left/right by one period */
-  left: -14px;
-  right: -14px;
-  background-image:
-    linear-gradient(90deg, var(--aura-c) 50%, transparent 0),
-    linear-gradient(90deg, var(--aura-c) 50%, transparent 0);
-  background-repeat: repeat-x, repeat-x;
-  background-size:
-    14px 3px,
-    14px 3px;
-  background-position:
-    0 0,
-    0 100%;
-  animation: tile-aura-ants-x 0.7s linear infinite;
-}
-[data-canvas-tile][data-aura="working"] .tile-aura::after {
-  /* left + right vertical dashes, overhanging top/bottom by one period */
-  top: -14px;
-  bottom: -14px;
-  background-image:
-    linear-gradient(0deg, var(--aura-c) 50%, transparent 0),
-    linear-gradient(0deg, var(--aura-c) 50%, transparent 0);
-  background-repeat: repeat-y, repeat-y;
-  background-size:
-    3px 14px,
-    3px 14px;
-  background-position:
-    0 0,
-    100% 0;
-  animation: tile-aura-ants-y 0.7s linear infinite;
-}
-@keyframes tile-aura-ants-x {
-  to {
-    transform: translateX(14px);
-  }
-}
-@keyframes tile-aura-ants-y {
-  to {
-    transform: translateY(14px);
-  }
-}
-
-/* needs-you — a comet sweeping a masked ring; speed (`--aura-spin`) is urgency */
-[data-canvas-tile][data-aura="alert"] .tile-aura,
-[data-canvas-tile][data-aura="waiting-fresh"] .tile-aura,
-[data-canvas-tile][data-aura="waiting-stale"] .tile-aura {
-  padding: 3px;
+/* Shared ring-stroke mask (padding-box content xor). Tier rules only set
+ * padding / background / motion — not the mask formula. */
+.tile-aura-ring {
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -401,6 +342,44 @@ body {
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
   mask-composite: exclude;
+}
+
+/* working — double frame like the active tile: solid identity border (on the
+ * tile) + outer moat. The moat is a full dim rail with a brighter arc that
+ * rotates (compositor `transform` only — same model as needs-you). */
+[data-canvas-tile][data-aura="working"] .tile-aura {
+  inset: calc(-1 * var(--tile-moat-outset));
+  /* Tile radius + expansion so the outer rail follows the tile curve */
+  border-radius: calc(var(--tile-radius) + var(--tile-moat-outset));
+  contain: none;
+  padding: var(--tile-moat-stroke);
+  /* static full outer rail */
+  background: color-mix(in oklch, var(--aura-c) 38%, transparent);
+}
+[data-canvas-tile][data-aura="working"] .tile-aura::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 300deg,
+    color-mix(in oklch, var(--aura-c) 50%, transparent) 318deg,
+    var(--aura-c) 336deg,
+    color-mix(in oklch, var(--aura-c) 65%, white) 348deg,
+    transparent 360deg
+  );
+  /* slower than needs-you fresh (2.1s) — busy, not urgent */
+  animation: tile-aura-spin 2.6s linear infinite;
+  will-change: transform;
+  filter: brightness(1.15);
+}
+
+/* needs-you — a comet sweeping a masked ring; speed (`--aura-spin`) is urgency */
+[data-canvas-tile][data-aura="alert"] .tile-aura,
+[data-canvas-tile][data-aura="waiting-fresh"] .tile-aura,
+[data-canvas-tile][data-aura="waiting-stale"] .tile-aura {
+  padding: 3px;
 }
 [data-canvas-tile][data-aura="alert"] .tile-aura::before,
 [data-canvas-tile][data-aura="waiting-fresh"] .tile-aura::before,
@@ -460,16 +439,75 @@ body {
   filter: brightness(0.85) saturate(0.8);
 }
 
-/* Reduced motion: hold the ants / comet still — the themed ring still reads,
- * it just stops moving. The `[data-aura]` qualifier is load-bearing: the
- * per-state animations are declared at `[data-canvas-tile][data-aura="…"]`
- * specificity (0,3,1), so a bare `[data-canvas-tile] .tile-aura` reset (0,2,1)
- * would lose the cascade and never actually stop the motion. Match the
- * animating selectors' specificity so this override wins. */
+/* finished — post-turn linger: soft held ring. One-shot exhale is gated by
+ * `data-exhale` (set only on the tier *transition* into finished) so an
+ * off-screen/maximize Show remount of `.tile-aura` does not re-play the
+ * motion (the shell tracks the transition). Not a comet. */
+[data-canvas-tile][data-aura="finished"] .tile-aura {
+  padding: 3px;
+  background: color-mix(in oklch, var(--aura-c) 42%, transparent);
+  opacity: 0.38;
+}
+[data-canvas-tile][data-exhale][data-aura="finished"] .tile-aura {
+  animation: tile-aura-exhale 1.15s ease-out forwards;
+  will-change: opacity;
+}
+@keyframes tile-aura-exhale {
+  0% {
+    opacity: 0.2;
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.38;
+  }
+}
+
+/* ── Canvas place language (land-in · sleep fold) ───────────────────────────
+ * Tiles *arrive* on the plane and *fold* when put to sleep. Filter-only so
+ * we never fight the inline pan/zoom `transform` or the per-mode opacity. */
+@keyframes tile-place-in {
+  0% {
+    filter: brightness(1.35);
+  }
+  100% {
+    filter: none;
+  }
+}
+[data-canvas-tile][data-landing] {
+  animation: tile-place-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+[data-canvas-tile][data-sleeping] {
+  filter: saturate(0.42) brightness(0.72);
+}
+/* Sleep wins over land-in if both are somehow set. */
+[data-canvas-tile][data-sleeping][data-landing] {
+  animation: none;
+}
+
+/* Reduced motion: hold the rotating rails / comet still — the themed ring
+ * still reads, it just stops moving. The `[data-aura]` qualifier is
+ * load-bearing: the per-state animations are declared at
+ * `[data-canvas-tile][data-aura="…"]` specificity (0,3,1), so a bare
+ * `[data-canvas-tile] .tile-aura` reset (0,2,1) would lose the cascade and
+ * never actually stop the motion. Match the animating selectors' specificity
+ * so this override wins. */
 @media (prefers-reduced-motion: reduce) {
+  /* No `::after` aura strip remains (ants retired); ::before carries spin. */
   [data-canvas-tile][data-aura] .tile-aura,
-  [data-canvas-tile][data-aura] .tile-aura::before,
-  [data-canvas-tile][data-aura] .tile-aura::after {
+  [data-canvas-tile][data-aura] .tile-aura::before {
+    animation: none;
+  }
+  /* Finished still reads as a soft ring without the exhale motion. */
+  [data-canvas-tile][data-aura="finished"] .tile-aura {
+    opacity: 0.4;
+  }
+  /* Working keeps the static outer rail without the rotating arc. */
+  [data-canvas-tile][data-aura="working"] .tile-aura::before {
+    opacity: 0;
+  }
+  [data-canvas-tile][data-landing] {
     animation: none;
   }
 }
@@ -480,11 +518,12 @@ body {
 [data-canvas-tile][data-active="true"] .tile-aura {
   opacity: 0.4;
 }
-/* Alert's `opacity` keyframes would otherwise outrank the mute above — a
- * running CSS animation beats normal declarations regardless of selector
- * order — so the active-alert tile would keep throbbing 0.5↔1 instead of
- * settling at 0.4. Cancel the pulse on the active tile so the mute wins. */
-[data-canvas-tile][data-active="true"][data-aura="alert"] .tile-aura {
+/* Alert pulse / finished exhale keyframes would otherwise outrank the mute
+ * above — a running CSS animation beats normal declarations regardless of
+ * selector order. Cancel those motion keyframes on the active tile so the
+ * mute (opacity 0.4) wins. */
+[data-canvas-tile][data-active="true"][data-aura="alert"] .tile-aura,
+[data-canvas-tile][data-active="true"][data-aura="finished"] .tile-aura {
   animation: none;
   opacity: 0.4;
 }

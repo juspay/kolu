@@ -27,6 +27,7 @@ import { match } from "ts-pattern";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { ACTIONS } from "./input/actions";
 import type { Keybind } from "./input/keyboard";
+import CreateIdentityPreview from "./palette/CreateIdentityPreview";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
 import { notePointerMove, type PointerPos } from "./palette/pointerHoverGate";
@@ -1064,6 +1065,12 @@ const CommandPalette: Component<{
             </ul>
           </Show>
         </div>
+        <CreateIdentityPreview
+          path={path()}
+          mode={mode()}
+          query={query()}
+          highlighted={filtered()[selectedIndex()]}
+        />
         <ActionBar
           mode={mode()}
           drilled={path().length > 0}

@@ -13,7 +13,16 @@
  *    so chrome reflects state and double-click toggles it. */
 
 import { createDraggable } from "@thisbeyond/solid-dnd";
-import { type Component, createMemo, For, type JSX, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onMount,
+  Show,
+} from "solid-js";
 import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
@@ -32,6 +41,7 @@ import {
   tileTitleBarBorder,
 } from "./tileChrome";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import { prefersReducedMotion } from "./viewport/animatedPan";
 import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };
@@ -54,6 +64,9 @@ const CanvasTile: Component<{
    *  faded so an inactive ("parked") tile recedes visually. The decision
    *  itself lives in the caller; the tile shell only honors the bit. */
   dimmed?: boolean;
+  /** Sleeping tile — desaturate / fold on the canvas so dormancy reads as
+   *  a place change, not only a title-bar opacity. Caller owns the fact. */
+  sleeping?: boolean;
   theme: TileTheme;
   /** Per-repo identity color; drives the tile border. */
   repoColor: string;
@@ -100,6 +113,33 @@ const CanvasTile: Component<{
   const layout = () =>
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
 
+  // One-shot "tile lands on the plane" — armed only once on mount when the
+  // tile is already tiled + awake + motion-ok. Any cancel path (maximize,
+  // sleep, reduced-motion, animationend/cancel) spends the cue for this
+  // shell instance (not re-armed without remount).
+  const [landing, setLanding] = createSignal(false);
+  const spendLanding = () => setLanding(false);
+  onMount(() => {
+    if (prefersReducedMotion() || props.sleeping || props.mode !== "tiled")
+      return;
+    setLanding(true);
+  });
+  createEffect(() => {
+    // Mid-entrance loss of eligibility cancels CSS without animationend —
+    // spend so a later restore/wake never re-plays.
+    if (!landing()) return;
+    if (props.sleeping || props.mode !== "tiled" || prefersReducedMotion()) {
+      spendLanding();
+    }
+  });
+  const onLandInAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
+    e,
+  ) => {
+    if (e.target === e.currentTarget && e.animationName === "tile-place-in") {
+      spendLanding();
+    }
+  };
+
   const bg = () => props.theme.bg;
   // Memoized: `showAura` and the `data-aura` attribute both read the tier, and
   // each read chains through the resolver into store + staleness lookups — so
@@ -135,6 +175,31 @@ const CanvasTile: Component<{
     () => aura() !== "none" && props.mode === "tiled" && onScreen(),
   );
 
+  // One-shot finished **exhale** — armed only when the tier *transitions*
+  // into finished while the motion is observable. Any cancel (off-screen
+  // Show gate, active mute, reduced motion, leave finished) spends it so
+  // a later re-show of `.tile-aura` on the same shell never re-plays.
+  // Held ring stays on `data-aura="finished"` alone.
+  const [exhale, setExhale] = createSignal(false);
+  let prevAura: TileAura = "none";
+  createEffect(() => {
+    const next = aura();
+    const enteredFinished = next === "finished" && prevAura !== "finished";
+    const eligible =
+      showAura() && props.active !== true && !prefersReducedMotion();
+    if (enteredFinished) {
+      setExhale(eligible);
+    } else if (next !== "finished" || !eligible) {
+      setExhale(false);
+    }
+    prevAura = next;
+  });
+  const onAuraAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
+    e,
+  ) => {
+    if (e.animationName === "tile-aura-exhale") setExhale(false);
+  };
+
   // Active stays full-strength regardless of dimmed — the user is looking
   // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
   // so a parked tile recedes without disappearing.
@@ -158,19 +223,22 @@ const CanvasTile: Component<{
       "background-color": bg(),
       // One colour throughout: the repo's identity colour drives the border, the
       // state aura, AND the active tile's focus cue. The active "you are here"
-      // signal is a crisp repo-colour OUTLINE floating 4px off the tile on the
-      // dark canvas (`outline` + `outline-offset` below). It's drawn outside the
-      // border-box on the constant dark canvas — never over the terminal body,
-      // so it's theme-independent — and `outline` is never clipped by the tile's
-      // overflow-hidden. The 4px moat keeps it clear of the border aura.
+      // signal is a crisp repo-colour OUTLINE floating in the moat (`--tile-moat-*`
+      // tokens, shared with the working outer rail in index.css). Drawn outside
+      // the border-box on the constant dark canvas — never over the terminal
+      // body — and not clipped (outer shell is overflow-visible; title/body clip
+      // via the inner shell). `--aura-c` is inherited by `.tile-aura`.
       "border-color": props.repoColor,
+      "--aura-c": props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
       opacity: props.active ? 1 : inactiveOpacity(),
       "box-shadow": props.active
         ? `0 8px 32px rgba(0,0,0,0.4)`
         : `0 2px 8px rgba(0,0,0,0.2)`,
-      outline: props.active ? `1.5px solid ${props.repoColor}` : undefined,
-      "outline-offset": props.active ? "4px" : undefined,
+      outline: props.active
+        ? `var(--tile-moat-stroke) solid ${props.repoColor}`
+        : undefined,
+      "outline-offset": props.active ? "var(--tile-moat-offset)" : undefined,
       "transform-origin": "0 0",
       transform: tileTransformCSS(
         l.x,
@@ -266,6 +334,13 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      data-sleeping={props.sleeping ? "" : undefined}
+      data-landing={
+        landing() && props.mode === "tiled" && !props.sleeping ? "" : undefined
+      }
+      data-exhale={
+        exhale() && showAura() && aura() === "finished" ? "" : undefined
+      }
       data-aura={showAura() ? aura() : undefined}
       // `inert` (when covered) removes the subtree from tab order, blocks
       // pointer events, and hides from assistive tech in one go — matches
@@ -281,106 +356,115 @@ const CanvasTile: Component<{
       // warning. `inert` is the spec's recommended replacement precisely
       // because it hides *and* prevents focus without that conflict.
       inert={isCovered()}
-      class="flex flex-col overflow-hidden border transition-shadow duration-200"
+      // Clip model is tier-independent: outer shell always overflow-visible so
+      // outside-paint auras (working outer rail, future rings) are free; the
+      // inner shell always clips title/body. Geometry does not branch on aura.
+      class="relative border transition-shadow duration-200 overflow-visible"
       // Geometry, layer, and visibility all live in `presentation().style` (one
       // complete box per mode); the classList carries only non-geometric,
       // mode-specific decoration (rounded corners vs. transparent border).
       classList={presentation().classes}
       style={presentation().style}
       onMouseDown={() => props.onSelect()}
+      onAnimationEnd={onLandInAnim}
+      onAnimationCancel={onLandInAnim}
     >
-      {/* Title bar — uses tile foreground at low opacity for guaranteed
-       *  contrast against the tile background, regardless of theme. The
-       *  drag activators only attach when tiled — a maximized tile shouldn't
-       *  start a drag on grab. Double-click toggles maximize.
-       *
-       *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
-       *  `auto` for the action cluster. `items-start` hugs the actions to the
-       *  top edge. `renderTitle()` is spread across the grid via
-       *  `display:contents`, so `TerminalMeta`'s name row lands in column 1
-       *  of row 1 (beside the actions) while its branch/PR row spans BOTH
-       *  columns of row 2 — flowing full-width *under* the top-aligned
-       *  actions instead of being boxed into the narrow left column. Without
-       *  the span, the branch/PR row truncated early with dead space beneath
-       *  a wide action cluster (agent status + theme + icons). */}
-      <div
-        data-testid="canvas-tile-titlebar"
-        class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
-        classList={{
-          "cursor-grab active:cursor-grabbing": !isMaximized(),
-        }}
-        style={{
-          "background-color": tileTitleBarBg(props.theme),
-          "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,
-          "border-left-color": props.repoColor,
-          // Scope theme-derived foreground tiers to the title bar so
-          // chrome buttons read sensible defaults via var(--color-fg-3,
-          // currentColor) without leaking the override into the tile body
-          // (xterm + search overlays use the global tiers there).
-          "--color-fg": tileFgTier(props.theme, 1),
-          "--color-fg-2": tileFgTier(props.theme, 2),
-          "--color-fg-3": tileFgTier(props.theme, 3),
-        }}
-        // Non-interactive chrome: prevent the browser's default
-        // mousedown focus shift so clicks on the title bar don't blur
-        // the xterm textarea. solid-dnd's drag uses pointerdown, not
-        // mousedown, so drag is unaffected; child buttons handle their
-        // own focus via stopPropagation on pointerdown.
-        onMouseDown={(e) => e.preventDefault()}
-        onDblClick={(e) => {
-          e.stopPropagation();
-          props.onToggleMaximize();
-        }}
-        {...(props.mode === "tiled" ? draggable.dragActivators : {})}
-      >
-        <div class="contents">{props.renderTitle()}</div>
-        <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
-          {props.renderTitleActions?.()}
-          <button
-            type="button"
-            data-testid="canvas-tile-maximize"
-            class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto hover:bg-black/20`}
-            style={{
-              color: tileChromeButton(props.theme),
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onToggleMaximize();
-            }}
-            title={isMaximized() ? "Restore to canvas" : "Maximize"}
-          >
-            <Show when={isMaximized()} fallback={<MaximizeIcon />}>
-              <RestoreIcon />
-            </Show>
-          </button>
-          <button
-            type="button"
-            data-testid="canvas-tile-close"
-            class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto text-sm`}
-            style={{
-              color: tileChromeButton(props.theme),
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onClose();
-            }}
-            title="Close terminal"
-          >
-            ×
-          </button>
+      {/* Clip shell — sole clip boundary for title/body (xterm, chrome). */}
+      <div class="absolute inset-0 flex flex-col overflow-hidden rounded-[inherit]">
+        {/* Title bar — uses tile foreground at low opacity for guaranteed
+         *  contrast against the tile background, regardless of theme. The
+         *  drag activators only attach when tiled — a maximized tile shouldn't
+         *  start a drag on grab. Double-click toggles maximize.
+         *
+         *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
+         *  `auto` for the action cluster. `items-start` hugs the actions to the
+         *  top edge. `renderTitle()` is spread across the grid via
+         *  `display:contents`, so `TerminalMeta`'s name row lands in column 1
+         *  of row 1 (beside the actions) while its branch/PR row spans BOTH
+         *  columns of row 2 — flowing full-width *under* the top-aligned
+         *  actions instead of being boxed into the narrow left column. Without
+         *  the span, the branch/PR row truncated early with dead space beneath
+         *  a wide action cluster (agent status + theme + icons). */}
+        <div
+          data-testid="canvas-tile-titlebar"
+          class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
+          classList={{
+            "cursor-grab active:cursor-grabbing": !isMaximized(),
+          }}
+          style={{
+            "background-color": tileTitleBarBg(props.theme),
+            "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,
+            "border-left-color": props.repoColor,
+            // Scope theme-derived foreground tiers to the title bar so
+            // chrome buttons read sensible defaults via var(--color-fg-3,
+            // currentColor) without leaking the override into the tile body
+            // (xterm + search overlays use the global tiers there).
+            "--color-fg": tileFgTier(props.theme, 1),
+            "--color-fg-2": tileFgTier(props.theme, 2),
+            "--color-fg-3": tileFgTier(props.theme, 3),
+          }}
+          // Non-interactive chrome: prevent the browser's default
+          // mousedown focus shift so clicks on the title bar don't blur
+          // the xterm textarea. solid-dnd's drag uses pointerdown, not
+          // mousedown, so drag is unaffected; child buttons handle their
+          // own focus via stopPropagation on pointerdown.
+          onMouseDown={(e) => e.preventDefault()}
+          onDblClick={(e) => {
+            e.stopPropagation();
+            props.onToggleMaximize();
+          }}
+          {...(props.mode === "tiled" ? draggable.dragActivators : {})}
+        >
+          <div class="contents">{props.renderTitle()}</div>
+          <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
+            {props.renderTitleActions?.()}
+            <button
+              type="button"
+              data-testid="canvas-tile-maximize"
+              class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto hover:bg-black/20`}
+              style={{
+                color: tileChromeButton(props.theme),
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onToggleMaximize();
+              }}
+              title={isMaximized() ? "Restore to canvas" : "Maximize"}
+            >
+              <Show when={isMaximized()} fallback={<MaximizeIcon />}>
+                <RestoreIcon />
+              </Show>
+            </button>
+            <button
+              type="button"
+              data-testid="canvas-tile-close"
+              class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto text-sm`}
+              style={{
+                color: tileChromeButton(props.theme),
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onClose();
+              }}
+              title="Close terminal"
+            >
+              ×
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* Tile body — injected by caller */}
-      {props.renderBody()}
+        {/* Tile body — injected by caller */}
+        {props.renderBody()}
+      </div>
 
       {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the
        *  affordance. Corners are declared after edges in the record so DOM
        *  order paints them on top of the edge strips they overlap. Only in
        *  `tiled` mode — maximized has nothing to resize against, covered tiles
-       *  are inert and should not have interactive handles in the DOM. */}
+       *  are inert and should not have interactive handles in the DOM.
+       *  Outside the clip shell so edge hit-targets aren't rounded away. */}
       <Show when={props.mode === "tiled"}>
         <For each={Object.entries(RESIZE_HANDLES)}>
           {([direction, handle]) => (
@@ -394,18 +478,16 @@ const CanvasTile: Component<{
         </For>
       </Show>
 
-      {/* Language C · Run / sweep — agent run-state shown as MOTION on a border
-       *  ring in the repo's identity colour (`--aura-c` = repoColor, the one
-       *  colour used throughout): working "runs" as marching ants, needs-you
-       *  "sweeps" a comet whose speed is the urgency. The treatment + speed are
-       *  driven by `[data-aura]` rules in index.css. Last child so it paints
-       *  over the body; `pointer-events:none` so it never eats a click. Skipped
-       *  when maximized — the focused tile mutes its own aura. */}
+      {/* Language C · Run / sweep — agent run-state as MOTION in repo colour
+       *  (`--aura-c`): working = double moat + rotating outer arc; needs-you =
+       *  comet. Driven by `[data-aura]` in index.css. Outside the clip shell
+       *  so the working outer rail can sit in the active-outline moat. */}
       <Show when={showAura()}>
         <div
-          class="tile-aura"
+          class="tile-aura tile-aura-ring"
           aria-hidden="true"
-          style={{ "--aura-c": props.repoColor }}
+          onAnimationEnd={onAuraAnim}
+          onAnimationCancel={onAuraAnim}
         />
       </Show>
     </div>
