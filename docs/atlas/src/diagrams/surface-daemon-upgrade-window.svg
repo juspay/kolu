@@ -56,10 +56,10 @@
   <text x="52" y="264" fill="#8b95a7" font-size="11">exists: endpoint machine · converge / decide · policy&lt;Cap&gt; · drivers · restart</text>
   <text x="52" y="292" fill="#a78bfa" font-size="11.5" font-weight="600">UW1 — the window kit completed:</text>
   <text x="66" y="312" fill="#e6eaf2" font-size="11">drainAndAwaitExit — exit is ground truth, never the RPC</text>
-  <text x="66" y="330" fill="#e6eaf2" font-size="11">drain admission — instance-keyed budget + cross-supervisor give-up</text>
+  <text x="66" y="330" fill="#e6eaf2" font-size="11">drain admission as policy data — budget survives adopts, cross-supervisor give-up</text>
   <text x="66" y="348" fill="#e6eaf2" font-size="11">adopted-stale outcome (closes the L23 fence-spent gap)</text>
-  <text x="66" y="366" fill="#e6eaf2" font-size="11">ConvergenceAnomaly — typed standing states, never silent no-ops</text>
-  <text x="66" y="384" fill="#e6eaf2" font-size="11">enactment-generic converge — one kit for endpoint and ssh arms</text>
+  <text x="66" y="366" fill="#e6eaf2" font-size="11">ConvergenceAnomaly incl. cross-supervisor — typed, never silent no-ops</text>
+  <text x="66" y="384" fill="#e6eaf2" font-size="11">one converge for endpoint and ssh arms — boot-method trio goes internal</text>
   <text x="52" y="414" fill="#8b95a7" font-size="10.5">supervisor tests gain recycleForeignGate + socketContractMismatch (UW2)</text>
   <text x="52" y="430" fill="#8b95a7" font-size="10.5">deps stay: node + @kolu/surface-daemon only</text>
 
@@ -72,7 +72,7 @@
   <text x="641" y="358" fill="#e6eaf2" font-size="11">yesterday-daemon fixture · shared-artifact registry + watchdog</text>
   <text x="641" y="376" fill="#e6eaf2" font-size="11">contract-skew harness · previous-release window harness</text>
   <text x="627" y="402" fill="#a78bfa" font-size="11.5" font-weight="600">UW4 — versioned gate identity (the capstone):</text>
-  <text x="641" y="422" fill="#e6eaf2" font-size="11">writes pid + start-instant · reads BOTH shapes — legacy is older, never refused</text>
+  <text x="641" y="422" fill="#e6eaf2" font-size="11">writes pid + start-instant · pid stays the first token — every reader can signal the holder</text>
 
   <line x1="575" y1="330" x2="605" y2="330" stroke="#8b95a7" stroke-width="1.4" marker-end="url(#arr)"/>
   <text x="590" y="320" fill="#8b95a7" font-size="9.5" text-anchor="middle">dep</text>
