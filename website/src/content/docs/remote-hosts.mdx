@@ -167,19 +167,20 @@ in **⌘K** (hosts are first-class root results in the
 [switcher](/switcher)), or press **⌘⇧H** (Ctrl+Shift+H elsewhere) — or the
 **search icon** in the host bar — to deep-link into the scoped host list; pick a
 host and the canvas switches. The host strip stays as ambient status (connection
-dots, awaiting pills) — glanceable without opening anything. Each host owns its own canvas: its terminals, splits,
+dots, per-host attention counts) — glanceable without opening anything. Each host owns its own canvas: its terminals, splits,
 and focused tile are restored as you left them when you switch back. Switching
 away doesn't tear a host's work down; it keeps running on that host. If the active
 host ever leaves the pool, kolu switches you back to local and says so.
 
-A chip also carries an **awaiting badge** — a count of agents on that host waiting
-for your input — so a host you're not looking at can tell you it needs you without
-your switching to it first, plus a quiet **amber dot** when an agent **finished**
-on that host while you weren't looking (it clears the moment you switch there).
-Attention reaches you the **same way on every host**: a background machine's agent
-that finishes or starts waiting chimes and pops a notification just as the active
-machine's does. An [installed PWA](/install-pwa) surfaces the awaiting count as an
-app-badge and notifications across all your hosts.
+A tab also carries that host's **attention summary**, so a machine you're not
+looking at can tell you it needs you without your switching to it first — the same
+three counts, in the same colours, as everywhere else in kolu; see
+[Notifications](/notifications) for what each one means and when it clears.
+Clicking the violet count **jumps to the agent that's waiting**, switching host on
+the way. Attention reaches you the **same way on every host**: a background
+machine's agent that finishes or starts waiting chimes and pops a notification just
+as the active machine's does. An [installed PWA](/install-pwa) surfaces the awaiting
+count as an app-badge and notifications across all your hosts.
 
 Switching back to a host you've already visited is instant: kolu keeps each visited
 host's **canvas** state — selection, camera, saved sessions, activity, and the Code
@@ -205,10 +206,13 @@ When the failed attempt produced any output, **the card shows the last lines of 
 the cause — the same running log the canvas shows you while a host is coming up, kept
 where it is most useful. That output is usually what tells you which kind of failure you
 have: a machine that is genuinely unreachable looks nothing like one whose remote build
-failed to compile, and only the log distinguishes them. When kolu can't show it, it shows
-nothing rather than an empty box — an unreadable log and a failure that genuinely printed
-nothing are not the same thing. The same tail appears on the host tab's diagnostics
-popover, so you can read it without leaving the host you're on.
+failed to compile, and only the log distinguishes them. Those lines travel with the
+failure itself, not alongside it — so they survive a browser whose connection to kolu has
+gone quiet (a laptop that slept, a tab left open on flaky wifi): you get the reason and
+its evidence together, or the card simply shows no output block, which now means the
+failure printed nothing. The same tail appears
+on the host tab's diagnostics popover, so you can read it without leaving the host you're
+on.
 
 The causes it distinguishes:
 

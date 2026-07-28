@@ -47,37 +47,46 @@ without separate dots fighting for space:
 - **state (colour)** — what that driver is doing:
   - **busy orange** while the machine is in flight (thinking / tools / background
     work, and a plain shell with live output such as `btop`);
-  - **violet** when it needs you (or is in the brief post-turn lull);
+  - **full violet** when it is blocked on you, and a **dimmed violet** for the
+    brief post-turn lull — two strengths of one hue, so "answer me" never reads
+    as quietly as "just finished";
   - **moonlit** when sleeping — and the whole row recedes (~55% opacity);
 - **activity (motion)** — the glyph **spins** (2.8s continuous) while the
   terminal is effectively active, **glows** when it is blocked on you, and holds
   still when quiet. Under reduced motion, animations freeze. Active rows hide
   the "Xs ago" recency (it would only say "just now");
-- **obligation (amber row wash)** — a background ping you have not opened yet.
-  The whole row tints amber and its 3px leading stripe lights up, with the title
-  in bold; an amber corner badge on the pip carries the same fact precisely.
-  Deliberately **amber**, not violet: needs-you is state (violet), unread is an
-  unopened notification (amber). The host strip uses the same pair — a **violet
-  count pill** for agents blocked on you, and for finished-but-unseen work on a
-  background machine an **amber count** on a tab that washes amber too.
+- **attention (row wash)** — the whole row tints, its 3px leading stripe lights
+  up, and the title goes bold. **Violet** when an agent is blocked on you, and
+  a violet chip replaces the timestamp with **how long it has been waiting** —
+  so a question left overnight reads "14h", not a quiet dot. **Amber** for a
+  background ping you have not opened yet, with an amber corner badge on the
+  pip carrying the same fact precisely. Blocked beats unopened when both apply.
 
-The row, not a dot on it, is what carries unread. A mark you catch at the edge of
-vision survives on **area**: the dock's corner badge already pulsed and unread
+The row, not a dot on it, is what carries attention. A mark you catch at the edge
+of vision survives on **area**: the dock's corner badge already pulsed and unread
 threads still went unnoticed, because motion on a 7px object doesn't buy attention.
 
 The same StatePip leads the tile title bar, so dock and title never disagree.
 
-Rows sort by **pure recency**: the terminal that just changed floats to the top,
-and clicking a row centres its tile on the canvas. A terminal running one
-long-lived agent session stays fresh on its *output*, not only when the agent's
-identity changes, so a busy week-old session doesn't sink to the bottom reading
-"24h ago".
+Every repo section header carries the same three counts the host tab does —
+**active**, **needs you**, **unread**. The two you can act on are pills, and
+clicking one jumps to the next terminal it counts; the plain number beside the
+repo name is just how many terminals it holds. The counts include rows a filter
+is currently hiding: an agent that has been blocked long enough to fall out of
+the activity window is exactly the one whose count must still reach you.
+
+Rows sort **blocked-first, then by recency**: a terminal whose agent is waiting on
+your input floats to the top of its section, and everything else orders by what
+changed most recently. Clicking a row centres its tile on the canvas. A terminal
+running one long-lived agent session stays fresh on its *output*, not only when the
+agent's identity changes, so a busy week-old session doesn't sink to the bottom
+reading "24h ago".
 
 <Aside type="note" title="Attention rolls up here first">
-  Only an agent genuinely **awaiting you** rides the needs-you group — a
-  just-finished agent drops to the quieter idle group rather than sitting where
-  something is blocked on your input. The badge, the app-icon count, and the
-  cross-machine story live in [Notifications &amp; Attention](/notifications).
+  Only an agent genuinely **awaiting you** floats — a just-finished agent keeps
+  its place in recency order rather than sitting where something is blocked on
+  your input. The counts, the app-icon badge, and the cross-machine story live in
+  [Notifications &amp; Attention](/notifications).
 </Aside>
 
 ## The Filters row — keep it to what matters

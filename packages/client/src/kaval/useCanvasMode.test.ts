@@ -15,12 +15,18 @@ const h = vi.hoisted(() => ({
   members: [] as { kind: "local" }[],
   local: true,
   connInfo: undefined as { phase?: string; sinceMs?: number } | undefined,
+  // The map's OWN transport liveness — the very value `floorOnLiveness` is handed, and
+  // the one fact that separates "the floor dropped the live word" from "no frame yet"
+  // when `connInfo` is undefined. Live by default: every pin below is about the boot
+  // deadline, not about a dead link.
+  mapLive: true,
 }));
 
 vi.mock("../wire", () => ({
   activeHost: () => LOCAL_HOST,
   connectionInfo: () => h.connInfo,
   hostKeys: () => h.members,
+  padiMap: { live: () => h.mapLive },
 }));
 vi.mock("../time/clock", () => ({
   getMonotonicNow: () => () => h.now,
@@ -59,6 +65,7 @@ beforeEach(() => {
   h.members = [];
   h.local = true;
   h.connInfo = undefined;
+  h.mapLive = true;
 });
 
 describe("canvasMode — Hole A membership stall escapes past the deadline (codex-debate F1)", () => {
@@ -111,7 +118,47 @@ describe("canvasMode — #1908 R8a campaign backstop escapes a persistently-wedg
     // connection), never the reload lie. The class cell was freshly re-anchored ~100s ago.
     expect(flap(CAMPAIGN_CEILING_MS + 100_000, "provisioning")).toEqual({
       kind: "boot-stalled",
-      recovery: { via: "connector", phase: "provisioning" },
+      recovery: {
+        via: "connector",
+        phase: "provisioning",
+        log: [],
+        logAbsence: undefined,
+      },
+    });
+  });
+});
+
+describe("canvasMode — the tail's absence carries a REASON, decided where the fact lives", () => {
+  // The card used to derive "kolu's link to this browser went quiet" from a bare
+  // `log === undefined`. Two different situations produce a missing connection frame —
+  // the map's liveness floor DROPPED the live word, or no frame has landed yet — and only
+  // one of them is a link problem. This is the seam that can tell them apart, because it
+  // is the one place that holds both the cell read and `padiMap.live()` (the very value
+  // `floorOnLiveness` is handed). Everything downstream carries the verdict; nothing
+  // downstream re-derives it.
+  const stalledConnectorFrame = () => {
+    h.entryKind = "warming";
+    h.local = false;
+    // No connection frame at all — the case under test. The leg is the connector-owned
+    // `provisioning` (warming + remote), under the `remote-handshake` ceiling.
+    h.connInfo = undefined;
+    frameAt(0); // arm the anchor
+    return frameAt(CEILING_MS["remote-handshake"] + 1_000);
+  };
+
+  it("a DEAD link makes the missing tail a link problem", () => {
+    h.mapLive = false;
+    expect(stalledConnectorFrame()).toMatchObject({
+      kind: "boot-stalled",
+      recovery: { via: "connector", log: [], logAbsence: "link-down" },
+    });
+  });
+
+  it("a LIVE link with no frame yet claims NOTHING about the link", () => {
+    h.mapLive = true;
+    expect(stalledConnectorFrame()).toMatchObject({
+      kind: "boot-stalled",
+      recovery: { via: "connector", log: [], logAbsence: undefined },
     });
   });
 });

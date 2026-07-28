@@ -77,7 +77,12 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
     dispose = render(
       () => (
         <BootStalledCanvas
-          recovery={{ via: "connector", phase: "provisioning", log: undefined }}
+          recovery={{
+            via: "connector",
+            phase: "provisioning",
+            log: [],
+            logAbsence: undefined,
+          }}
         />
       ),
       document.body,
@@ -100,7 +105,12 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
     dispose = render(
       () => (
         <BootStalledCanvas
-          recovery={{ via: "connector", phase: "provisioning", log: undefined }}
+          recovery={{
+            via: "connector",
+            phase: "provisioning",
+            log: [],
+            logAbsence: undefined,
+          }}
         />
       ),
       document.body,
@@ -124,7 +134,12 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
     dispose = render(
       () => (
         <BootStalledCanvas
-          recovery={{ via: "connector", phase: "provisioning", log: undefined }}
+          recovery={{
+            via: "connector",
+            phase: "provisioning",
+            log: [],
+            logAbsence: undefined,
+          }}
         />
       ),
       document.body,

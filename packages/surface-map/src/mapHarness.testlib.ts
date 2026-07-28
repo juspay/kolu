@@ -14,7 +14,12 @@ import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import type { AnyContractRouter } from "@orpc/contract";
 import { z } from "zod";
 import { connectSurfaceMap } from "./client";
-import { defineSurfaceMap, type KeyCodec } from "./define";
+import {
+  defineSurfaceMap,
+  type FailureEvidence,
+  type FailureRecord,
+  type KeyCodec,
+} from "./define";
 import {
   type EntryConnectionState,
   type EntrySession,
@@ -211,7 +216,11 @@ export function makeRegistry() {
       fire();
     },
     // PR4: a structural fault carries a schema-valid domain `failure` (the mock's
-    // stand-in for the real classifier), never a fabricated catch-all.
+    // stand-in for the real classifier), never a fabricated catch-all. It carries no
+    // evidence — a fault has no session (see `EntryFault`), so `statusOf` states the
+    // structural `[]` once. A test that needs a real retained tail drives a
+    // SESSION-backed entry (`addSession` + `setState(k, failed(failure, tail))`), which
+    // is the shape production actually produces.
     addFault(k: HostKey, failure: TestFailure) {
       entries.set(k, { session: null, fault: failure });
       fire();
@@ -263,22 +272,29 @@ export const connected = (
   clockOffset,
 });
 
-/** A terminal `failed` connection state carrying a domain `failure` (PR4) — the
- *  arm REQUIRES it, so this helper cannot construct the illegal failed-without-
- *  failure state (see `entryConnectionState.test-d.ts`). */
+/** A terminal `failed` connection state carrying a domain `failure` (PR4) and its
+ *  `evidence` — the arm IS a {@link FailureRecord}, so this helper cannot construct
+ *  either illegal state (failed-without-failure, or a reason without its evidence; see
+ *  `entryConnectionState.test-d.ts`). `evidence` has no default: the caller is the seam
+ *  that knows what the episode printed, and `[]` is a fact it states rather than one the
+ *  helper invents. */
 export const failed = (
   failure: TestFailure,
+  evidence: FailureEvidence,
 ): EntryConnectionState<"copying", TestFailure> => ({
   kind: "failed",
   failure,
+  evidence,
 });
 
-/** A `disconnected` connection state — TRANSIENT when `failure` is omitted (the
- *  classifier returned nothing → projects to warming), STANDING when supplied
- *  (a refuse → projects to failed). */
+/** A `disconnected` connection state — TRANSIENT when the argument is omitted (the
+ *  classifier returned nothing → projects to warming), STANDING when a refuse is
+ *  supplied (→ projects to failed, carrying its `evidence`). A pass-through of the
+ *  arm's own optional {@link FailureRecord}: one value, so the reason and its evidence
+ *  travel together or not at all. */
 export const disconnected = (
-  failure?: TestFailure,
-): EntryConnectionState<"copying", TestFailure> =>
-  failure === undefined
-    ? { kind: "disconnected" }
-    : { kind: "disconnected", failure };
+  refuse?: FailureRecord<TestFailure>,
+): EntryConnectionState<"copying", TestFailure> => ({
+  kind: "disconnected",
+  refuse,
+});

@@ -1,6 +1,9 @@
 /**
  * `@kolu/padi/urgency` — the recency-FREE urgency fold off the composed
- * `terminals` collection: how many terminals await the user, and which. Backs
+ * `terminals` collection: which terminals await the user, which just finished,
+ * which are working, and which are still lingering after their turn (the
+ * host-tab attention summary reads all four — its ACTIVITY count is
+ * working + linger, matching what the pip's motion channel shows). Backs
  * the `padiSurface.cells.urgency` cell, which is a DERIVED member —
  * `derived.cell(($) => { finish.track(); …; return recomputeUrgency(...) })` in
  * `servePadi.ts`. The graph tracks the `terminals → urgency` edge AND the
@@ -21,13 +24,14 @@
  * this fold stays pure over `(terminals, isEpisodeFinished)`.
  */
 
-import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import { attentionClass } from "@kolu/terminal-vocab/agentProjection";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 
-/** Fold the composed `terminals` collection into the urgency projection — the
- *  ids of terminals whose agent is awaiting the user (`awaiting_user`), and of
- *  terminals that have effectively finished (`waiting` ∧ episode-finished). Takes
+/** Fold the composed `terminals` collection into the urgency projection — one
+ *  id-list per `attentionClass` (asking · working · linger · finished), the
+ *  classes being a partition, so the lists are disjoint and a consumer adds
+ *  them without de-duplicating. Takes
  *  the collection as its argument (`$.terminals()`), so it reads exactly what
  *  the wire serves and the reactive graph tracks the dependency. Recency-free by
  *  design: nothing cross-host ever compares two hosts' clocks.
@@ -42,6 +46,8 @@ export function recomputeUrgency(
 ): PadiUrgency {
   const awaitingIds: TerminalId[] = [];
   const finishedIds: TerminalId[] = [];
+  const workingIds: TerminalId[] = [];
+  const lingerIds: TerminalId[] = [];
   for (const [id, terminal] of terminals) {
     // Only LIVE (active) terminals can await the user. Gating on the composed
     // record's `active` discriminant is the collection-side twin of the old
@@ -52,17 +58,32 @@ export function recomputeUrgency(
     // to gate on the authored state; the composed union makes the same fact the
     // discriminant.
     if (terminal.state !== "active") continue;
-    const agent = terminal.agent;
-    if (!agent) continue;
-    // The two attention buckets, read through the ONE shared fence: `awaiting`
-    // (blocked on you now) and `waiting` (just finished its turn). Both are
-    // carried so `useAttention` applies identical rules on every host. Waiting
-    // is gated on effective quiet + sticky-per-episode (EF2); asking is not.
-    const bucket = agentBucket(agent.state);
-    if (bucket === "awaiting") awaitingIds.push(id);
-    else if (bucket === "waiting" && isEpisodeFinished(id)) {
-      finishedIds.push(id);
+    // The ONE shared partition (`attentionClass`) decides which list an id
+    // lands in, and it is computed HERE, once. The client does not re-run it:
+    // it reads the answer back off these lists for a terminal's colour, its
+    // motion and every count, so a wire list and a mark can't mean different
+    // things — not because two switches agree, but because there is one
+    // computation with one arrival time. Every terminal lands in exactly one
+    // list (or none), which is what lets a consumer add the lists without
+    // de-duplicating.
+    // A waiting agent splits on effective quiet + sticky-per-episode (EF2):
+    // still lingering until it closes, finished after. Asking is ungated.
+    switch (attentionClass(terminal.agent, isEpisodeFinished(id))) {
+      case "asking":
+        awaitingIds.push(id);
+        break;
+      case "working":
+        workingIds.push(id);
+        break;
+      case "linger":
+        lingerIds.push(id);
+        break;
+      case "finished":
+        finishedIds.push(id);
+        break;
+      case "idle":
+        break;
     }
   }
-  return { awaitingIds, finishedIds };
+  return { awaitingIds, finishedIds, workingIds, lingerIds };
 }

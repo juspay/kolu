@@ -12,7 +12,7 @@ import {
 } from "kolu-common/surface";
 
 /** The switcher-column bucket vocabulary — the shared `AgentPaintClass`
- *  (awaiting | working | none) plus the dock's own `idle` triage column.
+ *  (awaiting | linger | working | none) plus the dock's own `idle` triage column.
  *  Declared as an EXTENSION of `AgentPaintClass` (not a re-spelled literal set)
  *  so `Exclude<AgentBucketKind, "idle">` resolves to exactly `AgentPaintClass`. */
 export type AgentBucketKind = AgentPaintClass | "idle";
@@ -34,6 +34,17 @@ export const AGENT_BUCKETS = [
     empty: "No terminals need input",
     textClass: "text-alert",
     accentVar: "var(--color-alert)",
+    borderClass: "pill-border pill-border-awaiting",
+  },
+  {
+    // Post-turn lull — same violet family as awaiting, dimmed: the minimap /
+    // aura presentation for a just-finished agent. Split from `awaiting` so
+    // needs-you renders full-strength (the fucknotif fix).
+    key: "linger",
+    label: "Turn finished",
+    empty: "No terminals just finished",
+    textClass: "text-alert/55",
+    accentVar: "color-mix(in oklab, var(--color-alert) 55%, transparent)",
     borderClass: "pill-border pill-border-awaiting",
   },
   {

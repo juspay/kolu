@@ -7,8 +7,9 @@
  */
 import { dialAgentOnce } from "./dialAgentOnce";
 import { buildAgentCommand } from "./host";
-import { type AgentDerivation, directAgentDerivation } from "./nixCopy";
+import { type AgentDerivation, directAgentDerivation } from "./agentDerivation";
 import { sshConnector } from "./sshConnector";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 // AgentDerivation is nominal: consumers must use the validated direct constructor,
 // and cannot forge a path/installable pair that resolves different agents.
@@ -50,7 +51,9 @@ sshConnector({
   host: "h",
   binary: "a",
   resolveDrvPath: () =>
-    Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
+    Promise.resolve(
+      directAgentDerivation("/nix/store/x-agent.drv", TEST_BINARY_CACHE),
+    ),
   localEnv: {},
 });
 
@@ -60,7 +63,9 @@ sshConnector(
     host: "h",
     binary: "a",
     resolveDrvPath: () =>
-      Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
+      Promise.resolve(
+        directAgentDerivation("/nix/store/x-agent.drv", TEST_BINARY_CACHE),
+      ),
   },
 );
 
@@ -68,7 +73,9 @@ sshConnector({
   host: "h",
   binary: "a",
   resolveDrvPath: () =>
-    Promise.resolve(directAgentDerivation("/nix/store/x-agent.drv")),
+    Promise.resolve(
+      directAgentDerivation("/nix/store/x-agent.drv", TEST_BINARY_CACHE),
+    ),
   // @ts-expect-error — `localEnv` may not be `undefined` on the connector either.
   localEnv: undefined,
 });

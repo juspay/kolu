@@ -15,6 +15,7 @@ import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { createLiveSignal, type WatchableSocket } from "@kolu/surface/solid";
 import {
   type AgentClient,
+  agentBinaryCache,
   directAgentDerivation,
   makeSession,
   pumpRemoteSurface,
@@ -26,6 +27,7 @@ import {
 import {
   defineSurfaceMap,
   type EntryStatus as RealEntryStatus,
+  type FailureEvidence,
   type KeyCodec,
   type MembershipId,
 } from "@kolu/surface-map";
@@ -122,12 +124,30 @@ function projectState(
       kind: "disconnected" as const,
     }))
     .with({ phase: "failed" }, (failed) => ({
-      // A terminal give-up carries the schema-valid domain failure it publishes.
+      // A terminal give-up carries the schema-valid domain failure it publishes, AND
+      // that failure's EVIDENCE — the session's own retained log tail off this same
+      // frame. The two are one record, so a client's liveness floor (which drops the
+      // live `connection` word over a dead link) can never leave a reason without the
+      // output that produced it.
       kind: "failed" as const,
       failure: { reason: failed.error },
+      evidence: failed.log,
     }))
     .exhaustive();
 }
+
+/** Where provisioning may PREFETCH this agent's binaries from — REQUIRED on
+ *  every derivation, since a cache-blind provisioning path is unspellable. A
+ *  real deployment DERIVES it (`readBakedBinaryCache(source)` reads what
+ *  `mkProvenAgentSource` baked from the flake's own `nixConfig`, so the
+ *  TypeScript and the Nix cannot disagree); a fleet whose `.drv` comes bare
+ *  from the environment states one inline, ONCE, against a reserved-invalid
+ *  host. Same value, same shape as the runnable `fleet-top` example this
+ *  snippet mirrors. */
+const EXAMPLE_BINARY_CACHE = agentBinaryCache({
+  substituters: ["https://cache.test.invalid/fleet-top"],
+  trustedPublicKeys: ["fleet-top:0000000000000000000000000000000000000000000="],
+});
 
 // #region binding
 function buildHostBinding(host: string, agentDrv: string): HostBinding {
@@ -147,7 +167,9 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
           .map((k): [string, string | undefined] => [k, process.env[k]])
           .filter((e): e is [string, string] => e[1] !== undefined),
       ),
-      resolveDrvPath: () => Promise.resolve(directAgentDerivation(agentDrv)), // deferred per dial
+      resolveDrvPath: () =>
+        // deferred per dial; the cache names where binaries prefetch from
+        Promise.resolve(directAgentDerivation(agentDrv, EXAMPLE_BINARY_CACHE)),
     }),
   });
 
@@ -346,10 +368,11 @@ const kill = (
 // #endregion rpc
 
 // #region entrystatus
-// `Conn` (SR9): the fine per-entry connection payload, carried on every arm and
+// `Conn` (SR9): the fine per-entry connection payload, carried on the LIVE arms and
 // parameterized like `Failure` — the map validates it against its own `connection`
 // schema, never enumerating it. It is the ONE authority the coarse `kind` (the dot) and
-// the fine word both derive from; optional, so a connection-less map omits it.
+// the fine word both derive from; optional, so a connection-less map omits it. The
+// `failed` arm carries none at all — see the note on that arm below.
 type EntryStatus<Failure = unknown, Conn = unknown> =
   // `membershipId`: opaque, never-reused per-add identity — a BRANDED `MembershipId`
   // (an empty/fabricated bare string is a compile error), minted only by
@@ -362,11 +385,14 @@ type EntryStatus<Failure = unknown, Conn = unknown> =
       clockOffset: number | null; // own-clock offset; null = not-yet-measured
       connection?: Conn;
     }
+  // No `connection` on this arm — deliberately. The failed entry's live word would be
+  // the same frame `evidence` was pinned from, so `connection?.log` here was a second,
+  // floorable copy of the tail. Removing the field makes that read a compile error.
   | {
       kind: "failed";
       membershipId: MembershipId;
       failure: Failure; // schema-valid domain failure
-      connection?: Conn;
+      evidence: FailureEvidence; // the retained output tail that EVIDENCES it
     };
 // #endregion entrystatus
 

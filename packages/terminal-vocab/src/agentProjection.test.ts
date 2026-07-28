@@ -65,9 +65,11 @@ describe("agentPaintClass", () => {
     expect(agentPaintClass("tool_use")).toBe("working");
     expect(agentPaintClass("running_background")).toBe("working");
   });
-  it("paints awaiting_user AND waiting as awaiting — the glow lingers past the turn", () => {
+  it("splits the two violet states: awaiting_user is full needs-you, waiting is the dim linger", () => {
+    // The split IS the fucknotif fix: conflating these under one paint name is
+    // how an agent blocked for 20 h rendered at 55% linger strength.
     expect(agentPaintClass("awaiting_user")).toBe("awaiting");
-    expect(agentPaintClass("waiting")).toBe("awaiting");
+    expect(agentPaintClass("waiting")).toBe("linger");
   });
   it("paints an unknown state as none (no glow)", () => {
     expect(agentPaintClass("brand_new_state" as AgentInfo["state"])).toBe(

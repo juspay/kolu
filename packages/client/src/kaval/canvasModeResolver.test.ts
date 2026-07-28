@@ -31,8 +31,14 @@ const liveness = {
  *  precedence decision — so every PRECEDENCE pin leaves it empty and overrides only the
  *  fact under test. The one exception is deliberate: "the connector card carries the
  *  episode's LOG" sets a non-empty tail, because a base that only ever supplies `undefined`
- *  cannot tell a working thread-through from a severed one. */
-const notYetConnected = { ...liveness, connectLog: undefined } as const;
+ *  cannot tell a working thread-through from a severed one. `connectLogAbsence` is
+ *  `undefined` throughout — the base case, "these lines ARE what it printed"; the one pin
+ *  that exercises a real reason sets it explicitly. */
+const notYetConnected = {
+  ...liveness,
+  connectLog: [],
+  connectLogAbsence: undefined,
+} as const;
 
 /** A fully "ready" CONNECTED-arm snapshot — one terminal — that resolves to
  *  `workspace`. Each test overrides only the connected-arm facts under test. */
@@ -327,7 +333,12 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
       ),
     ).toEqual({
       kind: "boot-stalled",
-      recovery: { via: "connector", phase: "provisioning" },
+      recovery: {
+        via: "connector",
+        phase: "provisioning",
+        log: [],
+        logAbsence: undefined,
+      },
     });
   });
 
@@ -361,7 +372,12 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
     );
     expect(m).toEqual({
       kind: "boot-stalled",
-      recovery: { via: "connector", phase: "provisioning", log: connectLog },
+      recovery: {
+        via: "connector",
+        phase: "provisioning",
+        log: connectLog,
+        logAbsence: undefined,
+      },
     });
     expect((m as { recovery: { log: unknown } }).recovery.log).toBe(connectLog);
   });
@@ -383,7 +399,12 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
         ),
       ).toEqual({
         kind: "boot-stalled",
-        recovery: { via: "connector", phase: connectPhase },
+        recovery: {
+          via: "connector",
+          phase: connectPhase,
+          log: [],
+          logAbsence: undefined,
+        },
       });
     }
   });
@@ -418,6 +439,7 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
       leg: "membership",
       ceiling: "local",
       phase: "connecting",
+      log: [],
     });
     expect(
       mode(
@@ -494,6 +516,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       accrual: "accrue",
       leg: "membership",
       ceiling: "local",
+      log: [],
     });
     expect(
       tag({ ...notYetConnected, entry: "warming", connectPhase: undefined }),
@@ -501,17 +524,24 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       accrual: "accrue",
       leg: "daemon",
       ceiling: "local",
+      log: [],
     });
     expect(tag(connected({ isLoading: true, terminalCount: 0 }))).toEqual({
       accrual: "accrue",
       leg: "session",
       ceiling: "local",
+      log: [],
     });
     expect(
       tag(
         connected({ daemonPending: true, isLoading: false, terminalCount: 0 }),
       ),
-    ).toEqual({ accrual: "accrue", leg: "daemon", ceiling: "local" });
+    ).toEqual({
+      accrual: "accrue",
+      leg: "daemon",
+      ceiling: "local",
+      log: [],
+    });
   });
 
   it("a remote provisioning binding accrues against the remote-provisioning ceiling", () => {
@@ -527,6 +557,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       leg: "provisioning",
       ceiling: "remote-provisioning",
       phase: "provisioning",
+      log: [],
     });
   });
 
@@ -558,6 +589,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       accrual: "accrue",
       leg: "membership",
       ceiling: "remote-handshake",
+      log: [],
     });
     expect(
       tag(connected({ isLoading: true, isLocalHost: false, terminalCount: 0 })),
@@ -565,6 +597,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       accrual: "accrue",
       leg: "session",
       ceiling: "remote-handshake",
+      log: [],
     });
   });
 });

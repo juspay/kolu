@@ -335,10 +335,18 @@ const hostScoped = createRoot(() => {
   // has no encoding left). `useEntry` already re-keys the entry on a host switch AND a
   // same-key re-add (a new `membershipId`), so this read rebuilds by construction (PR3).
   // Active-host-only falls out for free: only the active entry's state is read here.
-  const connection = (): ConnectionInfo | undefined => {
-    const s = active.state();
-    return s.kind === "not-a-member" ? undefined : s.connection;
-  };
+  //
+  // Read off the UP arms only. A `failed` entry carries no `connection` field at all
+  // (see `@kolu/surface-map`'s `FailureEvidence`), so a failed host answers `undefined`
+  // here and its readers go to `failedEpisode`/`evidence` instead.
+  const connection = (): ConnectionInfo | undefined =>
+    match(active.state())
+      .with({ kind: "warming" }, { kind: "connected" }, (s) => s.connection)
+      // Spelled EXHAUSTIVELY, not `.otherwise()`: a future arm that DOES carry a live
+      // word must state its policy here rather than silently answering "no connection".
+      // This is the read that narrated the wrong thing for a year.
+      .with({ kind: "failed" }, { kind: "not-a-member" }, () => undefined)
+      .exhaustive();
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
   // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader
@@ -433,6 +441,20 @@ export const hostKeys = hostScoped.hostKeys;
  *  `createRoot`, like `localDaemonStatus`. */
 export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
   createMemo(() => groundActiveHost(activeHost(), hostKeys())),
+);
+
+/** The ACTIVE host as its ENCODED key — the string the attention mirror, the
+ *  marks store and every pip binder are keyed by.
+ *
+ *  One memo, not the `() => encodeHostKey(activeHost())` thunk five call sites
+ *  each wrote inline: passed into a per-row memo, that thunk re-encodes the host
+ *  inside EVERY row's binder on every reactive tick — a pure function of one
+ *  signal, recomputed per row per frame. It also gave five surfaces five
+ *  independently-derived spellings of the one key those surfaces must agree on.
+ *  A memo returns the same string reference until the host actually changes, so
+ *  a row's pip memo stops re-running just because something else ticked. */
+export const encActiveHost: Accessor<string> = createRoot(() =>
+  createMemo(() => encodeHostKey(activeHost())),
 );
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).procedures`,

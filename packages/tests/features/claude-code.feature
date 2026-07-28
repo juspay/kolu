@@ -17,12 +17,20 @@ Feature: Claude Code status detection
 
   Scenario: Tile title leads with the dock's agent-state pip
     # The dock surfaces agent state via a shape-distinct StatePip
-    # (spinning ring = working, dim dot = awaiting). The same pip now
+    # (spinning ring = working, violet dot = needs you). The same pip
     # leads the canvas-tile title bar, reused verbatim, so the title and
     # the dock speak one agent-state vocabulary and track state together.
+    #
+    # "awaiting" means BLOCKED ON YOU and nothing else. A turn that merely
+    # ended is "linger" — the dimmed just-finished cue. The two used to
+    # share the one name, which is exactly how a question waiting on a
+    # human came to be drawn at the same strength as an agent that had
+    # simply stopped.
     When a Claude Code session is mocked with state "thinking"
     Then the tile title state pip should be "working"
     When the Claude Code session state changes to "waiting"
+    Then the tile title state pip should be "linger"
+    When the Claude Code session state changes to "awaiting_user"
     Then the tile title state pip should be "awaiting"
     And there should be no page errors
 

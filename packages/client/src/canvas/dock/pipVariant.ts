@@ -33,6 +33,7 @@ export function pipVariant(bucket: DockRowBucket): PipVariant {
     // The agent-paint subset (`DockRowBucket` extends `AgentPaintClass`) folds
     // through the shared definition.
     case "awaiting":
+    case "linger":
     case "working":
     case "none":
       return pipForPaintClass(bucket);

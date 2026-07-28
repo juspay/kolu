@@ -29,6 +29,9 @@ const bare: EntryStatus = {
   kind: "failed",
   membershipId: testMembershipId(),
   failure: { anything: "at-all" },
+  // `evidence` is REQUIRED on the failed arm — a fixed structural type surface-map
+  // owns (never a generic), so even the unnarrowed consumer must state it.
+  evidence: [],
 };
 void bare;
 
@@ -41,12 +44,14 @@ const padiFailed: EntryStatus<PadiEntryFailure> = {
     cause: "contract-skew-refused",
     reason: "remote padi contract skew",
   },
+  evidence: [{ source: "remote", line: "padi: refusing — version skew" }],
 };
 void padiFailed;
 
 const padiFailedInvalid: EntryStatus<PadiEntryFailure> = {
   kind: "failed",
   membershipId: testMembershipId(),
+  evidence: [],
   failure: {
     // @ts-expect-error — an arbitrary string is not a member of the failure's
     // `cause` discriminant; if this line ever compiles, the narrowing
@@ -61,6 +66,7 @@ void padiFailedInvalid;
 const skewed: PadiEntryStatus = {
   kind: "failed",
   membershipId: testMembershipId(),
+  evidence: [],
   failure: {
     cause: "contract-skew-refused",
     reason: "padi contract skew",
@@ -73,6 +79,7 @@ void skewed;
 const linkFailed: PadiEntryStatus = {
   kind: "failed",
   membershipId: testMembershipId(),
+  evidence: [],
   failure: {
     cause: "link-failed",
     reason: "host unreachable",

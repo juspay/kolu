@@ -20,7 +20,9 @@ import type { SshProv } from "./sshConnector";
 type Inferred = z.infer<typeof ConnectionInfoSchema>;
 
 /** Mutual assignability (tuple-wrapped so a union operand doesn't distribute): `true`
- *  only when `A` and `B` are structurally interchangeable, else `never`. */
+ *  only when `A` and `B` are structurally interchangeable, else `never`. Local to this
+ *  pin — a `.test-d.ts` is a leaf, never another pin's vocabulary owner. Type-only, so
+ *  nothing is emitted. */
 type Mutually<A, B> = [A] extends [B]
   ? [B] extends [A]
     ? true

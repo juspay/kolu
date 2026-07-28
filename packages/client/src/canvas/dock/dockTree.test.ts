@@ -7,7 +7,12 @@ import { buildDockTree } from "./dockTree";
 function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
   // dockTree only reads `bucket`/`ts`; the pip is exercised in dockRowRanking's
   // own tests, so mirror the order bucket here.
-  return { id: id as TerminalId, bucket, pip: bucket, ts };
+  return {
+    id: id as TerminalId,
+    bucket,
+    pip: bucket,
+    ts,
+  };
 }
 
 function makeGetInfo(
@@ -221,6 +226,33 @@ describe("buildDockTree", () => {
     });
     const tree = buildDockTree(ranked, getInfo, false);
     expect(tree.sleepingCount).toBe(1);
+    expect(tree.parkedCount).toBe(1);
+  });
+});
+
+describe("buildDockTree — allRows", () => {
+  it("keeps a parked row in its repo's attention set even though it is hidden", () => {
+    // The row the activity window dropped is the one that has been waiting
+    // longest — exactly the one whose count must still reach the header.
+    const ranked = [row("a", "working", 5), row("b", "parked", 1)];
+    const getInfo = makeGetInfo({
+      a: { group: "repo", color: "c" },
+      b: { group: "repo", color: "c" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false);
+    const group = tree.groups[0];
+    expect(group?.rows.map((r) => r.id)).toEqual(["a"]);
+    expect(group?.allRows.map((r) => r.id)).toEqual(["a", "b"]);
+    expect(tree.parkedCount).toBe(1);
+  });
+
+  it("drops a repo whose every row is filtered out — no header with no rows", () => {
+    const tree = buildDockTree(
+      [row("b", "parked", 1)],
+      makeGetInfo({ b: { group: "repo", color: "c" } }),
+      false,
+    );
+    expect(tree.groups).toEqual([]);
     expect(tree.parkedCount).toBe(1);
   });
 });

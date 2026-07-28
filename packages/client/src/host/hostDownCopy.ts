@@ -45,6 +45,14 @@ export const HOST_DOWN_COPY = {
       "unset), so padi cannot resolve the matching build for this host. Launch " +
       "kolu through its Nix wrapper, which bakes the source in, then try again.",
   },
+  "agent-cache-unbaked": {
+    title: "This kolu build predates the agent binary-cache contract",
+    body:
+      "The agent source IS baked into this run, but it carries no binary-cache " +
+      "declaration, which padi needs to fetch this host's agent instead of " +
+      "compiling it. That means the build is older than the contract. Update " +
+      "kolu (rebuild or re-run it from a current commit), then try again.",
+  },
   "agent-drv-unavailable": {
     title: "Kolu couldn't prepare padi for this host",
     body:

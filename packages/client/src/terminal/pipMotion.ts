@@ -5,55 +5,33 @@
  *
  *  Axis contract:
  *    identity → glyph shape
- *    state    → glyph paint (agentPaintClass → PipVariant)
+ *    state    → glyph paint (attentionClass → PipVariant)
  *    activity → glyph MOTION (this module)
  *    obligation → amber badge
  *    dormancy → row recedes (caller)
  *
- *  Motion kinds (derived from `pipIsActive`, not re-encoded per bucket):
+ *  Motion kinds:
  *    - empty / sleeping / inactive → none
- *    - awaiting_user (active) → glow
+ *    - awaiting (needs-you variant) → glow
  *    - everything else active → spin
  *
- *  Paint stays decoupled: waiting keeps lingering violet via PipVariant
- *  `awaiting` even when motion holds still. */
+ *  WHETHER the terminal is active is not decided here — it is
+ *  `attentionActive`, the one predicate shared with every count kolu renders
+ *  (see `attention/attentionFacts.ts`). This module only chooses which motion an
+ *  active mark runs. Paint stays decoupled: a lingering agent keeps its dim
+ *  violet via PipVariant `linger` whether or not it still moves. */
 
 import type {
   PipMotionKind,
   PipVariant,
 } from "@kolu/solid-statepip/pipVariant";
-import { agentBucket, type AgentInfo } from "kolu-common/surface";
-
-/** Whether the terminal is "effectively active" for motion — complement of
- *  EF2 effective finish for waiting agents (OR live output: sticky finish
- *  must not silence a still-printing terminal); live-output for shells;
- *  always for working / awaiting_user. Also gates recency-cell hide.
- *  Exhaustive over `agentBucket` (`case "other"`, no bare default). */
-export function pipIsActive(input: {
-  agent: AgentInfo | null | undefined;
-  isLive: boolean;
-  isFinished: boolean;
-}): boolean {
-  const agent = input.agent;
-  if (!agent) return input.isLive;
-  switch (agentBucket(agent.state)) {
-    case "working":
-    case "awaiting":
-      return true;
-    case "waiting":
-      // EF2 linger until quiet, OR live output once sticky-finish latches
-      // (finishedIds answers chime; isLive answers motion — #1955).
-      return !input.isFinished || input.isLive;
-    case "other":
-      return input.isLive;
-  }
-}
 
 /** Which motion class the glyph should run. Collapsed: inactive/empty/sleeping
- *  → none; active needs-you → glow; active otherwise → spin. */
+ *  → none; active needs-you → glow; active otherwise → spin. The needs-you test
+ *  is the VARIANT itself — `awaiting` now means exactly `awaiting_user` (the
+ *  `linger` split), so motion no longer re-derives the state from the agent. */
 export function pipMotionKind(input: {
   variant: PipVariant;
-  agent: AgentInfo | null | undefined;
   active: boolean;
 }): PipMotionKind {
   if (
@@ -63,9 +41,7 @@ export function pipMotionKind(input: {
   ) {
     return "none";
   }
-  // Needs-you (awaiting_user) glows; working / waiting-until-EF2 / live shell spin.
-  if (input.agent && agentBucket(input.agent.state) === "awaiting") {
-    return "glow";
-  }
+  // Needs-you glows; working / linger-until-EF2 / live shell spin.
+  if (input.variant === "awaiting") return "glow";
   return "spin";
 }

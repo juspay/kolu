@@ -16,13 +16,21 @@
  * viewer, pulam-tui's replacement) draws only the coarse `agentBucket` here; a
  * downstream fleet mirror (drishti) can read the rest. A surface that hasn't
  * adopted a fold yet is a GAP to fill, not a sign the fold is kolu-only. The
- * three folds:
+ * folds:
  *  - `agentUrgency` (→ {need, work, idle}) + `URGENCY_RANK` — the needs-you
  *    ordering. Read by the Dock rows (and any fleet mirror that ranks needs-you).
- *  - `agentPaintClass` (→ {awaiting, working, none}) — the pip/glyph paint
- *    class. Read by the Dock pip (and a fleet mirror's agent glyph). It
+ *  - `agentPaintClass` (→ {awaiting, linger, working, none}) — the pip/glyph
+ *    paint class. Read by the Dock pip (and a fleet mirror's agent glyph). It
  *    deliberately differs from urgency on `waiting`: a just-finished agent
- *    paints `awaiting` (the lingering dot) but RANKS idle — order≠colour.
+ *    paints `linger` (the dimmed lingering dot) but RANKS idle — order≠colour.
+ *    It is `attentionClass` RENAMED, not a second switch over the literals.
+ *  - `attentionClass` (→ {asking, working, linger, finished, idle}) +
+ *    `attentionActive` (does the mark move) + `attentionCounted` (does a scope
+ *    count it) — WHICH attention list a terminal is in, and the two questions
+ *    every surface asks about that. Unlike the folds above it takes padi's EF2
+ *    finish verdict as well as the agent state; padi builds the urgency cell's
+ *    id-lists with it and every kolu surface reads a terminal's class back off
+ *    those lists, so counts, motion and paint cannot disagree.
  *  - `alertClass` (→ {notify, quiet}) — the fire-a-notification membership.
  *    kolu's attention engine now derives notify membership from `agentBucket`
  *    (awaiting ∪ waiting) directly, so this coarser fold currently has no live
@@ -101,38 +109,59 @@ export function agentStatusLabel(state: AgentInfo["state"]): string {
 
 /** The coarse PAINT class an agent's state glows as — the canvas tile aura, the
  *  minimap badge, the expanded-switcher columns, and the title pip all read it.
- *  A *different* partition from urgency: the paint vocabulary has no quiet-agent
- *  slot, so the post-turn lull (`waiting`) folds to `awaiting` — a just-finished
- *  agent keeps its glow until it parks — whereas `agentUrgency` ranks `waiting`
- *  as idle. The two legitimately disagree on `waiting`; they are co-located here
- *  (one schema-fenced file) but stay separate functions. `none` is the absent /
+ *  A *different* partition from urgency: it distinguishes the two quiet-violet
+ *  states urgency folds together — `awaiting` is the agent BLOCKED on you
+ *  (`awaiting_user`, full-strength needs-you paint), `linger` is the post-turn
+ *  lull (`waiting`, the dimmed just-finished cue) — whereas `agentUrgency`
+ *  ranks `waiting` as idle. "awaiting" therefore means the SAME thing here as
+ *  in `agentBucket`: blocked on you, nothing else (the old conflation of the
+ *  two violet states under one paint name was exactly how needs-you ended up
+ *  rendered at linger strength — the fucknotif defect). `none` is the absent /
  *  unknown class (no glow). */
-export type AgentPaintClass = "awaiting" | "working" | "none";
+export type AgentPaintClass = "awaiting" | "linger" | "working" | "none";
 
-/** Map an agent's state to its PAINT class. Switches exhaustively over the
- *  closed `AgentInfo['state']` set with a `state satisfies never` fence on the
- *  default arm, so a new state literal added to `AgentInfoSchema` compile-fails
- *  HERE — forcing a paint decision in the single shared definition — rather than
- *  silently routing to `none` (a plain shell) in a hand-copied dock-local
- *  switch. */
-export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
-  switch (state) {
-    case "thinking":
-    case "tool_use":
-    case "running_background":
+/** Rename an ATTENTION class into the PAINT vocabulary — the ONE table that
+ *  translates between the two, so no consumer writes its own copy of it.
+ *
+ *  It is not a second switch over the state literals: paint and attention
+ *  partition the identical `AgentInfo['state']` set into isomorphic classes
+ *  (`asking`↔`awaiting`, `idle`↔`none`, `finished` folded back into `linger`),
+ *  so spelling them as two independent switches meant a new state literal
+ *  forced the same decision twice and the two could agree only by luck. One
+ *  switch over the literals lives in `agentBucket`; this is a rename of its
+ *  answer.
+ *
+ *  Exported because the rename had a SECOND spelling downstream — the dock's
+ *  `paintDockRow` mapped the same five class literals to the same paint
+ *  answers, diverging on one arm — which is exactly the "two switches that
+ *  happen to match" this vocabulary exists to prevent. A consumer that needs a
+ *  different answer for one class maps THAT arm off this result, locally and
+ *  visibly, instead of restating the whole table. */
+export function paintClassOf(klass: AttentionClass): AgentPaintClass {
+  switch (klass) {
+    case "working":
       return "working";
-    // The post-turn lull keeps its glow: a just-finished agent paints
-    // `awaiting` until it parks (contrast `agentUrgency`, where `waiting` is
-    // idle — paint and rank deliberately disagree here).
-    case "awaiting_user":
-    case "waiting":
+    // Blocked on you — the full-strength needs-you paint.
+    case "asking":
       return "awaiting";
-    default:
-      // Exhaustiveness fence: a new `AgentInfo["state"]` literal stops this
-      // compiling, forcing a paint decision here rather than falling to `none`.
-      state satisfies never;
+    // The post-turn lull keeps a dimmed glow until it parks (contrast
+    // `agentUrgency`, where `waiting` is idle — paint and rank deliberately
+    // disagree here). EF2's `finished` changes nothing about the paint: a
+    // finished agent keeps the lingering cue until its row parks.
+    case "linger":
+    case "finished":
+      return "linger";
+    case "idle":
       return "none";
   }
+}
+
+/** Map an agent's state to its PAINT class — `attentionClassOfState` renamed.
+ *
+ *  `finished: false` is what makes this a state-only fold: EF2 is the caller's
+ *  verdict, and paint deliberately doesn't consult it. */
+export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
+  return paintClassOf(attentionClassOfState(state, false));
 }
 
 /** The agent-state ALERT class — the partition a fire-a-notification layer keys
@@ -171,6 +200,136 @@ export function alertClass(state: AgentInfo["state"]): AlertClass {
       state satisfies never;
       return "quiet";
   }
+}
+
+/** Which attention list a terminal belongs to, given its agent AND whether its
+ *  post-turn quiet window has closed (padi's EF2 "effective finish"). A closed
+ *  five-way partition — every terminal is in exactly ONE class — so a count over
+ *  the classes needs no de-duplication and a surface can't put the same terminal
+ *  in two places.
+ *
+ *  It is a different question from the three folds above, which read the agent
+ *  state ALONE: `waiting` splits here into `linger` (turn over, output still
+ *  landing) and `finished` (gone quiet), a distinction no state literal carries.
+ *  That split is the whole point — it is the boundary between "still going" and
+ *  "done", and therefore between counted and uncounted. */
+export type AttentionClass =
+  | "asking"
+  | "working"
+  | "linger"
+  | "finished"
+  | "idle";
+
+/** The partition enumerated ONCE, beside the type it enumerates — what a
+ *  consumer builds a per-class structure from (a wire frame's id lists, a
+ *  count's fold) instead of hand-writing the five literals again.
+ *
+ *  The keys come off a `Record` keyed by the class itself, which is the fence:
+ *  a sixth `AttentionClass` stops this object compiling, so it cannot silently
+ *  vanish from a list built from this array — a class nothing enumerates is a
+ *  class nothing counts, which is precisely the defect the partition exists to
+ *  prevent. A plain `as const` array would have passed green. */
+const ATTENTION_CLASS_KEYS: Record<AttentionClass, null> = {
+  asking: null,
+  working: null,
+  linger: null,
+  finished: null,
+  idle: null,
+};
+export const ATTENTION_CLASSES = Object.keys(
+  ATTENTION_CLASS_KEYS,
+) as readonly AttentionClass[];
+
+/** Partition a terminal into its attention class. `finished` is the caller's
+ *  EF2 verdict for this terminal (padi's finish-quiet tracker); it is consulted
+ *  only for a `waiting` agent, where it decides linger-vs-finished.
+ *
+ *  The ONE partition: padi's `recomputeUrgency` folds its terminals through it
+ *  to build the four wire id-lists, and every kolu surface reads a terminal's
+ *  class straight off those lists (`frameClassOf`). `agentPaintClass` is this
+ *  same partition renamed for the paint vocabulary, so there is ONE switch over
+ *  the state literals in the whole stack — the class of defect this vocabulary
+ *  exists to prevent is "two switches that happen to match". */
+export function attentionClass(
+  agent: TerminalSnapshot["agent"] | undefined,
+  finished: boolean,
+): AttentionClass {
+  if (!agent) return "idle";
+  return attentionClassOfState(agent.state, finished);
+}
+
+/** The partition for a LIVE agent's state — the state-only core `attentionClass`
+ *  wraps with the no-agent case and `agentPaintClass` reuses so the paint
+ *  vocabulary is a rename of this answer rather than a second switch. */
+function attentionClassOfState(
+  state: AgentInfo["state"],
+  finished: boolean,
+): AttentionClass {
+  switch (agentBucket(state)) {
+    case "awaiting":
+      return "asking";
+    case "working":
+      return "working";
+    case "waiting":
+      return finished ? "finished" : "linger";
+    case "other":
+      return "idle";
+  }
+}
+
+/** Is this terminal ACTIVE — is something happening in it right now? The ONE
+ *  predicate behind every "is something happening" question kolu answers: the
+ *  pip's motion (does the glyph move), and every count that summarises a host or
+ *  a repo section. They are the same question, so they are the same function —
+ *  a host tab reading "2" beside three moving pips is then not a bug you can
+ *  write, which is exactly how it used to happen.
+ *
+ *  `live` is raw byte motion (kaval's meaningful-output edge). It is what makes
+ *  a plain shell running a build count as active — it has no agent to ask — and
+ *  what keeps a terminal that has gone `finished` counted while its last output
+ *  is still printing.
+ *
+ *  That byte edge closes after `TERMINAL_IDLE_AFTER_MS` (~1 s), so a terminal
+ *  that prints intermittently — a dev server logging a line every few seconds —
+ *  enters and leaves the live set on every gap, and a count containing it ticks
+ *  with it. That is deliberate, and it is not flicker between two disagreeing
+ *  answers: the mark's own motion runs off the SAME edge, so the number and the
+ *  marks it summarises start and stop together. Giving the count its own
+ *  hysteresis would buy a calmer tab by making it disagree with the dock
+ *  beneath it, which is the whole class of defect this vocabulary exists to
+ *  end. If the tab should be calmer, lengthen the one idle window — do not give
+ *  counting a second notion of activity. */
+export function attentionActive(klass: AttentionClass, live: boolean): boolean {
+  switch (klass) {
+    // An agent that is thinking, blocked on you, or still settling is active
+    // whether or not any byte moved in the last second.
+    case "asking":
+    case "working":
+    case "linger":
+      return true;
+    // Nothing to ask an agent about — the bytes are the only evidence.
+    case "finished":
+    case "idle":
+      return live;
+  }
+}
+
+/** Does this terminal belong in a scope's ACTIVITY count? The same membership
+ *  as `attentionActive` minus `asking`, which every surface counts in its own
+ *  violet leg and must never also swell the rust one.
+ *
+ *  Motion and counting are two questions about one partition, and only the
+ *  first was named: every counting site — a host tab, a repo section header,
+ *  the paint/count diagnostic — subtracted `asking` again in its own dialect
+ *  (a set difference here, an `else if` there, an explicit conjunction in the
+ *  third). One rule in three copies held together by memory is the shape this
+ *  vocabulary exists to eliminate; naming the second question here is what
+ *  keeps a future class from being taught to one site and not the others. */
+export function attentionCounted(
+  klass: AttentionClass,
+  live: boolean,
+): boolean {
+  return klass !== "asking" && attentionActive(klass, live);
 }
 
 /** The coarse urgency of a terminal — drives the glyph, the colour/tone, and the

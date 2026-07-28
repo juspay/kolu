@@ -546,24 +546,46 @@ export const PadiUrgencySchema = z.object({
    *  than failing validation and breaking the whole cell — asking keeps working,
    *  and finishes light up the moment that host's padi catches up. */
   finishedIds: z.array(TerminalIdSchema).default([]),
+  /** The ids of the terminals whose agent is WORKING (thinking / tools /
+   *  background) — the third leg of the host-tab attention summary (working ·
+   *  needs-you · unseen), carried so a background host's tab can say "3 agents
+   *  in flight" without mirroring its full terminals collection. Ids, not a
+   *  count, per the no-second-source law above (`.length` at the consumer).
+   *  `.default([])` for the same rolling-deploy safety as `finishedIds`. */
+  workingIds: z.array(TerminalIdSchema).default([]),
+  /** The ids of the terminals whose agent ended its turn but has NOT yet gone
+   *  effectively quiet (`waiting` ∧ ¬EF2) — the lingering tail an agent leaves
+   *  while its last output is still landing. Carried because ACTIVITY, not
+   *  `working`, is what every attention surface actually means: the pip keeps
+   *  MOVING through this window (`attentionActive`'s `linger` leg), so a host tab that
+   *  counted only `workingIds` would show nothing beside a terminal visibly
+   *  still going — the exact paint/count disagreement this cell exists to
+   *  prevent. Disjoint from `finishedIds` by construction (a waiting agent is
+   *  in exactly one of the two), so a consumer can add the lists without
+   *  de-duplicating. `.default([])` for the same rolling-deploy safety. */
+  lingerIds: z.array(TerminalIdSchema).default([]),
 });
 export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 
-/** Two urgency readings are equal when they carry the same awaiting AND finished
- *  ids, each in the same order — the urgency cell's `equals`, so the ~150 ms agent
- *  firehose (the `terminals` collection's write-triggers, which the derived
+/** Two urgency readings are equal when they carry the same ids in ALL FOUR
+ *  lists, each in the same order — the urgency cell's `equals`, so the ~150 ms
+ *  agent firehose (the `terminals` collection's write-triggers, which the derived
  *  `urgency` cell recomputes off) can't re-publish an unchanged projection.
- *  Comparing `finishedIds` too is load-bearing: a frame where only the finished
- *  set changed must survive this ONE wire dedup point so the finish transition
- *  reaches `useAttention` and fires. Both counts are derived (`.length`), so
- *  comparing ids alone is already complete. Lives here beside the value schema (it
+ *  Comparing every list is load-bearing: a frame where only the finished set
+ *  changed must survive this ONE wire dedup point so the finish transition
+ *  reaches `useAttention` and fires, and a working→linger move (the same
+ *  terminal, a different list) must reach the host tab or its activity count
+ *  freezes. Every count is derived (`.length`), so comparing ids alone is
+ *  already complete. Lives here beside the value schema (it
  *  is a property of the `PadiUrgency` VALUE) so the spec can declare it directly —
  *  the bridge's "equals lives at the member, once" law — without `surface.ts`
  *  reaching into the fold module. */
 export function urgencyEqual(a: PadiUrgency, b: PadiUrgency): boolean {
   return (
     sameIds(a.awaitingIds, b.awaitingIds) &&
-    sameIds(a.finishedIds, b.finishedIds)
+    sameIds(a.finishedIds, b.finishedIds) &&
+    sameIds(a.workingIds, b.workingIds) &&
+    sameIds(a.lingerIds, b.lingerIds)
   );
 }
 
@@ -799,7 +821,12 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  (waiting ∧ !finishTracker.isLive), not raw waiting. */
     urgency: {
       schema: PadiUrgencySchema,
-      default: { awaitingIds: [], finishedIds: [] } satisfies PadiUrgency,
+      default: {
+        awaitingIds: [],
+        finishedIds: [],
+        workingIds: [],
+        lingerIds: [],
+      } satisfies PadiUrgency,
       equals: urgencyEqual,
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "urgency" } },
