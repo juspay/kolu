@@ -695,6 +695,17 @@ body {
  * by test id meant a new one was silently outside the wash: the sub-entry set
  * `data-asking` and lit up nowhere, and it is the ONE row type that exists
  * because its agent was invisible. */
+/* The ACTIVE-row highlight, keyed on the shared hook rather than spelled as a
+ * Tailwind variant per row component. It was a per-component class, and the
+ * split sub-entry — the ONE row type that exists because its agent was
+ * invisible — simply did not carry it: the entry took `data-active` correctly
+ * and rendered no visible change at all, so clicking into a split looked like
+ * nothing happened. A row surface can no longer be outside this rule, because
+ * the rule reads the same attribute the row already has to carry. */
+.dock-cards-section > [data-dock-row][data-active] {
+  background: color-mix(in oklab, var(--color-accent) 15%, transparent);
+  border-left-color: var(--color-accent);
+}
 .dock-cards-section > [data-dock-row][data-unread] {
   --attn: var(--color-attention);
 }

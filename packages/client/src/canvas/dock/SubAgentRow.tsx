@@ -96,7 +96,7 @@ export const SubAgentRow: Component<{
               unread: unread(),
             })}
             data-parent-id={props.parentId}
-            class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.padClass ?? "py-1"} text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
+            class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.padClass ?? "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
             onClick={(e) => {
               // The parent row underneath activates the terminal; this entry
               // means the split, so its click must not also be that one.

@@ -228,7 +228,7 @@ function DockListRow(props: {
             // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
             // side is symmetric between the two surfaces, so it ships
             // as one symbol.
-            class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+            class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2`}
             classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
           >
             {/* Identity status indicator — same binder as Dock/title. */}
