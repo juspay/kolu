@@ -478,3 +478,35 @@ describe("readBakedBinaryCache", () => {
     expect(h.runCapture).not.toHaveBeenCalled();
   });
 });
+
+describe("the sidecar read is once per source ref", () => {
+  it("a proven-good sidecar is never re-read, so a later dial cannot fail on it", async () => {
+    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.runCapture.mockResolvedValue(
+      success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
+    );
+    const args = [
+      "builder",
+      "/nix/store/source-read-once",
+      "padi",
+      resolutionOptions,
+    ] as const;
+    await resolveAgentDrv(...args);
+    expect(h.readFile).toHaveBeenCalledTimes(1);
+
+    // A second dial for the SAME ref: the drvCache answers it, and the read
+    // that would otherwise run ahead of that hit does not happen again.
+    await resolveAgentDrv(...args);
+    expect(h.readFile).toHaveBeenCalledTimes(1);
+
+    // The point of remembering it: a transient read fault (a permissions blip,
+    // a concurrent rebuild) must not fail a dial whose sidecar was already
+    // proven good.
+    h.readFile.mockImplementation(() => {
+      throw new Error("EACCES: permission denied");
+    });
+    await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
+      kind: "flake-installable",
+    });
+  });
+});

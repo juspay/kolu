@@ -12,7 +12,10 @@
 
 import { resolveSystem } from "./arch";
 import { looksLikeNetworkError, ResolveDrvError } from "./host";
-import { readBakedBinaryCache } from "./agentBinaryCache";
+import {
+  type AgentBinaryCache,
+  readBakedBinaryCache,
+} from "./agentBinaryCache";
 import { type AgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import type { StepBudget } from "./nixCopy";
 import { describeExit, type ExitResult, runCapture } from "./process";
@@ -74,6 +77,27 @@ const MAX_CACHED_AGENT_DERIVATIONS = 32;
 const drvCache = new QuickLRU<string, AgentDerivation>({
   maxSize: MAX_CACHED_AGENT_DERIVATIONS,
 });
+
+/** Successfully-read sidecars, keyed by source ref. The read has to stay AHEAD
+ *  of the ssh probe (see `resolveAgentDrv`), but the value it produces is
+ *  immutable for a given ref — a baked ref is a content-addressed store path —
+ *  so re-reading it per dial buys nothing and costs something real: a dial that
+ *  `drvCache` would have answered instantly could be failed by a transient read
+ *  error (a permissions blip, a concurrent rebuild) on a sidecar already proven
+ *  good. Only SUCCESSES are remembered, so a genuinely broken source keeps
+ *  failing and a repaired one is picked up. */
+const sidecarCache = new Map<string, AgentBinaryCache>();
+
+/** The read, once per source ref per process. Throws the typed fault, like the
+ *  uncached read it wraps. */
+function readBakedBinaryCacheOnce(flakeRef: string): AgentBinaryCache {
+  const remembered = sidecarCache.get(flakeRef);
+  if (remembered !== undefined) return remembered;
+  const result = readBakedBinaryCache(flakeRef);
+  if (result.isErr()) throw result.error;
+  sidecarCache.set(flakeRef, result.value);
+  return result.value;
+}
 
 /** Per-dial lifetime hooks required by the local Nix evaluation. */
 export interface AgentDrvResolutionOptions {
@@ -154,9 +178,7 @@ export async function resolveAgentDrv(
   // `host-key-unverified` / `nix-unavailable` for a binder that would have
   // failed the same way on a perfectly healthy host. The throw sits at this
   // function's existing classification boundary, like every other one here.
-  const cacheResult = readBakedBinaryCache(flakeRef);
-  if (cacheResult.isErr()) throw cacheResult.error;
-  const binaryCache = cacheResult.value;
+  const binaryCache = readBakedBinaryCacheOnce(flakeRef);
 
   const system = await resolveSystem(host, {
     signal: opts.signal,
