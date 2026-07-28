@@ -43,11 +43,11 @@
           kolu = koluBySystem.${system};
         in
         # `agentFlakeSrc`, `koluEnv`, and `typecheck` are internal under those
-        # names; pnpmDeps remains a Kolu dependency output used by the
-        # hash-fresh gate. The agent-source tree is re-exported as
-        # `agent-flake-source` so `just dev` / `just server` can bake the same
-        # SURFACE_AGENT_FLAKE_REF the production koluBin wrapper sets, and so
-        # ci::agent-flake-nix can eval remote agents without a second recipe.
+          # names; pnpmDeps remains a Kolu dependency output used by the
+          # hash-fresh gate. The agent-source tree is re-exported as
+          # `agent-flake-source` so `just dev` / `just server` can bake the same
+          # SURFACE_AGENT_FLAKE_REF the production koluBin wrapper sets, and so
+          # ci::agent-flake-nix can eval remote agents without a second recipe.
         (removeAttrs kolu [ "agentFlakeSrc" "koluEnv" "typecheck" ]) // {
           agent-flake-source = kolu.agentFlakeSrc;
         });
