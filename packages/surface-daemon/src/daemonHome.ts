@@ -22,12 +22,28 @@
  * knobs with zero callers.
  */
 
-import { mkdirSync } from "node:fs";
+import { lstatSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 import type { SharedArtifact } from "./sharedArtifact.ts";
+
+/** A single non-empty path segment — not empty, not `.`/`..`, no separators.
+ *  Package-private so `app` and `file(name)` share one containment rule. */
+function assertPathSegment(kind: string, name: string): void {
+  if (
+    name === "" ||
+    name === "." ||
+    name === ".." ||
+    name.includes("/") ||
+    name.includes("\\")
+  ) {
+    throw new Error(
+      `${kind} must be a non-empty single path segment, got ${JSON.stringify(name)}`,
+    );
+  }
+}
 
 /** Where the daemon home sits on disk. See the module doc for the rule. */
 export type DaemonHomePlacement = "state" | "runtime";
@@ -110,15 +126,14 @@ function resolveDir(
  */
 export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
   const { app, placement } = opts;
-  if (app === "" || app.includes("/") || app.includes("\\")) {
-    throw new Error(
-      `daemonHome: app must be a non-empty single path segment, got ${JSON.stringify(app)}`,
-    );
-  }
+  assertPathSegment("daemonHome: app", app);
 
   const { dir, pathShapeRoot } = resolveDir(app, placement);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  if (!isPrivateOwnedDir(dir)) {
+  // Owner-only (no group/other) AND usable owner rwx — the API promises 0700.
+  // `isPrivateOwnedDir` only forbids group/other bits; a pre-existing 000 or
+  // 0500 dir would pass it and fail later on gate/socket create.
+  if (!isPrivateOwnedDir(dir) || (lstatSync(dir).mode & 0o700) !== 0o700) {
     throw new Error(
       `daemonHome: ${dir} is not a private owner-only directory ` +
         `(must be owned by the current user with mode 0700)`,
@@ -158,11 +173,7 @@ export function daemonHome(opts: DaemonHomeOptions): DaemonHome {
     gatePath,
     socketPath,
     file: (name: string) => {
-      if (name === "" || name.includes("/") || name.includes("\\")) {
-        throw new Error(
-          `daemonHome.file: name must be a non-empty single path segment, got ${JSON.stringify(name)}`,
-        );
-      }
+      assertPathSegment("daemonHome.file: name", name);
       return join(dir, name);
     },
     artifacts,

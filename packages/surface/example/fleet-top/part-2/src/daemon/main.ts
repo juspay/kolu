@@ -30,7 +30,7 @@ import {
   daemonProcessMain,
   stderrLogger,
 } from "@kolu/surface-daemon";
-import { GATE_PATH, SOCKET_PATH } from "../common/paths";
+import { GATE_PATH, HOME_DIR, SOCKET_PATH } from "../common/paths";
 import { createTop } from "./top";
 
 daemonProcessMain({
@@ -51,9 +51,10 @@ daemonProcessMain({
         socketPath: SOCKET_PATH,
         router: top.router,
         lifetime: { kind: "forever" },
-        // fleet-top keeps no on-disk state — nothing whose absence would make
-        // the daemon garbage — so it is honestly, visibly unanchored.
-        anchor: () => undefined,
+        // The rendezvous home is on-disk identity: if it is deleted, this
+        // daemon's gate/socket are gone and a successor would re-create the
+        // dir and double-serve — so the home is the self-reap anchor.
+        anchor: () => HOME_DIR,
         log: stderrLogger(),
         onReady: ({ socketPath, pid }) =>
           process.stderr.write(

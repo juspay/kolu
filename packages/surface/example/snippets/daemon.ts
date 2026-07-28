@@ -41,10 +41,9 @@ export function runDaemon(controller: AbortController): void {
         socketPath: home.socketPath, // <home.dir>/fleet-top.sock
         router, // runtime.router — already the final flattened router
         lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
-        // The self-reap anchor: the dir whose deletion makes this daemon
-        // garbage (its state root). fleet-top keeps no on-disk state, so the
-        // honest spelling is the visible "not anchored" thunk.
-        anchor: () => undefined,
+        // The self-reap anchor: the home dir is on-disk identity — if it is
+        // deleted, gate and socket are gone and a successor would double-serve.
+        anchor: () => home.dir,
         log: stderrLogger(),
         signal: controller.signal,
         onReady: ({ socketPath, pid }) =>

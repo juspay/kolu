@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { daemonHome } from "./daemonHome.ts";
 
@@ -95,11 +96,14 @@ it("runtime placement creates a 0700 dir under XDG_RUNTIME_DIR/<app>", () => {
 it("runtime placement falls back to /tmp/<app>-$UID when XDG_RUNTIME_DIR is unset", () => {
   pinEnv("XDG_RUNTIME_DIR", undefined);
   const uid = process.getuid?.() ?? "shared";
+  // Unique app so concurrent runs never collide on a fixed /tmp name, and
+  // afterEach only deletes a directory we created for this test.
+  const app = `pulse-home-${randomUUID().slice(0, 8)}`;
 
-  const home = daemonHome({ app: "pulse-home-test", placement: "runtime" });
-  scratchDirs.push(home.dir); // so afterEach can clean the /tmp fallout
+  const home = daemonHome({ app, placement: "runtime" });
+  scratchDirs.push(home.dir);
 
-  expect(home.dir).toBe(`/tmp/pulse-home-test-${uid}`);
+  expect(home.dir).toBe(`/tmp/${app}-${uid}`);
   expect(lstatSync(home.dir).mode & 0o777).toBe(0o700);
 });
 
@@ -117,6 +121,22 @@ it("refuses a non-private (group/other-accessible) pre-existing home", () => {
   expect(() => daemonHome({ app: "pulse", placement: "state" })).toThrow(
     /not a private owner-only directory/,
   );
+});
+
+it("refuses a private-but-unusable (no owner rwx) pre-existing home", () => {
+  if (process.getuid === undefined) return;
+  const root = scratch();
+  pinEnv("XDG_STATE_HOME", root);
+  const dir = join(root, "pulse");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Owner-only but not usable (no owner bits) — privacy alone is not enough.
+  chmodSync(dir, 0o000);
+
+  expect(() => daemonHome({ app: "pulse", placement: "state" })).toThrow(
+    /not a private owner-only directory/,
+  );
+  // Restore so afterEach can clean the scratch tree.
+  chmodSync(dir, 0o700);
 });
 
 it("returns SharedArtifact entries for gate and socket by construction", () => {
@@ -139,17 +159,25 @@ it("returns SharedArtifact entries for gate and socket by construction", () => {
   });
 });
 
-it("rejects an empty or multi-segment app name", () => {
+it("rejects an empty, dot, or multi-segment app name", () => {
   expect(() => daemonHome({ app: "", placement: "state" })).toThrow(/app must/);
+  expect(() => daemonHome({ app: ".", placement: "state" })).toThrow(
+    /app must/,
+  );
+  expect(() => daemonHome({ app: "..", placement: "state" })).toThrow(
+    /app must/,
+  );
   expect(() => daemonHome({ app: "a/b", placement: "state" })).toThrow(
     /app must/,
   );
 });
 
-it("file() rejects multi-segment names", () => {
+it("file() rejects empty, dot, and multi-segment names", () => {
   const root = scratch();
   pinEnv("XDG_STATE_HOME", root);
   const home = daemonHome({ app: "pulse", placement: "state" });
   expect(() => home.file("../escape")).toThrow(/name must/);
+  expect(() => home.file("..")).toThrow(/name must/);
+  expect(() => home.file(".")).toThrow(/name must/);
   expect(() => home.file("")).toThrow(/name must/);
 });
