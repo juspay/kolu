@@ -1,7 +1,7 @@
 /**
  * padi's port scan — osfacts-client + kolu policy.
  *
- * The binary contract (spawn, V1, P/L/U parse) lives in `osfacts-client`.
+ * The binary contract (spawn, V2 record parsing) lives in `osfacts-client`.
  * What lives HERE is kolu's opinion: classify bind addresses, map U rows to
  * blind-vs-empty (the sudo lesson), fold listeners per subtree, and read the
  * baked `KOLU_OSFACTS_BIN` path. The cadence is `./sampler.ts`.
@@ -11,6 +11,7 @@ import {
   type ListenerRow,
   type OsfactsReading,
   type ProcessRow,
+  type SourceErrorRow,
   type UnreadableRow,
   OsfactsClientError,
   snapshotSubtree,
@@ -40,6 +41,15 @@ export class PortScanError extends Error {
 // ── Process table + subtree partition ───────────────────────────────────
 
 export type { ProcessRow };
+
+/** Render explicit source blindness for padi's fail-loud port policy. */
+export function sourceErrorsMessage(
+  errors: readonly SourceErrorRow[],
+): string | null {
+  return errors.length === 0
+    ? null
+    : errors.map(({ source, code }) => `${source}=${code}`).join(", ");
+}
 
 /** Partition the process table into one pid SET per requested ROOT pid. */
 export function partitionSubtrees(
@@ -139,6 +149,7 @@ export function unreadablePolicy(
   const skipPids = new Set<number>();
   let fatal: UnreadableRow | null = null;
   for (const u of unreadable) {
+    if (u.facet !== "proc" && u.facet !== "ports") continue;
     const exitRace = u.errno === "ENOENT" || u.errno === "ESRCH";
     if (rootPids.has(u.pid)) {
       if (exitRace) {
@@ -172,18 +183,21 @@ export function osfactsBinPath(): string {
 function classifyListeners(
   ports: readonly ListenerRow[],
 ): Array<{ pid: number; port: number; scope: PortScope; family: PortFamily }> {
-  return ports.map((l) => {
+  return ports.flatMap((l) => {
+    if (l.status === "unclaimed") return [];
     if (!isTcpPort(l.port)) {
       throw new PortScanError(
         "blind",
         `port scan: listener carries no valid port: ${l.port}`,
       );
     }
-    return {
-      pid: l.pid,
-      port: l.port,
-      ...addressBind(decodeNetworkAddress(l.address)),
-    };
+    return [
+      {
+        pid: l.pid,
+        port: l.port,
+        ...addressBind(decodeNetworkAddress(l.address)),
+      },
+    ];
   });
 }
 
@@ -262,6 +276,14 @@ export async function scanSubtreePorts(
       });
     }
     throw err;
+  }
+
+  const sourceFailure = sourceErrorsMessage(reading.errors);
+  if (sourceFailure !== null) {
+    throw new PortScanError(
+      "blind",
+      `port scan: osfacts source failure (${sourceFailure})`,
+    );
   }
 
   const rootSet = new Set(rootPids);

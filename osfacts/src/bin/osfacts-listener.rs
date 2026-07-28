@@ -12,7 +12,9 @@ use std::thread;
 use std::time::Duration;
 
 fn main() {
-    let bind = env::args().nth(1).unwrap_or_else(|| "127.0.0.1".into());
+    let mut args = env::args().skip(1);
+    let bind = args.next().unwrap_or_else(|| "127.0.0.1".into());
+    let spin = args.next().as_deref() == Some("--spin");
     let addr: SocketAddr = match bind.as_str() {
         "127.0.0.1" => SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
         "0.0.0.0" => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
@@ -41,8 +43,13 @@ fn main() {
     writeln!(out, "{port}").expect("write port");
     out.flush().expect("flush port");
 
-    // Park. The parent kills us; we must not exit on our own.
+    // Park (or burn CPU for the cumulative CPU-time fixture). The parent kills
+    // us; we must not exit on our own.
     loop {
-        thread::sleep(Duration::from_secs(3600));
+        if spin {
+            std::hint::spin_loop();
+        } else {
+            thread::sleep(Duration::from_secs(3600));
+        }
     }
 }

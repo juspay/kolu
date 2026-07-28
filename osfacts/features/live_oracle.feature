@@ -12,10 +12,33 @@ Feature: Live-host oracle (lane 2 — never gates)
   Scenario: Host-wide snapshot agrees with the platform oracle
     When I take a host-wide osfacts snapshot of listening ports
     And I read the platform oracle's listening ports
-    Then every osfacts listener has a canonical match in the oracle
+    Then every osfacts listener visible to the platform oracle has a canonical match
     And every oracle listener has a canonical match in osfacts
     # Appear/vanish races between the two reads are tolerated structurally:
     # the step functions re-read once on mismatch before failing.
-    # Privilege-honest: oracle sockets with no process attribution (or whose
-    # pid is in osfacts's unreadable set) are not required in the L table —
-    # osfacts reports those as U rows, not missing L rows.
+    # Every oracle listener is present. A listener whose fd owner cannot be
+    # read is an explicit unclaimed L row, not a missing row.
+
+  Scenario: Memory and process age are live OS facts
+    When I snapshot this process's memory and start time
+    Then osfacts reports positive RSS and a past start instant
+
+  Scenario: Process CPU time uses real microseconds
+    When I burn a measured amount of CPU between two process snapshots
+    Then the osfacts CPU-time delta matches getrusage
+
+  Scenario: Process identity and launch details are live OS facts
+    When I snapshot this process's identity and launch details
+    Then uid cwd status and argv match this process
+
+  Scenario: Foreign darwin process basics stay readable without privilege
+    When I snapshot stable foreign-uid processes visible to ps on darwin
+    Then osfacts matches their identity and start facts without hiding real blindness
+
+  Scenario: Host telemetry preserves gauge and cumulative semantics
+    When I take two complete host snapshots
+    Then host gauges are sane and cumulative counters do not decrease
+
+  Scenario: Linux whole-host process polling stays within its smoke budget
+    When I time warm complete process snapshots
+    Then the Linux all-facets median stays below the live smoke bound

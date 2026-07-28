@@ -13,13 +13,16 @@ way through seven of them before concluding we had to write this one.
 
 ```sh
 osfacts snapshot --roots 4242 --procs --ports     # this subtree: procs + listening ports
-osfacts snapshot --pids 991 --mem --start-time    # exactly these pids: RSS + start time
-osfacts socket-holders /run/user/1000/padi.sock   # which pids hold this unix socket
-osfacts snapshot --json | jq                      # same facts, readable
+osfacts snapshot --pids 991 --mem --start-time --cpu-time # exact pids: RSS + start + cumulative CPU µs
+osfacts snapshot --uid --cwd --status --argv      # every pid: identity + launch details
+osfacts host --load --mem --cpu --net --disk      # machine gauges, metadata + cumulative counters
+osfacts snapshot --procs --json | jq              # same facts, readable
 ```
 
-One verb, composable facets, about ten milliseconds. We know it's ten
-milliseconds because we spent a week timing everything else.
+One verb, composable facets. On a Linux host with about 450 processes, the
+one-process `--procs --ports` shape takes 6.5 ms; every process facet host-wide
+takes 24.3 ms. The flags matter. We know because we time the shapes users run,
+not a toy command that happens to make the number look good.
 
 ## Scoping
 
@@ -35,10 +38,46 @@ tool only shows you the `node`, you know a port is open but not whose it is.
 That's the question that matters, and it's the one the listener-only tools
 can't answer.
 
+## Performance
+
+One timing for a composable command is usually a lie. `--ports` walks file
+descriptors; `--argv` reads command lines; `--roots` can turn 450 processes
+into one. So these are the useful numbers: 31 interleaved warm runs on
+`naiveintent`, with 450–466 live Linux processes and stdout captured as a real
+client captures it.
+
+| shape | before the Linux pass | current |
+| --- | ---: | ---: |
+| host-wide `--procs` | 10.93 ms | 9.43 ms |
+| host-wide `--procs --ports` | 27.59 ms | 17.80 ms |
+| host-wide, every process facet | 52.56 ms | 24.33 ms |
+| `host --load --mem --cpu --net --disk` | 2.61 ms | 2.61 ms |
+| drishti's two calls, serial | 55.41 ms | 26.48 ms |
+| one-process `--roots`, `--procs --ports` | 7.58 ms | 6.49 ms |
+| 83-process subtree, `--procs --ports` | 19.85 ms | 17.27 ms |
+
+The large win came from mundane waste: the same `stat` file was opened four
+times per pid, output was written a row at a time, and a host-wide fd walk ran
+in one long line. The Linux reader now opens shared proc files once, reads
+virtual files into a page-sized buffer, reuses `stat`'s RSS field in combined
+snapshots, buffers stdout, and splits only large fd walks into ordered workers.
+Small scopes stay on the simple path.
+
+The live lane also samples the child CPU consumed by 11 interleaved warm
+`--procs` and all-facet snapshots. The extra facets get a process-count-scaled
+budget of 75 µs per process, so scheduler and shared-cache contention in
+parallel CI mostly cancel instead of pretending to be a regression. CI runs the
+smoke after its heavy fan-out drains. The pinned old binary spends 42.25 ms
+beyond `--procs` across 500 processes and fails its 37.50 ms budget. The current
+one spends 27.69 ms and passes.
+
 ## Honesty
 
 When osfacts can't read a pid, it says so — with the errno, in an
 `unreadable` section you can't turn off. Blindness is output, not absence.
+The listener table is independent of attribution: a socket whose owning fd
+cannot be read still appears as `unclaimed` (with its uid on linux). Under a
+narrow scope that word matters — the owner may simply be outside the ask.
 
 Why so strict? Because we shipped the other thing. A reader that silently
 dropped unreadable pids once emptied a whole panel of facts the moment
@@ -56,6 +95,73 @@ how they come to disagree. And CPU time is cumulative per row, so CPU% is a
 diff between two snapshots on your clock. A one-shot sampler should never
 sleep; one tool we measured sleeps ~30 ms per call to compute a rate nobody
 asked it for.
+
+`--cpu-time` emits `C <pid> <cpu_time_us>`: user plus system CPU time since
+process start, normalized to microseconds on both platforms. An unreadable pid
+emits `U <pid> cpu_time <errno>` instead. The tool never computes CPU%; a
+consumer differences two `cpu_time_us` values over its own wall-clock interval.
+
+The other process details stay independent too. `--uid` emits the real uid
+(name lookup belongs to the consumer); `--cwd` emits the current directory;
+`--status` emits the one-character state, nice value, and a nullable thread
+count; `--argv` emits the full argument vector, distinct from the short process
+name. Cwd and argv are JSON-encoded inside their final TSV field, so tabs,
+newlines, and NULs cannot change row boundaries. Each failed read is its own
+`U <pid> <facet> <errno>` row — asking for cwd cannot turn an unreadable cwd
+into an empty path or erase a readable uid.
+
+Host CPU rows carry a nonempty model plus nullable MHz. Apple Silicon does not
+publish the frequency sysctl, so absence is `null` / `-`, never a fabricated
+zero. Disk rows keep both meanings the kernel exposes: free bytes from `bfree`
+and unprivileged-available bytes from `bavail`, alongside total bytes.
+
+## Known limitations
+
+Visibility is OS policy, not a parser trick. The same osfacts binary asks the
+same questions on both systems. What changes is where the kernel draws the
+line.
+
+| OS | Visible for every process | Needs same uid or root | Listener consequence |
+| --- | --- | --- | --- |
+| Linux | name, real uid, RSS, cumulative CPU time, and start time from `/proc` | cwd and fd targets, including port attribution | the kernel TCP table stays world-readable, so a socket survives as an unclaimed `L` row when its fd owner is hidden |
+| Darwin | `kern.proc` gives pid, ppid, real uid, state, nice, start time, and short command; `proc_pidpath` gives the executable path | the full process view, including RSS, CPU time, cwd, argv, and fd attribution | same-uid fd walks still find claimed listeners; macOS 27+ hides the host-wide socket table from callers without Apple platform signing |
+
+Linux's split is simple. Basic `/proc` process files are world-readable, but
+the links under `/proc/<pid>/fd` and `/proc/<pid>/cwd` are not. The independent
+`/proc/net/tcp{,6}` table is still readable, which is why failure to inspect an
+owner produces an unclaimed listener instead of making the socket vanish.
+
+Darwin lets an ordinary caller read every same-uid process. For another user's
+process, the public census still supplies identity and start facts, but the task
+APIs behind RSS and CPU time return `EPERM`. `ps` only looks like a
+counterexample: on macOS it is setuid root, Apple-signed, and carries the private
+`com.apple.system-task-ports.read` entitlement. Apple's own source calls
+`task_read_for_pid` ([reader](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c),
+[entitlement](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/entitlements.plist)).
+osfacts deliberately has none of those powers.
+
+macOS 27 adds the same kind of gate to the host-wide TCP table. On zest,
+Apple's platform-signed `/usr/sbin/sysctl` got 54,872 bytes from
+`net.inet.tcp.pcblist_n`, and `/usr/sbin/netstat` saw 29 listeners. The
+ad-hoc-signed osfacts binary got 48 bytes: only the opening and closing records.
+The full capture decodes to all 29 rows, so the decoder is fine. The caller is
+what changed. `netstat` carries `com.apple.private.network.statistics`; osfacts
+does not.
+
+The 48-byte shape is indistinguishable from a genuinely empty host-wide table,
+so osfacts keeps reporting `E darwin_tcp_pcblist BLIND_OR_EMPTY`. It does not
+throw away facts it got elsewhere: the same-uid fd walk still emits its claimed
+listeners. What macOS 27 gates is the independent table that would also reveal
+listeners no readable pid claimed.
+
+Same binary, same honesty, different OS policy.
+
+Source blindness is an `E` row, not an instruction to discard facts that did
+arrive. A partial snapshot exits successfully and leaves reject-versus-render
+policy to the consumer; an `E`-only result remains a total failure and exits
+nonzero, as do usage and output failures. This distinction keeps a blind port
+source from erasing valid process rows while making a completely blind probe
+fail loudly.
 
 ## Who uses it
 
@@ -77,7 +183,7 @@ packaging:
 | `portls` | no PPID, no process table — a listener can't be walked back to its root |
 | `rustnet` | an interactive capture TUI; needs packet-capture privilege |
 | `portview` | listener rows only, no process table, no scoping — its single-port query is a host-wide scan plus a filter |
-| `sysinfo` + `listeners` | composing them enumerates the process list twice: 23 ms darwin / ~100 ms linux, vs 10 ms for one pass |
+| `sysinfo` + `listeners` | composing them enumerates the process list twice: 23 ms darwin / ~100 ms linux; osfacts' current Linux host-wide process+listener pass is 17.8 ms |
 | `lsof` / `netstat` | `lsof` measured 93 ms; macOS `netstat` goes intermittently blind — success and zero rows in one window, 29 rows the next, same boot |
 
 ## Testing
@@ -93,13 +199,10 @@ Assertions are self-referential ("my fixture appears exactly"), never
 "the whole host table is empty", so a noisy dev box and a clean sandbox
 exercise the same code path. There is no `unshare` / private-netns trick:
 depending on a host kernel knob for user namespaces contradicted the
-hermetic claim (and broke ubuntu-latest CI). The two fields no test can
-pin — the real pid, the kernel-chosen port — are redacted to stable
+hermetic claim (and broke ubuntu-latest CI). The three fields no test can
+pin — the real pid, owning uid, and kernel-chosen port — are redacted to stable
 placeholders; everything else is byte-exact. The unreadable path is
 tested against pid 1, which is always present and always forbidden.
-One optional host-wide empty-table pin exists only inside the nix
-sandbox (`NIX_BUILD_TOP` set) and runs alone under nextest so sibling
-binds cannot race it.
 
 The second lane asks "did the OS break osfacts?" It runs the nix-built binary
 on a real, noisy host and diffs its answers against tools that don't share
@@ -131,15 +234,19 @@ worth keeping readable.
 
 ## Status
 
-OSF1 and OSF2 are in: the binary (`snapshot --roots|--pids --procs --ports`
-on both platforms, versioned TSV + `--json`, mandatory `unreadable`, scar-
-tissue suite) and kolu's port sensor, which spawns the baked store path
+OSF1, OSF2, OSF3, OSF6, and OSF7 are in: the binary's process, listener,
+RSS, start-time, cumulative CPU-time, uid, cwd, status, full argv, and complete
+host-telemetry facts on both platforms, plus kolu's port and memory sensors and
+start-qualified daemon ownership. The TypeScript client exposes exact-pid,
+subtree, and true host-wide process snapshots. The contract is
+versioned TSV + `--json`, with mandatory `unreadable` and source-error rows,
+and kolu spawns the baked store path
 (`KOLU_OSFACTS_BIN`). The TypeScript client lives at `client-ts/` as the
 package `osfacts-client` (no `@kolu` scope, zero npm runtime deps) — kolu/padi
 is the first consumer; drishti is next. The former `@kolu/port-scan` package
 is gone: raw protocol in this client, kolu policy in padi, `PortInfo` fold in
-`@kolu/terminal-vocab`. Facets beyond that (`--mem`, `--start-time`,
-`socket-holders`) and further consumer migrations are later phases. osfacts
+`@kolu/terminal-vocab`. Socket-holder lookup and further consumer migrations
+are later phases. osfacts
 incubates in the kolu monorepo (this directory is the whole future repo) and
 moves out when a second external consumer pins it (drishti). Every claim and
 number above has its measurement in the plan of record:

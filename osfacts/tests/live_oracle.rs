@@ -1,24 +1,27 @@
-//! Lane 2 — live-host oracle. Runs every full `/ci`; never a merge gate.
+//! Lane 2 — live-host oracle. Runs every full `/ci`, and gates like every
+//! other lane: `ci::osfacts-live` is branch-protected on both platforms.
 //!
 //! Invoked only when `OSFACTS_LIVE=1` (see `scripts/live-oracle.sh`). The
 //! binary under test is `$OSFACTS_BIN` (the nix-built osfacts), never a
 //! target-dir debug build.
 //!
-//! Host-wide agreement is privilege-honest: osfacts only emits L rows for
-//! sockets it can attribute through readable pids. The platform oracle may
-//! list sockets owned by other uids (ss without pid, root listeners). Those
-//! are not failures — Oracle→osfacts only requires match when the oracle
-//! attributes a pid that is not in the snapshot's unreadable set.
+//! Host-wide agreement is privilege-honest. osfacts reads the kernel listener
+//! table and emits unclaimed rows even when it cannot inspect the owner. Linux
+//! `ss` sees those same kernel rows, while unprivileged Darwin `lsof` omits
+//! listeners owned by unreadable processes. Therefore Darwin osfacts→lsof
+//! agreement covers claimed rows; lsof→osfacts still covers every oracle row.
 //!
 //! Cucumber MSRV is 1.88 (crate 0.23, edition 2024); our pin is ≥1.93 — cleared.
 
 use cucumber::{given, then, when, World};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::Duration;
+
+const LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS: u128 = 75;
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -35,6 +38,15 @@ struct LiveWorld {
     oracle_listeners: Vec<ListenerRow>,
     /// Pids osfacts reported as unreadable (`U` rows) on the last snapshot.
     unreadable_pids: HashSet<u32>,
+    host_first: Option<String>,
+    host_second: Option<String>,
+    cpu_time_first: Option<u64>,
+    cpu_time_second: Option<u64>,
+    cpu_time_oracle_delta: Option<u64>,
+    foreign_processes: Vec<ForeignProcessOracle>,
+    linux_perf_baseline_samples: Vec<Duration>,
+    linux_perf_samples: Vec<Duration>,
+    linux_perf_process_count: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +55,39 @@ struct ListenerRow {
     port: u16,
     /// Canonical form for comparison (v4-mapped collapsed to v4; any-form kept).
     canon: CanonAddr,
+}
+
+#[derive(Debug, Clone)]
+struct ForeignProcessOracle {
+    pid: u32,
+    uid: u32,
+    ppid: u32,
+    elapsed_seconds: u64,
+    name: String,
+}
+
+#[cfg(target_os = "macos")]
+fn parse_ps_elapsed(value: &str) -> Option<u64> {
+    let (days, clock) = match value.split_once('-') {
+        Some((days, clock)) => (days.parse::<u64>().ok()?, clock),
+        None => (0, value),
+    };
+    let parts = clock
+        .split(':')
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let (hours, minutes, seconds) = match parts.as_slice() {
+        [minutes, seconds] => (0, *minutes, *seconds),
+        [hours, minutes, seconds] => (*hours, *minutes, *seconds),
+        _ => return None,
+    };
+    Some(
+        days.saturating_mul(86_400)
+            .saturating_add(hours.saturating_mul(3_600))
+            .saturating_add(minutes.saturating_mul(60))
+            .saturating_add(seconds),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -80,6 +125,23 @@ impl LiveWorld {
         );
         String::from_utf8(out.stdout).expect("utf8")
     }
+}
+
+#[cfg(target_os = "linux")]
+fn child_cpu_time() -> Duration {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    // SAFETY: getrusage initializes the pointed-to rusage on success.
+    let result = unsafe { libc::getrusage(libc::RUSAGE_CHILDREN, usage.as_mut_ptr()) };
+    assert_eq!(result, 0, "getrusage(RUSAGE_CHILDREN) failed");
+    // SAFETY: the successful call above initialized the value.
+    let usage = unsafe { usage.assume_init() };
+    let micros = |time: libc::timeval| {
+        u64::try_from(time.tv_sec)
+            .expect("non-negative child CPU seconds")
+            .saturating_mul(1_000_000)
+            .saturating_add(u64::try_from(time.tv_usec).expect("non-negative child CPU micros"))
+    };
+    Duration::from_micros(micros(usage.ru_utime).saturating_add(micros(usage.ru_stime)))
 }
 
 impl Drop for LiveWorld {
@@ -144,8 +206,8 @@ fn listener_attributed(world: &mut LiveWorld) {
         }
         if let Some(rest) = line.strip_prefix("L\t") {
             let parts: Vec<&str> = rest.split('\t').collect();
-            if parts.len() >= 2 && parts[1] == port.to_string() {
-                let holder: u32 = parts[0].parse().expect("L pid");
+            if parts.len() == 5 && parts[0] == "claimed" && parts[3] == port.to_string() {
+                let holder: u32 = parts[1].parse().expect("L pid");
                 assert!(
                     pids.contains(&holder) || holder == root,
                     "listener pid {holder} not in subtree of {root}; pids={pids:?}"
@@ -172,7 +234,7 @@ fn read_oracle(world: &mut LiveWorld) {
     world.oracle_listeners = platform_oracle();
 }
 
-#[then("every osfacts listener has a canonical match in the oracle")]
+#[then("every osfacts listener visible to the platform oracle has a canonical match")]
 fn osfacts_subset_of_oracle(world: &mut LiveWorld) {
     agree_with_retry(world, Direction::OsfactsInOracle);
 }
@@ -180,6 +242,423 @@ fn osfacts_subset_of_oracle(world: &mut LiveWorld) {
 #[then("every oracle listener has a canonical match in osfacts")]
 fn oracle_subset_of_osfacts(world: &mut LiveWorld) {
     agree_with_retry(world, Direction::OracleInOsfacts);
+}
+
+#[when("I snapshot this process's memory and start time")]
+fn snapshot_memory_and_start(world: &mut LiveWorld) {
+    let pid = std::process::id().to_string();
+    world.snapshot =
+        Some(world.run_osfacts(&["snapshot", "--pids", &pid, "--mem", "--start-time"]));
+}
+
+#[then("osfacts reports positive RSS and a past start instant")]
+fn memory_and_start_are_real(world: &mut LiveWorld) {
+    let pid = std::process::id();
+    let body = world.snapshot.as_ref().expect("snapshot");
+    let memory = body
+        .lines()
+        .find_map(|line| line.strip_prefix(&format!("M\t{pid}\t")))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .expect("M row for current process");
+    let start = body
+        .lines()
+        .find_map(|line| line.strip_prefix(&format!("S\t{pid}\t")))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .expect("S row for current process");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_micros() as u64;
+    assert!(memory > 0, "RSS must be positive: {body}");
+    assert!(
+        start > 0 && start <= now,
+        "start instant must be in the past: {body}"
+    );
+}
+
+#[when("I burn a measured amount of CPU between two process snapshots")]
+fn measured_process_cpu_time_snapshots(world: &mut LiveWorld) {
+    let pid = std::process::id();
+    world.cpu_time_first = Some(read_process_cpu_time(world, pid));
+    let oracle_first = self_cpu_time_us();
+    let target = oracle_first.saturating_add(500_000);
+    let mut oracle_second = oracle_first;
+    while oracle_second < target {
+        std::hint::spin_loop();
+        oracle_second = self_cpu_time_us();
+    }
+    world.cpu_time_oracle_delta = Some(oracle_second.saturating_sub(oracle_first));
+    world.cpu_time_second = Some(read_process_cpu_time(world, pid));
+}
+
+fn self_cpu_time_us() -> u64 {
+    unsafe {
+        let mut usage = std::mem::zeroed::<libc::rusage>();
+        assert_eq!(libc::getrusage(libc::RUSAGE_SELF, &mut usage), 0);
+        let timeval_us = |value: libc::timeval| {
+            (value.tv_sec as u64)
+                .saturating_mul(1_000_000)
+                .saturating_add(value.tv_usec as u64)
+        };
+        timeval_us(usage.ru_utime).saturating_add(timeval_us(usage.ru_stime))
+    }
+}
+
+fn read_process_cpu_time(world: &LiveWorld, pid: u32) -> u64 {
+    let body = world.run_osfacts(&["snapshot", "--pids", &pid.to_string(), "--cpu-time"]);
+    body.lines()
+        .find_map(|line| line.strip_prefix(&format!("C\t{pid}\t")))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("C row for current process missing: {body}"))
+}
+
+#[then("the osfacts CPU-time delta matches getrusage")]
+fn process_cpu_time_matches_getrusage(world: &mut LiveWorld) {
+    let first = world.cpu_time_first.expect("first cpu time");
+    let second = world.cpu_time_second.expect("second cpu time");
+    let expected = world
+        .cpu_time_oracle_delta
+        .expect("getrusage CPU-time delta");
+    assert!(
+        second >= first,
+        "process CPU time decreased: first={first}, second={second}"
+    );
+    let observed = second - first;
+    let tolerance = expected / 5;
+    assert!(
+        observed.abs_diff(expected) <= tolerance,
+        "osfacts CPU-time units diverged from getrusage: observed={observed}us expected={expected}us tolerance={tolerance}us"
+    );
+}
+
+#[when("I snapshot this process's identity and launch details")]
+fn snapshot_process_details(world: &mut LiveWorld) {
+    let pid = std::process::id().to_string();
+    world.snapshot = Some(world.run_osfacts(&[
+        "snapshot", "--pids", &pid, "--uid", "--cwd", "--status", "--argv",
+    ]));
+}
+
+#[then("uid cwd status and argv match this process")]
+fn process_details_are_real(world: &mut LiveWorld) {
+    let pid = std::process::id();
+    let body = world.snapshot.as_ref().expect("snapshot");
+    let fields = |tag: &str| {
+        body.lines()
+            .find(|line| line.starts_with(&format!("{tag}\t{pid}\t")))
+            .unwrap_or_else(|| panic!("{tag} row for current process missing: {body}"))
+            .split('\t')
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let uid = fields("UID");
+    assert_eq!(uid[2].parse::<u32>().expect("uid"), unsafe {
+        libc::getuid()
+    });
+    let cwd = fields("CWD");
+    let cwd: String = serde_json::from_str(&cwd[2]).expect("cwd JSON");
+    assert_eq!(
+        cwd,
+        std::env::current_dir()
+            .expect("current directory")
+            .to_string_lossy()
+    );
+    let status = fields("STAT");
+    assert_eq!(status[2].chars().count(), 1);
+    status[3].parse::<i32>().expect("nice");
+    let argv = fields("ARGV");
+    let argv: Vec<String> = serde_json::from_str(&argv[2]).expect("argv JSON");
+    assert!(
+        argv.iter().any(|value| value.contains("live_oracle")),
+        "live harness missing from argv: {argv:?}"
+    );
+}
+
+#[when("I snapshot stable foreign-uid processes visible to ps on darwin")]
+fn snapshot_foreign_processes(_world: &mut LiveWorld) {
+    #[cfg(target_os = "macos")]
+    {
+        let world = _world;
+        let own_uid = unsafe { libc::geteuid() };
+        assert_ne!(own_uid, 0, "fixture requires a non-root user");
+        let output = Command::new("ps")
+            .args(["-axo", "pid=,uid=,ppid=,etime=,comm="])
+            .output()
+            .expect("ps must be on PATH for the live oracle");
+        assert!(output.status.success(), "ps failed: {}", output.status);
+        let mut rows = String::from_utf8(output.stdout)
+            .expect("ps output is utf8")
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split_whitespace();
+                let pid = fields.next()?.parse::<u32>().ok()?;
+                let uid = fields.next()?.parse::<u32>().ok()?;
+                let ppid = fields.next()?.parse::<u32>().ok()?;
+                let elapsed_seconds = parse_ps_elapsed(fields.next()?)?;
+                let command = fields.collect::<Vec<_>>().join(" ");
+                let name = PathBuf::from(command).file_name()?.to_str()?.to_owned();
+                (pid > 0 && pid < 10_000 && uid != own_uid).then_some(ForeignProcessOracle {
+                    pid,
+                    uid,
+                    ppid,
+                    elapsed_seconds,
+                    name,
+                })
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|row| row.pid);
+        rows.truncate(12);
+        assert!(
+            rows.len() >= 5,
+            "need at least five stable foreign processes, found {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|row| row.name.len() > 16),
+            "fixture must include a name longer than kern.proc p_comm: {rows:?}"
+        );
+        let pids = rows
+            .iter()
+            .map(|row| row.pid.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        world.foreign_processes = rows;
+        world.snapshot = Some(world.run_osfacts(&[
+            "snapshot",
+            "--pids",
+            &pids,
+            "--procs",
+            "--uid",
+            "--start-time",
+            "--mem",
+            "--cpu-time",
+        ]));
+    }
+}
+
+#[then("osfacts matches their identity and start facts without hiding real blindness")]
+fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
+    #[cfg(target_os = "macos")]
+    {
+        let world = _world;
+        let body = world.snapshot.as_ref().expect("snapshot");
+        let rows = |tag: &str| {
+            body.lines()
+                .filter_map(|line| {
+                    let fields = line.split('\t').collect::<Vec<_>>();
+                    (fields.first().copied() == Some(tag)).then_some(fields)
+                })
+                .collect::<Vec<_>>()
+        };
+        let procs = rows("P");
+        let uids = rows("UID");
+        let starts = rows("S");
+        let memory = rows("M");
+        let cpu_times = rows("C");
+        let unreadable = rows("U");
+        assert_eq!(
+            procs.len(),
+            world.foreign_processes.len(),
+            "foreign process count diverged from ps:\n{body}"
+        );
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_micros() as u64;
+        for expected in &world.foreign_processes {
+            let pid = expected.pid.to_string();
+            let ppid = expected.ppid.to_string();
+            let uid = expected.uid.to_string();
+            let proc = procs
+                .iter()
+                .find(|row| row.get(1) == Some(&pid.as_str()))
+                .unwrap_or_else(|| panic!("missing P row for {}:\n{body}", expected.pid));
+            assert_eq!(proc.get(2), Some(&ppid.as_str()));
+            assert_eq!(proc.get(3), Some(&expected.name.as_str()));
+            let uid_row = uids
+                .iter()
+                .find(|row| row.get(1) == Some(&pid.as_str()))
+                .unwrap_or_else(|| panic!("missing UID row for {}:\n{body}", expected.pid));
+            assert_eq!(uid_row.get(2), Some(&uid.as_str()));
+            let start = starts
+                .iter()
+                .find(|row| row.get(1) == Some(&pid.as_str()))
+                .unwrap_or_else(|| panic!("missing S row for {}:\n{body}", expected.pid));
+            let start = start[2].parse::<u64>().expect("start time");
+            let elapsed = now.saturating_sub(start) / 1_000_000;
+            assert!(
+                elapsed.abs_diff(expected.elapsed_seconds) <= 3,
+                "start time for {} differs from ps: osfacts elapsed={elapsed}s, ps elapsed={}s",
+                expected.pid,
+                expected.elapsed_seconds
+            );
+            for facet in ["proc", "uid", "start_time"] {
+                assert!(
+                    !unreadable
+                        .iter()
+                        .any(|row| row.get(1) == Some(&pid.as_str()) && row.get(2) == Some(&facet)),
+                    "false {facet} blindness for {}:\n{body}",
+                    expected.pid
+                );
+            }
+            for (tag, facet, facts) in [("M", "mem", &memory), ("C", "cpu_time", &cpu_times)] {
+                let has_fact = facts.iter().any(|row| row.get(1) == Some(&pid.as_str()));
+                let has_unreadable = unreadable
+                    .iter()
+                    .any(|row| row.get(1) == Some(&pid.as_str()) && row.get(2) == Some(&facet));
+                assert!(
+                    has_fact ^ has_unreadable,
+                    "{tag}/{facet} must be exactly fact or honest U for {}:\n{body}",
+                    expected.pid
+                );
+            }
+        }
+    }
+}
+
+#[when("I take two complete host snapshots")]
+fn two_host_snapshots(world: &mut LiveWorld) {
+    let args = ["host", "--load", "--mem", "--cpu", "--net", "--disk"];
+    world.host_first = Some(world.run_osfacts(&args));
+    thread::sleep(Duration::from_millis(20));
+    world.host_second = Some(world.run_osfacts(&args));
+}
+
+#[then("host gauges are sane and cumulative counters do not decrease")]
+fn host_facts_are_sane(world: &mut LiveWorld) {
+    let first = world.host_first.as_ref().expect("first host snapshot");
+    let second = world.host_second.as_ref().expect("second host snapshot");
+    for tag in [
+        "HLOAD\t", "HMEM\t", "HSWAP\t", "HUP\t", "HCPU\t", "HNET\t", "HDISK\t",
+    ] {
+        assert!(
+            second.lines().any(|line| line.starts_with(tag)),
+            "missing {tag} in:\n{second}"
+        );
+    }
+    let counters = |body: &str, tag: &str| -> HashMap<String, Vec<u64>> {
+        body.lines()
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split('\t').collect();
+                if fields.first().copied() != Some(tag) {
+                    return None;
+                }
+                let numeric = if tag == "HCPU" {
+                    &fields[2..6]
+                } else {
+                    &fields[2..]
+                };
+                let values = numeric
+                    .iter()
+                    .map(|raw| raw.parse::<u64>().expect("counter"))
+                    .collect();
+                Some((fields[1].to_owned(), values))
+            })
+            .collect()
+    };
+    for tag in ["HCPU", "HNET"] {
+        let before = counters(first, tag);
+        let after = counters(second, tag);
+        assert!(!after.is_empty(), "no {tag} rows");
+        for (key, values) in before {
+            if let Some(next) = after.get(&key) {
+                assert!(
+                    values.iter().zip(next).all(|(a, b)| b >= a),
+                    "{tag} {key} decreased: {values:?} -> {next:?}"
+                );
+            }
+        }
+    }
+    for line in second.lines().filter(|line| line.starts_with("HCPU\t")) {
+        let fields: Vec<&str> = line.split('\t').collect();
+        assert_eq!(fields.len(), 8, "bad HCPU row: {line}");
+        let model: String = serde_json::from_str(fields[6]).expect("CPU model JSON");
+        assert!(!model.is_empty(), "empty CPU model: {line}");
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        assert_eq!(fields[7], "-", "Apple Silicon MHz must be null: {line}");
+    }
+    let disk = second
+        .lines()
+        .find(|line| line.starts_with("HDISK\t"))
+        .expect("root disk row");
+    let disk: Vec<&str> = disk.split('\t').collect();
+    let total = disk[2].parse::<u64>().expect("disk total");
+    let available = disk[3].parse::<u64>().expect("disk available");
+    let free = disk[4].parse::<u64>().expect("disk free");
+    assert!(
+        available <= free && free <= total,
+        "bad disk gauges: {disk:?}"
+    );
+}
+
+#[when("I time warm complete process snapshots")]
+fn time_complete_process_snapshots(_world: &mut LiveWorld) {
+    #[cfg(target_os = "linux")]
+    {
+        let world = _world;
+        let args = [
+            "snapshot",
+            "--procs",
+            "--ports",
+            "--mem",
+            "--start-time",
+            "--cpu-time",
+            "--uid",
+            "--cwd",
+            "--status",
+            "--argv",
+        ];
+        let baseline_args = ["snapshot", "--procs"];
+        for _ in 0..3 {
+            world.run_osfacts(&baseline_args);
+            world.run_osfacts(&args);
+        }
+        world.linux_perf_process_count = Some(
+            std::fs::read_dir("/proc")
+                .expect("read /proc")
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().parse::<u32>().is_ok())
+                .count(),
+        );
+        for _ in 0..11 {
+            let started = child_cpu_time();
+            world.run_osfacts(&baseline_args);
+            world
+                .linux_perf_baseline_samples
+                .push(child_cpu_time().saturating_sub(started));
+
+            let started = child_cpu_time();
+            world.run_osfacts(&args);
+            world
+                .linux_perf_samples
+                .push(child_cpu_time().saturating_sub(started));
+        }
+    }
+}
+
+#[then("the Linux all-facets median stays below the live smoke bound")]
+fn complete_process_snapshot_is_fast(_world: &mut LiveWorld) {
+    #[cfg(target_os = "linux")]
+    {
+        let world = _world;
+        world.linux_perf_baseline_samples.sort_unstable();
+        world.linux_perf_samples.sort_unstable();
+        let baseline_median =
+            world.linux_perf_baseline_samples[world.linux_perf_baseline_samples.len() / 2];
+        let median = world.linux_perf_samples[world.linux_perf_samples.len() / 2];
+        let extra = median.saturating_sub(baseline_median);
+        let process_count = world.linux_perf_process_count.expect("process count");
+        let limit_micros = LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS
+            .saturating_mul(process_count as u128);
+        eprintln!(
+            "Linux child CPU medians across {process_count} processes: --procs={baseline_median:?}, all facets={median:?}, extra={extra:?} ({LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process budget, {limit_micros}us total)"
+        );
+        assert!(
+            extra.as_micros() < limit_micros,
+            "Linux extra-facets child CPU median was {extra:?} (--procs={baseline_median:?}, all facets={median:?}) across {process_count} processes; live smoke budget is {LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process ({limit_micros}us total; baseline samples={:?}; all-facet samples={:?})",
+            world.linux_perf_baseline_samples,
+            world.linux_perf_samples,
+        );
+    }
 }
 
 #[derive(Debug)]
@@ -194,22 +673,16 @@ fn agree_with_retry(world: &mut LiveWorld, dir: Direction) {
     for attempt in 0..2 {
         let missing = match dir {
             Direction::OsfactsInOracle => {
-                missing_from(&world.osfacts_listeners, &world.oracle_listeners)
-            }
-            Direction::OracleInOsfacts => {
-                // Only sockets the oracle attributes to a pid that osfacts
-                // could have read. Unattributed (other-uid / no -p info) and
-                // unreadable pids are expected gaps, not product bugs.
-                let comparable: Vec<ListenerRow> = world
-                    .oracle_listeners
+                let visible: Vec<ListenerRow> = world
+                    .osfacts_listeners
                     .iter()
-                    .filter(|r| match r.pid {
-                        Some(pid) => !world.unreadable_pids.contains(&pid),
-                        None => false,
-                    })
+                    .filter(|row| visible_to_platform_oracle(row))
                     .cloned()
                     .collect();
-                missing_from(&comparable, &world.osfacts_listeners)
+                missing_from(&visible, &world.oracle_listeners)
+            }
+            Direction::OracleInOsfacts => {
+                missing_from(&world.oracle_listeners, &world.osfacts_listeners)
             }
         };
         if missing.is_empty() {
@@ -230,12 +703,28 @@ fn agree_with_retry(world: &mut LiveWorld, dir: Direction) {
     }
 }
 
+fn visible_to_platform_oracle(row: &ListenerRow) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // `lsof` run as the CI user cannot enumerate root-owned descriptors.
+        // pcblist_n still exposes those sockets, correctly as unclaimed rows.
+        row.pid.is_some()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = row.pid;
+        true
+    }
+}
+
 fn missing_from(have: &[ListenerRow], against: &[ListenerRow]) -> Vec<(u16, CanonAddr)> {
     // Dual-stack wildcard: osfacts may report `::` (AnyV6) while lsof/ss show
     // `*` / `0.0.0.0` (AnyV4) for the same listener. Collapse both to one key
     // so host tools that disagree on family still agree on "wildcard:port".
-    let set: HashSet<(u16, MatchCanon)> =
-        against.iter().map(|r| match_key(r.port, &r.canon)).collect();
+    let set: HashSet<(u16, MatchCanon)> = against
+        .iter()
+        .map(|r| match_key(r.port, &r.canon))
+        .collect();
     have.iter()
         .filter(|r| !set.contains(&match_key(r.port, &r.canon)))
         .map(|r| (r.port, r.canon.clone()))
@@ -281,20 +770,24 @@ fn parse_osfacts_listeners(tsv: &str) -> Vec<ListenerRow> {
             continue;
         };
         let parts: Vec<&str> = rest.split('\t').collect();
-        if parts.len() < 3 {
+        if parts.len() != 5 {
             continue;
         }
-        let pid: u32 = parts[0].parse().unwrap_or(0);
-        let port: u16 = match parts[1].parse() {
+        let pid = match parts[0] {
+            "claimed" => parts[1].parse().ok(),
+            "unclaimed" => None,
+            _ => continue,
+        };
+        let port: u16 = match parts[3].parse() {
             Ok(p) => p,
             Err(_) => continue,
         };
-        let bytes = match osfacts::decode_network_hex(parts[2]) {
+        let bytes = match osfacts::decode_network_hex(parts[4]) {
             Ok(b) => b,
             Err(_) => continue,
         };
         out.push(ListenerRow {
-            pid: Some(pid),
+            pid,
             port,
             canon: canonicalize(&bytes),
         });
@@ -368,15 +861,13 @@ fn oracle_ss() -> Vec<ListenerRow> {
             continue;
         }
         let local = cols[3];
-        let pid = line
-            .find("pid=")
-            .and_then(|i| {
-                let rest = &line[i + 4..];
-                let end = rest
-                    .find(|c: char| !c.is_ascii_digit())
-                    .unwrap_or(rest.len());
-                rest[..end].parse().ok()
-            });
+        let pid = line.find("pid=").and_then(|i| {
+            let rest = &line[i + 4..];
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(rest.len());
+            rest[..end].parse().ok()
+        });
         if let Some((addr, port)) = split_host_port(local) {
             if let Some(canon) = parse_ss_addr(addr) {
                 rows.push(ListenerRow { pid, port, canon });

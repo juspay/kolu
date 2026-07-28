@@ -2,8 +2,10 @@
 //!
 //! Both platforms use the same strategy: bind port 0 in a parked
 //! `osfacts-listener` child, snapshot that child's subtree (or exact pid),
-//! assert *our* fixture appears exactly. Pid and port are redacted for
-//! insta; nothing claims the host port table is empty. There is no
+//! assert *our* fixture appears exactly when the kernel exposes its listener
+//! table. A Darwin sandbox may instead report that source as explicitly blind;
+//! the process fact must still survive. Pid and port are redacted for insta;
+//! nothing claims the host port table is empty. There is no
 //! `unshare` / netns path — hermeticity is scoped assertions, not an
 //! isolated network namespace.
 
@@ -50,9 +52,18 @@ pub struct Listener {
 
 impl Listener {
     pub fn spawn(bind: &str) -> Self {
+        Self::spawn_with_args(bind, &[])
+    }
+
+    pub fn spawn_busy() -> Self {
+        Self::spawn_with_args("127.0.0.1", &["--spin"])
+    }
+
+    fn spawn_with_args(bind: &str, extra: &[&str]) -> Self {
         let bin = env!("CARGO_BIN_EXE_osfacts-listener");
         let mut child = StdCommand::new(bin)
             .arg(bind)
+            .args(extra)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -110,10 +121,16 @@ pub fn snapshot_pids(pid: u32) -> String {
     String::from_utf8(out).expect("utf8")
 }
 
-/// Redact the two volatile fields: real pids and kernel-chosen ports.
+/// Redact volatile process ids, user ids, and kernel-chosen ports.
 pub fn redact_tsv(tsv: &str) -> String {
     let mut out = String::with_capacity(tsv.len());
     for line in tsv.lines() {
+        // OSF6 intentionally emits the whole host listener table as unclaimed
+        // even under a narrow scope. Snapshot only this test's self-referential
+        // claimed fixture; host noise belongs in structural assertions.
+        if line.starts_with("L\tunclaimed\t") {
+            continue;
+        }
         let redacted = if let Some(rest) = line.strip_prefix("P\t") {
             let mut parts = rest.splitn(3, '\t');
             let _pid = parts.next().unwrap_or("");
@@ -121,16 +138,19 @@ pub fn redact_tsv(tsv: &str) -> String {
             let name = parts.next().unwrap_or("");
             format!("P\t<PID>\t<PPID>\t{name}")
         } else if let Some(rest) = line.strip_prefix("L\t") {
-            let mut parts = rest.splitn(3, '\t');
+            let mut parts = rest.splitn(5, '\t');
+            let status = parts.next().unwrap_or("");
             let _pid = parts.next().unwrap_or("");
+            let _uid = parts.next().unwrap_or("");
             let _port = parts.next().unwrap_or("");
             let hex = parts.next().unwrap_or("");
-            format!("L\t<PID>\t<PORT>\t{hex}")
+            format!("L\t{status}\t<PID>\t<UID>\t<PORT>\t{hex}")
         } else if let Some(rest) = line.strip_prefix("U\t") {
-            let mut parts = rest.splitn(2, '\t');
+            let mut parts = rest.splitn(3, '\t');
             let _pid = parts.next().unwrap_or("");
+            let facet = parts.next().unwrap_or("");
             let errno = parts.next().unwrap_or("");
-            format!("U\t<PID>\t{errno}")
+            format!("U\t<PID>\t{facet}\t{errno}")
         } else {
             line.to_string()
         };
@@ -140,7 +160,7 @@ pub fn redact_tsv(tsv: &str) -> String {
     out
 }
 
-pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>) {
+pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let mut lines = stdout.lines();
     let first = lines.next().expect("stdout must have a version line");
     let version = first
@@ -151,6 +171,7 @@ pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>) {
     let mut procs = Vec::new();
     let mut ports = Vec::new();
     let mut unreadable = Vec::new();
+    let mut errors = Vec::new();
     for line in lines {
         if line.is_empty() {
             continue;
@@ -159,19 +180,24 @@ pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>) {
             Some(b'P') => procs.push(line.to_string()),
             Some(b'L') => ports.push(line.to_string()),
             Some(b'U') => unreadable.push(line.to_string()),
+            Some(b'E') => errors.push(line.to_string()),
             other => panic!("unexpected row tag {other:?} in {line}"),
         }
     }
-    (version, procs, ports, unreadable)
+    (version, procs, ports, unreadable, errors)
+}
+
+pub fn darwin_pcblist_is_blind(errors: &[String]) -> bool {
+    errors == ["E\tdarwin_tcp_pcblist\tBLIND_OR_EMPTY"]
 }
 
 pub fn l_addr_for_port(ports: &[String], port: u16) -> String {
     for row in ports {
         let parts: Vec<&str> = row.split('\t').collect();
-        assert_eq!(parts.len(), 4, "L row arity: {row}");
+        assert_eq!(parts.len(), 6, "L row arity: {row}");
         assert_eq!(parts[0], "L");
-        if parts[2] == port.to_string() {
-            return parts[3].to_string();
+        if parts[4] == port.to_string() {
+            return parts[5].to_string();
         }
     }
     panic!("no L row for port {port}; rows={ports:?}");
@@ -183,7 +209,7 @@ pub fn l_rows_for_port(ports: &[String], port: u16) -> usize {
         .iter()
         .filter(|row| {
             let parts: Vec<&str> = row.split('\t').collect();
-            parts.len() == 4 && parts[0] == "L" && parts[2] == port.to_string()
+            parts.len() == 6 && parts[0] == "L" && parts[4] == port.to_string()
         })
         .count()
 }

@@ -10,6 +10,7 @@ import {
   decodeNetworkAddress,
   partitionSubtrees,
   PortScanError,
+  sourceErrorsMessage,
   type ProcessRow,
   unreadablePolicy,
 } from "./scan.ts";
@@ -18,17 +19,18 @@ const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
 const V4_MAPPED_WILDCARD = "00000000000000000000ffff00000000";
 
 const OSFACTS_OUTPUT = [
-  "V\t1",
+  "V\t2",
   "P\t1\t0\tlaunchd",
   "P\t4200\t1\tzsh",
   "P\t4242\t4200\tnode",
   "P\t757\t1\tControlCenter",
   "P\t53082\t4200\tnode",
-  "L\t757\t7000\t00000000",
-  "L\t53082\t5173\t00000000000000000000000000000001",
-  `L\t53082\t8081\t${V4_MAPPED_LOOPBACK}`,
-  `L\t53082\t8082\t${V4_MAPPED_WILDCARD}`,
-  "L\t53082\t8078\tc0a80105",
+  "L\tclaimed\t757\t501\t7000\t00000000",
+  "L\tclaimed\t53082\t501\t5173\t00000000000000000000000000000001",
+  `L\tclaimed\t53082\t501\t8081\t${V4_MAPPED_LOOPBACK}`,
+  `L\tclaimed\t53082\t501\t8082\t${V4_MAPPED_WILDCARD}`,
+  "L\tclaimed\t53082\t501\t8078\tc0a80105",
+  "L\tunclaimed\t-\t0\t22\t00000000",
   "",
 ].join("\n");
 
@@ -78,11 +80,17 @@ describe("addressBind", () => {
 describe("parse + classify (client raw → padi policy)", () => {
   it("judges each bind through addressBind", () => {
     const { ports } = parseOsfactsOutput(OSFACTS_OUTPUT);
-    const classified = ports.map((l) => ({
-      pid: l.pid,
-      port: l.port,
-      ...addressBind(decodeNetworkAddress(l.address)),
-    }));
+    const classified = ports.flatMap((l) =>
+      l.status === "unclaimed"
+        ? []
+        : [
+            {
+              pid: l.pid,
+              port: l.port,
+              ...addressBind(decodeNetworkAddress(l.address)),
+            },
+          ],
+    );
     expect(classified).toContainEqual({
       pid: 757,
       port: 7000,
@@ -113,7 +121,7 @@ describe("parse + classify (client raw → padi policy)", () => {
 describe("unreadablePolicy", () => {
   it("skips a foreign-uid DESCENDANT rather than blinding the whole host", () => {
     const { fatal, skipPids } = unreadablePolicy(
-      [{ pid: 991, errno: "EACCES" }],
+      [{ pid: 991, facet: "ports", errno: "EACCES" }],
       new Set([4200]),
     );
     expect(fatal).toBeNull();
@@ -122,16 +130,16 @@ describe("unreadablePolicy", () => {
 
   it("is fatal when a requested root is EACCES/EPERM", () => {
     const { fatal, skipPids } = unreadablePolicy(
-      [{ pid: 4200, errno: "EPERM" }],
+      [{ pid: 4200, facet: "ports", errno: "EPERM" }],
       new Set([4200]),
     );
-    expect(fatal).toEqual({ pid: 4200, errno: "EPERM" });
+    expect(fatal).toEqual({ pid: 4200, facet: "ports", errno: "EPERM" });
     expect(skipPids.size).toBe(0);
   });
 
   it("treats a vanished requested root as skip (empty ports), not blind", () => {
     const { fatal, skipPids } = unreadablePolicy(
-      [{ pid: 9999, errno: "ENOENT" }],
+      [{ pid: 9999, facet: "proc", errno: "ENOENT" }],
       new Set([9999]),
     );
     expect(fatal).toBeNull();
@@ -140,11 +148,31 @@ describe("unreadablePolicy", () => {
 
   it("skips U rows outside the ask rather than making them fatal", () => {
     const { fatal, skipPids } = unreadablePolicy(
-      [{ pid: 1, errno: "EPERM" }],
+      [{ pid: 1, facet: "ports", errno: "EPERM" }],
       new Set([4200]),
     );
     expect(fatal).toBeNull();
     expect([...skipPids]).toEqual([1]);
+  });
+
+  it("ignores unreadability from unrelated facets", () => {
+    const { fatal, skipPids } = unreadablePolicy(
+      [{ pid: 4200, facet: "mem", errno: "EACCES" }],
+      new Set([4200]),
+    );
+    expect(fatal).toBeNull();
+    expect(skipPids.size).toBe(0);
+  });
+});
+
+describe("sourceErrorsMessage", () => {
+  it("keeps explicit partial-source failure fatal for padi", () => {
+    expect(
+      sourceErrorsMessage([
+        { source: "darwin_tcp_pcblist", code: "BLIND_OR_EMPTY" },
+      ]),
+    ).toBe("darwin_tcp_pcblist=BLIND_OR_EMPTY");
+    expect(sourceErrorsMessage([])).toBeNull();
   });
 });
 

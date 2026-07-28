@@ -1,13 +1,16 @@
-<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>osfacts — scoped, honest OS process &amp; socket facts · the kolu Atlas</title><meta name="description" content="A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn't read — with kolu and drishti as its first two consumers."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/os-facts-tool.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="osfacts — scoped, honest OS process &amp; socket facts · the kolu Atlas"><meta property="og:description" content="A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn't read — with kolu and drishti as its first two consumers."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/os-facts-tool.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-25T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="osfacts — scoped, honest OS process &amp; socket facts · the kolu Atlas"><meta name="twitter:description" content="A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn't read — with kolu and drishti as its first two consumers."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">osfacts — scoped, honest OS process &amp; socket facts</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-25T00:00:00.000Z">JUL 25, 2026</time></div><p class="note-sub">A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn&#39;t read — with kolu and drishti as its first two consumers.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#user-stories" data-astro-cid-rda6bqd5>User stories</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-contract" data-astro-cid-rda6bqd5>The contract</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#why-not-an-existing-tool" data-astro-cid-rda6bqd5>Why not an existing tool</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#internals" data-astro-cid-rda6bqd5>Internals</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-regression-suite-is-scar-tissue" data-astro-cid-rda6bqd5>The regression suite is scar tissue</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#how-kolu-and-drishti-adopt-it" data-astro-cid-rda6bqd5>How kolu and drishti adopt it</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-phase-tree--track-prefix-osf" data-astro-cid-rda6bqd5>The phase tree — track prefix OSF</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#implementation" data-astro-cid-rda6bqd5>Implementation</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#language--stack" data-astro-cid-rda6bqd5>Language &amp; stack</a></li></ul></li></ul></nav></header><div class="prose"><p><strong>osfacts is a product of its own</strong> — its own repo, its own README, its own CI —
-not a kolu module. One static Rust binary that answers <em>what does the OS say
-about these processes and their sockets</em>, scoped to exactly what you asked,
-honest about what it could not read, in about ten milliseconds. kolu and drishti
-are its first two consumers, and the reason to build it is that the tool they
-need genuinely does not exist — see the comparison below.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Status:
-proposed, deliberately future work; nothing here ships yet. Every measurement in
-this note comes from the <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a> candidate sweep — the note is
-where that week’s conclusions live on after the scratchpads that produced them
-are gone.</span></span></span></p>
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>osfacts — scoped, honest OS process &amp; socket facts · the kolu Atlas</title><meta name="description" content="A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn't read. V2 facets ship tool-side; kolu's further consumer adoption is a separate, mixed-version-aware PR."><meta name="generator" content="Astro v7.1.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/os-facts-tool.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="osfacts — scoped, honest OS process &amp; socket facts · the kolu Atlas"><meta property="og:description" content="A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn't read. V2 facets ship tool-side; kolu's further consumer adoption is a separate, mixed-version-aware PR."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/os-facts-tool.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-27T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="osfacts — scoped, honest OS process &amp; socket facts · the kolu Atlas"><meta name="twitter:description" content="A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn't read. V2 facets ship tool-side; kolu's further consumer adoption is a separate, mixed-version-aware PR."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:first-child{margin-top:0}.fn-pop-inner[data-astro-cid-2yjzt2l5]>:last-child{margin-bottom:0}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body><article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">osfacts — scoped, honest OS process &amp; socket facts</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>budding</span><span class="meta-sep">·</span><span>accepted</span><span class="meta-sep">·</span><time datetime="2026-07-27T00:00:00.000Z">JUL 27, 2026</time></div><p class="note-sub">A standalone Rust tool — one versioned snapshot of processes and sockets, scoped to the ask and honest about what it couldn&#39;t read. V2 facets ship tool-side; kolu&#39;s further consumer adoption is a separate, mixed-version-aware PR.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-contract" data-astro-cid-rda6bqd5>The contract</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#why-not-an-existing-tool" data-astro-cid-rda6bqd5>Why not an existing tool</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#adoption--kolu-and-drishti" data-astro-cid-rda6bqd5>Adoption — kolu and drishti</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#linux-cost-follows-the-ask-again" data-astro-cid-rda6bqd5>Linux cost follows the ask again</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-phase-tree--track-prefix-osf" data-astro-cid-rda6bqd5>The phase tree — track prefix OSF</a></li></ul></li></ul></nav></header><div class="prose"><p><strong>osfacts is a product of its own</strong> — its own README, its own CI, its own
+repo-to-be — not a kolu module. One static Rust binary that answers <em>what does
+the OS say about these processes and their sockets</em>, scoped to exactly what you
+asked, honest about what it could not read. On a Linux host with about 450
+processes, its one-process process+port shape takes 6.5 ms and its host-wide
+all-process-facets shape takes 24.3 ms. The flags are part of the number. The
+binary and kolu’s port-sensor adoption shipped in <a href="https://github.com/juspay/kolu/pull/1996" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1996</a>;
+drishti’s adoption attempt
+(<a href="https://github.com/srid/drishti/pull/122">srid/drishti#122</a>) is what wrote
+the rest of the phase tree below.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The candidate measurements come from
+the <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a> sweep. The current osfacts numbers come from 31
+interleaved warm runs for <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a> on <code>naiveintent</code>, with 450–466
+live processes and stdout captured as a real client captures it.</span></span></span></p>
 <figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 470" font-family="ui-sans-serif,system-ui,sans-serif">
   <defs>
     <marker id="ofA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -65,7 +68,9 @@ are gone.</span></span></span></p>
   <text x="396" y="416" font-size="10.5" fill="#7a6b93">~10 ms proven (C helper, portview)</text>
 </svg>
 <figcaption data-astro-cid-6cvztg6h>Every consumer speaks one versioned contract; only osfacts touches the OS.</figcaption></figure>
-<p>The creed, one line per word — also the repo README’s opening:</p>
+<p>The creed, one line per word — also the <a href="https://github.com/juspay/kolu/blob/master/osfacts/README.md">repo
+README</a>’s
+opening:</p>
 <ul>
 <li><strong>Scoped</strong> — cost tracks the <em>ask</em> (<code>--roots</code> walks a subtree), never the host.</li>
 <li><strong>Attributed</strong> — every snapshot carries the full pid→ppid table, so a
@@ -73,13 +78,14 @@ grandchild listener walks back to its root.</li>
 <li><strong>Honest</strong> — what it could not read is <em>reported</em>, never silently dropped.</li>
 <li><strong>Versioned</strong> — schema version first; a mismatched consumer fails loudly
 instead of parsing a half-understood shape into zero rows.</li>
-<li><strong>Fast</strong> — ~10 ms per snapshot, because interactive callers poll at
-seconds scale. This budget is the requirement that explains every rejection
-in the comparison table.</li>
+<li><strong>Fast</strong> — cost tracks the ask: 6.5 ms for the one-process port shape, 24.3
+ms for every process facet across about 450 Linux processes. Interactive
+callers poll at seconds scale, and the live lane guards the large shape with
+a process-count-scaled child-CPU budget that ignores scheduler contention.</li>
 </ul>
-<h2 id="user-stories">User stories</h2>
-<p>Five flows, one contract — every story is the same verb with different facets,
-never a consumer-shaped flag or mode:</p>
+<h2 id="the-contract">The contract</h2>
+<p><strong>One verb, composable facets, first-class scoping</strong> — every user story is the
+same verb with different facets, never a consumer-shaped flag or mode:</p>
 <table>
 <thead>
 <tr>
@@ -98,9 +104,9 @@ never a consumer-shaped flag or mode:</p>
 </tr>
 <tr>
 <td>drishti’s inspector</td>
-<td>the process tree under a service, with memory and age</td>
-<td><code>osfacts snapshot --roots 991 --procs --mem --start-time</code></td>
-<td>one row per descendant with RSS and start time</td>
+<td>every process, with identity, launch details, memory, age, and CPU%</td>
+<td><code>snapshotHost(bin, { procs, uid, cwd, status, argv, mem, startTime, cpuTime })</code></td>
+<td>the real host process set — not pid 1’s incomplete subtree — with raw uid, cwd, state/nice/threads, full argv, RSS, start time, and cumulative CPU microseconds</td>
 </tr>
 <tr>
 <td>kolu’s daemon supervisor</td>
@@ -115,6 +121,12 @@ never a consumer-shaped flag or mode:</p>
 <td>the holder pids, or none</td>
 </tr>
 <tr>
+<td>drishti’s host dashboard</td>
+<td>how the machine itself is doing</td>
+<td><code>osfacts host --cpu --mem --load --net --disk</code></td>
+<td>cumulative counters + gauges, one versioned schema</td>
+</tr>
+<tr>
 <td>a human at any shell</td>
 <td>all of it, readable</td>
 <td><code>osfacts snapshot --json | jq</code></td>
@@ -122,28 +134,25 @@ never a consumer-shaped flag or mode:</p>
 </tr>
 </tbody>
 </table>
-<h2 id="the-contract">The contract</h2>
-<p><strong>One verb, composable facets, first-class scoping.</strong></p>
-<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>osfacts snapshot --roots 4242,4310 --procs --ports</span></span>
-<span class="line"><span>osfacts snapshot --pids 991 --mem --start-time</span></span>
-<span class="line"><span>osfacts socket-holders /run/user/1000/padi.sock</span></span></code></pre>
 <ul>
 <li><strong>Scoping is the headline.</strong> <code>--roots</code> walks the given pids’ subtrees,
 <code>--pids</code> takes an exact set, no flag means host-wide. Cost then tracks the
 <em>ask</em>, not the host — the property no surveyed tool has and the one the
 measurements say matters most.</li>
 <li><strong>Facets</strong> so a consumer pays only for what it reads: <code>--procs</code>, <code>--ports</code>,
-<code>--mem</code>, <code>--start-time</code>. <code>socket-holders</code> is a second verb because it answers
-a different question (a path, not a pid set).</li>
-<li><strong>One versioned schema.</strong> TSV on the hot path (<code>V&lt;TAB&gt;1</code> first, tagged rows),
+<code>--mem</code>, <code>--start-time</code>, <code>--cpu-time</code>, <code>--uid</code>, <code>--cwd</code>, <code>--status</code>, and
+<code>--argv</code>. <code>socket-holders</code> and <code>host</code> are
+separate verbs because they answer different questions (a path, not a pid
+set; the machine, not a process).</li>
+<li><strong>One versioned schema.</strong> TSV on the hot path (<code>V&lt;TAB&gt;2</code> first, tagged rows),
 <code>--json</code> for humans and one-offs.</li>
 <li><strong>Raw address bytes, never a <code>wildcard</code> boolean.</strong> Consumers keep exactly one
 classifier. Two predicates that must agree about <code>::ffff:0.0.0.0</code> is precisely
 how they come to disagree.</li>
-<li><strong>Cumulative CPU time per row</strong>, so CPU% is a consumer-side diff between two
-snapshots rather than a sampling delay inside the tool.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>This is why
-<code>procs</code> costs ~30 ms even at its lowest setting: it sleeps to compute a rate
-nobody asked it for. A one-shot sampler should never sleep.</span></span></span></li>
+<li><strong>Cumulative counters, never rates.</strong> CPU% and bytes/s are consumer-side
+diffs between two snapshots; a one-shot sampler never sleeps.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>This
+is why <code>procs</code> costs ~30 ms even at its lowest setting: it sleeps to compute
+a rate nobody asked it for.</span></span></span></li>
 <li><strong>A MANDATORY <code>unreadable</code> section.</strong> Every pid that could not be inspected is
 <em>reported</em>, with its errno — the policy of what is fatal stays in the
 consumer, the only layer that knows which pids it asked about.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The
@@ -152,14 +161,101 @@ sudo lesson made structural: when an unreadable pid was silently dropped, one
 host; when it threw indiscriminately, one foreign-uid descendant did the
 same.</span></span></span></li>
 </ul>
+<table>
+<thead>
+<tr>
+<th>process facet</th>
+<th>tagged TSV row</th>
+<th>JSON field</th>
+<th>unreadable facet</th>
+<th>semantics</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--procs</code></td>
+<td><code>P pid ppid name</code></td>
+<td><code>procs</code></td>
+<td><code>proc</code></td>
+<td>short display name and parent identity</td>
+</tr>
+<tr>
+<td><code>--mem</code></td>
+<td><code>M pid rss_bytes</code></td>
+<td><code>memory</code></td>
+<td><code>mem</code></td>
+<td>resident bytes at snapshot time</td>
+</tr>
+<tr>
+<td><code>--start-time</code></td>
+<td><code>S pid start_unix_us</code></td>
+<td><code>startTimes</code></td>
+<td><code>start_time</code></td>
+<td>process identity instant in Unix microseconds</td>
+</tr>
+<tr>
+<td><code>--cpu-time</code></td>
+<td><code>C pid cpu_time_us</code></td>
+<td><code>cpuTimes</code></td>
+<td><code>cpu_time</code></td>
+<td>cumulative user + system time; CPU% is a consumer-side diff</td>
+</tr>
+<tr>
+<td><code>--uid</code></td>
+<td><code>UID pid uid</code></td>
+<td><code>uids</code></td>
+<td><code>uid</code></td>
+<td>real uid; username resolution belongs to the consumer</td>
+</tr>
+<tr>
+<td><code>--cwd</code></td>
+<td><code>CWD pid cwd_json</code></td>
+<td><code>cwds</code></td>
+<td><code>cwd</code></td>
+<td>current directory; JSON in the final TSV field preserves delimiters</td>
+</tr>
+<tr>
+<td><code>--status</code></td>
+<td><code>STAT pid state nice threads</code></td>
+<td><code>statuses</code></td>
+<td><code>status</code></td>
+<td>one-character state, signed nice, nullable thread count (<code>-</code> in TSV)</td>
+</tr>
+<tr>
+<td><code>--argv</code></td>
+<td><code>ARGV pid argv_json</code></td>
+<td><code>argv</code></td>
+<td><code>argv</code></td>
+<td>the full vector, distinct from the short name; JSON preserves tabs, newlines, and NULs</td>
+</tr>
+</tbody>
+</table>
+<p>Darwin’s process table is public even when its task accounting is not.
+<code>kern.proc</code> gives an ordinary caller pid, ppid, real uid, state, nice, start
+time, and a short command name for foreign processes; <code>proc_pidpath</code> adds the
+executable path, whose basename keeps long names from being cut to <code>p_comm</code>’s
+16 bytes. RSS and cumulative CPU time still come from task APIs that return
+<code>EPERM</code> across uid boundaries.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>/bin/ps</code> looks unprivileged from the
+shell, but the binary is setuid root and Apple signs it with the private
+<code>com.apple.system-task-ports.read</code> entitlement. Its source calls
+<code>task_read_for_pid</code> for the protected half (<a href="https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c">reader</a>,
+<a href="https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/entitlements.plist">entitlement</a>).
+So foreign <code>U mem</code> and <code>U cpu_time</code> rows are real blindness for an ordinary
+osfacts binary, while <code>U proc</code>, <code>U uid</code>, and <code>U start_time</code> rows would be false
+blindness.</span></span></span></p>
+<p>Host <code>HCPU</code> rows add a nonempty model name and nullable MHz to the cumulative
+per-core counters. The frequency is honestly absent on Apple Silicon rather
+than represented by zero. <code>HDISK</code> carries both <code>freeBytes</code> (<code>bfree</code>) and
+<code>availableBytes</code> (<code>bavail</code>) so the consumer chooses its used-space definition
+without inheriting a hidden semantic change.</p>
 <h2 id="why-not-an-existing-tool">Why not an existing tool</h2>
 <p>Every candidate was <strong>measured, not surveyed</strong>, and each fails on the contract
-above rather than on packaging — anything merely absent from nixpkgs could be
-packaged in an afternoon, so packaging never counts as a
-disqualifier.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Earlier drafts listed “not packaged for darwin” against
-osquery and “not in nixpkgs” against portls. Both struck: a packaging gap is an
-errand, not an architecture verdict. The rows now stand on what each tool
-<em>is</em>.</span></span></span> The <a href="https://github.com/juspay/kolu/blob/master/osfacts/README.md">repo README</a> carries this same table:</p>
+above rather than on packaging — a packaging gap is an errand, not an
+architecture verdict.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Earlier drafts listed “not packaged for darwin”
+against osquery and “not in nixpkgs” against portls. Both struck: anything
+merely absent from nixpkgs could be packaged in an afternoon, so packaging
+never counts as a disqualifier.</span></span></span> The repo README carries this same
+table:</p>
 <table>
 <thead>
 <tr>
@@ -170,7 +266,7 @@ errand, not an architecture verdict. The rows now stand on what each tool
 <tbody>
 <tr>
 <td><code>osquery</code></td>
-<td><strong>the wrong operational model</strong>: a resident fleet-telemetry agent with a SQL surface, measured at ~378 ms per query and ~158 MB — built for querying thousands of machines every few minutes, not one machine every five seconds on a 10 ms budget</td>
+<td><strong>the wrong operational model</strong>: a resident fleet-telemetry agent with a SQL surface, measured at ~378 ms per query and ~158 MB — built for querying thousands of machines every few minutes, not an interactive poll measured in tens of milliseconds</td>
 </tr>
 <tr>
 <td><code>procs</code></td>
@@ -186,11 +282,11 @@ errand, not an architecture verdict. The rows now stand on what each tool
 </tr>
 <tr>
 <td><code>portview</code></td>
-<td><strong>listener rows only, no process table</strong> — a <code>shell → npm → node</code> server cannot be walked back to its terminal, because <code>npm</code> holds no listener and never appears. No subtree scoping either: its single-port query is a host-wide scan plus a filter (26.0 ms full vs 25.1 ms scoped)</td>
+<td><strong>listener rows only, no process table</strong> — a <code>shell → npm → node</code> server cannot be walked back to its terminal. No subtree scoping either: its single-port query is a host-wide scan plus a filter<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>portview is also the strongest evidence <em>for</em> building this: it measures <strong>9.9 ms on darwin</strong> against our former C helper’s 10.6 ms on the same box by the same method, in Rust, in a single pass. Single-pass Rust matches C — the language was never the constraint, the double enumeration was. That measurement is what settled osfacts on Rust.</span></span></span></td>
 </tr>
 <tr>
 <td><code>sysinfo</code>+<code>listeners</code></td>
-<td>wrapping the two crates enumerates the process list <strong>twice</strong>: 23 ms darwin / ~100 ms linux against 10 ms for a single pass — and <code>listeners</code> shipped the v4-mapped decode bug <a href="https://github.com/GyulyVGC/listeners/pull/57">we fixed upstream</a></td>
+<td>wrapping the two crates enumerates the process list <strong>twice</strong>: 23 ms darwin / ~100 ms linux, while osfacts’ current Linux host-wide process+listener pass is 17.8 ms — and <code>listeners</code> shipped the v4-mapped decode bug <a href="https://github.com/GyulyVGC/listeners/pull/57">we fixed upstream</a><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The ~50-line darwin address decode from that fix is vendored into osfacts with its regression fixtures; upstream is pinned in CI as a drift oracle. The repo README’s Testing section owns the detail.</span></span></span><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Disqualified as the process/socket <em>engine</em> — not banned outright. OSF7’s darwin network counters use <code>sysinfo</code>’s network module (target-gated to macos, <code>default-features = false</code>, <code>network</code> feature only): one function, taken to delete an unsafe hand-computed <code>if_data</code> byte overlay after CodeQL flagged it — the same remove-a-defect-class clause that admitted <code>serde</code>. The measured disqualifier (a host-wide process double-walk) doesn’t apply to a single sysctl read, and the live-oracle lane’s monotonic-counter check is the drift detector for the dependency.</span></span></span></td>
 </tr>
 <tr>
 <td><code>lsof</code> / <code>netstat</code></td>
@@ -198,98 +294,168 @@ errand, not an architecture verdict. The rows now stand on what each tool
 </tr>
 </tbody>
 </table>
-<p><code>portview</code> is also the strongest evidence <em>for</em> building this: it measures
-<strong>9.9 ms on darwin</strong> against our C helper’s 10.6 ms on the same box by the same
-method, in Rust, in a single pass. Single-pass Rust matches C — the language was
-never the constraint, the double enumeration was. That measurement is what
-settles osfacts on Rust.</p>
-<h2 id="internals">Internals</h2>
-<p>One pass per platform, and no more:</p>
-<ul>
-<li><strong>linux</strong> — <code>/proc</code>, scoped by descending <code>/proc/&lt;pid&gt;/task/&lt;tid&gt;/children</code>
-from each root rather than reading the whole pid table. That descent is
-exactly the <code>u-port-scan-subtree-descent</code> opportunity, and the cost accounting
-says it is worth ~96% of a scoped pass.</li>
-<li><strong>darwin</strong> — a single libproc pass (<code>proc_listpids</code> → <code>proc_pidinfo</code> →
-<code>proc_pidfdinfo</code>), the shape the C helper already proved at ~4 ms of real
-work.</li>
-</ul>
-<p><strong>Crates only where earned — and <code>listeners</code> did not earn a dependency.</strong> Its
-<em>enumeration</em> shape is the disqualified one (it maps socket inodes by walking
-every process’s fds, host-wide — the exact cost <code>--roots</code> exists to avoid);
-the only part of it osfacts needs is the ~50-line darwin address decode
-<a href="https://github.com/GyulyVGC/listeners/pull/57">we fixed</a>, which is <strong>vendored
-into osfacts</strong> with the scar-tissue fixtures riding it, credited, and checked
-against the fork as an oracle in CI. <strong>Not <code>sysinfo</code></strong> either: pairing crates
-that each enumerate walks the host twice, disqualified by construction. The
-full stack proposal lives in the Implementation section.</p>
-<h3 id="the-regression-suite-is-scar-tissue">The regression suite is scar tissue</h3>
-<p>Every one of these is a bug that actually happened, so the suite is written from
-the scars rather than from imagination — cargo integration tests, its own CI,
-both platforms:</p>
-<ul>
-<li>the five bind fixtures (<code>127.0.0.1</code>, <code>0.0.0.0</code>, <code>::1</code>, <code>::</code>,
-<code>::ffff:127.0.0.1</code>);</li>
-<li><strong>v4-mapped vs v4-compatible</strong> — the upstream crate reported
-<code>::ffff:127.0.0.1</code> as <code>::127.0.0.1</code>;</li>
-<li><strong>dual-stack flag ordering</strong> — <code>insi_vflag</code> sets BOTH bits for <code>::</code>, so
-testing <code>INI_IPV4</code> first narrows the wildcard to <code>0.0.0.0</code>. Two independent
-tools and our own C helper each had this;</li>
-<li><strong>silent-empty detection</strong> — a mechanism that answers “no ports” successfully
-is the worst possible failure here, and macOS <code>netstat</code> does it
-intermittently;</li>
-<li><strong>the <code>unreadable</code> contract</strong> — an uninspectable pid must appear in output.</li>
-</ul>
-<h2 id="how-kolu-and-drishti-adopt-it">How kolu and drishti adopt it</h2>
-<p>Inside kolu the OS is inspected in five places today, each with its own
+<h2 id="adoption--kolu-and-drishti">Adoption — kolu and drishti</h2>
+<p>Inside kolu the OS used to be inspected in five places, each with its own
 hand-rolled reader, its own error policy, and its own platform split — five
-answers to one question, and every one a place a platform quirk can be got wrong
-independently.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The week that produced <a href="https://github.com/juspay/kolu/pull/1982" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1982</a> found four
-such quirks, each fixed in exactly one of the five readers.</span></span></span> All five
-collapse into calls to the one binary — and a full-source sweep confirms the
-list is exhaustive.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The sweep covered every package including
-<code>@kolu/surface</code>. The one near-miss: <code>surface-remote</code>’s <code>groupAlive</code> probe
-(<code>process.kill(-pid, 0)</code> — process-<em>group</em> liveness inside a SIGTERM→SIGKILL
-escalation timer). Deliberately not a consumer: group liveness is not in the
-fact set, and forking a snapshot binary inside an escalation timer is the wrong
-operational model. The <code>@kolu/surface</code> example apps read full process tables
-but are framework demos, not kolu runtime.</span></span></span></p>
+answers to one question. All five collapse into calls to the one binary, and a
+full-source sweep confirmed the list is exhaustive.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The sweep covered
+every package including <code>@kolu/surface</code>. The one near-miss: <code>surface-remote</code>’s
+<code>groupAlive</code> probe (<code>process.kill(-pid, 0)</code> — process-<em>group</em> liveness inside a
+SIGTERM→SIGKILL escalation timer). Deliberately not a consumer: group liveness
+is not in the fact set, and forking a snapshot binary inside an escalation
+timer is the wrong operational model.</span></span></span></p>
 <table>
 <thead>
 <tr>
-<th>consumer today</th>
+<th>consumer</th>
 <th>asks</th>
-<th>reads today</th>
+<th>path</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>padi port scan</td>
 <td>a subtree’s processes + listening ports</td>
-<td><strong>osfacts</strong> via <code>osfacts-client</code> (<code>KOLU_OSFACTS_BIN</code>, OSF2 / PR #1996); former <code>@kolu/port-scan</code> dissolved</td>
+<td><strong>shipped</strong> — <code>osfacts-client</code> (OSF2, <a href="https://github.com/juspay/kolu/pull/1996" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1996</a>); V2 wire compatibility for the same path in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></td>
 </tr>
 <tr>
 <td>padi <code>memorySampler</code></td>
 <td>per-pid RSS</td>
-<td>only <em>self</em>-measurement (<code>process.memoryUsage()</code>) plus an RPC hop to kaval for kaval’s own RSS — no true per-pid read exists yet</td>
-</tr>
-<tr>
-<td><code>socketHolder</code> (in <code>surface-daemon-supervisor</code>)</td>
-<td>which pids hold a unix socket <strong>path</strong></td>
-<td><code>/proc/net/unix</code> + fd readlinks; darwin <code>lsof</code></td>
+<td><strong>OSF8</strong> — today only <em>self</em>-measurement plus an RPC hop to kaval</td>
 </tr>
 <tr>
 <td>daemon supervisor</td>
 <td>“is this pid still ours”, and since when</td>
-<td><code>kill(pid, 0)</code> liveness only — start-time identity is not read at all today</td>
+<td><strong>OSF8</strong> — today <code>kill(pid, 0)</code> liveness only (one-field gate; no start-time identity)</td>
+</tr>
+<tr>
+<td><code>socketHolder</code> (in <code>surface-daemon-supervisor</code>)</td>
+<td>which pids hold a unix socket <strong>path</strong></td>
+<td>OSF4 — today <code>/proc/net/unix</code> + fd readlinks; darwin <code>lsof</code></td>
 </tr>
 <tr>
 <td><strong>drishti</strong></td>
-<td>process inspection</td>
-<td>hand-rolled <code>lsof</code> — <strong>next adopter of <code>osfacts-client</code></strong> (PR after #1996)</td>
+<td>process inspection + host telemetry</td>
+<td>OSF3 · OSF6 · OSF7 tool-side ready — first attempt <a href="https://github.com/srid/drishti/pull/122">srid/drishti#122</a></td>
 </tr>
 </tbody>
 </table>
+<p><strong>Drishti’s first adoption attempt hit two walls, and they named the missing
+phases.</strong> <a href="https://github.com/srid/drishti/pull/122">srid/drishti#122</a> moved
+process identity and listeners onto the contract, then deployment as an
+ordinary SSH user turned red: 41 system processes came back readable as <code>P</code>
+rows but <code>U … EACCES</code> for their fds, so every one of them rendered
+listener-blind — honest, but useless for a whole-host inspector (OSF6). And
+<a href="https://github.com/srid/drishti/issues/123">srid/drishti#123</a> inventories the
+native host-telemetry readers the contract doesn’t cover at all — <code>/proc</code>
+gauges, <code>vm_stat</code>, <code>sysctl</code>, <code>netstat -ib</code>, Node <code>os</code> calls, <code>statfs</code> (OSF7).</p>
+<p>The later dropped-info audit found the quieter third wall: pid 1 is not a
+portable synonym for the host process set (Linux’s <code>kthreadd</code> tree is its own
+root), and the first contract omitted uid, cwd, state/nice/threads, full argv,
+CPU model/frequency, and <code>bfree</code>. PR <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a> closes that set
+<strong>tool-side</strong> in the same V2 contract. <code>osfacts-client</code> now exposes
+<code>snapshotHost</code> directly; Drishti can delete its native readers without
+narrowing or sentinelizing the facts it used to show. kolu’s own next
+consumers of those facets (identity gates, memory sampler, socket-holders)
+are deliberately <em>not</em> in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a> — they are OSF8, planned
+around mixed-version daemon windows (see the phase tree).</p>
+<h3 id="linux-cost-follows-the-ask-again">Linux cost follows the ask again</h3>
+<p>Drishti measured the first full Linux migration at 55.8 ms per poll, against
+5.6 ms for its old in-process reader. <strong>The second process was not the
+problem.</strong> The host call cost 2.6 ms. The process snapshot was reopening <code>stat</code>
+four times per pid, walking every fd in one long line, growing zero-length proc
+files through repeated reads, and issuing almost one stdout write per row.
+Plain waste.</p>
+<table>
+<thead>
+<tr>
+<th>warm Linux shape</th>
+<th style="text-align:right">before</th>
+<th style="text-align:right">after</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>host-wide, every process facet</td>
+<td style="text-align:right">52.56 ms</td>
+<td style="text-align:right">24.33 ms</td>
+</tr>
+<tr>
+<td>drishti’s snapshot + host calls, serial</td>
+<td style="text-align:right">55.41 ms</td>
+<td style="text-align:right">26.48 ms</td>
+</tr>
+<tr>
+<td>one-process <code>--roots</code>, process+ports</td>
+<td style="text-align:right">7.58 ms</td>
+<td style="text-align:right">6.49 ms</td>
+</tr>
+<tr>
+<td>83-process subtree, process+ports</td>
+<td style="text-align:right">19.85 ms</td>
+<td style="text-align:right">17.27 ms</td>
+</tr>
+</tbody>
+</table>
+<p>Each mutation was timed against the binary immediately before it, in the same
+interleaved run. Every kept cycle cleared the 3% noise bar.</p>
+<table>
+<thead>
+<tr>
+<th>isolated cycle</th>
+<th style="text-align:right">before</th>
+<th style="text-align:right">after</th>
+<th style="text-align:right">change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>share <code>stat</code> and <code>cmdline</code> reads</td>
+<td style="text-align:right">51.34 ms</td>
+<td style="text-align:right">39.38 ms</td>
+<td style="text-align:right">−23.3%</td>
+</tr>
+<tr>
+<td>ordered workers for large fd walks</td>
+<td style="text-align:right">39.98 ms</td>
+<td style="text-align:right">33.58 ms</td>
+<td style="text-align:right">−16.0%</td>
+</tr>
+<tr>
+<td>buffer stdout</td>
+<td style="text-align:right">32.03 ms</td>
+<td style="text-align:right">27.75 ms</td>
+<td style="text-align:right">−13.4%</td>
+</tr>
+<tr>
+<td>preallocate proc-file reads</td>
+<td style="text-align:right">28.72 ms</td>
+<td style="text-align:right">26.20 ms</td>
+<td style="text-align:right">−8.8%</td>
+</tr>
+<tr>
+<td>reuse cached <code>stat</code> RSS</td>
+<td style="text-align:right">26.66 ms</td>
+<td style="text-align:right">24.16 ms</td>
+<td style="text-align:right">−9.4%</td>
+</tr>
+</tbody>
+</table>
+<p>The fix opens shared proc files once, preallocates one page for virtual-file
+reads, reuses the cached <code>stat</code> RSS in combined snapshots, buffers stdout, and
+parallelizes only large fd walks. Ordered collection keeps attribution stable;
+small scopes never spawn a worker. A live-lane smoke takes 11 interleaved warm
+<code>--procs</code> and all-facet samples, then gives the extra facets 75 µs of child CPU
+per live process. The pinned old binary spends 42.25 ms beyond <code>--procs</code> across
+500 processes and fails its 37.50 ms budget; the current binary spends 27.69 ms
+and passes. Child CPU, the same-load baseline, and running after CI’s heavy
+fan-out drains make this a generous smoke rather than a wall-clock benchmark:
+other jobs can delay osfacts or disturb its caches without manufacturing most
+of a regression. One rejected version read RSS from <code>stat</code> even for <code>--mem</code>
+alone; that slowed
+the narrow shape from 5.46 to 6.87 ms, so the final reader keeps <code>statm</code> unless
+another requested facet has already paid for <code>stat</code>. Combining Drishti’s two
+subprocesses was not worth a new command shape: the host half costs only 2.6 ms.</p>
 <h3 id="the-phase-tree--track-prefix-osf">The phase tree — track prefix <code>OSF</code></h3>
 <table>
 <thead>
@@ -302,17 +468,17 @@ but are framework demos, not kolu runtime.</span></span></span></p>
 <tbody>
 <tr>
 <td><strong>OSF1 — the binary</strong></td>
-<td><code>snapshot --roots --procs --ports</code> on both platforms · versioned TSV + <code>--json</code> · the mandatory <code>unreadable</code> section · the scar-tissue suite · <code>osfacts/</code> + subflake wiring — <strong>shipped in PR #1996</strong></td>
+<td><code>snapshot --roots --procs --ports</code> on both platforms · versioned TSV + <code>--json</code> · the mandatory <code>unreadable</code> section · the scar-tissue suite — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/1996" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1996</a></strong></td>
 <td>—</td>
 </tr>
 <tr>
-<td><strong>OSF2 — kolu’s port sensor adopts it</strong></td>
-<td>padi invokes the baked osfacts binary through <code>osfacts-client</code>; C helper, TS <code>/proc</code>, and <code>@kolu/port-scan</code> are <strong>deleted</strong> — <strong>shipped in PR #1996</strong></td>
+<td><strong>OSF2 — kolu’s port sensor</strong></td>
+<td>padi invokes the baked osfacts binary through <code>osfacts-client</code>; C helper, TS <code>/proc</code>, and <code>@kolu/port-scan</code> deleted — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/1996" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1996</a></strong>; V2 parse compatibility (claimed/unclaimed listeners, faceted <code>U</code> rows, source-error blindness) for that same path — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong></td>
 <td>OSF1</td>
 </tr>
 <tr>
-<td><strong>OSF3 — memory &amp; age facets</strong></td>
-<td><code>--mem</code> + <code>--start-time</code>; <code>memorySampler</code> gains a true per-pid read (the RPC hop to kaval is deleted); the supervisor gains start-time identity</td>
+<td><strong>OSF3 — process detail facets</strong></td>
+<td><em>tool-side:</em> <code>--mem</code> + <code>--start-time</code> + <code>--cpu-time</code> + <code>--uid</code> + <code>--cwd</code> + <code>--status</code> + <code>--argv</code>, host-wide <code>snapshotHost</code> so Linux roots outside pid 1 are not dropped, Linux perf so cost tracks the ask again — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong>. kolu consumers of these facets are <em>not</em> this phase — see OSF8.</td>
 <td>OSF1</td>
 </tr>
 <tr>
@@ -321,163 +487,39 @@ but are framework demos, not kolu runtime.</span></span></span></p>
 <td>OSF1</td>
 </tr>
 <tr>
+<td><strong>OSF6 — unattributed listeners</strong></td>
+<td><em>tool-side:</em> a listener no readable pid claims is <em>emitted</em> with explicit unattributed status (and its owning uid on linux) instead of dropped — the fix for #122’s privilege regression — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Linux’s world-readable <code>/proc/net/tcp{,6}</code> table makes this honesty, not new privilege: under a narrow <code>--roots</code>, an unclaimed socket may simply belong to an out-of-scope process, so the row says <em>unclaimed</em>, never <em>unowned</em>. Darwin’s fd-walk-free source is <code>net.inet.tcp.pcblist_n</code>. On macOS 27, zest gave Apple’s platform-signed <code>sysctl</code> a 54,872-byte table whose paired <code>netstat</code> read contained 29 listeners, but gave the ad-hoc osfacts binary only 48 bytes of empty framing; <code>netstat</code> also carries the private <code>com.apple.private.network.statistics</code> entitlement. Both captures are fixtures: the full one decodes to 29 and proves the record walker is current, while the gated one pins <code>BLIND_OR_EMPTY</code>. Same-uid fd walks still emit claimed listeners; only the independent host-wide unattributed table is gated. Anything stronger would require Apple identity or privilege, deliberately outside OSF6.</span></span></span></td>
+<td>OSF1</td>
+</tr>
+<tr>
+<td><strong>OSF7 — host facets</strong></td>
+<td><em>tool-side:</em> the <code>host</code> verb — load, memory + swap, uptime, per-core cumulative CPU with model and nullable MHz, per-interface cumulative counters, root-fs total/free/available bytes — <strong>shipped in <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a></strong>. drishti deletes its native telemetry readers on adoption (<a href="https://github.com/srid/drishti/issues/123">srid/drishti#123</a>).<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Semantics to preserve, per the issue: cache-aware available memory, swap used/total, cumulative per-interface byte counters, per-core CPU deltas, honest CPU metadata absence, and distinct <code>bfree</code>/<code>bavail</code> disk meanings. Cumulative per the creed — rates are consumer-side diffs between snapshots; the tool never sleeps.</span></span></span></td>
+<td>OSF1</td>
+</tr>
+<tr>
+<td><strong>OSF8 — kolu V2 facet adoption</strong></td>
+<td>kolu wires the V2 facets it does not yet consume: pid+start-time identity gates (padi/kaval/server), <code>memorySampler</code> via osfacts (delete the kaval RPC hop), and any remaining UI that paints those facts. <strong>Central design constraint: the mixed-version kaval window.</strong> A live production strip of an earlier attempt showed why: a new padi that only understands a two-field gate refused to yield a pid for a legacy one-field gate, so Restart-kaval could not SIGTERM the old process and the upgrade path bricked. OSF8’s plan must name that window — old and new daemons coexisting on one host during upgrade — and make the gate reader/writer compatible across it. Work parked on branch <code>osfacts-kolu-adoption</code> (the pre-strip tip of <a href="https://github.com/juspay/kolu/pull/2011" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#2011</a>) is the starting point, not the design.</td>
+<td>OSF3</td>
+</tr>
+<tr>
 <td><strong>OSF5 — drishti &amp; extraction</strong></td>
-<td>drishti migrates onto <code>osfacts-client</code> (replacing hand-rolled <code>lsof</code>); the directory moves to its own repo and the subflake becomes <em>the</em> flake</td>
-<td>OSF2–4 stable</td>
+<td>drishti’s migration relands whole — every native reader deleted, fail-fast baked path — and the directory graduates to its own repo<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The directory moves wholesale: <code>osfacts/</code> already carries its own README, <code>default.nix</code>, a zero-input subflake, and <code>client-ts/</code> (<code>osfacts-client</code> — no <code>@kolu</code> scope, Node builtins only) precisely so extraction is a move, not a redesign. The subflake becomes <em>the</em> flake and the contract does not change.</span></span></span></td>
+<td>OSF3 · OSF6 · OSF7</td>
 </tr>
 </tbody>
 </table>
-<p>OSF2, OSF3 and OSF4 are independent siblings under OSF1. <strong>The port-forwarding
-track needs exactly OSF1 → OSF2</strong> — that pair is the “initial version”, and the
-other branches can land whenever. Each phase is a consumer deleting its own OS
-traversal, independently revertible.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>OSF2 done-criterion: padi’s
-<code>ports/sampler</code> → <code>ports/scan</code> (policy) → <code>osfacts-client</code> → the osfacts binary, on
-both platforms, with <code>@kolu/port-scan</code> gone — the port e2e must pass <em>through
-the new path</em>, not beside it.</span></span></span></p>
+<p>OSF3, OSF4, OSF6 and OSF7 are independent <em>tool</em> siblings under OSF1; OSF8 is
+the kolu <em>consumer</em> follow-on that depends on OSF3’s facets being stable; OSF5
+closes the track once external adopters are on the contract. Each phase is
+independently revertible.</p>
 <p><strong>Out of scope, deliberately:</strong> foreground process (a PTY-fd fact — <code>tcgetpgrp</code>
-on the pty, so it stays kaval’s), anything requiring root, and any
-daemon/resident mode. This is a one-shot sampler; if startup cost ever becomes
-the problem, the answer is to revisit the operational model, not to hide it
-behind a resident process. The same restraint applies outward: no TUI, no
-<code>kill</code>, no docker verbs — the broad user-facing surface is what made <code>portls</code>
-and <code>portview</code> wrong for embedding, and osfacts stays embeddable by staying
-narrow.</p>
-<h2 id="implementation">Implementation</h2>
-<p><strong>Incubate in the kolu monorepo; extract on the second external consumer.</strong> The
-contract will churn hardest while kolu’s five readers migrate onto it — each
-migration co-evolves the crate and its caller in one PR — and that argues for
-one repo until the churn settles.</p>
-<ul>
-<li><strong>Path: top-level <code>osfacts/</code>, not under <code>packages/</code>.</strong> The cargo crate is not
-a pnpm workspace member by default — location is structure. The directory
-<em>is</em> the whole future repo: <code>Cargo.toml</code>, <code>src/</code>, <code>tests/</code>,
-<code>client-ts/</code> (the TypeScript client), the
-<a href="https://github.com/juspay/kolu/blob/master/osfacts/README.md">README</a>,
-<code>default.nix</code>, <code>flake.nix</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Precedent: <code>website/</code> is exactly this
-shape today — a top-level non-workspace subproject with its own
-<code>default.nix</code> and subflake.</span></span></span></li>
-<li><strong><code>client-ts/</code> — package name <code>osfacts-client</code>, no <code>@kolu</code> scope.</strong> The
-binary’s TypeScript face: spawn at a supplied path, gate <code>V 1</code>, parse typed
-<code>P</code>/<code>L</code>/<code>U</code> rows. Zero kolu imports, zero npm runtime dependencies (Node
-builtins only) so drishti can pin it without friction. Listed as one
-workspace member in <code>pnpm-workspace.yaml</code> while incubated so kolu can import
-it; leaves with the directory at OSF5. kolu policy (address scope, fold,
-U-row blindness) stays in padi — not in the client.</li>
-<li><strong><code>@kolu/port-scan</code> is dissolved (OSF2).</strong> Raw protocol → <code>osfacts-client</code>;
-kolu policy + <code>scanSubtreePorts</code> → padi; <code>PortInfo</code> / <code>foldPorts</code> →
-<code>@kolu/terminal-vocab</code>. No re-export shim.</li>
-<li><strong>One <code>default.nix</code>, plus a thin zero-input subflake — the vazhi
-pattern.</strong> The canonical build lives in <code>osfacts/default.nix</code>
-(<code>rustPlatform.buildRustPackage</code>, dependencies vendored via <code>cargoLock</code>,
-toolchain from the npins-pinned nixpkgs — <strong>no new flake inputs</strong>, per the
-root flake’s zero-input rule). <code>osfacts/flake.nix</code> also takes no inputs,
-reusing <code>nix/each-system.nix</code>, so <code>nix run ./osfacts</code> works standalone from
-day one; the root flake exports <code>.#osfacts</code> by importing the <em>same</em>
-<code>default.nix</code>, so the two paths can never build two
-osfacts.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>packages/vazhi/flake.nix</code> documents this pattern: the
-subflake exists to keep the extraction gap small and visible, not to claim it
-is already zero.</span></span></span></li>
-<li><strong>Consumers take the binary by baked store path.</strong> padi (and soon drishti)
-reference the Nix-built osfacts the way padi ships other required bins: the
-path is baked at build time and the caller crashes loudly if it is absent —
-never a <code>PATH</code> lookup, never an env override.</li>
-<li><strong>CI while incubated:</strong> the cargo regression suite runs as a kolu CI lane on
-both platforms; it moves with the directory on extraction.</li>
-<li><strong>The extraction signal is drishti (OSF5).</strong> kolu’s readers migrate in-repo;
-the next PR after #1996 has drishti adopt <code>osfacts-client</code> (replacing
-hand-rolled <code>lsof</code>). The day that lands, the directory is ready to graduate
-to its own repo. The directory moves wholesale, the subflake becomes <em>the</em>
-flake, and the contract does not change.</li>
-</ul>
-<h3 id="language--stack">Language &amp; stack</h3>
-<p><strong>Rust</strong> — settled by measurement, not preference: single-pass Rust matches C
-on the hot path (portview’s 9.9 ms vs the C helper’s 10.6 ms, same box, same
-method), and the language buys the cargo test harness the scar-tissue suite
-needs, one codebase for both platforms, and a static binary Nix packages
-trivially. The toolchain is the npins-pinned nixpkgs Rust (1.93 today), so
-every crate below must build there — the constraint that already vetoed
-<code>sysinfo</code> 0.39.</p>
-<p>The dependency bar is the repo’s own: a crate is taken where it removes a
-defect class, never for convenience. Four runtime deps, a small dev-dep set,
-and a deliberate not-chosen list longer than both:</p>
-<table>
-<thead>
-<tr>
-<th>layer</th>
-<th>choice</th>
-<th>why — and why not the obvious alternative</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>darwin process + socket read</td>
-<td><strong><code>libc</code> + hand-declared libproc FFI</strong> (<code>proc_listpids</code> · <code>proc_pidinfo</code> · <code>proc_pidfdinfo</code>)</td>
-<td>the exact calls <code>portScanDarwin.c</code> proved at ~4 ms; the <code>libproc</code> wrapper crate adds a layer over the same three calls without owning the decode subtleties that actually bite</td>
-</tr>
-<tr>
-<td>darwin address decode</td>
-<td><strong>vendored</strong> ~50-line <code>insi_vflag</code> routine (our <a href="https://github.com/GyulyVGC/listeners/pull/57">upstream-merged fix</a>), fixtures riding it</td>
-<td><code>listeners</code> as a dependency re-imports the disqualified host-wide fd walk; the decode is the only part that earned its keep. Upstream now carries our regression tests, so CI pins upstream as an <strong>oracle</strong> and drift is detectable<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The juspay/listeners fork’s job is done: the fix merged upstream 2026-07-25 (<code>226273e5</code>), unreleased as of v0.6.0. Until a release ships, the oracle pins the upstream merge rev; after it, the crates.io release — and the fork is archived.</span></span></span></td>
-</tr>
-<tr>
-<td>linux read</td>
-<td><strong><code>std</code> only</strong> (<code>/proc</code> via <code>std::fs</code>)</td>
-<td>the <code>procfs</code> crate parses whole tables host-wide — the shape <code>--roots</code> exists to avoid; our subtree descent is ~a page of code</td>
-</tr>
-<tr>
-<td>CLI</td>
-<td><strong><code>lexopt</code></strong></td>
-<td>a fixed, tiny flag surface needs an args loop, not a framework; <code>clap</code> is a derive machine + help engine for a tool whose <code>--help</code> is ten lines. <code>lexopt</code> is ~0-dep and builds on 1.93</td>
-</tr>
-<tr>
-<td><code>--json</code></td>
-<td><strong><code>serde</code> + <code>serde_json</code></strong></td>
-<td>the serializer-defect class we hunted in <code>procs</code>/<code>portview</code> (escaping, field drift) is exactly what derive eliminates; the schema structs are the one place <code>deny_unknown_fields</code>-style strictness lives</td>
-</tr>
-<tr>
-<td>TSV hot path</td>
-<td><strong>hand-written</strong></td>
-<td>tab-join over the same schema structs; a dependency here would be decoration</td>
-</tr>
-<tr>
-<td>errors</td>
-<td><strong><code>std</code> error enums, no <code>anyhow</code></strong></td>
-<td>a tool whose contract REQUIRES structured blindness (<code>unreadable</code> with errnos) must never bubble an opaque box to the caller; every failure is either a row in <code>unreadable</code> or a non-zero exit with a versioned message</td>
-</tr>
-<tr>
-<td>async runtime</td>
-<td><strong>none</strong> (runtime); <strong><code>tokio</code> only as a live-oracle test harness dep</strong></td>
-<td>a one-shot sampler has no concurrency to schedule; <code>tokio</code> would be startup cost buying nothing in the binary. The live lane’s cucumber runner is the only place async appears, and it never ships</td>
-</tr>
-<tr>
-<td>tests (dev-deps)</td>
-<td><strong><code>assert_cmd</code> + <code>predicates</code> + <code>insta</code> + <code>proptest</code> + <code>cucumber</code> + <code>tokio</code> (live harness)</strong></td>
-<td>the hermetic gate spawns the real binary (<code>assert_cmd</code>), redacts the two volatile fields for byte-exact snapshots (<code>insta</code>), and property-tests pure codecs only (<code>proptest</code>). Both platforms use self-referential bind-in-child fixtures (scoped <code>--roots</code> / <code>--pids</code> asserts “my fixture appears exactly”) — no <code>unshare</code> / netns, no host-kernel knob. Live-host oracle scenarios are Gherkin via <code>cucumber</code> (MSRV 1.88; our pin is ≥1.93 — cleared)</td>
-</tr>
-<tr>
-<td>tests (nix-pinned tools)</td>
-<td><strong><code>cargo-nextest</code></strong></td>
-<td>process-per-test isolation and per-test timeouts for the hermetic gate; not a Cargo dep — rides <code>nativeCheckInputs</code> in <code>osfacts/default.nix</code></td>
-</tr>
-</tbody>
-</table>
-<p>The whole runtime dependency tree is four crates deep (<code>libc</code>, <code>lexopt</code>,
-<code>serde</code>, <code>serde_json</code>), which is itself a design goal: every dependency is a
-place a platform quirk can arrive with an update, and this tool exists because
-five hand-rolled readers each got one quirk wrong.</p>
-<p>One near-term alternative was considered and rejected: replacing kolu’s C
-helper <em>now</em> with a Rust binary built on the upstream-fixed <code>listeners</code>,
-ahead of osfacts. Rejected on the same measurements as ever — the crate
-answers half the question (listener rows, no process table), so a helper must
-add its own process pass beside the crate’s internal host-wide fd walk, and
-two walks land at an estimated 15–20 ms against the C helper’s ~10
-ms.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Anchors, same box and method: one-pass C 8.45–10.6 ms; one-pass
-Rust (portview) 9.9 ms; two-pass <code>sysinfo</code>+<code>listeners</code> 23.2 ms. A leaner
-hand-rolled pid table trims the second walk’s overhead but keeps the
-duplication; the estimate is bounded by those measurements, not itself a
-measurement.</span></span></span> The proper Rust replacement of the C helper <em>is</em> OSF1’s
-darwin path, and OSF2 is the step that deletes it — building an interim means
-building a slower engine and migrating twice.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./port-forwarding.html" data-astro-cid-aziudkuj>Port Forwarding — vazhi &amp; Inspector Port Links</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+on the pty, so it stays kaval’s), anything requiring root — OSF6 is the best
+honest answer <em>without</em> privilege, not an escalation — and any daemon/resident
+mode. This is a one-shot sampler; if startup cost ever becomes the problem, the
+answer is to revisit the operational model, not to hide it behind a resident
+process. The same restraint applies outward: no TUI, no <code>kill</code>, no docker
+verbs — the broad user-facing surface is what made <code>portls</code> and <code>portview</code>
+wrong for embedding, and osfacts stays embeddable by staying narrow.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./port-forwarding.html" data-astro-cid-aziudkuj>Port Forwarding — vazhi &amp; Inspector Port Links</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(
       document.querySelectorAll(".fn[data-fn]"),
