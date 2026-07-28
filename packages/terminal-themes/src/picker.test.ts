@@ -341,15 +341,25 @@ describe("pickTheme – mode restriction", () => {
     }
   });
 
-  it("colourful pool is a non-trivial subset of the real catalogue", () => {
-    let colourful = 0;
+  it("colourful pool is a non-trivial pickable subset of the real catalogue", () => {
+    // Pick path is quality ∩ colourful: floor from themeColourful, ceiling from
+    // the garish quality gate (MAX). Count that mid-band, not floor-only.
+    let pickableColourful = 0;
     let grey = 0;
     for (const t of availableThemes) {
-      if (themeColourful(t)) colourful++;
-      else if (themeMode(t) !== undefined) grey++;
+      const bg = t.theme.background;
+      const lab = bg ? hexToOkLab(bg) : undefined;
+      if (!lab) continue;
+      const c = Math.sqrt(lab.a * lab.a + lab.b * lab.b);
+      if (c >= 0.02 && c <= 0.08) pickableColourful++;
+      else if (c < 0.02 && themeMode(t) !== undefined) grey++;
     }
-    expect(colourful).toBeGreaterThan(20);
+    expect(pickableColourful).toBeGreaterThan(20);
     expect(grey).toBeGreaterThan(10);
+    // Floor-only export may include garish; real picks still quality-gate them.
+    expect(
+      availableThemes.filter((t) => themeColourful(t)).length,
+    ).toBeGreaterThanOrEqual(pickableColourful);
   });
 
   it("relaxes only the family — never quality or distinctness — when a family is empty", () => {

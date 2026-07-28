@@ -163,8 +163,17 @@ function filterEligible(
   });
   const inMode = (t: NamedTheme): boolean => {
     if (!mode) return true;
-    if (mode === "colourful") return themeColourful(t);
-    return themeMode(t) === mode;
+    switch (mode) {
+      case "colourful":
+        return themeColourful(t);
+      case "light":
+      case "dark":
+        return themeMode(t) === mode;
+      default: {
+        const _exhaustive: never = mode;
+        return _exhaustive;
+      }
+    }
   };
   const notExcluded = (t: NamedTheme): boolean =>
     !excludeBgs?.has(t.theme.background ?? "");
