@@ -62,7 +62,7 @@
  *  canvas as well as the populated one. */
 
 import { activeArm } from "@kolu/padi/surface";
-import { StatePip } from "@kolu/solid-statepip";
+import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
@@ -107,10 +107,15 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
+import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
+import { nextAfter } from "../../ui/nextAfter";
+import { encActiveHost } from "../../wire";
+import { useDockFocus } from "./useDockFocus";
+import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell from "./RecencyCell";
+import RecencyCell, { recencyMode } from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -484,16 +489,33 @@ const DockHeader: Component<{
 };
 
 /** Repo section — a small header (uppercase name + colored swatch +
- *  row count) over the group's rows. Always rendered, even for
- *  single-repo workspaces — a consistent structure beats a
- *  degenerate-case collapse. */
+ *  quiet row tally + attention triplet) over the group's rows. Always
+ *  rendered, even for single-repo workspaces — a consistent structure
+ *  beats a degenerate-case collapse. */
 const RepoSection: Component<{
   group: DockGroup;
   /** Pre-built `id → flat position` lookup so each row's `Cmd+N` hint
    *  index is an O(1) read instead of an O(rows) `findIndex` scan per
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
-}> = (props) => (
+}> = (props) => {
+  const tileStore = useTileStore();
+  const focus = useDockFocus();
+  // The header's attention summary — the SAME triplet, on the SAME activity
+  // predicate, the host tab renders.
+  const attn = useSectionAttention(() => props.group);
+  // Capsule click = navigate to the next terminal IN THE SET THE CAPSULE
+  // COUNTED, cycling past the active one — the same never-dismiss law as the
+  // host pill (violet clears only when the agent stops waiting; amber clears
+  // because activating the terminal marks it read). It walks the counted ids
+  // rather than re-filtering the visible rows: the count deliberately includes
+  // rows the activity window parked, which was exactly the case the old click
+  // could not reach — a capsule reading "1" that did nothing.
+  const jumpTo = (ids: readonly TerminalId[]) => {
+    const next = nextAfter(ids, tileStore.activeId());
+    if (next === undefined) return;
+    focus(next);
+  };
   // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
   // template): indicator · branch · sub-count · time. The leading
   // indicator column is a fixed 20px reserved track holding `StatePip`
@@ -506,45 +528,61 @@ const RepoSection: Component<{
   // and gives its width back to the branch. Each DockRow is a subgrid
   // item that inherits these columns, keeping the icons aligned
   // vertically across rows in one section.
-  <section
-    data-testid="dock-section"
-    data-repo={props.group.name}
-    style={{ "--repo-color": props.group.color }}
-    class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
-  >
-    {/* Sticky repo header — tinted band + colour swatch + uppercase name
-     *  + quiet count capsule (styles in `index.css`). Spine + swatch +
-     *  wash are three scales of the same `--repo-color`. Content inset
-     *  matches the rows (`pl-3`) so the status indicator lines up under
-     *  the name. */}
-    <div
-      data-testid="dock-section-header"
-      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-2`}
+  return (
+    <section
+      data-testid="dock-section"
+      data-repo={props.group.name}
+      style={{ "--repo-color": props.group.color }}
+      class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
     >
-      <span class="dock-cards-section-swatch" aria-hidden="true" />
-      <span
-        data-testid="dock-section-name"
-        class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
-        title={props.group.name}
+      {/* Sticky repo header — tinted band + colour swatch + uppercase name
+       *  + quiet row tally + attention triplet (styles in `index.css`).
+       *  The tally is deliberately BARE text, not a capsule: the capsule
+       *  silhouette is reserved for actionable attention counts, so a
+       *  number in a pill always means "act on this" (fucknotif — the old
+       *  count capsule read as six decoy notification badges). */}
+      <div
+        data-testid="dock-section-header"
+        class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-2`}
       >
-        {props.group.name}
-      </span>
-      <span class="dock-cards-section-count font-mono text-[0.6rem]">
-        {props.group.rows.length}
-      </span>
-    </div>
-    <For each={props.group.rows}>
-      {(row) => (
-        <DockRow
-          id={row.id}
-          bucket={row.bucket}
-          pip={row.pip}
-          flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+        <span class="dock-cards-section-swatch" aria-hidden="true" />
+        <span
+          data-testid="dock-section-name"
+          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
+          title={props.group.name}
+        >
+          {props.group.name}
+        </span>
+        <span
+          class="dock-cards-section-count font-mono text-[0.6rem]"
+          title={`${props.group.rows.length} terminals`}
+        >
+          {props.group.rows.length}
+        </span>
+        <AttentionTriplet
+          active={attn().activeIds.length}
+          asking={attn().askingIds.length}
+          unseen={attn().unseenIds.length}
+          sizeClass="min-w-4 px-1 h-4"
+          scopeLabel={props.group.name}
+          onAsking={() => jumpTo(attn().askingIds)}
+          onUnseen={() => jumpTo(attn().unseenIds)}
+          class="ml-auto"
         />
-      )}
-    </For>
-  </section>
-);
+      </div>
+      <For each={props.group.rows}>
+        {(row) => (
+          <DockRow
+            id={row.id}
+            bucket={row.bucket}
+            pip={row.pip}
+            flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+          />
+        )}
+      </For>
+    </section>
+  );
+};
 
 /** A row in cards mode — two lines:
  *
@@ -583,10 +621,9 @@ const DockRow: Component<{
   const store = useTerminalStore();
   const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  // Active-tile highlight follows the TILE registry (so a focused sleeping tile
-  // reads as the active row in PR 2); unread is terminal-attention, stays on
-  // the terminal store.
-  const rowActive = () => tileStore.activeId() === props.id;
+  // `data-active` is read inside `dockRowAttrs` off the TILE registry (so a
+  // focused sleeping tile reads as the active row in PR 2); unread is
+  // terminal-attention, stays on the terminal store.
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
@@ -595,6 +632,7 @@ const DockRow: Component<{
       {(c) => {
         const agent = () => activeArm(c().meta)?.agent;
         const pip = useStatePip(
+          encActiveHost,
           () => props.id,
           () => c().meta,
           unread,
@@ -615,11 +653,17 @@ const DockRow: Component<{
             role="button"
             tabIndex={0}
             data-testid="dock-row"
-            data-terminal-id={props.id}
-            data-bucket={props.bucket}
-            data-agent-state={agent()?.state}
-            data-active={rowActive() ? "" : undefined}
-            data-unread={unread() ? "" : undefined}
+            // The shared row contract (`dockRowAttrs`) — wash hook, bucket,
+            // agent state, active/asking/unread. Attention washes key on the
+            // ATTENTION class, not the ORDER bucket: the wash, the chip, the
+            // header count and its jump are one fact rendered four ways.
+            {...dockRowAttrs({
+              id: props.id,
+              bucket: props.bucket,
+              agentState: agent()?.state,
+              asking: pip().asking,
+              unread: unread(),
+            })}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
             }
@@ -631,7 +675,7 @@ const DockRow: Component<{
                 tileStore.activate(props.id);
               }
             }}
-            class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+            class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
             classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
             title="Jump to this terminal"
           >
@@ -650,11 +694,13 @@ const DockRow: Component<{
               />
             </span>
             <SubCountCell subCount={c().info.subCount} />
-            {/* Recency — hidden while active; width reserved. */}
+            {/* Recency — hidden while active; width reserved. On a blocked
+             *  row it flips to the violet WAIT chip: how long the agent has
+             *  waited on you IS the signal (a 20 h wait must be legible). */}
             <RecencyCell
               recencyAt={rowRecencyAt(c().meta)}
               textSize="text-[0.6rem]"
-              hidden={pip().active}
+              mode={recencyMode(pip())}
             />
             <Show when={showShortcutHint()}>
               <span
@@ -692,6 +738,15 @@ const DockRow: Component<{
                       activeArm(c().meta)?.agent
                         ? "dock-agent-subline"
                         : "dock-quiet-foreground"
+                    }
+                    // The shared subline hook every row surface carries, so the
+                    // blocked-row colour rule is ONE selector instead of an
+                    // enumeration of test ids per surface — the same
+                    // enumeration that silently left a row type out of the wash.
+                    // Set only on the AGENT subline: a quiet foreground line
+                    // does not speak needs-you.
+                    data-dock-subline={
+                      activeArm(c().meta)?.agent ? "" : undefined
                     }
                     class="font-mono text-[0.68rem] leading-snug text-fg-3 truncate min-w-0"
                     title={line()}
@@ -760,6 +815,7 @@ const RailChip: Component<{
         const labels = () => chipInitials(c().meta, c().info);
         // Same hook as cards StatePip — motion/active drive rail glow.
         const pip = useStatePip(
+          encActiveHost,
           () => props.id,
           () => c().meta,
           unread,

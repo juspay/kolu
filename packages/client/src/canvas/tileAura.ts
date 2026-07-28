@@ -29,7 +29,13 @@ export function tileAura(
 ): TileAura {
   if (unread) return "alert";
   switch (bucket) {
+    // Blocked-on-you and the post-turn lull share the comet tiers today — the
+    // canvas ring already distinguishes them by freshness, and splitting the
+    // aura vocabulary is a presentation decision the canvas hasn't taken. The
+    // paint split still forces this arm to EXIST (satisfies-never fence), so
+    // the mapping is a decision, not a default.
     case "awaiting":
+    case "linger":
       return stale ? "waiting-stale" : "waiting-fresh";
     case "working":
       return stale ? "none" : "working";

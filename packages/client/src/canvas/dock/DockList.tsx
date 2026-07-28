@@ -16,7 +16,7 @@
  *  the drawer dismisses on select, the rail does not. */
 
 import { activeArm } from "@kolu/padi/surface";
-import { StatePip } from "@kolu/solid-statepip";
+import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
@@ -24,7 +24,6 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { useTileStore } from "../../tile/useTileStore";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
@@ -32,10 +31,13 @@ import {
   DOCK_ROW_GRID,
   SLEEPING_RECEDE_CLASS,
 } from "../../ui/chromeSpacing";
+import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
+import { encActiveHost } from "../../wire";
 import type { DockGroup } from "./dockTree";
+import { useSectionAttention } from "./useSectionAttention";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell from "./RecencyCell";
+import RecencyCell, { recencyMode } from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -77,6 +79,10 @@ function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
 }) {
+  // Same shared fold as the desktop header — the two headers cannot count
+  // differently. Capsules stay plain spans here (no jump handlers): the rows
+  // they summarize are directly below on a touch surface.
+  const attn = useSectionAttention(() => props.group);
   // Subgrid container — same shape as the desktop dock (the shared
   // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
   // The leading 20px indicator track is fixed (not `auto`) holding
@@ -107,9 +113,20 @@ function DockListSection(props: {
         >
           {props.group.name}
         </span>
-        <span class="dock-cards-section-count font-mono text-[0.6rem]">
+        <span
+          class="dock-cards-section-count font-mono text-[0.6rem]"
+          title={`${props.group.rows.length} terminals`}
+        >
           {props.group.rows.length}
         </span>
+        <AttentionTriplet
+          active={attn().activeIds.length}
+          asking={attn().askingIds.length}
+          unseen={attn().unseenIds.length}
+          sizeClass="min-w-4 px-1 h-4"
+          scopeLabel={props.group.name}
+          class="ml-auto"
+        />
       </div>
       <For each={props.group.rows}>
         {(row) => (
@@ -140,14 +157,13 @@ function DockListRow(props: {
   onSelect: (id: TerminalId) => void;
 }) {
   const store = useTerminalStore();
-  const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  const rowActive = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   return (
     <Show when={combined()}>
       {(c) => {
         const pip = useStatePip(
+          encActiveHost,
           () => props.id,
           () => c().meta,
           unread,
@@ -165,10 +181,15 @@ function DockListRow(props: {
             role="button"
             tabIndex={0}
             data-testid="mobile-dock-row"
-            data-terminal-id={props.id}
-            data-bucket={props.bucket}
-            data-active={rowActive() ? "" : undefined}
-            data-unread={unread() ? "" : undefined}
+            // The shared row contract (`dockRowAttrs`) — see `Dock.tsx`. The
+            // washes key on the ATTENTION class, not the ORDER bucket.
+            {...dockRowAttrs({
+              id: props.id,
+              bucket: props.bucket,
+              agentState: activeArm(c().meta)?.agent?.state,
+              asking: pip().asking,
+              unread: unread(),
+            })}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
             }
@@ -189,7 +210,7 @@ function DockListRow(props: {
             // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
             // side is symmetric between the two surfaces, so it ships
             // as one symbol.
-            class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+            class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2`}
             classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
           >
             {/* Identity status indicator — same binder as Dock/title. */}
@@ -207,11 +228,12 @@ function DockListRow(props: {
               />
             </span>
             <SubCountCell subCount={c().info.subCount} />
-            {/* Recency — hidden while active; width reserved. */}
+            {/* Recency — hidden while active; width reserved. Blocked rows
+             *  show the violet wait chip instead (see RecencyCell). */}
             <RecencyCell
               recencyAt={rowRecencyAt(c().meta)}
               textSize="text-[0.65rem]"
-              hidden={pip().active}
+              mode={recencyMode(pip())}
             />
             {/* Second line — flex row spanning the branch column → end.
              *  PR pip on the left (anchored to the branch column's left
@@ -238,6 +260,11 @@ function DockListRow(props: {
                       activeArm(c().meta)?.agent
                         ? "mobile-dock-agent-subline"
                         : "mobile-dock-foreground"
+                    }
+                    // The shared subline hook — see `Dock.tsx`. Set only on the
+                    // AGENT subline.
+                    data-dock-subline={
+                      activeArm(c().meta)?.agent ? "" : undefined
                     }
                     class="font-mono text-[0.7rem] leading-snug text-fg-3 truncate min-w-0"
                     title={line()}

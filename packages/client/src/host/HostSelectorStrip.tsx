@@ -59,7 +59,9 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
+import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
+import { jumpToAsking } from "../attention/attentionNav";
 import DocLink from "../ui/DocLink";
 import { surface } from "../ui/Surface";
 import { forwardsForHost } from "../forwards/useForwards";
@@ -68,11 +70,9 @@ import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
-import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
-import { HostUnseenPill } from "./HostUnseenPill";
 import {
   chipStatusDot,
   hostDisplayName,
@@ -166,12 +166,17 @@ const HostChip: Component<{
         // when down, with `.host-tab-down` layered on.
         class="host-tab relative flex h-8 items-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
         style={{ "--host-hue": hostHue(props.host) }}
-        // Finished-unseen washes the WHOLE tab amber (`.host-tab[data-unseen]`),
-        // not just the pill inside it. Area is what carries a mark into
-        // peripheral vision — a 6 px dot on a quiet tab did not (#1990). Mirrors
-        // `HostUnseenPill`'s own suppression, so the wash and the pill appear and
-        // vanish together and the active tab keeps its host-hue belly.
-        data-unseen={marks.unseenFinished() > 0 && !isActive() ? "" : undefined}
+        // Attention washes the WHOLE tab, not just the capsule inside it. Area
+        // is what carries a mark into peripheral vision — a 6 px dot on a quiet
+        // tab did not (#1990). Needs-you violet DOMINATES unseen amber (blocked
+        // beats unopened); both suppress on the active tab so they never fight
+        // the host-hue belly — the capsules still show there.
+        data-asking={marks.asking() > 0 && !isActive() ? "" : undefined}
+        data-unseen={
+          marks.unseenFinished() > 0 && marks.asking() === 0 && !isActive()
+            ? ""
+            : undefined
+        }
         classList={{
           "host-tab-active": isActive(),
           "host-tab-idle": !isActive() && !down(),
@@ -227,20 +232,25 @@ const HostChip: Component<{
             host={props.host}
             labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${glance().labelDecoration}`}
           />
-          {/* Attention marks — same hue split as dock StatePip:
-           *  violet PILL = needs-you count (agents blocked on you), hidden at zero;
-           *  amber DOT = finished-but-unlooked-at (only on hosts you're not viewing). */}
-          <HostAwaitingPill
-            count={marks.asking()}
-            sizeClass="min-w-4 px-1 h-4"
-          />
-          <HostUnseenPill
-            count={marks.unseenFinished()}
-            active={isActive()}
-            hostLabel={name()}
-            sizeClass="ml-0.5 min-w-4 px-1 h-4"
-          />
         </button>
+        {/* The attention summary — working · needs-you · unseen — the ONE
+         *  triplet every altitude renders. A SIBLING of the label button (not
+         *  a child) so its violet jump capsule is a real `<button>` without
+         *  nesting interactive elements. Shown on the ACTIVE tab too: the
+         *  summary is about the host's terminals, not about where you are —
+         *  being on the host while a background terminal blocks was exactly
+         *  the 20-hour failure. Unseen still suppresses on the active host
+         *  (its dock rows carry that mark). */}
+        <AttentionTriplet
+          active={marks.active()}
+          asking={marks.asking()}
+          unseen={marks.unseenFinished()}
+          viewing={isActive()}
+          sizeClass="min-w-4 px-1 h-4"
+          scopeLabel={name()}
+          onAsking={() => jumpToAsking(encKey)}
+          class="-ml-1 mr-2.5"
+        />
       </div>
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover
@@ -276,7 +286,7 @@ const HostSwitcherRow: Component<{
 
   return (
     <div
-      class="group/host-row relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 rounded-lg p-1.5 pl-2.5 transition-colors"
+      class="group/host-row relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg p-1.5 pl-2.5 transition-colors"
       classList={{
         "bg-accent/20 ring-2 ring-accent/65": isActive() && !down(),
         "bg-surface-1/55 ring-1 ring-edge/70 hover:bg-surface-2/85 hover:ring-edge-bright/80":
@@ -334,14 +344,21 @@ const HostSwitcherRow: Component<{
             {glance().short}
           </span>
         </span>
-        <HostAwaitingPill count={marks.asking()} sizeClass="min-w-4 px-1 h-4" />
-        <HostUnseenPill
-          count={marks.unseenFinished()}
-          active={isActive()}
-          hostLabel={hostLabel(host)}
-          sizeClass="min-w-4 px-1 h-4"
-        />
       </button>
+      {/* Attention summary — a sibling grid cell (not inside the switch
+       *  button), so the violet jump capsule stays a real `<button>`. */}
+      <AttentionTriplet
+        active={marks.active()}
+        asking={marks.asking()}
+        unseen={marks.unseenFinished()}
+        viewing={isActive()}
+        sizeClass="min-w-4 px-1 h-4"
+        scopeLabel={hostLabel(host)}
+        onAsking={() => {
+          jumpToAsking(props.hostKey);
+          props.onPicked();
+        }}
+      />
       <Show when={!isLocal()} fallback={<span class="h-7 w-6" />}>
         <button
           type="button"

@@ -4,10 +4,18 @@
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
 import Dialog from "@corvu/dialog";
+import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { attentionDiagnostic } from "./attention/attentionDiagnostics";
+import { frameClassOf, hostActiveIds } from "./attention/attentionFacts";
+import { hostFrame } from "./attention/attentionMarks";
+import { useAttentionFacts } from "./attention/useAttentionFacts";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
+import { bindStatePip } from "./terminal/statePipBind";
+import { useTerminalStore } from "./terminal/useTerminalStore";
+import { activeHost } from "./wire";
 import { PAINT_STALL_WARN_MS } from "@kolu/xterm-kit/solid";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
@@ -63,6 +71,84 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   props,
 ) => {
   const browser = browserFacts();
+  const store = useTerminalStore();
+  const facts = useAttentionFacts();
+
+  /** The attention snapshot — every terminal's paint inputs beside the counts'
+   *  inputs, plus this host's mirrored urgency frame, so a "why does the tab
+   *  say 2 when I see 3 working" report carries its own diagnosis. The two
+   *  sides are captured from the SAME render, so a disagreement in the dump is
+   *  a real disagreement and not two reads a second apart. */
+  const attention = createMemo(() => {
+    const encHost = encodeHostKey(activeHost());
+    const urgency = hostFrame(encHost);
+    const rows = store.terminalIds().map((id) => {
+      const meta = store.getMetadata(id);
+      if (!meta) return null;
+      // Bind through the REAL binder, off the REAL attention value, rather
+      // than re-deriving either here — a diagnostic that re-spells the rule it
+      // is diagnosing can drift from it and quietly report the wrong thing.
+      const attention = facts.attentionOf(encHost, id);
+      const pip = bindStatePip({ meta, attention, unread: false });
+      // `attentionClass` on the row IS padi's own verdict for this terminal —
+      // it is read straight back off the mirrored frame's id lists. A blank
+      // `agentState` beside a class of `working` is a client/server SYNC gap;
+      // both blank while the title spins is a DETECTION gap. The pair is what
+      // tells them apart. (This used to carry four `padiSaysX` booleans beside
+      // it, each an `includes()` scan of the SAME frame the class came off, so
+      // each was `attentionClass === "X"` re-derived — a second source in name
+      // only, which could never have disagreed and so could never have caught
+      // anything.)
+      return attentionDiagnostic({
+        id,
+        meta,
+        glyph: pip.glyph,
+        pipVariant: pip.variant,
+        motion: pip.motion,
+        shellLive: pip.shellLive,
+        attention,
+      });
+    });
+    const terminals = rows.filter((r) => r !== null);
+    // Terminals padi COUNTS that this list never even examined. The client
+    // enumerates top-level terminals; padi's urgency folds every terminal
+    // record, INCLUDING split children — so an agent working in a split is
+    // counted by the host tab and has no row here at all. Without this the
+    // section cheerfully reports "paint and counts agree on every terminal"
+    // while an entire working agent is missing from its own audit (that false
+    // green is exactly how a 4-vs-3 mismatch reached a user).
+    //
+    // It folds through `hostActiveIds` — the very function the `active` count
+    // beside it folds through — rather than hand-unioning class lists. Doing
+    // that by hand reproduced the membership rule (and got it wrong): the hand
+    // union ignored `liveIds`, so a PRINTING agentless split, which IS in
+    // `hostActiveIds` and IS in the count, never landed here, and the section
+    // printed a green "paint and counts agree" over exactly the case it exists
+    // to catch. One population, one fold.
+    const seen = new Set(terminals.map((t) => t.id));
+    const uncounted = hostActiveIds(urgency)
+      .filter((id: TerminalId) => !seen.has(id))
+      .map((id: TerminalId) => ({ id, as: frameClassOf(urgency, id) }));
+    return {
+      host: encHost,
+      hostLive: urgency.live,
+      counts: {
+        // The tab renders ACTIVE (working + lingering + printing shells), so
+        // the dump must show the number the tab shows, not a leg of it.
+        active: hostActiveIds(urgency).length,
+        working: urgency.byClass.working.length,
+        lingering: urgency.byClass.linger.length,
+        asking: urgency.byClass.asking.length,
+      },
+      // A terminal this list can't see is a disagreement too — the count says
+      // it exists and every visible surface says it doesn't.
+      disagreements:
+        terminals.filter((t) => t.disagreement !== null).length +
+        uncounted.length,
+      uncounted,
+      terminals,
+    };
+  });
 
   const snapshot = createMemo(() => {
     const webgl = webglLifecycleSnapshot();
@@ -125,6 +211,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           },
         };
       }),
+      attention: attention(),
       webgl,
     };
   });
@@ -289,6 +376,85 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 );
               })()}
             </Row>
+          </div>
+        </Section>
+
+        {/* Attention — the paint inputs beside the count inputs. A row turns
+         *  red when the two disagree, which is the bug this section exists to
+         *  make self-reporting rather than pixel-forensic. */}
+        <Section title="Attention">
+          <div class="text-[11px] font-mono space-y-1">
+            {/* The visible line a user copies into a bug report must show the
+             *  number the TAB shows — it read `working`, a leg of it, which is
+             *  the "tab says 2, I see 3" confusion reproduced inside the tool
+             *  built to resolve it. Legs stay, in parentheses. */}
+            <Row label="host counts">
+              <span class="tabular-nums">
+                {attention().counts.active} active ({attention().counts.working}{" "}
+                working · {attention().counts.lingering} lingering) ·{" "}
+                {attention().counts.asking} awaiting
+                {attention().hostLive ? "" : " (host not live)"}
+              </span>
+            </Row>
+            <Show
+              when={attention().disagreements > 0}
+              fallback={
+                <div class="text-[10px] text-fg-3/60 italic">
+                  paint and counts agree on every terminal this list can see
+                </div>
+              }
+            >
+              <div class="text-[10px] text-danger font-semibold">
+                {attention().disagreements} disagreement(s) — details below
+              </div>
+            </Show>
+            {/* Counted-but-invisible: the host tab includes these, no row in
+             *  this list (or the dock) does. A split child running an agent is
+             *  the known case. */}
+            <For each={attention().uncounted}>
+              {(u) => (
+                <div class="border-l-2 border-danger pl-2 text-[10px] text-danger">
+                  {u.id.slice(0, 8)} — padi counts this as{" "}
+                  <span class="font-semibold">{u.as}</span>, but it has no row
+                  here: the host count includes a terminal no visible surface
+                  shows (a split child holds its own agent).
+                </div>
+              )}
+            </For>
+            <For each={attention().terminals}>
+              {(t) => (
+                <div
+                  class="space-y-0.5 border-l-2 pl-2"
+                  classList={{
+                    "border-danger": t.disagreement !== null,
+                    "border-edge/40": t.disagreement === null,
+                  }}
+                >
+                  <div class="grid grid-cols-[9ch_1fr_auto] items-baseline gap-3">
+                    <span class="text-fg-3/70">{t.id.slice(0, 8)}</span>
+                    <span class="text-fg-2 truncate">{t.label}</span>
+                    <span class="text-[10px] text-fg-3/70">
+                      {t.agentKind ?? "no-agent"}/{t.agentState ?? "—"}
+                    </span>
+                  </div>
+                  <div class="pl-[9ch] text-[10px] text-fg-3/80 tabular-nums">
+                    pip={t.pipVariant}
+                    {t.shellLive ? "+shellLive" : ""} glyph={t.glyph} live=
+                    {String(t.isLive)} fin={String(t.isFinished)} busy=
+                    {String(t.paintsBusy)} counted={String(t.countedActive)}
+                    {t.spinnerInTitle ? " spinner=YES" : ""} padi=
+                    {t.attentionClass}
+                  </div>
+                  <Show when={t.disagreement}>
+                    {(msg) => (
+                      <div class="pl-[9ch] text-[10px] text-danger">
+                        {msg()}
+                      </div>
+                    )}
+                  </Show>
+                </div>
+              )}
+            </For>
           </div>
         </Section>
 

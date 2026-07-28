@@ -22,8 +22,18 @@ export function messageOf(err: unknown): string {
  *  it: vazhi's PRT0 criterion is that its ONLY kolu import is
  *  `@kolu/port-forward`, and reaching into the browser client would point an
  *  app→app arrow. Nine lines is the honest price of that independence — keep
- *  the thresholds (sec<60 / min<60 / hr<24) and the negative clamp identical to
- *  that file if either ever changes. */
+ *  the THRESHOLDS (sec<60 / min<60 / hr<24) identical to that file if either
+ *  ever changes.
+ *
+ *  The NEGATIVE arm is deliberately not shared, and the difference is not
+ *  drift. The client refuses to render a negative delta as a number because
+ *  its timestamps are stamped by the host a terminal runs on and subtracted
+ *  from the browser's clock — two clocks, so a negative is real skew and any
+ *  number it produced would be a lie. Both numbers here come from ONE clock:
+ *  `createdAt` is stamped by `@kolu/port-forward`'s manager in this process
+ *  and `now` is this process reading `Date.now()`. A negative can only be the
+ *  system clock stepping backwards under us, where zero is the honest reading
+ *  of "not yet a second old" rather than a claim we cannot support. */
 export function formatUptime(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   if (seconds < 60) return `${seconds}s`;

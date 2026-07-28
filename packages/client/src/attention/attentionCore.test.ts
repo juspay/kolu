@@ -2,14 +2,14 @@
  *  e2e) bypasses. Reproduces the reported deploy bug: a background terminal that
  *  FINISHES must fire an alert. */
 
-import type { PadiUrgency } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import { type AttentionHooks, createAttentionCore } from "./attentionCore";
+import type { AttentionFrame } from "./attentionTransitions";
 
-const u = (awaiting: string[] = [], finished: string[] = []): PadiUrgency => ({
-  awaitingIds: awaiting as TerminalId[],
-  finishedIds: finished as TerminalId[],
+const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({
+  asking: asking as TerminalId[],
+  finished: finished as TerminalId[],
 });
 
 function harness(over: Partial<AttentionHooks> = {}) {
@@ -99,9 +99,15 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     // is ever seen. The engine must snapshot. (Unit tests that pass fresh objects
     // each frame never hit this — the exact gap that let the deploy bug through.)
     const { core, delivered } = harness();
-    const frame = u([], []); // ONE object, reused + mutated (reconcile)
+    // ONE object, reused + mutated (reconcile). Spelled mutably here on
+    // purpose — `AttentionFrame` is readonly, and the whole point of this test
+    // is what happens when the caller's object is not.
+    const frame: { asking: TerminalId[]; finished: TerminalId[] } = {
+      asking: [],
+      finished: [],
+    };
     core.observe("h", frame); // baseline
-    frame.finishedIds = ["B"] as TerminalId[]; // mutate in place
+    frame.finished = ["B"] as TerminalId[]; // mutate in place
     core.observe("h", frame); // same object, now finished
     expect(delivered).toEqual([{ id: "B", asking: false }]);
   });

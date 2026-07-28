@@ -113,6 +113,8 @@ describe("dual-edge urgency (finish quiet generation)", () => {
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
       finishedIds: [],
+      workingIds: [],
+      lingerIds: [],
     });
 
     // Arm bootstrap with non-waiting inventory (first non-empty must not be
@@ -123,6 +125,8 @@ describe("dual-edge urgency (finish quiet generation)", () => {
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
       finishedIds: [],
+      workingIds: [A],
+      lingerIds: [],
     });
 
     const terminal = activeTerminal(makeAgent("waiting"));
@@ -131,12 +135,16 @@ describe("dual-edge urgency (finish quiet generation)", () => {
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
       finishedIds: [],
+      workingIds: [],
+      lingerIds: [A],
     });
 
     vi.advanceTimersByTime(QUIET);
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
       finishedIds: [A],
+      workingIds: [],
+      lingerIds: [],
     });
     finish.dispose();
   });
@@ -189,6 +197,8 @@ describe("dual-edge urgency (finish quiet generation)", () => {
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
       finishedIds: [A],
+      workingIds: [],
+      lingerIds: [],
     });
     finish.dispose();
   });

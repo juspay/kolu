@@ -17,6 +17,7 @@
  *  one signal so every consumer (dock buckets, minimap fade, badge gate)
  *  agrees on what "stale" means. */
 
+import { DASH } from "kolu-common/surface";
 import { getClockNow, makeTickingClock } from "../time/clock";
 import { compactDelta } from "../time/duration";
 import { type IdleBucketKey, idleBucketFor } from "./activityWindow";
@@ -86,10 +87,16 @@ export function useIdleClassifier(): (
 /** Compact forward duration: "12s" / "5m" / "2h" / "3d". Single-unit and
  *  coarse — it renders only the dominant tier of the shared {@link compactDelta}
  *  ladder. Driven live by `useDuration`'s 1s clock, so the sub-minute seconds
- *  tier counts up; the coarser tiers change at most once a minute. */
+ *  tier counts up; the coarser tiers change at most once a minute.
+ *
+ *  An untrustworthy delta (host clock skew — see {@link compactDelta}) renders
+ *  as the dash. The policy is the ladder's, not this formatter's: as a local
+ *  guard it contradicted the clamp `compactDelta` applied for every OTHER
+ *  formatter, and the two answers appeared side by side in the same dock row. */
 export function formatDuration(ms: number): string {
-  const { value, unit } = compactDelta(ms);
-  return `${value}${unit}`;
+  const d = compactDelta(ms);
+  if (d.kind === "unknown") return DASH;
+  return `${d.value}${d.unit}`;
 }
 
 /** Reactive elapsed-since formatter. Returns a function consumers call with a
@@ -112,7 +119,9 @@ export function useDuration(): (startedAtMs: number) => string {
  *  mount, which is finer-grained than the 60s tick anyway. */
 export function formatTimeAgo(ts: number | null): string {
   if (ts === null) return "";
-  const { value, unit } = compactDelta(Date.now() - ts);
-  if (unit === "s") return "just now";
-  return `${value}${unit} ago`;
+  const d = compactDelta(Date.now() - ts);
+  // Same skew answer the wait chip beside it gives — the two share this row.
+  if (d.kind === "unknown") return DASH;
+  if (d.unit === "s") return "just now";
+  return `${d.value}${d.unit} ago`;
 }
