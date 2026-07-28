@@ -12,7 +12,7 @@
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { defineSurface } from "@kolu/surface/define";
@@ -141,14 +141,13 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
     try {
       const endpoint = createEndpoint<string, { staleKey: string }>({
         hostId: "local",
-        gatePath,
-        socketPath,
+        home: { dir: dirname(socketPath), gatePath, socketPath },
         driver: {
           spawn: async () => {
             throw new Error("spawn must not run on a refuse-policy skew");
           },
         },
-        connect: async () => {
+        connect: async (_socketPath) => {
           throw new DaemonContractSkewError({
             subject: "pty-host",
             daemonVersion: "1.0",

@@ -14,8 +14,11 @@ dependency.
 
 ## The endpoint
 
-`createEndpoint(spec)` is the state machine: `connecting → connected | dead |
-incompatible`, then `connected → degraded` if the daemon dies mid-session.
+`createEndpoint({ home, connect: (socketPath) => …, … })` is the state machine:
+`connecting → connected | dead | incompatible`, then `connected → degraded` if
+the daemon dies mid-session. Gate and socket come from `home` (the same spine
+primitive `daemonMain` takes); `connect` receives the socket path from the
+framework so callers never re-thread it.
 `incompatible` is the PROVEN contract-skew verdict — a respawn from the
 realised closure already skewed (or a refuse-policy survivor skews at
 handshake) — reported with both contract versions on the status
@@ -31,7 +34,7 @@ It is generic over the client `C` and identity `I`.
 
 | Export | Role |
 | --- | --- |
-| `createEndpoint(spec)` | the endpoint state machine (`ensure()`, `current()`) |
+| `createEndpoint({ home, connect, … })` | the endpoint state machine (`ensure()`, `current()`); `home` is `DaemonHomePaths`, `connect(socketPath)` is handed the path |
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
 | `restart(endpoint, steps)` | the composed `capture → drain → recycle → reattach` sequence |
 | `waitForPidGone(pid, opts?)` | poll `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |

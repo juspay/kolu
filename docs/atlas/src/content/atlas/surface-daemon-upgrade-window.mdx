@@ -1,0 +1,223 @@
+---
+title: "The upgrade window is part of durability — mixed-version machinery in @kolu/surface-daemon"
+description: "Plan of record for issue #2028. A durable daemon means a new supervisor will eventually talk to an old daemon through shared files. That window is the framework's job, not each app's: typed skew states, a real drain protocol, versioned files with a tolerant reader, and the test machinery to prove it. Second user: drishti's per-host agent, which gets metric history that survives everything."
+parents: [surface-daemon, feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-28
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import diagram from "../../diagrams/surface-daemon-upgrade-window.svg?raw";
+
+*Plan of record for [#2028](https://github.com/juspay/kolu/issues/2028). Already decided: we extend `@kolu/surface-daemon`, no new package; drishti's per-host agent is the second user, designed here on paper before any framework code gets written; and the last phase re-lands the gate change that caused the <PrLink pr={2011} /> incident — this time without the brick.*
+
+<Svg svg={diagram} wide caption="The map. UW0 gives daemons a framework-managed home on disk. UW1 finishes the supervisor's convergence kit (the parts kolu still hand-rolls). UW2 adds the identity fragment and ships the test machinery as a library. UW3 makes drishti's agent a durable daemon on top of it. UW4 re-lands the versioned gate file — the change that broke production — safely. UW5 retrofits kaval, the last daemon without the frozen identity channel." />
+
+## What this is about
+
+`@kolu/surface-daemon` gives you a daemon that survives its supervisor's deploys. Nice. But think about what that means: after a deploy, the *new* supervisor is talking to *yesterday's* daemon, through files on disk they both think they understand — the pid gate, the socket, the session files. That's the **mixed-version window**. Durability creates it. The framework currently pretends it doesn't exist, so every app that adopts a durable daemon discovers the window the hard way.
+
+kolu discovered it in production. We changed the gate file format; the new code refused to read the old format; so when you clicked "Restart kaval", the restart code couldn't find the old daemon's pid, couldn't kill it, and did *nothing*. Silently. No test caught it, because every test in the repo builds both sides from the same checkout — the two sides can never disagree in CI, only in real life.<Footnote>The gory details: the parked branch's `pidGate.ts` moved to a two-field `pid\tstartUnixUs` gate, and its reader "accepts exactly this build's two-field identity; it never interprets the retired one-field pid shape." So a legacy gate parsed as `unsupported-format`, `gatePid()` returned `undefined`, and Restart no-oped. The whole adoption is parked on branch `osfacts-kolu-adoption` (tip `dc104661`), kept alive because drishti pins commits on that history.</Footnote>
+
+The fix isn't "be more careful." The fix is making the window a first-class thing the framework owns: version skew shows up as *typed states*, never silence; replacing an old daemon is a *protocol*, not five hand-rolled functions; every file both generations touch is *versioned and inventoried*; and the tests that catch this stuff ship *with the framework*, so the next consumer gets them for free.
+
+Half of this already exists. <PrLink pr={1674} /> put the convergence kit in the supervisor package: identity types, policy, a pure decision table, `converge()`.<Footnote>Namely: `ConvergenceIdentity` (contract versions order, build ids only match — nix store hashes have no "newer"), `ConvergencePolicy&lt;Cap&gt;`, `decide()`, `BuildDrainFence`, and the endpoint state machine with its `incompatible` state and squatter recovery.</Footnote> What kolu still hand-rolls — and what this plan moves into the framework — is exactly five things:
+
+1. **The drain skeleton.** Start watching for the process to exit *before* you send the drain RPC, then race the exit against a timeout. The truth is the process exiting, never the RPC returning.<Footnote>`drainAndAwaitExit` at `packages/server/src/padi/padiConvergence.ts:103`. The local arm and the ssh arm each have a copy.</Footnote>
+2. **Drain admission.** How many times do you try before giving up? And if the daemon you drained comes back as a *different* instance — that means another supervisor respawned it, and you should back off instead of fighting.<Footnote>`admitDrain` in `remotePadiBinding.ts`, keyed on daemon instance. The framework's boolean `BuildDrainFence` is the trivial case of this.</Footnote>
+3. **Typed outcomes.** "I adopted a stale daemon", "I refused a skewed one", "another supervisor owns this" — these are states the UI should show, not log lines. Today they're an app-side union with a bolted-on side flag, and the local arm can't even express "adopted stale".<Footnote>The union lives at `packages/common/src/surface.ts:387`. The cross-supervisor fact isn't an arm — it's a `crossSupervisorDetail` flag with one set site, six clear sites, and a must-check-first ordering hazard. The local gap (`decide()` collapses a fence-spent adopt to plain `adopt`) is named in a comment at `padiBinding.ts:738-741`.</Footnote>
+4. **The ssh arm.** `remotePadiBinding.ts` skips `converge()` entirely and hand-writes the whole enactment over raw `decide()`. Drishti's daemon is remote-*only*, so this can't stay a kolu hack.
+5. **The tests.** <PrLink pr={2027} /> built a fixture that fakes "yesterday's daemon", a watchdog over shared files, and an e2e that builds the previous release for real. All of it sits in `packages/padi/src/upgradeWindow/`, guarding only kolu.
+
+## The API
+
+We designed this against both consumers at once — kolu's window and drishti's window, side by side. Here's each problem and where its solution lives:
+
+| Problem | Framework answer (new stuff in bold) | kolu | drishti |
+|---|---|---|---|
+| Who's running over there? | A **frozen `controlCore` fragment** the daemon serves — same schema forever, readable at *any* skew — plus **`probeDaemonIdentity`** on the supervisor side to dial it<Footnote>The fragment's fields are exactly padi's existing frozen wire: `stateRoot` · `surfaceVersion` · `controlCoreVersion` · `startedAt` · `commit` · `buildId`, plus a `drain` verb. Padi's instantiation is byte-identical to today's `control.core.hello`. The probe goes in the *supervisor* package — it's a dialing client, and putting it in the daemon package would drag supervisor code into kaval's staleKey hash. That means the supervisor's dependency allowlist gains `@kolu/surface`; the closure test's own error message invites exactly this decision. The probe returns a bare `ConvergenceIdentity` plus instance key, nothing more.</Footnote> | padi's hand-rolled control core migrates onto it (UW2); kaval gets it in UW5<Footnote>kaval's identity rides a *versioned* procedure (`system.version`), which is exactly the mistake the frozen fragment exists to fix — the call you'd use to detect a skew is itself subject to the skew. Fixing it means giving kaval the fragment, which is its own PR: UW5.</Footnote> | uses it from day one |
+| Is that my build? | already there: `ConvergenceIdentity` + `decide()` | wired | new: `readBakedIdentity("DRISHTI_AGENT")` |
+| How do I replace it? | **`drainAndAwaitExit`**, and the *framework* runs it in both enactments — a drainable probe only supplies "fire the drain verb" and "watch for exit" | both padi arms migrate | ssh renewal rides it; the ssh exit-watcher ships in the framework too<Footnote>It just polls the fragment's hello until it stops answering — the framework owns the fragment, so there's no reason every ssh consumer should rewrite that poll.</Footnote> |
+| When do I give up? | **Budget as policy data**: `drainBudget: { maxAttempts, onGiveUp: "refuse" \| "adopt-stale" }`, only spellable on a drainable policy. State lives inside the supervisor, per boot, and **survives adopts**<Footnote>Two things we had to settle. First: the budget must NOT reset when you adopt your own respawn (the ssh arm resets today) — resetting wipes exactly the memory you need to notice another supervisor is fighting you, and with drishti's two-laptop setup that turns into an endless drain war. The budget remembers every (build, instance) lineage it drained this boot; a drained lineage coming back under a new instance ⇒ `cross-supervisor` give-up. Second: the old boolean fence's `maxAttempts: 1` behavior belongs to *padi's local arm*, not kaval — kaval never drains, so with the Cap-gate it now writes no budget at all, instead of building a dummy fence like today (`ptyHost/index.ts:294`). Instance key defaults to the fragment's `startedAt`. There is no budget object for consumers to wire.</Footnote> | ssh arm's `admitDrain` deleted; kolu picks `onGiveUp: "refuse"` | picks `"adopt-stale"` — the losing laptop keeps monitoring through the other one's daemon instead of going dark |
+| What state am I in now? | **`ConvergenceAnomaly`**: `adopted-stale \| skew-refused \| unconverged \| cross-supervisor`, each with its evidence. `link-failed` is deliberately *not* in there<Footnote>"The wire died" is the session's fact, not a convergence verdict — no convergence code path can even produce it, and it clears on different rules (kolu already special-cases that at `remotePadiBinding.ts:756`). Apps union it in themselves at the edge. `cross-supervisor` on the other hand *must* be in the framework union: the admission machinery is what detects it, and its absence is why kolu grew the sidecar-flag hack. `DaemonSession`'s generic `Conv` parameter already fits the union; its "vocabulary lives in the app" comment gets updated in UW1.</Footnote> | schema re-derives from it, unions `link-failed` app-side; the sidecar flag dies | host entry shows it in the UI — "your other machine owns this host" becomes a real state |
+| One kit for both transports | **`converge` for endpoints, `convergeAdmit` for connectors**, same decision table, drain, and budget underneath. And the endpoint's three public boot methods **go private** — you state your policy when you build the endpoint, and the public verbs are `converge` and `recycle`<Footnote>Nobody calls `adoptOrEnsure`/`adoptOrSpawnOrRefuse` outside `converge` anyway, and `converge` already picks the method from policy — the public trio just lets you cross-wire policy and method by mistake. `restart.ts` and kolu's restart flow keep the explicit `recycle`. We're breaking `converge`'s signature in UW1 regardless, so this rides along. (We also looked at collapsing everything into one big "durable daemon object" — reviewed it, rejected it; the pieces compose fine.)</Footnote> | ssh arm's hand-written switch deleted | the only enactment drishti needs |
+| Where do my files even live? | **`daemonHome`** (UW0): one call decides the daemon's on-disk home — durable state dir vs session-scoped runtime dir, singleton or digest-keyed instance — creates it `0700`, keeps gate beside socket, and hands back registry entries for every file, by construction | kaval and padi ride it too: hand-rolled derivation deleted, paths byte-identical (pinned by golden tests)<Footnote>The discovery functions in `socketPath.ts` / `stateRoot.ts` (`discoverKavalDaemons`, `resolveRunningPadiSocket`, kaval-tui autodiscovery) keep their signatures — they consume `daemonHome` internally instead of competing with it. Nothing moves on disk; a surviving old daemon is found at exactly the path the new build derives.</Footnote> | uses it from day one |
+| Do both generations agree on the files? | **A registry of every shared file** + watchdog (UW2), and the gate file versioned under a **tolerant-reader law** (UW4) | registry array stays in kolu | registers `agent.pid`, `agent.sock`, `history.ring.json`, logs |
+| Can I test my window? | **`./upgrade-window.testlib`** — import the machinery instead of writing it (UW2) | `upgradeWindow/` shrinks to registrations | window tests arrive with the window code |
+
+Deliberately staying app-side: the policy declarations themselves, env prefixes, timeout values, log wording,<Footnote>kolu's VM adoption test greps for the exact breadcrumb string, so the prose stays app-owned at the log edge.</Footnote> error classification, the link-state projection, and kaval's "nudge the human" UI.
+
+### Hello world
+
+Here's what a *new* consumer writes once UW1+UW2 land — a made-up `pulse` daemon, both halves, complete except for its own cells. This example is the contract; the phases have to add up to it:
+
+```ts
+// ── daemon side: runs inside the durable process ──────────────────────────
+import {
+  daemonHome, daemonMain, daemonProcessMain, readBakedIdentity, controlCoreFragment,
+} from "@kolu/surface-daemon";
+
+const ident = readBakedIdentity("PULSE"); // PULSE_BUILD_ID / PULSE_COMMIT_HASH, baked by nix
+const home = daemonHome({ app: "pulse", placement: "state" }); // durable ⇒ state dir, never /run
+daemonProcessMain({
+  name: "pulse-daemon",
+  run: () => daemonMain({
+    home,                        // gate, socket, anchor — all derived inside the spine
+    lifetime: { kind: "idleTimeout", ms: 60 * 60_000, isIdle: () => liveConnections === 0 },
+    router: implementSurface(pulseSurface, {
+      // the frozen fragment: hello + drain, readable at ANY version skew
+      ...controlCoreFragment({
+        surfaceVersion: PULSE_CONTRACT_VERSION,
+        buildId: ident.staleKey, commit: ident.navigableCommit,
+        stateRoot: stateDir, startedAt: bootInstant,
+        onDrain: persistStateThenStop,
+      }),
+      /* …pulse's own cells and procedures… */
+    }),
+    log,
+  }),
+});
+
+// ── supervisor side: runs wherever the app supervises from ────────────────
+import {
+  createEndpoint, converge, survivableSpawnDriver, type ConvergencePolicy,
+} from "@kolu/surface-daemon-supervisor";
+
+const POLICY: ConvergencePolicy<"drainable"> = {
+  capability: "drainable",
+  onContractSkew: { kind: "drain-newer-else-refuse" },
+  onBuildMismatch: { kind: "drain-and-replace" },
+  drainBudget: { maxAttempts: 2, onGiveUp: "adopt-stale" }, // won't typecheck on "not-drainable"
+};
+
+const endpoint = createEndpoint({
+  home: daemonHome({ app: "pulse", placement: "state" }), // SAME call — disagreement impossible
+  policy: POLICY,                              // stated once, here — no boot-method trio
+  baked: { contractVersion: PULSE_CONTRACT_VERSION, build: daemonBuild(myBakedId) },
+  driver: survivableSpawnDriver({ binPath, args: ["--daemon"], env, unitPrefix: "pulse" }),
+  connect: (socketPath) => connectPulse(socketPath), // the framework hands you the path
+  log, onStatus,
+});
+
+const outcome = await converge(endpoint);      // probe → decide → drain/adopt/spawn, typed
+if (outcome.anomaly) showOnEntry(outcome.anomaly);
+// anomaly: adopted-stale | skew-refused | unconverged | cross-supervisor — never silence
+```
+
+A connector-shaped consumer (drishti over ssh, kolu's remote padi) calls `convergeAdmit(...)` instead of `converge(endpoint)`, with the *same* policy object. Everything underneath is shared.
+
+## Drishti: the second user
+
+Today drishti's agent is spawned fresh on every ssh dial and dies with the link. That means agent-side state dies on every reconnect, and the parent's 30-minute metric ring dies on every deploy of the parent.<Footnote>Small correction to the issue text: history doesn't die with the browser tab — it lives in a ring in the parent process and replays to any browser. What kills it is restarting the parent (i.e. every home-manager deploy). The agent-side losses per reconnect are the alert hysteresis and the rate baselines (first tick after respawn shows zero rates).</Footnote> It also means version skew is currently *impossible* — every dial spawns the parent's own pinned build. A durable daemon flips that: skew becomes the normal state after every deploy. Which is exactly why drishti is the right second user — frequent deploys, two platforms, remote-only, and the two-laptop cross-supervisor case for free.
+
+The design:
+
+- **One binary, two modes.** `--stdio` becomes the front (`frontDaemonOverStdio`: adopt the running daemon or spawn one, then relay bytes); `--daemon` serves the existing agent router over a unix socket. The parent doesn't change its wire at all — `sshConnector`, `makeSession`, `pumpRemoteSurface` all keep their shapes. The session becomes a `DaemonSession` so the host entry can show `convergence()` and offer `renew()`.
+- **All files under `~/.local/state/drishti/`** — gate, socket, ring — via `daemonHome({ app: "drishti", placement: "state" })`, no hand-rolled paths. *Not* `$XDG_RUNTIME_DIR`.<Footnote>Because on a stock systemd host, logind deletes `/run/user/$UID` when your last ssh session closes. The socket and gate vanish while the detached daemon keeps running — now it's an orphan nothing can find, racing its successor for the ring file. State-dir sockets go stale across reboots instead, which the pid gate and the socket-accepting probe already handle correctly.</Footnote> Lifetime: exit after 60 minutes with no connections — twice the history window, so any reconnect that could still show useful history finds the daemon alive, and forgotten hosts clean themselves up.
+- **The ring moves into the daemon and onto disk.** `history.ring.json`, with a `v` field, written every 30 s and on drain (atomic temp+rename). If a loader meets an unknown `v` or garbage, it *leaves the file alone* and reports a typed "history unavailable" state — never a silently empty chart.<Footnote>The unknown-`v` case is the rollback window: an older daemon reading a newer daemon's file. Starting empty there would be the #2011 pattern all over again — recognizable-but-refused turning into silence. Corrupt files get moved aside, never deleted. Both cases get tests: a planted `v+1` ring and a truncated one. Net result: history survives reconnects, parent deploys, daemon upgrades, and crashes — and drishti exercises all three shared-file kinds: gate, socket, state file.</Footnote>
+- **Identity and convergence.** The agent surface gets a contract version (`"1.0"`) and serves the fragment. The parent's policy: drainable, `drain-newer-else-refuse` / `drain-and-replace`, budget `{ maxAttempts: 2, onGiveUp: "adopt-stale" }`, all through `convergeAdmit`. The only convergence code drishti writes is that policy object and the link-state projection at the edge.<Footnote>The two-laptop story, since it's drishti's bread and butter: you deploy laptop A, laptop B still runs yesterday's pin. Builds don't order, so neither is "right". The budget caps the fight at `maxAttempts` drains per laptop per boot; the first laptop that sees a lineage it drained come back under a foreign instance parks in `cross-supervisor`; and because both chose `adopt-stale`, both keep monitoring through whichever build won — one of them showing a labeled anomaly — until the pins converge. The alternating-drain scenario gets a framework unit test in UW1; we don't leave livelock to luck.</Footnote>
+- **Sharp edges, named.** The nix GC root has to outlive the dial for as long as the daemon runs (or `nix-collect-garbage` deletes the running daemon's closure). Laptop wake must adopt, not respawn — the front gives that for free, but the e2e has to prove it through the nasty case: close the *last* ssh session, then reconnect. And drishti's `drv-stability` CI check changes meaning: an accidental agent-drv change used to cost a cache miss, now it costs a fleet-wide daemon restart.
+
+## The test kit
+
+<PrLink pr={2027} /> built the machinery; UW2 moves the generic parts into `@kolu/surface-daemon` as an export subpath, `./upgrade-window.testlib`.<Footnote>Same pattern as `kolu-io`'s existing testlib subpath. `.testlib.ts` files are already excluded from all staleKey hashing, so this changes no build identity. The subpath has zero dependencies: the fixture's spawn-guard is an injected hook (kolu injects `@kolu/daemon-test-gate`; drishti injects its own), because drishti's source-hydration setup can't resolve workspace devDeps.</Footnote> Per file, what moves and what stays:
+
+| File in `packages/padi/src/upgradeWindow/` | Moves to the framework | Stays in kolu |
+|---|---|---|
+| `yesterdayDaemon.fixture.testlib.ts` | the whole fixture — plants a live process wearing a previous build's on-disk artifacts, no old binary needed; filenames become required params, state-planting and spawn-guard become hooks | the hook bodies |
+| `yesterdayDaemon.test.ts` | the fixture's own contract tests | the padi-session-shape test |
+| `sharedArtifacts.testlib.ts` | the matcher/sweep/message functions, all taking the registry as a parameter — no hardcoded `SHARED_ARTIFACTS` name survives (the `SharedArtifact` *type* itself ships earlier, in UW0 with `daemonHome`) | kolu's 11-entry registry array<Footnote>Plus one entry the sweep would flag today: kolu-server's `supervisor.pid` sits next to `padi.pid` and isn't registered. Gets registered during UW2's move.</Footnote> |
+| `sharedArtifacts.watchdog.test.ts` | the watchdog as a factory over any registry. And the `versionField` loophole closes: having a version field no longer excuses an artifact from tests — you must also point at a *disposition test* that plants version+1 and shows a typed state, not silence<Footnote>A version field is only protection if the reader's reaction to an unknown version is loud. Otherwise you get #2011 again: the file is recognizable, the reader refuses, the user sees nothing. padi's session blob already passes this bar; drishti's ring passes via the dispositions above.</Footnote> | the registry it runs over |
+| `ciRecipe.watchdog.test.ts` | `assertRecipeWired(justfile, recipe, tokens)` | kolu's token list |
+| `recycleForeignGate.test.ts` · `socketContractMismatch.test.ts` | move wholesale — they only touch framework APIs; they become the supervisor's own suites<Footnote>This is where the supervisor's dependency allowlist officially gains `@kolu/surface` (needed by the probe and by the skew harness — a fake peer serving the fragment at any contract version you ask for). The decision gets a comment in the closure test.</Footnote> | one arm that dials kolu's production `connectKaval` |
+| `previousRelease.e2e.test.ts` | the harness skeleton (`runPreviousReleaseWindow({...})`, the window-is-real check, socket wait, process reaper) — and it becomes **bidirectional**: new-reads-old *and* old-reads-new | env names, nix attrs, padi/kaval spawn plumbing, session assertions |
+| `oldSessionFile.test.ts` | just the pattern: `pinPreviousShapeRecovery({...})` | everything else — it's padi's session schema |
+
+Drishti's UW3 PR then imports the same subpath: its own registry, its own watchdog run, its own window e2e.
+
+## The plan
+
+Six PRs. UW0 opens — small and behavior-free. UW1 → UW2 → UW3 → UW4 is a strict chain — each needs the previous one's API. UW5 needs only UW2 and can land any time after it, in parallel with the rest. Every phase updates the surface reference docs in the same PR and posts an odu-impact verdict.<Footnote>odu doesn't consume either package yet — `odu serve` (the parent note's S2) hasn't shipped. So verdicts will be `none` or `adoption-opportunity` for a while; the point of posting them anyway is that the ledger catches the exact moment that changes.</Footnote>
+
+### UW0 — daemonHome: where a daemon's files live, decided once
+
+**TL;DR:** a daemon's on-disk home — directory, gate, socket, extra files — comes from one framework call instead of per-app path algebra, and **all three daemons ride it**: kaval and padi delete their hand-rolled path derivation and call `daemonHome`, with the paths proven byte-identical by test. The call forces the one decision that actually matters (durable state dir vs session-scoped runtime dir) and returns registry entries for every file it names, so the shared-file inventory is fed by construction.
+
+Lands: `daemonHome({ app, placement: "state" | "runtime", instance? })` in `surface-daemon` — creates the dir `0700`, verifies ownership (fail-fast on a non-private dir), returns `dir` / `gatePath` / `socketPath` / `file(name)` / `artifacts`.<Footnote>Placement semantics: `"state"` → `~/.local/state/<app>/` ($HOME only — ignores `$XDG_STATE_HOME` so launch contexts cannot split identity); `"runtime"` → `$XDG_RUNTIME_DIR/<app>/` with the `/tmp/<app>-$UID` fallback. A held gate whose co-located socket is **dead** is reclaimed; a missing socket while the PID is live is treated as still-starting (gate-first fence). The doc comment carries the rule this API exists to enforce: a daemon that must outlive user sessions — anything supervised over ssh — takes `"state"`, because logind deletes the runtime dir with the user's last session.</Footnote> And `daemonHome` is a **framework primitive, not an upstreamed helper**: the spine speaks it — `daemonMain`'s spec and the supervisor's endpoint accept a `DaemonHome` and derive gate/socket from it, so loose path strings disappear from consumer call sites (overrides like an env-var socket path are absorbed into the home's construction, not sprinkled at call sites). The `instance` mode carries padi's digest-keyed namespacing (`padi-<digest>/`, kaval's dir off the same digest), built for its real consumers: **kaval and padi swap their derivation for `daemonHome` in this PR**. Nothing moves on disk — golden tests assert every derived path is byte-identical to today's, and the discovery functions (`discoverKavalDaemons`, `resolveRunningPadiSocket`, kaval-tui autodiscovery) keep their signatures, consuming `daemonHome` internally. The `SharedArtifact` type lands here too (UW2's matcher machinery consumes it); the hello-world snippets and the fleet-top example adopt it as reference consumers.
+
+**Done when:** unit tests pin `0700` creation, the non-private-dir refusal, and both placements; golden tests pin every kolu path (kaval gate/socket/dir, padi gate/socket/state paths, manifest, logs) byte-identical to the pre-swap derivation; `socketPath.ts` / `stateRoot.ts` contain no path algebra `daemonHome` owns; discovery signatures unchanged, kaval/padi e2e green; the fleet-top part-2 example and website snippets build on it; reference docs updated. No drishti pair (nothing external consumes yet); odu verdict required.
+
+**Manual QA:** pure absence-of-change. Run master kolu, quit, run the PR build: surviving padi and kaval are found and adopted, Restart works, and `ls` of the daemon dirs shows the same files at the same paths as before.
+
+### UW1 — finish the supervisor kit
+
+**TL;DR:** the convergence kit becomes complete — one decision table, one drain protocol, one budget, every outcome a typed state, working over both endpoints and connectors. kolu's three arms delete their hand-rolled versions. Users see nothing new except states that used to be silent now show up in the host UI.
+
+Lands: `drainAndAwaitExit` (framework-run in both enactments), the Cap-gated policy budget (survives adopts; `BuildDrainFence` dies), `adopted-stale`, the four-arm `ConvergenceAnomaly`, `convergeAdmit`, boot-method trio goes private. kolu's local and ssh padi arms migrate in the same PR.
+
+**Done when:** `remotePadiBinding.ts` calls no raw `decide()` and defines no converge functions of its own; the `crossSupervisorDetail` flag and its check-me-first hazard are deleted; kaval's call site builds no budget and no fence; the VM adoption test still greps its breadcrumb; a unit test pins local `adopted-stale` (previously inexpressible); and a framework unit test proves the two-supervisor drain war ends in `cross-supervisor`, not livelock.<Footnote>Also: `daemonSession.ts`'s comment about convergence vocabulary gets updated. No drishti pair needed yet; odu verdict required.</Footnote>
+
+**Manual QA:**
+- Run master kolu, quit it (padi survives), run the PR build: server log shows the `padi build change on boot … draining the survivor once` line, your terminals and kaval survive, scrollback intact.
+- Restart kaval from the UI — must behave exactly like today.
+- Point at a remote host running a different kolu build: the daemon dialog names the state (adopt-stale / skew) instead of showing nothing.
+
+### UW2 — the identity fragment + the test kit
+
+**TL;DR:** daemons get one frozen, skew-proof way to say who they are; the mixed-version test machinery becomes a library you import. Padi's hand-rolled control core is deleted. Zero behavior change — padi's wire stays byte-identical.
+
+Lands: the `controlCore` fragment, `probeDaemonIdentity` (supervisor side, allowlist widened, decision recorded), the `./upgrade-window.testlib` subpath per the table above, `supervisor.pid` registered.
+
+**Done when:** `packages/padi/src/upgradeWindow/` holds no generic machinery; padi's hello wire is byte-identical (existing tests pass untouched); the matchers take a registry parameter; the watchdog enforces the tightened versionField rule; `ci::upgrade-window` green on both platforms through the graduated harness.
+
+**Manual QA:**
+- This phase's QA is confirming *nothing changed*: boot kolu, restart padi and kaval from the UI, open the daemon dialogs — identical to master.
+- Cross-build smoke, both directions: master kolu against the PR build's surviving padi, and vice versa. Hello answers, restart works.
+- Run the `upgrade-window` CI node locally — it builds the previous release for real and drives a recycle.
+
+### UW3 — drishti goes durable
+
+**TL;DR:** first outside consumer. For drishti users: **metric history and alert state survive everything** — reconnects, parent deploys, agent upgrades — and "my other machine owns this host" becomes a labeled state instead of mystery flapping. For the repo: `.claude/rules/surface.md` starts covering both daemon packages (paired drishti PR + odu verdict, permanently).
+
+Lands: kolu-side, the rules-file extension and whatever small gaps adoption surfaces; drishti-side, everything in the drishti section above.<Footnote>Bootstrap problem, solved explicitly: drishti has no daemon-capable previous release to test the window against. At landing, the mixed-build e2e uses a *synthetic* previous — same source, different baked `buildId` — which still drives a real build-axis drain over ssh. The real previous-tag resolver (with its "previous must differ from current" hard refusal) arms itself at drishti's first daemon-capable release tag.</Footnote>
+
+**Done when the proof paths run, not just the features:** (a) connect → close the last ssh session → reconnect adopts the surviving daemon with the ring intact; (b) the synthetic mixed-build e2e drives a real build-axis drain through the framework's skeleton and the successor serves history re-read from `history.ring.json`; (c) the planted `v+1` and truncated-ring cases show their typed states. Both PRs green, drishti pinned to final kolu HEAD.
+
+**Manual QA (drishti PR, real remote host):**
+- Watch a host's metrics ~10 min, then restart the drishti parent. On reconnect the chart still has the history. That's the feature.
+- `ssh <host> ls ~/.local/state/drishti/` → `agent.pid`, `agent.sock`, `history.ring.json`. Close *all* ssh sessions to the host, reconnect drishti: same daemon pid, history continuous.
+- Suspend the laptop, wake: agents adopted, pids unchanged.
+- Deploy a drishti with any agent change: you see the drain/replace as a state, and history survives the swap.
+- Two machines, different pins, same host: both keep monitoring; one shows `cross-supervisor` by name.
+- `ssh <host> 'echo garbage > ~/.local/state/drishti/history.ring.json'`, reconnect: typed "history unavailable", file moved aside — never an empty chart.
+
+### UW4 — re-land the gate change, without the brick
+
+**TL;DR:** the gate file gains a second field (process start time — kills pid-reuse misidentification), governed by one law: **the first token of a gate file is the pid, in every generation, and readers ignore anything after it.** Restart then works across every upgrade *and* rollback boundary. This unblocks [OSF8](./os-facts-tool.html).
+
+Lands: the two-field writer (`${pid}\t${startUnixUs}\n`); the tolerant reader (a one-field legacy gate is simply an older gate — pid usable, start time unknown); `acquirePidGate` taking an injected `readProcessIdentity` (kolu and drishti supply osfacts-backed readers); start-time comparison with ±2 s tolerance; and the mid-boot holder case (gate written, socket not yet listening → wait, don't reap).<Footnote>Why not just un-park the branch: `dc104661`'s reader refuses every shape but its own. That both replays the #2011 brick against old gates and sets up the next one — a v2 reader meeting a v3 gate. So the parked branch donates its writer and identity plumbing, not its reader. Why the tolerance: the start instant is derived from `/proc/stat` btime at read time, and NTP steps / suspend / VM pauses shift it by whole seconds — strict equality would misread a live daemon as pid-reuse and brick from the other direction. Scope: gate-identity only; the rest of `osfacts-kolu-adoption` (memorySampler via osfacts, facet UI) stays OSF8's, which this unblocks — os-facts-tool.mdx gets a one-line pointer.</Footnote>
+
+**Done when the incident is a red-turned-green test, both directions:** the fixture plants a legacy one-field gate under a current supervisor and recycle SIGTERMs the right pid (the literal #2011 case); a unit test feeds the two-field write through the legacy parser and gets the pid back (pid-first is the frozen rollback contract); a clock-shift test stays within tolerance without losing the holder; the previous-release e2e crosses a boundary where the previous binary still writes one-field gates; both platforms green; drishti pair green at final kolu HEAD (the gate is shared API now).
+
+**Manual QA:**
+- The incident, replayed: run master (one-field gate), quit the server (kaval survives), run the PR build, click Restart kaval. It must actually restart. This exact sequence bricked in #2011.
+- The rollback: run the PR build (two-field gate), quit, run master, Restart kaval. Still works — old `parseInt` stops at the tab.
+- Clock shake: shift the host clock a few seconds (or suspend/resume) with a daemon running, then Restart: holder still recognized.
+- Repeat the first two on a drishti-monitored host for the agent daemon.
+
+### UW5 — kaval gets the frozen identity channel
+
+**TL;DR:** kaval is the last daemon whose "who are you?" rides the versioned contract — the call you'd use to detect a skew can itself fail under skew. UW5 gives kaval the same frozen `controlCore` fragment padi and drishti already serve. Users see nothing change; what changes is that kaval's identity is now readable at *any* skew, by construction instead of by luck.
+
+Lands: kaval serves the fragment next to its pty-host surface (its existing `system.version` procedure stays — other consumers read pid and heartbeat off it); padi's kaval probe migrates onto `probeDaemonIdentity`. A surviving old kaval has no fragment, and that case is handled by the plan's own precedent: absent means older<Footnote>The #1671 rule: a survivor that predates the field is by definition an older build — treat absent as mismatch, never as "can't compare, adopt". For kaval that means the nudge-human path fires, which is exactly today's stale-kaval behavior; the transition window degrades to the status quo, not to silence.</Footnote> — the update nudge fires, exactly today's behavior.
+
+**Done when:** padi reads kaval identity only through the fragment; a yesterday-daemon fixture arm pins the fragment-absent case (old kaval under new padi → nudge, never silence); kaval's contract corpus and e2e green with zero wire change to `system.version` consumers. Needs only UW2. Drishti pair per the standing rule (trivial — drishti doesn't consume kaval); odu verdict required.
+
+**Manual QA:**
+- Run master kolu, quit, run the PR build without restarting kaval: the kaval update badge appears as today (old kaval, no fragment → nudge). Click Restart: new kaval, badge clears, identity shows in the daemon dialog.
+- Restart kaval a second time from the PR build (fragment → fragment): identical behavior, no badge in between.
+- Terminals and scrollback survive both restarts as usual.

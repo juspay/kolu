@@ -40,8 +40,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   currentPadiBuildId,
-  padiGatePath,
-  padiSocketPath,
+  padiRuntimeHome,
   padiStderrLogPath,
   residentPadiSocket,
   resolvePadiStateRoot,
@@ -542,8 +541,9 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // in. No resident found (a genuine fresh boot) → fall back to our own-env
   // socket, unchanged from before — the single-source-of-truth path the SPAWN
   // side (`resolvePadiLaunch`'s `--socket`) already threads verbatim.
-  const socketPath = residentPadiSocket(stateRoot) ?? padiSocketPath(stateRoot);
-  const gatePath = padiGatePath(socketPath);
+  // Discover a resident first (may live under a different XDG drawer); absorb
+  // into home construction so gate/socket stay co-located — no hand-joined pair.
+  const home = padiRuntimeHome(stateRoot, residentPadiSocket(stateRoot));
 
   // The endpoint reports degraded/dead via `onStatus`; the connector routes that to the
   // CURRENT dial's `closed`, so `makeSession`'s loop reconnects (re-runs converge). The
@@ -555,17 +555,17 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     PadiConnectionMetadata
   >({
     hostId: PADI_HOST_ID,
-    gatePath, // reuse padi's pid gate as-is.
-    socketPath,
+    home,
     driver: localPadiDriver(
       stateRoot,
-      socketPath,
+      home.socketPath,
       opts.nixShellWhitelist,
       opts.spawnVersion,
       opts.verbose ?? false,
       opts.legacyKavalSocket,
     ),
-    connect: () => connectPadi(socketPath),
+    // the framework hands you the path
+    connect: (path) => connectPadi(path),
     log,
     onStatus: (_hostId, status) => {
       // A down/terminal close ends the current dial → resolve its `closed` so
@@ -610,7 +610,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
         contractVersion: PADI_SURFACE_VERSION,
         build: daemonBuild(binderBuildId),
       },
-      probe: () => probePadiForConvergence(socketPath),
+      probe: () => probePadiForConvergence(home.socketPath),
       policy: PADI_CONVERGENCE_POLICY,
       buildFence: buildDrainFence,
       log,
@@ -663,7 +663,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       // composition root's boot `pin()` catches specifically, to exit loudly with the
       // conflict + the remedy); everything else reconnects (network, retry with
       // backoff), matching the pre-S9 scheduleReconnect. NEVER a kill.
-      const err = padiConnectFailure(outcome, stateRoot, socketPath);
+      const err = padiConnectFailure(outcome, stateRoot, home.socketPath);
       // Report a fatal refusal HERE, synchronously, on every dial this connector
       // ever runs — not just whichever dial a caller happens to await. Reconnect
       // dials run through the session's own fire-and-forget loop and would
@@ -700,7 +700,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       // SYNCHRONOUS by design — the ruling's synchronous predicate — rather than promoting
       // the whole oracle path to `Promise<boolean>` for a fast local tmpfs read.
       processAlive: () => {
-        const pid = gatePid(gatePath);
+        const pid = gatePid(home.gatePath);
         return pid !== undefined && isHolderLive(pid);
       },
       teardown: () => conn.dispose(),

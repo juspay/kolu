@@ -16,6 +16,7 @@
 import { dirname } from "node:path";
 import {
   acquirePidGate,
+  confirmHeldGate,
   type DaemonExit,
   type DaemonLifetimeInfo,
   daemonLifetimeFromEnv,
@@ -69,12 +70,13 @@ import {
   setSavedSessionFromSnapshot,
 } from "../session/session.ts";
 import {
-  padiGatePath,
-  padiKavalSocketPath,
-  padiSocketPath,
+  padiKavalHome,
+  padiRuntimeHome,
   resolvePadiStateRoot,
   writeStateRootManifest,
 } from "../stateRoot.ts";
+import { resolveDaemonHome } from "@kolu/surface-daemon";
+import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
 import { openPadiStateStores } from "../session/stateStore.ts";
 import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "../surface.ts";
 import { hasParkedTerminals } from "../terminal-registry.ts";
@@ -329,14 +331,17 @@ function serveDaemonSurfaces(
  *  the served surfaces — the reconcile publishes onto the wired ctx. */
 async function bootLocalEndpoint(
   served: SurfacesServed,
-  params: { kavalSocket: string; legacyKavalSocket?: string },
+  params: {
+    kavalHome: import("@kolu/surface-daemon").DaemonHomePaths;
+    legacyKavalHome?: import("@kolu/surface-daemon").DaemonHomePaths;
+  },
 ): Promise<EndpointBooted> {
   await ensureLocalEndpoint({
-    kavalSocket: params.kavalSocket,
+    home: params.kavalHome,
     // The W2.2 upgrade bridge: adopt a surviving pre-W2.2 port-keyed kaval (if the
-    // binder hinted its port socket and this padi has no digest kaval yet) rather than
+    // binder hinted its port home and this padi has no digest kaval yet) rather than
     // leaking it. Standalone padi (no binder) passes nothing → no legacy adopt.
-    legacyKavalSocket: params.legacyKavalSocket,
+    legacyHome: params.legacyKavalHome,
     onStatus: publishDaemonStatus,
     onAdopted: adoptSurvivingSession,
     onNotAdopted: parkSavedSession,
@@ -363,9 +368,18 @@ export async function runPadiDaemon(
   // entrypoint every spawn path runs, so no spawn path can forget it; fails loud here if the
   // state root is unwritable. The `--stdio` front never reaches this, so it keeps stdout.
   configureDaemonLog(stateRoot);
-  const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
-  const gatePath = padiGatePath(socketPath);
-  const kavalSocket = padiKavalSocketPath(stateRoot);
+  // Home construction absorbs socketOverride — gate co-located by construction.
+  const home = padiRuntimeHome(stateRoot, opts.socketOverride);
+  const kavalHome = padiKavalHome(stateRoot);
+  const legacyKavalHome =
+    opts.legacyKavalSocket !== undefined && opts.legacyKavalSocket !== ""
+      ? resolveDaemonHome({
+          app: KAVAL_NS_PREFIX,
+          placement: "runtime",
+          socketFile: PTY_HOST_SOCK_FILE,
+          socketOverride: opts.legacyKavalSocket,
+        })
+      : undefined;
 
   // ── Claim the single-instance gate FIRST, before ANY boot side effect ──
   // A second padi racing this same state-root must learn it lost the race BEFORE it
@@ -374,17 +388,20 @@ export async function runPadiDaemon(
   // gate is acquired here, at the top, and HANDED to the spine's `daemonMain` (which
   // otherwise acquires it last, after all of that). A crash mid-boot (the fail-fast
   // import) leaves a gate held by a dead pid, which the next launch reclaims.
-  const gate = acquirePidGate(gatePath);
+  let gate = acquirePidGate(home.gatePath);
+  if (gate.kind === "held") {
+    gate = await confirmHeldGate(gate, home.gatePath, home.socketPath);
+  }
   if (gate.kind === "held") {
     log.info(
-      { gatePath, pid: gate.pid },
+      { gatePath: home.gatePath, pid: gate.pid },
       "padi already running for this state-root; yielding to the live instance",
     );
     return { kind: "already-running", pid: gate.pid };
   }
   if (gate.kind === "dir-not-private") {
     log.error(
-      { gatePath, dir: gate.dir },
+      { gatePath: home.gatePath, dir: gate.dir },
       "padi gate directory is not private (owner-only); refusing to start",
     );
     return { kind: "serve-failed", detail: "dir-not-private" };
@@ -393,7 +410,7 @@ export async function runPadiDaemon(
   // Gate → stores → identity: each phase takes the prior's token, so none can run
   // before the gate is claimed above (a lost gate-race returns before reaching here).
   const stores = openStateStores(gate, stateRoot, log);
-  const identity = configureDaemonIdentity(stores, opts, socketPath);
+  const identity = configureDaemonIdentity(stores, opts, home.socketPath);
 
   // Resolve the lifetime ONCE: `forever` in production; `boundToPid` when a
   // harness/smoke run set `KOLU_DAEMON_BIND_PID`. Seeded into the padiSurface
@@ -444,8 +461,8 @@ export async function runPadiDaemon(
   });
   try {
     const endpoint = await bootLocalEndpoint(served, {
-      kavalSocket,
-      legacyKavalSocket: opts.legacyKavalSocket,
+      kavalHome,
+      legacyKavalHome,
     });
 
     // Manifests run AFTER the endpoint boot (the `endpoint` token proves it): they
@@ -454,12 +471,12 @@ export async function runPadiDaemon(
     // surface — `servePadi.ts` — so it no longer needs a boot-time sampler start.)
     // Manifests (digest → state-root) so a flag-less kaval-tui can label what it
     // discovers — written into both padi's and its kaval's runtime dirs.
-    writeStateRootManifest(dirname(socketPath), stateRoot);
+    writeStateRootManifest(home.dir, stateRoot);
     // Beside the kaval this padi ACTUALLY holds — `getLocalSocketPath()` is the digest
     // socket normally, but the adopted LEGACY port socket after an upgrade adoption, so
     // discovery labels the real daemon and no empty digest dir is minted.
     writeStateRootManifest(
-      dirname(getLocalSocketPath() ?? kavalSocket),
+      dirname(getLocalSocketPath() ?? kavalHome.socketPath),
       stateRoot,
     );
     // (The Kaval + Padi dialogs' "Running daemons" list — `hostInventory` — is now a
@@ -469,8 +486,8 @@ export async function runPadiDaemon(
     // `withSelfPadi` — reading padi's serve socket from the module global.)
 
     return await daemonMain({
-      gatePath,
-      socketPath,
+      // Full home — gate+socket from one resolve; override absorbed at construction.
+      home,
       // The router is the serve phase's output — read it straight off `served` rather
       // than re-threading it through the endpoint token that neither owns nor touches it.
       router: served.router,
@@ -487,6 +504,8 @@ export async function runPadiDaemon(
       // very leak class its kaval already self-collected since #1713). No
       // session persist on the way out: the place a session would persist TO
       // is exactly what is gone.
+      // Override the default (`home.dir` = runtime rendezvous); state-root is
+      // the durable identity, not the ephemeral runtime home.
       anchor: () => stateRoot,
       log,
       signal: drainController.signal,

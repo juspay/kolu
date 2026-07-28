@@ -44,10 +44,12 @@ from part 1, served verbatim. (`forever` is one of three lifetimes — the
 coordinator and `boundToPid` for a daemon a test/smoke run wants to die with it.)
 
 `anchor` is the one required field with no default: the directory whose deletion
-makes the daemon garbage (its state root), polled by the spine so the daemon
+makes the daemon garbage, polled by the spine so the daemon
 [reaps itself](/surface/ref-surface-daemon#the-anchor-self-reap) instead of
-outliving a deleted workspace. fleet-top keeps no on-disk state, so it is
-honestly, visibly unanchored — `() => undefined`.
+outliving a deleted workspace. Once `daemonHome` supplies the rendezvous home,
+that home *is* the on-disk identity — fleet-top anchors to it
+(`anchor: () => HOME_DIR`) so a deleted home cannot leave a zombie daemon
+holding unlinked gate/socket inodes.
 
 <Steps>
 
@@ -58,7 +60,7 @@ honestly, visibly unanchored — `() => undefined`.
    ```
 
    ```text
-   fleet-top daemon listening on /run/user/1000/fleet-top.sock (pid 48213)
+   fleet-top daemon listening on /run/user/1000/fleet-top/fleet-top.sock (pid 48213)
    ```
 
    That friendly line comes from `onReady`; `stderrLogger` also writes a

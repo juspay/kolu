@@ -28,6 +28,7 @@ import {
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
+import type { DaemonHomePaths } from "@kolu/surface-daemon";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
@@ -50,7 +51,7 @@ import {
   getPadiServeSocketPath,
   setLocalSocketPath,
 } from "./daemonStatus.ts";
-import { kavalGatePath, localKavalDriver } from "./localDriver.ts";
+import { localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity | undefined;
 
@@ -195,20 +196,13 @@ export function __setEndpointForTest(
  *  ordering here for a token to guard, so the same shape read as a latent hazard in
  *  `runPadiDaemon` (setters with no data edge between them) is a non-issue here. */
 export async function ensureLocalEndpoint(opts: {
-  /** The exact socket this endpoint's kaval serves and is dialed on — resolved by
-   *  the caller. The padi process passes its digest-keyed
-   *  `padiKavalSocketPath(stateRoot)` (`kaval-<digest>/pty-host.sock`); a test may
-   *  pass any pinned path. One resolved string, so the boot is caller-agnostic — no
-   *  port or digest assumption survives here. */
-  kavalSocket: string;
-  /** The LEGACY per-port kaval socket the BINDER hints (its OWN listen port's
-   *  `kaval-<port>/pty-host.sock`) — the W2.2 upgrade bridge. On the first W2.2 boot,
-   *  if this padi's digest-keyed kaval gate is empty but a COMPATIBLE pre-W2.2 kaval
-   *  is alive here, ADOPT it (so its live PTYs survive the upgrade) instead of
-   *  spawning a fresh one and leaking it. Absent for a STANDALONE padi (no binder, no
-   *  hint) — which therefore never adopts a stray port kaval (e.g. a dev instance at
-   *  another port). SPAWN stays digest-keyed, so a later recycle converges off it. */
-  legacyKavalSocket?: string;
+  /** Primary kaval home — built by the caller via {@link padiKavalHome} (or a
+   *  test fixture). Gate and socket co-located; never loose path strings. */
+  home: DaemonHomePaths;
+  /** LEGACY per-port kaval home the BINDER hints (W2.2 upgrade bridge). Absent
+   *  for a standalone padi — never adopts a stray port kaval. SPAWN stays the
+   *  primary home, so a later recycle converges off the hint. */
+  legacyHome?: DaemonHomePaths;
   onStatus: (
     hostId: string,
     status: EndpointStatus<Identity, KavalConnectionMetadata>,
@@ -238,37 +232,35 @@ export async function ensureLocalEndpoint(opts: {
    *  the same way — it simply waits, then picks up once the daemon connects). */
   onBootSettled?: (signal: AbortSignal) => void;
 }): Promise<void> {
-  const socketPath = opts.kavalSocket;
-  const legacyKavalSocket = opts.legacyKavalSocket;
+  const { home, legacyHome } = opts;
   // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
   // users can target it explicitly). Set before the endpoint's first status emit —
-  // the digest socket by default; the adopt-hint below flips it to the legacy socket
+  // the primary home by default; the adopt-hint flips it to the legacy socket
   // when an upgrade adopts the port kaval, and a spawn resets it back.
-  setLocalSocketPath(socketPath);
+  setLocalSocketPath(home.socketPath);
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: encodeHostLocation(LOCAL_LOCATION),
-    gatePath: kavalGatePath(socketPath),
-    socketPath,
-    driver: localKavalDriver(socketPath),
-    connect: () => connectKaval(socketPath),
+    home,
+    driver: localKavalDriver(home.socketPath),
+    // the framework hands you the path
+    connect: (path) => connectKaval(path),
     log,
     onStatus: opts.onStatus,
-    // The W2.2 upgrade bridge (only when the binder hints a legacy port socket):
+    // The W2.2 upgrade bridge (only when the binder hinted a legacy home):
     // if the digest gate is empty but a COMPATIBLE pre-W2.2 kaval is alive at the
     // port socket, ADOPT it and RECORD it as this kaval's live location (so spawned
     // PTYs' `KAVAL_SOCKET` and the daemon dialog point at the adopted daemon). SPAWN
-    // stays the digest socket, so `onSpawned` resets the recorded location on the
+    // stays the primary home, so `onSpawned` resets the recorded location on the
     // recycle that converges the migration.
     adoptHint:
-      legacyKavalSocket === undefined
+      legacyHome === undefined
         ? undefined
         : {
-            gatePath: kavalGatePath(legacyKavalSocket),
-            socketPath: legacyKavalSocket,
-            connect: () => connectKaval(legacyKavalSocket),
-            onAdopted: () => setLocalSocketPath(legacyKavalSocket),
+            home: legacyHome,
+            connect: (path) => connectKaval(path),
+            onAdopted: () => setLocalSocketPath(legacyHome.socketPath),
           },
-    onSpawned: () => setLocalSocketPath(socketPath),
+    onSpawned: () => setLocalSocketPath(home.socketPath),
   });
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
@@ -289,7 +281,7 @@ export async function ensureLocalEndpoint(opts: {
         contractVersion: PTY_HOST_CONTRACT_VERSION,
         build: daemonBuild(currentPtyHostIdentity().staleKey),
       },
-      probe: () => probeKavalForConvergence(socketPath),
+      probe: () => probeKavalForConvergence(home.socketPath),
       policy: KAVAL_CONVERGENCE_POLICY,
       // kaval never build-drains (nudge-human), so the fence is unused here — but the kit
       // requires one; a fresh per-boot fence is the honest, inert value.

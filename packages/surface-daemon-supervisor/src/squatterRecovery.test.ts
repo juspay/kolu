@@ -14,7 +14,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, unlinkSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { isHolderLive } from "@kolu/surface-daemon";
 import { afterEach, expect, it } from "vitest";
 import {
@@ -134,10 +134,9 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const statuses: EndpointStatus<Identity, Meta>[] = [];
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: freshDaemon(socketPath),
-      connect: async () => {
+      connect: async (_socketPath) => {
         if (isHolderLive(holderPid)) {
           throw new DaemonContractSkewError({
             subject: "pty-host",
@@ -178,12 +177,11 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const statuses: EndpointStatus<Identity, Meta>[] = [];
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: freshDaemon(socketPath),
       // Never completes the kaval handshake — a plain (non-skew) failure, the way
       // a foreign speaker (or a schema-invalid version response) presents.
-      connect: async () => {
+      connect: async (_socketPath) => {
         throw new Error("not kaval: connection reset");
       },
       log: silentLog,
@@ -222,12 +220,11 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
 
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: freshDaemon(socketPath),
       // A schema-invalid version response surfaces as a plain handshake error
       // (oRPC output validation throws) — the same non-skew path as foreign.
-      connect: async () => {
+      connect: async (_socketPath) => {
         throw new Error(
           "pty-host handshake failed — could not read system.version",
         );
@@ -265,17 +262,23 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     let hintDialed = false;
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath: join(d, "primary.pid"), // gate-less
-      socketPath: primarySock,
+      home: {
+        dir: d,
+        gatePath: join(d, "primary.pid"), // gate-less
+        socketPath: primarySock,
+      },
       driver: freshDaemon(primarySock),
-      connect: async () =>
+      connect: async (_socketPath) =>
         isHolderLive(primaryPid)
           ? Promise.reject(skew(primaryPid))
           : compatibleConn(),
       adoptHint: {
-        gatePath: join(d, "hint.pid"),
-        socketPath: hintSock,
-        connect: async () => {
+        home: {
+          dir: dirname(hintSock),
+          gatePath: join(d, "hint.pid"),
+          socketPath: hintSock,
+        },
+        connect: async (_socketPath) => {
           hintDialed = true;
           return compatibleConn();
         },
@@ -300,14 +303,20 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const hintPid = await spawnSocketHolder(hintSock); // gate-less skew at the hint
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath: join(d, "primary.pid"),
-      socketPath: primarySock,
+      home: {
+        dir: dirname(primarySock),
+        gatePath: join(d, "primary.pid"),
+        socketPath: primarySock,
+      },
       driver: freshDaemon(primarySock),
-      connect: async () => compatibleConn(), // the fresh primary spawn
+      connect: async (_socketPath) => compatibleConn(), // the fresh primary spawn
       adoptHint: {
-        gatePath: join(d, "hint.pid"),
-        socketPath: hintSock,
-        connect: async () =>
+        home: {
+          dir: dirname(hintSock),
+          gatePath: join(d, "hint.pid"),
+          socketPath: hintSock,
+        },
+        connect: async (_socketPath) =>
           isHolderLive(hintPid)
             ? Promise.reject(skew(hintPid))
             : compatibleConn(),
@@ -338,14 +347,20 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     let onAdoptedCalled = false;
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath: join(d, "primary.pid"),
-      socketPath: primarySock,
+      home: {
+        dir: dirname(primarySock),
+        gatePath: join(d, "primary.pid"),
+        socketPath: primarySock,
+      },
       driver: freshDaemon(primarySock),
-      connect: async () => compatibleConn(), // the primary fresh spawn
+      connect: async (_socketPath) => compatibleConn(), // the primary fresh spawn
       adoptHint: {
-        gatePath: join(d, "hint.pid"),
-        socketPath: hintSock,
-        connect: async () =>
+        home: {
+          dir: dirname(hintSock),
+          gatePath: join(d, "hint.pid"),
+          socketPath: hintSock,
+        },
+        connect: async (_socketPath) =>
           hintSkews && isHolderLive(hintPid)
             ? Promise.reject(skew(hintPid))
             : compatibleConn(),
@@ -382,10 +397,9 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const statuses: EndpointStatus<Identity, Meta>[] = [];
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       driver: freshDaemon(socketPath),
-      connect: async () => {
+      connect: async (_socketPath) => {
         throw new DaemonContractSkewError({
           subject: "padiSurface",
           daemonVersion: "5.0",
@@ -419,8 +433,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const statuses: EndpointStatus<Identity, Meta>[] = [];
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       // Never spawns — the recovery adopts the proven connection directly.
       driver: {
         spawn: async () => {
@@ -429,7 +442,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
           );
         },
       },
-      connect: async () => compatibleConn(),
+      connect: async (_socketPath) => compatibleConn(),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
@@ -451,12 +464,11 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const statuses: EndpointStatus<Identity, Meta>[] = [];
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
-      gatePath,
-      socketPath,
+      home: { dir: dirname(socketPath), gatePath, socketPath },
       // The socket is already held by the compatible orphan, so the "spawn" is a
       // no-op that leaves the holder's socket up (as a real fail-to-bind exit does).
       driver: { spawn: async () => {} },
-      connect: async () => compatibleConn(),
+      connect: async (_socketPath) => compatibleConn(),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,

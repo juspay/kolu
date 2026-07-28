@@ -69,8 +69,11 @@ const router = {} as DaemonSpec["router"];
 /** One full daemon run under the fixture's paths, narrating each stage. */
 async function runDaemon(): Promise<DaemonExit> {
   const exit = await daemonMain({
-    gatePath: join(dir, "gate.pid"),
-    socketPath: join(dir, "daemon.sock"),
+    home: {
+      dir,
+      gatePath: join(dir, "gate.pid"),
+      socketPath: join(dir, "daemon.sock"),
+    },
     router,
     // The fixture exercises tenure (exit ownership), not the anchor — honestly
     // unanchored, like any daemon with no on-disk identity.

@@ -34,7 +34,9 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
+import { createConnection } from "node:net";
 import { dirname } from "node:path";
+import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 
 /** The outcome of trying to take the gate. `acquired` hands back a `release`
  *  the daemon calls at teardown; `held` reports the live pid already serving so
@@ -47,30 +49,6 @@ export type GateAcquisition =
   | { kind: "acquired"; release: () => void }
   | { kind: "held"; pid: number }
   | { kind: "dir-not-private"; dir: string };
-
-/** Is `dir` a private, owner-only directory the current user owns? The gate
- *  shares its parent directory with the socket, and that directory's privacy is
- *  the security boundary for everything it holds (cf. `isPrivateOwnedDir` in
- *  `@kolu/surface/unix-socket`, which guards the socket the same way). On the
- *  stable `/tmp/<app>-$UID` fallback another local user could pre-create the dir
- *  with loose perms and plant a `kaval.pid` holding any live pid; honoring that
- *  gate would let them DoS the daemon (it would exit 0 as "already running")
- *  *before* the socket-side privacy check ever runs. `lstatSync` (NOT
- *  `statSync`) so a symlink is judged as itself and rejected, never followed.
- *  Returns true on platforms without uid semantics (Windows: `process.getuid`
- *  is undefined) — the ACL model there is out of scope. */
-function isPrivateOwnedDir(dir: string): boolean {
-  const getuid = process.getuid?.bind(process);
-  if (getuid === undefined) return true;
-  try {
-    const st = lstatSync(dir);
-    return st.isDirectory() && st.uid === getuid() && (st.mode & 0o077) === 0;
-  } catch {
-    // Couldn't stat the dir at all — treat as not-private (refuse) rather than
-    // assume it's safe.
-    return false;
-  }
-}
 
 /** Is `pid` a live process? `kill(pid, 0)` sends no signal — it only probes:
  *  success or `EPERM` (exists, not ours) ⇒ alive; `ESRCH` ⇒ gone. The daemon's
@@ -99,10 +77,10 @@ export function gatePid(gatePath: string): number | undefined {
 }
 
 /** Take the gate for *this* process, atomically. Returns `acquired` (with a
- *  `release` to call at teardown) or `held` (a live daemon already serves —
- *  exit 0). Bounded retry: each pass either acquires, observes a live holder,
- *  or clears one stale gate and tries again; the cap stops an adversarial
- *  unlink/recreate race from spinning forever. */
+ *  `release` to call at teardown) or `held` (a live process owns the PID in the
+ *  gate file — call {@link confirmHeldGate} with the co-located socket to tell a
+ *  real daemon from a reboot-stale PID reuse). Bounded retry: each pass either
+ *  acquires, observes a live holder, or clears one stale gate and tries again. */
 export function acquirePidGate(gatePath: string): GateAcquisition {
   const dir = dirname(gatePath);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -158,9 +136,11 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
       }
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
 
-      // The gate exists. A live holder wins; a dead one is stale — reap it and
-      // retry. (Concurrent reapers are safe: ENOENT on unlink just means a
-      // peer reaped first, and the next pass re-reads the new state.)
+      // The gate exists. A live holder wins at this layer; a dead one is stale —
+      // reap and retry. (Confirm with {@link confirmHeldGate} that a co-located
+      // socket is actually serving — reboot can reuse a PID while the socket is
+      // dead.) Concurrent reapers are safe: ENOENT on unlink just means a peer
+      // reaped first.
       const pid = gatePid(gatePath);
       if (pid !== undefined && isHolderLive(pid)) {
         return { kind: "held", pid };
@@ -176,4 +156,59 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
   throw new Error(
     `could not acquire pid-gate at ${gatePath} after repeated contention`,
   );
+}
+
+/**
+ * Probe the co-located socket:
+ *   - `serving` — accept works (real daemon)
+ *   - `dead` — socket inode present but connect fails (stale after crash/reboot)
+ *   - `absent` — no socket file yet (holder may still be starting — do NOT reclaim)
+ */
+export function socketServeState(
+  socketPath: string,
+): Promise<"serving" | "dead" | "absent"> {
+  try {
+    if (!lstatSync(socketPath).isSocket()) return Promise.resolve("dead");
+  } catch {
+    return Promise.resolve("absent");
+  }
+  return new Promise((resolve) => {
+    const sock = createConnection(socketPath);
+    const done = (v: "serving" | "dead") => {
+      sock.removeAllListeners();
+      sock.destroy();
+      resolve(v);
+    };
+    sock.once("connect", () => done("serving"));
+    sock.once("error", () => done("dead"));
+  });
+}
+
+/** @deprecated prefer {@link socketServeState} — true only when actively serving */
+export async function socketIsServing(socketPath: string): Promise<boolean> {
+  return (await socketServeState(socketPath)) === "serving";
+}
+
+/**
+ * After {@link acquirePidGate} returns `held`, distinguish:
+ *   - socket **serving** → real daemon, keep held
+ *   - socket **absent** → holder still booting (gate-first fence); keep held
+ *   - socket **dead** → stale gate (reboot PID reuse / crashed daemon); reclaim
+ *
+ * Reclaiming on "absent" would race a legitimate gate-first boot and let a
+ * second process past the single-instance fence (the F12 regression).
+ */
+export async function confirmHeldGate(
+  held: Extract<GateAcquisition, { kind: "held" }>,
+  gatePath: string,
+  socketPath: string,
+): Promise<GateAcquisition> {
+  const state = await socketServeState(socketPath);
+  if (state !== "dead") return held;
+  try {
+    unlinkSync(gatePath);
+  } catch {
+    // Peer already reaped — fall through to re-acquire.
+  }
+  return acquirePidGate(gatePath);
 }

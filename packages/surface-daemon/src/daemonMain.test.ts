@@ -74,24 +74,31 @@ async function deadPid(): Promise<number> {
 }
 
 /** A fresh private (0700) dir with gate + socket paths under it. */
-function paths(): { dir: string; gatePath: string; socketPath: string } {
+function paths(): {
+  dir: string;
+  gatePath: string;
+  socketPath: string;
+  home: { dir: string; gatePath: string; socketPath: string };
+} {
   const dir = mkdtempSync(join(tmpdir(), "kaval-daemon-"));
+  const gatePath = join(dir, "daemon.pid");
+  const socketPath = join(dir, "daemon.sock");
   return {
     dir,
-    gatePath: join(dir, "daemon.pid"),
-    socketPath: join(dir, "daemon.sock"),
+    gatePath,
+    socketPath,
+    home: { dir, gatePath, socketPath },
   };
 }
 
 describeDaemon("daemonMain", () => {
   it("yields to a live instance without serving (already-running)", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     const otherPid = liveChild().pid;
-    writeFileSync(gatePath, `${otherPid}\n`);
+    writeFileSync(home.gatePath, `${otherPid}\n`);
 
     const exit = await daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: unanchored,
       lifetime: { kind: "forever" },
@@ -100,11 +107,11 @@ describeDaemon("daemonMain", () => {
 
     expect(exit).toEqual({ kind: "already-running", pid: otherPid });
     // It never bound a socket of its own.
-    expect(existsSync(socketPath)).toBe(false);
+    expect(existsSync(home.socketPath)).toBe(false);
   });
 
   it("serves, then shuts down on abort — releasing the gate and socket", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     const ac = new AbortController();
     // Arm-before-announce, pinned in-process: by the time `onReady` fires, the
     // shutdown triggers must ALREADY be installed — a supervisor that reacts to
@@ -119,8 +126,7 @@ describeDaemon("daemonMain", () => {
     });
 
     const exitP = daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: unanchored,
       lifetime: { kind: "forever" },
@@ -134,30 +140,29 @@ describeDaemon("daemonMain", () => {
 
     await readyP;
     expect(sigtermAtReady).toBe(sigtermBaseline + 1); // armed BEFORE announced
-    expect(liveHolder(gatePath)).toBe(process.pid); // gate held while serving
+    expect(liveHolder(home.gatePath)).toBe(process.pid); // gate held while serving
     ac.abort();
 
     expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
-    expect(liveHolder(gatePath)).toBeUndefined(); // gate released
-    expect(existsSync(socketPath)).toBe(false); // socket removed
+    expect(liveHolder(home.gatePath)).toBeUndefined(); // gate released
+    expect(existsSync(home.socketPath)).toBe(false); // socket removed
   });
 
   it("shuts down on continuous idleness (idleTimeout)", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     const exit = await daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: unanchored,
       lifetime: { kind: "idleTimeout", ms: 30, isIdle: () => true },
       log: silentLog,
     });
     expect(exit).toEqual({ kind: "shutdown", reason: "idle" });
-    expect(liveHolder(gatePath)).toBeUndefined();
+    expect(liveHolder(home.gatePath)).toBeUndefined();
   });
 
   it("does not time out while activity keeps it busy", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     let busy = true;
     const ac = new AbortController();
     let ready!: () => void;
@@ -166,8 +171,7 @@ describeDaemon("daemonMain", () => {
     });
 
     const exitP = daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: unanchored,
       lifetime: { kind: "idleTimeout", ms: 20, isIdle: () => !busy },
@@ -179,13 +183,13 @@ describeDaemon("daemonMain", () => {
     await readyP;
     // Stay busy well past the idle window, then confirm it is still serving.
     await new Promise((r) => setTimeout(r, 80));
-    expect(liveHolder(gatePath)).toBe(process.pid);
+    expect(liveHolder(home.gatePath)).toBe(process.pid);
     busy = false; // now let it go idle
     expect(await exitP).toEqual({ kind: "shutdown", reason: "idle" });
   });
 
   it("shuts down within one poll tick of the watched pid dying (boundToPid)", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     const watched = liveChild();
     let ready!: () => void;
     const readyP = new Promise<void>((r) => {
@@ -193,8 +197,7 @@ describeDaemon("daemonMain", () => {
     });
 
     const exitP = daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: unanchored,
       lifetime: { kind: "boundToPid", pid: watched.pid, pollMs: 20 },
@@ -203,20 +206,19 @@ describeDaemon("daemonMain", () => {
     });
 
     await readyP;
-    expect(liveHolder(gatePath)).toBe(process.pid); // serving while the run lives
+    expect(liveHolder(home.gatePath)).toBe(process.pid); // serving while the run lives
     watched.kill("SIGKILL"); // the run dies
 
     expect(await exitP).toEqual({ kind: "shutdown", reason: "pid-gone" });
-    expect(liveHolder(gatePath)).toBeUndefined(); // gate released
-    expect(existsSync(socketPath)).toBe(false); // socket removed
+    expect(liveHolder(home.gatePath)).toBeUndefined(); // gate released
+    expect(existsSync(home.socketPath)).toBe(false); // socket removed
   });
 
   it("exits immediately when bound to an already-dead pid (boundToPid) — WITHOUT announcing readiness", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     let announced = 0;
     const exit = await daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: unanchored,
       // A large poll would prove nothing here: the immediate check must fire
@@ -233,18 +235,17 @@ describeDaemon("daemonMain", () => {
     });
     expect(exit).toEqual({ kind: "shutdown", reason: "pid-gone" });
     expect(announced).toBe(0);
-    expect(liveHolder(gatePath)).toBeUndefined();
-    expect(existsSync(socketPath)).toBe(false);
+    expect(liveHolder(home.gatePath)).toBeUndefined();
+    expect(existsSync(home.socketPath)).toBe(false);
   });
 
   it("resolves an already-aborted external signal as a clean abort — WITHOUT announcing readiness", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     const ac = new AbortController();
     ac.abort(); // aborted before the daemon ever arms
     let announced = 0;
     const exit = await daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: unanchored,
       lifetime: { kind: "forever" },
@@ -256,19 +257,18 @@ describeDaemon("daemonMain", () => {
     });
     expect(exit).toEqual({ kind: "shutdown", reason: "abort" });
     expect(announced).toBe(0);
-    expect(liveHolder(gatePath)).toBeUndefined();
-    expect(existsSync(socketPath)).toBe(false);
+    expect(liveHolder(home.gatePath)).toBeUndefined();
+    expect(existsSync(home.socketPath)).toBe(false);
   });
 
   it("rejects a boundToPid lifetime with an invalid pid — releasing the gate (fail-fast at consumption)", async () => {
     // A direct caller can construct any `pid`; an out-of-range value must crash
     // loudly, NOT be swallowed by `isHolderLive` into a clean "pid-gone" exit.
     for (const pid of [0, -1, 2.5, 2 ** 31]) {
-      const { gatePath, socketPath } = paths();
+      const { home } = paths();
       await expect(
         daemonMain({
-          gatePath,
-          socketPath,
+          home,
           router: noRouter,
           anchor: unanchored,
           lifetime: { kind: "boundToPid", pid },
@@ -277,13 +277,13 @@ describeDaemon("daemonMain", () => {
       ).rejects.toThrow(/boundToPid\.pid/);
       // The gate + socket the daemon bound before the throw are released by the
       // `finally`, so a retry is never blocked.
-      expect(liveHolder(gatePath)).toBeUndefined();
-      expect(existsSync(socketPath)).toBe(false);
+      expect(liveHolder(home.gatePath)).toBeUndefined();
+      expect(existsSync(home.socketPath)).toBe(false);
     }
   });
 
   it("disarms the lifetime when onReady throws — rejecting, releasing gate + socket, leaving no listeners", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     // Baselines BEFORE the call: the armed handlers must be gone afterwards, or
     // a test running many daemons accumulates SIGTERM/SIGINT listeners — the
     // exact leak `disarm` exists to prevent on this one non-resolving path.
@@ -295,8 +295,7 @@ describeDaemon("daemonMain", () => {
 
     await expect(
       daemonMain({
-        gatePath,
-        socketPath,
+        home,
         router: noRouter,
         anchor: unanchored,
         lifetime: { kind: "forever" },
@@ -308,21 +307,20 @@ describeDaemon("daemonMain", () => {
     ).rejects.toBe(boom);
 
     // The `finally` released the real side effects…
-    expect(liveHolder(gatePath)).toBeUndefined();
-    expect(existsSync(socketPath)).toBe(false);
+    expect(liveHolder(home.gatePath)).toBeUndefined();
+    expect(existsSync(home.socketPath)).toBe(false);
     // …and `disarm` removed the signal handlers without resolving.
     expect(process.listenerCount("SIGTERM")).toBe(baseline.SIGTERM);
     expect(process.listenerCount("SIGINT")).toBe(baseline.SIGINT);
   });
 
   it("fires onReady with the socket path and pid once listening", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     const ac = new AbortController();
     const seen: Array<{ socketPath: string; pid: number }> = [];
 
     const exitP = daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: unanchored,
       lifetime: { kind: "forever" },
@@ -336,7 +334,7 @@ describeDaemon("daemonMain", () => {
     ac.abort();
     await exitP;
 
-    expect(seen).toEqual([{ socketPath, pid: process.pid }]);
+    expect(seen).toEqual([{ socketPath: home.socketPath, pid: process.pid }]);
   });
 });
 
@@ -349,7 +347,7 @@ describeDaemon("daemonMain", () => {
 // runs these everywhere, not just the gated daemon lane.
 describe("daemonMain — anchor self-reap", () => {
   it("reaps itself once its anchor dir has been gone two consecutive polls (anchor-gone)", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     const anchorDir = mkdtempSync(join(tmpdir(), "daemon-anchor-"));
     let ready!: () => void;
     const readyP = new Promise<void>((r) => {
@@ -357,8 +355,7 @@ describe("daemonMain — anchor self-reap", () => {
     });
 
     const exitP = daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: () => anchorDir,
       anchorPollMs: 20,
@@ -368,16 +365,17 @@ describe("daemonMain — anchor self-reap", () => {
     });
 
     await readyP;
-    expect(liveHolder(gatePath)).toBe(process.pid); // serving while anchored
+    expect(liveHolder(home.gatePath)).toBe(process.pid); // serving while anchored
     rmSync(anchorDir, { recursive: true, force: true }); // the worktree removal
 
     expect(await exitP).toEqual({ kind: "shutdown", reason: "anchor-gone" });
-    expect(liveHolder(gatePath)).toBeUndefined(); // gate released
-    expect(existsSync(socketPath)).toBe(false); // socket removed
+    expect(liveHolder(home.gatePath)).toBeUndefined(); // gate released
+    expect(existsSync(home.socketPath)).toBe(false); // socket removed
   });
 
   it("a returning anchor resets the miss count — a single transient miss never reaps", async () => {
-    const { gatePath, socketPath, dir } = paths();
+    const { home } = paths();
+    const dir = home.dir;
     const gone = join(dir, "never-existed");
     // First poll sees the anchor missing (one miss), every later poll sees the
     // live dir — deterministic via the thunk, no fs race: the count must reset,
@@ -385,8 +383,7 @@ describe("daemonMain — anchor self-reap", () => {
     let calls = 0;
     const ac = new AbortController();
     const exitP = daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: () => {
         calls += 1;
@@ -399,13 +396,14 @@ describe("daemonMain — anchor self-reap", () => {
     });
 
     await vi.waitFor(() => expect(calls).toBeGreaterThan(4));
-    expect(liveHolder(gatePath)).toBe(process.pid); // still serving
+    expect(liveHolder(home.gatePath)).toBe(process.pid); // still serving
     ac.abort();
     expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
   });
 
   it("only ENOENT is proof — an unreadable anchor (ENOTDIR) never counts toward a reap", async () => {
-    const { gatePath, socketPath, dir } = paths();
+    const { home } = paths();
+    const dir = home.dir;
     // `<regular file>/child` lstats to ENOTDIR: "I could not read whether it
     // exists", the opposite of proof — the daemon must keep serving.
     const file = join(dir, "a-file");
@@ -414,8 +412,7 @@ describe("daemonMain — anchor self-reap", () => {
     let polls = 0;
     const ac = new AbortController();
     const exitP = daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: () => {
         polls += 1;
@@ -428,18 +425,17 @@ describe("daemonMain — anchor self-reap", () => {
     });
 
     await vi.waitFor(() => expect(polls).toBeGreaterThan(4));
-    expect(liveHolder(gatePath)).toBe(process.pid); // still serving
+    expect(liveHolder(home.gatePath)).toBe(process.pid); // still serving
     ac.abort();
     expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
   });
 
   it("an undefined anchor — 'not anchored right now' — is never reaped", async () => {
-    const { gatePath, socketPath } = paths();
+    const { home } = paths();
     let polls = 0;
     const ac = new AbortController();
     const exitP = daemonMain({
-      gatePath,
-      socketPath,
+      home,
       router: noRouter,
       anchor: () => {
         polls += 1;
@@ -452,7 +448,7 @@ describe("daemonMain — anchor self-reap", () => {
     });
 
     await vi.waitFor(() => expect(polls).toBeGreaterThan(4));
-    expect(liveHolder(gatePath)).toBe(process.pid); // still serving
+    expect(liveHolder(home.gatePath)).toBe(process.pid); // still serving
     ac.abort();
     expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
   });

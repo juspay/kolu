@@ -10,6 +10,9 @@
  *       (`gatePid`, the pid parse; `isHolderLive`, the liveness probe) that the
  *       supervisor (kolu-server, from B2) composes where it lives — so the
  *       reader itself never crosses into this daemon-hashed package.
+ *     - `daemonHome` — where the daemon's files live (durable state dir vs
+ *       session-scoped runtime dir), created `0700` with gate beside socket
+ *       and `SharedArtifact` registry entries by construction.
  *     - `daemonMain` — the gate → serve → teardown skeleton, parameterized over
  *       the scope key, socket path, surface router, and lifetime policy.
  *     - `daemonProcessMain` — the bin half of that partition: run the daemon
@@ -52,6 +55,18 @@ export {
   daemonBuild,
 } from "./convergenceIdentity.ts";
 export {
+  daemonHome,
+  resolveDaemonHome,
+  type DaemonHome,
+  type DaemonHomeOptions,
+  type DaemonHomePaths,
+  type DaemonHomePlacement,
+  type DaemonHomeRuntimeRoot,
+  type ResolveDaemonHomeOptions,
+  type ResolvedDaemonHome,
+} from "./daemonHome.ts";
+export { isPrivateOwnedDir } from "./privateOwnedDir.ts";
+export {
   anchorGone,
   DAEMON_BIND_PID_ENV,
   type DaemonExit,
@@ -72,8 +87,12 @@ export {
 export { type Logger, stderrLogger } from "./logger.ts";
 export {
   acquirePidGate,
+  confirmHeldGate,
   type GateAcquisition,
   gatePid,
   isHolderLive,
+  socketIsServing,
+  socketServeState,
 } from "./pidGate.ts";
+export type { SharedArtifact } from "./sharedArtifact.ts";
 export { daemonProcessMain } from "./tenure.ts";

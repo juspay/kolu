@@ -30,7 +30,7 @@ import {
   daemonProcessMain,
   stderrLogger,
 } from "@kolu/surface-daemon";
-import { GATE_PATH, SOCKET_PATH } from "../common/paths";
+import { HOME } from "../common/paths";
 import { createTop } from "./top";
 
 daemonProcessMain({
@@ -47,13 +47,10 @@ daemonProcessMain({
       top.start();
 
       return await daemonMain({
-        gatePath: GATE_PATH,
-        socketPath: SOCKET_PATH,
+        // gate, socket, anchor — all derived from home inside the spine
+        home: HOME,
         router: top.router,
         lifetime: { kind: "forever" },
-        // fleet-top keeps no on-disk state — nothing whose absence would make
-        // the daemon garbage — so it is honestly, visibly unanchored.
-        anchor: () => undefined,
         log: stderrLogger(),
         onReady: ({ socketPath, pid }) =>
           process.stderr.write(

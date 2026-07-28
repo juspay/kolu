@@ -2,18 +2,47 @@
  * Where the daemon's single-instance gate + unix socket live.
  *
  * Both the daemon (`daemon/main.ts`) and the supervisor (`supervisor/main.ts`)
- * derive the SAME two paths from the same rule, so the supervisor reads the
- * exact gate the daemon claims and dials the exact socket it serves. A per-user
- * runtime dir keeps them private (the socket-privacy check refuses a
- * world-accessible dir).
+ * build the SAME {@link DaemonHomePaths} from the same rule, so they cannot
+ * disagree about the gate or the socket. Overrides
+ * (`FLEET_TOP_GATE` + `FLEET_TOP_SOCKET`) are absorbed into home construction
+ * via `socketOverride` — never as loose path strings past the spine.
  */
 
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname } from "node:path";
+import {
+  type DaemonHomePaths,
+  daemonHome,
+  resolveDaemonHome,
+} from "@kolu/surface-daemon";
 
-const runtimeDir = process.env.XDG_RUNTIME_DIR ?? tmpdir();
+function fleetTopHome(): DaemonHomePaths {
+  const gate = process.env.FLEET_TOP_GATE;
+  const sock = process.env.FLEET_TOP_SOCKET;
+  if (gate !== undefined || sock !== undefined) {
+    if (gate === undefined || sock === undefined) {
+      throw new Error(
+        "FLEET_TOP_GATE and FLEET_TOP_SOCKET must both be set (or neither) — " +
+          "gate and socket stay side by side",
+      );
+    }
+    if (dirname(gate) !== dirname(sock)) {
+      throw new Error(
+        `FLEET_TOP_GATE (${gate}) and FLEET_TOP_SOCKET (${sock}) must share a directory`,
+      );
+    }
+    // Override absorbed into home construction (gate stem from app).
+    return resolveDaemonHome({
+      app: "fleet-top",
+      placement: "runtime",
+      socketOverride: sock,
+    });
+  }
+  // Materialise the private 0700 home when no harness override is in play.
+  return daemonHome({ app: "fleet-top", placement: "runtime" });
+}
 
-export const GATE_PATH =
-  process.env.FLEET_TOP_GATE ?? join(runtimeDir, "fleet-top.pid");
-export const SOCKET_PATH =
-  process.env.FLEET_TOP_SOCKET ?? join(runtimeDir, "fleet-top.sock");
+/** The daemon/supervisor home — one object, both sides. */
+export const HOME: DaemonHomePaths = fleetTopHome();
+export const HOME_DIR = HOME.dir;
+export const GATE_PATH = HOME.gatePath;
+export const SOCKET_PATH = HOME.socketPath;

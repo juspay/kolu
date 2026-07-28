@@ -29,7 +29,12 @@
  * transition reports.
  */
 
-import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
+import {
+  type DaemonHomePaths,
+  gatePid,
+  isHolderLive,
+  type Logger,
+} from "@kolu/surface-daemon";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
 import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
@@ -248,21 +253,24 @@ export interface EndpointSpec<C, I, M = undefined> {
   /** Which host this endpoint is for. The status is reported per-host so the
    *  shapes stay host-count-agnostic (one local host today; ssh hosts at R-2). */
   hostId: string;
-  /** The daemon's single-instance gate path — the same path the daemon's own
-   *  `daemonMain` derives, so the supervisor reads the true current holder. */
-  gatePath: string;
-  /** The unix socket the daemon serves and we dial. */
-  socketPath: string;
+  /**
+   * On-disk home — the spine primitive. Gate and socket are taken only from
+   * here (the same home the daemon's `daemonMain` holds), never as loose path
+   * strings. Build with `resolveDaemonHome` / `daemonHome`.
+   */
+  home: DaemonHomePaths;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
-  /** Dial `socketPath`, run the contract-version handshake, and return the live
-   *  connection. On a genuine contract skew (an incompatible daemon) it must
-   *  reject with a `DaemonContractSkewError` — the ONE signal `adoptOrEnsure`
-   *  trusts to recycle a live survivor. Every other failure (transport dial,
-   *  unreadable handshake read) rejects with a plain error, which the endpoint
-   *  treats as possibly-transient: `ensure` reports `dead`, and `adoptOrEnsure`
-   *  retries it without ever killing the survivor (F4). */
-  connect(): Promise<DaemonConnection<C, I, M>>;
+  /**
+   * Dial + handshake. The framework hands the socket path (from `home` or the
+   * held rendezvous) — callers never re-thread it: `connect: (socketPath) =>
+   * connectPulse(socketPath)`. On a genuine contract skew reject with
+   * `DaemonContractSkewError` (the ONE signal `adoptOrEnsure` trusts to recycle
+   * a live survivor). Every other failure rejects with a plain error (treated
+   * as possibly-transient: `ensure` reports `dead`; `adoptOrEnsure` retries
+   * without killing the survivor — F4).
+   */
+  connect: (socketPath: string) => Promise<DaemonConnection<C, I, M>>;
   log: Logger;
   /** Called on every state transition — the supervisor publishes it. */
   onStatus(hostId: string, status: EndpointStatus<I, M>): void;
@@ -280,21 +288,20 @@ export interface EndpointSpec<C, I, M = undefined> {
   adoptConnectAttempts?: number;
   /** Spacing between `adoptOrEnsure`'s connect retries. Default 100ms. */
   adoptConnectRetryMs?: number;
-  /** A SECONDARY rendezvous the adopt policies probe ONLY when the PRIMARY
-   *  (`gatePath`/`socketPath`) has no live serving survivor — the W2.2 upgrade
-   *  bridge. The pre-W2.2 kaval lives at a port-keyed socket the digest primary
-   *  does not name; on a compatible survivor there it is ADOPTED (its `onAdopted`
-   *  fires so the caller can record "my daemon is here"), and on a genuine skew it
-   *  is recycled like any survivor. SPAWN is ALWAYS the primary (never the hint), so
-   *  a recycle CONVERGES off the hint to the primary keying — the migration is
-   *  bounded, not a permanent second home. Absent → the endpoint behaves exactly as
-   *  before (a standalone padi with no binder never adopts a stray port kaval). */
+  /** A SECONDARY home the adopt policies probe ONLY when the PRIMARY
+   *  `home` has no live serving survivor — the W2.2 upgrade bridge. The
+   *  pre-W2.2 kaval lives at a port-keyed home the digest primary does not name;
+   *  on a compatible survivor there it is ADOPTED (its `onAdopted` fires so the
+   *  caller can record "my daemon is here"), and on a genuine skew it is recycled
+   *  like any survivor. SPAWN is ALWAYS the primary (never the hint), so a recycle
+   *  CONVERGES off the hint to the primary keying — the migration is bounded, not
+   *  a permanent second home. Absent → the endpoint behaves exactly as before
+   *  (a standalone padi with no binder never adopts a stray port kaval). */
   adoptHint?: {
-    gatePath: string;
-    socketPath: string;
-    /** Dial + handshake the HINT socket (the twin of {@link connect} for the
-     *  primary). A skew rejects `DaemonContractSkewError`, same contract as `connect`. */
-    connect(): Promise<DaemonConnection<C, I, M>>;
+    home: DaemonHomePaths;
+    /** Dial + handshake the HINT socket (twin of {@link connect}; path from
+     *  the framework). */
+    connect: (socketPath: string) => Promise<DaemonConnection<C, I, M>>;
     /** Fired once, right before the adopted-hint connection is held, so the caller
      *  can record the hint socket as its daemon's live location (e.g. the socket
      *  stamped into spawned PTYs and shown in the daemon dialog). */
@@ -418,7 +425,10 @@ export function createEndpoint<C, I, M = undefined>(
   // PRIMARY is where the endpoint SPAWNS (kaval-<digest> for padi); the adopt-HINT
   // (kaval-<port>, upgrade only) is a legacy survivor's rendezvous the primary does
   // not name.
-  const primaryRv = { gatePath: spec.gatePath, socketPath: spec.socketPath };
+  const primaryRv = {
+    gatePath: spec.home.gatePath,
+    socketPath: spec.home.socketPath,
+  };
   // The rendezvous the endpoint currently HOLDS a daemon at — the primary by
   // default, switched to the adopt-hint when a hint survivor is adopted, and RESET
   // to the primary on every spawn. `ensure`'s recycle SIGTERMs the holder at THIS
@@ -426,16 +436,17 @@ export function createEndpoint<C, I, M = undefined>(
   // at the primary — so a recycle always CONVERGES the keying off the hint.
   let held = primaryRv;
 
-  // The `connect` that dials a given rendezvous: `spec.connect` for the primary,
-  // `spec.adoptHint.connect` for the legacy-port hint. So a recovery/recycle at the
-  // HELD rendezvous (which may be the adopted hint) handshakes it with the RIGHT
-  // dialer, not always the primary's.
+  // The `connect` that dials a given rendezvous — framework hands the path.
+  // Primary vs adopt-hint dialer chosen by which socket is held.
   const connectFor = (rv: {
     socketPath: string;
-  }): (() => Promise<DaemonConnection<C, I, M>>) =>
-    rv.socketPath === spec.socketPath
-      ? spec.connect
-      : (spec.adoptHint?.connect ?? spec.connect);
+  }): (() => Promise<DaemonConnection<C, I, M>>) => {
+    const dial =
+      rv.socketPath === spec.home.socketPath
+        ? spec.connect
+        : (spec.adoptHint?.connect ?? spec.connect);
+    return () => dial(rv.socketPath);
+  };
 
   // The emit-guard flag: true only while `holdRestarting` is running a
   // supervised restart's inner sequence. See `emit` for what it coerces.
@@ -850,14 +861,14 @@ export function createEndpoint<C, I, M = undefined>(
     }
 
     const up = await waitForSocket(
-      spec.socketPath,
+      spec.home.socketPath,
       socketReadyMs,
       socketPollMs,
     );
     if (!up) {
       emit({ state: "dead" });
       throw new Error(
-        `daemon socket ${spec.socketPath} never came up within ${socketReadyMs}ms`,
+        `daemon socket ${spec.home.socketPath} never came up within ${socketReadyMs}ms`,
       );
     }
 
@@ -874,7 +885,7 @@ export function createEndpoint<C, I, M = undefined>(
 
     let next: DaemonConnection<C, I, M>;
     try {
-      next = await spec.connect();
+      next = await spec.connect(spec.home.socketPath);
     } catch (err) {
       // A fresh spawn that STILL skews is the proven-incompatible verdict
       // (SK4): the currently-realised closure has been tried and cannot speak
@@ -902,7 +913,7 @@ export function createEndpoint<C, I, M = undefined>(
     spec.log.info(
       {
         hostId: spec.hostId,
-        socketPath: spec.socketPath,
+        socketPath: spec.home.socketPath,
         startedAt: next.startedAt,
       },
       "spawned a fresh daemon and connected",
@@ -1139,7 +1150,7 @@ export function createEndpoint<C, I, M = undefined>(
       return adoptAt(
         primaryRv,
         primaryHolder,
-        spec.connect,
+        connectFor(primaryRv),
         undefined,
         onSkew,
         "primary",
@@ -1180,7 +1191,7 @@ export function createEndpoint<C, I, M = undefined>(
     };
 
     const primary = await settle(
-      await recoverGuarded(primaryRv, spec.connect, policy),
+      await recoverGuarded(primaryRv, connectFor(primaryRv), policy),
     );
     if (primary !== undefined) return primary;
 
@@ -1188,15 +1199,15 @@ export function createEndpoint<C, I, M = undefined>(
     // adopt-HINT (legacy port) rendezvous the digest primary does not name.
     if (spec.adoptHint) {
       const hintRv = {
-        gatePath: spec.adoptHint.gatePath,
-        socketPath: spec.adoptHint.socketPath,
+        gatePath: spec.adoptHint.home.gatePath,
+        socketPath: spec.adoptHint.home.socketPath,
       };
       const hintHolder = await liveServingHolder(hintRv);
       if (hintHolder !== undefined) {
         return adoptAt(
           hintRv,
           hintHolder,
-          spec.adoptHint.connect,
+          connectFor(hintRv),
           spec.adoptHint.onAdopted,
           onSkew,
           "upgrade-hint",
@@ -1207,7 +1218,7 @@ export function createEndpoint<C, I, M = undefined>(
       // not abandoned. On adopt, record the hint as the live location (`onAdopted`);
       // on recycle, the follow-on spawn lands at the PRIMARY, converging the migration.
       const hint = await settle(
-        await recoverGuarded(hintRv, spec.adoptHint.connect, policy),
+        await recoverGuarded(hintRv, connectFor(hintRv), policy),
         spec.adoptHint.onAdopted,
       );
       if (hint !== undefined) return hint;

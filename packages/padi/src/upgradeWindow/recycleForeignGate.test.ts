@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 /**
  * Recycle vs a foreign gate — pins what master actually does when the new
  * supervisor meets a previous-build (or garbage) gate.
@@ -96,8 +97,11 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath: d.gatePath,
-      socketPath: d.socketPath,
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
       driver: {
         spawn: async () => {
           // The recycle must have killed the survivor before we spawn.
@@ -120,7 +124,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
           writeFileSync(d.gatePath, `${process.pid}\n`);
         },
       },
-      connect: async () => ({
+      connect: async (_socketPath) => ({
         client: "fresh",
         identity: { staleKey: "fresh" },
         startedAt: Date.now(),
@@ -175,8 +179,11 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     let spawned = false;
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
-      gatePath: d.gatePath,
-      socketPath: d.socketPath,
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
       driver: {
         spawn: async () => {
           spawned = true;
@@ -185,7 +192,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
           await fresh.listen();
         },
       },
-      connect: async () => ({
+      connect: async (_socketPath) => ({
         client: "fresh",
         identity: { staleKey: "fresh" },
         startedAt: Date.now(),

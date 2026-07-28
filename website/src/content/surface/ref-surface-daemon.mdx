@@ -1,6 +1,6 @@
 ---
 title: "@kolu/surface-daemon reference"
-description: "The daemon binary half: the single-instance pid gate, the gate→serve→teardown skeleton, fronting over stdio, and baked identity."
+description: "The daemon binary half: the on-disk home, the single-instance pid gate, the gate→serve→teardown skeleton, fronting over stdio, and baked identity."
 order: 320
 section: Daemons · Reference
 ---
@@ -13,11 +13,59 @@ carries no `@kolu/*` app dependency; the client half lives separately in
 [@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Single entry
 point, no subpaths.
 
+## The on-disk home
+
+`daemonHome({ app, placement, instance?, socketFile? })` is the one call that
+decides where a daemon's files live. It creates the directory `0700`, verifies
+it is owner-only (throws on a non-private dir), and returns the well-known paths
+with gate and socket side by side — so those two can never drift apart. The
+returned `artifacts` array is a pair of `SharedArtifact` registry entries for
+the gate and socket, so a mixed-version inventory (UW2) is fed by construction.
+
+**This is a spine primitive, not a helper.** `daemonMain({ home })` and the
+supervisor's `createEndpoint({ home, connect: (socketPath) => … })` accept the
+home and derive gate/socket (and, by default, the self-reap anchor) from it —
+loose path strings do not cross consumer → framework. Overrides (CLI `--socket`)
+are absorbed into home construction (`socketOverride`), never sprinkled at call
+sites. `connect` receives the socket path from the framework.
+
+| `placement` | Directory |
+| --- | --- |
+| `"state"` | `~/.local/state/<app>/` ($HOME only — ignores `$XDG_STATE_HOME`) — durable across reboots |
+| `"runtime"` | `$XDG_RUNTIME_DIR/<app>/`, falling back to `/tmp/<app>-$UID/` — boot-wiped |
+
+Optional `instance` (padi's state-root digest, or a legacy port string) is the
+**only** spelling for a decorated home: dir is `<app>-<instance>/`, gate/socket
+basenames keep the bare app stem (`padi-<digest>/padi.pid`, never
+`padi-<digest>.pid`). Do not stuff a pre-joined name into `app`. Optional
+`socketFile` overrides the socket basename (kaval's historical `pty-host.sock`).
+Optional `runtimeRoot` (`string | null`, pure resolve only) lets discovery
+evaluate under another drawer without mutating `process.env` (`null` forces
+`/tmp`). kaval and padi both ride this API; golden tests pin every derived path
+byte-identical to the pre-migration formula.
+
+A daemon that must outlive user sessions (anything supervised over ssh) takes
+`"state"`: logind deletes the runtime dir with the user's last session, leaving
+an orphan process whose socket and gate have vanished.
+
+<Snippet src="packages/surface/example/snippets/daemon.ts" region="home" />
+
+| Export | Role |
+| --- | --- |
+| `daemonHome({ app, placement, instance?, socketFile?, socketOverride? })` | create + verify the home; returns `dir` · `gatePath` · `socketPath` · `file(name)` · `artifacts` |
+| `resolveDaemonHome(…)` | pure path algebra (no mkdir, no env mutation); path helpers, discovery, and the spine consume this |
+| `DaemonHomePaths` | the face the spine speaks (`dir` · `gatePath` · `socketPath`) |
+| `DaemonHome` · `ResolvedDaemonHome` · `DaemonHomeOptions` · `ResolveDaemonHomeOptions` · `DaemonHomePlacement` · `DaemonHomeRuntimeRoot` | return types and options |
+| `isPrivateOwnedDir(dir)` | owner-only privacy predicate (shared with the pid gate) |
+| `SharedArtifact` | one shared on-disk file both generations touch (inventory entry shape) |
+
 ## The lifecycle
 
-`daemonMain(spec)` is the gate → serve → teardown skeleton. It claims a
-single-instance gate, serves the router over a unix socket, waits for the
-lifetime to end — or for the daemon's [anchor](#the-anchor-self-reap) to be
+`daemonMain({ home, … })` is the gate → serve → teardown skeleton. Gate and
+socket come from `home`; the self-reap [anchor](#the-anchor-self-reap) defaults
+to `home.dir` (override when the on-disk identity is not the rendezvous home —
+e.g. padi's state-root). It claims the single-instance gate, serves the router
+over the unix socket, waits for the lifetime to end — or for the anchor to be
 proven gone — then closes the socket, releases the gate, and **returns** a
 `DaemonExit` — it never calls `process.exit`, so the whole lifecycle is drivable
 in-process from a test.
@@ -38,7 +86,7 @@ rest of the process's life.
 
 | Export | Role |
 | --- | --- |
-| `daemonMain(spec)` | the gate → serve → teardown skeleton; resolves a `DaemonExit` |
+| `daemonMain({ home, … })` | the gate → serve → teardown skeleton; gate/socket/default-anchor from `home`; resolves a `DaemonExit` |
 | `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm) |
 | `acquirePidGate(gatePath)` | atomic single-instance claim via `link(2)`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` (the gate dir failed the owner-only check) |
 | `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |
@@ -86,25 +134,24 @@ broken expansion, distinct from unset), non-canonical decimal, fractional, or ou
 
 ## The anchor self-reap
 
-`anchor: () => string | undefined` is a **required** `DaemonSpec` field, armed
-under **every** lifetime (it is an independent trigger, not a lifetime arm —
-`forever ∧ anchored` and `boundToPid ∧ anchored` both occur): the thunk resolves
-the directory the daemon's existence is anchored to — its identity/state root,
-the path whose deletion makes the daemon garbage. Once that directory has been
-**proven** gone for two consecutive polls (5s apart in production;
-`anchorPollMs?` is the test seam), the daemon reaps itself through the normal
-teardown — socket unlinked, gate released, `{ kind: "shutdown", reason:
-"anchor-gone" }`, exit code 0 — instead of lingering as a zombie holding its
-sockets and RSS forever after a `git worktree remove`.
+`anchor` defaults to `() => home.dir` — gate, socket, and anchor all ride the
+home. Override only when the on-disk identity is **not** the rendezvous home
+(kaval's anchor is its padi's state-root, learned from a manifest; padi's is
+its state-root). The thunk is armed under **every** lifetime (an independent
+trigger, not a lifetime arm): once the directory has been **proven** gone for
+two consecutive polls (5s apart in production; `anchorPollMs?` is the test
+seam), the daemon reaps itself through the normal teardown — socket unlinked,
+gate released, `{ kind: "shutdown", reason: "anchor-gone" }`, exit code 0 —
+instead of lingering as a zombie holding its sockets and RSS forever after a
+`git worktree remove`.
 
 Proof is ENOENT-only (`anchorGone(path)`): any other `lstat` failure — EACCES,
 EIO, ENOTDIR — means "I could not read whether it exists", which never counts
 toward a reap. The thunk is re-evaluated every tick, so an anchor learned after
 boot self-corrects (kaval reads the `state-root` manifest its padi writes around
-kaval's own boot), and `undefined` means "not anchored right now" — never
-reaped, and also the honest, visible spelling (`() => undefined`) for a daemon
-with genuinely no on-disk identity. There is deliberately no opt-out knob: a
-daemon author must answer "what is my anchor?" to compile.
+kaval's own boot). `() => undefined` is the honest spelling for a daemon with
+genuinely no on-disk identity (never reaped). Omitting `anchor` is the normal
+case — it defaults to the home.
 
 ## Serving the surface
 

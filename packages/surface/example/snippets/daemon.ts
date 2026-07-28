@@ -1,13 +1,15 @@
 /**
  * The daemon BINARY half — the blocks the `@kolu/surface-daemon` reference
- * embeds. `daemonMain` is the whole gate → serve → teardown skeleton;
- * `frontDaemonOverStdio` is the durable stdio front an ssh session dials.
+ * embeds. `daemonHome` decides the on-disk home; `daemonMain` is the whole
+ * gate → serve → teardown skeleton; `frontDaemonOverStdio` is the durable
+ * stdio front an ssh session dials.
  *
  * Typechecked, never executed — the runtime-y bits live inside functions so the
  * module compiles without spawning anything.
  */
 
 import {
+  daemonHome,
   daemonMain,
   daemonProcessMain,
   frontDaemonOverStdio,
@@ -16,8 +18,12 @@ import {
 } from "@kolu/surface-daemon";
 import { router as serveRouter } from "./serve";
 
-const GATE_PATH = "/run/fleet-top/daemon.pid";
-const SOCKET_PATH = "/run/fleet-top/daemon.sock";
+// #region home
+// Durable ⇒ state dir (never /run): a daemon supervised over ssh must outlive
+// the session that spawned it; logind deletes $XDG_RUNTIME_DIR with the last
+// session. Gate and socket live side by side under the home.
+const home = daemonHome({ app: "fleet-top", placement: "state" });
+// #endregion home
 
 // oRPC's `Lazy<Router>` spread isn't accepted by the strict `Router<any, any>`
 // input type; the runtime shape is valid (the same cast the fleet-top daemon uses).
@@ -31,14 +37,10 @@ export function runDaemon(controller: AbortController): void {
     name: "fleet-top", // crash-arm narration prefix
     run: () =>
       daemonMain({
-        gatePath: GATE_PATH, // the single-instance scope key
-        socketPath: SOCKET_PATH, // where the surface is served
+        // gate, socket, anchor — all derived from home inside the spine
+        home,
         router, // runtime.router — already the final flattened router
         lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
-        // The self-reap anchor: the dir whose deletion makes this daemon
-        // garbage (its state root). fleet-top keeps no on-disk state, so the
-        // honest spelling is the visible "not anchored" thunk.
-        anchor: () => undefined,
         log: stderrLogger(),
         signal: controller.signal,
         onReady: ({ socketPath, pid }) =>
@@ -54,7 +56,7 @@ export function runDaemon(controller: AbortController): void {
 export function frontOverStdio(): Promise<void> {
   // #region front
   return frontDaemonOverStdio({
-    socketPath: SOCKET_PATH,
+    socketPath: home.socketPath,
     spawnDaemon: () => reExecAsDetachedDaemon({ stripArgs: ["--stdio"] }),
     log: (msg) => process.stderr.write(`--stdio: ${msg}\n`),
   });

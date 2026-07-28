@@ -37,7 +37,7 @@ let
   # A no-match glob echoes empty (the loop's `[ -f ]` fails on the literal
   # pattern), so an absent daemon reads as "" — never a crash on the glob literal.
   gateHelpers = ''
-    # packages/padi/src/stateRoot.ts:49 PADI_GATE_FILE + padiNamespace → padi-<digest>/padi.pid
+    # packages/padi/src/stateRoot.ts: padiRuntimeHome → padi-<digest>/padi.pid
     padi_gate_pid() {
       local g
       for g in "$XDG_RUNTIME_DIR"/padi-*/padi.pid; do
@@ -45,7 +45,7 @@ let
       done
       return 0
     }
-    # packages/padi/src/stateRoot.ts:109 kavalNamespaceForDigest → kaval-<digest>/kaval.pid
+    # packages/kaval: resolveDaemonHome({ app: "kaval", instance }) → kaval-<digest>/kaval.pid
     kaval_gate_pid() {
       local g
       for g in "$XDG_RUNTIME_DIR"/kaval-*/kaval.pid; do

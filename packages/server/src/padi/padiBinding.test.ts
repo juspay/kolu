@@ -674,8 +674,11 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     // `converge` (`probePadiForConvergence` → drain) as that newer binder.
     const ep = createEndpoint({
       hostId: PADI_HOST_ID,
-      gatePath: padiGatePath(socketPath),
-      socketPath,
+      home: {
+        dir: dirname(socketPath),
+        gatePath: padiGatePath(socketPath),
+        socketPath,
+      },
       driver: localPadiDriver(
         stateRoot,
         socketPath,
@@ -684,7 +687,7 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
         false,
         undefined,
       ),
-      connect: () => connectPadi(socketPath),
+      connect: (path) => connectPadi(path),
       log: silentLog,
       onStatus: () => {},
     });

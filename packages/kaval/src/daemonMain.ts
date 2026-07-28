@@ -14,7 +14,6 @@
  * fully-specified spawns it is handed.
  */
 
-import { dirname, join } from "node:path";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
 import {
   type DaemonExit,
@@ -22,12 +21,12 @@ import {
   daemonMain,
   lifetimeInfo,
   type Logger,
+  resolveDaemonHome,
 } from "@kolu/surface-daemon";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
-  getPtyHostSocketPath,
-  KAVAL_GATE_FILE,
   KAVAL_NS_PREFIX,
+  PTY_HOST_SOCK_FILE,
   readStateRootManifest,
 } from "./socketPath.ts";
 
@@ -52,14 +51,16 @@ export interface KavalDaemonOptions {
  *  the spine's `DaemonExit` for the bin to map to an exit code. */
 export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   const { log } = opts;
-  // kaval's rendezvous lives under its own app namespace, so kaval-tui's
-  // default (`getPtyHostSocketPath(undefined, "kaval")`) reaches it with no
-  // flags. The gate and the per-PTY init-file dir sit beside the socket in the
-  // same private (0700) directory.
-  const socketPath = getPtyHostSocketPath(opts.socketOverride, KAVAL_NS_PREFIX);
-  const dir = dirname(socketPath);
-  const gatePath = join(dir, KAVAL_GATE_FILE);
-  const rcDir = join(dir, "rc");
+  // kaval's rendezvous is one resolveDaemonHome — overrides (CLI `--socket`)
+  // are absorbed into the home construction, not juggled as loose paths past
+  // the spine. Gate + socket ride `home` into daemonMain.
+  const home = resolveDaemonHome({
+    app: KAVAL_NS_PREFIX,
+    placement: "runtime",
+    socketFile: PTY_HOST_SOCK_FILE,
+    socketOverride: opts.socketOverride,
+  });
+  const rcDir = home.file("rc");
 
   // Resolve the lifetime ONCE, before the router is built: `forever` in
   // production; `boundToPid` when a harness/smoke run set `KOLU_DAEMON_BIND_PID`
@@ -110,8 +111,7 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   let resolvedStateRoot: string | undefined;
 
   return daemonMain({
-    gatePath,
-    socketPath,
+    home,
     router: servedRouter,
     // The same lifetime resolved above (reused, never re-derived) — so the value
     // served on `system.version` is provably the one governing the daemon.
@@ -123,7 +123,7 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     // it around kaval's boot (a one-shot startup read could race it), and a
     // STANDALONE kaval has no manifest at all — the thunk stays `undefined` and
     // it is simply never reaped, its reason to exist untied to any state-root.
-    anchor: () => (resolvedStateRoot ??= readStateRootManifest(dir)),
+    anchor: () => (resolvedStateRoot ??= readStateRootManifest(home.dir)),
     anchorPollMs: opts.stateRootPollMs,
     log,
     signal: opts.signal,
