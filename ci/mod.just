@@ -206,16 +206,35 @@ daemon: install
 upgrade-window: install nix
     #!/usr/bin/env bash
     set -euo pipefail
-    # CI checkouts often have NO tags (shallow / tag-less fetch). Without this
-    # the old "last kaval-touching rev" fallback built a kaval IDENTICAL to
-    # current and the e2e exercised a same-version recycle while staying green.
-    git fetch --tags --force origin 2>/dev/null || git fetch --tags --force
-    ref="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+    # CI checkouts are SHA-only and often have NO local tags. A bare
+    # `git tag` list is empty → the old "last kaval-touching rev" fallback
+    # built a kaval IDENTICAL to current and the e2e green-washed a
+    # same-version recycle. Discover the latest vX.Y.Z from the remote,
+    # fetch THAT tag into the local object store, then nix-build it.
+    ref="$(
+      git ls-remote --tags --refs origin 2>/dev/null \
+        | awk '{print $2}' \
+        | sed 's|refs/tags/||' \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -V \
+        | tail -1 \
+      || true
+    )"
+    if [ -z "${ref}" ]; then
+      # Local-dev fallback: fetch all tags then read the local list.
+      git fetch --tags --force origin 2>/dev/null || git fetch --tags --force || true
+      ref="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+    fi
     if ! [[ "${ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      echo "upgrade-window: REFUSING — no version tag (vX.Y.Z) after git fetch --tags; refusing the last-kaval-commit fallback that collapses the window" >&2
+      echo "upgrade-window: REFUSING — no version tag (vX.Y.Z) via ls-remote/fetch; refusing the last-kaval-commit fallback that collapses the window" >&2
       exit 1
     fi
-    echo "upgrade-window: previous ref=$ref (version tag required)"
+    # Materialise the tag object locally so git+file?ref= can resolve it.
+    git fetch --force origin "refs/tags/${ref}:refs/tags/${ref}" \
+      || { echo "upgrade-window: REFUSING — could not fetch tag ${ref} from origin" >&2; exit 1; }
+    git rev-parse --verify "refs/tags/${ref}" >/dev/null \
+      || { echo "upgrade-window: REFUSING — tag ${ref} not in local object store after fetch" >&2; exit 1; }
+    echo "upgrade-window: previous ref=${ref} (version tag required)"
     prev_out="$(nix build --no-link --print-out-paths "git+file://${PWD}?ref=${ref}#kaval")"
     curr_out="$(nix build --no-link --print-out-paths ".#kaval")"
     echo "upgrade-window: previous kaval store=${prev_out}"

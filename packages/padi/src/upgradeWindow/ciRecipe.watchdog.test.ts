@@ -43,9 +43,9 @@ test("the `upgrade-window` recipe requires the previous binary + anti-collapse r
   expect(recipe).toContain("KOLU_UPGRADE_WINDOW_REQUIRE=1");
   expect(recipe).toContain("previousRelease.e2e.test.ts");
   expect(recipe).toContain("KOLU_DAEMON_TESTS=1");
-  // Tags are not in a shallow CI fetch — without this the last-kaval-commit
-  // fallback builds a kaval identical to current.
-  expect(recipe).toContain("git fetch --tags");
+  // CI checkouts are tag-less — discover via ls-remote, then fetch that tag.
+  expect(recipe).toContain("git ls-remote --tags");
+  expect(recipe).toContain("refs/tags/");
   // Version-tag only — no silent SHA fallback.
   expect(recipe).toMatch(/v\[0-9\]/);
   expect(recipe).toContain("REFUSING");
@@ -53,7 +53,6 @@ test("the `upgrade-window` recipe requires the previous binary + anti-collapse r
   expect(recipe).toContain(".#kaval");
   expect(recipe).toContain("prev_out");
   expect(recipe).toContain("curr_out");
-  // Store-path inequality gate (identical paths = window collapsed).
   expect(recipe).toMatch(/prev_out.*curr_out/);
   expect(recipe).toContain("store paths differ");
   expect(recipe).toContain("KOLU_PREVIOUS_KAVAL_REF");
