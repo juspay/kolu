@@ -12,7 +12,7 @@
  *  rule that derivation encodes. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveFocusedTerminal } from "./useFocusedTerminal";
 
 const TILE = "tile" as TerminalId;
@@ -78,5 +78,27 @@ describe("resolveFocusedTerminal", () => {
     const focused = resolveFocusedTerminal(TILE, () => inTheSplit);
     expect(focused === TILE && focused === SUB).toBe(false);
     expect(focused).not.toBe(TILE);
+  });
+});
+
+// ── THE SECOND REPORTED BUG ───────────────────────────────────────────────
+// The fix above broke the dock's active highlight for every terminal that
+// HOLDS a split. Two causes, both in how absence was handled.
+describe("resolveFocusedTerminal — a terminal that merely HAS splits", () => {
+  it("names the TILE when you have never focused into a split", () => {
+    // No panel state at all. The sub-panel store SEEDS `focusTarget: "sub"`
+    // on first touch, so any reader that accepted a seeded default answered
+    // "the split" for a terminal the user was plainly working in — and the
+    // parent row went dark the moment a terminal grew a split.
+    expect(resolveFocusedTerminal(TILE, () => undefined)).toBe(TILE);
+  });
+
+  it("asks with a READ, never seeding state as a side effect", () => {
+    // The reader used to call `getSubPanel`, which seeds through
+    // `ensureState` — so asking where focus is CREATED the wrong answer, from
+    // inside a memo. Reading is a read.
+    const peek = vi.fn(() => undefined);
+    expect(resolveFocusedTerminal(TILE, peek)).toBe(TILE);
+    expect(peek).toHaveBeenCalledTimes(1);
   });
 });

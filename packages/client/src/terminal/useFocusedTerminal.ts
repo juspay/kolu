@@ -34,8 +34,11 @@ export const useFocusedTerminal = createSharedRoot(() => {
 
   /** The terminal holding your focus, resolved through the sub-panel. */
   const focusedId = createMemo<TerminalId | null>(() =>
+    // `peekSubPanel`, never `getSubPanel`: the latter SEEDS state on first
+    // touch, so a derivation that used it would both write during a read and
+    // manufacture its own answer (the seed says `focusTarget: "sub"`).
     resolveFocusedTerminal(tileStore.activeId(), (id) =>
-      subPanel.getSubPanel(id),
+      subPanel.peekSubPanel(id),
     ),
   );
 
@@ -52,14 +55,23 @@ export const useFocusedTerminal = createSharedRoot(() => {
  *  part worth pinning. */
 export function resolveFocusedTerminal(
   activeTileId: TerminalId | null,
-  panelOf: (id: TerminalId) => {
-    collapsed: boolean;
-    activeSubTab: TerminalId | null;
-    focusTarget: "main" | "sub";
-  },
+  panelOf: (id: TerminalId) =>
+    | {
+        collapsed: boolean;
+        activeSubTab: TerminalId | null;
+        focusTarget: "main" | "sub";
+      }
+    | undefined,
 ): TerminalId | null {
   if (activeTileId === null) return null;
   const panel = panelOf(activeTileId);
+  // NO panel state means nobody has ever opened or focused this terminal's
+  // sub-panel, so you are in the terminal itself. This arm is the whole second
+  // bug: the store's seeded default is `focusTarget: "sub"`, so treating
+  // absence as "read the default" claimed the split for every terminal that
+  // merely HAD one, and the parent row went dark the moment a terminal grew a
+  // split.
+  if (panel === undefined) return activeTileId;
   // A collapsed panel has no visible pane to be focused in, and `focusTarget`
   // remembers a choice you made before collapsing it — so the tile itself is
   // where you are until it reopens.
