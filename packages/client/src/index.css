@@ -440,8 +440,9 @@ body {
 }
 
 /* finished — post-turn linger: soft held ring. One-shot exhale is gated by
- * `data-exhale` (set only on the tier *transition* into finished) so pan /
- * maximize remounts of `.tile-aura` do not re-play the motion. Not a comet. */
+ * `data-exhale` (set only on the tier *transition* into finished) so an
+ * off-screen/maximize Show remount of `.tile-aura` does not re-play the
+ * motion (the shell tracks the transition). Not a comet. */
 [data-canvas-tile][data-aura="finished"] .tile-aura {
   padding: 3px;
   background: color-mix(in oklch, var(--aura-c) 42%, transparent);
@@ -493,9 +494,9 @@ body {
  * never actually stop the motion. Match the animating selectors' specificity
  * so this override wins. */
 @media (prefers-reduced-motion: reduce) {
+  /* No `::after` aura strip remains (ants retired); ::before carries spin. */
   [data-canvas-tile][data-aura] .tile-aura,
-  [data-canvas-tile][data-aura] .tile-aura::before,
-  [data-canvas-tile][data-aura] .tile-aura::after {
+  [data-canvas-tile][data-aura] .tile-aura::before {
     animation: none;
   }
   /* Finished still reads as a soft ring without the exhale motion. */

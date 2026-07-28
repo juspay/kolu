@@ -115,7 +115,8 @@ const CanvasTile: Component<{
 
   // One-shot "tile lands on the plane" — armed only once on mount when the
   // tile is already tiled + awake + motion-ok. Any cancel path (maximize,
-  // sleep, reduced-motion, animationend/cancel) spends the cue permanently.
+  // sleep, reduced-motion, animationend/cancel) spends the cue for this
+  // shell instance (not re-armed without remount).
   const [landing, setLanding] = createSignal(false);
   const spendLanding = () => setLanding(false);
   onMount(() => {
@@ -176,8 +177,9 @@ const CanvasTile: Component<{
 
   // One-shot finished **exhale** — armed only when the tier *transitions*
   // into finished while the motion is observable. Any cancel (off-screen
-  // unmount, active mute, reduced motion, leave finished) spends it so a
-  // remount never re-plays. Held ring stays on `data-aura="finished"` alone.
+  // Show gate, active mute, reduced motion, leave finished) spends it so
+  // a later re-show of `.tile-aura` on the same shell never re-plays.
+  // Held ring stays on `data-aura="finished"` alone.
   const [exhale, setExhale] = createSignal(false);
   let prevAura: TileAura = "none";
   createEffect(() => {
