@@ -23,12 +23,16 @@
  */
 
 import {
+  closeSync,
+  constants as fsConstants,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
