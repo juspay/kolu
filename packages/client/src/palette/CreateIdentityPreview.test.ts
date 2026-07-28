@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PaletteMode } from "../CommandPalette";
-import {
-  createPreviewModel,
-  isNewTerminalPath,
-  NEW_TERMINAL_GROUP,
-} from "./CreateIdentityPreview";
+import { createPreviewModel, isNewTerminalPath } from "./CreateIdentityPreview";
+import { NEW_TERMINAL_GROUP } from "./newTerminalGroup";
 
 describe("isNewTerminalPath", () => {
   it("is true when New terminal is on the path", () => {
@@ -30,7 +27,9 @@ describe("createPreviewModel", () => {
   const filter: PaletteMode = { kind: "filter" };
 
   it("returns null outside New terminal", () => {
-    expect(createPreviewModel([], filter, "", undefined, null)).toBeNull();
+    expect(
+      createPreviewModel([], filter, "", undefined, null, null),
+    ).toBeNull();
   });
 
   it("previews In current directory from active meta", () => {
@@ -55,11 +54,13 @@ describe("createPreviewModel", () => {
           remoteUrl: null,
         },
       } as never,
+      null,
     );
     expect(model?.repoName).toBe("kolu");
     expect(model?.annotation).toBe("main");
     expect(model?.agentLabel).toBe("Plain shell");
     expect(model?.repoColor).toMatch(/^oklch\(/);
+    expect(model?.annotationColor).toMatch(/^oklch\(/);
   });
 
   it("previews a highlighted repo before drill-in", () => {
@@ -75,9 +76,13 @@ describe("createPreviewModel", () => {
         children: [],
       },
       null,
+      null,
     );
     expect(model?.repoName).toBe("spacetime");
     expect(model?.annotation).toBe("worktree name…");
+    // Provisional chrome copy is not a fleet identity key.
+    expect(model?.annotationColor).toBeNull();
+    expect(model?.repoColor).toMatch(/^oklch\(/);
   });
 
   it("tracks typed worktree name and selected agent", () => {
@@ -101,9 +106,34 @@ describe("createPreviewModel", () => {
         data: "claude",
       },
       null,
+      null,
     );
     expect(model?.repoName).toBe("spacetime");
     expect(model?.annotation).toBe("feat-fun-ui");
     expect(model?.agentLabel).toBe("claude");
+    expect(model?.annotationColor).toMatch(/^oklch\(/);
+  });
+
+  it("uses defaultRepo without reading ambient recentRepos", () => {
+    const model = createPreviewModel(pathRoot, filter, "", undefined, null, {
+      repoName: "from-arg",
+    });
+    expect(model?.repoName).toBe("from-arg");
+    expect(model?.annotation).toBe("choose a destination");
+    expect(model?.annotationColor).toBeNull();
+  });
+
+  it("falls back to provisional new when no defaultRepo", () => {
+    const model = createPreviewModel(
+      pathRoot,
+      filter,
+      "",
+      undefined,
+      null,
+      null,
+    );
+    expect(model?.repoName).toBe("new");
+    expect(model?.annotation).toBe("choose a destination");
+    expect(model?.annotationColor).toBeNull();
   });
 });

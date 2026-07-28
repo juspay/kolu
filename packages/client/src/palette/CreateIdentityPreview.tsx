@@ -21,15 +21,15 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { iconForCommand } from "../ui/agentDisplay";
 import { TerminalIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
-
-/** Group name for the create flow — keep in sync with `commands.tsx`. */
-export const NEW_TERMINAL_GROUP = "New terminal";
+import { NEW_TERMINAL_GROUP } from "./newTerminalGroup";
 
 export type CreatePreviewModel = {
   repoName: string;
   repoColor: string;
   annotation: string;
-  annotationColor: string;
+  /** Fleet identity hue when the annotation is a real branch/label; `null`
+   *  for provisional chrome copy ("worktree name…", "choose a destination"). */
+  annotationColor: string | null;
   agentLabel: string;
   AgentIcon: Component<{ class?: string }>;
 };
@@ -41,14 +41,48 @@ export function isNewTerminalPath(
   return path.some((p) => p.name === NEW_TERMINAL_GROUP);
 }
 
-/** Derive the preview from palette navigation state. Pure-ish: reads
- *  live store + recentRepos for cwd / repo facts. */
+/** Dim monogram when no real repo identity is known yet. */
+const NEUTRAL_REPO_COLOR = "oklch(0.55 0.01 250)";
+
+/** One model shape — branches only choose the semantic inputs. */
+function buildModel(
+  repoName: string,
+  annotation: string,
+  agentLabel: string,
+  AgentIcon: Component<{ class?: string }>,
+  opts?: {
+    /** Annotation is provisional UI copy, not a branch/label identity. */
+    provisionalAnnotation?: boolean;
+    /** Repo name is provisional chrome ("new"), not a real group. */
+    provisionalRepo?: boolean;
+  },
+): CreatePreviewModel {
+  const provisionalAnno = opts?.provisionalAnnotation === true;
+  const provisionalRepo = opts?.provisionalRepo === true;
+  const colorKeys: string[] = [];
+  if (!provisionalRepo) colorKeys.push(repoName);
+  if (!provisionalAnno) colorKeys.push(annotation);
+  const colors = colorKeys.length > 0 ? assignColors(colorKeys) : null;
+  return {
+    repoName,
+    repoColor: provisionalRepo ? NEUTRAL_REPO_COLOR : colors!.get(repoName)!,
+    annotation,
+    annotationColor: provisionalAnno ? null : colors!.get(annotation)!,
+    agentLabel,
+    AgentIcon,
+  };
+}
+
+/** Derive the preview from palette navigation state. Pure function of the
+ *  explicit args — callers pass `defaultRepo` (e.g. recentRepos[0]); this fold
+ *  never reads ambient feeds itself. */
 export function createPreviewModel(
   path: readonly { name: string; kind: string }[],
   mode: PaletteMode,
   query: string,
   highlighted: PaletteCommand | PaletteLabel | undefined,
   activeMeta: TerminalMetadata | null | undefined,
+  defaultRepo: { repoName: string } | null,
 ): CreatePreviewModel | null {
   if (!isNewTerminalPath(path)) return null;
 
@@ -56,8 +90,7 @@ export function createPreviewModel(
   if (mode.kind === "value" && path.at(-1)?.kind === "value") {
     const leaf = mode.leaf;
     const repoName = leaf.name;
-    const annotation = query.trim() || "worktree name…";
-    const colors = assignColors([repoName, annotation]);
+    const typed = query.trim();
     const agentLabel =
       highlighted?.kind === "label" ? highlighted.name : "Plain shell";
     const agentCmd =
@@ -66,14 +99,13 @@ export function createPreviewModel(
         : undefined;
     const AgentIcon =
       (agentCmd ? iconForCommand(agentCmd) : undefined) ?? TerminalIcon;
-    return {
+    return buildModel(
       repoName,
-      repoColor: colors.get(repoName)!,
-      annotation,
-      annotationColor: colors.get(annotation)!,
+      typed || "worktree name…",
       agentLabel,
       AgentIcon,
-    };
+      { provisionalAnnotation: typed.length === 0 },
+    );
   }
 
   // New terminal root: highlight drives preview.
@@ -84,58 +116,34 @@ export function createPreviewModel(
     const key = activeMeta
       ? terminalKey({ git: activeMeta.git, cwd: activeMeta.cwd })
       : { group: "shell", label: "current directory" };
-    const colors = assignColors([key.group, key.label]);
-    return {
-      repoName: key.group,
-      repoColor: colors.get(key.group)!,
-      annotation: key.label,
-      annotationColor: colors.get(key.label)!,
-      agentLabel: "Plain shell",
-      AgentIcon: TerminalIcon,
-    };
+    return buildModel(key.group, key.label, "Plain shell", TerminalIcon);
   }
 
   if (highlighted?.kind === "value") {
-    const repoName = highlighted.name;
-    const annotation = "worktree name…";
-    const colors = assignColors([repoName, annotation]);
-    return {
-      repoName,
-      repoColor: colors.get(repoName)!,
-      annotation,
-      annotationColor: colors.get(annotation)!,
-      agentLabel: "Pick agent after name",
-      AgentIcon: TerminalIcon,
-    };
+    return buildModel(
+      highlighted.name,
+      "worktree name…",
+      "Pick agent after name",
+      TerminalIcon,
+      { provisionalAnnotation: true },
+    );
   }
 
   // Default while in New terminal with no useful highlight.
-  const repos = recentRepos();
-  if (repos[0]) {
-    const repoName = repos[0].repoName;
-    const annotation = "choose a destination";
-    const colors = assignColors([repoName, annotation]);
-    return {
-      repoName,
-      repoColor: colors.get(repoName)!,
-      annotation,
-      annotationColor: colors.get(annotation)!,
-      agentLabel: "—",
-      AgentIcon: TerminalIcon,
-    };
+  if (defaultRepo) {
+    return buildModel(
+      defaultRepo.repoName,
+      "choose a destination",
+      "—",
+      TerminalIcon,
+      { provisionalAnnotation: true },
+    );
   }
 
-  const annotation = "choose a destination";
-  const repoName = "new";
-  const colors = assignColors([repoName, annotation]);
-  return {
-    repoName,
-    repoColor: colors.get(repoName)!,
-    annotation,
-    annotationColor: colors.get(annotation)!,
-    agentLabel: "—",
-    AgentIcon: TerminalIcon,
-  };
+  return buildModel("new", "choose a destination", "—", TerminalIcon, {
+    provisionalAnnotation: true,
+    provisionalRepo: true,
+  });
 }
 
 const CreateIdentityPreview: Component<{
@@ -145,15 +153,17 @@ const CreateIdentityPreview: Component<{
   highlighted: PaletteCommand | PaletteLabel | undefined;
 }> = (props) => {
   const store = useTerminalStore();
-  const model = createMemo(() =>
-    createPreviewModel(
+  const model = createMemo(() => {
+    const repos = recentRepos();
+    return createPreviewModel(
       props.path,
       props.mode,
       props.query,
       props.highlighted,
       store.activeMeta(),
-    ),
-  );
+      repos[0] ? { repoName: repos[0].repoName } : null,
+    );
+  });
 
   return (
     <Show when={model()}>
@@ -190,8 +200,16 @@ const CreateIdentityPreview: Component<{
                 {m().repoName}
               </div>
               <div
-                class="annotation-ink font-mono text-[0.68rem] truncate leading-snug mt-0.5"
-                style={{ "--annotation-color": m().annotationColor }}
+                class="font-mono text-[0.68rem] truncate leading-snug mt-0.5"
+                classList={{
+                  "annotation-ink": m().annotationColor != null,
+                  "text-fg-3": m().annotationColor == null,
+                }}
+                style={
+                  m().annotationColor != null
+                    ? { "--annotation-color": m().annotationColor }
+                    : undefined
+                }
                 data-testid="create-preview-annotation"
               >
                 {m().annotation}
