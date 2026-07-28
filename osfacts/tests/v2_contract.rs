@@ -5,8 +5,47 @@
 mod common;
 
 use common::{osfacts, Listener};
+use osfacts::Facet;
 use std::thread;
 use std::time::Duration;
+
+/// `facets.json` is the ONE declaration of the V2 facet vocabulary that both
+/// languages can hold. Rust owns it (the `Facet` enum below is its source);
+/// this test pins the checked-in file to the enum, and
+/// `client-ts/src/facets.test.ts` pins the TypeScript unions to the same file.
+/// Adding a facet on one side without the other therefore fails CI in the fast
+/// unit lane, instead of surfacing as a consumer parse error at runtime.
+#[test]
+fn facets_json_is_the_enum() {
+    let body = include_str!("../facets.json");
+    let file: serde_json::Value = serde_json::from_str(body).expect("facets.json is JSON");
+    let names = |facets: &[Facet]| -> Vec<String> {
+        facets.iter().map(|f| f.as_str().to_owned()).collect()
+    };
+    let listed = |key: &str| -> Vec<String> {
+        file[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("facets.json is missing '{key}'"))
+            .iter()
+            .map(|v| v.as_str().expect("facet names are strings").to_owned())
+            .collect()
+    };
+    assert_eq!(listed("unreadable"), names(Facet::UNREADABLE));
+    assert_eq!(listed("snapshotSource"), names(Facet::SNAPSHOT_SOURCE));
+    assert_eq!(listed("hostSource"), names(Facet::HOST_SOURCE));
+}
+
+/// The one darwin source that feeds four facets must name the facet the ASK
+/// actually loses, not just `proc` — otherwise a `--uid` consumer scoping
+/// blindness by facet reads an empty `uids` array as "no process has a uid".
+/// Linux has no equivalent single-source-many-facets shape; this pins the
+/// vocabulary side of the contract on both.
+#[test]
+fn a_uid_only_ask_can_report_uid_blindness() {
+    assert!(Facet::SNAPSHOT_SOURCE.contains(&Facet::Uid));
+    assert!(Facet::SNAPSHOT_SOURCE.contains(&Facet::Status));
+    assert!(Facet::SNAPSHOT_SOURCE.contains(&Facet::StartTime));
+}
 
 fn rows(stdout: &str, tag: &str) -> Vec<Vec<String>> {
     stdout
@@ -188,14 +227,19 @@ fn narrow_scope_emits_unclaimed_host_listener() {
     assert_eq!(claimed_row[1], "claimed");
     assert_eq!(claimed_row[2], claimed.pid.to_string());
 
-    if errors
-        == [vec![
-            "E".to_owned(),
-            "darwin_tcp_pcblist".to_owned(),
-            "ports_unclaimed".to_owned(),
-            "BLIND_OR_EMPTY".to_owned(),
-        ]]
-    {
+    // Two `E` rows are benign for a `--ports` ask: darwin's unconditional
+    // `ports_uid` (no darwin listener source carries an owning uid) and the
+    // macOS 27 `ports_unclaimed` gate. Neither costs a claimed listener.
+    assert!(
+        errors
+            .iter()
+            .all(|row| matches!(row[2].as_str(), "ports_unclaimed" | "ports_uid")),
+        "unexpected source errors: {errors:?}"
+    );
+    let pcblist_gated = errors
+        .iter()
+        .any(|row| row[1] == "darwin_tcp_pcblist" && row[2] == "ports_unclaimed");
+    if pcblist_gated {
         assert!(
             out.status.success(),
             "claimed facts plus source blindness are a partial success: {stdout}"
@@ -209,7 +253,6 @@ fn narrow_scope_emits_unclaimed_host_listener() {
         return;
     }
     assert!(out.status.success(), "osfacts failed: {stdout}");
-    assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
 
     let outside_row = listeners
         .iter()

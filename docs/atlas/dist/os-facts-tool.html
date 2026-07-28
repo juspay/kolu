@@ -160,6 +160,19 @@ sudo lesson made structural: when an unreadable pid was silently dropped, one
 <code>sudo</code> password prompt emptied the Ports section for every terminal on the
 host; when it threw indiscriminately, one foreign-uid descendant did the
 same.</span></span></span></li>
+<li><strong>One home for the facet vocabulary.</strong> A facet name is a <code>Facet</code> enum variant
+in <code>src/schema.rs</code>, never a string literal at an emit site, and <code>facets.json</code>
+carries the same list to the TypeScript client — pinned from both sides by
+tests in the fast unit lane. The facet set is this contract’s live axis of
+change (2 → 17 across V2, with <code>socket-holders</code> still to come), so adding one
+must be a single edit that fails loudly if only half of it lands, not a typo
+that reaches a consumer as a parse error at runtime.</li>
+<li><strong>A blind source names every facet it costs, at the right scope.</strong> One source
+can feed several facets — darwin’s <code>kern.proc.all</code> supplies process identity,
+start time, uid, <em>and</em> state — so its silence emits one <code>E</code> row per facet the
+ask actually loses. A host-global constant is the mirror image: <code>CLK_TCK</code>, the
+linux page size, and the darwin mach timebase each cost their facet ONCE, as
+one <code>E</code> row, never as one <code>U</code> row per process.</li>
 </ul>
 <table>
 <thead>
@@ -243,6 +256,25 @@ shell, but the binary is setuid root and Apple signs it with the private
 So foreign <code>U mem</code> and <code>U cpu_time</code> rows are real blindness for an ordinary
 osfacts binary, while <code>U proc</code>, <code>U uid</code>, and <code>U start_time</code> rows would be false
 blindness.</span></span></span></p>
+<p>Darwin’s listener rows carry no owning uid: neither <code>net.inet.tcp.pcblist_n</code>’s
+<code>xinpcb_n</code> records nor the libproc fd walk exposes one, where linux’s
+<code>/proc/net/tcp</code> does. So a <code>--ports</code> snapshot on darwin always emits
+<code>E darwin_listeners ports_uid ENOTSUP</code> and leaves every <code>L</code> row’s uid column
+<code>-</code>. Reporting it costs one row and buys the property the whole contract rests
+on: a consumer never has to know which OS it is running on to read a field.</p>
+<p>The two darwin listener sources are always merged as a <strong>union</strong>, never
+switched between. A listener the fd walk positively observed is a fact the tool
+is holding, so a host table that omits it — the shape a <em>partially</em> gated
+<code>pcblist_n</code> would take — cannot delete it. Emptiness of the host table is
+evaluated once, by the caller, and is the sole trigger for the
+<code>ports_unclaimed</code> row. A record the walker cannot frame is a different failure:
+Apple layout drift, reported as <code>E darwin_tcp_pcblist ports EINVAL</code> rather than
+returned as a silently short listener set that looks healthy.</p>
+<p><code>BLIND_OR_EMPTY</code> is the single code for “this source cannot tell <em>gated</em> from
+<em>genuinely empty</em>”, on both platforms — the gated <code>pcblist_n</code> table, and an
+interface list that came back with nothing when <code>lo</code>/<code>lo0</code> always exists. One
+condition, one code: a consumer that branches on the code must not have to know
+which kernel produced the row.</p>
 <p>Host <code>HCPU</code> rows add a nonempty model name and nullable MHz to the cumulative
 per-core counters. The frequency is honestly absent on Apple Silicon rather
 than represented by zero. <code>HDISK</code> carries both <code>freeBytes</code> (<code>bfree</code>) and

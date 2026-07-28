@@ -3,9 +3,9 @@
 
 use crate::cli::{HostArgs, Scope, SnapshotArgs};
 use osfacts::{
-    decode_proc_hex, errno_name, hex_bytes, sanitize_name, Attribution, Cpu, Disk, HostMemory,
-    HostSnapshot, Load, Memory, Network, Port, Proc, ProcessArgv, ProcessCpuTime, ProcessCwd,
-    ProcessStatus, ProcessUid, Snapshot, SourceError, StartTime, Swap, Unreadable,
+    blind_or_empty, decode_proc_hex, hex_bytes, sanitize_name, source_error, Attribution, Cpu,
+    Disk, Facet, HostMemory, HostSnapshot, Load, Memory, Network, Port, Proc, ProcessArgv,
+    ProcessCpuTime, ProcessCwd, ProcessStatus, ProcessUid, Snapshot, StartTime, Swap,
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
@@ -24,7 +24,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             Ok(value) => Some(value),
             Err(err) => {
                 snap.errors
-                    .push(source_error("proc_stat_btime", "start_time", err));
+                    .push(source_error("proc_stat_btime", Facet::StartTime, err));
                 None
             }
         }
@@ -41,11 +41,11 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             Err(err) => {
                 if args.start_time {
                     snap.errors
-                        .push(source_error("sysconf_clk_tck", "start_time", err));
+                        .push(source_error("sysconf_clk_tck", Facet::StartTime, err));
                 }
                 if args.cpu_time {
                     snap.errors
-                        .push(source_error("sysconf_clk_tck", "cpu_time", err));
+                        .push(source_error("sysconf_clk_tck", Facet::CpuTime, err));
                 }
                 None
             }
@@ -53,7 +53,21 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     } else {
         None
     };
-    let page_size = args.mem.then(page_size);
+    // Same rule as the tick rate above: the page size is one host-global
+    // constant. Its failure is one `E` row for the facet it costs, never one
+    // `U` row per process.
+    let page_size = if args.mem {
+        match page_size() {
+            Ok(value) => Some(value),
+            Err(err) => {
+                snap.errors
+                    .push(source_error("sysconf_pagesize", Facet::Mem, err));
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     for &pid in &pids {
         // One snapshot should observe one copy of each proc file. Several
@@ -80,21 +94,20 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                     ppid: row.ppid,
                     name: row.name,
                 }),
-                Err(err) => push_unreadable(&mut snap, pid, "proc", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Proc, err),
             }
         }
-        if args.mem {
-            let page_size = page_size.expect("page size is loaded for memory");
+        if let (true, Some(page)) = (args.mem, page_size) {
             let rss = match stat.as_ref() {
                 Some(stat) => stat
                     .as_deref()
                     .map_err(|err| *err)
-                    .and_then(|stat| page_size.and_then(|page| read_rss_from_stat(stat, page))),
-                None => page_size.and_then(|page| read_rss_from_statm(pid, page)),
+                    .and_then(|stat| read_rss_from_stat(stat, page)),
+                None => read_rss_from_statm(pid, page),
             };
             match rss {
                 Ok(rss_bytes) => snap.memory.push(Memory { pid, rss_bytes }),
-                Err(err) => push_unreadable(&mut snap, pid, "mem", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Mem, err),
             }
         }
         if let (Some(boot_us), Some(clk_hz)) = (boot_us, clk_hz) {
@@ -105,7 +118,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 .map_err(|err| *err);
             match stat.and_then(|stat| read_start_time(stat, boot_us, clk_hz)) {
                 Ok(start_unix_us) => snap.start_times.push(StartTime { pid, start_unix_us }),
-                Err(err) => push_unreadable(&mut snap, pid, "start_time", err),
+                Err(err) => snap.push_unreadable(pid, Facet::StartTime, err),
             }
         }
         if let (true, Some(cpu_hz)) = (args.cpu_time, clk_hz) {
@@ -116,19 +129,19 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 .map_err(|err| *err);
             match stat.and_then(|stat| read_cpu_time(stat, cpu_hz)) {
                 Ok(cpu_time_us) => snap.cpu_times.push(ProcessCpuTime { pid, cpu_time_us }),
-                Err(err) => push_unreadable(&mut snap, pid, "cpu_time", err),
+                Err(err) => snap.push_unreadable(pid, Facet::CpuTime, err),
             }
         }
         if args.uid {
             match read_uid(pid) {
                 Ok(uid) => snap.uids.push(ProcessUid { pid, uid }),
-                Err(err) => push_unreadable(&mut snap, pid, "uid", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Uid, err),
             }
         }
         if args.cwd {
             match read_cwd(pid) {
                 Ok(cwd) => snap.cwds.push(ProcessCwd { pid, cwd }),
-                Err(err) => push_unreadable(&mut snap, pid, "cwd", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Cwd, err),
             }
         }
         if args.status {
@@ -144,7 +157,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                     nice,
                     threads: Some(threads),
                 }),
-                Err(err) => push_unreadable(&mut snap, pid, "status", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Status, err),
             }
         }
         if args.argv {
@@ -155,7 +168,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 .map_err(|err| *err);
             match cmdline.map(read_argv) {
                 Ok(argv) => snap.argv.push(ProcessArgv { pid, argv }),
-                Err(err) => push_unreadable(&mut snap, pid, "argv", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Argv, err),
             }
         }
     }
@@ -171,7 +184,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                                 claims.entry(inode).or_insert(pid);
                             }
                         }
-                        Err(err) => push_unreadable(&mut snap, pid, "ports", err),
+                        Err(err) => snap.push_unreadable(pid, Facet::Ports, err),
                     }
                 }
                 snap.ports = listeners
@@ -188,27 +201,10 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
             }
             // `/proc/net/tcp{,6}` is the only listener source on linux, so its
             // silence costs the whole listener set, claimed rows included.
-            Err((source, err)) => snap.errors.push(source_error(source, "ports", err)),
+            Err((source, err)) => snap.errors.push(source_error(source, Facet::Ports, err)),
         }
     }
 
-    snap.procs.sort_by_key(|row| row.pid);
-    snap.memory.sort_by_key(|row| row.pid);
-    snap.start_times.sort_by_key(|row| row.pid);
-    snap.cpu_times.sort_by_key(|row| row.pid);
-    snap.uids.sort_by_key(|row| row.pid);
-    snap.cwds.sort_by_key(|row| row.pid);
-    snap.statuses.sort_by_key(|row| row.pid);
-    snap.argv.sort_by_key(|row| row.pid);
-    snap.ports.sort_by_key(|row| {
-        let pid = match row.attribution {
-            Attribution::Claimed { pid } => pid,
-            Attribution::Unclaimed => u32::MAX,
-        };
-        (row.port, pid)
-    });
-    snap.unreadable
-        .sort_by_key(|row| (row.pid, row.facet.clone()));
     snap
 }
 
@@ -216,12 +212,16 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
     let mut out = HostSnapshot::new();
     match uptime_us() {
         Ok(v) => out.uptime_us = Some(v),
-        Err(e) => out.errors.push(source_error("proc_uptime", "uptime", e)),
+        Err(e) => out
+            .errors
+            .push(source_error("proc_uptime", Facet::Uptime, e)),
     }
     if args.load {
         match read_load() {
             Ok(v) => out.load = Some(v),
-            Err(e) => out.errors.push(source_error("proc_loadavg", "load", e)),
+            Err(e) => out
+                .errors
+                .push(source_error("proc_loadavg", Facet::Load, e)),
         }
     }
     if args.mem {
@@ -230,25 +230,33 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
                 out.memory = Some(m);
                 out.swap = Some(s)
             }
-            Err(e) => out.errors.push(source_error("proc_meminfo", "mem", e)),
+            Err(e) => out.errors.push(source_error("proc_meminfo", Facet::Mem, e)),
         }
     }
     if args.cpu {
         match read_cpus() {
             Ok(v) => out.cpus = v,
-            Err((source, e)) => out.errors.push(source_error(source, "cpu", e)),
+            Err((source, e)) => out.errors.push(source_error(source, Facet::Cpu, e)),
         }
     }
     if args.net {
         match read_networks() {
+            // `lo` is always present, so an empty parse means the file did not
+            // have the shape this reader expects — blindness, not a host with
+            // no interfaces. That is the same indistinguishable-empty condition
+            // darwin's gated interface table hits, so it carries the same code
+            // rather than a platform-specific errno.
+            Ok(v) if v.is_empty() => out.errors.push(blind_or_empty("proc_net_dev", Facet::Net)),
             Ok(v) => out.networks = v,
-            Err(e) => out.errors.push(source_error("proc_net_dev", "net", e)),
+            Err(e) => out.errors.push(source_error("proc_net_dev", Facet::Net, e)),
         }
     }
     if args.disk {
         match read_root_disk() {
             Ok(v) => out.disks.push(v),
-            Err(e) => out.errors.push(source_error("statvfs_root", "disk", e)),
+            Err(e) => out
+                .errors
+                .push(source_error("statvfs_root", Facet::Disk, e)),
         }
     }
     out
@@ -266,7 +274,7 @@ fn collect_pids(scope: &Scope, snap: &mut Snapshot) -> Vec<u32> {
                     continue;
                 }
                 if !Path::new(&format!("/proc/{root}")).exists() {
-                    push_unreadable(snap, root, "proc", libc::ENOENT);
+                    snap.push_unreadable(root, Facet::Proc, libc::ENOENT);
                     continue;
                 }
                 out.push(root);
@@ -731,11 +739,7 @@ fn read_networks() -> Result<Vec<Network>, i32> {
             tx_bytes: tx,
         })
     }
-    // `lo` is always present, so an empty parse means the file did not have the
-    // shape this reader expects — blindness, not a host with no interfaces.
-    if out.is_empty() {
-        return Err(libc::EINVAL);
-    }
+    // Emptiness is not this reader's to judge — `host` reads it as blindness.
     Ok(out)
 }
 fn read_root_disk() -> Result<Disk, i32> {
@@ -753,26 +757,6 @@ fn read_root_disk() -> Result<Disk, i32> {
     })
 }
 
-fn push_unreadable(s: &mut Snapshot, pid: u32, facet: &str, err: i32) {
-    if !s
-        .unreadable
-        .iter()
-        .any(|u| u.pid == pid && u.facet == facet)
-    {
-        s.unreadable.push(Unreadable {
-            pid,
-            facet: facet.into(),
-            errno: errno_name(err),
-        })
-    }
-}
-fn source_error(source: &str, facet: &str, err: i32) -> SourceError {
-    SourceError {
-        source: source.into(),
-        facet: facet.into(),
-        code: errno_name(err),
-    }
-}
 fn read_string(path: &str) -> Result<String, i32> {
     let mut file = fs::File::open(path).map_err(|err| raw_errno(&err))?;
     let mut body = String::with_capacity(4096);

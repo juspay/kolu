@@ -187,8 +187,26 @@ pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>, V
     (version, procs, ports, unreadable, errors)
 }
 
+/// The macOS 27 gate: the host-wide `pcblist_n` table told us nothing.
 pub fn darwin_pcblist_is_blind(errors: &[String]) -> bool {
-    errors == ["E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY"]
+    errors
+        .iter()
+        .any(|row| row == "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY")
+}
+
+/// Every `E` row a `--ports` snapshot may legitimately carry without any
+/// claimed listener being lost.
+///
+/// Two on darwin: `ports_uid` is unconditional (neither darwin listener source
+/// exposes a socket's owning uid, so the `L` uid column is always `-` there),
+/// and `ports_unclaimed BLIND_OR_EMPTY` is the macOS 27 gate. Linux carries
+/// neither. A test asserting "nothing blinded this scan" must ignore both and
+/// nothing else.
+pub fn only_benign_port_source_errors(errors: &[String]) -> bool {
+    errors.iter().all(|row| {
+        row == "E\tdarwin_listeners\tports_uid\tENOTSUP"
+            || row == "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY"
+    })
 }
 
 pub fn l_addr_for_port(ports: &[String], port: u16) -> String {

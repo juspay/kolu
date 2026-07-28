@@ -6,10 +6,14 @@
 
 use crate::cli::{HostArgs, Scope, SnapshotArgs};
 use osfacts::{
-    errno_name, hex_bytes, sanitize_name, slot_from_vflag, AddressSlot, Attribution, Cpu, Disk,
-    HostMemory, HostSnapshot, Load, Memory, Network, Port, Proc, ProcessArgv, ProcessCpuTime,
-    ProcessCwd, ProcessStatus, ProcessUid, Snapshot, SourceError, StartTime, Swap, Unreadable,
+    attribute_host_listeners, blind_or_empty, decode_host_listeners, hex_bytes, sanitize_name,
+    slot_from_vflag, source_error, AddressSlot, Cpu, Disk, Facet, HostListener, HostMemory,
+    HostSnapshot, Load, Memory, Network, Proc, ProcessArgv, ProcessCpuTime, ProcessCwd,
+    ProcessStatus, ProcessUid, Snapshot, StartTime, Swap, TCP_STATE_LISTEN,
 };
+// `Port`, the listener merge, and the `pcblist_n` record walk live in
+// `osfacts::pcblist` — pure, and therefore compiled and tested on every
+// platform rather than only this one.
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
 use std::mem;
@@ -24,10 +28,6 @@ const PROC_PIDPATHINFO_MAXSIZE: usize = 4 * 1024;
 const PROC_PIDFDSOCKETINFO: c_int = 3;
 const PROX_FDTYPE_SOCKET: u32 = 2;
 const SOCKINFO_TCP: c_int = 2;
-const TSI_S_LISTEN: c_int = 1;
-const XSO_INPCB: u32 = 0x010;
-const XSO_TCPCB: u32 = 0x020;
-const INP_IPV6: u8 = 0x2;
 const PROCESSOR_CPU_LOAD_INFO: c_int = 2;
 const PROC_VNODEPATHINFO_SIZE: usize = 2_352;
 const VNODE_CDIR_PATH_OFFSET: usize = 152;
@@ -44,15 +44,6 @@ const KINFO_COMM_OFFSET: usize = 243;
 const KINFO_COMM_SIZE: usize = 17;
 const KINFO_RUID_OFFSET: usize = 392;
 const KINFO_PPID_OFFSET: usize = 560;
-
-// Apple XNU declares `xinpcb_n` under `#pragma pack(4)`. Keep these offsets
-// beside the decoder: lport follows xi_inpp + fport, while vflag and the local
-// 16-byte address follow the generation/flags/flow prefix. The corresponding
-// `xtcpcb_n` state follows t_segq, dupacks, and four timers.
-const XINPCB_LPORT_OFFSET: usize = 18;
-const XINPCB_VFLAG_OFFSET: usize = 44;
-const XINPCB_LADDR_OFFSET: usize = 64;
-const XTCPCB_STATE_OFFSET: usize = 36;
 
 #[repr(C)]
 struct ProcTaskInfo {
@@ -197,11 +188,50 @@ extern "C" {
 
 pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     let mut snap = Snapshot::new();
-    let timebase = args.cpu_time.then(read_mach_timebase);
+    // The mach timebase is one host-global constant, so its failure is one `E`
+    // row for the facet it costs — never one `U` row per process. Same rule as
+    // linux's CLK_TCK and page size.
+    let timebase = if args.cpu_time {
+        match read_mach_timebase() {
+            Ok(value) => Some(value),
+            Err(err) => {
+                snap.errors
+                    .push(source_error("mach_timebase_info", Facet::CpuTime, err));
+                None
+            }
+        }
+    } else {
+        None
+    };
     let process_table = match read_process_table() {
         Ok(rows) => rows,
         Err(err) => {
-            snap.errors.push(source_error("kern_proc_all", "proc", err));
+            // `kern.proc.all` is the sole source of FOUR facets, not one, plus
+            // the pid enumeration itself. Naming only `proc` would let a
+            // consumer that correctly scopes source blindness to the facets it
+            // reads conclude it is not blind and take an empty `uids` array as
+            // "this host has no processes with uids" — the collapse-to-empty
+            // the `facet` field exists to prevent. One row per costed facet,
+            // exactly as linux does for `sysconf_clk_tck`.
+            let mut costed = false;
+            for (asked, facet) in [
+                (args.procs, Facet::Proc),
+                (args.start_time, Facet::StartTime),
+                (args.uid, Facet::Uid),
+                (args.status, Facet::Status),
+            ] {
+                if asked {
+                    snap.errors.push(source_error("kern_proc_all", facet, err));
+                    costed = true;
+                }
+            }
+            if !costed {
+                // The ask named none of those four, but the table is still how
+                // this snapshot learns which pids exist. Losing it is never
+                // silent.
+                snap.errors
+                    .push(source_error("kern_proc_all", Facet::Proc, err));
+            }
             return snap;
         }
     };
@@ -220,7 +250,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                     ppid: row.ppid,
                     name: process_name(pid, &row.name),
                 }),
-                Err(err) => push_unreadable(&mut snap, pid, "proc", *err),
+                Err(err) => snap.push_unreadable(pid, Facet::Proc, *err),
             }
         }
         let task = if args.mem || args.cpu_time || args.status {
@@ -234,7 +264,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                     pid,
                     rss_bytes: row.pti_resident_size,
                 }),
-                Err(err) => push_unreadable(&mut snap, pid, "mem", *err),
+                Err(err) => snap.push_unreadable(pid, Facet::Mem, *err),
             }
         }
         if args.start_time {
@@ -243,35 +273,32 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                     pid,
                     start_unix_us: row.start_unix_us,
                 }),
-                Err(err) => push_unreadable(&mut snap, pid, "start_time", *err),
+                Err(err) => snap.push_unreadable(pid, Facet::StartTime, *err),
             }
         }
-        if args.cpu_time {
-            match (
-                task.as_ref().expect("task requested"),
-                timebase.as_ref().expect("timebase requested"),
-            ) {
-                (Ok(row), Ok(timebase)) => snap.cpu_times.push(ProcessCpuTime {
+        if let (true, Some(timebase)) = (args.cpu_time, timebase) {
+            match task.as_ref().expect("task requested") {
+                Ok(row) => snap.cpu_times.push(ProcessCpuTime {
                     pid,
                     cpu_time_us: mach_ticks_to_us(
                         row.pti_total_user,
                         row.pti_total_system,
-                        *timebase,
+                        timebase,
                     ),
                 }),
-                (Err(err), _) | (_, Err(err)) => push_unreadable(&mut snap, pid, "cpu_time", *err),
+                Err(err) => snap.push_unreadable(pid, Facet::CpuTime, *err),
             }
         }
         if args.uid {
             match bsd.as_ref().expect("bsd requested") {
                 Ok(row) => snap.uids.push(ProcessUid { pid, uid: row.uid }),
-                Err(err) => push_unreadable(&mut snap, pid, "uid", *err),
+                Err(err) => snap.push_unreadable(pid, Facet::Uid, *err),
             }
         }
         if args.cwd {
             match read_cwd(pid) {
                 Ok(cwd) => snap.cwds.push(ProcessCwd { pid, cwd }),
-                Err(err) => push_unreadable(&mut snap, pid, "cwd", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Cwd, err),
             }
         }
         if args.status {
@@ -290,7 +317,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                                 (task.pti_threadnum > 0).then_some(task.pti_threadnum as u32)
                             }
                             Err(err) => {
-                                push_unreadable(&mut snap, pid, "status_threads", *err);
+                                snap.push_unreadable(pid, Facet::StatusThreads, *err);
                                 None
                             }
                         };
@@ -301,21 +328,34 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                             threads,
                         });
                     }
-                    Err(err) => push_unreadable(&mut snap, pid, "status", err),
+                    Err(err) => snap.push_unreadable(pid, Facet::Status, err),
                 },
-                Err(err) => push_unreadable(&mut snap, pid, "status", *err),
+                Err(err) => snap.push_unreadable(pid, Facet::Status, *err),
             }
         }
         if args.argv {
             match read_argv(pid) {
                 Ok(argv) => snap.argv.push(ProcessArgv { pid, argv }),
-                Err(err) => push_unreadable(&mut snap, pid, "argv", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Argv, err),
             }
         }
     }
 
     if args.ports {
-        let mut claims = HashMap::<(u16, String), Vec<u32>>::new();
+        // Neither darwin listener source carries the socket's owning uid:
+        // `pcblist_n`'s `xinpcb_n` has no uid field and the fd walk answers
+        // "which pid holds this fd", not "who owns the socket". Linux's
+        // `/proc/net/tcp` does, so `L`'s uid column is `-` on darwin for every
+        // row, always. That is a fact this platform cannot read, so it is
+        // reported rather than left for a consumer to infer from its own
+        // `process.platform` — the one thing a platform-independent contract
+        // must never require.
+        snap.errors.push(source_error(
+            "darwin_listeners",
+            Facet::PortsUid,
+            libc::ENOTSUP,
+        ));
+        let mut claims = HashMap::<HostListener, Vec<u32>>::new();
         for &pid in &wanted {
             match listener_claims(pid) {
                 Ok(rows) => {
@@ -323,45 +363,33 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                         claims.entry((port, address)).or_default().push(pid);
                     }
                 }
-                Err(err) => push_unreadable(&mut snap, pid, "ports", err),
+                Err(err) => snap.push_unreadable(pid, Facet::Ports, err),
             }
         }
         match host_listeners() {
             Ok(rows) => {
-                let host_table_blind = rows.is_empty();
-                snap.ports = attribute_host_listeners(rows, &claims);
-                if host_table_blind {
+                // The ONE evaluation of "the host-wide table told us nothing".
+                // `attribute_host_listeners` no longer re-derives it: it always
+                // unions, so this decides the `E` row and nothing else.
+                if rows.is_empty() {
                     // The host-wide table is the ONLY source of listeners no
                     // readable pid claims; the same-uid fd walk above already
                     // supplied every claimed one. So its silence costs the
                     // unclaimed facet alone — a consumer that folds listeners
                     // per subtree loses nothing and must not go blind.
-                    snap.errors.push(SourceError {
-                        source: "darwin_tcp_pcblist".into(),
-                        facet: "ports_unclaimed".into(),
-                        code: "BLIND_OR_EMPTY".into(),
-                    });
+                    snap.errors
+                        .push(blind_or_empty("darwin_tcp_pcblist", Facet::PortsUnclaimed));
                 }
+                snap.ports = attribute_host_listeners(rows, &claims);
             }
             // A hard sysctl failure never reached `attribute_host_listeners`,
             // so nothing populated `snap.ports` — the whole facet is gone.
             Err(err) => snap
                 .errors
-                .push(source_error("darwin_tcp_pcblist", "ports", err)),
+                .push(source_error("darwin_tcp_pcblist", Facet::Ports, err)),
         }
     }
 
-    snap.procs.sort_by_key(|row| row.pid);
-    snap.memory.sort_by_key(|row| row.pid);
-    snap.start_times.sort_by_key(|row| row.pid);
-    snap.cpu_times.sort_by_key(|row| row.pid);
-    snap.uids.sort_by_key(|row| row.pid);
-    snap.cwds.sort_by_key(|row| row.pid);
-    snap.statuses.sort_by_key(|row| row.pid);
-    snap.argv.sort_by_key(|row| row.pid);
-    snap.ports.sort_by_key(|row| row.port);
-    snap.unreadable
-        .sort_by_key(|row| (row.pid, row.facet.clone()));
     snap
 }
 
@@ -371,12 +399,14 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
         Ok(value) => out.uptime_us = Some(value),
         Err(err) => out
             .errors
-            .push(source_error("kern_boottime", "uptime", err)),
+            .push(source_error("kern_boottime", Facet::Uptime, err)),
     }
     if args.load {
         match read_load() {
             Ok(value) => out.load = Some(value),
-            Err(err) => out.errors.push(source_error("getloadavg", "load", err)),
+            Err(err) => out
+                .errors
+                .push(source_error("getloadavg", Facet::Load, err)),
         }
     }
     if args.mem {
@@ -385,13 +415,13 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
                 out.memory = Some(memory);
                 out.swap = Some(swap);
             }
-            Err((source, err)) => out.errors.push(source_error(source, "mem", err)),
+            Err((source, err)) => out.errors.push(source_error(source, Facet::Mem, err)),
         }
     }
     if args.cpu {
         match read_cpus() {
             Ok(value) => out.cpus = value,
-            Err((source, err)) => out.errors.push(source_error(source, "cpu", err)),
+            Err((source, err)) => out.errors.push(source_error(source, Facet::Cpu, err)),
         }
     }
     if args.net {
@@ -400,18 +430,17 @@ pub fn host(args: &HostArgs) -> HostSnapshot {
         // host without interfaces — the same indistinguishable shape as the
         // pcblist table, and reported the same way.
         if networks.is_empty() {
-            out.errors.push(SourceError {
-                source: "sysinfo_networks".into(),
-                facet: "net".into(),
-                code: "BLIND_OR_EMPTY".into(),
-            });
+            out.errors
+                .push(blind_or_empty("sysinfo_networks", Facet::Net));
         }
         out.networks = networks;
     }
     if args.disk {
         match read_root_disk() {
             Ok(value) => out.disks.push(value),
-            Err(err) => out.errors.push(source_error("statvfs_root", "disk", err)),
+            Err(err) => out
+                .errors
+                .push(source_error("statvfs_root", Facet::Disk, err)),
         }
     }
     out
@@ -477,7 +506,7 @@ fn subtree(roots: &[u32], process_table: &HashMap<u32, BsdRow>, snap: &mut Snaps
     let mut queue = Vec::new();
     for &root in roots {
         if !process_table.contains_key(&root) {
-            push_unreadable(snap, root, "proc", libc::ESRCH);
+            snap.push_unreadable(root, Facet::Proc, libc::ESRCH);
             continue;
         }
         if seen.insert(root) {
@@ -728,7 +757,7 @@ fn cstr_field(buf: &[u8]) -> Option<String> {
     (end != 0).then(|| String::from_utf8_lossy(&buf[..end]).into_owned())
 }
 
-fn listener_claims(pid: u32) -> Result<Vec<(u16, String)>, i32> {
+fn listener_claims(pid: u32) -> Result<Vec<HostListener>, i32> {
     unsafe {
         *libc::__error() = 0;
         let size = proc_pidinfo(pid as c_int, PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0);
@@ -769,7 +798,7 @@ fn listener_claims(pid: u32) -> Result<Vec<(u16, String)>, i32> {
                 continue;
             }
             let tcp = socket.psi.soi_proto.pri_tcp;
-            if tcp.tcpsi_state != TSI_S_LISTEN {
+            if tcp.tcpsi_state != TCP_STATE_LISTEN {
                 continue;
             }
             let port = u16::from_be(tcp.tcpsi_ini.insi_lport as u16);
@@ -788,80 +817,9 @@ fn listener_claims(pid: u32) -> Result<Vec<(u16, String)>, i32> {
     }
 }
 
-fn host_listeners() -> Result<Vec<(u16, String)>, i32> {
+fn host_listeners() -> Result<Vec<HostListener>, i32> {
     let bytes = sysctl_bytes("net.inet.tcp.pcblist_n")?;
     decode_host_listeners(&bytes)
-}
-
-fn decode_host_listeners(bytes: &[u8]) -> Result<Vec<(u16, String)>, i32> {
-    if bytes.len() < 4 {
-        return Ok(Vec::new());
-    }
-    let header_len = read_u32(&bytes, 0)? as usize;
-    let mut offset = round_up_8(header_len);
-    let mut pending: Option<(u16, String)> = None;
-    let mut out = Vec::new();
-    while offset + 8 <= bytes.len() {
-        let len = read_u32(&bytes, offset)? as usize;
-        if len <= 24 || offset + len > bytes.len() {
-            break;
-        }
-        let kind = read_u32(&bytes, offset + 4)?;
-        if kind == XSO_INPCB && len >= 84 {
-            let raw_port = u16::from_ne_bytes(
-                bytes[offset + XINPCB_LPORT_OFFSET..offset + XINPCB_LPORT_OFFSET + 2]
-                    .try_into()
-                    .unwrap(),
-            );
-            let port = u16::from_be(raw_port);
-            let vflag = bytes[offset + XINPCB_VFLAG_OFFSET];
-            let local = &bytes[offset + XINPCB_LADDR_OFFSET..offset + XINPCB_LADDR_OFFSET + 16];
-            let address = if vflag & INP_IPV6 != 0 {
-                hex_bytes(local)
-            } else {
-                hex_bytes(&local[12..16])
-            };
-            pending = Some((port, address));
-        } else if kind == XSO_TCPCB && len >= 40 {
-            let state = i32::from_ne_bytes(
-                bytes[offset + XTCPCB_STATE_OFFSET..offset + XTCPCB_STATE_OFFSET + 4]
-                    .try_into()
-                    .unwrap(),
-            );
-            if state == TSI_S_LISTEN {
-                if let Some(row) = pending.take() {
-                    if row.0 != 0 {
-                        out.push(row);
-                    }
-                }
-            } else {
-                pending = None;
-            }
-        }
-        offset = offset.saturating_add(round_up_8(len));
-    }
-    Ok(out)
-}
-
-fn attribute_host_listeners(
-    mut rows: Vec<(u16, String)>,
-    claims: &HashMap<(u16, String), Vec<u32>>,
-) -> Vec<Port> {
-    if rows.is_empty() {
-        rows.extend(claims.keys().cloned());
-        rows.sort();
-    }
-    rows.into_iter()
-        .map(|(port, address)| Port {
-            attribution: claims
-                .get(&(port, address.clone()))
-                .and_then(|pids| pids.first())
-                .map_or(Attribution::Unclaimed, |&pid| Attribution::Claimed { pid }),
-            uid: None,
-            port,
-            address,
-        })
-        .collect()
 }
 
 fn read_load() -> Result<Load, i32> {
@@ -1127,32 +1085,6 @@ fn read_i64(bytes: &[u8], offset: usize) -> Result<i64, i32> {
         .ok_or(libc::EINVAL)
 }
 
-fn round_up_8(value: usize) -> usize {
-    value.saturating_add(7) & !7
-}
-
-fn push_unreadable(snap: &mut Snapshot, pid: u32, facet: &str, err: i32) {
-    if !snap
-        .unreadable
-        .iter()
-        .any(|row| row.pid == pid && row.facet == facet)
-    {
-        snap.unreadable.push(Unreadable {
-            pid,
-            facet: facet.into(),
-            errno: errno_name(err),
-        });
-    }
-}
-
-fn source_error(source: &str, facet: &str, err: i32) -> SourceError {
-    SourceError {
-        source: source.into(),
-        facet: facet.into(),
-        code: errno_name(err),
-    }
-}
-
 fn errno() -> i32 {
     unsafe { *libc::__error() }
 }
@@ -1236,46 +1168,5 @@ mod tests {
             mach_ticks_to_us(750_000, 250_000, MachTimebase { numer: 1, denom: 1 }),
             1_000
         );
-    }
-
-    #[test]
-    fn macos_27_platform_pcblist_decodes_every_netstat_listener() {
-        let bytes = include_bytes!("../tests/fixtures/darwin/macos27-pcblist-platform.bin");
-        let rows = decode_host_listeners(bytes).expect("decode platform-signed capture");
-
-        assert_eq!(bytes.len(), 54_872);
-        assert_eq!(rows.len(), 29);
-        assert!(rows
-            .iter()
-            .all(|(port, address)| *port != 0 && !address.is_empty()));
-    }
-
-    #[test]
-    fn macos_27_adhoc_pcblist_is_the_detectable_empty_shape() {
-        let bytes = include_bytes!("../tests/fixtures/darwin/macos27-pcblist-adhoc.bin");
-        let rows = decode_host_listeners(bytes).expect("decode ad-hoc capture");
-
-        assert_eq!(bytes.len(), 48);
-        assert!(
-            rows.is_empty(),
-            "the empty table must reach BLIND_OR_EMPTY detection"
-        );
-    }
-
-    #[test]
-    fn macos_27_gate_keeps_same_uid_fd_claims() {
-        let bytes = include_bytes!("../tests/fixtures/darwin/macos27-pcblist-adhoc.bin");
-        let host_rows = decode_host_listeners(bytes).expect("decode ad-hoc capture");
-        let claims = HashMap::from([((54314, "7f000001".into()), vec![4242])]);
-
-        let rows = attribute_host_listeners(host_rows, &claims);
-
-        assert_eq!(rows.len(), 1);
-        assert!(matches!(
-            rows[0].attribution,
-            Attribution::Claimed { pid: 4242 }
-        ));
-        assert_eq!(rows[0].port, 54314);
-        assert_eq!(rows[0].address, "7f000001");
     }
 }

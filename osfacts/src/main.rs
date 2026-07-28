@@ -58,17 +58,7 @@ fn run_snapshot(args: SnapshotArgs) -> ExitCode {
 }
 
 fn snapshot_exit_code(snap: &Snapshot) -> ExitCode {
-    let has_facts = !snap.procs.is_empty()
-        || !snap.memory.is_empty()
-        || !snap.start_times.is_empty()
-        || !snap.cpu_times.is_empty()
-        || !snap.uids.is_empty()
-        || !snap.cwds.is_empty()
-        || !snap.statuses.is_empty()
-        || !snap.argv.is_empty()
-        || !snap.ports.is_empty()
-        || !snap.unreadable.is_empty();
-    if snap.errors.is_empty() || has_facts {
+    if snap.errors.is_empty() || snap.has_facts() {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -76,13 +66,19 @@ fn snapshot_exit_code(snap: &Snapshot) -> ExitCode {
 }
 
 fn take_snapshot(args: &SnapshotArgs) -> Snapshot {
+    // Row order belongs to the schema, not to a sensor: normalize here, once,
+    // so both platforms emit the same TSV for the same facts.
     #[cfg(target_os = "linux")]
     {
-        return linux::snapshot(args);
+        let mut snap = linux::snapshot(args);
+        snap.normalize();
+        return snap;
     }
     #[cfg(target_os = "macos")]
     {
-        return darwin::snapshot(args);
+        let mut snap = darwin::snapshot(args);
+        snap.normalize();
+        return snap;
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
@@ -109,14 +105,7 @@ fn run_host(args: HostArgs) -> ExitCode {
 }
 
 fn host_exit_code(host: &HostSnapshot) -> ExitCode {
-    let has_facts = host.load.is_some()
-        || host.memory.is_some()
-        || host.swap.is_some()
-        || host.uptime_us.is_some()
-        || !host.cpus.is_empty()
-        || !host.networks.is_empty()
-        || !host.disks.is_empty();
-    if host.errors.is_empty() || has_facts {
+    if host.errors.is_empty() || host.has_facts() {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -150,7 +139,7 @@ fn write_version_only() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use osfacts::{Proc, SourceError};
+    use osfacts::{blind_or_empty, source_error, Facet, Proc};
 
     #[test]
     fn partial_source_failure_does_not_discard_good_facts() {
@@ -160,11 +149,8 @@ mod tests {
             ppid: 1,
             name: "readable".into(),
         });
-        snap.errors.push(SourceError {
-            source: "darwin_tcp_pcblist".into(),
-            facet: "ports_unclaimed".into(),
-            code: "BLIND_OR_EMPTY".into(),
-        });
+        snap.errors
+            .push(blind_or_empty("darwin_tcp_pcblist", Facet::PortsUnclaimed));
 
         assert_eq!(snapshot_exit_code(&snap), ExitCode::SUCCESS);
     }
@@ -172,12 +158,23 @@ mod tests {
     #[test]
     fn source_failure_without_any_facts_is_fatal() {
         let mut snap = Snapshot::new();
-        snap.errors.push(SourceError {
-            source: "proc_listpids".into(),
-            facet: "proc".into(),
-            code: "EPERM".into(),
-        });
+        snap.errors
+            .push(source_error("proc_listpids", Facet::Proc, libc::EPERM));
 
+        assert_eq!(snapshot_exit_code(&snap), ExitCode::from(1));
+    }
+
+    /// A host-global constant that fails costs the facet ONCE, as one `E` row —
+    /// never N per-pid `U` rows. Both such constants (linux page size, darwin
+    /// mach timebase) report this way, so a consumer scoping blindness by facet
+    /// writes one rule.
+    #[test]
+    fn a_failed_host_global_constant_is_one_source_error_not_n_pid_rows() {
+        let mut snap = Snapshot::new();
+        snap.errors
+            .push(source_error("sysconf_pagesize", Facet::Mem, libc::EIO));
+
+        assert!(snap.unreadable.is_empty());
         assert_eq!(snapshot_exit_code(&snap), ExitCode::from(1));
     }
 
@@ -185,11 +182,8 @@ mod tests {
     fn partial_host_source_failure_does_not_discard_good_facts() {
         let mut host = HostSnapshot::new();
         host.uptime_us = Some(1);
-        host.errors.push(SourceError {
-            source: "net_rt_iflist2".into(),
-            facet: "net".into(),
-            code: "EPERM".into(),
-        });
+        host.errors
+            .push(source_error("net_rt_iflist2", Facet::Net, libc::EPERM));
 
         assert_eq!(host_exit_code(&host), ExitCode::SUCCESS);
     }

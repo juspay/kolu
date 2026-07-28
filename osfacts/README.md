@@ -152,10 +152,25 @@ what changed. `netstat` carries `com.apple.private.network.statistics`; osfacts
 does not.
 
 The 48-byte shape is indistinguishable from a genuinely empty host-wide table,
-so osfacts keeps reporting `E darwin_tcp_pcblist BLIND_OR_EMPTY`. It does not
-throw away facts it got elsewhere: the same-uid fd walk still emits its claimed
-listeners. What macOS 27 gates is the independent table that would also reveal
-listeners no readable pid claimed.
+so osfacts keeps reporting
+`E darwin_tcp_pcblist ports_unclaimed BLIND_OR_EMPTY`. It does not throw away
+facts it got elsewhere: the same-uid fd walk still emits its claimed listeners,
+and the two sources are always merged as a union, so a table that omits a
+listener the fd walk positively saw cannot delete it. What macOS 27 gates is
+the independent table that would also reveal listeners no readable pid claimed.
+
+A record the walker cannot frame is a different thing entirely. That is Apple
+layout drift, and it fails loudly — `E darwin_tcp_pcblist ports EINVAL` —
+rather than returning the rows read so far as a healthy, silently short table.
+The 24-byte closing record every capture ends with is a terminator, not a
+malformed record; both committed fixtures pin the difference.
+
+Darwin also says out loud what it cannot read at all: neither of its listener
+sources carries a socket's owning uid, so a `--ports` snapshot there always
+emits `E darwin_listeners ports_uid ENOTSUP` and every `L` row's uid column is
+`-`. Linux's `/proc/net/tcp` supplies it. Without that row a consumer would
+have to know which OS it was running on to interpret a field of a
+platform-independent contract.
 
 Same binary, same honesty, different OS policy.
 
@@ -177,10 +192,33 @@ A hard failure of the only listener source — `/proc/net/tcp` on linux, or a
 `net.inet.tcp.pcblist_n` sysctl that errors rather than returning the empty
 shape — costs the whole facet and says `ports`.
 
+One source can cost several facets, and then it says so once per facet.
+Darwin's `kern.proc.all` is the sole supplier of process identity, start time,
+uid, and state — so when it fails, a `--uid --status` ask gets
+`E kern_proc_all uid <errno>` and `E kern_proc_all status <errno>`, not a bare
+`proc` row a uid consumer would scope away before reading an empty table as
+"this host has no processes with uids".
+
+A host-global constant that fails is the mirror image: it costs the facet
+once, as one `E` row, never one `U` row per process. Linux's `CLK_TCK` and
+page size and darwin's mach timebase all report that way. Otherwise a
+single failed `sysconf` would arrive as several hundred per-pid rows and a
+successful exit.
+
+The facet vocabulary itself has one home: the `Facet` enum in `src/schema.rs`.
+No reader spells a facet as a string literal, and `facets.json` carries the
+same list across to the TypeScript client, pinned from both sides by tests.
+
 Host facets follow the same rule and are individually optional: a failed
 uptime read emits `E <source> uptime <code>` and simply omits the `HUP` row,
 rather than publishing a fabricated `0` a consumer would read as a legitimate
 just-booted host.
+
+`BLIND_OR_EMPTY` is the one code for a source that cannot tell *gated* from
+*genuinely empty*, on both platforms. `lo`/`lo0` always exists, so an empty
+interface table is a gated read on either OS, and both say so the same way —
+a consumer that branches on the code must not have to know which kernel
+produced the row.
 
 ## Who uses it
 

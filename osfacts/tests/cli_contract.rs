@@ -8,7 +8,7 @@ mod common;
 
 use common::{
     darwin_pcblist_is_blind, hermetic_snapshot, hex_of_v4, hex_of_v6, l_addr_for_port,
-    l_rows_for_port, osfacts, parse_tsv, redact_tsv, snapshot_pids,
+    l_rows_for_port, only_benign_port_source_errors, osfacts, parse_tsv, redact_tsv, snapshot_pids,
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -26,7 +26,7 @@ fn fixture_loopback_v4() {
         "helper pid must appear: {procs:?}"
     );
     assert!(
-        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        only_benign_port_source_errors(&errors),
         "unexpected source errors: {errors:?}"
     );
     assert_eq!(
@@ -51,7 +51,7 @@ fn fixture_any_v4() {
         .iter()
         .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
     assert!(
-        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        only_benign_port_source_errors(&errors),
         "unexpected source errors: {errors:?}"
     );
     assert_eq!(
@@ -82,7 +82,7 @@ fn fixture_loopback_v6() {
         .iter()
         .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
     assert!(
-        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        only_benign_port_source_errors(&errors),
         "unexpected source errors: {errors:?}"
     );
     assert_eq!(
@@ -113,7 +113,7 @@ fn fixture_any_v6() {
         .iter()
         .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
     assert!(
-        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        only_benign_port_source_errors(&errors),
         "unexpected source errors: {errors:?}"
     );
     assert_eq!(
@@ -145,7 +145,7 @@ fn fixture_v4_mapped_loopback() {
         .iter()
         .any(|p| p.starts_with(&format!("P\t{}\t", h.listener_pid))));
     assert!(
-        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        only_benign_port_source_errors(&errors),
         "unexpected source errors: {errors:?}"
     );
     assert_eq!(
@@ -187,7 +187,7 @@ fn pid_without_listener_has_no_claimed_listener() {
         "asked pid must appear so empty L is 'no listeners', not 'saw nothing'"
     );
     assert!(
-        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        only_benign_port_source_errors(&errors),
         "unexpected source errors: {errors:?}"
     );
     // OSF6 emits unrelated host rows as unclaimed. It must not claim one for
@@ -264,17 +264,25 @@ fn json_mirrors_tsv_on_same_snapshot() {
             .any(|p| p.starts_with(&format!("P\t{}\t", listener.pid))),
         "partial snapshot must preserve process facts: {tsv}"
     );
+    // The JSON face must carry every field the TSV row does — `facet`
+    // included, which is what makes a blind source scopeable. Matched by
+    // content, not by index: a snapshot may legitimately carry more than one
+    // benign `E` row.
+    let json_errors = val["errors"].as_array().expect("errors");
     if darwin_pcblist_is_blind(&errors) {
-        assert_eq!(
-            val["errors"][0],
-            serde_json::json!({
+        assert!(
+            json_errors.contains(&serde_json::json!({
                 "source": "darwin_tcp_pcblist",
+                "facet": "ports_unclaimed",
                 "code": "BLIND_OR_EMPTY"
-            })
+            })),
+            "json must mirror the tsv E row; json={json_errors:?}"
         );
-    } else {
-        assert!(errors.is_empty(), "unexpected source errors: {errors:?}");
     }
+    assert!(
+        only_benign_port_source_errors(&errors),
+        "unexpected source errors: {errors:?}"
+    );
     let tsv_addr = l_addr_for_port(&ports, listener.port);
     let json_ports = val["ports"].as_array().expect("ports");
     assert!(
@@ -300,7 +308,7 @@ fn roots_includes_helper_process() {
         "root pid must appear; procs={procs:?}"
     );
     assert!(
-        errors.is_empty() || darwin_pcblist_is_blind(&errors),
+        only_benign_port_source_errors(&errors),
         "unexpected source errors: {errors:?}"
     );
     assert_eq!(
