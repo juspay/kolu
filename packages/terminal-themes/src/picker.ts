@@ -117,13 +117,13 @@ function chroma(lab: OkLab): number {
 }
 
 /** True when the theme's background has enough chroma to count as "colourful"
- *  (not grey). Exported for the test suite. */
+ *  (not grey). Garish ceilings stay on the quality gate only — this is the
+ *  floor. Exported for the test suite. */
 export function themeColourful(t: NamedTheme): boolean {
   const bg = t.theme.background;
   const lab = bg ? getLab(bg) : undefined;
   if (!lab) return false;
-  const c = chroma(lab);
-  return c >= MIN_COLOURFUL_CHROMA && c <= MAX_CANDIDATE_CHROMA;
+  return chroma(lab) >= MIN_COLOURFUL_CHROMA;
 }
 
 /** Pool filter passed to {@link pickTheme}. */
@@ -164,8 +164,7 @@ function filterEligible(
   const inMode = (t: NamedTheme): boolean => {
     if (!mode) return true;
     if (mode === "colourful") return themeColourful(t);
-    const lab = getLab(t.theme.background ?? "");
-    return lab !== undefined && labFamily(lab) === mode;
+    return themeMode(t) === mode;
   };
   const notExcluded = (t: NamedTheme): boolean =>
     !excludeBgs?.has(t.theme.background ?? "");

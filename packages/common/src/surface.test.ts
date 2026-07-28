@@ -1,9 +1,9 @@
 /**
- * `shuffleMode` (in `./surface.ts`) — the single source resolving which luminance
- * family a theme shuffle draws from, given the `shuffleBehavior` preference and
- * the app's resolved dark mode. (The terminal-vocabulary tests —
- * `composeTerminalMetadata` and friends — moved to `@kolu/padi`'s `vocab.test.ts`
- * with the schemas they exercise.)
+ * `shuffleMode` (in `./surface.ts`) — the single source resolving the candidate
+ * pool filter a theme shuffle applies (`light` / `dark` / `colourful` / unrestricted),
+ * given the `shuffleBehavior` preference and the app's resolved dark mode. (The
+ * terminal-vocabulary tests — `composeTerminalMetadata` and friends — moved to
+ * `@kolu/padi`'s `vocab.test.ts` with the schemas they exercise.)
  */
 
 import { padiSurface } from "@kolu/padi/surface";

@@ -246,19 +246,17 @@ export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
 export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
 
-/** Pool filter for {@link pickTheme}'s `mode` — luminance family, colourful
- *  (saturated) tints, or unrestricted. */
-export type ShuffleMode = "light" | "dark" | "colourful";
-
 /** The candidate-pool filter a shuffle should apply, from the
  *  `shuffleBehavior` preference and the app's resolved dark mode.
- *  `undefined` means no restriction (`random` — the whole catalogue). The
+ *  `undefined` means no restriction (`random` — the whole catalogue).
+ *  Otherwise `"light"` / `"dark"` / `"colourful"` — the same literals
+ *  `pickTheme`'s `mode` accepts (`ThemePickMode` in terminal-themes). The
  *  single source of truth for every shuffle: a `shuffle` new terminal AND the
  *  ⌘⇧J action both resolve their pool through here. */
 export function shuffleMode(
   behavior: ShuffleBehavior,
   isDark: boolean,
-): ShuffleMode | undefined {
+): "light" | "dark" | "colourful" | undefined {
   return match(behavior)
     .with("random", () => undefined)
     .with("dark", () => "dark" as const)
