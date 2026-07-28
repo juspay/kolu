@@ -1,7 +1,7 @@
 ---
 title: Surface lifetime audit — who enforces "X dies when Y dies"
 description: A 29-seam sweep of the surface stack's lifetime contracts, hunting siblings of the stdio-orphan class — 10 framework-owned, 13 consumer-homework, 4 unenforced; two real siblings confirmed, one already fixed by #1851, plus a ranked follow-up list.
-parents: [stdio-agent-lifetime, analysis]
+parents: [surface-daemon, analysis]
 status: implemented
 maturity: budding
 updated: 2026-07-16
@@ -9,7 +9,7 @@ updated: 2026-07-16
 
 import Footnote from "../../components/Footnote.astro";
 
-The stdio-orphan discovery ([stdio-agent-lifetime](stdio-agent-lifetime.html),
+The stdio-orphan discovery ([stdio-agent-lifetime](archived-notes.html),
 drishti#109) posed a generalizable question: **for every resource the surface
 stack creates or holds, who enforces its death — the framework, the consumer's
 discipline, or nobody?** This note records the answer: a 3-phase adversarial
@@ -46,7 +46,7 @@ and the dispositions — not all 29 rows.</Footnote>
   and the ControlMaster tunnel lingers ~10&nbsp;min. Today that makes the
   remote agent's death pure convention — the drishti#109 mechanism from the
   dialer's side. Disposition: **mostly absorbed by
-  [stdio-agent-lifetime](stdio-agent-lifetime.html)** (EOF self-exit becomes
+  [stdio-agent-lifetime](archived-notes.html)** (EOF self-exit becomes
   framework-owned at the agent); the **residual belt** — dialer-side bounded
   kill (agent reports its pid at handshake; `dispose()` issues `ssh host
   kill <pid>`) for the wedged-agent case EOF can't reach — is a recorded
@@ -89,7 +89,7 @@ unix socket). The transports differ only in the holds:
 
 | assembly | holds | teardown chain today |
 | --- | --- | --- |
-| stdio/ssh agent | the one link | framework-owned after [stdio-agent-lifetime](stdio-agent-lifetime.html) |
+| stdio/ssh agent | the one link | framework-owned after [stdio-agent-lifetime](archived-notes.html) |
 | socket daemon | gate + policy (idle timeout, state-root watcher, parent pid — the `boundToPid` shape) | framework-owned: `close()` stops accepting **and disconnects established peer serves** (<a href="https://github.com/juspay/kolu/pull/1870">#1870</a>); dispose surface → exit owned by `daemonProcessMain` (<a href="https://github.com/juspay/kolu/pull/1862">#1862</a>) |
 | `daemonMain` bins | already modeled (`DaemonExit` resolves on drain/idle/watch) | framework-owned: `daemonProcessMain` owns the exit (<a href="https://github.com/juspay/kolu/pull/1862">#1862</a>) |
 
