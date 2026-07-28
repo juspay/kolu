@@ -612,7 +612,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(adopted).toBe(true);
+    expect(adopted.kind).toBe("adopted-resident");
     expect(spawnCalled).toBe(false); // never spawned a fresh daemon
     expect(survivorExited).toBe(false); // never killed the survivor
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
@@ -683,7 +683,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(adopted).toBe(true); // adopted on the retry, not recycled
+    expect(adopted.kind).toBe("adopted-resident"); // adopted on the retry, not recycled
     expect(connectCount).toBe(2); // failed once, succeeded on the second attempt
     expect(spawnCalled).toBe(false); // never spawned a fresh daemon
     expect(survivorExited).toBe(false); // never killed the survivor
@@ -756,7 +756,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await survivorExited; // the skewed survivor was killed before the fresh spawn
 
-    expect(adopted).toBe(false); // recycled, not adopted
+    expect(adopted.kind).toBe("spawned-fresh"); // recycled, not adopted
     expect(spawned).toBe(true); // a fresh daemon was spawned after the kill
     // 1 skew (no retry — skew is terminal) + 1 fresh connect = 2, NOT 4.
     expect(connectCount).toBe(2);
@@ -946,7 +946,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(adopted).toBe(false); // nothing adopted, nothing to reconcile
+    expect(adopted.kind).toBe("refused-or-failed"); // nothing adopted, nothing to reconcile
     expect(connectCount).toBe(3); // retried every attempt before giving up
     expect(spawnCalled).toBe(false); // NEVER spawned a fresh daemon
     expect(survivorExited).toBe(false); // NEVER killed the survivor (PTYs preserved)
@@ -1060,7 +1060,7 @@ describeDaemon(
       // Give any (erroneous) SIGTERM a tick to land.
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(adopted).toBe(false); // refused, not adopted
+      expect(adopted.kind).toBe("refused-or-failed"); // refused, not adopted
       expect(spawnCalled).toBe(false); // NEVER spawned a fresh daemon over it
       expect(survivorExited).toBe(false); // NEVER killed the running padi (the delta)
       expect(connectCount).toBe(1); // skew is terminal — no retries
@@ -1132,7 +1132,7 @@ describeDaemon(
       const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(adopted).toBe(true);
+      expect(adopted.kind).toBe("adopted-resident");
       expect(spawnCalled).toBe(false);
       expect(survivorExited).toBe(false);
       expect(endpoint.current()?.identity).toEqual({ staleKey: "survivor" });
@@ -1275,7 +1275,7 @@ describeDaemon(
       const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
-      expect(adopted).toBe(true);
+      expect(adopted.kind).toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "primary" });
       expect(hintConnectCalled).toBe(false); // the hint is only a PRIMARY-empty fallback
       expect(onAdoptedCalled).toBe(false);
@@ -1334,7 +1334,7 @@ describeDaemon(
       const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
-      expect(adopted).toBe(true);
+      expect(adopted.kind).toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "legacy" }); // adopted the hint
       expect(onAdoptedCalled).toBe(true); // recorded the hint socket as the live location
       expect(driverSpawnCalled).toBe(false); // adopted, never spawned a fresh digest kaval
@@ -1402,7 +1402,7 @@ describeDaemon(
       const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
-      expect(adopted).toBe(false);
+      expect(adopted.kind).toBe("spawned-fresh");
       expect(legacy.exited()).toBe(true); // the SKEWED legacy kaval was recycled (killed)
       expect(driverSpawnCalled).toBe(true); // fresh spawn — at the PRIMARY (digest), not the hint
       expect(ep.current()?.identity).toEqual({ staleKey: "primary-fresh" });

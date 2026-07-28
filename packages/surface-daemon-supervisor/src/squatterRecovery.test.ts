@@ -335,7 +335,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     expect(isHolderLive(primaryPid)).toBe(false); // primary squatter recycled...
     expect(hintDialed).toBe(false); // ...before the hint was ever consulted (not masked)
-    expect(adopted).toBe(false); // fresh spawn at the primary
+    expect(adopted.kind).toBe("spawned-fresh"); // fresh spawn at the primary
     expect(endpoint.current()?.client).toBe("FRESH");
   });
 
