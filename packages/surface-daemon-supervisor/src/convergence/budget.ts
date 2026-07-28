@@ -20,8 +20,7 @@
  */
 
 import type { DaemonBuild } from "@kolu/surface-daemon";
-import { buildLabel } from "@kolu/surface-daemon";
-import type { DrainBudget } from "./policy.ts";
+import type { ConvergencePolicy, DrainBudget } from "./policy.ts";
 
 /** A running daemon's budget identity — build + instance key. */
 export type DrainLineage = {
@@ -42,24 +41,41 @@ export type DrainAdmission =
 export interface DrainBudgetMemory {
   /** May we drain this lineage? Records the attempt on `"drain"`. */
   admit(lineage: DrainLineage, why: string): DrainAdmission;
-  /** Policy data this memory was created with (for give-up mapping). */
-  readonly policy: DrainBudget;
+  /** The whole drainable policy this memory was created from — decide + budget. */
+  readonly policy: ConvergencePolicy<"drainable">;
+  /** Convenience: the Cap-gated budget data (same as `policy.drainBudget`). */
+  readonly drainBudget: DrainBudget;
 }
 
+/** Structural keys — never display-string concatenation (so 1 ≠ "1", null ≠ "null"). */
 function lineageKey(lineage: DrainLineage): string {
-  return `${buildLabel(lineage.build)}\0${String(lineage.instanceKey)}`;
+  const b = lineage.build;
+  const buildPart =
+    b.kind === "known" ? `known:${b.id}` : b.kind === "off-nix" ? "off-nix" : "unknown";
+  const inst = lineage.instanceKey;
+  const instPart =
+    inst === null
+      ? "null"
+      : typeof inst === "number"
+        ? `n:${inst}`
+        : `s:${inst}`;
+  return `${buildPart}\0${instPart}`;
 }
 
 function buildKey(build: DaemonBuild): string {
-  return buildLabel(build);
+  return build.kind === "known" ? `known:${build.id}` : "off-nix";
 }
 
 /** A fresh, empty budget memory for one supervisor boot. Exactly one per boot;
- *  shared by every dial / admit of that boot. */
-export function createDrainBudget(policy: DrainBudget): DrainBudgetMemory {
-  if (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1) {
+ *  shared by every dial / admit of that boot. Takes the whole policy so
+ *  `convergeAdmit` cannot cross-wire a different policy with this memory. */
+export function createDrainBudget(
+  policy: ConvergencePolicy<"drainable">,
+): DrainBudgetMemory {
+  const drainBudget = policy.drainBudget;
+  if (!Number.isInteger(drainBudget.maxAttempts) || drainBudget.maxAttempts < 1) {
     throw new Error(
-      `drainBudget.maxAttempts must be a positive integer, got ${policy.maxAttempts}`,
+      `drainBudget.maxAttempts must be a positive integer, got ${drainBudget.maxAttempts}`,
     );
   }
   // Lineages we have drained (or committed to drain) this boot — by full (build, instance).
@@ -71,6 +87,7 @@ export function createDrainBudget(policy: DrainBudget): DrainBudgetMemory {
 
   return {
     policy,
+    drainBudget,
     admit(lineage, why) {
       const lkey = lineageKey(lineage);
       const bkey = buildKey(lineage.build);
@@ -89,7 +106,7 @@ export function createDrainBudget(policy: DrainBudget): DrainBudgetMemory {
       }
 
       const attempts = attemptsByLineage.get(lkey) ?? 0;
-      if (attempts >= policy.maxAttempts) {
+      if (attempts >= drainBudget.maxAttempts) {
         return {
           kind: "giveUp",
           why: "budget",

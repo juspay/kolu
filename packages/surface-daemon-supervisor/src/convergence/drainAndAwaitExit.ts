@@ -55,9 +55,13 @@ export async function drainAndAwaitExit(
   exited.catch(() => {});
 
   let drainRejection: string | null = null;
-  void drain().catch((e) => {
-    drainRejection = String(e);
-  });
+  // Normalize so a sync throw is captured the same as an async rejection —
+  // drain completion is never ground truth; the framework owns cleanup.
+  void Promise.resolve()
+    .then(() => drain())
+    .catch((e) => {
+      drainRejection = String(e);
+    });
 
   let timer!: ReturnType<typeof setTimeout>;
   const timedOut = new Promise<"timeout">((resolve) => {

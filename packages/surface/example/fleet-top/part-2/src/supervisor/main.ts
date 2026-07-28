@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { stderrLogger } from "@kolu/surface-daemon";
 import {
   createEndpoint,
-  restart,
+  recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { GATE_PATH, HOME, SOCKET_PATH } from "../common/paths";
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   // The LIVE recycle: kill the daemon under us and stand a fresh one up, with
   // the status held at one honest "restarting". Degenerate steps — nothing to
   // preserve in this part.
-  await restart(endpoint, {
+  await recycle(endpoint, {
     capture: async () => undefined,
     drain: async () => {},
     reattach: async () => {},

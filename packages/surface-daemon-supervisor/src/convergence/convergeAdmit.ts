@@ -50,11 +50,9 @@ export type ConvergeAdmitVerdict =
 export async function convergeAdmit(args: {
   /** What the dial found — the running daemon's identity (+ instance key). */
   running: RunningDaemon;
-  /** The SAME policy object the endpoint arm uses. Drainable only (a connector
-   *  that cannot drain has nothing to admit — use `decide` + refuse yourself). */
-  policy: ConvergencePolicy<"drainable">;
-  /** Per-boot budget memory — shared across every admit of this supervisor boot;
-   *  survives adopts. */
+  /** Per-boot budget memory — owns the whole policy (created via
+   *  `createDrainBudget(policy)`). Shared across every admit of this boot;
+   *  survives adopts. There is no separate policy arg so the two cannot diverge. */
   budget: DrainBudgetMemory;
   /** Fire the drain verb (the daemon's control-core `drain`). Fire-and-forget;
    *  ground truth is `awaitExit`. */
@@ -66,7 +64,8 @@ export async function convergeAdmit(args: {
   ceilingMs: number;
   log: Logger;
 }): Promise<ConvergeAdmitVerdict> {
-  const { running, policy, budget, log } = args;
+  const { running, budget, log } = args;
+  const policy = budget.policy;
   const baked = policy.baked;
   const identity: ConvergenceIdentity = {
     contractVersion: running.contractVersion,
@@ -135,7 +134,7 @@ export async function convergeAdmit(args: {
           giveUpOutcome({
             why: admission.why,
             reason: admission.reason,
-            onGiveUp: budget.policy.onGiveUp,
+            onGiveUp: budget.drainBudget.onGiveUp,
             axis: decision.axis,
             running: identity,
             log,
@@ -168,7 +167,7 @@ export async function convergeAdmit(args: {
         giveUpOutcome({
           why: "budget",
           reason: notTaken,
-          onGiveUp: budget.policy.onGiveUp,
+          onGiveUp: budget.drainBudget.onGiveUp,
           axis: decision.axis,
           running: identity,
           log,

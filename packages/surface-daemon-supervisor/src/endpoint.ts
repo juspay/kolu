@@ -455,9 +455,7 @@ export function createEndpoint<
   // the runtime discriminant has been checked.
   const budget: DrainBudgetMemory | null =
     spec.policy.capability === "drainable"
-      ? createDrainBudget(
-          (spec.policy as ConvergencePolicy<"drainable">).drainBudget,
-        )
+      ? createDrainBudget(spec.policy as ConvergencePolicy<"drainable">)
       : null;
   // How many times the gate-less-squatter recovery re-reads the holder + re-runs the
   // handshake when the holder CHANGES between identify and kill. A bounded backstop

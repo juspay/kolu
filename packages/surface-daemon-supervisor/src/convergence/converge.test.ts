@@ -54,9 +54,7 @@ function fakeEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
   const calls: string[] = [];
   const budget =
     opts.policy.capability === "drainable"
-      ? createDrainBudget(
-          (opts.policy as ConvergencePolicy<"drainable">).drainBudget,
-        )
+      ? createDrainBudget(opts.policy as ConvergencePolicy<"drainable">)
       : null;
   const endpoint: ConvergingEndpoint<Cap> = {
     adoptOrSpawnOrRefuse: async () => {
@@ -250,10 +248,9 @@ describe("converge — enactment + outcomes", () => {
 describe("convergeAdmit — connector arm + cross-supervisor termination", () => {
   it("matched build → adopt, no anomaly", async () => {
     const policy = padiPolicy(id("1.1", "B"));
-    const budget = createDrainBudget(policy.drainBudget);
+    const budget = createDrainBudget(policy);
     const out = await convergeAdmit({
       running: { ...id("1.1", "B"), instanceKey: 1 },
-      policy,
       budget,
       drain: async () => {
         throw new Error("should not drain");
@@ -267,11 +264,10 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
 
   it("build mismatch drain takes → replaced", async () => {
     const policy = padiPolicy(id("1.1", "B"));
-    const budget = createDrainBudget(policy.drainBudget);
+    const budget = createDrainBudget(policy);
     let drained = false;
     const out = await convergeAdmit({
       running: { ...id("1.1", "A"), instanceKey: 1 },
-      policy,
       budget,
       drain: async () => {
         drained = true;
@@ -284,18 +280,44 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
     expect(out.kind).toBe("replaced");
   });
 
+  it("endpoint arm: cross-supervisor does NOT bind/adopt the contested build", async () => {
+    // Drain A@1, then A@2 → cross-supervisor. Endpoint must not call the ordinary
+    // adopt bind (which would accept a contract-compatible contested survivor).
+    const policy = padiPolicy(id("1.1", "mine"), 1);
+    let instance = 1;
+    const { endpoint, calls } = fakeEndpoint({
+      adopted: true, // bind WOULD adopt if called — must not be called
+      policy,
+      probe: async () =>
+        drainableProbe(id("1.1", "A"), {
+          instanceKey: instance,
+          hang: instance === 1 ? false : true, // first drain takes; second would hang
+          ceilingMs: 20,
+        }),
+    });
+    // First: drain took → drained-replacing (bind runs to spawn/adopt).
+    await converge(endpoint);
+    instance = 2;
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("refused");
+    expect(outcomeAnomaly(out)?.kind).toBe("cross-supervisor");
+    if (out.kind === "refused") expect(out.adopted).toBe(false);
+    // Second converge must NOT have called the adopt bind.
+    // calls from first converge: one adoptOrSpawnOrRefuse; second: none extra for refuse path.
+    expect(calls.filter((c) => c === "adoptOrSpawnOrRefuse").length).toBe(1);
+  });
+
   it("two-supervisor drain war ends in cross-supervisor, not livelock", async () => {
     // Supervisor drains lineage (A, instance 1). The "other supervisor" respawns
     // the same build under a NEW instance. Budget must give up as cross-supervisor
     // rather than draining forever.
     const policy = padiPolicy(id("1.1", "mine"), 3);
-    const budget = createDrainBudget(policy.drainBudget);
+    const budget = createDrainBudget(policy);
     let drains = 0;
 
     // First dial: drain old build instance 1 (takes).
     const first = await convergeAdmit({
       running: { ...id("1.1", "A"), instanceKey: 1 },
-      policy,
       budget,
       drain: async () => {
         drains++;
@@ -310,7 +332,6 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
     // Second dial: same build, DIFFERENT instance → cross-supervisor, no drain.
     const second = await convergeAdmit({
       running: { ...id("1.1", "A"), instanceKey: 2 },
-      policy,
       budget,
       drain: async () => {
         drains++;
@@ -328,12 +349,11 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
 
   it("budget exhaustion on SAME instance → adopt-stale (onGiveUp)", async () => {
     const policy = padiPolicy(id("1.1", "B"), 1);
-    const budget = createDrainBudget(policy.drainBudget);
+    const budget = createDrainBudget(policy);
     // Drain does not take (awaitExit never resolves before ceiling).
     const hang = () => new Promise<void>(() => {});
     const first = await convergeAdmit({
       running: { ...id("1.1", "A"), instanceKey: 1 },
-      policy,
       budget,
       drain: async () => {},
       awaitExit: hang,
@@ -349,7 +369,6 @@ describe("convergeAdmit — connector arm + cross-supervisor termination", () =>
     // Second attempt: already at maxAttempts → immediate give-up, no hang.
     const second = await convergeAdmit({
       running: { ...id("1.1", "A"), instanceKey: 1 },
-      policy,
       budget,
       drain: async () => {
         throw new Error("should not drain again");

@@ -205,9 +205,14 @@ export async function converge<Cap extends DrainCapability>(
           `(running contract ${probe.identity.contractVersion}, mine ${baked.contractVersion})`;
         endpoint.log.warn(skewCtx, detail);
         const adopted = await bind();
+        // A probe↔bind race can ADOPT a now-compatible survivor. Standing anomalies
+        // must describe the daemon ultimately bound — not a stale probe.
+        if (adopted) {
+          return { kind: "adopted" };
+        }
         return {
           kind: "refused",
-          adopted,
+          adopted: false,
           anomaly: {
             kind: "skew-refused",
             running: probe.identity,
@@ -237,7 +242,7 @@ export async function converge<Cap extends DrainCapability>(
           return enactGiveUp({
             why: admission.why,
             reason: admission.reason,
-            onGiveUp: budget.policy.onGiveUp,
+            onGiveUp: budget.drainBudget.onGiveUp,
             axis: decision.axis,
             running: probe.identity,
             bind,
@@ -267,7 +272,7 @@ export async function converge<Cap extends DrainCapability>(
           return enactGiveUp({
             why: "budget",
             reason: notTaken,
-            onGiveUp: budget.policy.onGiveUp,
+            onGiveUp: budget.drainBudget.onGiveUp,
             axis: decision.axis,
             running: probe.identity,
             bind,
@@ -305,7 +310,9 @@ export async function converge<Cap extends DrainCapability>(
   }
 }
 
-/** Endpoint-arm give-up: shared anomaly table, then bind so the endpoint settles. */
+/** Endpoint-arm give-up: shared anomaly table. adopt-stale binds (ride the resident);
+ *  refuse/cross-supervisor/unconverged do NOT bind — the ordinary adopt bind would
+ *  accept a contract-compatible contested build and violate "never ride a fight". */
 async function enactGiveUp(args: {
   why: "cross-supervisor" | "budget";
   reason: string;
@@ -326,12 +333,13 @@ async function enactGiveUp(args: {
     skewCtx: args.skewCtx,
     logPrefix: "convergence",
   });
-  const adopted = await args.bind();
   if (g.kind === "adopt-stale") {
+    const adopted = await args.bind();
     return {
       kind: adopted ? "adopted" : "not-adopted",
       anomaly: g.anomaly,
     };
   }
-  return { kind: "refused", adopted, anomaly: g.anomaly };
+  // Refuse path: leave the survivor standing, never open a connection to it.
+  return { kind: "refused", adopted: false, anomaly: g.anomaly };
 }

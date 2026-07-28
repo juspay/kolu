@@ -121,22 +121,19 @@ export async function bootSupervisor(): Promise<void> {
       process.stderr.write(`[supervisor] ${hostId}: ${status.state}\n`),
   });
 
-  await endpoint.ensure(); // always-recycle boot = spawn → connect
+  // #region converge
+  // The only boot verb — policy (who I am + how I converge) is fixed on the endpoint.
+  const outcome = await converge(endpoint);
+  // #endregion converge
+  process.stderr.write(`converge outcome: ${outcome.kind}\n`);
 
-  // The live recycle: kill the daemon under a connected client and stand a fresh
-  // one up. Every step is required; the degenerate steps make no survival promise.
+  // The live recycle: deliberate replace under a connected client.
   await recycle(endpoint, {
     capture: async () => undefined,
     drain: async () => {},
     reattach: async () => {},
   });
   // #endregion endpoint
-
-  // #region converge
-  // The only boot verb — policy (who I am + how I converge) is fixed on the endpoint.
-  const outcome = await converge(endpoint);
-  // #endregion converge
-  process.stderr.write(`converge outcome: ${outcome.kind}\n`);
 }
 
 // The supervisor's OWN baked expectation — the daemon it would spawn.

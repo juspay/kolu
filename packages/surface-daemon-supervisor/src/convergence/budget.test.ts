@@ -6,16 +6,24 @@
 import { daemonBuild } from "@kolu/surface-daemon";
 import { describe, expect, it } from "vitest";
 import { createDrainBudget } from "./budget.ts";
+import type { ConvergencePolicy } from "./policy.ts";
+
+function drainable(maxAttempts: number, onGiveUp: "adopt-stale" | "refuse" = "adopt-stale"): ConvergencePolicy<"drainable"> {
+  return {
+    capability: "drainable",
+    baked: { contractVersion: "1.0", build: daemonBuild("mine") },
+    onContractSkew: { kind: "drain-newer-else-refuse" },
+    onBuildMismatch: { kind: "drain-and-replace" },
+    drainBudget: { maxAttempts, onGiveUp },
+  };
+}
 
 const buildA = daemonBuild("aaa");
 const buildB = daemonBuild("bbb");
 
 describe("createDrainBudget", () => {
   it("admits up to maxAttempts for the same lineage", () => {
-    const budget = createDrainBudget({
-      maxAttempts: 2,
-      onGiveUp: "adopt-stale",
-    });
+    const budget = createDrainBudget(drainable(2));
     const lineage = { build: buildA, instanceKey: 1 };
     expect(budget.admit(lineage, "why").kind).toBe("drain");
     expect(budget.admit(lineage, "why").kind).toBe("drain");
@@ -24,10 +32,7 @@ describe("createDrainBudget", () => {
   });
 
   it("does NOT reset after a clean adopt of a different build (survives adopts)", () => {
-    const budget = createDrainBudget({
-      maxAttempts: 1,
-      onGiveUp: "adopt-stale",
-    });
+    const budget = createDrainBudget(drainable(1));
     // Drain A once (budget spent for A@1).
     expect(
       budget.admit({ build: buildA, instanceKey: 1 }, "mismatch").kind,
@@ -39,10 +44,7 @@ describe("createDrainBudget", () => {
   });
 
   it("a different build is a fresh lineage (not cross-supervisor)", () => {
-    const budget = createDrainBudget({
-      maxAttempts: 1,
-      onGiveUp: "refuse",
-    });
+    const budget = createDrainBudget(drainable(1, "refuse"));
     expect(
       budget.admit({ build: buildA, instanceKey: 1 }, "mismatch").kind,
     ).toBe("drain");
@@ -53,7 +55,7 @@ describe("createDrainBudget", () => {
 
   it("refuses non-positive maxAttempts at construction", () => {
     expect(() =>
-      createDrainBudget({ maxAttempts: 0, onGiveUp: "refuse" }),
+      createDrainBudget(drainable(0, "refuse")),
     ).toThrow(/positive integer/);
   });
 });

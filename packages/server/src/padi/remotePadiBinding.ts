@@ -332,6 +332,7 @@ export function ensureRemotePadiBinding(
 
   // ONE policy object for both arms; budget memory is per-supervisor-boot and
   // SURVIVES adopts (no reset-on-adopt — that wiped the cross-supervisor signal).
+  // createDrainBudget takes the whole policy so admit cannot cross-wire another.
   const policy = {
     ...padiConvergencePolicy(binderBuildId),
     // Tests may tighten the budget; production uses the policy's own maxAttempts.
@@ -345,7 +346,7 @@ export function ensureRemotePadiBinding(
       build: daemonBuild(binderBuildId),
     },
   };
-  const budget = createDrainBudget(policy.drainBudget);
+  const budget = createDrainBudget(policy);
 
   // ── Arm-local convergence state (closures, not class fields) ────────────────
   // The standing convergence anomaly `convergence()` surfaces (adopted-stale / skew /
@@ -457,7 +458,6 @@ export function ensureRemotePadiBinding(
         build: daemonBuild(runningBuild),
         instanceKey: hello.startedAt ?? null,
       },
-      policy,
       budget,
       drain: () => c.surface.control.core.drain(),
       awaitExit: async (signal) => {
