@@ -1578,6 +1578,9 @@ importers:
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6

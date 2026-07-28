@@ -33,6 +33,7 @@ import {
   runWithOwner,
   untrack,
 } from "solid-js";
+import { match } from "ts-pattern";
 import type { z } from "zod";
 import type {
   EntryState,
@@ -144,28 +145,27 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   // A live link is a no-op — the server's word stands. `not-a-member` carries no
   // `connection`/`membershipId`, so there is nothing to floor.
   if (live || status.kind === "not-a-member") return status;
-  // Demote the CLAIM (connected → warming), dropping the connected-only `clockOffset`
-  // along with the fine `connection` word — the demoted value is rebuilt with neither.
-  if (status.kind === "connected")
-    return { kind: "warming", membershipId: status.membershipId };
-  // `failed` has no `connection` field to drop — its record is already floor-proof by
-  // construction, so it passes through whole rather than being rebuilt.
-  if (status.kind === "failed") return status;
-  // The last session-backed arm, spelled EXPLICITLY rather than as a catch-all. A new
-  // `EntryStatus` arm must state its own floor policy here; falling through to a blanket
-  // `connection: undefined` is how a hand-enumerated site silently mis-floors an arm it
-  // was never told about — the same failure mode the republish gate was rewritten to
-  // remove. (`surface-map` carries no `ts-pattern` dependency, so this is a local `never`
-  // assertion rather than an `.exhaustive()`.)
-  if (status.kind === "warming") return { ...status, connection: undefined };
-  // The repo's `const _exhaustive: never` fence — but it THROWS rather than
-  // `return _exhaustive`, because this function must produce a value and there is no
-  // honest one for an arm nobody wrote a policy for. Returning the un-floored status
-  // would be the #1568 green-over-dead lie, which is precisely the fallback the fence
-  // exists to forbid.
-  const unfloorableArm: never = status;
-  throw new Error(
-    `surface-map: floorOnLiveness has no policy for entry arm ${JSON.stringify(unfloorableArm)}`,
+  // Every remaining arm states its own floor policy, spelled EXPLICITLY rather than as a
+  // catch-all. `.exhaustive()` is the compile-time version of the repo's `never` fence: a
+  // new `EntryStatus` arm that lands here without a `.with(...)` for it is a TYPE ERROR at
+  // this call site, not a silent mis-floor discovered only when the new arm is actually
+  // hit in production — the same failure mode the republish gate was rewritten to remove.
+  return (
+    match(status)
+      .with(
+        { kind: "connected" },
+        // Demote the CLAIM (connected → warming), dropping the connected-only `clockOffset`
+        // along with the fine `connection` word — the demoted value is rebuilt with neither.
+        (s): EntryState<Failure, Conn> => ({
+          kind: "warming",
+          membershipId: s.membershipId,
+        }),
+      )
+      // `failed` has no `connection` field to drop — its record is already floor-proof by
+      // construction, so it passes through whole rather than being rebuilt.
+      .with({ kind: "failed" }, (s) => s)
+      .with({ kind: "warming" }, (s) => ({ ...s, connection: undefined }))
+      .exhaustive()
   );
 }
 
