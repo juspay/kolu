@@ -13,22 +13,26 @@ Prose can hold a contradiction forever; code and timelines can't. So the plan
 IS its artifacts, and the human's review is reading them — never paragraphs.
 (Space and time per [The spacetime of code](https://kolu.dev/blog/hickey-lowy/).)
 
-1. **Pin intent.** One batched question round with the human: scope, consumers,
-   constraints, what's already decided. No artifact before the ambiguities die.
+1. **Pin intent.** One batched AskUserQuestion round with the human: scope,
+   consumers, constraints, what's already decided. No artifact before the
+   ambiguities die.
 
 2. **Negotiate space — the hello world.** Write consumer-position code for
    every new surface: what the consumer types, complete, with no implementation
-   behind it. Iterate with the human until the call sites stop being awkward —
-   an architectural wart is an awkward line, visible in seconds. A primitive
+   behind it. Where the call shape genuinely forks, put the candidates in front
+   of the human as AskUserQuestion options with code previews — one hello world
+   per option; iterate until the call sites stop being awkward. An
+   architectural wart is an awkward line, visible in seconds. A primitive
    deletes consumer code; a helper just adds an import. No phase list before
    this settles.
 
 3. **Negotiate time — the traces.** A worked timeline for every concurrent
    actor, lifetime, and cross-version window: who acts, in what order, what
-   breaks, where it terminates. Same loop: the human reads five lines and sees
-   the livelock or the terminus. Interleavings explode, so time keeps a machine
-   assist — adversary agents attack each trace looking for the ordering nobody
-   wrote down.
+   breaks, where it terminates. Same loop, same tool — forking semantics
+   (who wins, what resets, where it parks) go to the human as AskUserQuestion
+   options with the trace as the preview; five lines show the livelock or the
+   terminus. Interleavings explode, so time keeps a machine assist — adversary
+   agents attack each trace looking for the ordering nobody wrote down.
 
 4. **Fix the plan.** One plain-markdown file in the repo (hand-authored SVG
    only where a diagram beats the text), carrying: the settled hello world, the
