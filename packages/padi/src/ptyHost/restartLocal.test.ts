@@ -59,6 +59,7 @@ import type {
   SavedSession,
 } from "../vocab.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
+import { registerTestEndpointBinds } from "@kolu/surface-daemon-supervisor/testing";
 import { __setEndpointForTest } from "./index.ts";
 import { restartLocalDaemon } from "./restartLocal.ts";
 
@@ -132,7 +133,9 @@ function sessionBackedCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
  *  recycle) OUTLASTS the 500 ms autosave, so the timer the drain armed fires in the
  *  drain→park gap — the exact interleave the zest trace shows. The drain's
  *  `killAllTerminals` reaches this fake's client `killAll`, which publishes a genuine
- *  `terminals:dirty` (modelling the PTYs exiting as the daemon is killed). */
+ *  `terminals:dirty` (modelling the PTYs exiting as the daemon is killed).
+ *
+ *  F12: recycle looks up ensure via the package WeakMap — register the fake there. */
 function fakeEndpoint(recycleMs: number) {
   const connection = {
     client: {
@@ -152,14 +155,24 @@ function fakeEndpoint(recycleMs: number) {
     dispose: () => {},
     onClose: () => {},
   };
-  return {
+  const ep = {
     holdRestarting: <T>(fn: () => Promise<T>) => fn(),
+    current: () => connection,
+    // Public face stubs (unused by recycle path beyond current/holdRestarting).
+    policy: {} as never,
+    probe: async () => null,
+    budget: null,
+    log: { debug() {}, info() {}, warn() {}, error() {} },
+  };
+  registerTestEndpointBinds(ep, {
     ensure: async () => {
       await delay(recycleMs); // the recycle gap — the autosave fires in here
     },
-    current: () => connection,
-    // biome-ignore lint/suspicious/noExplicitAny: minimal fake for the restart path
-  } as any;
+    adoptOrEnsure: async () => ({ kind: "refused-or-failed" }),
+    adoptOrSpawnOrRefuse: async () => ({ kind: "refused-or-failed" }),
+  });
+  // biome-ignore lint/suspicious/noExplicitAny: minimal fake for the restart path
+  return ep as any;
 }
 
 // When set (by the ordering test), every autosave-callback evaluation records the
