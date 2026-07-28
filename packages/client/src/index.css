@@ -604,16 +604,15 @@ body {
 /* Vertical air between repo cards — structure does half the grouping
  * work colour alone cannot. Horizontal inset keeps card edges off the
  * scrollport chrome. */
+/* No stack fill: a second surface under the cards reads as nested
+ * chrome (dock → tray → card) and steals contrast from the monogram/
+ * spine without buying more grouping. Gap + card border do the
+ * separation; the dock's own surface is the ground. */
 .dock-cards-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 8px 8px 10px;
-  background: color-mix(
-    in oklab,
-    var(--color-surface-2) 45%,
-    var(--color-surface-1)
-  );
 }
 .dock-cards-section {
   border: 1px solid
