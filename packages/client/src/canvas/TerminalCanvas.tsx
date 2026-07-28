@@ -19,6 +19,7 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
+import { sleepingArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -436,6 +437,7 @@ const TerminalCanvas: Component<{
             active={active()}
             mode={mode()}
             dimmed={isStale(store.getMetadata(terminalId)?.lastActivityAt ?? 0)}
+            sleeping={sleepingArm(store.getMetadata(terminalId)) !== undefined}
             theme={tileTheme(terminalId)}
             repoColor={info().repoColor}
             onSelect={() => props.onSelect(tileId)}

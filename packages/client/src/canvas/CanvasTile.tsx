@@ -13,7 +13,16 @@
  *    so chrome reflects state and double-click toggles it. */
 
 import { createDraggable } from "@thisbeyond/solid-dnd";
-import { type Component, createMemo, For, type JSX, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
@@ -54,6 +63,9 @@ const CanvasTile: Component<{
    *  faded so an inactive ("parked") tile recedes visually. The decision
    *  itself lives in the caller; the tile shell only honors the bit. */
   dimmed?: boolean;
+  /** Sleeping tile — desaturate / fold on the canvas so dormancy reads as
+   *  a place change, not only a title-bar opacity. Caller owns the fact. */
+  sleeping?: boolean;
   theme: TileTheme;
   /** Per-repo identity color; drives the tile border. */
   repoColor: string;
@@ -99,6 +111,22 @@ const CanvasTile: Component<{
   const draggable = createDraggable(id);
   const layout = () =>
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
+
+  // One-shot "tile lands on the plane" — only the first mount, never on
+  // maximize↔tile restore (that would re-play the entrance every posture flip).
+  // Filter-only so it never fights the inline pan/zoom `transform` or opacity.
+  const [landing, setLanding] = createSignal(true);
+  onMount(() => {
+    if (
+      props.sleeping ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setLanding(false);
+      return;
+    }
+    const t = window.setTimeout(() => setLanding(false), 420);
+    onCleanup(() => clearTimeout(t));
+  });
 
   const bg = () => props.theme.bg;
   // Memoized: `showAura` and the `data-aura` attribute both read the tier, and
@@ -266,6 +294,10 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      data-sleeping={props.sleeping ? "" : undefined}
+      data-landing={
+        landing() && props.mode === "tiled" && !props.sleeping ? "" : undefined
+      }
       data-aura={showAura() ? aura() : undefined}
       // `inert` (when covered) removes the subtree from tab order, blocks
       // pointer events, and hides from assistive tech in one go — matches

@@ -20,6 +20,7 @@ export type TileAura =
   | "waiting-fresh" // awaiting + recent — a steady repo-color comet sweeps the ring
   | "working" // thinking / tools / background — runs as marching ants; busy, asks nothing
   | "waiting-stale" // awaiting but aged past the activity window — same comet, slowed and dimmed
+  | "finished" // post-turn linger — one-shot exhale, then a soft held ring (not a comet)
   | "none"; // idle / parked / no agent — no glow
 
 export function tileAura(
@@ -29,14 +30,13 @@ export function tileAura(
 ): TileAura {
   if (unread) return "alert";
   switch (bucket) {
-    // Blocked-on-you and the post-turn lull share the comet tiers today — the
-    // canvas ring already distinguishes them by freshness, and splitting the
-    // aura vocabulary is a presentation decision the canvas hasn't taken. The
-    // paint split still forces this arm to EXIST (satisfies-never fence), so
-    // the mapping is a decision, not a default.
+    // Order ≠ colour still holds: `awaiting` needs you (comet), `linger` just
+    // finished (exhale). They must not share a tier — a just-finished agent
+    // must not read as "blocked on you" from across the canvas.
     case "awaiting":
-    case "linger":
       return stale ? "waiting-stale" : "waiting-fresh";
+    case "linger":
+      return stale ? "none" : "finished";
     case "working":
       return stale ? "none" : "working";
     case "none":

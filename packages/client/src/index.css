@@ -460,6 +460,57 @@ body {
   filter: brightness(0.85) saturate(0.8);
 }
 
+/* finished — post-turn linger: one-shot exhale, then a soft held ring.
+ * Not a comet (comets mean "needs you"). Filter/opacity only so the
+ * compositor keeps the terminal body isolated (`contain: paint` on .tile-aura). */
+[data-canvas-tile][data-aura="finished"] .tile-aura {
+  padding: 3px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  background: color-mix(in oklch, var(--aura-c) 42%, transparent);
+  animation: tile-aura-exhale 1.15s ease-out forwards;
+  will-change: opacity;
+}
+@keyframes tile-aura-exhale {
+  0% {
+    opacity: 0.2;
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.38;
+  }
+}
+
+/* ── Canvas place language (land-in · sleep fold) ───────────────────────────
+ * Tiles *arrive* on the plane and *fold* when put to sleep. Filter-only so
+ * we never fight the inline pan/zoom `transform` or the per-mode opacity. */
+@keyframes tile-place-in {
+  0% {
+    filter: brightness(1.35);
+  }
+  100% {
+    filter: none;
+  }
+}
+[data-canvas-tile][data-landing] {
+  animation: tile-place-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+[data-canvas-tile][data-sleeping] {
+  filter: saturate(0.42) brightness(0.72);
+}
+/* Sleep wins over land-in if both are somehow set. */
+[data-canvas-tile][data-sleeping][data-landing] {
+  animation: none;
+}
+
 /* Reduced motion: hold the ants / comet still — the themed ring still reads,
  * it just stops moving. The `[data-aura]` qualifier is load-bearing: the
  * per-state animations are declared at `[data-canvas-tile][data-aura="…"]`
@@ -470,6 +521,13 @@ body {
   [data-canvas-tile][data-aura] .tile-aura,
   [data-canvas-tile][data-aura] .tile-aura::before,
   [data-canvas-tile][data-aura] .tile-aura::after {
+    animation: none;
+  }
+  /* Finished still reads as a soft ring without the exhale motion. */
+  [data-canvas-tile][data-aura="finished"] .tile-aura {
+    opacity: 0.4;
+  }
+  [data-canvas-tile][data-landing] {
     animation: none;
   }
 }

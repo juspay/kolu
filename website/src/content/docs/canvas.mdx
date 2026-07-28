@@ -50,10 +50,24 @@ into an island.
 ## Agent state as motion
 
 Each live tile wears its agent's run-state as **motion on its border**, in the
-tile's repo color: a working tile runs a calm marching-ants outline, one that
-needs you sweeps a comet (faster the fresher the wait), and a missed alert
-throbs. Idle tiles stay dark; `prefers-reduced-motion` collapses every aura to
-a static ring.
+tile's repo color:
+
+- **Working** — calm marching-ants outline (busy, asks nothing).
+- **Needs you** — a comet sweeps the ring (faster the fresher the wait); a
+  missed alert throbs louder still.
+- **Just finished** — a one-shot **exhale** softens into a dim held ring, so a
+  post-turn lull never reads as "blocked on you."
+- **Idle** — no glow.
+
+`prefers-reduced-motion` collapses every aura to a static ring (finished keeps
+the soft hold, without the pulse).
+
+## Place on the plane
+
+New tiles **land** with a short brightness settle so opening a terminal feels
+like putting something down, not a hard pop. Sleeping tiles **fold** — slightly
+desaturated and dimmed — so dormancy is visible from the canvas, not only the
+title bar. The dotted floor and host-hue wash stay as quiet room cues.
 
 ## The minimap
 
