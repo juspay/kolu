@@ -64,6 +64,12 @@ describe("assignColors", () => {
     const result = assignColors(["x", "y"]);
     expect(result.get("x")).not.toBe(result.get("y"));
   });
+
+  it("does not collide ordinary distinct names that shared a % 360 bucket", () => {
+    // Regression: integer `% 360` made `repo-15` and `repo-28` identical.
+    const result = assignColors(["repo-15", "repo-28"]);
+    expect(result.get("repo-15")).not.toBe(result.get("repo-28"));
+  });
 });
 
 describe("buildTerminalDisplayInfos", () => {

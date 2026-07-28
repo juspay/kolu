@@ -53,17 +53,18 @@ export function pairDisplayRow(
   return info && meta ? { info, meta } : null;
 }
 
-/** Stable 32-bit FNV-1a → hue in [0, 360). Identity colour is a pure
- *  function of the key string, not of co-set order — so dock, palette,
- *  and restore paint the same repo the same hue even when their key
- *  sets differ (activity filter, host scope, restore-only groups). */
+/** Stable 32-bit FNV-1a → hue in [0, 360) with full-hash precision.
+ *  Identity colour is a pure function of the key string, not of co-set
+ *  order — so dock, palette, and restore paint the same repo the same
+ *  hue even when their key sets differ. Using the full 32-bit range
+ *  (not `% 360`) keeps ordinary names from colliding on exact hues. */
 function stableHue(key: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < key.length; i++) {
     h ^= key.charCodeAt(i);
     h = Math.imul(h, 0x01000193);
   }
-  return (h >>> 0) % 360;
+  return ((h >>> 0) / 0x1_0000_0000) * 360;
 }
 
 /** Assign OKLCH colours from a stable per-key hue. The iterable only
@@ -103,11 +104,10 @@ export function buildTerminalDisplayInfos(
     const key = keys.get(id);
     const repoColor = colors.get(group);
     const annotationColor = colors.get(label);
-    // `computeTerminalKeys` keys its map by the ids we just passed in,
-    // and `assignColors` was just built from these same group/label
-    // strings, so every entry has matching values. The skip is
-    // defence-in-depth for an unreachable case — the consumer simply
-    // gets fewer entries.
+    // `computeTerminalKeys` and `assignColors` were just built from these
+    // same ids/group/label strings — a miss is a programmer bug, not a
+    // soft skip. Fail loud so a broken projection never silently drops a
+    // terminal's decorations.
     if (!key || !repoColor || !annotationColor) {
       throw new Error(
         `buildTerminalDisplayInfos invariant: missing key/colour for terminal ${id} (group=${group}, label=${label})`,
