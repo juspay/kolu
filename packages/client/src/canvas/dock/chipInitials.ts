@@ -1,6 +1,6 @@
 /** Rail-chip label derivation — two-glyph tile for the collapsed dock.
  *
- *  The **repo** half is `repoMonogram` from `ui/repoMonogram` — the same fold
+ *  The **repo** half is `repoMonogram` from `ui/monogramGlyph` — the same fold
  *  cards headers, palette rows, restore groups, and the inspector use. The
  *  **sub** half needs live meta (intent lead) and stays here; it imports
  *  shared `caseToOneGlyph` / `ALPHANUM` so case-expand rules stay one fold.
@@ -12,7 +12,7 @@
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import { intentLeadGlyph } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { ALPHANUM, caseToOneGlyph, repoMonogram } from "../../ui/repoMonogram";
+import { ALPHANUM, caseToOneGlyph, repoMonogram } from "../../ui/monogramGlyph";
 
 // Anchored to a single grapheme: a letter optionally followed by combining
 // marks (`\p{M}`), so a *decomposed* (NFD) accented letter — `e` + U+0301 —

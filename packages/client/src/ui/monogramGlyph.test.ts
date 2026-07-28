@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { repoMonogram } from "./repoMonogram";
+import { repoMonogram } from "./monogramGlyph";
 
 describe("repoMonogram", () => {
   it("uppercases the first alphanumeric of a repo name", () => {

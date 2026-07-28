@@ -9,7 +9,7 @@
  *  spine / wash / row chrome (Hickey: paint atom ≠ dock card). */
 
 import type { Component } from "solid-js";
-import { repoMonogram } from "./repoMonogram";
+import { repoMonogram } from "./monogramGlyph";
 
 export type RepoMonogramSize = "md" | "sm" | "xs";
 
