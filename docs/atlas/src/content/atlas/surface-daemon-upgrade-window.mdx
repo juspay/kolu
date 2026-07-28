@@ -182,7 +182,7 @@ Lands: `daemonHome({ app, placement: "state" | "runtime", instance? })` in `surf
 
 **TL;DR:** the convergence kit becomes complete — one decision table, one drain protocol, one budget, every outcome a typed state, working over both endpoints and connectors. kolu's three arms delete their hand-rolled versions. Users see nothing new except states that used to be silent now show up in the host UI.
 
-Lands: `drainAndAwaitExit` (framework-run in both enactments), the Cap-gated policy budget (survives adopts; `BuildDrainFence` dies; `baked` folds into the policy), `adopted-stale`, the four-arm `ConvergenceAnomaly`, `convergeAdmit`, boot-method trio goes private (`converge` + `recycle` are the public verbs). kolu's local and ssh padi arms migrate in the same PR.
+Lands in <PrLink pr={2036} />: `drainAndAwaitExit` (framework-run in both enactments), the Cap-gated policy budget (survives adopts; `BuildDrainFence` dies; `baked` folds into the policy), `adopted-stale`, the four-arm `ConvergenceAnomaly`, `convergeAdmit`, boot-method trio goes private (`converge` + `recycle` are the public verbs). kolu's local and ssh padi arms migrate in the same PR.
 
 **Done when:** `remotePadiBinding.ts` calls no raw `decide()` and defines no converge functions of its own; the `crossSupervisorDetail` flag and its check-me-first hazard are deleted; kaval's call site builds no budget and no fence; the VM adoption test still greps its breadcrumb; a unit test pins local `adopted-stale` (previously inexpressible); and a framework unit test proves the two-supervisor drain war ends in `cross-supervisor`, not livelock.<Footnote>Also: `daemonSession.ts`'s comment about convergence vocabulary gets updated. No drishti pair needed yet; odu verdict required.</Footnote>
 
