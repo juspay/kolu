@@ -19,8 +19,9 @@ import {
   createInProcessPtyHost,
   servePtyHostOverUnixSocket,
 } from "kaval";
+import { instanceKeyFromStartedAt } from "@kolu/surface-daemon-supervisor";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { connectKaval } from "./connect.ts";
+import { connectKaval, probeKavalForConvergence } from "./connect.ts";
 
 const silentLog = {
   debug: () => {},
@@ -104,6 +105,84 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
     } finally {
       vi.useRealTimers();
       server.close();
+    }
+  });
+});
+
+/**
+ * W7.2 / F24: production-path pins for `probeKavalForConvergence`.
+ * Catch-to-null on handshake failure and hard-coded pre-instance both go green
+ * without these — the three cases must stay mutation-red.
+ */
+describe("probeKavalForConvergence — production path (W7.2)", () => {
+  it("missing/refused socket ⇒ null (honest absence only)", async () => {
+    const missing = join(
+      mkdtempSync(join(tmpdir(), "kolu-probe-absent-")),
+      "no.sock",
+    );
+    // Path with no listener → ECONNREFUSED / ENOENT → null, never throw.
+    await expect(probeKavalForConvergence(missing)).resolves.toBeNull();
+  });
+
+  it("socket accepts but handshake never answers ⇒ REJECTS (not null)", async () => {
+    // Distinguishes catch-to-null (wave-6 regression) from honest absence:
+    // resolving null here would mute the failure and adopt nothing as free.
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-probe-silent-")),
+      "pty-host.sock",
+    );
+    const server = createServer(() => {
+      // accept, never answer system.version
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const outcome = probeKavalForConvergence(socketPath).then(
+        (v) => (v === null ? "null" : "probe"),
+        (e: unknown) => (e as Error).message,
+      );
+      for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await outcome;
+      // Must reject with the deadline message — never resolve null.
+      expect(result).not.toBe("null");
+      expect(result).not.toBe("probe");
+      expect(result).toMatch(/handshake read exceeded 10000ms/);
+    } finally {
+      vi.useRealTimers();
+      server.close();
+    }
+  });
+
+  it("real served kaval ⇒ startedAt-derived instance key + disposable probe", async () => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-probe-live-")),
+      "pty-host.sock",
+    );
+    const listener = await serve(socketPath);
+    try {
+      const probe = await probeKavalForConvergence(socketPath);
+      expect(probe).not.toBeNull();
+      if (probe === null) return;
+      try {
+        expect(probe.capability).toBe("not-drainable");
+        expect(probe.identity.contractVersion).toBeTypeOf("string");
+        // Read the same handshake the probe used so the key is pinned to
+        // instanceKeyFromStartedAt(version.startedAt), not hard-coded pre-instance.
+        const conn = await connectKaval(socketPath);
+        try {
+          expect(probe.instanceKey).toEqual(
+            instanceKeyFromStartedAt(conn.startedAt),
+          );
+          expect(probe.instanceKey.kind).toBe("instance");
+        } finally {
+          conn.dispose();
+        }
+      } finally {
+        probe.dispose();
+      }
+    } finally {
+      listener.close();
     }
   });
 });

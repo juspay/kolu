@@ -420,14 +420,8 @@ async function enactDecision(
             `(running contract ${obs.identity.contractVersion}, mine ${ctx.expected.contractVersion})`,
         });
       }
-      case "recycle": {
-        const r = await ctx.bind();
-        const folded = await foldBindResult(r, ctx);
-        if (folded.kind === "spawned-fresh") {
-          return { kind: "recycled", bind: r };
-        }
-        return folded;
-      }
+      case "recycle":
+        return consumeBindResult(await ctx.bind(), ctx, { kind: "recycle" });
       default: {
         const _e: never = decision;
         throw new Error(`unreachable decision: ${JSON.stringify(_e)}`);
@@ -440,8 +434,8 @@ async function enactDecision(
     case "adopt": {
       // Already holding a characterized resident that matches → keep it.
       if (obs?.bound) return { kind: "adopted" };
-      // Need a bind; fold its result through the authority (never return bind raw).
-      return foldBindResult(await ctx.bind(), ctx);
+      // Need a bind; fold its result through the single BindResult consumer.
+      return consumeBindResult(await ctx.bind(), ctx, { kind: "plain" });
     }
 
     case "report-mismatch": {
@@ -460,7 +454,7 @@ async function enactDecision(
       }
       // Probe-origin mismatch: bind, then re-fold the NEW characterization
       // (never report the stale probe identity over a different held resident).
-      return foldBindResult(await ctx.bind(), ctx);
+      return consumeBindResult(await ctx.bind(), ctx, { kind: "plain" });
     }
 
     case "refuse": {
@@ -478,14 +472,8 @@ async function enactDecision(
       });
     }
 
-    case "recycle": {
-      const r = await ctx.bind();
-      const folded = await foldBindResult(r, ctx);
-      if (folded.kind === "spawned-fresh") {
-        return { kind: "recycled", bind: r };
-      }
-      return folded;
-    }
+    case "recycle":
+      return consumeBindResult(await ctx.bind(), ctx, { kind: "recycle" });
 
     case "drain-and-replace": {
       if (ctx.budget === null || ctx.policy.capability !== "drainable") {
@@ -530,23 +518,115 @@ async function enactDecision(
   }
 }
 
-async function foldBindResult(
+/**
+ * Transition context for {@link consumeBindResult}. Callers decorate the
+ * outcome (recycled / drained-replacing / adopt-bind-failed) via this tag —
+ * they never inspect `r.kind` themselves.
+ */
+type BindTransition =
+  | { readonly kind: "plain" }
+  | { readonly kind: "recycle" }
+  | {
+      readonly kind: "post-drain";
+      readonly axis: "contract" | "build";
+      readonly running: ConvergenceIdentity;
+    }
+  | {
+      readonly kind: "give-up";
+      readonly axis: "contract" | "build";
+      readonly running: ConvergenceIdentity;
+      readonly detail: string;
+    };
+
+/**
+ * THE sole BindResult consumer (W7.1). Every bind transition routes here:
+ * release / heldBind updates live only in this switch. Call sites must not
+ * inspect `r.kind`.
+ */
+async function consumeBindResult(
   r: BindResult,
   ctx: FoldCtx,
+  transition: BindTransition,
 ): Promise<ConvergenceOutcome> {
   switch (r.kind) {
-    case "spawned-fresh":
+    case "spawned-fresh": {
       ctx.heldBind = r;
-      return { kind: "spawned-fresh" };
-    case "refused-or-failed":
+      switch (transition.kind) {
+        case "plain":
+        case "give-up":
+          return { kind: "spawned-fresh" };
+        case "recycle":
+          return { kind: "recycled", bind: r };
+        case "post-drain":
+          return {
+            kind: "drained-replacing",
+            axis: transition.axis,
+            running: transition.running,
+            bind: r,
+          };
+        default: {
+          const _e: never = transition;
+          throw new Error(`unreachable transition: ${JSON.stringify(_e)}`);
+        }
+      }
+    }
+    case "refused-or-failed": {
+      // Sole release site for a refused bind — call sites never hand-release.
       ctx.releaseHeld();
-      return { kind: "not-adopted" };
+      switch (transition.kind) {
+        case "plain":
+        case "recycle":
+          return { kind: "not-adopted" };
+        case "post-drain":
+          return {
+            kind: "refused",
+            adopted: false,
+            anomaly: {
+              kind: "unconverged",
+              running: transition.running,
+              expected: ctx.expected,
+              cause: { kind: "adopt-bind-failed", axis: transition.axis },
+              detail:
+                "bind refused or failed after admitted drain of bound resident",
+            },
+          };
+        case "give-up":
+          return {
+            kind: "refused",
+            adopted: false,
+            anomaly: {
+              kind: "unconverged",
+              running: transition.running,
+              expected: ctx.expected,
+              cause: { kind: "adopt-bind-failed", axis: transition.axis },
+              detail: transition.detail,
+            },
+          };
+        default: {
+          const _e: never = transition;
+          throw new Error(`unreachable transition: ${JSON.stringify(_e)}`);
+        }
+      }
+    }
     case "adopted-resident": {
       ctx.heldBind = r;
-      return foldObserved(
+      if (transition.kind === "post-drain" || transition.kind === "give-up") {
+        ctx.lastKnownRunning = transition.running;
+      }
+      const folded = await foldObserved(
         observationFromCharacterization(r.characterization),
         ctx,
       );
+      // Post-drain clean adopt is the drain success story — decorate.
+      if (transition.kind === "post-drain" && folded.kind === "adopted") {
+        return {
+          kind: "drained-replacing",
+          axis: transition.axis,
+          running: transition.running,
+          bind: r,
+        };
+      }
+      return folded;
     }
     default: {
       const _e: never = r;
@@ -643,47 +723,12 @@ async function enactDrainOnce(args: {
       });
     }
 
-    const r = await args.bind();
-    if (r.kind === "spawned-fresh") {
-      return {
-        kind: "drained-replacing",
-        axis,
-        running: current.identity,
-        bind: r,
-      };
-    }
-    if (r.kind === "refused-or-failed") {
-      args.releaseHeld();
-      return {
-        kind: "refused",
-        adopted: false,
-        anomaly: {
-          kind: "unconverged",
-          running: current.identity,
-          expected: baked,
-          cause: { kind: "adopt-bind-failed", axis },
-          detail:
-            "bind refused or failed after admitted drain of bound resident",
-        },
-      };
-    }
-
-    // adopted-resident — fold through the single authority (may re-enter drain).
-    args.baseCtx.heldBind = r;
-    args.baseCtx.lastKnownRunning = current.identity;
-    const folded = await foldBindResult(r, args.baseCtx);
-
-    if (folded.kind === "adopted") {
-      return {
-        kind: "drained-replacing",
-        axis,
-        running: current.identity,
-        bind: r,
-      };
-    }
-
-    // Authority owns the successor transition (recursive drain / refuse / stale).
-    return folded;
+    // Sole BindResult consumer — no local r.kind switch (W7.1).
+    return consumeBindResult(await args.bind(), args.baseCtx, {
+      kind: "post-drain",
+      axis,
+      running: current.identity,
+    });
   } finally {
     args.disposeInitial();
   }
@@ -715,25 +760,15 @@ async function enactGiveUp(args: {
   });
 
   if (g.kind === "adopt-stale") {
-    const r = await args.bind();
-    if (r.kind === "refused-or-failed") {
-      args.releaseHeld();
-      return {
-        kind: "refused",
-        adopted: false,
-        anomaly: {
-          kind: "unconverged",
-          running: args.running,
-          expected: args.expected,
-          cause: { kind: "adopt-bind-failed", axis: args.axis },
-          detail: g.anomaly.detail,
-        },
-      };
-    }
-    // Fold characterization with rideStale (no re-drain; clean adopt if exact).
+    // rideStale so characterization re-decide never re-enters drain (W6.6).
     args.baseCtx.rideStale = g.anomaly;
-    args.baseCtx.lastKnownRunning = args.running;
-    return foldBindResult(r, args.baseCtx);
+    // Sole BindResult consumer — no local r.kind switch (W7.1).
+    return consumeBindResult(await args.bind(), args.baseCtx, {
+      kind: "give-up",
+      axis: args.axis,
+      running: args.running,
+      detail: g.anomaly.detail,
+    });
   }
 
   args.releaseHeld();

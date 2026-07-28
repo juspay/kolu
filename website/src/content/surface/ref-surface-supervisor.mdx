@@ -85,16 +85,18 @@ garnish only.
 
 **Single observation authority.** Every observed identity — initial probe, bind
 characterization, post-drain successor, post-give-up bind, drainable re-probe —
-and every bind transition flows through one internal fold (`foldObserved`). That
-fold always runs `decide(policy, identity | null)` (never a hand-copied
-compat/match subset), owns connection lifecycle so refused / not-adopted /
-probe-failed exits call the idempotent `releaseHeld` unconditionally (no
-`holding` mirror), preserves four-valued characterizations (`characterized |
-absent | failed | uncorrelated`), and reports `unconverged.running: null` when
-the running identity is honestly unknown (never fabricates `expected`). A
-characterization probe throw is `probe-failed` with the true message — never
-catch-to-null into `identity-unverifiable`. Named probe instance keys must match
-`conn.startedAt`; mismatch is `uncorrelated`.
+flows through one internal fold (`foldObserved`). Every **bind transition**
+(plain / recycle / post-drain / give-up) flows through one BindResult consumer
+(`consumeBindResult`); call sites never inspect `r.kind`. That fold always runs
+`decide(policy, identity | null)` (never a hand-copied compat/match subset), owns
+connection lifecycle so refused / not-adopted / probe-failed exits call the
+idempotent `releaseHeld` unconditionally (no `holding` mirror), preserves
+four-valued characterizations (`characterized | absent | failed | uncorrelated`),
+and reports `unconverged.running: null` when the running identity is honestly
+unknown (never fabricates `expected`). A characterization probe throw is
+`probe-failed` with the true message — never catch-to-null into
+`identity-unverifiable`. Named probe instance keys must match `conn.startedAt`;
+mismatch is `uncorrelated`.
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="converge" />
 

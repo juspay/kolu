@@ -7,10 +7,11 @@
  * forgeable registerTestEndpointBinds harness.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   type ConvergenceIdentity,
   daemonBuild,
@@ -100,12 +101,23 @@ async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
   bindMode?: BindMode;
   /** startedAt stamped on each connect (default 1). Foreign-respawn tests use 2. */
   connectStartedAt?: number | (() => number);
+  /**
+   * Called each successful connect's dispose. Dispose-sensitive tests use this
+   * to prove releaseHeld ran (W7.1).
+   */
+  onConnDispose?: () => void;
+  /**
+   * When set, the Nth connect attempt (1-based) and later throw non-skew
+   * (bind → refused-or-failed). Earlier attempts succeed as normal.
+   */
+  refuseConnectFromAttempt?: number;
 }) {
   const dir = mkdtempSync(join(tmpdir(), "sds-converge-"));
   tmpDirs.push(dir);
   const socketPath = join(dir, "d.sock");
   const gatePath = join(dir, "d.pid");
   const mode = opts.bindMode ?? "spawn";
+  let connectAttempt = 0;
 
   const listen = async (): Promise<void> => {
     const s = createServer((c) => c.on("error", () => {}));
@@ -140,14 +152,23 @@ async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
       },
     },
     connect: async () => {
+      connectAttempt += 1;
       if (mode === "refuse") {
         throw new Error("connect unreachable (non-skew)");
+      }
+      if (
+        opts.refuseConnectFromAttempt !== undefined &&
+        connectAttempt >= opts.refuseConnectFromAttempt
+      ) {
+        throw new Error("connect refuse (non-skew) after prior hold");
       }
       return {
         client: "c",
         identity: { id: "i" },
         startedAt: startedAtOf(),
-        dispose: () => {},
+        dispose: () => {
+          opts.onConnDispose?.();
+        },
         onClose: () => {},
       };
     },
@@ -767,6 +788,93 @@ describe("converge — enactment + outcomes", () => {
     expect(a?.kind).toBe("unconverged");
     expect(a && a.kind === "unconverged" ? a.cause.kind : null).toBe(
       "identity-unverifiable",
+    );
+  });
+
+  // ── W7 named tests ──────────────────────────────────────────────────────
+
+  it("W7.1 confinement: BindResult.kind is switched only in consumeBindResult", () => {
+    // Source-level pin: the only `switch (r.kind)` in converge.ts is the sole
+    // consumer. Call sites that hand-switch would reintroduce W6.1 leakage.
+    const src = readFileSync(
+      fileURLToPath(new URL("./converge.ts", import.meta.url)),
+      "utf8",
+    );
+    const switchMatches = [...src.matchAll(/switch\s*\(\s*r\.kind\s*\)/g)];
+    expect(switchMatches.length).toBe(1);
+    // No equality probes on r.kind outside the switch (if (r.kind === …)).
+    expect(src.match(/\br\.kind\s*===/g)?.length ?? 0).toBe(0);
+    // Consumer is named and documented as the sole home.
+    expect(src).toMatch(/async function consumeBindResult\b/);
+  });
+
+  it("W7.1 post-drain bind refuse releases held connection (dispose-sensitive)", async () => {
+    // null → adopt holds → characterize stale → drain takes → rebind refuses
+    // ⇒ consumeBindResult must releaseHeld (dispose). Goes red if central
+    // release is removed.
+    let disposed = 0;
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      connectStartedAt: 1,
+      refuseConnectFromAttempt: 2,
+      onConnDispose: () => {
+        disposed += 1;
+      },
+      policy: padiPolicy(id("1.1", "mine"), 2),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) return null;
+        // Characterization (key matches connect 1): stale → drain-and-replace.
+        return drainableProbe(id("1.1", "stale"), {
+          instanceKey: ik(1),
+        });
+      },
+    });
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("refused");
+    expect(outcomeAdopted(out)).toBe(false);
+    expect(endpoint.current()).toBeUndefined();
+    expect(disposed).toBeGreaterThanOrEqual(1);
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("unconverged");
+    expect(a && a.kind === "unconverged" ? a.cause.kind : null).toBe(
+      "adopt-bind-failed",
+    );
+  });
+
+  it("W7.1 give-up bind refuse releases held connection (dispose-sensitive)", async () => {
+    // null → adopt holds → characterize stale hang → give-up → rebind refuses
+    // ⇒ consumeBindResult must releaseHeld (dispose).
+    let disposed = 0;
+    let probeN = 0;
+    const endpoint = await realEndpoint({
+      bindMode: "adopt",
+      connectStartedAt: 1,
+      refuseConnectFromAttempt: 2,
+      onConnDispose: () => {
+        disposed += 1;
+      },
+      policy: padiPolicy(id("1.1", "mine"), 1),
+      probe: async () => {
+        probeN += 1;
+        if (probeN === 1) return null;
+        return drainableProbe(id("1.1", "stale"), {
+          instanceKey: ik(1),
+          hang: true,
+          ceilingMs: 20,
+        });
+      },
+    });
+    const out = await converge(endpoint);
+    expect(out.kind).toBe("refused");
+    expect(outcomeAdopted(out)).toBe(false);
+    expect(endpoint.current()).toBeUndefined();
+    expect(disposed).toBeGreaterThanOrEqual(1);
+    const a = outcomeAnomaly(out);
+    expect(a?.kind).toBe("unconverged");
+    expect(a && a.kind === "unconverged" ? a.cause.kind : null).toBe(
+      "adopt-bind-failed",
     );
   });
 });
