@@ -37,10 +37,7 @@ import {
 } from "@kolu/surface-daemon";
 import type { DrainBudgetMemory } from "./convergence/budget.ts";
 import { createDrainBudget } from "./convergence/budget.ts";
-import type {
-  ConvergenceProbe,
-  ConvergingEndpoint,
-} from "./convergence/converge.ts";
+import type { ConvergenceProbe } from "./convergence/converge.ts";
 import type {
   ConvergencePolicy,
   DrainCapability,
