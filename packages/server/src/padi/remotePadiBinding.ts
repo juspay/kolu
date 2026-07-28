@@ -262,11 +262,6 @@ export interface RemotePadiSessionDeps {
   binderBuildId?: string;
   maxBuildDrainsPerInstance?: number;
   drainTeardownCeilingMs?: number;
-  /**
-   * Legacy hello-poll cadence. Unused after F3 (process-oracle awaitExit);
-   * kept optional so existing tests that pass it keep compiling.
-   */
-  drainPollMs?: number;
 }
 
 /**
