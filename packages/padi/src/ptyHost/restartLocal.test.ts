@@ -64,9 +64,7 @@ import {
   destructiveRecycleSteps,
   recycle,
 } from "@kolu/surface-daemon-supervisor";
-import { assertDaemonSpawnAllowed } from "@kolu/daemon-test-gate";
-import { spawn as spawnChild, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -148,7 +146,6 @@ const silentLog = {
 
 const epTmpDirs: string[] = [];
 const epServers: Server[] = [];
-const epChildren: ChildProcess[] = [];
 
 /**
  * A genuine createEndpoint standing in for the daemon recycle. Its `ensure()`
@@ -156,8 +153,9 @@ const epChildren: ChildProcess[] = [];
  * (second spawn delays). No forged binds (F12). The held client's killAll
  * publishes terminals:dirty so the drain arms autosave.
  *
- * Gate holder is a disposable `sleep` child (never this vitest process) so
- * recycle's SIGTERM targets the stand-in daemon only.
+ * No live gate pid is written: ensure always takes the free→spawn path, so
+ * recycle never SIGTERMs this vitest process, and no sleep child is needed
+ * (daemon-test-gate hygiene).
  */
 async function realEndpoint(recycleMs: number) {
   const dir = mkdtempSync(join(tmpdir(), "restart-local-ep-"));
@@ -186,12 +184,7 @@ async function realEndpoint(recycleMs: number) {
       s.once("error", reject);
       s.listen(socketPath, () => resolve());
     });
-    // Disposable gate holder for recycle SIGTERM (not this vitest process).
-    assertDaemonSpawnAllowed();
-    const child = spawnChild("sleep", ["3600"], { stdio: "ignore" });
-    epChildren.push(child);
-    if (child.pid === undefined) throw new Error("sleep spawn produced no pid");
-    writeFileSync(gatePath, `${child.pid}\n`);
+    // Leave the gate empty: free→spawn path only (no SIGTERM of a holder).
   };
 
   const makeClient = () => ({
@@ -286,13 +279,6 @@ afterEach(async () => {
   await delay(0);
   for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
   __resetPadiSurfaceCtxForTest();
-  for (const c of epChildren.splice(0)) {
-    try {
-      c.kill("SIGKILL");
-    } catch {
-      // already gone
-    }
-  }
   for (const s of epServers.splice(0)) s.close();
   for (const d of epTmpDirs.splice(0)) {
     try {

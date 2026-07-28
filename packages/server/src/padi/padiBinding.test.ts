@@ -782,14 +782,10 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
     // reap SIGKILLs the gate pid).
     const home = padiRuntimeHome(stateRoot, residentPadiSocket(stateRoot));
     mkdirSync(home.dir, { recursive: true, mode: 0o700 });
-    const { spawn: spawnChild } = await import("node:child_process");
-    // Leash the disposable gate-holder spawn for daemon-test-gate hygiene.
-    const { assertDaemonSpawnAllowed } = await import("@kolu/daemon-test-gate");
-    assertDaemonSpawnAllowed();
-    const holder = spawnChild("sleep", ["3600"], { stdio: "ignore" });
-    if (holder.pid === undefined)
-      throw new Error("sleep spawn produced no pid");
-    writeFileSync(home.gatePath, `${holder.pid}\n`);
+    // This vitest process is the live gate holder (isHolderLive). No child spawn —
+    // afterEach reap would SIGKILL a sleep pid we wrote; instead clear the gate in
+    // finally so reap has nothing to kill.
+    writeFileSync(home.gatePath, `${process.pid}\n`);
     const sockServer = createServer((c) => c.on("error", () => {}));
     await new Promise<void>((resolve, reject) => {
       sockServer.once("error", reject);
@@ -914,8 +910,9 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
       });
     } finally {
       sockServer.close();
+      // Drop the gate so afterEach reap does not SIGKILL this vitest process.
       try {
-        holder.kill("SIGKILL");
+        rmSync(home.gatePath, { force: true });
       } catch {
         // already gone
       }
