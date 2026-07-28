@@ -20,26 +20,27 @@
  *     a comment. (Canvas tiles' `--card-color` / `--aura-c` are a
  *     separate module; converging them onto `--repo-color` is future
  *     work, not done here.)
- *  2. **cards** (default) — rows grouped by repo. Each repo gets a
- *     continuous repo-colored **spine** down the section's left edge
- *     plus a faintly repo-tinted **sticky** header (uppercase name +
- *     row count) that pins to the scrollport top until the next
- *     repo's header pushes it off — so a row's repo is legible at a
- *     glance and the label survives the scroll. Rows below stack as
- *     `indicator · branch · pips · time` lines. The leading **status
- *     indicator** (`StatePip`) folds identity · paint · motion · unread
- *     into one glyph (agent brand mark, state colour, spin/glow while
- *     active, amber corner badge when unopened) — so one glance reads
- *     who is driving and whether they need you. Agent kind is not
- *     labeled in text here — it lives on the terminal title bar where
- *     there's room. PR pip is a link to the PR with the live checks
- *     verdict in its tooltip; the sub-terminal chip surfaces when there
- *     are nested terminals. The active row gets a quiet highlight
- *     (`bg-surface-2` + 3 px accent left-edge stripe); row geometry
- *     stays constant so the dock never reflows when the active
- *     terminal changes. Pip columns share a CSS subgrid across each
- *     section so a column whose rows all lack a pip collapses to
- *     0 width and gives that space back to the branch label.
+ *  2. **cards** (default) — rows grouped by repo. Each repo is a
+ *     **card**: continuous repo-colored **spine** (5 px) down the left
+ *     edge, monogram tile + uppercase name in a repo-tinted **sticky**
+ *     header, air between sections so fleets of 8+ repos stay scannable.
+ *     The header pins to the scrollport top until the next repo's header
+ *     pushes it off — so a row's repo is legible at a glance and survives
+ *     the scroll. Rows below stack as `indicator · branch · pips · time`.
+ *     The leading **status indicator** (`StatePip`) folds identity ·
+ *     paint · motion · unread into one glyph (agent brand mark, state
+ *     colour, spin/glow while active, amber corner badge when unopened)
+ *     — so one glance reads who is driving and whether they need you.
+ *     Agent kind is not labeled in text here — it lives on the terminal
+ *     title bar where there's room. PR pip is a link to the PR with the
+ *     live checks verdict in its tooltip; the sub-terminal chip surfaces
+ *     when there are nested terminals. The active row gets a quiet
+ *     highlight (`bg-surface-2` + accent left-edge stripe matching
+ *     `--dock-edge-stripe-w`); row geometry stays constant so the dock
+ *     never reflows when the active terminal changes. Pip columns share
+ *     a CSS subgrid across each section so a column whose rows all lack
+ *     a pip collapses to 0 width and gives that space back to the branch
+ *     label.
  *
  *  The activity-window picker (`24h`/`12h`/`All`) is a hard filter, not
  *  a dim: rows past the window disappear from the dock entirely. It lives
@@ -99,7 +100,7 @@ import {
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { useViewPosture } from "../useViewPosture";
 import { capturePointerGesture } from "../viewport/capturePointerGesture";
-import { chipInitials } from "./chipInitials";
+import { chipInitials, repoMonogram } from "./chipInitials";
 import {
   CARDS_WIDTH_PX,
   clampDockCardsWidth,
@@ -380,11 +381,13 @@ const RailOrCards: Component<{
         <Show
           when={props.mode === "rail"}
           fallback={
-            <For each={props.tree.groups}>
-              {(group) => (
-                <RepoSection group={group} flatIndexOf={flatIndexOf()} />
-              )}
-            </For>
+            <div class="dock-cards-stack">
+              <For each={props.tree.groups}>
+                {(group) => (
+                  <RepoSection group={group} flatIndexOf={flatIndexOf()} />
+                )}
+              </For>
+            </div>
           }
         >
           <For each={props.tree.groups}>
@@ -488,10 +491,10 @@ const DockHeader: Component<{
   );
 };
 
-/** Repo section — a small header (uppercase name + colored swatch +
- *  quiet row tally + attention triplet) over the group's rows. Always
- *  rendered, even for single-repo workspaces — a consistent structure
- *  beats a degenerate-case collapse. */
+/** Repo section — monogram tile + uppercase name + bare row tally +
+ *  attention triplet over the group's rows. Always rendered, even for
+ *  single-repo workspaces — a consistent structure beats a degenerate-case
+ *  collapse. Paint lives in `.dock-cards-section*` (index.css). */
 const RepoSection: Component<{
   group: DockGroup;
   /** Pre-built `id → flat position` lookup so each row's `Cmd+N` hint
@@ -535,20 +538,27 @@ const RepoSection: Component<{
       style={{ "--repo-color": props.group.color }}
       class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
     >
-      {/* Sticky repo header — tinted band + colour swatch + uppercase name
-       *  + quiet row tally + attention triplet (styles in `index.css`).
-       *  The tally is deliberately BARE text, not a capsule: the capsule
-       *  silhouette is reserved for actionable attention counts, so a
-       *  number in a pill always means "act on this" (fucknotif — the old
-       *  count capsule read as six decoy notification badges). */}
+      {/* Sticky repo header — monogram + uppercase name + bare tally +
+       *  attention triplet (styles in `index.css`). The tally is
+       *  deliberately BARE text, not a capsule: the capsule silhouette is
+       *  reserved for actionable attention counts, so a number in a pill
+       *  always means "act on this" (fucknotif — the old count capsule
+       *  read as six decoy notification badges). Monogram reuses
+       *  `repoMonogram` — the same fold the rail chip's repo half uses. */}
       <div
         data-testid="dock-section-header"
-        class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-2`}
+        class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`}
       >
-        <span class="dock-cards-section-swatch" aria-hidden="true" />
+        <span
+          class="dock-cards-section-monogram"
+          aria-hidden="true"
+          data-testid="dock-section-monogram"
+        >
+          {repoMonogram(props.group.name)}
+        </span>
         <span
           data-testid="dock-section-name"
-          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
+          class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
           title={props.group.name}
         >
           {props.group.name}

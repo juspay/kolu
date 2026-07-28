@@ -2,6 +2,10 @@
 version: Unreleased
 ---
 
+### [The Dock](/dock)
+
+- <Change kind="changed" title="Repo cards you can actually tell apart" pr={2035}>With many repos open, the dock's section cues — a 3px spine, a 7px swatch, and a 9% pastel header wash — all dissolved into one pale list. Each repo is now a **card**: thicker spine, solid monogram tile (first letter of the repo, the same glyph the rail chip already uses), a stronger sticky header wash, and a little air between sections, so a fleet of eight still passes a squint test. Attention (violet needs-you, amber unread) stays the loudest row signal — repo paint is ambient structure, not another interrupt.</Change>
+
 ### [Padi](/padi)
 
 - <Change kind="fixed" title="A shutting-down kaval reaps every terminal it owns — deterministically" pr={2014}>Each terminal kaval spawns lives in its own process session, so nothing the operating system does when kaval dies is guaranteed to take the terminal along — and on macOS, a terminal killed in the first instants after its spawn could dodge the polite hang-up kaval sent on shutdown and sit orphaned for days (aged <code>spawn-helper</code> processes were found accumulating on a CI machine exactly this way). Shutdown now kills each terminal outright instead of asking nicely — the same choice the explicit close-a-terminal path has always made — so a daemon that goes away leaves nothing behind, on any platform.</Change>
