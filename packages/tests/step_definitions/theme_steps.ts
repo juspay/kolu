@@ -1,6 +1,11 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  MOD_KEY,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 /** Convert "#rrggbb" to "rgb(r, g, b)" for comparison with getComputedStyle. */
 function hexToRgb(hex: string): string {
@@ -17,15 +22,15 @@ Then(
     // screen state restore.
     const expectedRgb = hexToRgb(expectedColor);
     await this.page.waitForFunction(
-      (expected) => {
+      ({ activeTileSel, expected }) => {
         const tile = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"]',
+          activeTileSel,
         ) as HTMLElement | null;
         return tile
           ? getComputedStyle(tile).backgroundColor === expected
           : false;
       },
-      expectedRgb,
+      { activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR, expected: expectedRgb },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -123,9 +128,7 @@ Then(
 
 When("I click the theme name in the header", async function (this: KoluWorld) {
   const themeButton = this.page
-    .locator(
-      '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
-    )
+    .locator(`${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="tile-theme-pill"]`)
     .first();
   await themeButton.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await themeButton.click({ force: true });
@@ -138,19 +141,20 @@ Then(
     // The theme pill lives on the active tile's chrome now (#622) — every
     // tile has its own pill, so query the one inside the active tile.
     const themeName = this.page
-      .locator(
-        '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
-      )
+      .locator(`${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="tile-theme-pill"]`)
       .first();
     await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
-      (expected) => {
+      ({ activeTileSel, expected }) => {
         const el = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
+          `${activeTileSel} [data-testid="tile-theme-pill"]`,
         );
         return el?.textContent?.trim() === expected;
       },
-      expectedTheme,
+      {
+        activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR,
+        expected: expectedTheme,
+      },
       { timeout: POLL_TIMEOUT },
     );
   },

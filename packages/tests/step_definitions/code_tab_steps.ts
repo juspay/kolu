@@ -335,17 +335,37 @@ When("I focus the Code tab content", async function (this: KoluWorld) {
 Then("the Code tab should be active", async function (this: KoluWorld) {
   // The Code tab button exposes data-active reflecting the active
   // tab, which is independent of in-repo vs no-repo content.
-  const btn = this.page.locator(
-    '[data-testid="right-panel-tab-code"][data-active="true"]',
+  await this.page
+    .locator('[data-testid="right-panel-tab-code"][data-active]')
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await this.page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="right-panel-tab-code"]')
+        ?.hasAttribute("data-active") === true &&
+      document
+        .querySelector('[data-testid="right-panel-tab-inspector"]')
+        ?.hasAttribute("data-active") === false,
+    undefined,
+    { timeout: POLL_TIMEOUT },
   );
-  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("the Inspector tab should be active", async function (this: KoluWorld) {
-  const btn = this.page.locator(
-    '[data-testid="right-panel-tab-inspector"][data-active="true"]',
+  await this.page
+    .locator('[data-testid="right-panel-tab-inspector"][data-active]')
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await this.page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="right-panel-tab-inspector"]')
+        ?.hasAttribute("data-active") === true &&
+      document
+        .querySelector('[data-testid="right-panel-tab-code"]')
+        ?.hasAttribute("data-active") === false,
+    undefined,
+    { timeout: POLL_TIMEOUT },
   );
-  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then(

@@ -25,6 +25,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 import { DockList } from "./canvas/dock/DockList";
 import { useTerminalStore } from "./terminal/useTerminalStore";
+import { useTileStore } from "./tile/useTileStore";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */
@@ -56,6 +57,7 @@ const MobileTileView: Component<{
   hideDockDrawer?: boolean;
 }> = (props) => {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const [touchStart, setTouchStart] = createSignal<{
     x: number;
     y: number;
@@ -134,7 +136,7 @@ const MobileTileView: Component<{
         <div class="flex-1 min-h-0 relative overflow-hidden">
           <For each={props.orderedIds}>
             {(id) => {
-              const visible = () => store.activeId() === id;
+              const visible = () => tileStore.isActiveTile(id);
               return (
                 <div
                   class="absolute inset-0 flex flex-col"

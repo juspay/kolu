@@ -65,6 +65,9 @@ export const DOCK_ROW_SELECTOR = '[data-testid="dock-row"]';
 /** Per-tile elements on the canvas — one per top-level terminal. Mobile
  *  uses the mobile-tile-view body to enumerate terminals instead. */
 export const CANVAS_TILE_SELECTOR = '[data-testid="canvas-tile"]';
+/** The active top-level tile. Activity markers also appear on nested controls,
+ *  so consumers must retain the tile-identity qualifier. */
+export const ACTIVE_CANVAS_TILE_SELECTOR = `${CANVAS_TILE_SELECTOR}[data-active]`;
 
 export class KoluWorld extends World {
   browser!: Browser;

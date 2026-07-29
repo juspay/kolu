@@ -5,6 +5,7 @@ import { LOCAL_LOCATION, type SavedTerminal } from "@kolu/padi/surface";
 import { padiFold } from "../support/padiEnvelope.ts";
 import { pollFor } from "../support/poll.ts";
 import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
   HYDRATION_TIMEOUT,
   type KoluWorld,
   POLL_TIMEOUT,
@@ -285,22 +286,16 @@ Then(
     // verbatim (covered by `session-restore.feature:37`), so matching
     // on layout uniquely identifies the second saved tile.
     await this.page.waitForFunction(
-      () => {
-        const tiles = document.querySelectorAll<HTMLElement>(
-          '[data-testid="canvas-tile"]',
-        );
+      (activeTileSel) => {
+        const tiles = document.querySelectorAll<HTMLElement>(activeTileSel);
         for (const tile of tiles) {
-          if (
-            tile.style.left === "1200px" &&
-            tile.style.top === "800px" &&
-            tile.hasAttribute("data-active")
-          ) {
+          if (tile.style.left === "1200px" && tile.style.top === "800px") {
             return true;
           }
         }
         return false;
       },
-      undefined,
+      ACTIVE_CANVAS_TILE_SELECTOR,
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -322,13 +317,14 @@ Then(
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
     await this.page.waitForFunction(
-      (tid: string) => {
-        const entry = document.querySelector(
-          `[data-testid="canvas-tile"][data-terminal-id="${tid}"]`,
+      ({ activeTileSel, tid }: { activeTileSel: string; tid: string }) => {
+        return (
+          document.querySelector(
+            `${activeTileSel}[data-terminal-id="${tid}"]`,
+          ) !== null
         );
-        return entry?.hasAttribute("data-active") ?? false;
       },
-      id,
+      { activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR, tid: id },
       { timeout: POLL_TIMEOUT },
     );
   },

@@ -104,11 +104,11 @@ export default function SegmentedControl<T extends string>(props: {
                 type="button"
                 data-testid={`${props.testIdPrefix}-${opt.value}`}
                 aria-pressed={props.value === opt.value}
-                data-active={props.value === opt.value}
+                data-active={props.value === opt.value ? "" : undefined}
                 data-mode={opt.value}
                 title={opt.hint}
                 data-touch={props.touch || undefined}
-                class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-[active=true]:bg-surface-0 data-[active=true]:text-fg data-[active=true]:shadow-sm"
+                class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-active:bg-surface-0 data-active:text-fg data-active:shadow-sm"
                 onClick={() => props.onChange(opt.value)}
               >
                 <Show when={opt.icon}>

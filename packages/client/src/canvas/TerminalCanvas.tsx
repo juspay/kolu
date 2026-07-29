@@ -425,7 +425,7 @@ const TerminalCanvas: Component<{
     tileId: TileId,
     terminalId: TerminalId,
   ): JSX.Element {
-    const active = () => tileStore.activeId() === tileId;
+    const active = () => tileStore.isActiveTile(tileId);
     const mode = (): CanvasTileMode =>
       posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
     return (
@@ -448,12 +448,7 @@ const TerminalCanvas: Component<{
                 ? () => props.renderTileTitleActions?.(tileId)
                 : undefined
             }
-            renderBody={() =>
-              props.renderTileBody(
-                tileId,
-                () => tileStore.activeId() === tileId,
-              )
-            }
+            renderBody={() => props.renderTileBody(tileId, active)}
             layouts={layouts()}
             startResize={startResize}
             panX={viewport.panX}

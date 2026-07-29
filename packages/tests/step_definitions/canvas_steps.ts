@@ -1,14 +1,18 @@
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { padiFold } from "../support/padiEnvelope.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
 const MINIMAP_ZOOMBAR_SELECTOR = '[data-testid="minimap-zoombar"]';
-const TILE_SELECTOR = '[data-testid="canvas-tile"]';
 
 async function waitForCanvas(world: KoluWorld) {
   await world.page
@@ -196,13 +200,21 @@ Then(
 /** Poll until the picked tile's bounding-box center matches the canvas
  *  container's center within grid-snap tolerance. `pick` chooses which
  *  tile: "newest" = last in DOM order (waits for ≥2 to exist),
- *  "active" = the one carrying `data-active="true"`. */
+ *  "active" = the one carrying `data-active`. */
 async function waitForTileCenteredInViewport(
   world: KoluWorld,
   pick: "newest" | "active",
 ) {
   await world.page.waitForFunction(
-    ({ sel, pick }: { sel: string; pick: "newest" | "active" }) => {
+    ({
+      sel,
+      activeTileSel,
+      pick,
+    }: {
+      sel: string;
+      activeTileSel: string;
+      pick: "newest" | "active";
+    }) => {
       const container = document.querySelector(sel);
       if (!container) return false;
       let tile: HTMLElement | null;
@@ -213,7 +225,7 @@ async function waitForTileCenteredInViewport(
         if (tiles.length < 2) return false;
         tile = tiles[tiles.length - 1] as HTMLElement;
       } else {
-        tile = container.querySelector('[data-active="true"]');
+        tile = container.querySelector(activeTileSel);
       }
       if (!tile) return false;
       const cRect = container.getBoundingClientRect();
@@ -228,7 +240,7 @@ async function waitForTileCenteredInViewport(
         Math.abs(tileCy - viewCy) < tolerance
       );
     },
-    { sel: CANVAS_SELECTOR, pick },
+    { sel: CANVAS_SELECTOR, activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR, pick },
     { timeout: POLL_TIMEOUT },
   );
 }
@@ -381,10 +393,8 @@ Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
 });
 
 When("I save the active canvas tile id", async function (this: KoluWorld) {
-  const id = await this.page.evaluate((sel: string) => {
-    const tile = document
-      .querySelector(sel)
-      ?.querySelector('[data-active="true"]');
+  const id = await this.page.evaluate((activeTileSel: string) => {
+    const tile = document.querySelector(activeTileSel);
     return (
       tile
         ?.querySelector("[data-terminal-id]")
@@ -392,7 +402,7 @@ When("I save the active canvas tile id", async function (this: KoluWorld) {
       tile?.getAttribute("data-terminal-id") ??
       null
     );
-  }, CANVAS_SELECTOR);
+  }, ACTIVE_CANVAS_TILE_SELECTOR);
   if (!id) throw new Error("No active canvas tile to save");
   this.savedActiveTerminalId = id;
 });
@@ -401,15 +411,19 @@ async function waitForSavedActiveTileStillActive(world: KoluWorld) {
   const saved = world.savedActiveTerminalId;
   if (!saved) throw new Error("No saved active canvas tile id");
   await world.page.waitForFunction(
-    ({ sel, savedId }: { sel: string; savedId: string }) => {
-      // The active tile's CanvasTile wrapper carries data-active="true".
+    ({
+      activeTileSel,
+      savedId,
+    }: {
+      activeTileSel: string;
+      savedId: string;
+    }) => {
+      // The active tile's CanvasTile wrapper carries data-active.
       // Its inner Terminal element carries data-terminal-id. Walk down
       // from the active wrapper rather than checking every tile —
       // that makes "did active flip to a different tile" the failure
       // mode, not "is savedId still in the DOM" (it always is).
-      const activeWrapper = document
-        .querySelector(sel)
-        ?.querySelector('[data-active="true"]');
+      const activeWrapper = document.querySelector(activeTileSel);
       if (!activeWrapper) return false;
       const inner = activeWrapper.querySelector("[data-terminal-id]");
       const activeId =
@@ -417,7 +431,7 @@ async function waitForSavedActiveTileStillActive(world: KoluWorld) {
         activeWrapper.getAttribute("data-terminal-id");
       return activeId === savedId;
     },
-    { sel: CANVAS_SELECTOR, savedId: saved },
+    { activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR, savedId: saved },
     { timeout: POLL_TIMEOUT },
   );
 }
@@ -995,19 +1009,19 @@ Then(
 
 // Main pane vs. active split of the active tile — for the active-split-inherit
 // scenario, where both must end up on WebGL. The active tile carries
-// data-active="true"; its main pane is the non-sub Terminal, its focused split
+// data-active; its main pane is the non-sub Terminal, its focused split
 // is the one visible [data-sub-terminal].
 Then(
   "the main terminal should use the {word} renderer",
   async function (this: KoluWorld, want: string) {
     await this.page.waitForFunction(
-      ({ sel, w }: { sel: string; w: string }) => {
+      ({ activeTileSel, w }: { activeTileSel: string; w: string }) => {
         const main = document.querySelector(
-          `${sel} [data-active="true"] [data-terminal-id][data-visible]:not([data-sub-terminal])`,
+          `${activeTileSel} [data-terminal-id][data-visible]:not([data-sub-terminal])`,
         );
         return main?.getAttribute("data-renderer") === w;
       },
-      { sel: CANVAS_SELECTOR, w: want },
+      { activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR, w: want },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1017,13 +1031,13 @@ Then(
   "the focused sub-terminal should use the {word} renderer",
   async function (this: KoluWorld, want: string) {
     await this.page.waitForFunction(
-      ({ sel, w }: { sel: string; w: string }) => {
+      ({ activeTileSel, w }: { activeTileSel: string; w: string }) => {
         const sub = document.querySelector(
-          `${sel} [data-active="true"] [data-sub-terminal][data-visible]`,
+          `${activeTileSel} [data-sub-terminal][data-visible]`,
         );
         return sub?.getAttribute("data-renderer") === w;
       },
-      { sel: CANVAS_SELECTOR, w: want },
+      { activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR, w: want },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1050,8 +1064,16 @@ Then(
   "canvas tile {int} should be the active tile",
   async function (this: KoluWorld, index: number) {
     await this.page.waitForFunction(
-      ({ sel, i }: { sel: string; i: number }) => {
-        // The active tile is the one with `data-active="true"` on its
+      ({
+        sel,
+        activeTileSel,
+        i,
+      }: {
+        sel: string;
+        activeTileSel: string;
+        i: number;
+      }) => {
+        // The active tile is the one with `data-active` on its
         // CanvasTile wrapper. Match by tile-rect index: find all
         // `data-terminal-id[data-visible]` descendants under the canvas
         // container and pick the nth.
@@ -1060,15 +1082,13 @@ Then(
         );
         const tile = tiles.item(i) as HTMLElement | null;
         if (!tile) return false;
-        // Walk up to find the CanvasTile wrapper (nearest ancestor with
-        // a data-active attribute, truthy or not).
-        let node: HTMLElement | null = tile;
-        while (node && !node.hasAttribute("data-active")) {
-          node = node.parentElement;
-        }
-        return node?.getAttribute("data-active") === "true";
+        return tile.closest(activeTileSel) !== null;
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      {
+        sel: CANVAS_SELECTOR,
+        activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR,
+        i: index - 1,
+      },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1457,7 +1477,7 @@ Then(
     // separate branch. `nth(index-1)` can still resolve to a non-
     // maximized sibling of the same list, so match on `data-maximized="true"`.
     const maximizedTile = this.page.locator(
-      `${TILE_SELECTOR}[data-maximized="true"]`,
+      `${CANVAS_TILE_SELECTOR}[data-maximized="true"]`,
     );
     await maximizedTile
       .first()
@@ -1473,7 +1493,7 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
         (t) => t.getAttribute("data-maximized") === "true",
       );
     },
-    TILE_SELECTOR,
+    CANVAS_TILE_SELECTOR,
     { timeout: POLL_TIMEOUT },
   );
 });
@@ -1508,7 +1528,7 @@ Then(
           )
         );
       },
-      TILE_SELECTOR,
+      CANVAS_TILE_SELECTOR,
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1546,7 +1566,7 @@ Then(
           })
         );
       },
-      TILE_SELECTOR,
+      CANVAS_TILE_SELECTOR,
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1596,7 +1616,7 @@ When(
 
 Then("some canvas tile should be maximized", async function (this: KoluWorld) {
   const maximizedTile = this.page.locator(
-    `${TILE_SELECTOR}[data-maximized="true"]`,
+    `${CANVAS_TILE_SELECTOR}[data-maximized="true"]`,
   );
   await maximizedTile
     .first()
