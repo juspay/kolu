@@ -31,12 +31,10 @@
  *  `sleepingCount` counts every fresh sleeping row (shown or hidden) so the
  *  footer knows whether the toggle earns its place and what count to show.
  *
- *  `flatRows` is the same row order the dock paints, but flat — rail
- *  mode reads each row's `bucket` straight off this list for its
- *  breathe/pulse animation, and `App.tsx` projects `.map(r => r.id)`
- *  to feed `ActionContext.dockOrderedIds` so the `Cmd+1..9` chord
- *  always activates the row visually first. One canonical sequence,
- *  two views.
+ *  `flatShortcutRows` is the top-level order `App.tsx` projects to feed
+ *  `ActionContext.dockOrderedIds`. Splits deliberately do not claim numeric
+ *  shortcuts. `railEntries` is the separate expanded projection for the
+ *  collapsed rail, where every split still earns a landing chip.
  *
  *  Repo identity comes from `info.key.group` — the same canonical key
  *  `placementPolicy.ts:getBucketFor` uses for canvas tile clustering,
@@ -55,9 +53,9 @@ export type DockGroup = {
   name: string;
   /** Per-repo OKLCH color (`info.repoColor`). */
   color: string;
-  /** Rows inside this group, sorted by recency (newest first), with
+  /** Top-level rows inside this group, sorted by recency (newest first), with
    *  same-branch siblings kept adjacent via cluster grouping. */
-  rows: RankedDockRow[];
+  topRows: RankedDockRow[];
   /** Every row belonging to this repo, INCLUDING the ones the activity window
    *  parked and the ☾ toggle is hiding — what the header's attention summary
    *  counts. The counts must not move when you toggle a filter: an agent that
@@ -65,17 +63,24 @@ export type DockGroup = {
    *  the one you most need told about, and folding over the visible rows alone
    *  reported it as zero — the header quietly agreeing with a dock that had
    *  hidden the problem. Same order as `rows`, filters not applied. */
-  allRows: RankedDockRow[];
+  allTopRows: RankedDockRow[];
+  /** The rendered terminal-entry cardinality: each visible top-level row plus
+   * every split nested under it. Both section headers consume this value. */
+  visibleEntryCount: number;
+  /** Expanded rail projection. Shortcut indices remain on top-level rows only. */
+  railEntries: readonly DockRailEntry[];
 };
+
+export type DockRailEntry =
+  | { kind: "top"; row: RankedDockRow }
+  | { kind: "split"; row: RankedDockRow["subRows"][number] };
 
 export type DockTree = {
   groups: DockGroup[];
-  /** Flat row order across all groups — one canonical list that both
-   *  surfaces project from: rail mode reads each row's `bucket` for
-   *  its animation class, and `App.tsx` projects `.map(r => r.id)` to
-   *  drive `Cmd+1..9` activation. Single source of truth — no parallel
-   *  `flatIds` array to keep in sync with `flatRows`. */
-  flatRows: readonly RankedDockRow[];
+  /** Flat top-level order across all groups. `App.tsx` projects ids from this
+   *  list for `Cmd+1..9`; splits are intentionally absent because the rail's
+   *  expanded entry projection does not change shortcut numbering. */
+  flatShortcutRows: readonly RankedDockRow[];
   /** How many rows the activity window filtered out. The dock surfaces
    *  this as a footer hint with a "show all" link. */
   parkedCount: number;
@@ -110,7 +115,7 @@ export function buildDockTree(
     {
       color: string;
       byLabel: Map<string, RankedDockRow[]>;
-      allRows: RankedDockRow[];
+      allTopRows: RankedDockRow[];
     }
   >();
   let parkedCount = 0;
@@ -118,15 +123,15 @@ export function buildDockTree(
 
   for (const row of ranked) {
     // Resolve the repo BEFORE the filters, so a hidden row still joins its
-    // group's `allRows` and its attention still reaches the header.
+    // group's `allTopRows` and its attention still reaches the header.
     const info = getDisplayInfo(row.id);
     if (!info) continue;
     let group = byName.get(info.key.group);
     if (!group) {
-      group = { color: info.repoColor, byLabel: new Map(), allRows: [] };
+      group = { color: info.repoColor, byLabel: new Map(), allTopRows: [] };
       byName.set(info.key.group, group);
     }
-    group.allRows.push(row);
+    group.allTopRows.push(row);
     if (row.bucket === "parked") {
       parkedCount++;
       continue;
@@ -144,26 +149,38 @@ export function buildDockTree(
   }
 
   const groups: DockGroup[] = [...byName.entries()]
-    .map(([name, g]) => ({
-      name,
-      color: g.color,
-      rows: flattenLabelClusters(g.byLabel),
-      allRows: g.allRows,
-    }))
+    .map(([name, g]) => {
+      const topRows = flattenLabelClusters(g.byLabel);
+      return {
+        name,
+        color: g.color,
+        topRows,
+        allTopRows: g.allTopRows,
+        visibleEntryCount: topRows.reduce(
+          (count, row) => count + 1 + row.subRows.length,
+          0,
+        ),
+        railEntries: topRows.flatMap<DockRailEntry>((row) => [
+          { kind: "top", row },
+          ...row.subRows.map((sub) => ({ kind: "split" as const, row: sub })),
+        ]),
+      };
+    })
     // A repo whose every row is filtered out has no header to hang its
     // attention on; the footer's "N hidden" disclosure is what surfaces it.
-    .filter((g) => g.rows.length > 0);
+    .filter((g) => g.topRows.length > 0);
 
   groups.sort(compareGroups);
 
-  const flatRows = groups.flatMap((g) => g.rows);
+  const flatShortcutRows = groups.flatMap((g) => g.topRows);
   return {
     groups,
-    flatRows,
+    flatShortcutRows,
     parkedCount,
     sleepingCount,
     hiddenCount: parkedCount + (hideSleeping ? sleepingCount : 0),
-    hasContent: flatRows.length > 0 || parkedCount > 0 || sleepingCount > 0,
+    hasContent:
+      flatShortcutRows.length > 0 || parkedCount > 0 || sleepingCount > 0,
   };
 }
 
@@ -231,7 +248,7 @@ function compareGroups(a: DockGroup, b: DockGroup): number {
 
 function groupRecency(g: DockGroup): number {
   let max = Number.NEGATIVE_INFINITY;
-  for (const r of g.rows) {
+  for (const r of g.topRows) {
     const rank = tsRank(r.ts);
     if (rank > max) max = rank;
   }

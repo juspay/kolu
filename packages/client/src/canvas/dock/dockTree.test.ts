@@ -20,6 +20,19 @@ function row(
   };
 }
 
+function subRow(
+  id: string,
+  kind: "agent" | "shell",
+): RankedDockRow["subRows"][number] {
+  return {
+    id: id as TerminalId,
+    kind,
+    bucket: "idle",
+    pip: "idle",
+    ts: 1,
+  };
+}
+
 function makeGetInfo(
   entries: Record<string, { group: string; color: string; label?: string }>,
 ): (id: TerminalId) => TerminalDisplayInfo | undefined {
@@ -52,8 +65,8 @@ describe("buildDockTree", () => {
     expect(tree.groups.map((g) => g.name)).toEqual(["kolu", "pierre"]);
     // Within kolu, c@2000 outranks a@1000 on pure recency — bucket no
     // longer promotes working over idle in the within-group order.
-    expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["c", "a"]);
-    expect(tree.groups[1]?.rows.map((r) => r.id)).toEqual(["b"]);
+    expect(tree.groups[0]?.topRows.map((r) => r.id)).toEqual(["c", "a"]);
+    expect(tree.groups[1]?.topRows.map((r) => r.id)).toEqual(["b"]);
   });
 
   it("filters parked rows entirely and surfaces the count", () => {
@@ -71,10 +84,10 @@ describe("buildDockTree", () => {
     expect(tree.parkedCount).toBe(2);
     expect(tree.groups).toHaveLength(1);
     expect(tree.groups[0]?.name).toBe("kolu");
-    expect(tree.flatRows.map((r) => r.id)).toEqual(["a"]);
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["a"]);
   });
 
-  it("flatRows matches the rendered row sequence across groups", () => {
+  it("flatShortcutRows matches the rendered top-level sequence", () => {
     const ranked = [
       row("a", "idle", 100),
       row("b", "awaiting", 200),
@@ -90,7 +103,32 @@ describe("buildDockTree", () => {
     const tree = buildDockTree(ranked, getInfo, false);
     // Section order: pierre(300) > kolu(200) > justci(0). Within kolu,
     // b@200 > a@100 on recency.
-    expect(tree.flatRows.map((r) => r.id)).toEqual(["c", "b", "a", "d"]);
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual([
+      "c",
+      "b",
+      "a",
+      "d",
+    ]);
+  });
+
+  it("projects visible entry cardinality and rail splits without widening shortcuts", () => {
+    const parent = row("a", "idle", 100);
+    parent.subRows = [subRow("a-shell", "shell"), subRow("a-agent", "agent")];
+    const tree = buildDockTree(
+      [parent],
+      makeGetInfo({ a: { group: "kolu", color: "#aaa" } }),
+      false,
+    );
+
+    expect(tree.groups[0]?.visibleEntryCount).toBe(3);
+    expect(
+      tree.groups[0]?.railEntries.map((entry) => [entry.kind, entry.row.id]),
+    ).toEqual([
+      ["top", "a"],
+      ["split", "a-shell"],
+      ["split", "a-agent"],
+    ]);
+    expect(tree.flatShortcutRows.map((entry) => entry.id)).toEqual(["a"]);
   });
 
   it("an awaiting row in a quieter repo does not promote its section above a more recent repo", () => {
@@ -127,7 +165,7 @@ describe("buildDockTree", () => {
     // Pierre's newest (b@500) beats kolu's (c@300); within kolu, c@300
     // beats a@100.
     expect(tree.groups.map((g) => g.name)).toEqual(["pierre", "kolu"]);
-    expect(tree.groups[1]?.rows.map((r) => r.id)).toEqual(["c", "a"]);
+    expect(tree.groups[1]?.topRows.map((r) => r.id)).toEqual(["c", "a"]);
   });
 
   it("skips rows whose display info is missing", () => {
@@ -137,7 +175,7 @@ describe("buildDockTree", () => {
       // b has no entry → buildTerminalDisplayInfos hasn't resolved it yet.
     });
     const tree = buildDockTree(ranked, getInfo, false);
-    expect(tree.flatRows.map((r) => r.id)).toEqual(["a"]);
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["a"]);
     expect(tree.parkedCount).toBe(0);
   });
 
@@ -158,13 +196,13 @@ describe("buildDockTree", () => {
     // Pure-recency interleaving would have been [a, b, c]; clustering
     // keeps a and c adjacent. The cluster headline is the same key
     // (-ts) as the section sort.
-    expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["a", "c", "b"]);
+    expect(tree.groups[0]?.topRows.map((r) => r.id)).toEqual(["a", "c", "b"]);
   });
 
   it("an empty input yields zero groups and zero parked", () => {
     const tree = buildDockTree([], () => undefined, false);
     expect(tree.groups).toEqual([]);
-    expect(tree.flatRows.map((r) => r.id)).toEqual([]);
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual([]);
     expect(tree.parkedCount).toBe(0);
     expect(tree.sleepingCount).toBe(0);
   });
@@ -183,7 +221,7 @@ describe("buildDockTree", () => {
     const tree = buildDockTree(ranked, getInfo, false);
     // Shown → they're in the tree, and the count still reports the total.
     expect(tree.sleepingCount).toBe(2);
-    expect(tree.flatRows.map((r) => r.id)).toEqual(["a", "b", "c"]);
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["a", "b", "c"]);
   });
 
   it("drops sleeping rows when hideSleeping is on, surfacing the count", () => {
@@ -200,12 +238,12 @@ describe("buildDockTree", () => {
     const tree = buildDockTree(ranked, getInfo, true);
     expect(tree.sleepingCount).toBe(2);
     // Both sleeping rows are gone; only the awaiting row (and its group) remain.
-    expect(tree.flatRows.map((r) => r.id)).toEqual(["a"]);
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["a"]);
     expect(tree.groups.map((g) => g.name)).toEqual(["kolu"]);
   });
 
   it("keeps the footer reachable: all-sleeping-hidden still has content", () => {
-    // A dock of only sleeping terminals, all hidden — flatRows and parked are
+    // A dock of only sleeping terminals, all hidden — shortcut rows and parked are
     // both empty, so `sleepingCount` is the only thing keeping `hasContent`
     // true and the ☾ toggle on screen to bring them back.
     const ranked = [row("a", "sleeping", 500), row("b", "sleeping", 200)];
@@ -214,7 +252,7 @@ describe("buildDockTree", () => {
       b: { group: "kolu", color: "#aaa" },
     });
     const tree = buildDockTree(ranked, getInfo, true);
-    expect(tree.flatRows).toHaveLength(0);
+    expect(tree.flatShortcutRows).toHaveLength(0);
     expect(tree.parkedCount).toBe(0);
     expect(tree.sleepingCount).toBe(2);
     expect(tree.hasContent).toBe(true);
@@ -234,7 +272,7 @@ describe("buildDockTree", () => {
   });
 });
 
-describe("buildDockTree — allRows", () => {
+describe("buildDockTree — allTopRows", () => {
   it("keeps a parked row in its repo's attention set even though it is hidden", () => {
     // The row the activity window dropped is the one that has been waiting
     // longest — exactly the one whose count must still reach the header.
@@ -245,8 +283,8 @@ describe("buildDockTree — allRows", () => {
     });
     const tree = buildDockTree(ranked, getInfo, false);
     const group = tree.groups[0];
-    expect(group?.rows.map((r) => r.id)).toEqual(["a"]);
-    expect(group?.allRows.map((r) => r.id)).toEqual(["a", "b"]);
+    expect(group?.topRows.map((r) => r.id)).toEqual(["a"]);
+    expect(group?.allTopRows.map((r) => r.id)).toEqual(["a", "b"]);
     expect(tree.parkedCount).toBe(1);
   });
 

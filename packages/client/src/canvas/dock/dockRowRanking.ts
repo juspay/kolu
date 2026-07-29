@@ -216,10 +216,17 @@ type DockRowCore = {
 /** A split's entry — it cannot itself carry splits because splits do not nest.
  * The type is deliberately private: consumers receive it only through its
  * parent's `subRows`, keeping the hierarchy as one validated product. */
-type SubDockRow = Omit<DockRowCore, "bucket" | "pip"> & {
+type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip"> & {
   bucket: SubDockOrderBucket;
   pip: SubDockPaintBucket;
 };
+
+/** The role that controls split-entry chrome and section-attention membership.
+ * It is decided once while ranking, then consumed as data by every surface — a
+ * shell cannot accidentally gain an agent wash in one consumer but not another. */
+type SubDockRow =
+  | (SubDockRowCore & { kind: "shell" })
+  | (SubDockRowCore & { kind: "agent" });
 
 export type RankedDockRow = DockRowCore & {
   /** Every split inside this terminal, as an indented dock sub-entry. Plain
@@ -313,6 +320,7 @@ function rankSubRows(
     }
     rows.push({
       id,
+      kind: activeArm(meta)?.agent ? "agent" : "shell",
       bucket: classifyDockRow(meta, false),
       pip: paintDockRow(meta, classOf(id), false),
       ts: rowRecencyAt(meta),

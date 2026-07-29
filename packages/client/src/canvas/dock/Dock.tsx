@@ -67,6 +67,7 @@ import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
+import { cwdBasename } from "kolu-common/path";
 import {
   type Component,
   createMemo,
@@ -80,7 +81,7 @@ import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
+import { annotationLine, intentLeadGlyph } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import { useStatePip } from "../../terminal/statePipBind";
@@ -366,11 +367,11 @@ const RailOrCards: Component<{
   onOpenWorkspaceSearch: () => void;
 }> = (props) => {
   // Pre-built `id → flat position` map. RepoSection used to compute
-  // each row's flat index via `findIndex` over `flatRows`, costing
+  // each row's flat index via `findIndex` over `flatShortcutRows`, costing
   // O(rows²) per render. The map is rebuilt only when the tree
   // changes (one O(n) pass) and every row reads its position in O(1).
   const flatIndexOf = createMemo(
-    () => new Map(props.tree.flatRows.map((r, i) => [r.id, i])),
+    () => new Map(props.tree.flatShortcutRows.map((r, i) => [r.id, i])),
   );
   return (
     <div class="flex flex-col w-full min-h-0">
@@ -396,13 +397,19 @@ const RailOrCards: Component<{
             {(group) => (
               <>
                 <RailSectionMark color={group.color} name={group.name} />
-                <For each={group.rows}>
-                  {(row) => (
-                    <RailChip
-                      id={row.id}
-                      pip={row.pip}
-                      flatIndex={flatIndexOf().get(row.id) ?? -1}
-                    />
+                <For each={group.railEntries}>
+                  {(entry) => (
+                    <>
+                      {entry.kind === "top" ? (
+                        <RailChip
+                          id={entry.row.id}
+                          pip={entry.row.pip}
+                          flatIndex={flatIndexOf().get(entry.row.id) ?? -1}
+                        />
+                      ) : (
+                        <RailSubChip row={entry.row} repoColor={group.color} />
+                      )}
+                    </>
                   )}
                 </For>
               </>
@@ -504,7 +511,7 @@ const RepoSection: Component<{
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => {
-  const tileStore = useTileStore();
+  const store = useTerminalStore();
   const focus = useDockFocus();
   // The header's attention summary — the SAME triplet, on the SAME activity
   // predicate, the host tab renders.
@@ -517,7 +524,7 @@ const RepoSection: Component<{
   // rows the activity window parked, which was exactly the case the old click
   // could not reach — a capsule reading "1" that did nothing.
   const jumpTo = (ids: readonly TerminalId[]) => {
-    const next = nextAfter(ids, tileStore.activeId());
+    const next = nextAfter(ids, store.focusedTerminalId());
     if (next === undefined) return;
     focus(next);
   };
@@ -564,9 +571,9 @@ const RepoSection: Component<{
         </span>
         <span
           class="dock-cards-section-count font-mono text-[0.6rem]"
-          title={`${props.group.rows.length} terminals`}
+          title={`${props.group.visibleEntryCount} terminals`}
         >
-          {props.group.rows.length}
+          {props.group.visibleEntryCount}
         </span>
         <AttentionTriplet
           active={attn().activeIds.length}
@@ -579,7 +586,7 @@ const RepoSection: Component<{
           class="ml-auto"
         />
       </div>
-      <For each={props.group.rows}>
+      <For each={props.group.topRows}>
         {(row) => (
           <>
             <DockRow
@@ -589,7 +596,9 @@ const RepoSection: Component<{
               flatIndex={props.flatIndexOf.get(row.id) ?? -1}
             />
             <For each={row.subRows}>
-              {(sub) => <SubTerminalRow row={sub} onSelect={focus} />}
+              {(sub) => (
+                <SubTerminalRow row={sub} surface="desktop" onSelect={focus} />
+              )}
             </For>
           </>
         )}
@@ -786,6 +795,69 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
     title={props.name}
   />
 );
+
+/** Split entry in the collapsed rail. It shares the parent's repo tint but has
+ * no numeric shortcut. Shells render only an identity glyph and landing target;
+ * agent splits additionally consume the ranked entry's pip/motion/unread facts. */
+const RailSubChip: Component<{
+  row: Extract<DockGroup["railEntries"][number], { kind: "split" }>["row"];
+  repoColor: string;
+}> = (props) => {
+  const store = useTerminalStore();
+  const focus = useDockFocus();
+  const meta = () => store.getMetadata(props.row.id);
+  const unread = () => store.isUnread(props.row.id);
+  return (
+    <Show when={meta()}>
+      {(m) => {
+        const agent = () => activeArm(m())?.agent;
+        const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
+        const glyph = () => intentLeadGlyph(label()) || "?";
+        const pip = useStatePip(
+          encActiveHost,
+          () => props.row.id,
+          m,
+          unread,
+          () => props.row.pip,
+        );
+        const isAgent = () => props.row.kind === "agent";
+        return (
+          <button
+            type="button"
+            data-testid="dock-rail-sub"
+            data-terminal-id={props.row.id}
+            data-split=""
+            data-shell={isAgent() ? undefined : ""}
+            data-bucket={isAgent() ? props.row.pip : undefined}
+            data-motion={isAgent() ? pip().motion : "none"}
+            data-agent-state={isAgent() ? agent()?.state : undefined}
+            data-active={
+              store.focusedTerminalId() === props.row.id ? "" : undefined
+            }
+            data-unread={isAgent() && unread() ? "" : undefined}
+            onClick={() => focus(props.row.id)}
+            class="dock-rail-chip"
+            style={{ "--repo-color": props.repoColor }}
+            title={`Split · ${label()}`}
+            aria-label={`Jump to split ${label()}`}
+          >
+            <span class="dock-rail-chip-text" aria-hidden="true">
+              ↳<span class="dock-rail-chip-sub">{glyph()}</span>
+            </span>
+            <Show when={isAgent() && pip().bytesLive}>
+              <span class="pointer-events-none absolute -bottom-1 -right-1">
+                <LiveActivityDot />
+              </span>
+            </Show>
+            <Show when={isAgent() && pip().motion !== "none"}>
+              <div class="dock-rail-chip-glow" aria-hidden="true" />
+            </Show>
+          </button>
+        );
+      }}
+    </Show>
+  );
+};
 
 /** Rail-mode chip — 32 px tile carrying two-glyph initials (repo
  *  letter + intent lead grapheme or branch letter). Repo color tints the bg and the

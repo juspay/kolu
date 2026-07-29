@@ -22,7 +22,7 @@ import type { RankedDockRow } from "./dockRowRanking";
 export const SubTerminalRow: Component<{
   row: RankedDockRow["subRows"][number];
   onSelect: (id: TerminalId) => void;
-  padClass?: string;
+  surface: "desktop" | "touch";
 }> = (props) => {
   const store = useTerminalStore();
   const meta = () => store.getMetadata(props.row.id);
@@ -57,12 +57,16 @@ export const SubTerminalRow: Component<{
             {...dockRowAttrs({
               id: props.row.id,
               bucket: props.row.bucket,
-              agentState: agent()?.state,
-              asking: agent() ? pip().asking : false,
-              unread: agent() ? unread() : false,
+              agentState:
+                props.row.kind === "agent" ? agent()?.state : undefined,
+              asking: props.row.kind === "agent" ? pip().asking : false,
+              unread: props.row.kind === "agent" ? unread() : false,
             })}
             data-parent-id={parentId}
-            class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.padClass ?? "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
+            class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.surface === "touch" ? "py-2" : "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
+            onPointerDown={(event) => {
+              if (props.surface === "touch") event.stopPropagation();
+            }}
             onClick={() => props.onSelect(props.row.id)}
             title="Jump to this split"
           >
@@ -72,7 +76,7 @@ export const SubTerminalRow: Component<{
             >
               └
             </span>
-            <Show when={agent()}>
+            <Show when={props.row.kind === "agent"}>
               <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
             </Show>
             <span class="dock-cards-row-label text-[0.72rem] text-fg-2 truncate min-w-0">

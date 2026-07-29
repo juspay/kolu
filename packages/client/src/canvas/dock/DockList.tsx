@@ -121,9 +121,9 @@ function DockListSection(props: {
         </span>
         <span
           class="dock-cards-section-count font-mono text-[0.6rem]"
-          title={`${props.group.rows.length} terminals`}
+          title={`${props.group.visibleEntryCount} terminals`}
         >
-          {props.group.rows.length}
+          {props.group.visibleEntryCount}
         </span>
         <AttentionTriplet
           active={attn().activeIds.length}
@@ -134,7 +134,7 @@ function DockListSection(props: {
           class="ml-auto"
         />
       </div>
-      <For each={props.group.rows}>
+      <For each={props.group.topRows}>
         {(row) => (
           <>
             <DockListRow
@@ -147,7 +147,7 @@ function DockListSection(props: {
               {(sub) => (
                 <SubTerminalRow
                   row={sub}
-                  padClass="py-2"
+                  surface="touch"
                   onSelect={props.onSelect}
                 />
               )}

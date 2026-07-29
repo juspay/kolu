@@ -7,7 +7,7 @@
  *  facts — plus the flattening from dock rows to bare ids. Wiring it once means
  *  the two headers can't end up reading different facts into the same fold.
  *
- *  It counts `allRows`, not the visible ones: the counts must not move when you
+ *  It counts `allTopRows`, not the visible ones: counts must not move when you
  *  toggle a dock filter, and an agent blocked long enough to fall out of the
  *  activity window is precisely the one whose count must still show.
  *
@@ -20,7 +20,6 @@
  *  count can promise a target the click cannot reach. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { activeArm } from "@kolu/padi/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { scopeAttention } from "../../attention/attentionFacts";
 import { useAttentionFacts } from "../../attention/useAttentionFacts";
@@ -45,10 +44,10 @@ export function useSectionAttention(
     // beneath it read one derivation of it.
     const encHost = encActiveHost();
     const ids: TerminalId[] = [];
-    for (const row of group().allRows) {
+    for (const row of group().allTopRows) {
       ids.push(row.id);
       for (const sub of row.subRows) {
-        if (activeArm(store.getMetadata(sub.id))?.agent) ids.push(sub.id);
+        if (sub.kind === "agent") ids.push(sub.id);
       }
     }
     return scopeAttention(ids, store.isUnread, (id) =>
