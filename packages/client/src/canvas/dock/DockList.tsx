@@ -122,9 +122,9 @@ function DockListSection(props: {
         </span>
         <span
           class="dock-cards-section-count font-mono text-[0.6rem]"
-          title={`${props.group.visibleEntryCount} terminals`}
+          title={`${props.group.railEntries.length} terminals`}
         >
-          {props.group.visibleEntryCount}
+          {props.group.railEntries.length}
         </span>
         <AttentionTriplet
           active={attn().activeIds.length}

@@ -64,10 +64,8 @@ export type DockGroup = {
    *  reported it as zero — the header quietly agreeing with a dock that had
    *  hidden the problem. Same order as `rows`, filters not applied. */
   allTopRows: RankedDockRow[];
-  /** The rendered terminal-entry cardinality: each visible top-level row plus
-   * every split nested under it. Both section headers consume this value. */
-  visibleEntryCount: number;
-  /** Expanded rail projection. Shortcut indices remain on top-level rows only. */
+  /** Expanded rendered-entry projection. Its length is the section's visible
+   * terminal count; shortcut indices remain on top-level rows only. */
   railEntries: readonly DockRailEntry[];
 };
 
@@ -160,7 +158,6 @@ export function buildDockTree(
         color: g.color,
         topRows,
         allTopRows: g.allTopRows,
-        visibleEntryCount: railEntries.length,
         railEntries,
       };
     })

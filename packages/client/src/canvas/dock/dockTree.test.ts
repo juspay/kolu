@@ -20,14 +20,24 @@ function row(
   };
 }
 
-function subRow(
-  id: string,
-  kind: "agent" | "shell",
-  bucket: RankedDockRow["subRows"][number]["bucket"] = "idle",
-): RankedDockRow["subRows"][number] {
+type SubRow = RankedDockRow["subRows"][number];
+
+function shellSubRow(id: string): Extract<SubRow, { kind: "shell" }> {
   return {
     id: id as TerminalId,
-    kind,
+    kind: "shell",
+    bucket: "idle",
+    ts: 1,
+  };
+}
+
+function agentSubRow(
+  id: string,
+  bucket: Extract<SubRow, { kind: "agent" }>["bucket"] = "idle",
+): Extract<SubRow, { kind: "agent" }> {
+  return {
+    id: id as TerminalId,
+    kind: "agent",
     bucket,
     pip: "idle",
     ts: 1,
@@ -114,14 +124,14 @@ describe("buildDockTree", () => {
 
   it("projects visible entry cardinality and rail splits without widening shortcuts", () => {
     const parent = row("a", "idle", 100);
-    parent.subRows = [subRow("a-shell", "shell"), subRow("a-agent", "agent")];
+    parent.subRows = [shellSubRow("a-shell"), agentSubRow("a-agent")];
     const tree = buildDockTree(
       [parent],
       makeGetInfo({ a: { group: "kolu", color: "#aaa" } }),
       false,
     );
 
-    expect(tree.groups[0]?.visibleEntryCount).toBe(3);
+    expect(tree.groups[0]?.railEntries).toHaveLength(3);
     expect(
       tree.groups[0]?.railEntries.map((entry) => [entry.kind, entry.row.id]),
     ).toEqual([
@@ -154,7 +164,7 @@ describe("buildDockTree", () => {
   it("promotes a parent when one of its split agents is blocked", () => {
     const recent = row("recent", "working", 1_000);
     const blockedSplitParent = row("parent", "idle", 10);
-    blockedSplitParent.subRows = [subRow("blocked", "agent", "awaiting")];
+    blockedSplitParent.subRows = [agentSubRow("blocked", "awaiting")];
     const tree = buildDockTree(
       [recent, blockedSplitParent],
       makeGetInfo({

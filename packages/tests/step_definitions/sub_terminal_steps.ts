@@ -91,10 +91,19 @@ When(
     // handleCreateSubTerminal is async (RPC) but onSelect is fire-and-forget.
     // Wait for the sub-terminal to actually exist before proceeding — otherwise
     // the next "toggle" command may see no subs and create again instead.
-    await this.page.waitForFunction(
-      () => document.querySelector("[data-sub-terminal]") !== null,
-      { timeout: 10_000 },
-    );
+    try {
+      await this.page.waitForFunction(
+        () => document.querySelector("[data-sub-terminal]") !== null,
+        null,
+        { timeout: 10_000 },
+      );
+    } catch (error) {
+      const pageErrors = this.errors.join("; ");
+      throw new Error(
+        `split did not mount${pageErrors ? `; page errors: ${pageErrors}` : ""}`,
+        { cause: error },
+      );
+    }
   },
 );
 
@@ -404,6 +413,9 @@ Then(
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
       () => {
+        const splitAgent = document.querySelector(
+          '[data-testid="dock-sub-row"][data-agent-state="thinking"]',
+        );
         const section = document.querySelector(
           '[data-testid="dock-section-header"] [data-testid="attention-active"]',
         );
@@ -411,9 +423,9 @@ Then(
           '[data-testid="host-chip"][data-active] [data-testid="attention-active"]',
         );
         return (
-          section !== null &&
-          host !== null &&
-          section.textContent?.trim() === host.textContent?.trim()
+          splitAgent !== null &&
+          section?.textContent?.trim() === "1" &&
+          host?.textContent?.trim() === "1"
         );
       },
       null,

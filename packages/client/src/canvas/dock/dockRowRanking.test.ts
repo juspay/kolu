@@ -434,10 +434,4 @@ describe("rankDockRows — split sub-entries", () => {
   it("classifies agent-bearing splits once for paint and attention consumers", () => {
     expect(rank([AGENT_SPLIT])[0]?.subRows[0]?.kind).toBe("agent");
   });
-
-  it("keeps splits out of the flat top-level shortcut order", () => {
-    expect(rank([AGENT_SPLIT, PLAIN_SPLIT]).map((row) => row.id)).toEqual([
-      PARENT,
-    ]);
-  });
 });

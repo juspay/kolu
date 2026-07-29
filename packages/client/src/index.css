@@ -992,21 +992,6 @@ body {
 .dock-rail-chip:hover {
   transform: scale(1.06);
 }
-/* Split chips are a subordinate stop in the same rail sequence. Their smaller
- * body and hook glyph preserve hierarchy in 44 px without stealing a numeric
- * shortcut. Plain shells stay unwashed; agent splits opt back into the shared
- * bucket/motion selectors through their data attributes. */
-.dock-rail-chip[data-split] {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  margin-top: -1px;
-}
-.dock-rail-chip[data-split][data-shell] {
-  background: transparent;
-  border-color: transparent;
-  opacity: 0.7;
-}
 .dock-rail-chip:focus-visible {
   box-shadow: 0 0 0 2px
     color-mix(in oklch, var(--color-accent) 50%, transparent);
@@ -1020,9 +1005,6 @@ body {
   letter-spacing: 0.02em;
   color: var(--color-fg);
   line-height: 1;
-}
-.dock-rail-chip[data-split] .dock-rail-chip-text {
-  font-size: 11px;
 }
 .dock-rail-chip-sub {
   opacity: 0.55;

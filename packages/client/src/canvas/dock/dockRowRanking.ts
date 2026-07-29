@@ -44,6 +44,7 @@ import {
   type TerminalId,
   URGENCY_RANK,
 } from "kolu-common/surface";
+import { match, P } from "ts-pattern";
 
 /** Per-row render variant. Declared as an EXTENSION of the shared
  *  `AgentPaintClass` (awaiting | linger | working | none) plus the dock's own triage tail,
@@ -216,17 +217,27 @@ type DockRowCore = {
 /** A split's entry — it cannot itself carry splits because splits do not nest.
  * The type is deliberately private: consumers receive it only through its
  * parent's `subRows`, keeping the hierarchy as one validated product. */
-type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip"> & {
-  bucket: SubDockOrderBucket;
-  pip: SubDockPaintBucket;
-};
+type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip">;
+
+type ShellSubDockOrderBucket = Extract<
+  SubDockOrderBucket,
+  "idle" | "none" | "sleeping"
+>;
+type AgentSubDockOrderBucket = Exclude<SubDockOrderBucket, "none" | "sleeping">;
 
 /** The role that controls split-entry chrome and section-attention membership.
  * It is decided once while ranking, then consumed as data by every surface — a
  * shell cannot accidentally gain an agent wash in one consumer but not another. */
 type SubDockRow =
-  | (SubDockRowCore & { kind: "shell" })
-  | (SubDockRowCore & { kind: "agent" });
+  | (SubDockRowCore & {
+      kind: "shell";
+      bucket: ShellSubDockOrderBucket;
+    })
+  | (SubDockRowCore & {
+      kind: "agent";
+      bucket: AgentSubDockOrderBucket;
+      pip: SubDockPaintBucket;
+    });
 
 export type RankedDockRow = DockRowCore & {
   /** Every split inside this terminal, as an indented dock sub-entry. Plain
@@ -324,13 +335,41 @@ function rankSubRows(
         `rankDockRows: split ${id} was listed without terminal metadata`,
       );
     }
-    rows.push({
-      id,
-      kind: activeArm(meta)?.agent ? "agent" : "shell",
-      bucket: classifyDockRow(meta, false),
-      pip: paintDockRow(meta, classOf(id), false),
-      ts: rowRecencyAt(meta),
-    });
+    const bucket = classifyDockRow(meta, false);
+    const core = { id, ts: rowRecencyAt(meta) };
+    const agent = activeArm(meta)?.agent;
+    if (!agent) {
+      rows.push(
+        match(bucket)
+          .with(P.union("idle", "none", "sleeping"), (shellBucket) => ({
+            ...core,
+            kind: "shell" as const,
+            bucket: shellBucket,
+          }))
+          .with(P.union("awaiting", "working"), (invalidBucket) => {
+            throw new Error(
+              `rankDockRows: agentless split ${id} classified as ${invalidBucket}`,
+            );
+          })
+          .exhaustive(),
+      );
+      continue;
+    }
+    rows.push(
+      match(bucket)
+        .with(P.union("awaiting", "working", "idle"), (agentBucket) => ({
+          ...core,
+          kind: "agent" as const,
+          bucket: agentBucket,
+          pip: paintDockRow(meta, classOf(id), false),
+        }))
+        .with(P.union("none", "sleeping"), (invalidBucket) => {
+          throw new Error(
+            `rankDockRows: agent split ${id} classified as ${invalidBucket}`,
+          );
+        })
+        .exhaustive(),
+    );
   }
   rows.sort(byBucketThenRecency);
   return rows;

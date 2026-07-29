@@ -11,6 +11,7 @@ import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { match } from "ts-pattern";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
@@ -42,14 +43,20 @@ export const SubTerminalRow: Component<{
             `SubTerminalRow: ${props.row.id} has no parent terminal`,
           );
         }
-        const agent = () => activeArm(m())?.agent;
-        const pip = useStatePip(
-          encActiveHost,
-          () => props.row.id,
-          m,
-          unread,
-          () => props.row.pip,
-        );
+        const agentRow = match(props.row)
+          .with({ kind: "agent" }, (row) => row)
+          .with({ kind: "shell" }, () => null)
+          .exhaustive();
+        const agent = () => (agentRow ? activeArm(m())?.agent : undefined);
+        const pip = agentRow
+          ? useStatePip(
+              encActiveHost,
+              () => props.row.id,
+              m,
+              unread,
+              () => agentRow.pip,
+            )
+          : null;
         return (
           <button
             type="button"
@@ -57,10 +64,9 @@ export const SubTerminalRow: Component<{
             {...dockRowAttrs({
               id: props.row.id,
               bucket: props.row.bucket,
-              agentState:
-                props.row.kind === "agent" ? agent()?.state : undefined,
-              asking: props.row.kind === "agent" ? pip().asking : false,
-              unread: props.row.kind === "agent" ? unread() : false,
+              agentState: agent()?.state,
+              asking: pip?.().asking ?? false,
+              unread: agentRow ? unread() : false,
             })}
             data-parent-id={parentId}
             class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.surface === "touch" ? "py-2" : "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
@@ -76,8 +82,10 @@ export const SubTerminalRow: Component<{
             >
               └
             </span>
-            <Show when={props.row.kind === "agent"}>
-              <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
+            <Show when={pip?.()}>
+              {(agentPip) => (
+                <StatePip {...agentPip()} class={DOCK_ROW_PIP_BOX} />
+              )}
             </Show>
             <span class="dock-cards-row-label text-[0.72rem] text-fg-2 truncate min-w-0">
               <IntentMarkdownInline markdown={label()} />

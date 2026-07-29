@@ -33,6 +33,20 @@ export type SectionAttention = {
   unseenIds: readonly TerminalId[];
 };
 
+/** Flatten one section to the exact terminals its attention summary owns.
+ * Every top-level row participates; only agent-bearing splits do, because a
+ * plain split deliberately has no attention mark in the Dock. */
+export function sectionAttentionIds(group: DockGroup): TerminalId[] {
+  const ids: TerminalId[] = [];
+  for (const row of group.allTopRows) {
+    ids.push(row.id);
+    for (const sub of row.subRows) {
+      if (sub.kind === "agent") ids.push(sub.id);
+    }
+  }
+  return ids;
+}
+
 export function useSectionAttention(
   group: Accessor<DockGroup>,
 ): Accessor<SectionAttention> {
@@ -43,13 +57,7 @@ export function useSectionAttention(
     // row's facts come off — the shared key memo, so this fold and every pip
     // beneath it read one derivation of it.
     const encHost = encActiveHost();
-    const ids: TerminalId[] = [];
-    for (const row of group().allTopRows) {
-      ids.push(row.id);
-      for (const sub of row.subRows) {
-        if (sub.kind === "agent") ids.push(sub.id);
-      }
-    }
+    const ids = sectionAttentionIds(group());
     return scopeAttention(ids, store.isUnread, (id) =>
       facts.attentionOf(encHost, id),
     );

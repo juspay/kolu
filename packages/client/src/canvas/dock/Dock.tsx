@@ -77,6 +77,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { match } from "ts-pattern";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
@@ -399,19 +400,20 @@ const RailOrCards: Component<{
               <>
                 <RailSectionMark color={group.color} name={group.name} />
                 <For each={group.railEntries}>
-                  {(entry) => (
-                    <>
-                      {entry.kind === "top" ? (
+                  {(entry) =>
+                    match(entry)
+                      .with({ kind: "top" }, ({ row }) => (
                         <RailChip
-                          id={entry.row.id}
-                          pip={entry.row.pip}
-                          flatIndex={flatIndexOf().get(entry.row.id) ?? -1}
+                          id={row.id}
+                          pip={row.pip}
+                          flatIndex={flatIndexOf().get(row.id) ?? -1}
                         />
-                      ) : (
-                        <RailSubChip row={entry.row} repoColor={group.color} />
-                      )}
-                    </>
-                  )}
+                      ))
+                      .with({ kind: "split" }, ({ row }) => (
+                        <RailSubChip row={row} repoColor={group.color} />
+                      ))
+                      .exhaustive()
+                  }
                 </For>
               </>
             )}
@@ -572,9 +574,9 @@ const RepoSection: Component<{
         </span>
         <span
           class="dock-cards-section-count font-mono text-[0.6rem]"
-          title={`${props.group.visibleEntryCount} terminals`}
+          title={`${props.group.railEntries.length} terminals`}
         >
-          {props.group.visibleEntryCount}
+          {props.group.railEntries.length}
         </span>
         <AttentionTriplet
           active={attn().activeIds.length}
@@ -819,49 +821,55 @@ const RailSubChip: Component<{
   return (
     <Show when={meta()}>
       {(m) => {
-        const agent = () => activeArm(m())?.agent;
         const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
         const glyph = () => intentLeadGlyph(label());
-        const pip = useStatePip(
-          encActiveHost,
-          () => props.row.id,
-          m,
-          unread,
-          () => props.row.pip,
-        );
-        const isAgent = () => props.row.kind === "agent";
+        const agentRow = match(props.row)
+          .with({ kind: "agent" }, (row) => row)
+          .with({ kind: "shell" }, () => null)
+          .exhaustive();
+        const agent = () => (agentRow ? activeArm(m())?.agent : undefined);
+        const pip = agentRow
+          ? useStatePip(
+              encActiveHost,
+              () => props.row.id,
+              m,
+              unread,
+              () => agentRow.pip,
+            )
+          : null;
         return (
           <button
             type="button"
             data-testid="dock-rail-sub"
             data-terminal-id={props.row.id}
-            data-split=""
-            data-shell={isAgent() ? undefined : ""}
-            data-bucket={isAgent() ? props.row.pip : undefined}
-            data-motion={isAgent() ? pip().motion : "none"}
-            data-agent-state={isAgent() ? agent()?.state : undefined}
+            data-bucket={agentRow?.pip}
+            data-motion={pip?.().motion ?? "none"}
+            data-agent-state={agent()?.state}
             data-active={
               store.focusedTerminalId() === props.row.id ? "" : undefined
             }
-            data-unread={isAgent() && unread() ? "" : undefined}
+            data-unread={agentRow && unread() ? "" : undefined}
             onClick={() => focus(props.row.id)}
-            class="dock-rail-chip"
+            class="dock-rail-chip w-[26px]! h-[26px]! rounded-[7px]! -mt-px"
+            classList={{
+              "bg-transparent! border-transparent! opacity-70": !agentRow,
+            }}
             style={{ "--repo-color": props.repoColor }}
             title={`Split · ${label()}`}
             aria-label={`Jump to split ${label()}`}
           >
-            <span class="dock-rail-chip-text" aria-hidden="true">
+            <span class="dock-rail-chip-text text-[11px]!" aria-hidden="true">
               ↳
               <Show when={glyph()}>
                 {(value) => <span class="dock-rail-chip-sub">{value()}</span>}
               </Show>
             </span>
-            <Show when={isAgent() && pip().bytesLive}>
+            <Show when={pip?.().bytesLive}>
               <span class="pointer-events-none absolute -bottom-1 -right-1">
                 <LiveActivityDot />
               </span>
             </Show>
-            <Show when={isAgent() && pip().motion !== "none"}>
+            <Show when={pip && pip().motion !== "none"}>
               <div class="dock-rail-chip-glow" aria-hidden="true" />
             </Show>
           </button>
