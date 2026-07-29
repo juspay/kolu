@@ -104,21 +104,33 @@ function readSystemVersionBounded(
   );
 }
 
-export async function connectKaval(
-  socketPath: string,
-): Promise<KavalConnection> {
-  const socket = await dialSocket(socketPath);
-  const client = stdioLink<typeof kavalDaemonContract>({
-    read: socket,
-    write: socket,
-  });
+type KavalSystemVersion = Awaited<
+  ReturnType<PtyHostClient["surface"]["system"]["version"]>
+>;
+type KavalControlHello = Awaited<ReturnType<typeof readControlHelloBounded>>;
 
-  let hello: Awaited<ReturnType<typeof readControlHelloBounded>> | undefined;
+type KavalHandshake =
+  | {
+      kind: "current";
+      hello: KavalControlHello;
+      version: KavalSystemVersion;
+    }
+  | {
+      kind: "pre-fragment";
+      version: KavalSystemVersion;
+    };
+
+/** Interpret the wire handshake without owning its transport. The
+ * discriminant keeps the current/pre-fragment fact explicit; the caller has
+ * one failure boundary that releases the socket for every rejected handshake. */
+async function readKavalHandshake(
+  client: ReturnType<typeof stdioLink<typeof kavalDaemonContract>>,
+): Promise<KavalHandshake> {
+  let hello: KavalControlHello | undefined;
   try {
     hello = await readControlHelloBounded(client);
   } catch (err) {
     if (!isMissingFrozenFragment(err)) {
-      socket.destroy();
       throw new Error(
         `pty-host handshake failed — could not read control.core.hello (${(err as Error).message})`,
       );
@@ -127,31 +139,28 @@ export async function connectKaval(
     // connectivity/metadata, but never read build identity from it: absence is
     // the identity fact and the UI's #1671 fold turns that into the update nudge.
   }
+
   if (
     hello !== undefined &&
     hello.controlCoreVersion !== CONTROL_CORE_VERSION
   ) {
-    socket.destroy();
     throw new Error(
       `pty-host handshake failed — unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
     );
   }
 
-  let version: Awaited<
-    ReturnType<PtyHostClient["surface"]["system"]["version"]>
-  >;
+  let version: KavalSystemVersion;
   try {
-    version = await readSystemVersionBounded(client);
+    version = await readSystemVersionBounded(client as PtyHostClient);
   } catch (err) {
-    socket.destroy();
     throw new Error(
       `pty-host handshake failed — could not read system.version (${(err as Error).message})`,
     );
   }
+
   const reportedContractVersion =
     hello?.surfaceVersion ?? version.contractVersion;
   if (hello !== undefined && hello.surfaceVersion !== version.contractVersion) {
-    socket.destroy();
     throw new Error(
       `pty-host handshake failed — control-core reports surface ${hello.surfaceVersion} but system.version reports ${version.contractVersion}`,
     );
@@ -162,7 +171,6 @@ export async function connectKaval(
       PTY_HOST_CONTRACT_VERSION,
     )
   ) {
-    socket.destroy();
     // The ONE failure that proves the survivor is incompatible — raise the typed
     // skew error so `adoptOrEnsure` recycles it (retrying can't fix incompatible
     // contracts). Every other reject above stays a plain Error (non-skew). The
@@ -180,6 +188,34 @@ export async function connectKaval(
       pid: version.pid,
     });
   }
+
+  return hello === undefined
+    ? { kind: "pre-fragment", version }
+    : { kind: "current", hello, version };
+}
+
+export async function connectKaval(
+  socketPath: string,
+): Promise<KavalConnection> {
+  const socket = await dialSocket(socketPath);
+  const client = stdioLink<typeof kavalDaemonContract>({
+    read: socket,
+    write: socket,
+  });
+
+  let handshake: KavalHandshake;
+  try {
+    handshake = await readKavalHandshake(client);
+  } catch (err) {
+    socket.destroy();
+    throw err;
+  }
+
+  const { version } = handshake;
+  const contractVersion =
+    handshake.kind === "current"
+      ? handshake.hello.surfaceVersion
+      : version.contractVersion;
   let closed = false;
   socket.once("close", () => {
     closed = true;
@@ -187,15 +223,18 @@ export async function connectKaval(
   return {
     client: client as PtyHostClient,
     identity:
-      hello === undefined
+      handshake.kind === "pre-fragment"
         ? undefined
         : {
-            staleKey: hello.buildId ?? "",
-            navigableCommit: hello.commit ?? "",
+            staleKey: handshake.hello.buildId ?? "",
+            navigableCommit: handshake.hello.commit ?? "",
           },
-    startedAt: hello?.startedAt ?? version.startedAt,
+    startedAt:
+      handshake.kind === "current"
+        ? handshake.hello.startedAt
+        : version.startedAt,
     metadata: {
-      contractVersion: reportedContractVersion,
+      contractVersion,
       lifetime: version.lifetime,
     },
     dispose: () => socket.destroy(),
