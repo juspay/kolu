@@ -14,7 +14,7 @@ const parent: RankedDockRow = {
   pip: "idle",
   ts: 1,
   subRows: [
-    { id: shellId, kind: "shell", bucket: "idle", ts: 1 },
+    { id: shellId, kind: "shell", bucket: "idle", pip: "idle", ts: 1 },
     {
       id: agentId,
       kind: "agent",
@@ -34,7 +34,9 @@ const group: DockGroup = {
 };
 
 describe("sectionAttentionIds", () => {
-  it("includes agent splits and excludes deliberately chromeless shells", () => {
-    expect(sectionAttentionIds(group)).toEqual([parentId, agentId]);
+  it("includes every split — shell and agent — so row marks and header agree", () => {
+    // Asking still self-excludes agentless ids inside the fold; membership
+    // no longer re-gates on kind (that was the chrome-complecting gate).
+    expect(sectionAttentionIds(group)).toEqual([parentId, shellId, agentId]);
   });
 });

@@ -1028,14 +1028,9 @@ body {
 .dock-rail-chip[data-bucket="working"] {
   border-color: var(--color-busy);
 }
-.dock-rail-chip[data-bucket="none"] {
-  opacity: 0.5;
-}
-/* Active wins the dim — a freshly-created plain shell that becomes
- * active in rail mode would otherwise still read as half-dim. */
-.dock-rail-chip[data-bucket="none"][data-active] {
-  opacity: 1;
-}
+/* Paint fold never emits data-bucket="none" (paintDockRow maps none→idle —
+ * Option C identity glyph). Dim rules keyed on none were unreachable for both
+ * RailChip and RailSubChip; deleted rather than re-keying to idle. */
 /* Activity motion on a child (compositor-friendly — #1308). Driven by
  * bindStatePip's motion kind (data-motion), same fold as cards StatePip:
  * glow = needs-you; spin = working / live / waiting-until-EF2. */

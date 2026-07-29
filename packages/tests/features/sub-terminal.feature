@@ -145,7 +145,7 @@ Feature: Sub-terminals
     When I create a sub-terminal via command palette
     Then the dock should show 1 split sub-entry
     And every dock split sub-entry should be a direct child of its section
-    And the dock split sub-entry should have no agent attention chrome
+    And the dock split sub-entry should show the shell identity pip without asking
     And the dock should show no split count chip
     When I create another sub-terminal via command palette
     Then the dock should show 2 split sub-entries
