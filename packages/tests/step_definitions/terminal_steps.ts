@@ -7,7 +7,10 @@ import {
   waitForBufferContains,
 } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
-import type { KoluWorld } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+} from "../support/world.ts";
 
 async function clearClipboard(world: KoluWorld) {
   await world.page
@@ -200,7 +203,7 @@ When("I click the terminal tile title bar", async function (this: KoluWorld) {
   // terminals are mounted.
   await this.page
     .locator(
-      '[data-testid="canvas-tile"][data-active] [data-testid="canvas-tile-titlebar"]',
+      `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="canvas-tile-titlebar"]`,
     )
     .first()
     .click();

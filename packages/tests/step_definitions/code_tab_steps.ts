@@ -339,6 +339,13 @@ Then("the Code tab should be active", async function (this: KoluWorld) {
     '[data-testid="right-panel-tab-code"][data-active]',
   );
   await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  assert.strictEqual(
+    await this.page
+      .locator('[data-testid="right-panel-tab-inspector"]')
+      .getAttribute("data-active"),
+    null,
+    "Expected the inactive Inspector tab to omit data-active",
+  );
 });
 
 Then("the Inspector tab should be active", async function (this: KoluWorld) {
@@ -346,6 +353,13 @@ Then("the Inspector tab should be active", async function (this: KoluWorld) {
     '[data-testid="right-panel-tab-inspector"][data-active]',
   );
   await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  assert.strictEqual(
+    await this.page
+      .locator('[data-testid="right-panel-tab-code"]')
+      .getAttribute("data-active"),
+    null,
+    "Expected the inactive Code tab to omit data-active",
+  );
 });
 
 Then(

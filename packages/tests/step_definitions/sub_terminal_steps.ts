@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
 import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
   COARSE_POINTER_QUERY,
   type KoluWorld,
   MOD_KEY,
@@ -214,7 +215,7 @@ Then(
   "the active tile should show sub-terminal count {int}",
   async function (this: KoluWorld, expected: number) {
     const badge = this.page.locator(
-      '[data-testid="canvas-tile"][data-active] [data-testid="sub-count"]',
+      `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="sub-count"]`,
     );
     const text = await badge.textContent({ timeout: POLL_TIMEOUT });
     assert.strictEqual(text, `${expected}`);
@@ -304,7 +305,7 @@ Then(
   "the active tile should not show a sub-terminal count",
   async function (this: KoluWorld) {
     const badge = this.page.locator(
-      '[data-testid="canvas-tile"][data-active] [data-testid="sub-count"]',
+      `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="sub-count"]`,
     );
     const count = await badge.count();
     assert.strictEqual(count, 0, "Expected no sub-terminal count badge");

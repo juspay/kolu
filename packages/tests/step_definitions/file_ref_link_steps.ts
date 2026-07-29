@@ -1,8 +1,11 @@
 import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
-import type { KoluWorld } from "../support/world.ts";
-import { POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 type RefClickPoint = { x: number; y: number } | null;
 
@@ -161,10 +164,10 @@ async function resolveRefPoint(
   // The annotation lives on the active canvas tile (desktop) or the
   // fullscreen tile's titlebar (mobile) — both carry `terminal-meta-branch`.
   await world.page.waitForFunction(
-    () => {
+    (activeTileSel) => {
       const el =
         document.querySelector(
-          '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]',
+          `${activeTileSel} [data-testid="terminal-meta-branch"]`,
         ) ??
         document.querySelector(
           '[data-testid="mobile-tile-titlebar"] [data-testid="terminal-meta-branch"]',
@@ -172,7 +175,7 @@ async function resolveRefPoint(
       const t = (el?.textContent ?? "").trim();
       return t !== "" && t !== "—";
     },
-    undefined,
+    ACTIVE_CANVAS_TILE_SELECTOR,
     { timeout: POLL_TIMEOUT },
   );
   // Buffer poll first so the regex match window has a chance to

@@ -1,8 +1,11 @@
 import { Then, When } from "@cucumber/cucumber";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
-const SLOT =
-  '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]';
+const SLOT = `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="terminal-meta-branch"]`;
 const EDITOR = '[data-testid="intent-editor-textarea"]';
 const SAVE = '[data-testid="intent-editor-save"]';
 const CLEAR = '[data-testid="intent-editor-clear"]';
@@ -105,14 +108,12 @@ Then(
   "the active terminal annotation slot should start with {string}",
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
-      (want) => {
-        const slot = document.querySelector(
-          '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]',
-        );
+      ({ slotSelector, want }) => {
+        const slot = document.querySelector(slotSelector);
         const text = (slot?.textContent ?? "").trim();
         return text.startsWith(want);
       },
-      expected,
+      { slotSelector: SLOT, want: expected },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -126,13 +127,11 @@ Then(
   "the active terminal annotation slot should render no anchor",
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
-      () => {
-        const slot = document.querySelector(
-          '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]',
-        );
+      (slotSelector) => {
+        const slot = document.querySelector(slotSelector);
         return slot !== null && slot.querySelector("a") === null;
       },
-      undefined,
+      SLOT,
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -145,13 +144,11 @@ Then(
     // it's still visible and clickable (the user can add an intent
     // even when the terminal isn't in a git repo).
     await this.page.waitForFunction(
-      () => {
-        const slot = document.querySelector(
-          '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]',
-        );
+      (slotSelector) => {
+        const slot = document.querySelector(slotSelector);
         return (slot?.textContent ?? "").trim() === "—";
       },
-      undefined,
+      SLOT,
       { timeout: POLL_TIMEOUT },
     );
   },
