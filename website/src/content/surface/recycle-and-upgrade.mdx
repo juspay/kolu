@@ -36,6 +36,13 @@ private boot methods (budget-gated when drainable). It returns a
 `ConvergenceOutcome` with an optional `ConvergenceAnomaly`; wire it to your own
 status surface and logs. Connector arms use `convergeAdmit` with the same policy.
 
+`probeDaemonIdentity({ capability: "not-drainable" })(socketPath)` owns a fresh
+local socket dial; the drainable form also requires `drainCeilingMs`. A connector
+that has already dialed a combined client uses `probeDaemonIdentityFrom`
+instead, supplying that client, its disposer, and the transport's stronger exit
+oracle. Both forms assemble the same `ConvergenceProbe`; the client form never
+turns a lost link into honest daemon absence.
+
 ## 3. What the live recycle does underneath
 
 When the decision is to recycle, the endpoint runs:

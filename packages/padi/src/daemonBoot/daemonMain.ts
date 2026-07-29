@@ -77,7 +77,10 @@ import {
 } from "../stateRoot.ts";
 import { resolveDaemonHome } from "@kolu/surface-daemon";
 import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
-import { openPadiStateStores } from "../session/stateStore.ts";
+import {
+  NewerPadiStateProjectVersionError,
+  openPadiStateStores,
+} from "../session/stateStore.ts";
 import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "../surface.ts";
 import { hasParkedTerminals } from "../terminal-registry.ts";
 import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile.ts";
@@ -192,7 +195,11 @@ function openStateStores(
   stateRoot: string,
   log: Logger,
 ): StoresReady {
-  const stores = openPadiStateStores(stateRoot);
+  const opened = openPadiStateStores(stateRoot);
+  if (opened.kind === "newer-project-version") {
+    throw new NewerPadiStateProjectVersionError(opened);
+  }
+  const stores = opened.stores;
   // Import BEFORE the injections below — the imported values must be in place before
   // anything reads a cell. (#1658's backup, inlined per the scope note.)
   importLegacyConfigOnce(stores, log);

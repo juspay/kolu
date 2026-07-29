@@ -259,6 +259,7 @@ upgrade-window: install nix
       || { echo "upgrade-window: REFUSING — tag ${ref} not in local object store after fetch" >&2; exit 1; }
     echo "upgrade-window: previous ref=${ref} (version tag required)"
     prev_out="$(nix build --no-link --print-out-paths "git+file://${PWD}?ref=${ref}#kaval")"
+    prev_padi_out="$(nix build --no-link --print-out-paths "git+file://${PWD}?ref=${ref}#padi")"
     curr_out="$(nix build --no-link --print-out-paths ".#kaval")"
     echo "upgrade-window: previous kaval store=${prev_out}"
     echo "upgrade-window: current  kaval store=${curr_out}"
@@ -268,12 +269,15 @@ upgrade-window: install nix
     fi
     echo "upgrade-window: store paths differ — window is real"
     export KOLU_PREVIOUS_KAVAL_BIN="${prev_out}/bin/kaval"
+    export KOLU_PREVIOUS_PADI_BIN="${prev_padi_out}/bin/padi"
     export KOLU_PREVIOUS_KAVAL_REF="${ref}"
     export KOLU_PREVIOUS_KAVAL_STORE="${prev_out}"
     export KOLU_CURRENT_KAVAL_STORE="${curr_out}"
     test -x "$KOLU_PREVIOUS_KAVAL_BIN"
+    test -x "$KOLU_PREVIOUS_PADI_BIN"
     KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ KOLU_UPGRADE_WINDOW_REQUIRE=1 \
       KOLU_PREVIOUS_KAVAL_BIN="$KOLU_PREVIOUS_KAVAL_BIN" \
+      KOLU_PREVIOUS_PADI_BIN="$KOLU_PREVIOUS_PADI_BIN" \
       KOLU_PREVIOUS_KAVAL_REF="$KOLU_PREVIOUS_KAVAL_REF" \
       KOLU_PREVIOUS_KAVAL_STORE="$KOLU_PREVIOUS_KAVAL_STORE" \
       KOLU_CURRENT_KAVAL_STORE="$KOLU_CURRENT_KAVAL_STORE" \

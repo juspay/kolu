@@ -39,6 +39,12 @@
 
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
+  convergeAdmit,
+  createConnectorDrainBudget,
+  daemonBuild,
+  instanceKeyFromStartedAt,
+} from "@kolu/surface-daemon-supervisor";
+import {
   type ClosedInfo,
   type ConnectContext,
   ConnectError,
@@ -46,16 +52,19 @@ import {
   type SessionState,
   type SshProv,
 } from "@kolu/surface-remote";
+import { collectLogger } from "@kolu/surface-remote/loggerStubs.testutil";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PadiSession } from "./padiSession.ts";
 import {
   composePadiExtraArgs,
   ensureRemotePadiBinding,
+  generationBoundAdmitDrainPlugs,
   KOLU_PADI_HOST_ENV,
   parseKoluPadiHostSeed,
   type RemotePadiSessionDeps,
 } from "./remotePadiBinding.ts";
+import { padiConvergencePolicyForBinding } from "./padiConvergence.ts";
 
 // ── Mock the ssh transport ONLY ──────────────────────────────────────────────
 // Replace `sshConnector` with a fake connector the per-test harness drives; keep the
@@ -128,6 +137,9 @@ function servedIdentity(hello: Hello) {
 /** A spawn the connector hands out: a served daemon (its hello + drain behaviour) or a
  *  connector-level rejection (a provision/ssh failure). */
 type ServeOpts = {
+  /** Hold every hello on this gate so a test can settle an old admit after a
+   * newer dial has already been adopted. */
+  helloGate?: Promise<void>;
   /** Drain kills the link (default true). `false` = a wedged daemon that keeps answering
    *  after the drain (the drain did not take). */
   diesOnDrain?: boolean;
@@ -200,6 +212,7 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
         control: {
           core: {
             hello: async (): Promise<Hello> => {
+              await spec.helloGate;
               if (drained && spec.wedgeAfterDrain)
                 return new Promise<Hello>(() => {}); // wedged: never settles
               if (drained && dies) {
@@ -324,6 +337,42 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
+  it("a post-hello superseded generation cannot fire a build-mismatch drain or produce a verdict", async () => {
+    // The hello has resolved and its identity is assembled. Supersede this
+    // generation before convergeAdmit enacts the resulting mismatch decision.
+    await Promise.resolve(helloVals({ buildId: "build-old" }));
+    const generation = new AbortController();
+    const fireDrain = vi.fn(async () => {});
+    const plugs = generationBoundAdmitDrainPlugs(generation.signal, {
+      drain: fireDrain,
+      awaitExit: async () => {},
+    });
+    generation.abort();
+
+    const budget = createConnectorDrainBudget(
+      padiConvergencePolicyForBinding({
+        contractVersion: PADI_SURFACE_VERSION,
+        binderBuildId: "build-current",
+        maxBuildDrainsPerInstance: 1,
+      }),
+    );
+    await expect(
+      convergeAdmit({
+        running: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: daemonBuild("build-old"),
+          instanceKey: instanceKeyFromStartedAt(1),
+        },
+        budget,
+        drain: plugs.drain,
+        awaitExit: plugs.awaitExit,
+        ceilingMs: CEIL,
+        log: collectLogger(() => {}),
+      }),
+    ).rejects.toThrow(/superseded/i);
+    expect(fireDrain).not.toHaveBeenCalled();
+  });
+
   it("handshakes a fresh spawn, scopes to .surface.padi, and reads identity", async () => {
     // Off-nix binder ("") never drains on build grounds → a compatible contract ADOPTS
     // deterministically regardless of the survivor's buildId.
@@ -461,6 +510,44 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     await flush(200);
     await r; // resolves only after the modelled link death
     expect(handles[0]!.drainCount).toBe(1);
+  });
+
+  it("renew drains the current generation when a superseded admit settles late", async () => {
+    let releaseFirstHello!: () => void;
+    const firstHello = new Promise<void>((resolve) => {
+      releaseFirstHello = resolve;
+    });
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-current",
+      drainTeardownCeilingMs: 200,
+    });
+    enqueue(
+      serve(helloVals({ startedAt: 1, buildId: "build-old" }), {
+        helloGate: firstHello,
+      }),
+    );
+
+    const firstPin = session.pin();
+    firstPin.catch(() => {});
+    await flush();
+    expect(handles).toHaveLength(1);
+
+    enqueue(serve(helloVals({ startedAt: 2, buildId: "build-current" })));
+    session.recheck();
+    await flush(CEIL);
+    await flush();
+    expect(handles).toHaveLength(2);
+    expect(session.currentState().phase).toBe("connected");
+
+    releaseFirstHello();
+    await flush();
+    await expect(firstPin).rejects.toThrow(/superseded/i);
+
+    const renewed = session.renew();
+    renewed.catch(() => {});
+    await flush(200);
+    await renewed;
+    expect(handles.map((handle) => handle.drainCount)).toEqual([0, 1]);
   });
 
   it("renew() THROWS when the padi does not exit in the window (never a phantom success)", async () => {

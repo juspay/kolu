@@ -6,13 +6,17 @@ to spawn, watch, and recycle a surface daemon it does *not* run in — the mirro
 daemon, so it is never a staleKey root. Beside the endpoint state machine it
 carries the **convergence kit** — the policy-driven answer to "the running daemon
 is not the one I shipped: detect it, decide, converge it." Depends only on
-`@kolu/surface-daemon` (the daemon-half twin); no other workspace packages.
+`@kolu/surface-daemon` (the daemon-half twin), `@kolu/surface` for the frozen
+control-core transport, and `ts-pattern` for exhaustive policy dispatch; no app
+package.
 
 ```ts
 import {
   converge,
   createEndpoint,
   daemonBuild,
+  probeDaemonIdentity,
+  probeDaemonIdentityFrom,
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -26,7 +30,7 @@ const endpoint = createEndpoint({
     onContractSkew: { kind: "recycle" },
     onBuildMismatch: { kind: "nudge-human" },
   },
-  probe: (socketPath) => probeIdentity(socketPath),
+  probe: probeDaemonIdentity({ capability: "not-drainable" }),
   driver: survivableSpawnDriver({ binPath, args: [], env }),
   connect: (socketPath) => connectDaemon(socketPath),
   log,
@@ -38,6 +42,16 @@ await converge(endpoint);
 
 // The only replace verb — all steps required (no silent snapshot skip).
 await recycle(endpoint, { capture, drain, reattach });
+
+// An ssh connector already owns the combined client and process oracle.
+// This form never returns null: the transport has already been dialed.
+const probe = await probeDaemonIdentityFrom({
+  client: combinedClient,
+  dispose: teardown,
+  capability: "drainable",
+  drainCeilingMs: 6000,
+  awaitExit: processExitOracle, // process exit only; link loss is not exit
+});
 ```
 
 Part of the kolu monorepo — `"@kolu/surface-daemon-supervisor": "workspace:*"`.

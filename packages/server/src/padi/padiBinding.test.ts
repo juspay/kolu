@@ -58,6 +58,7 @@ import {
   converge,
   createEndpoint,
   daemonBuild,
+  probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
 import {
   isSurfaceRelayTransportLost,
@@ -89,10 +90,9 @@ import {
   reportFatalBindingError,
   resolvePadiLaunch,
 } from "./padiBinding.ts";
-// padi's convergence declaration + probe moved to `./padiConvergence.ts` in L6.
 import {
+  PADI_DRAIN_TEARDOWN_CEILING_MS,
   padiConvergencePolicy,
-  probePadiForConvergence,
 } from "./padiConvergence.ts";
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
@@ -672,7 +672,11 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     // Sanity: the pre-flight probe reaches the running padi's frozen control core
     // and reads its REAL surface version (whatever this build serves).
     const socketPath = padiSocketPath(stateRoot);
-    const preProbe = await probePadiForConvergence(socketPath);
+    const probe = probeDaemonIdentity({
+      capability: "drainable",
+      drainCeilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS,
+    });
+    const preProbe = await probe(socketPath);
     expect(preProbe).not.toBeNull();
     expect(preProbe?.identity.contractVersion).toBe(PADI_SURFACE_VERSION);
     preProbe?.dispose();
@@ -700,7 +704,7 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
         socketPath,
       },
       policy: newerPolicy,
-      probe: (path) => probePadiForConvergence(path),
+      probe,
       driver: localPadiDriver(
         stateRoot,
         socketPath,

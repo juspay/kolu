@@ -39,9 +39,9 @@ We designed this against both consumers at once — kolu's window and drishti's 
 
 | Problem | Framework answer (new stuff in bold) | kolu | drishti |
 |---|---|---|---|
-| Who's running over there? | A **frozen `controlCore` fragment** the daemon serves — same schema forever, readable at *any* skew — plus **`probeDaemonIdentity`** on the supervisor side to dial it<Footnote>The fragment's fields are exactly padi's existing frozen wire: `stateRoot` · `surfaceVersion` · `controlCoreVersion` · `startedAt` · `commit` · `buildId`, plus a `drain` verb. Padi's instantiation is byte-identical to today's `control.core.hello`. The probe goes in the *supervisor* package — it's a dialing client, and putting it in the daemon package would drag supervisor code into kaval's staleKey hash. That means the supervisor's dependency allowlist gains `@kolu/surface`; the closure test's own error message invites exactly this decision. The probe returns a bare `ConvergenceIdentity` plus instance key, nothing more.</Footnote> | padi's hand-rolled control core migrates onto it (UW2); kaval gets it in UW5<Footnote>kaval's identity rides a *versioned* procedure (`system.version`), which is exactly the mistake the frozen fragment exists to fix — the call you'd use to detect a skew is itself subject to the skew. Fixing it means giving kaval the fragment, which is its own PR: UW5.</Footnote> | uses it from day one |
+| Who's running over there? | A **frozen `controlCore` fragment** the daemon serves — same schema forever, readable at *any* skew — plus **`probeDaemonIdentity`** on the supervisor side to dial it<Footnote>The fragment's fields are exactly padi's existing frozen wire: `stateRoot` · `surfaceVersion` · `controlCoreVersion` · `startedAt` · `commit` · `buildId`, plus a `drain` verb. Padi's instantiation is byte-identical to today's `control.core.hello`. The probe goes in the *supervisor* package — it's a dialing client, and putting it in the daemon package would drag supervisor code into kaval's staleKey hash. That means the supervisor's dependency allowlist gains `@kolu/surface`; the closure test's own error message invites exactly this decision. One assembly authority returns the full `ConvergenceProbe` the kit consumes: `probeDaemonIdentityFrom` accepts an already-dialed client, disposer, and supplied exit oracle, while the socket-path `probeDaemonIdentity` delegates to it and supplies the transport plus local hello-gone polling. The client form never returns `null`, and a connector keeps its stronger process-exit oracle — link loss is not silently weakened into `ClosedInfo.kind === "exit"`. Identity, instance key, `dispose`, and — for drainable daemons — `fireDrain` all come from that same assembly path.</Footnote> | padi's hand-rolled control core migrates onto it (UW2); kaval gets it in UW5<Footnote>kaval's identity rides a *versioned* procedure (`system.version`), which is exactly the mistake the frozen fragment exists to fix — the call you'd use to detect a skew is itself subject to the skew. Fixing it means giving kaval the fragment, which is its own PR: UW5.</Footnote> | uses it from day one |
 | Is that my build? | already there: `ConvergenceIdentity` + `decide()` | wired | new: `readBakedIdentity("DRISHTI_AGENT")` |
-| How do I replace it? | **`drainAndAwaitExit`**, and the *framework* runs it in both enactments — a drainable probe only supplies "fire the drain verb" and "watch for exit" | both padi arms migrate | ssh renewal rides it; the ssh exit-watcher ships in the framework too<Footnote>It just polls the fragment's hello until it stops answering — the framework owns the fragment, so there's no reason every ssh consumer should rewrite that poll.</Footnote> |
+| How do I replace it? | **`drainAndAwaitExit`**, and the *framework* runs it in both enactments — a drainable probe only supplies "fire the drain verb" and "watch for exit" | both padi arms migrate | ssh renewal rides it; the connector supplies its process-exit oracle to the framework assembly<Footnote>The local socket-path `probeDaemonIdentity` polls fresh fragment hellos until no listener remains. An already-dialed ssh connector has stronger knowledge: it passes a process oracle to `probeDaemonIdentityFrom`, and link loss never becomes `ClosedInfo.kind === "exit"`.</Footnote> |
 | When do I give up? | **Budget as policy data**: `drainBudget: { maxAttempts, onGiveUp: "refuse" \| "adopt-stale" }`, only spellable on a drainable policy. State lives inside the supervisor, per boot, and **survives adopts**<Footnote>Two things we had to settle. First: the budget must NOT reset when you adopt your own respawn — resetting wipes the memory needed to notice a *misconfiguration* (two supervisors fighting over one host). A drained lineage coming back under a foreign instance ⇒ `cross-supervisor` — a **loud refusal**, not a topology to ride. Multiple supervisors per host is **not a supported topology** (same class of mistake as expecting a remote host to run kolu itself). Second: kaval never drains, so with the Cap-gate it writes no budget at all. Both padi arms share `maxAttempts: 3, onGiveUp: "adopt-stale"` for same-instance flap exhaustion only. Instance key defaults to the fragment's `startedAt`. Consumers mint one `createDrainBudget(policy)` per boot.</Footnote> | same-instance flap → `adopt-stale`; foreign lineage → `cross-supervisor` refuse | same policy; cross-supervisor is a named conflict to fix, not a multi-parent design |
 | What state am I in now? | **`ConvergenceAnomaly`**: `adopted-stale \| skew-refused \| unconverged \| cross-supervisor`, each with its evidence. `link-failed` is deliberately *not* in there<Footnote>"The wire died" is the session's fact, not a convergence verdict — no convergence code path can even produce it, and it clears on different rules (kolu already special-cases that at `remotePadiBinding.ts:756`). Apps union it in themselves at the edge. `cross-supervisor` *must* be in the framework union: the admission machinery is what detects it, and its absence is why kolu grew the sidecar-flag hack. It is a **loud refusal naming the conflict** ("your other machine owns this host — pick one supervisor"), not a multi-parent mode. `DaemonSession`'s generic `Conv` parameter already fits the union; its "vocabulary lives in the app" comment gets updated in UW1.</Footnote> | schema re-derives from it, unions `link-failed` app-side; the sidecar flag dies | host entry shows the typed refusal when two supervisors collide |
 | One kit for both transports | **`converge` for endpoints, `convergeAdmit` for connectors**, same decision table, drain, and budget underneath. And the endpoint's three public boot methods **go private** — you state your policy when you build the endpoint, and the public verbs are `converge` and `recycle`<Footnote>Nobody calls `adoptOrEnsure`/`adoptOrSpawnOrRefuse` outside `converge` anyway, and `converge` already picks the method from policy — the public trio just lets you cross-wire policy and method by mistake. `restart.ts` and kolu's restart flow keep the explicit `recycle`. We're breaking `converge`'s signature in UW1 regardless, so this rides along. (We also looked at collapsing everything into one big "durable daemon object" — reviewed it, rejected it; the pieces compose fine.)</Footnote> | ssh arm's hand-written switch deleted | the only enactment drishti needs |
@@ -106,7 +106,8 @@ const KAVAL_POLICY: ConvergencePolicy<"not-drainable"> = {
 const endpoint = createEndpoint({
   home: daemonHome({ app: "pulse", placement: "state" }), // SAME call — disagreement impossible
   policy: POLICY,                              // fixed here — boot-method trio goes INTERNAL
-  probe: (socketPath) => probePulse(socketPath),
+  probe: probeDaemonIdentity({ capability: "drainable", drainCeilingMs: 6000 }),
+                                               // UW2: the fragment IS the probe — no probePulse to write
   driver: survivableSpawnDriver({ binPath, args: ["--daemon"], env, unitPrefix: "pulse" }),
   connect: (socketPath) => connectPulse(socketPath), // the framework hands you the path
   log, onStatus,
@@ -121,20 +122,29 @@ showOnEntry(outcome.anomaly);
 await recycle(endpoint, { capture, drain, reattach });  // the ONLY replace verb
 
 // ── connector arm (ssh — SAME policy object, no endpoint) ────────────────
-// Per-boot memory owns the whole policy (createDrainBudget(POLICY)); survives adopts.
-const budget = createDrainBudget(POLICY);
-const verdict = await convergeAdmit({
-  running: identityFrom(hello),              // what the dial found
-  budget,                                    // policy + memory; no separate policy arg
-  drain: () => client.control.drain(),       // fire-the-verb plug only
-  awaitExit: (signal) => pollHelloGone(signal), // framework races exit vs ceiling
-  ceilingMs: 6000,
-  log,
+// Per-boot memory owns the whole policy (createConnectorDrainBudget(POLICY)); survives adopts.
+const budget = createConnectorDrainBudget(POLICY);
+const probe = await probeDaemonIdentityFrom({
+  client: combinedClient,                    // already dialed by the ssh connector
+  dispose: teardown,
+  capability: "drainable",
+  drainCeilingMs: 6000,
+  awaitExit: processExitOracle,              // proves process exit; link loss is not enough
 });
-// verdict: adopt | replaced | refuse — same anomaly type as the endpoint arm
+{
+  const verdict = await convergeAdmit({
+    running: probe,                          // identity + instanceKey, off the same dial
+    budget,                                  // policy + memory; no separate policy arg
+    drain: probe.fireDrain,                  // the fragment's drain verb — no hand-rolled plug
+    awaitExit: probe.awaitExit,              // framework races exit vs ceiling
+    ceilingMs: probe.drainCeilingMs,
+    log,
+  });
+  // verdict: adopt | adopt-stale | replaced | refuse — same anomaly type as the endpoint arm
+}
 ```
 
-Commitments in that example: (1) policy object = whole surface, no fence object, no admit hook, no boot-method choice; (2) endpoint public verbs are exactly `converge` + `recycle`; (3) `convergeAdmit` takes plugs (fire + observe) and a budget minted from the whole policy, so the framework owns the race/ceiling/budget/cross-supervisor memory; (4) one anomaly type across both arms. Cross-supervisor is always a loud refusal — multi-supervisor-per-host is not a supported topology.
+Commitments in that example: (1) policy object = whole surface, no fence object, no admit hook, no boot-method choice; (2) endpoint public verbs are exactly `converge` + `recycle`; (3) `convergeAdmit` takes plugs (fire + observe) and a budget minted from the whole policy, so the framework owns the race/ceiling/budget/cross-supervisor memory — and a fragment-serving daemon gets both plugs off the framework's own probe, hand-rolling nothing; (4) one anomaly type across both arms; (5) a fragment-serving daemon writes zero probe code — `probeDaemonIdentity` is the probe, on both arms. Cross-supervisor is always a loud refusal — multi-supervisor-per-host is not a supported topology.
 
 ## Drishti: the second user
 
@@ -196,9 +206,9 @@ Lands in <PrLink pr={2036} />: `drainAndAwaitExit` (framework-run in both enactm
 
 **TL;DR:** daemons get one frozen, skew-proof way to say who they are; the mixed-version test machinery becomes a library you import. Padi's hand-rolled control core is deleted. Zero behavior change — padi's wire stays byte-identical.
 
-Lands: the `controlCore` fragment, `probeDaemonIdentity` (supervisor side, allowlist widened, decision recorded), the `./upgrade-window.testlib` subpath per the table above, `supervisor.pid` registered.
+Lands in <PrLink pr={2042} />: the `controlCore` fragment; `probeDaemonIdentityFrom` as the single assembly authority with the socket-path `probeDaemonIdentity` delegating to it (supervisor side, allowlist widened, decision recorded), returning the kit's full `ConvergenceProbe` — drain plugs wired to the fragment, so fragment-serving daemons write no probe code; the `./upgrade-window.testlib` subpath per the table above; `supervisor.pid` registered.
 
-**Done when:** `packages/padi/src/upgradeWindow/` holds no generic machinery; padi's hello wire is byte-identical (existing tests pass untouched); the matchers take a registry parameter; the watchdog enforces the tightened versionField rule; `ci::upgrade-window` green on both platforms through the graduated harness.
+**Done when:** `packages/padi/src/upgradeWindow/` holds no generic machinery; padi's hello wire is byte-identical (existing tests pass untouched); `probePadiForConvergence` is deleted — the local arm uses `probeDaemonIdentity` and the already-dialed ssh arm uses its authoritative client-form `probeDaemonIdentityFrom` (kaval's `system.version` probe stays until UW5, the fragment doesn't exist there yet); the matchers take a registry parameter; the watchdog enforces the tightened versionField rule; `ci::upgrade-window` green on both platforms through the graduated harness.
 
 **Manual QA:**
 - This phase's QA is confirming *nothing changed*: boot kolu, restart padi and kaval from the UI, open the daemon dialogs — identical to master.

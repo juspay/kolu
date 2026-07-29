@@ -24,6 +24,7 @@ import {
   DaemonContractSkewError,
   daemonBuild,
   dialSocket,
+  isNoListenerError,
   instanceKeyFromStartedAt,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
@@ -34,6 +35,8 @@ import {
   type PtyHostIdentity,
   type ptyHostSurface,
 } from "kaval";
+
+export { isNoListenerError };
 
 /** kaval reports `identity` as optional on the wire (a future daemon predating
  *  the field stays compatible), so the endpoint's identity type is nullable. */
@@ -177,12 +180,6 @@ export async function connectKaval(
  * Exported so the W8.2 pin can assert both ECONNREFUSED and ENOENT arms —
  * deleting either from this classifier must turn that pin red.
  */
-export function isNoListenerError(err: unknown): boolean {
-  const e = err as { code?: string; cause?: { code?: string } };
-  const code = e.code ?? e.cause?.code;
-  return code === "ECONNREFUSED" || code === "ENOENT";
-}
-
 /**
  * Returns `null` only for honest no-listener (ECONNREFUSED / ENOENT). Any other
  * dial or handshake failure **throws** — never collapses into "no daemon".

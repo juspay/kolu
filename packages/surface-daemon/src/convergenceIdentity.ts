@@ -3,12 +3,12 @@
  * decide whether a running daemon is the one it would spawn.
  *
  * These live in `@kolu/surface-daemon` (beside `buildIdentity.ts`) rather than the
- * supervisor that USES them, for one concrete reason: the supervisor
- * (`@kolu/surface-daemon-supervisor`) keeps a deliberate zero-`@kolu/surface` boundary
- * (`deps.closure.test.ts`), and `contractIsCompatible` REUSES `@kolu/surface`'s canonical
- * version-compat predicate rather than forking it. So the comparators sit on the daemon
- * side of the arrow (surface-daemon already deps `@kolu/surface`), and the supervisor's
- * decision layer imports them UP. This package's whole `src/` is re-exported from its
+ * supervisor that USES them, for one concrete reason: `contractIsCompatible`
+ * REUSES `@kolu/surface`'s canonical version-compat predicate rather than
+ * forking it. So the comparators sit on the daemon side of the arrow and the
+ * supervisor's decision layer imports them UP. The supervisor now also depends
+ * on `@kolu/surface` for the frozen-core dialer; that deliberate edge does not
+ * change the comparators' domain home. This package's whole `src/` is re-exported from its
  * barrel, so a daemon's closure walk reaches these even though only a supervisor calls
  * them (they are loaded when the barrel is imported).
  *

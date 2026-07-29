@@ -6,23 +6,40 @@ that owns a unix socket and serves a typed [`@kolu/surface`](../surface) repeats
 skeleton (`daemonMain`), a lifetime policy, and a bin half (`daemonProcessMain`)
 that owns the process exit. **Front it** over ssh-stdio so a
 remote session outlives the link (`frontDaemonOverStdio`). Plus the shared
-daemon-identity recipe (`readBakedIdentity`). A zero-`kolu-*`-dependency package;
+daemon-identity recipe (`readBakedIdentity`), the frozen identity/drain fragment
+(`controlCoreFragment`), and an app-independent mixed-version test kit at
+`./upgrade-window.testlib`. It depends on the shared `@kolu/surface` framework
+and `ts-pattern` for exhaustive fixture dispatch, but on no app package;
 the client half lives in [`@kolu/surface-daemon-supervisor`](../surface-daemon-supervisor).
+
+`controlCoreSurface` is the standalone frozen contract;
+`controlCoreProcedureSpec` is the composition seam for a daemon retaining
+legacy siblings; the schema/type exports describe that wire. The testlib groups
+the injected yesterday-daemon fixture, registry/watchdog helpers, bidirectional
+previous-release harness, process reaper, shape-recovery pin, and CI recipe pin;
+the [reference](https://kolu.dev/surface/ref-surface-daemon) maps every export.
 
 ```ts
 import {
-  daemonHome, daemonMain, daemonProcessMain, stderrLogger,
+  controlCoreFragment, controlCoreSurface, daemonHome, daemonMain,
+  daemonProcessMain, stderrLogger,
 } from "@kolu/surface-daemon";
 
 const home = daemonHome({ app: "my-daemon", placement: "state" });
+const control = controlCoreFragment({
+  stateRoot, surfaceVersion: CONTRACT_VERSION, startedAt, commit, buildId, onDrain,
+});
+const runtime = implementSurfaces(
+  { app: surface, control: controlCoreSurface },
+  {},
+  { app: appDeps, control },
+);
 daemonProcessMain({
   name: "my-daemon",
   run: () => daemonMain({
-    gatePath: home.gatePath,
-    socketPath: home.socketPath,
-    router,
+    home,
+    router: runtime.router,
     lifetime: { kind: "forever" },
-    anchor: () => home.dir,
     log: stderrLogger(),
   }),
 });

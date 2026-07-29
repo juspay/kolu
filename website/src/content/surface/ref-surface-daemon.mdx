@@ -1,6 +1,6 @@
 ---
 title: "@kolu/surface-daemon reference"
-description: "The daemon binary half: the on-disk home, the single-instance pid gate, the gate→serve→teardown skeleton, fronting over stdio, and baked identity."
+description: "The daemon binary half: home, pid gate, lifecycle, frozen identity fragment, stdio front, baked identity, and the upgrade-window test kit."
 order: 320
 section: Daemons · Reference
 ---
@@ -10,8 +10,43 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 The daemon *binary* half — the code that runs inside the long-lived process. It
 carries no `@kolu/*` app dependency; the client half lives separately in
-[@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Single entry
-point, no subpaths.
+[@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Production
+imports use the package root; mixed-version suites use the dedicated
+`./upgrade-window.testlib` subpath.
+
+## The frozen control core
+
+`controlCoreFragment({ stateRoot, surfaceVersion, startedAt, commit, buildId,
+onDrain })` implements the immutable `control.core.hello` identity and `drain`
+verb. It is served beside the versioned application surface, so a supervisor can
+identify and drain a resident daemon before knowing whether that versioned
+surface is compatible. The hello fields are fixed:
+`stateRoot · surfaceVersion · controlCoreVersion · startedAt · commit · buildId`.
+`CONTROL_CORE_VERSION` is frozen at `"1.0"`; it is not an application contract
+version.
+
+| Export | Role |
+| --- | --- |
+| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain` |
+| `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment contract, plus the spec seam for a daemon retaining extra frozen members |
+| `ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION` | immutable wire vocabulary |
+
+<Snippet src="packages/surface/example/snippets/daemon.ts" region="control-core" />
+
+## The upgrade-window test kit
+
+`@kolu/surface-daemon/upgrade-window.testlib` carries the generic mixed-version
+fixture, registry matchers/sweep/message, watchdog factory,
+`assertRecipeWired`, the bidirectional previous-release harness, process reaper,
+socket wait, and `pinPreviousShapeRecovery`. Its module graph has no workspace
+or external runtime dependency: daemon filenames, state planting, and the spawn
+guard are required injected hooks. Matchers take the consumer registry as a
+parameter; no global registry exists in the framework. A `versionField` records
+the discriminator but does not excuse coverage—the artifact must name a
+disposition test that plants version+1 and observes a typed state.
+The fixture returns independent discriminated `process`, `listener`, and
+`state` arms, so a pid cannot exist without its child and a config path cannot
+exist without its state root.
 
 ## The on-disk home
 
@@ -190,6 +225,7 @@ and returns empty strings off-nix rather than inventing an identity. See
 <Aside type="note" title="Two convergence axes live here">
   `contractIsNewer` / `contractIsCompatible` (ordered) and `buildsMatch`
   (match-only, no ordering) live in this package and are re-exported by the
-  supervisor, so the supervisor stays `@kolu/surface`-free. Their use is in
+  supervisor. They remain daemon-domain vocabulary even though the supervisor
+  deliberately depends on `@kolu/surface` to dial the frozen core. Their use is in
   [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade).
 </Aside>
