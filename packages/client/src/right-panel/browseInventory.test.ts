@@ -79,6 +79,23 @@ describe("mergeBrowseInventory", () => {
       expect(out.ignored).toEqual(["b.log"]);
       expect(out.paths).toEqual(["a.ts", "b.log"]);
     });
+
+    it("drops an overlay directory entry when tracked files exist under it", () => {
+      // The two listings are independent polls: `fs.listIgnored` can collapse
+      // a fully-ignored directory to one trailing-slash entry (".claude/")
+      // while `fs.listAll` still has tracked children under it. Exact-string
+      // overlap alone would keep BOTH and leave Pierre's `.claude/` node with
+      // children — the non-recursive remove that freezes the Code tab after a
+      // host switch. Tracked children own the prefix; the collapsed overlay
+      // dir must not ride alongside them.
+      const out = mergeBrowseInventory(
+        [".claude/skills/foo.md"],
+        [".claude/"],
+        settled,
+      );
+      expect(out.paths).toEqual([".claude/skills/foo.md"]);
+      expect(out.ignored).toEqual([]);
+    });
   });
 
   describe("rule 3 — readiness covers the consulted sources only", () => {

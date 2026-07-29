@@ -24,9 +24,11 @@ import {
   onMount,
 } from "solid-js";
 import { safeApply } from "./safeApply";
+import { toError } from "./toError";
 import {
   ancestorDirectoryPaths,
   directoryRemovalOps,
+  dropRedundantDirKeys,
   type FileTreeRemoveOperation,
   isDirectoryPath,
   pathDiffOperations,
@@ -194,11 +196,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // The one adopted sheet carrying the host's CSS, rewritten in place whenever
   // `shadowCss` changes. Dies with the shadow root on cleanup.
   let hostSheet: CSSStyleSheet | undefined | null;
-  // The path inventory Pierre's tree currently holds. Seeded at mount and
-  // updated after every `batch`, so the next path change can be applied as
-  // an in-place delta. Tracked here rather than via `on`'s `prevInput`
-  // because that arg is `undefined` on the first post-`defer` run — which
-  // would drop the very first delta's removals.
+  // The last normalized inventory Pierre was left matching (`dropRedundantDirKeys`
+  // of the host paths, after a successful apply or recover). Seeded at mount
+  // and updated only when Pierre is left matching this list — so the next path
+  // change can be applied as an in-place delta against a known-good prev.
+  // Tracked here rather than via `on`'s `prevInput` because that arg is
+  // `undefined` on the first post-`defer` run — which would drop the very
+  // first delta's removals.
   let appliedPaths: readonly string[] = [];
 
   // Provenance gate for `onSelectionChange` (juspay/kolu#1841). Pierre is a
@@ -357,7 +361,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // reveal usually carries no selection, so this is normally the only
       // scroll). The folder is already expanded via `initialExpandedPaths`.
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
-      appliedPaths = props.paths;
+      appliedPaths = dropRedundantDirKeys(props.paths);
       // Adopted empty; the (non-deferred) shadow-CSS effect below runs right
       // after this one in creation order and is what writes the content — one
       // call site for the rule, so the mount case can't drift from the change
@@ -383,6 +387,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // revealed. Expanding an already-open folder is a no-op, so this never
   // collapses anything.
   //
+  // On a throw: Pierre's `batch` has no rollback, so partial ops can leave
+  // the store half-applied while `appliedPaths` still names the old inventory
+  // — every later change re-diffs against that stale bookkeeping and freezes
+  // the tree forever (the Code-tab host-switch toast). Recover by rebuilding
+  // via `resetPaths` to the normalized desired inventory and recording it.
+  // onError fires only when recovery itself fails (successful recover must
+  // not toast "render failed"); the original throw is logged for visibility.
+  //
   // `selectedPath` is deliberately *not* a dependency — routing selection
   // through here would re-run on every file click. The selection effect
   // below reveals the picked row imperatively instead; we read `selectedPath`
@@ -392,10 +404,37 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     on(
       [() => props.paths, () => props.expandPaths],
       ([paths, expandPaths]) => {
-        safeApply(() => {
-          if (!tree) return;
-          const fileOps = pathDiffOperations(appliedPaths, paths);
-          if (fileOps.length > 0) tree.batch(fileOps);
+        // Capture once so closures (pathOps filter) keep a narrowed FileTree
+        // handle — mutable `let tree` does not flow into arrow callbacks.
+        const t = tree;
+        if (!t) return;
+        const selectedPath = props.selectedPath ?? null;
+        const toOpen = [
+          ...(expandPaths ?? []),
+          ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
+        ];
+        // Normalize both sides so a collapsed dir key never coexists with
+        // inventory children — pathDiff can then always recursive-remove
+        // orphaned directory keys without a skip branch. Shared by the happy
+        // path and the recovery rebuild so mixed keys never re-enter Pierre.
+        const prev = dropRedundantDirKeys(appliedPaths);
+        const next = dropRedundantDirKeys(paths);
+        try {
+          const pathOps = pathDiffOperations(prev, next).filter((op) => {
+            // Pierre promotes an emptied directory to an explicit empty-folder
+            // node on file remove — so files→collapsed-dir can try to `add` a
+            // dir key that already exists. Skip those adds (mirrors getItem
+            // guard on dirOps).
+            if (
+              op.type === "add" &&
+              isDirectoryPath(op.path) &&
+              t.getItem(op.path)
+            ) {
+              return false;
+            }
+            return true;
+          });
+          if (pathOps.length > 0) t.batch(pathOps);
           // Pierre's `remove` promotes an emptied directory to an explicit
           // empty folder instead of deleting it (see `directoryRemovalOps`),
           // so the file removals above would otherwise strand a filter's
@@ -406,18 +445,36 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           // touches a surviving directory's expansion, so a hand-collapsed
           // match folder stays collapsed.
           const dirOps: FileTreeRemoveOperation[] = [];
-          for (const op of directoryRemovalOps(appliedPaths, paths)) {
-            if (tree.getItem(op.path)) dirOps.push(op);
+          for (const op of directoryRemovalOps(prev, next)) {
+            if (t.getItem(op.path)) dirOps.push(op);
           }
-          if (dirOps.length > 0) tree.batch(dirOps);
-          appliedPaths = paths;
-          const selectedPath = props.selectedPath ?? null;
-          const toOpen = [
-            ...(expandPaths ?? []),
-            ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
-          ];
-          expandDirs(tree, toOpen);
-        }, props.onError);
+          if (dirOps.length > 0) t.batch(dirOps);
+          appliedPaths = next;
+          expandDirs(t, toOpen);
+        } catch (err) {
+          try {
+            t.resetPaths(next, { initialExpandedPaths: toOpen });
+            appliedPaths = next;
+            expandDirs(t, toOpen);
+            // Recovered — tree matches desired inventory. Log the original
+            // throw so recurrence is visible; do not toast as render failure.
+            console.error(
+              "FileTree paths batch failed; recovered via resetPaths:",
+              err,
+            );
+            return;
+          } catch (recoverErr) {
+            // Recovery failed — bookkeeping may still be desynced; surface
+            // loudly and leave appliedPaths so a later inventory can retry.
+            const recovered = toError(recoverErr);
+            props.onError(
+              recovered.cause == null
+                ? new Error(recovered.message, { cause: err })
+                : recovered,
+            );
+            return;
+          }
+        }
       },
       { defer: true },
     ),
