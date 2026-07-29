@@ -25,7 +25,7 @@ import {
   pinPreviousShapeRecovery,
   plantYesterdayDaemon,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
-import { openPadiStateStores } from "../session/stateStore.ts";
+import { requirePadiStateStores as openPadiStateStores } from "../session/stateStore.ts";
 import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
 import { padiYesterdayDaemonOptions } from "./yesterdayDaemon.fixture.testlib.ts";
 

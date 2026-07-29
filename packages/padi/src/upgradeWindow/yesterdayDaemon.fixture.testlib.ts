@@ -4,7 +4,7 @@ import { assertDaemonSpawnAllowed } from "@kolu/daemon-test-gate";
 import type { YesterdayDaemonOpts } from "@kolu/surface-daemon/upgrade-window.testlib";
 import { KAVAL_GATE_FILE, PTY_HOST_SOCK_FILE } from "kaval";
 import { match } from "ts-pattern";
-import { openPadiStateStores } from "../session/stateStore.ts";
+import { requirePadiStateStores as openPadiStateStores } from "../session/stateStore.ts";
 
 type WithoutFrameworkHooks<T> = T extends unknown
   ? Omit<T, "gateFile" | "socketFile" | "assertSpawnAllowed" | "plantState">

@@ -82,8 +82,8 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     id: "padi-state-root-config",
     pathShape: "<stateRoot>/config.json",
     role: "config",
-    coveredByTest: "padi/oldSessionFile.test.ts",
-    versionField: "projectVersion (conf, PADI_STATE_SCHEMA_VERSION)",
+    coveredByTest: "padi/sharedArtifacts.watchdog.test.ts",
+    versionField: "__internal__.migrations.version (conf projectVersion)",
     diskBasenames: ["config.json"],
     diskBasenamePatterns: [],
     why: "Padi's persistent store: session + activityFeed + lastPairedDaemon. Survives deploys; old shape must restore or refuse by name.",
@@ -136,7 +136,7 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     versionField: null,
     diskBasenames: ["padi.log"],
     // pino-roll keeps 3 generations: padi.log, padi.log.1, padi.log.2, …
-    diskBasenamePatterns: [/^padi\.log(\.\d+)?$/],
+    diskBasenamePatterns: [/^padi\.log(?:\.\d+)?(?:\.old)?$/],
     why: "Diagnostic pino stream under the state-root — not a protocol surface.",
   },
   {

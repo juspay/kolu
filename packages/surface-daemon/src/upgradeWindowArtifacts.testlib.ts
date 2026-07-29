@@ -47,11 +47,7 @@ export function isSharedArtifactLog(
       if (pattern.test(name)) return true;
     }
   }
-  return (
-    base.endsWith(".log") ||
-    base.endsWith(".log.old") ||
-    /^[\w.-]+\.log\.\d+$/.test(base)
-  );
+  return false;
 }
 
 export function listRelativeFilesUnder(root: string): string[] {
@@ -100,9 +96,52 @@ export function unknownSharedFileMessage(
 
 /** Coverage and inventory assertions over one consumer-owned artifact registry. */
 export type SharedArtifactWatchdog = {
-  coverageGaps(testFiles: ReadonlySet<string>): string[];
+  coverageGaps(
+    testFiles: ReadonlySet<string>,
+    versionProofs?: readonly ExecutedVersionDispositionProof[],
+  ): string[];
   assertInventory(ids: readonly string[]): void;
 };
+
+const EXECUTED_VERSION_DISPOSITION = Symbol("executed-version-disposition");
+
+/** Opaque receipt issued only after a suite planted the requested version,
+ * read that exact value back from disk, and observed the reader disposition. */
+export type ExecutedVersionDispositionProof = {
+  readonly artifactId: string;
+  readonly versionField: string;
+  readonly [EXECUTED_VERSION_DISPOSITION]: true;
+};
+
+/** Execute (rather than merely name) a version-disposition proof. The readback
+ * prevents an empty/no-op plant callback from minting coverage. */
+export async function executeVersionDispositionProof(options: {
+  readonly artifact: SharedArtifact;
+  readonly newerVersion: string;
+  readonly plant: () => void | Promise<void>;
+  readonly readPlantedVersion: () => unknown | Promise<unknown>;
+  readonly observeDisposition: () => void | Promise<void>;
+}): Promise<ExecutedVersionDispositionProof> {
+  if (options.artifact.versionField === null) {
+    throw new Error(
+      `${options.artifact.id}: cannot prove a null versionField disposition`,
+    );
+  }
+  await options.plant();
+  const planted = await options.readPlantedVersion();
+  if (planted !== options.newerVersion) {
+    throw new Error(
+      `${options.artifact.id}: version+1 plant did not execute; ` +
+        `read ${JSON.stringify(planted)}, expected ${JSON.stringify(options.newerVersion)}`,
+    );
+  }
+  await options.observeDisposition();
+  return {
+    artifactId: options.artifact.id,
+    versionField: options.artifact.versionField,
+    [EXECUTED_VERSION_DISPOSITION]: true,
+  };
+}
 
 /** Factory over any consumer registry. A version field never excuses a missing
  * disposition test: `coveredByTest` must name a real suite for every protocol
@@ -111,8 +150,13 @@ export function createSharedArtifactWatchdog(
   registry: readonly SharedArtifact[],
 ): SharedArtifactWatchdog {
   return {
-    coverageGaps(testFiles) {
+    coverageGaps(testFiles, versionProofs = []) {
       const gaps: string[] = [];
+      const provedVersions = new Set(
+        versionProofs
+          .filter((proof) => proof[EXECUTED_VERSION_DISPOSITION])
+          .map((proof) => `${proof.artifactId}\0${proof.versionField}`),
+      );
       for (const artifact of registry) {
         if (artifact.role === "log") continue;
         if (artifact.coveredByTest === null) {
@@ -125,6 +169,14 @@ export function createSharedArtifactWatchdog(
         if (!testFiles.has(artifact.coveredByTest)) {
           gaps.push(
             `${artifact.id}: coveredByTest="${artifact.coveredByTest}" does not exist`,
+          );
+        }
+        if (
+          artifact.versionField !== null &&
+          !provedVersions.has(`${artifact.id}\0${artifact.versionField}`)
+        ) {
+          gaps.push(
+            `${artifact.id}: versionField=${artifact.versionField} has no executed version+1 disposition proof`,
           );
         }
       }

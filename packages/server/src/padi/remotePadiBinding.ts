@@ -81,6 +81,36 @@ const REMOTE_DRAIN_TEARDOWN_CEILING_MS = 6000;
  *  {@link padiConvergencePolicy}'s production budget. */
 const MAX_BUILD_DRAINS_PER_INSTANCE = 3;
 
+type AdmitDrainPlugs = {
+  readonly drain: () => Promise<void>;
+  readonly awaitExit: (signal: AbortSignal) => Promise<void>;
+};
+
+function supersededAdmitError(): Error {
+  return new Error("remote padi admit superseded");
+}
+
+/** Bind both convergence effects to one connector generation. The synchronous
+ * drain fence leaves no interleaving point between checking the generation and
+ * firing the verb; the exit plug rejects if superseded before or while waiting,
+ * so a stale oracle cannot manufacture a verdict. */
+export function generationBoundAdmitDrainPlugs(
+  generationSignal: AbortSignal,
+  plugs: AdmitDrainPlugs,
+): AdmitDrainPlugs {
+  return {
+    drain: async () => {
+      if (generationSignal.aborted) throw supersededAdmitError();
+      await plugs.drain();
+    },
+    awaitExit: async (ceilingSignal) => {
+      if (generationSignal.aborted) throw supersededAdmitError();
+      await plugs.awaitExit(AbortSignal.any([ceilingSignal, generationSignal]));
+      if (generationSignal.aborted) throw supersededAdmitError();
+    },
+  };
+}
+
 /** The host-selection knob: an ssh host (an `~/.ssh/config` alias or `user@host`).
  *  Unset → the LOCAL padi binding (byte-identical to today). */
 export const KOLU_PADI_HOST_ENV = "KOLU_PADI_HOST";
@@ -519,14 +549,18 @@ export function ensureRemotePadiBinding(
     // the VM adoption arm greps this string. Logged here (before convergeAdmit)
     // only when the pure decision would drain on build; the framework logs its own
     // generic line too.
+    const generationPlugs = generationBoundAdmitDrainPlugs(active.signal, {
+      drain: probe.fireDrain,
+      awaitExit: probe.awaitExit,
+    });
     const verdict = await convergeAdmit({
       running: {
         ...probe.identity,
         instanceKey: probe.instanceKey,
       },
       budget,
-      drain: probe.fireDrain,
-      awaitExit: probe.awaitExit,
+      drain: generationPlugs.drain,
+      awaitExit: generationPlugs.awaitExit,
       ceilingMs: probe.drainCeilingMs,
       log: log.child({ host }),
     });

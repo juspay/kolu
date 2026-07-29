@@ -10,16 +10,29 @@
  * unregistered basename fails the matcher.
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createSharedArtifactWatchdog,
+  executeVersionDispositionProof,
   unknownProtocolFilesOnDisk,
   unknownSharedFileMessage,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
+import {
+  openPadiStateStores,
+  PADI_STATE_SCHEMA_VERSION,
+  requirePadiStateStores,
+} from "../session/stateStore.ts";
 import { SHARED_ARTIFACTS } from "./sharedArtifacts.testlib.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -33,8 +46,54 @@ const suiteFiles = new Set([
 const watchdog = createSharedArtifactWatchdog(SHARED_ARTIFACTS);
 
 describe("shared-artifact watchdog (upgrade-window)", () => {
-  it("every non-log shared artifact has a real disposition test", () => {
-    expect(watchdog.coverageGaps(suiteFiles)).toEqual([]);
+  it("every non-log shared artifact has a real, executed disposition test", async () => {
+    const stateConfig = SHARED_ARTIFACTS.find(
+      (artifact) => artifact.id === "padi-state-root-config",
+    );
+    if (stateConfig === undefined) {
+      throw new Error("padi-state-root-config missing from artifact registry");
+    }
+    const stateRoot = mkdtempSync(join(tmpdir(), "uw-version-disposition-"));
+    try {
+      // Materialise today's Conf-owned projectVersion first. The proof helper
+      // then owns the version+1 plant and verifies its effect from disk before
+      // it will mint the receipt consumed by coverageGaps.
+      requirePadiStateStores(stateRoot);
+      const configPath = join(stateRoot, "config.json");
+      const [major] = PADI_STATE_SCHEMA_VERSION.split(".").map(Number);
+      const newerVersion = `${major! + 1}.0.0`;
+      let plantedBytes = "";
+      const proof = await executeVersionDispositionProof({
+        artifact: stateConfig,
+        newerVersion,
+        plant: () => {
+          const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+            __internal__: { migrations: { version: string } };
+          };
+          config.__internal__.migrations.version = newerVersion;
+          writeFileSync(configPath, JSON.stringify(config, null, "\t"));
+          plantedBytes = readFileSync(configPath, "utf8");
+        },
+        readPlantedVersion: () => {
+          const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+            __internal__?: { migrations?: { version?: unknown } };
+          };
+          return config.__internal__?.migrations?.version;
+        },
+        observeDisposition: () => {
+          expect(openPadiStateStores(stateRoot)).toEqual({
+            kind: "newer-project-version",
+            configPath,
+            runningVersion: newerVersion,
+            supportedVersion: PADI_STATE_SCHEMA_VERSION,
+          });
+          expect(readFileSync(configPath, "utf8")).toBe(plantedBytes);
+        },
+      });
+      expect(watchdog.coverageGaps(suiteFiles, [proof])).toEqual([]);
+    } finally {
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
   });
 
   it("the inventory is non-empty and includes the core gate/socket/session trio", () => {
@@ -112,6 +171,13 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
       unknownProtocolFilesOnDisk(SHARED_ARTIFACTS, runtime, state),
     ).toEqual([]);
 
+    // A .log suffix is not an exemption. Only a role:"log" registry row can
+    // classify a file as diagnostic rather than protocol-bearing.
+    writeFileSync(join(kavalDir, "protocol-surface.log"), "format=1\n");
+    expect(
+      unknownProtocolFilesOnDisk(SHARED_ARTIFACTS, runtime, state),
+    ).toEqual([`kaval-deadbeef/protocol-surface.log`]);
+
     // Plant an unregistered shared file — the exact miss a hand-list-only
     // watchdog cannot catch. The matcher must name it (relative path).
     writeFileSync(join(kavalDir, "kaval.gate.v2"), "format=2\n");
@@ -120,7 +186,10 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
       runtime,
       state,
     );
-    expect(unknown).toEqual([`kaval-deadbeef/kaval.gate.v2`]);
+    expect(unknown).toEqual([
+      `kaval-deadbeef/kaval.gate.v2`,
+      `kaval-deadbeef/protocol-surface.log`,
+    ]);
     expect(unknownSharedFileMessage(SHARED_ARTIFACTS, unknown)).toMatch(
       /kaval\.gate\.v2/,
     );

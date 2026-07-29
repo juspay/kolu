@@ -39,6 +39,12 @@
 
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
+  convergeAdmit,
+  createConnectorDrainBudget,
+  daemonBuild,
+  instanceKeyFromStartedAt,
+} from "@kolu/surface-daemon-supervisor";
+import {
   type ClosedInfo,
   type ConnectContext,
   ConnectError,
@@ -46,16 +52,19 @@ import {
   type SessionState,
   type SshProv,
 } from "@kolu/surface-remote";
+import { collectLogger } from "@kolu/surface-remote/loggerStubs.testutil";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PadiSession } from "./padiSession.ts";
 import {
   composePadiExtraArgs,
   ensureRemotePadiBinding,
+  generationBoundAdmitDrainPlugs,
   KOLU_PADI_HOST_ENV,
   parseKoluPadiHostSeed,
   type RemotePadiSessionDeps,
 } from "./remotePadiBinding.ts";
+import { padiConvergencePolicyForBinding } from "./padiConvergence.ts";
 
 // ── Mock the ssh transport ONLY ──────────────────────────────────────────────
 // Replace `sshConnector` with a fake connector the per-test harness drives; keep the
@@ -328,6 +337,42 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
+  it("a post-hello superseded generation cannot fire a build-mismatch drain or produce a verdict", async () => {
+    // The hello has resolved and its identity is assembled. Supersede this
+    // generation before convergeAdmit enacts the resulting mismatch decision.
+    await Promise.resolve(helloVals({ buildId: "build-old" }));
+    const generation = new AbortController();
+    const fireDrain = vi.fn(async () => {});
+    const plugs = generationBoundAdmitDrainPlugs(generation.signal, {
+      drain: fireDrain,
+      awaitExit: async () => {},
+    });
+    generation.abort();
+
+    const budget = createConnectorDrainBudget(
+      padiConvergencePolicyForBinding({
+        contractVersion: PADI_SURFACE_VERSION,
+        binderBuildId: "build-current",
+        maxBuildDrainsPerInstance: 1,
+      }),
+    );
+    await expect(
+      convergeAdmit({
+        running: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: daemonBuild("build-old"),
+          instanceKey: instanceKeyFromStartedAt(1),
+        },
+        budget,
+        drain: plugs.drain,
+        awaitExit: plugs.awaitExit,
+        ceilingMs: CEIL,
+        log: collectLogger(() => {}),
+      }),
+    ).rejects.toThrow(/superseded/i);
+    expect(fireDrain).not.toHaveBeenCalled();
+  });
+
   it("handshakes a fresh spawn, scopes to .surface.padi, and reads identity", async () => {
     // Off-nix binder ("") never drains on build grounds → a compatible contract ADOPTS
     // deterministically regardless of the survivor's buildId.
