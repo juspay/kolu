@@ -106,11 +106,35 @@ const TerminalContent: Component<{
   }
 
   function handleMainFocus() {
-    store.setActiveSilently(props.terminalId);
+    subPanel.focusMainPane(props.terminalId);
   }
 
   function handleSubFocus(subId: TerminalId) {
-    store.setActiveSilently(subId);
+    subPanel.focusVisibleSubPane(props.terminalId, subId);
+  }
+
+  // Corvu reports physical collapsed/expanded transitions for controlled sizes;
+  // those callbacks do not identify their source. Record an actual handle
+  // gesture separately so only pointer/keyboard intent is allowed to move focus.
+  let resizeIntent = false;
+  const markResizeIntent = () => {
+    resizeIntent = true;
+  };
+  const clearResizeIntent = () => {
+    resizeIntent = false;
+  };
+
+  function handlePanelCollapse() {
+    if (!hasSubs()) return;
+    if (resizeIntent) subPanel.collapsePanel(props.terminalId);
+    else subPanel.collapsePanelChrome(props.terminalId);
+    clearResizeIntent();
+  }
+
+  function handlePanelExpand() {
+    if (resizeIntent) subPanel.expandAndFocusPanel(props.terminalId);
+    else subPanel.expandPanel(props.terminalId);
+    clearResizeIntent();
   }
 
   return (
@@ -177,6 +201,10 @@ const TerminalContent: Component<{
             }}
             style={{ "z-index": Z_HANDLE_INNER }}
             aria-label="Resize terminal split"
+            onPointerDown={markResizeIntent}
+            onPointerUp={clearResizeIntent}
+            onKeyDown={markResizeIntent}
+            onKeyUp={clearResizeIntent}
           />
         </Show>
 
@@ -186,8 +214,10 @@ const TerminalContent: Component<{
           minSize={0}
           collapsible
           collapsedSize={0}
-          // Only PERSIST a collapse that reflects USER intent — a genuine
-          // drag-to-collapse while the split actually has sub-terminals. On a host
+          // Only PERSIST a collapse while the split actually has sub-terminals.
+          // Pointer/keyboard intent is tracked on the handle above so this generic
+          // Corvu transition can update chrome without masquerading as focus intent.
+          // On a host
           // switch-BACK the sub-terminal metadata (parentId) re-arrives a beat
           // AFTER the tile re-renders, so `hasSubs()` — hence `isExpanded()` —
           // flickers false and drives `sizes` to [1, 0]; Corvu then fires this
@@ -198,10 +228,8 @@ const TerminalContent: Component<{
           // switch-back split-loss). Guarding on `hasSubs()` makes the transient
           // programmatic collapse a no-op; the controlled `sizes` re-expands the
           // moment the sub metadata arrives.
-          onCollapse={() => {
-            if (hasSubs()) subPanel.collapsePanel(props.terminalId);
-          }}
-          onExpand={() => subPanel.expandAndFocusPanel(props.terminalId)}
+          onCollapse={handlePanelCollapse}
+          onExpand={handlePanelExpand}
           data-pane="sub"
           data-pane-focus={paneFocus("sub")}
         >
@@ -210,7 +238,7 @@ const TerminalContent: Component<{
               subIds={subTerminalIds()}
               activeSubTab={activeSubTab()}
               getMetadata={store.getMetadata}
-              onSelect={(id) => subPanel.setActiveSubTab(props.terminalId, id)}
+              onSelect={(id) => subPanel.selectSubTab(props.terminalId, id)}
               onClose={props.onCloseTerminal}
               onCollapse={() => subPanel.collapsePanel(props.terminalId)}
               onCreate={() =>

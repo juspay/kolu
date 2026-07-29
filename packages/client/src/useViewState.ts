@@ -65,19 +65,25 @@ export function useViewState() {
    *  the owner) is imperative — a pure host SWITCH re-keys `activeId()` without
    *  running it, so a switch never fires a wrong-host `chrome.setActive`. */
   function activate(id: TerminalId | null) {
-    writeFocusFact(id);
+    setActiveSilently(id);
     const tileId = activeId();
     if (tileId !== null) setCenterActiveRequest(tileId);
   }
 
-  /** Low-level no-pan write into the active host's focus fact. Split-aware
-   *  landing belongs to `useTerminalStore().focusTerminal`; panel transitions
-   *  use this only after making their chrome state consistent. */
-  const writeFocusFact = (id: TerminalId | null) => view()?.writeFocus(id);
-
-  /** Compatibility name for tile-oriented callers; it writes the same focus
-   *  fact and does not create a second active selection. */
-  const setActiveSilently = writeFocusFact;
+  /** Select a top-level tile without moving the canvas. Split landing belongs
+   *  to `useTerminalStore().focusTerminal`; invariant-safe pane transitions
+   *  stay inside `useSubPanel`, so ordinary consumers cannot write an arbitrary
+   *  split id into the raw focus fact. */
+  function setActiveSilently(id: TerminalId | null): void {
+    const scope = activeScope();
+    if (!scope) return;
+    if (id !== null && scope.wire.parentOf(id) !== null) {
+      throw new Error(
+        `setActiveSilently: ${id} is a split; use focusTerminal instead`,
+      );
+    }
+    scope.view.writeFocus(id);
+  }
 
   /** Fire the "pan to the active tile" impulse for the CURRENT host without
    *  touching the active selection or reporting to the server — the switch-in
@@ -112,7 +118,6 @@ export function useViewState() {
     activeId,
     isFocused,
     isActiveTile,
-    writeFocusFact,
     activate,
     setActiveSilently,
     canvasMaximized,

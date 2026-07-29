@@ -5,7 +5,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
-import { useViewState } from "../useViewState";
+import { activeScope } from "../hostScope/hostScopes";
 import { activePadiRpc } from "../wire";
 
 interface SubPanelState {
@@ -62,11 +62,18 @@ function reportToServer(parentId: TerminalId) {
 }
 
 export function useSubPanel() {
-  const view = useViewState();
+  const focusedTerminalId = (): TerminalId | null =>
+    activeScope()?.view.focusedTerminalId() ?? null;
+
+  /** The raw fact write is deliberately trapped inside this panel boundary.
+   *  Every exported caller below first establishes or checks the pane chrome
+   *  invariant; the broad terminal/view facades never expose this operation. */
+  const writePaneFocus = (id: TerminalId): void =>
+    activeScope()?.view.writeFocus(id);
 
   function focusVisiblePane(parentId: TerminalId): void {
     const panel = state[parentId];
-    view.writeFocusFact(
+    writePaneFocus(
       panel && !panel.collapsed && panel.activeSubTab
         ? panel.activeSubTab
         : parentId,
@@ -103,20 +110,58 @@ export function useSubPanel() {
       reportToServer(parentId);
     },
 
-    collapsePanel(parentId: TerminalId) {
+    /** Chrome-only collapse for Corvu's generic controlled-state callback. */
+    collapsePanelChrome(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", true);
-      view.writeFocusFact(parentId);
       reportToServer(parentId);
     },
 
+    collapsePanel(parentId: TerminalId) {
+      ensureState(parentId);
+      setState(parentId, "collapsed", true);
+      writePaneFocus(parentId);
+      reportToServer(parentId);
+    },
+
+    /** Chrome-only remembered-tab update for hydration, adoption, and landing
+     *  orchestration. Explicit user selection uses `selectSubTab`. */
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
-      const panel = ensureState(parentId);
-      const focused = view.focusedTerminalId();
-      const followedActiveTab =
-        panel.activeSubTab !== null && focused === panel.activeSubTab;
+      ensureState(parentId);
       setState(parentId, "activeSubTab", subId);
-      if (followedActiveTab) view.writeFocusFact(subId ?? parentId);
+    },
+
+    /** Explicit tab choice: update remembered chrome and focus exactly once. */
+    selectSubTab(parentId: TerminalId, subId: TerminalId | null) {
+      ensureState(parentId);
+      setState(parentId, "activeSubTab", subId);
+      writePaneFocus(subId ?? parentId);
+    },
+
+    /** Split landing: reveal the chosen tab without focus side effects, then
+     *  commit the one focus fact exactly once. */
+    focusSubTab(parentId: TerminalId, subId: TerminalId) {
+      ensureState(parentId);
+      setState(parentId, "activeSubTab", subId);
+      setState(parentId, "collapsed", false);
+      reportToServer(parentId);
+      writePaneFocus(subId);
+    },
+
+    /** Pane DOM focus may commit only a pane already made visible by chrome. */
+    focusMainPane(parentId: TerminalId) {
+      ensureState(parentId);
+      writePaneFocus(parentId);
+    },
+
+    focusVisibleSubPane(parentId: TerminalId, subId: TerminalId) {
+      const panel = ensureState(parentId);
+      if (panel.collapsed || panel.activeSubTab !== subId) {
+        throw new Error(
+          `focusVisibleSubPane: ${subId} is not the visible split of ${parentId}`,
+        );
+      }
+      writePaneFocus(subId);
     },
 
     setPanelSize(parentId: TerminalId, size: number) {
@@ -133,9 +178,9 @@ export function useSubPanel() {
       const current = ne.indexOf(panel.activeSubTab as string);
       const next = (current + direction + ne.length) % ne.length;
       const nextId = ne[next] ?? ne[0];
-      const followedActiveTab = view.focusedTerminalId() === panel.activeSubTab;
+      const followedActiveTab = focusedTerminalId() === panel.activeSubTab;
       setState(parentId, "activeSubTab", nextId);
-      if (followedActiveTab) view.writeFocusFact(nextId);
+      if (followedActiveTab) writePaneFocus(nextId);
     },
 
     /** Ask the current focus-target terminal to re-grab keyboard focus. Used

@@ -52,6 +52,8 @@ function makePorts(over: {
     collapse: vi.fn<(id: TerminalId) => void>(),
     setActiveSubTab:
       vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
+    selectSubTab:
+      vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
     requestRefocus: vi.fn<(id: TerminalId) => void>(),
     removeSub: vi.fn<(id: TerminalId) => void>(),
     removeRightPanel: vi.fn<(id: TerminalId) => void>(),
@@ -67,6 +69,7 @@ function makePorts(over: {
       collapse: calls.collapse,
       activeSubTab: over.activeSubTab ?? (() => null),
       setActiveSubTab: calls.setActiveSubTab,
+      selectSubTab: calls.selectSubTab,
       requestRefocus: calls.requestRefocus,
       remove: calls.removeSub,
     },
@@ -148,7 +151,7 @@ describe("evictTerminal — sub-terminal branch", () => {
       activeSubTab: () => T("S1"),
     });
     evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
-    expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
+    expect(calls.selectSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
     expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
     expect(calls.collapse).not.toHaveBeenCalled();
   });
@@ -160,6 +163,7 @@ describe("evictTerminal — sub-terminal branch", () => {
     });
     evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
     expect(calls.setActiveSubTab).not.toHaveBeenCalled();
+    expect(calls.selectSubTab).not.toHaveBeenCalled();
     expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
   });
 });
@@ -293,7 +297,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     // metadata but was captured in the pre-removal snapshot.
     h.setRawIds([T("P"), T("S2")]);
 
-    expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
+    expect(h.calls.selectSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
     expect(h.calls.requestRefocus).toHaveBeenCalledWith(T("P"));
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
     h.dispose();

@@ -135,8 +135,7 @@ export const useTerminalStore = createSharedRoot(() => {
       view.activate(id);
       return;
     }
-    subPanel.setActiveSubTab(parentId, id);
-    subPanel.expandAndFocusPanel(parentId);
+    subPanel.focusSubTab(parentId, id);
     view.requestCenterActive();
   }
 

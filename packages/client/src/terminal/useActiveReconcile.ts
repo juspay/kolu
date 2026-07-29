@@ -70,6 +70,7 @@ export interface TerminalEvictionPorts {
     collapse: (parentId: TerminalId) => void;
     activeSubTab: (parentId: TerminalId) => TerminalId | null;
     setActiveSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
+    selectSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
     requestRefocus: (parentId: TerminalId) => void;
     remove: (id: TerminalId) => void;
   };
@@ -107,7 +108,7 @@ export function evictTerminal(
       ports.subPanel.setActiveSubTab(parentId, null);
     } else {
       if (ports.subPanel.activeSubTab(parentId) === id) {
-        ports.subPanel.setActiveSubTab(parentId, subs[0] ?? null);
+        ports.subPanel.selectSubTab(parentId, subs[0] ?? null);
       }
       // Re-grab focus for the remaining active sub-terminal: closing a tab via
       // its close button moves focus to that button, and the reactive focus
