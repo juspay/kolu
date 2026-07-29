@@ -1,4 +1,3 @@
-import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.forTest";
 /**
  * The W2.2 CUTOVER acceptance gate — kolu-server's padi BINDER end-to-end.
  *
@@ -23,6 +22,7 @@ import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-su
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
+import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.testlib";
 import {
   closeSync,
   constants as fsConstants,

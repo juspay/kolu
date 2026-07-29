@@ -10,7 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./states": "./src/endpointStates.ts",
-    "./createEndpoint.forTest": "./src/createEndpoint.forTest.ts"
+    "./createEndpoint.testlib": "./src/createEndpoint.testlib.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

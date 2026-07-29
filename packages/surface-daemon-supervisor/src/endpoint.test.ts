@@ -10,7 +10,7 @@ import {
   DaemonContractSkewError,
   type EndpointStatus,
 } from "./endpoint.ts";
-import { createEndpointForTest as createEndpoint } from "./createEndpoint.forTest.ts";
+import { createEndpointForTest as createEndpoint } from "./createEndpoint.testlib.ts";
 import { endpointPrivate } from "./endpoint.private.ts";
 import { serializeRestart } from "./restart.ts";
 

@@ -37,7 +37,10 @@ import {
   type EndpointStatus,
   recycle,
 } from "./index.ts";
-import { createEndpointForTest as createEndpoint } from "./createEndpoint.forTest.ts";
+import {
+  createEndpointForTest as createEndpoint,
+  testStartUnixUs,
+} from "./createEndpoint.testlib.ts";
 
 const silentLog = {
   debug() {},
@@ -200,7 +203,10 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const survivorPid = survivor.pid;
     // Overwrite fixture one-field plant with two-field matching the test
     // inject (startUnixUs = pid * 1000).
-    writeFileSync(d.gatePath, `${survivorPid}\t${survivorPid * 1_000}\n`);
+    writeFileSync(
+      d.gatePath,
+      `${survivorPid}\t${testStartUnixUs(survivorPid)}\n`,
+    );
     expect(gatePid(d.gatePath)).toBe(survivorPid);
 
     const survivorExited = new Promise<void>((resolve) => {
@@ -231,7 +237,10 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
           const fresh = fakeListen(d.socketPath);
           servers.push(fresh.server);
           await fresh.listen();
-          writeFileSync(d.gatePath, `${process.pid}\t${process.pid * 1_000}\n`);
+          writeFileSync(
+            d.gatePath,
+            `${process.pid}\t${testStartUnixUs(process.pid)}\n`,
+          );
         },
       },
       connect: async () => ({
@@ -285,7 +294,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       pid === process.pid
         ? self
         : isHolderLive(pid)
-          ? { pid, startUnixUs: pid * 1_000 }
+          ? { pid, startUnixUs: testStartUnixUs(pid) }
           : undefined;
     const claim = acquirePidGate(d.gatePath, self, readId);
     expect(claim.kind).toBe("acquired");
@@ -368,7 +377,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       pid === process.pid
         ? self
         : isHolderLive(pid)
-          ? { pid, startUnixUs: pid * 1_000 }
+          ? { pid, startUnixUs: testStartUnixUs(pid) }
           : undefined;
     const gate = acquirePidGate(d.gatePath, self, readId);
     expect(gate.kind).toBe("acquired");

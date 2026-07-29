@@ -35,7 +35,7 @@ export {
   isSocketSquatterForeignError,
   SocketSquatterForeignError,
 } from "./endpoint.ts";
-// EndpointSpec re-exported for consumers and for `./createEndpoint.forTest`
+// EndpointSpec re-exported for consumers and for `./createEndpoint.testlib`
 // (suites inject identity once via that helper).
 export { type SocketHolder, socketHolders } from "./socketHolder.ts";
 // The down/terminal classification lives at the states' home (the browser-safe

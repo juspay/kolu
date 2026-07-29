@@ -1,4 +1,3 @@
-import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.forTest";
 /**
  * The in-app **Restart kaval** path (`restartLocalDaemon` → capture → drain →
  * recycle → reattach/park) must NOT lose the session — the zest regression.
@@ -17,6 +16,7 @@ import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-su
  * explicitly (the recycle gap outlasts the 500 ms autosave).
  */
 
+import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.testlib";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import {
   afterAll,

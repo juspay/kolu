@@ -89,13 +89,13 @@ export function startTimesMatch(a: number, b: number): boolean {
 
 /** A gate read keeps absence, I/O failure, and a present-but-unparseable body
  * distinct. A valid first-token pid is always accepted (the pid-first law);
- * `startUnixUs` is present only when the second field parses as a positive
- * integer. */
+ * `startUnixUs` is set only for the exact v2 shape (`pid\tstart…`), never for
+ * a mere second tab-field that is non-numeric residue. */
 export type GateIdentityRead =
   | {
       kind: "ok";
       pid: number;
-      /** Set when the second tab-field is a valid positive integer. */
+      /** Set only for the exact v2 shape (`pid\tstart…`). */
       startUnixUs?: number;
     }
   | { kind: "absent" }
