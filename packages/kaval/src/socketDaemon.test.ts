@@ -232,10 +232,6 @@ function connect(socketPath: string): Promise<Conn> {
   return unixSocketLink<typeof ptyHostSurface.contract>({ socketPath });
 }
 
-function connectDaemon(socketPath: string) {
-  return unixSocketLink<typeof kavalDaemonContract>({ socketPath });
-}
-
 /** Poll-connect until the daemon answers a heartbeat, or fail loudly. */
 async function waitForSocket(socketPath: string, ms = 10000): Promise<void> {
   const deadline = Date.now() + ms;
@@ -350,7 +346,9 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
 
   it("serves frozen identity beside the unchanged pty surface and refuses drain without exiting", async () => {
     const d = track(await startDaemon());
-    const conn = await connectDaemon(d.socketPath);
+    const conn = await unixSocketLink<typeof kavalDaemonContract>({
+      socketPath: d.socketPath,
+    });
     try {
       const version = await conn.client.surface.system.version({});
       const hello = await conn.client.surface.control.core.hello();

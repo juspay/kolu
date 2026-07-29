@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
-import { daemonBuild, type Logger } from "@kolu/surface-daemon";
+import { daemonBuild } from "@kolu/surface-daemon";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
   decide,
@@ -17,15 +17,8 @@ import {
 } from "kaval";
 import { expect, it } from "vitest";
 import { probeKavalForConvergence } from "../ptyHost/connect.ts";
+import { silentLog } from "../silentLogger.testlib.ts";
 import { padiYesterdayDaemonOptions } from "./yesterdayDaemon.fixture.testlib.ts";
-
-const silentLog = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLog,
-} as unknown as Logger;
 
 describeDaemon("yesterday kaval without the frozen fragment", () => {
   it("becomes a build mismatch and the not-drainable policy nudges the human", async () => {

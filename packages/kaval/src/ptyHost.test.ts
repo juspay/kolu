@@ -12,6 +12,7 @@ import {
   HEADLESS_TERM_ID,
   type PtyHost,
 } from "./ptyHost.ts";
+import { silentLog } from "./silentLogger.testlib.ts";
 import { nextFrame } from "./streamFrame.testlib.ts";
 
 // @xterm packages ship CJS only — same interop as ptyHost.ts.
@@ -100,13 +101,6 @@ describe("getScreenText", () => {
 });
 
 // ── PTY host (real node-pty children) ──────────────────────────────────
-
-const silentLog = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-};
 
 /** A minimal env that lets `/bin/sh` find `sleep` etc. */
 const shellEnv = {

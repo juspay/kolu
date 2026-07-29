@@ -32,6 +32,7 @@ import {
   unfreezeAutosave,
 } from "../session/autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
+import { silentLog } from "../silentLogger.testlib.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -136,13 +137,6 @@ function sessionBackedCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
     }),
   } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
 }
-
-const silentLog = {
-  debug() {},
-  info() {},
-  warn() {},
-  error() {},
-};
 
 const epTmpDirs: string[] = [];
 const epServers: Server[] = [];

@@ -2,7 +2,6 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { directLink } from "@kolu/surface/links/direct";
-import type { Logger } from "@kolu/surface-daemon";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createInProcessPtyHost,
@@ -13,14 +12,7 @@ import {
   serveKavalDaemonSurface,
 } from "./daemonSurface.ts";
 import { PTY_HOST_CONTRACT_VERSION } from "./ptyHostSurface.ts";
-
-const silentLog = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLog,
-} as unknown as Logger;
+import { silentLog } from "./silentLogger.testlib.ts";
 
 const runtimes: Array<{ close(): Promise<void> }> = [];
 const savedEnv = { ...process.env };
