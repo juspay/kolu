@@ -1,8 +1,96 @@
 import { FileTree as PierreFileTree } from "@pierre/trees";
 import { describe, expect, it } from "vitest";
-import { ancestorDirectoryPaths, directoryRemovalOps } from "./pathReconcile";
+import {
+  ancestorDirectoryPaths,
+  directoryRemovalOps,
+  pathDiffOperations,
+} from "./pathReconcile";
 
 const remove = (path: string) => ({ type: "remove", path, recursive: true });
+
+// Repro for the Code-tab freeze toast:
+//   File tree render failed: Cannot remove a non-empty directory without
+//   recursive: ".claude/"
+//
+// Causal chain (host switch leaves the tree frozen on the OLD host's files):
+// 1. The browse merge can transiently hold BOTH a collapsed overlay dir
+//    (".claude/") AND tracked files under it (".claude/a.md") — a state a
+//    single consistent git listing never produces.
+// 2. pathDiffOperations treats every inventory entry as a file, so when the
+//    stale ".claude/" drops it emits `{type:"remove", path:".claude/"}`
+//    WITHOUT recursive:true (only directoryRemovalOps sets that flag).
+// 3. @pierre/trees throws on non-recursive remove of a non-empty directory.
+// 4. FileTree.tsx's safeApply catches the throw but never advances
+//    appliedPaths, so every later paths change re-diffs against the stale
+//    bookkeeping, re-emits the doomed remove, and freezes the tree forever.
+//
+// These tests assert the DESIRED behaviour (transition applies; tree advances).
+// They fail today for the bug's reason — that is intentional: this PR is
+// repro-only; the fix lands separately.
+describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)", () => {
+  // Inventory shape the host-switch race can hand FileTree for one tick.
+  const mixed = [".claude/a.md", ".claude/"];
+  const settled = [".claude/a.md"];
+  const later = [".claude/a.md", "src/app.ts"];
+
+  const makeTree = (paths: string[]) =>
+    new PierreFileTree({
+      paths,
+      search: false,
+      flattenEmptyDirectories: true,
+      initialExpansion: "open",
+    });
+
+  it("pathDiffOperations emits a non-recursive remove for the collapsed dir", () => {
+    // Pin the doomed op shape — this is what FileTree.batch receives today.
+    // A correct fix either never produces this op, or marks it recursive.
+    expect(pathDiffOperations(mixed, settled)).toEqual([
+      { type: "remove", path: ".claude/" },
+    ]);
+  });
+
+  it("applies the mixed→settled transition on a real Pierre tree without throwing", () => {
+    const tree = makeTree(mixed);
+    expect(tree.getItem(".claude/a.md")).not.toBeNull();
+    expect(tree.getItem(".claude/")).not.toBeNull();
+
+    // Desired: dropping the stale collapsed-dir entry leaves the tracked child
+    // and does not throw. Today Pierre throws exactly the production toast.
+    expect(() => {
+      tree.batch(pathDiffOperations(mixed, settled));
+    }).not.toThrow();
+    expect(tree.getItem(".claude/a.md")).not.toBeNull();
+    tree.cleanUp();
+  });
+
+  it("does not freeze subsequent inventory changes after the collapsed-dir drop", () => {
+    // Models FileTree.tsx's paths-reconcile effect: safeApply catches the
+    // throw, so appliedPaths never advances past the mixed inventory. Every
+    // later change re-diffs against that stale bookkeeping and re-throws.
+    let appliedPaths = [...mixed];
+    const tree = makeTree(appliedPaths);
+
+    const tryApply = (paths: string[]): boolean => {
+      try {
+        const ops = pathDiffOperations(appliedPaths, paths);
+        if (ops.length > 0) tree.batch(ops);
+        appliedPaths = paths;
+        return true;
+      } catch {
+        // safeApply catches and toasts — appliedPaths stays put.
+        return false;
+      }
+    };
+
+    // Desired: both steps succeed and the tree advances to the new inventory.
+    expect(tryApply(settled)).toBe(true);
+    expect(appliedPaths).toEqual(settled);
+    expect(tryApply(later)).toBe(true);
+    expect(appliedPaths).toEqual(later);
+    expect(tree.getItem("src/app.ts")).not.toBeNull();
+    tree.cleanUp();
+  });
+});
 
 describe("directoryRemovalOps", () => {
   it("removes nothing when the file set is unchanged", () => {
