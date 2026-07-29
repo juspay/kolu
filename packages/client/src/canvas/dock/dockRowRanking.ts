@@ -270,10 +270,12 @@ export function tsRank(ts: number | null): number {
  *  top-level rows blocked-first on top of it; see the module header). Secondary
  *  key is bucket priority so never-touched plain shells don't outrank an idle
  *  terminal with the same `ts === null`. `isStale` is a pure-temporal predicate
- *  over a recency timestamp — `rowRecencyAt` (`lastActivityAt` for an active
- *  tile, `sleptAt` for a sleeping one). Identity for stale-but-still-awaiting
- *  agents lives at the render layer (`QuietRowBody` paints `AgentIndicator` when
- *  `meta.agent` is set), not in the bucket decision here.
+ *  over the newest recency in the whole tile: the parent's `rowRecencyAt` or
+ *  any split's. A split shares its parent's window fate, so its activity must
+ *  keep that parent — and therefore every split landing — visible. Identity
+ *  for stale-but-still-awaiting agents lives at the render layer
+ *  (`QuietRowBody` paints `AgentIndicator` when `meta.agent` is set), not in the
+ *  bucket decision here.
  *
  *  `getSubIds` is required: silently defaulting to no splits would erase the
  *  very rows this projection exists to surface. */
@@ -288,14 +290,18 @@ export function rankDockRows(
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const recencyAt = rowRecencyAt(meta);
+    const subRows = rankSubRows(getSubIds(id), getMeta, classOf);
+    let recencyAt = rowRecencyAt(meta);
+    for (const sub of subRows) {
+      if (tsRank(sub.ts) > tsRank(recencyAt)) recencyAt = sub.ts;
+    }
     const parked = isStale(recencyAt);
     rows.push({
       id,
       bucket: classifyDockRow(meta, parked),
       pip: paintDockRow(meta, classOf(id), parked),
       ts: recencyAt,
-      subRows: rankSubRows(getSubIds(id), getMeta, classOf),
+      subRows,
     });
   }
   rows.sort(byRecencyThenBucket);

@@ -151,6 +151,8 @@ Feature: Sub-terminals
     Then the dock should show 2 split sub-entries
     And every dock split sub-entry should be a direct child of its section
     And the dock should show no split count chip
+    When I run "exit" in the sub-terminal
+    Then the dock should show 1 split sub-entry
     And there should be no page errors
 
   Scenario: Typing into a dock split keeps its parent and sub-entry active

@@ -34,7 +34,7 @@ import {
 import RepoMonogram from "../../ui/RepoMonogram";
 import { encActiveHost } from "../../wire";
 import { dockRowAttrs } from "./dockRowAttrs";
-import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
+import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell, { recencyMode } from "./RecencyCell";
@@ -142,6 +142,7 @@ function DockListSection(props: {
               id={row.id}
               bucket={row.bucket}
               pip={row.pip}
+              recencyAt={row.ts}
               onSelect={props.onSelect}
             />
             <For each={row.subRows}>
@@ -172,6 +173,8 @@ function DockListRow(props: {
   /** PIP bucket — drives the `StatePip` colour, identical to the tile title's
    *  pip (both `agentPaintClass`), decoupled from order. */
   pip: DockRowBucket;
+  /** Newest activity in the whole tile, including its splits. */
+  recencyAt: number | null;
   onSelect: (id: TerminalId) => void;
 }) {
   const store = useTerminalStore();
@@ -245,7 +248,7 @@ function DockListRow(props: {
             {/* Recency — hidden while active; width reserved. Blocked rows
              *  show the violet wait chip instead (see RecencyCell). */}
             <RecencyCell
-              recencyAt={rowRecencyAt(c().meta)}
+              recencyAt={props.recencyAt}
               textSize="text-[0.65rem]"
               mode={recencyMode(pip())}
             />

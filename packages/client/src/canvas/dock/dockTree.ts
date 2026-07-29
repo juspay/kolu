@@ -224,13 +224,17 @@ function compareRows(a: RankedDockRow, b: RankedDockRow): number {
  *  the top-level order, read OFF the shared `DOCK_ROW_BUCKET_PRIORITY` rather
  *  than off a one-entry table of its own.
  *
- *  `awaiting` is the one bucket carrying the needs-you rank, so membership is a
- *  lookup in the table that already decides bucket priority everywhere else. It
- *  was a hand-written `row.bucket === "awaiting" ? 0 : 1` — a SECOND priority
- *  table for one ordering, sitting beside the shared one and free to disagree
- *  with it the moment either moved. */
+ *  A split is part of its parent's visible Dock entry, so a blocked split
+ *  promotes that parent too. `awaiting` is the one bucket carrying the
+ *  needs-you rank; membership stays a lookup in the table that already decides
+ *  bucket priority everywhere else. */
 function blockedFirstRank(row: RankedDockRow): number {
-  return DOCK_ROW_BUCKET_PRIORITY[row.bucket] === URGENCY_RANK.need ? 0 : 1;
+  if (DOCK_ROW_BUCKET_PRIORITY[row.bucket] === URGENCY_RANK.need) return 0;
+  return row.subRows.some(
+    (sub) => DOCK_ROW_BUCKET_PRIORITY[sub.bucket] === URGENCY_RANK.need,
+  )
+    ? 0
+    : 1;
 }
 
 /** Sections sort by recency too — the most recently-active row in the

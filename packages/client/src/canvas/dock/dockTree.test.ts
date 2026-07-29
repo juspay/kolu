@@ -23,11 +23,12 @@ function row(
 function subRow(
   id: string,
   kind: "agent" | "shell",
+  bucket: RankedDockRow["subRows"][number]["bucket"] = "idle",
 ): RankedDockRow["subRows"][number] {
   return {
     id: id as TerminalId,
     kind,
-    bucket: "idle",
+    bucket,
     pip: "idle",
     ts: 1,
   };
@@ -148,6 +149,25 @@ describe("buildDockTree", () => {
     // beats b@400. The pip's pulse on b carries the attention signal
     // without dragging pierre above kolu in the list.
     expect(tree.groups.map((g) => g.name)).toEqual(["kolu", "pierre"]);
+  });
+
+  it("promotes a parent when one of its split agents is blocked", () => {
+    const recent = row("recent", "working", 1_000);
+    const blockedSplitParent = row("parent", "idle", 10);
+    blockedSplitParent.subRows = [subRow("blocked", "agent", "awaiting")];
+    const tree = buildDockTree(
+      [recent, blockedSplitParent],
+      makeGetInfo({
+        recent: { group: "kolu", color: "#aaa", label: "recent" },
+        parent: { group: "kolu", color: "#aaa", label: "blocked" },
+      }),
+      false,
+    );
+
+    expect(tree.groups[0]?.topRows.map((entry) => entry.id)).toEqual([
+      "parent",
+      "recent",
+    ]);
   });
 
   it("recency drives both section and row order — same-bucket rows tiebreak on ts", () => {

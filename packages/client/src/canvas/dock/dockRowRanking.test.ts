@@ -392,6 +392,31 @@ describe("rankDockRows — split sub-entries", () => {
     );
   });
 
+  it("uses split activity for the parent's window fate and displayed recency", () => {
+    const parent = makeMeta({ lastActivityAt: 10 });
+    const split = makeMeta({
+      agent: makeAgent("thinking"),
+      lastActivityAt: 1_000,
+    });
+    const getMeta = (id: TerminalId) =>
+      id === PARENT ? parent : id === AGENT_SPLIT ? split : undefined;
+    const staleInputs: Array<number | null> = [];
+
+    const result = rankDockRows(
+      [PARENT],
+      getMeta,
+      (recencyAt) => {
+        staleInputs.push(recencyAt);
+        return recencyAt !== null && recencyAt < 100;
+      },
+      classOfMeta(getMeta),
+      () => [AGENT_SPLIT],
+    );
+
+    expect(staleInputs).toEqual([1_000]);
+    expect(result[0]).toMatchObject({ ts: 1_000, bucket: "idle" });
+  });
+
   it("fails fast when a listed split has no metadata", () => {
     const missing = "split-missing" as TerminalId;
     expect(() => rank([missing])).toThrow(

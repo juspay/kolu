@@ -113,7 +113,7 @@ import {
   setDockCardsWidth,
 } from "./dockCardsWidth";
 import { dockRowAttrs } from "./dockRowAttrs";
-import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
+import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell, { recencyMode } from "./RecencyCell";
@@ -594,6 +594,7 @@ const RepoSection: Component<{
               id={row.id}
               bucket={row.bucket}
               pip={row.pip}
+              recencyAt={row.ts}
               flatIndex={props.flatIndexOf.get(row.id) ?? -1}
             />
             <For each={row.subRows}>
@@ -636,6 +637,8 @@ const DockRow: Component<{
   /** PIP bucket — drives the `StatePip` colour, decoupled from order so the row
    *  pip reads identically to the tile title's pip (both `agentPaintClass`). */
   pip: DockRowBucket;
+  /** Newest activity in the whole tile, including its splits. */
+  recencyAt: number | null;
   /** Position in the dock-wide flat row order. `< 9` qualifies the row
    *  for a `Cmd+(flatIndex+1)` shortcut hint while the platform
    *  modifier is held. */
@@ -717,7 +720,7 @@ const DockRow: Component<{
              *  row it flips to the violet WAIT chip: how long the agent has
              *  waited on you IS the signal (a 20 h wait must be legible). */}
             <RecencyCell
-              recencyAt={rowRecencyAt(c().meta)}
+              recencyAt={props.recencyAt}
               textSize="text-[0.6rem]"
               mode={recencyMode(pip())}
             />
@@ -813,7 +816,7 @@ const RailSubChip: Component<{
       {(m) => {
         const agent = () => activeArm(m())?.agent;
         const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
-        const glyph = () => intentLeadGlyph(label()) || "?";
+        const glyph = () => intentLeadGlyph(label());
         const pip = useStatePip(
           encActiveHost,
           () => props.row.id,
@@ -843,7 +846,10 @@ const RailSubChip: Component<{
             aria-label={`Jump to split ${label()}`}
           >
             <span class="dock-rail-chip-text" aria-hidden="true">
-              ↳<span class="dock-rail-chip-sub">{glyph()}</span>
+              ↳
+              <Show when={glyph()}>
+                {(value) => <span class="dock-rail-chip-sub">{value()}</span>}
+              </Show>
             </span>
             <Show when={isAgent() && pip().bytesLive}>
               <span class="pointer-events-none absolute -bottom-1 -right-1">
