@@ -69,8 +69,12 @@ honest.</Footnote>
   `setTerminalParent` and restore's `promoteOrphanedRestoreChildren` change
   `parentId`, and a memo follows; a stored tile id would go stale.</Footnote>
 - **`useSubPanel` shrinks to genuine chrome**: `collapsed`, `panelSize`, the
-  remembered tab, `refocusNonce`. `focusTarget` is deleted; "is focus in this
-  panel" is `parentOf(focused()) === id`.
+  remembered tab, `rememberedPane`, `refocusNonce`. `focusTarget` is deleted;
+  "is focus in this panel" is `parentOf(focused()) === id`.<Footnote>
+  `rememberedPane` is written and read only by focus verbs: it lets a landing
+  choose main or the remembered visible split, but no derivation or memo may
+  consult it. That verb-only path is why this is landing chrome rather than
+  `focusTarget` returning as a second focus authority.</Footnote>
 - **The landing walk collapses**: today reaching a split takes four writes
   across two stores <Cite file="packages/client/src/canvas/dock/useDockFocus.ts" />;
   `focusTerminal(id)` becomes one write plus write-through of remembered
