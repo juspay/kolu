@@ -38,7 +38,7 @@ import {
   type ProcessIdentity,
   type ReadProcessIdentity,
 } from "@kolu/surface-daemon";
-import { bakedOsFactsBin, processIdentity } from "osfacts-client";
+import { processIdentityFromEnv } from "osfacts-client";
 
 /** The supervisor gate filename — sits BESIDE padi's own `padi.pid` in the
  *  ephemeral `$XDG_RUNTIME_DIR/padi-<digest>/` runtime dir, so it is boot-wiped
@@ -109,8 +109,7 @@ export function claimLocalSupervisor(
   const gatePath = (deps.resolveGatePath ?? supervisorGatePath)(stateRoot);
   const readIdentity =
     deps.readProcessIdentity ??
-    ((pid: number) =>
-      processIdentity(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pid));
+    ((pid: number) => processIdentityFromEnv("KOLU_OSFACTS_BIN", pid));
   const self =
     deps.processIdentity ??
     (() => {

@@ -39,6 +39,8 @@ import {
 } from "./index.ts";
 import {
   createEndpointForTest as createEndpoint,
+  testAcquireReadIdentity,
+  testSelfIdentity,
   testStartUnixUs,
 } from "./createEndpoint.testlib.ts";
 
@@ -286,17 +288,11 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     expect(foreignContent).toBe("not-a-pid-at-all\n");
     expect(gatePid(d.gatePath)).toBeUndefined();
 
-    const self = {
-      pid: process.pid,
-      startUnixUs: 1_000_000,
-    };
-    const readId = (pid: number) =>
-      pid === process.pid
-        ? self
-        : isHolderLive(pid)
-          ? { pid, startUnixUs: testStartUnixUs(pid) }
-          : undefined;
-    const claim = acquirePidGate(d.gatePath, self, readId);
+    const claim = acquirePidGate(
+      d.gatePath,
+      testSelfIdentity,
+      testAcquireReadIdentity,
+    );
     expect(claim.kind).toBe("acquired");
     expect(gatePid(d.gatePath)).toBe(process.pid);
     if (claim.kind === "acquired") claim.release();
@@ -369,17 +365,11 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     fixtures.push(d);
 
     expect(gatePid(d.gatePath)).toBeUndefined();
-    const self = {
-      pid: process.pid,
-      startUnixUs: 1_000_000,
-    };
-    const readId = (pid: number) =>
-      pid === process.pid
-        ? self
-        : isHolderLive(pid)
-          ? { pid, startUnixUs: testStartUnixUs(pid) }
-          : undefined;
-    const gate = acquirePidGate(d.gatePath, self, readId);
+    const gate = acquirePidGate(
+      d.gatePath,
+      testSelfIdentity,
+      testAcquireReadIdentity,
+    );
     expect(gate.kind).toBe("acquired");
     expect(gatePid(d.gatePath)).toBe(process.pid);
     if (gate.kind === "acquired") gate.release();

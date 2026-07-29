@@ -855,11 +855,10 @@ export function bakedOsFactsBin(envVar: string): string {
  * it). `undefined` for a dead/absent pid (ESRCH/ENOENT) is an honest domain
  * answer; any other unreadable or missing row throws.
  */
-export function processIdentity(
-  bin: string,
+function foldStartTimeReading(
+  reading: SnapshotReading,
   pid: number,
 ): { pid: number; startUnixUs: number } | undefined {
-  const reading = snapshotPidsSync(bin, [pid], { startTime: true });
   const row = reading.startTimes.find((value) => value.pid === pid);
   if (row !== undefined) return { pid: row.pid, startUnixUs: row.startUnixUs };
   const unreadable = reading.unreadable.find(
@@ -877,6 +876,48 @@ export function processIdentity(
       ? `osfacts could not read pid ${pid} start time (${unreadable.errno})`
       : `osfacts returned no start time for pid ${pid}`,
   );
+}
+
+/**
+ * Resolve a pid's start-qualified identity via osfacts `--start-time` (sync).
+ * Prefer {@link processIdentityAsync} on any serving-loop / supervisor path so
+ * the osfacts spawn does not block the Node event loop.
+ */
+export function processIdentity(
+  bin: string,
+  pid: number,
+): { pid: number; startUnixUs: number } | undefined {
+  return foldStartTimeReading(
+    snapshotPidsSync(bin, [pid], { startTime: true }),
+    pid,
+  );
+}
+
+/** Async twin of {@link processIdentity} for serving-loop / endpoint paths. */
+export async function processIdentityAsync(
+  bin: string,
+  pid: number,
+): Promise<{ pid: number; startUnixUs: number } | undefined> {
+  return foldStartTimeReading(
+    await snapshotPids(bin, [pid], { startTime: true }),
+    pid,
+  );
+}
+
+/** Sync: `processIdentity(bakedOsFactsBin(envVar), pid)`. */
+export function processIdentityFromEnv(
+  envVar: string,
+  pid: number,
+): { pid: number; startUnixUs: number } | undefined {
+  return processIdentity(bakedOsFactsBin(envVar), pid);
+}
+
+/** Async: for supervisor / endpoint injects (non-blocking event loop). */
+export async function processIdentityFromEnvAsync(
+  envVar: string,
+  pid: number,
+): Promise<{ pid: number; startUnixUs: number } | undefined> {
+  return processIdentityAsync(bakedOsFactsBin(envVar), pid);
 }
 
 export async function host(

@@ -73,8 +73,14 @@ export interface ProcessIdentity {
 
 /** Resolve a PID to its current start-qualified identity. `undefined` means the
  * process is gone (ESRCH/ENOENT) — an honest domain answer. Any other failure
- * (osfacts unreadable, parse error) must throw at the composition root. */
+ * (osfacts unreadable, parse error) must throw at the composition root.
+ * Sync — used by the daemon claim path (before the socket listens). */
 export type ReadProcessIdentity = (pid: number) => ProcessIdentity | undefined;
+
+/** Supervisor inject: may be async so osfacts does not block the serving loop. */
+export type ReadProcessIdentityAsync = (
+  pid: number,
+) => ProcessIdentity | undefined | Promise<ProcessIdentity | undefined>;
 
 /**
  * ±2 seconds in microseconds. Start instants come from `/proc/stat` btime at
@@ -138,12 +144,12 @@ export function readGateIdentity(gatePath: string): GateIdentityRead {
 
   // Exact v2 start-time shape only: digit run, tab, positive integer start
   // (optional further tab-fields). Anything else with a valid leading pid is
-  // one-field semantics (start unknown).
-  const v2 = body.match(/^(\d+)\t(\d+)(?:\t|$)/);
+  // one-field semantics (start unknown). Pid comes from parseInt above.
+  const v2 = body.match(/^\d+\t(\d+)(?:\t|$)/);
   if (v2 !== null) {
-    const startUnixUs = Number(v2[2]);
+    const startUnixUs = Number(v2[1]);
     if (Number.isSafeInteger(startUnixUs) && startUnixUs > 0) {
-      return { kind: "ok", pid: Number(v2[1]), startUnixUs };
+      return { kind: "ok", pid, startUnixUs };
     }
   }
   return { kind: "ok", pid };
@@ -306,21 +312,34 @@ export function acquirePidGate(
  *   - `dead` — socket inode present but connect fails (stale after crash/reboot)
  *   - `absent` — no socket file yet (holder may still be starting — do NOT reclaim)
  */
+/** Bound for the one-shot connect probe — claim/confirm must not hang. */
+const SOCKET_SERVE_PROBE_MS = 500;
+
 export function socketServeState(
   socketPath: string,
 ): Promise<"serving" | "dead" | "absent"> {
   try {
     if (!lstatSync(socketPath).isSocket()) return Promise.resolve("dead");
-  } catch {
-    return Promise.resolve("absent");
+  } catch (err) {
+    // Only ENOENT is "mid-boot / not yet present". Permission/IO failures are
+    // not mid-boot — treat as dead so one-field confirm reclaims or fails loud
+    // rather than holding forever.
+    return Promise.resolve(
+      (err as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "dead",
+    );
   }
   return new Promise((resolve) => {
     const sock = createConnection(socketPath);
+    let settled = false;
     const done = (v: "serving" | "dead") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       sock.removeAllListeners();
       sock.destroy();
       resolve(v);
     };
+    const timer = setTimeout(() => done("dead"), SOCKET_SERVE_PROBE_MS);
     sock.once("connect", () => done("serving"));
     sock.once("error", () => done("dead"));
   });
@@ -341,18 +360,32 @@ export function socketServeState(
  * acquire + this confirm so the sequence is not a convention.
  */
 export async function confirmHeldGate(
-  held: Extract<GateAcquisition, { kind: "held" }>,
+  _held: Extract<GateAcquisition, { kind: "held" }>,
   gatePath: string,
   socketPath: string,
   self: ProcessIdentity,
   readProcessIdentity: ReadProcessIdentity,
 ): Promise<GateAcquisition> {
-  // Two-field: identity is truth — never reclaim on socket state.
-  const read = readGateIdentity(gatePath);
-  if (read.kind === "ok" && read.startUnixUs !== undefined) return held;
+  // Always re-resolve from the gate (never trust held.pid alone — a rewrite
+  // between acquire and confirm must not leave us yielding a stale pid).
+  const live = liveHolderPid(gatePath, readProcessIdentity);
+  if (live === undefined) {
+    try {
+      unlinkSync(gatePath);
+    } catch {
+      // Peer reaped — re-acquire.
+    }
+    return acquirePidGate(gatePath, self, readProcessIdentity);
+  }
 
+  // Two-field: identity is truth — never reclaim on socket state.
+  if (gateIdentity(gatePath) !== undefined) {
+    return { kind: "held", pid: live };
+  }
+
+  // One-field: socket fence (F12 — absent is mid-boot hold; dead reclaims).
   const state = await socketServeState(socketPath);
-  if (state !== "dead") return held;
+  if (state !== "dead") return { kind: "held", pid: live };
   try {
     unlinkSync(gatePath);
   } catch {

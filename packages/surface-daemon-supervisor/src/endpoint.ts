@@ -34,7 +34,7 @@ import {
   identitiesMatch,
   isHolderLive,
   type Logger,
-  type ReadProcessIdentity,
+  type ReadProcessIdentityAsync,
   readGateIdentity,
   socketServeState,
 } from "@kolu/surface-daemon";
@@ -300,11 +300,11 @@ export interface EndpointSpec<
   probe: (socketPath: string) => Promise<ConvergenceProbe<Cap> | null>;
   /**
    * Resolve a PID to its current start-qualified identity. Required — the
-   * endpoint compares start-qualified identities for two-field gates and never
-   * performs platform process traversal itself. Same sync inject as the daemon
-   * half's {@link ReadProcessIdentity} (osfacts reads are sync today; one type).
+   * endpoint never performs platform process traversal itself. May be async so
+   * an osfacts-backed reader does not block the serving event loop (prefer
+   * `processIdentityFromEnvAsync` over the sync twin).
    */
-  readProcessIdentity: ReadProcessIdentity;
+  readProcessIdentity: ReadProcessIdentityAsync;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -549,23 +549,24 @@ export function createEndpoint<
   // The gate-holder check shared by every boot policy: return the live holder
   // that is a safe kill/adopt target, or undefined.
   //
-  // Two-field gates: identity is the truth (±2 s). A matching live process is
-  // the holder even if the socket is not yet accepting (mid-boot) — the gate
-  // layer's job ends at "held by a live matching identity"; whether to replace
-  // an unresponsive holder is the caller's (converge/drain budget) decision.
-  //
-  // One-field (legacy) gates: start time unknown, so keep the status-quo
-  // socket-accepting fence — a live pid whose socket is dead may be pid-reuse;
-  // never SIGTERM a stranger; let the fresh daemon's acquirePidGate reap.
+  // {@link liveHolderPid} owns the identity law (two-field ±2 s / one-field
+  // kill-0). The supervisor then adds one more fence for one-field only:
+  // socket must accept — a live pid with a dead socket may be pid-reuse; never
+  // SIGTERM a stranger; let the fresh daemon's acquirePidGate reap. Two-field
+  // identity is truth even mid-boot (socket not yet accepting).
   const liveServingHolder = async (rv: {
     gatePath: string;
     socketPath: string;
   }): Promise<number | undefined> => {
+    // One gate read + one identity resolve — never reassemble pid from a
+    // second file read that can race a rewrite (fact-check: wrong SIGTERM).
     const recorded = readGateIdentity(rv.gatePath);
     if (recorded.kind !== "ok") return undefined;
 
     if (recorded.startUnixUs !== undefined) {
-      const current = spec.readProcessIdentity(recorded.pid);
+      const current = await Promise.resolve(
+        spec.readProcessIdentity(recorded.pid),
+      );
       if (
         current === undefined ||
         !identitiesMatch(
@@ -575,6 +576,7 @@ export function createEndpoint<
       ) {
         return undefined;
       }
+      // Two-field: identity is truth even when the socket is not accepting.
       return recorded.pid;
     }
 

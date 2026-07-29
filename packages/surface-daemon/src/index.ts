@@ -109,6 +109,7 @@ export {
   liveHolderPid,
   type ProcessIdentity,
   type ReadProcessIdentity,
+  type ReadProcessIdentityAsync,
   readGateIdentity,
   START_TIME_TOLERANCE_US,
   startTimesMatch,

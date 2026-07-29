@@ -1,7 +1,7 @@
-import { bakedOsFactsBin, processIdentity } from "osfacts-client";
+import { processIdentityFromEnv } from "osfacts-client";
 
 export function readProcessIdentity(pid: number) {
-  return processIdentity(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pid);
+  return processIdentityFromEnv("KOLU_OSFACTS_BIN", pid);
 }
 
 export function selfProcessIdentity() {

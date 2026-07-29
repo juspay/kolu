@@ -24,7 +24,7 @@ import {
   type ProcessIdentity,
   resolveDaemonHome,
 } from "@kolu/surface-daemon";
-import { bakedOsFactsBin, processIdentity } from "osfacts-client";
+import { processIdentityFromEnv } from "osfacts-client";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import { serveKavalDaemonSurface } from "./daemonSurface.ts";
 import {
@@ -34,7 +34,7 @@ import {
 } from "./socketPath.ts";
 
 function readProcessIdentity(pid: number): ProcessIdentity | undefined {
-  return processIdentity(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pid);
+  return processIdentityFromEnv("KOLU_OSFACTS_BIN", pid);
 }
 
 function selfIdentity(): ProcessIdentity {

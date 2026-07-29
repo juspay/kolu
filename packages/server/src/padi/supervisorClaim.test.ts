@@ -12,7 +12,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isHolderLive } from "@kolu/surface-daemon";
+import {
+  testAcquireReadIdentity,
+  testSelfIdentity,
+} from "@kolu/surface-daemon-supervisor/createEndpoint.testlib";
 import {
   claimLocalSupervisor,
   SUPERVISOR_GATE_FILE,
@@ -26,15 +29,9 @@ const gatePath = (): string => join(dir, SUPERVISOR_GATE_FILE);
 const resolveGatePath = () => gatePath();
 
 /** Test identity inject — no osfacts dependency in the unit suite. */
-const SELF = { pid: process.pid, startUnixUs: 1_000_000 };
 const identityDeps = {
-  processIdentity: SELF,
-  readProcessIdentity: (pid: number) =>
-    pid === process.pid
-      ? SELF
-      : isHolderLive(pid)
-        ? { pid, startUnixUs: pid * 1_000 }
-        : undefined,
+  processIdentity: testSelfIdentity,
+  readProcessIdentity: testAcquireReadIdentity,
 };
 
 beforeEach(() => {

@@ -30,7 +30,7 @@ import {
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonHomePaths } from "@kolu/surface-daemon";
-import { bakedOsFactsBin, processIdentity } from "osfacts-client";
+import { processIdentityFromEnvAsync } from "osfacts-client";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
@@ -250,7 +250,7 @@ export async function ensureLocalEndpoint(opts: {
     hostId: encodeHostLocation(LOCAL_LOCATION),
     home,
     readProcessIdentity: (pid) =>
-      processIdentity(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pid),
+      processIdentityFromEnvAsync("KOLU_OSFACTS_BIN", pid),
     policy: kavalConvergencePolicy(),
     probe: (socketPath) => probeKavalForConvergence(socketPath),
     driver: localKavalDriver(home.socketPath),
