@@ -79,7 +79,7 @@ export type PtyHostClient = ContractRouterClient<
  * from this record, so they cannot describe different process builds. */
 export interface PtyHostBoot {
   readonly startedAt: number;
-  readonly identity: PtyHostIdentity;
+  readonly identity: Readonly<PtyHostIdentity>;
 }
 
 /** The host's own login-shell fact, with the host-side fallback formula owned
@@ -125,10 +125,10 @@ export interface InProcessPtyHostDeps {
 export function servePtyHost(deps: InProcessPtyHostDeps) {
   const { log, rcDir } = deps;
   const host = createPtyHost({ log, dataMaxQueue: deps.dataMaxQueue });
-  const boot: PtyHostBoot = {
+  const boot: PtyHostBoot = Object.freeze({
     startedAt: Date.now(),
-    identity: currentPtyHostIdentity(),
-  };
+    identity: Object.freeze(currentPtyHostIdentity()),
+  });
 
   // The id-existence policy, owned once: a missing PTY is a clean NOT_FOUND
   // (not `requireEntry`'s opaque internal error). kaval-tui's attach re-attach
@@ -498,7 +498,7 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   servedRouter: Router<any, any>;
   client: PtyHostClient;
   /** The one boot record shared by `system.version` and control-core hello. */
-  boot: PtyHostBoot;
+  readonly boot: PtyHostBoot;
   /** Live-PTY count (sync) — the daemon's diagnostics samples it. */
   terminalCount: () => number;
   /** Rejects on an owned surface fault (inert today — no cell connectors). */
@@ -514,7 +514,7 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   // to the router shape both consumers want.
   // biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; the runtime shape is a valid top-level router, same cast every serving site uses.
   const router = served.router as Router<any, any>;
-  return {
+  return Object.freeze({
     router,
     servedRouter: router,
     client: directLink<typeof ptyHostSurface.contract>(router),
@@ -522,5 +522,5 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
     terminalCount: served.terminalCount,
     done: served.done,
     close: served.close,
-  };
+  });
 }

@@ -42,6 +42,9 @@ describe("kaval daemon surface", () => {
     // re-reading mutable ambient identity at request/composition time.
     process.env.KAVAL_COMMIT_HASH = "changed-after-boot";
     process.env.KAVAL_BUILD_ID = "changed-after-boot";
+    expect(Object.isFrozen(ptyHost)).toBe(true);
+    expect(Object.isFrozen(ptyHost.boot)).toBe(true);
+    expect(Object.isFrozen(ptyHost.boot.identity)).toBe(true);
     const runtime = serveKavalDaemonSurface({
       ptyHost,
       stateRoot: "/run/user/1000/kaval-test",
