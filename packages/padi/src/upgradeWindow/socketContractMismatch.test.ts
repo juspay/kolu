@@ -8,7 +8,6 @@ import { describeDaemon } from "@kolu/daemon-test-gate";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
-import type { Router } from "@orpc/server";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { z } from "zod";
 import { connectKaval } from "../ptyHost/connect.ts";
@@ -36,7 +35,9 @@ const skewSurface = defineSurface({
   },
 });
 
-function skewedRouter(daemonVersion: string): Router<any, any> {
+type UnixSocketRouter = Parameters<typeof serveOverUnixSocket>[0]["router"];
+
+function skewedRouter(daemonVersion: string): UnixSocketRouter {
   const runtime = implementSurface(skewSurface, {
     procedures: {
       system: {
@@ -48,7 +49,7 @@ function skewedRouter(daemonVersion: string): Router<any, any> {
       },
     },
   });
-  return runtime.router as Router<any, any>;
+  return runtime.router as UnixSocketRouter;
 }
 
 const listeners: Array<{ close: () => void }> = [];

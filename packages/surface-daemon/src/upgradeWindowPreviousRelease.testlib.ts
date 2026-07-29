@@ -1,6 +1,6 @@
 /** Previous-release identity, readiness, orchestration, and process cleanup. */
 
-import { type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 
 const VERSION_TAG = /^v\d+\.\d+\.\d+$/;

@@ -10,11 +10,7 @@ import { composeSurfaceContracts } from "@kolu/surface/define";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { setTimeout as delay } from "node:timers/promises";
 import { match } from "ts-pattern";
-import type {
-  ConvergenceProbe,
-  DrainableProbe,
-  PlainProbe,
-} from "./convergence/converge.ts";
+import type { DrainableProbe, PlainProbe } from "./convergence/converge.ts";
 import { instanceKeyFromStartedAt } from "./convergence/instanceKey.ts";
 import type { DrainCapability } from "./convergence/policy.ts";
 

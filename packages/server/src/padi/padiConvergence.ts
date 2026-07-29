@@ -19,7 +19,7 @@
  * framework union shape + app-only `link-failed`). There is no converter.
  */
 
-import { type PadiDaemonClient } from "@kolu/padi/dial";
+import type { PadiDaemonClient } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
   type ConvergencePolicy,
