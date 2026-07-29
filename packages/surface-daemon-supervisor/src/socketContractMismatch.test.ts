@@ -1,15 +1,11 @@
 /** Framework-owned endpoint disposition for a version-skewed survivor. */
 
-import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
   converge,
   createEndpoint,
@@ -27,25 +23,26 @@ const silentLog = {
 
 describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
   it("endpoint reports incompatible and leaves the survivor standing", async () => {
-    assertDaemonSpawnAllowed("socket-contract mismatch survivor");
-    const dir = mkdtempSync(join(tmpdir(), "upgrade-incompat-"));
-    const socketPath = join(dir, "daemon.sock");
-    const gatePath = join(dir, "daemon.pid");
-    const survivor = spawn(
-      process.execPath,
-      ["-e", "setTimeout(() => {}, 60000)"],
-      { stdio: "ignore" },
-    );
-    const survivorPid = survivor.pid as number;
-    writeFileSync(gatePath, `${survivorPid}\n`);
-    const server = createServer((socket) => socket.on("error", () => {}));
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    const survivor = await plantYesterdayDaemon({
+      gateFile: "daemon.pid",
+      socketFile: "daemon.sock",
+      assertSpawnAllowed: assertDaemonSpawnAllowed,
+      plantState: () => {},
+    });
+    if (survivor.process.kind !== "live") {
+      throw new Error("expected live survivor process");
+    }
+    const survivorPid = survivor.process.pid;
 
     const statuses: EndpointStatus<{ staleKey: string }>[] = [];
     try {
       const endpoint = createEndpoint<string, { staleKey: string }>({
         hostId: "local",
-        home: { dir: dirname(socketPath), gatePath, socketPath },
+        home: {
+          dir: survivor.dir,
+          gatePath: survivor.gatePath,
+          socketPath: survivor.socketPath,
+        },
         policy: {
           capability: "not-drainable",
           baked: {
@@ -85,8 +82,7 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
         expect(last.requiredVersion).toBe("2.0");
       }
     } finally {
-      server.close();
-      survivor.kill("SIGKILL");
+      await survivor.dispose();
     }
   });
 });

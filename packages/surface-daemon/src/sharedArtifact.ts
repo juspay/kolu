@@ -1,11 +1,12 @@
 /**
  * One on-disk artifact both daemon generations touch across a mixed-version
  * window (old binary / new supervisor, or the reverse). The type lives here so
- * `daemonHome` can hand back registry entries by construction; the matcher /
- * sweep machinery that consumes a registry of these lands with UW2.
+ * `daemonHome` can hand back registry entries by construction. Registry-driven
+ * matcher, sweep, watchdog, and message machinery lives in the dedicated
+ * `@kolu/surface-daemon/upgrade-window.testlib` subpath.
  *
- * Kolu's inventory array stays app-side (`packages/padi/src/upgradeWindow/`)
- * until UW2 moves the generic matchers into this package.
+ * Each daemon's inventory array stays consumer-side; only the parameterized
+ * machinery is shared.
  */
 
 /** One shared artifact an upgrade-window suite must account for. */

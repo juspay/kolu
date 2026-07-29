@@ -1,12 +1,14 @@
 /** Dial and assemble the frozen control-core identity probe. */
 
 import {
+  CONTROL_CORE_VERSION,
   type ControlCoreHello,
   controlCoreSurface,
   daemonBuild,
 } from "@kolu/surface-daemon";
 import { composeSurfaceContracts } from "@kolu/surface/define";
-import { stdioLink } from "@kolu/surface/links/stdio";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
+import { setTimeout as delay } from "node:timers/promises";
 import type {
   ConvergenceProbe,
   DrainableProbe,
@@ -14,7 +16,6 @@ import type {
 } from "./convergence/converge.ts";
 import { instanceKeyFromStartedAt } from "./convergence/instanceKey.ts";
 import type { DrainCapability } from "./convergence/policy.ts";
-import { dialSocket } from "./dialSocket.ts";
 
 const controlCoreContract = composeSurfaceContracts({
   control: controlCoreSurface,
@@ -73,6 +74,11 @@ export async function probeDaemonIdentityFrom(
     | ProbeDaemonIdentityFromOptions<"not-drainable">,
 ): Promise<DrainableProbe | PlainProbe> {
   const hello = await opts.client.surface.control.core.hello();
+  if (hello.controlCoreVersion !== CONTROL_CORE_VERSION) {
+    throw new Error(
+      `unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
+    );
+  }
   const base = {
     identity: {
       contractVersion: hello.surfaceVersion,
@@ -107,7 +113,7 @@ export async function probeDaemonIdentityFrom(
 }
 
 /** True only for an honest absent listener. */
-function isNoListenerError(err: unknown): boolean {
+export function isNoListenerError(err: unknown): boolean {
   const e = err as { code?: string; cause?: { code?: string } };
   const code = e.code ?? e.cause?.code;
   return code === "ECONNREFUSED" || code === "ENOENT";
@@ -115,20 +121,12 @@ function isNoListenerError(err: unknown): boolean {
 
 const POLL_MS = 50;
 
-function waitForPoll(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(done, POLL_MS);
-    function done(): void {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    }
-    signal.addEventListener("abort", done, { once: true });
-  });
+async function waitForPoll(signal: AbortSignal): Promise<void> {
+  try {
+    await delay(POLL_MS, undefined, { signal });
+  } catch (error) {
+    if (!signal.aborted) throw error;
+  }
 }
 
 /**
@@ -141,22 +139,35 @@ async function awaitHelloGone(
   signal: AbortSignal,
 ): Promise<void> {
   while (!signal.aborted) {
-    let socket: Awaited<ReturnType<typeof dialSocket>> | undefined;
+    let connection:
+      | Awaited<ReturnType<typeof unixSocketLink<typeof controlCoreContract>>>
+      | undefined;
     try {
-      socket = await dialSocket(socketPath);
-      const client = stdioLink<typeof controlCoreContract>({
-        read: socket,
-        write: socket,
+      connection = await unixSocketLink<typeof controlCoreContract>({
+        socketPath,
       });
-      await client.surface.control.core.hello();
     } catch (err) {
-      socket?.destroy();
+      if (signal.aborted) return;
       if (isNoListenerError(err)) return;
-      // A listener that cannot complete hello is not proof of process exit.
       await waitForPoll(signal);
       continue;
     }
-    socket.destroy();
+
+    if (signal.aborted) {
+      connection.dispose();
+      return;
+    }
+    const abortAttempt = (): void => connection?.dispose();
+    signal.addEventListener("abort", abortAttempt, { once: true });
+    try {
+      await connection.client.surface.control.core.hello();
+    } catch {
+      if (signal.aborted) return;
+      // A listener that cannot complete hello is not proof of process exit.
+    } finally {
+      signal.removeEventListener("abort", abortAttempt);
+      connection.dispose();
+    }
     await waitForPoll(signal);
   }
 }
@@ -184,33 +195,34 @@ export function probeDaemonIdentity(
     assertDrainCeiling(opts.drainCeilingMs);
   }
   return async (socketPath) => {
-    let socket: Awaited<ReturnType<typeof dialSocket>>;
+    let connection: Awaited<
+      ReturnType<typeof unixSocketLink<typeof controlCoreContract>>
+    >;
     try {
-      socket = await dialSocket(socketPath);
+      connection = await unixSocketLink<typeof controlCoreContract>({
+        socketPath,
+      });
     } catch (err) {
       if (isNoListenerError(err)) return null;
       throw err;
     }
-    const client = stdioLink<typeof controlCoreContract>({
-      read: socket,
-      write: socket,
-    }) as ControlCoreProbeClient;
+    const client = connection.client as ControlCoreProbeClient;
     try {
       if (opts.capability === "drainable") {
         return await probeDaemonIdentityFrom({
           ...opts,
           client,
-          dispose: () => socket.destroy(),
+          dispose: connection.dispose,
           awaitExit: (signal) => awaitHelloGone(socketPath, signal),
         });
       }
       return await probeDaemonIdentityFrom({
         ...opts,
         client,
-        dispose: () => socket.destroy(),
+        dispose: connection.dispose,
       });
     } catch (err) {
-      socket.destroy();
+      connection.dispose();
       throw err;
     }
   };

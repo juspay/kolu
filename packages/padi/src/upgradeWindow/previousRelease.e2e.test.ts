@@ -598,8 +598,8 @@ describeDaemon("bidirectional previous-release daemon window", () => {
     }
     await runPreviousReleaseWindow({
       window,
-      newReadsOld: () => newReadsOld(window),
-      oldReadsNew: () => oldReadsNew(window),
+      newReadsOld,
+      oldReadsNew,
     });
   }, 300_000);
 });

@@ -88,6 +88,54 @@ describe("probeDaemonIdentity", () => {
     await expect(exit).resolves.toBeUndefined();
     probe?.dispose();
   });
+
+  it("cancels an in-flight hello poll when the drain ceiling aborts", async () => {
+    const path = socketPath("probe-abort-poll-");
+    let helloCalls = 0;
+    const runtime = implementSurfaces(
+      { control: controlCoreSurface },
+      {},
+      {
+        control: {
+          procedures: {
+            core: {
+              hello: async () => {
+                helloCalls += 1;
+                if (helloCalls > 1) await new Promise<void>(() => {});
+                return {
+                  stateRoot: "/state/daemon",
+                  surfaceVersion: "2.4",
+                  controlCoreVersion: "1.0",
+                  startedAt: 99,
+                  commit: "abc1234",
+                  buildId: "build-9",
+                };
+              },
+              drain: async () => {},
+            },
+          },
+        },
+      },
+    );
+    const listener = await serveOverUnixSocket({
+      socketPath: path,
+      router: runtime.router as never,
+      log: silentLog,
+    });
+    listeners.push(listener);
+    const probe = await probeDaemonIdentity({
+      capability: "drainable",
+      drainCeilingMs: 1000,
+    })(path);
+    if (probe === null) throw new Error("expected probe");
+
+    const abort = new AbortController();
+    const exit = probe.awaitExit(abort.signal);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    abort.abort();
+    await expect(exit).resolves.toBeUndefined();
+    probe.dispose();
+  });
 });
 
 describe("probeDaemonIdentityFrom", () => {
@@ -132,5 +180,31 @@ describe("probeDaemonIdentityFrom", () => {
     await probe.fireDrain();
     probe.dispose();
     expect({ drained, disposed }).toEqual({ drained: 1, disposed: 1 });
+  });
+
+  it("rejects a contradictory frozen-core version", async () => {
+    await expect(
+      probeDaemonIdentityFrom({
+        client: {
+          surface: {
+            control: {
+              core: {
+                hello: async () => ({
+                  stateRoot: "/state/remote",
+                  surfaceVersion: "3.1",
+                  controlCoreVersion: "2.0",
+                  startedAt: 123,
+                  commit: "def5678",
+                  buildId: "remote-build",
+                }),
+                drain: async () => {},
+              },
+            },
+          },
+        },
+        dispose: () => {},
+        capability: "not-drainable",
+      }),
+    ).rejects.toThrow("unsupported control-core version 2.0; expected 1.0");
   });
 });

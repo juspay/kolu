@@ -103,9 +103,11 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       fixtureOptions({ gate: { kind: "current" } }),
     );
     fixtures.push(d);
-    const survivorPid = d.pid as number;
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivor = d.process;
+    const survivorPid = survivor.pid;
     const survivorExited = new Promise<void>((resolve) => {
-      d.child?.once("exit", () => resolve());
+      survivor.child.once("exit", () => resolve());
     });
 
     // Close the fixture's accept server BEFORE ensure's post-kill spawn — the
@@ -141,12 +143,15 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
           spawned = true;
           // Free the path the fixture held, then re-bind for the fresh connect.
           await new Promise<void>((resolve) => {
-            const srv = d.server as
-              | (Server & { closeAllConnections?: () => void })
-              | undefined;
-            srv?.closeAllConnections?.();
-            srv?.close(() => resolve());
-            if (!srv) resolve();
+            if (d.listener.kind !== "listening") {
+              resolve();
+              return;
+            }
+            const srv = d.listener.server as Server & {
+              closeAllConnections?: () => void;
+            };
+            srv.closeAllConnections?.();
+            srv.close(() => resolve());
           });
           const fresh = fakeListen(d.socketPath);
           servers.push(fresh.server);
@@ -189,9 +194,10 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       }),
     );
     fixtures.push(d);
-    const fixturePid = d.pid as number;
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const fixturePid = d.process.pid;
     let fixtureDied = false;
-    d.child?.once("exit", () => {
+    d.process.child.once("exit", () => {
       fixtureDied = true;
     });
 

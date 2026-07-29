@@ -15,6 +15,7 @@ import {
   createEndpoint,
   daemonBuild,
   probeDaemonIdentity,
+  probeDaemonIdentityFrom,
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -40,6 +41,16 @@ await converge(endpoint);
 
 // The only replace verb — all steps required (no silent snapshot skip).
 await recycle(endpoint, { capture, drain, reattach });
+
+// An ssh connector already owns the combined client and process oracle.
+// This form never returns null: the transport has already been dialed.
+const probe = await probeDaemonIdentityFrom({
+  client: combinedClient,
+  dispose: teardown,
+  capability: "drainable",
+  drainCeilingMs: 6000,
+  awaitExit: processExitOracle, // process exit only; link loss is not exit
+});
 ```
 
 Part of the kolu monorepo — `"@kolu/surface-daemon-supervisor": "workspace:*"`.

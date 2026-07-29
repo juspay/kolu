@@ -73,7 +73,8 @@ describe("old session file under new padi (upgrade-window)", () => {
       }),
     );
     try {
-      const stores = openPadiStateStores(d.stateRoot as string);
+      if (d.state.kind !== "planted") throw new Error("expected planted state");
+      const stores = openPadiStateStores(d.state.stateRoot);
       const session = stores.session.get();
       // PRESENT — conf does not wipe unknown shapes. A silent-empty regression
       // would return null here and the restore card would vanish.

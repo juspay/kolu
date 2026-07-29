@@ -32,11 +32,13 @@ describeDaemon("yesterday-daemon fixture", () => {
   it("plants a live child, current gate, private dir, and accepting socket", async () => {
     const daemon = await plantYesterdayDaemon(fixtureOptions());
     planted.push(daemon);
-    expect(daemon.pid).toBeTypeOf("number");
-    expect(isHolderLive(daemon.pid as number)).toBe(true);
-    expect(gatePid(daemon.gatePath)).toBe(daemon.pid);
+    expect(daemon.process.kind).toBe("live");
+    if (daemon.process.kind !== "live")
+      throw new Error("expected live process");
+    expect(isHolderLive(daemon.process.pid)).toBe(true);
+    expect(gatePid(daemon.gatePath)).toBe(daemon.process.pid);
     expect(readFileSync(daemon.gatePath, "utf8").trim()).toBe(
-      String(daemon.pid),
+      String(daemon.process.pid),
     );
     expect(lstatSync(daemon.dir).mode & 0o077).toBe(0);
     expect(existsSync(daemon.socketPath)).toBe(true);
@@ -50,13 +52,18 @@ describeDaemon("yesterday-daemon fixture", () => {
       }),
     );
     planted.push(daemon);
+    expect(daemon.process.kind).toBe("live");
+    if (daemon.process.kind !== "live")
+      throw new Error("expected live process");
     expect(gatePid(daemon.gatePath)).toBeUndefined();
-    expect(isHolderLive(daemon.pid as number)).toBe(true);
+    expect(isHolderLive(daemon.process.pid)).toBe(true);
   });
 
   it("dispose reaps the child and removes the rendezvous", async () => {
     const daemon = await plantYesterdayDaemon(fixtureOptions());
-    const pid = daemon.pid as number;
+    if (daemon.process.kind !== "live")
+      throw new Error("expected live process");
+    const { pid } = daemon.process;
     await daemon.dispose();
     expect(isHolderLive(pid)).toBe(false);
     expect(existsSync(daemon.dir)).toBe(false);

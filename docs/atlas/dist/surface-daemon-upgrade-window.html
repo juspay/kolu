@@ -137,7 +137,7 @@
 <td>How do I replace it?</td>
 <td><strong><code>drainAndAwaitExit</code></strong>, and the <em>framework</em> runs it in both enactments — a drainable probe only supplies “fire the drain verb” and “watch for exit”</td>
 <td>both padi arms migrate</td>
-<td>ssh renewal rides it; the ssh exit-watcher ships in the framework too<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>It just polls the fragment’s hello until it stops answering — the framework owns the fragment, so there’s no reason every ssh consumer should rewrite that poll.</span></span></span></td>
+<td>ssh renewal rides it; the connector supplies its process-exit oracle to the framework assembly<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The local socket-path <code>probeDaemonIdentity</code> polls fresh fragment hellos until no listener remains. An already-dialed ssh connector has stronger knowledge: it passes a process oracle to <code>probeDaemonIdentityFrom</code>, and link loss never becomes <code>ClosedInfo.kind === &quot;exit&quot;</code>.</span></span></span></td>
 </tr>
 <tr>
 <td>When do I give up?</td>

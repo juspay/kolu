@@ -18,7 +18,7 @@ import {
   readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
-import { router as serveRouter } from "./serve";
+import { daemonRouter } from "./serve";
 
 // #region home
 // Durable ⇒ state dir (never /run): a daemon supervised over ssh must outlive
@@ -26,10 +26,6 @@ import { router as serveRouter } from "./serve";
 // session. Gate and socket live side by side under the home.
 const home = daemonHome({ app: "fleet-top", placement: "state" });
 // #endregion home
-
-// oRPC's `Lazy<Router>` spread isn't accepted by the strict `Router<any, any>`
-// input type; the runtime shape is valid (the same cast the fleet-top daemon uses).
-const router = serveRouter as Parameters<typeof daemonMain>[0]["router"];
 
 // #region control-core
 // Serve these deps beside the versioned application surface. `hello` remains
@@ -52,6 +48,9 @@ const readIdentity = readBakedIdentity("FLEET_TOP");
 // The example surface's flattened router — the same `router` a browser or a
 // unix-socket client reaches; the daemon just serves it durably.
 export function runDaemon(controller: AbortController): void {
+  const router = daemonRouter(controlCore(controller)) as Parameters<
+    typeof daemonMain
+  >[0]["router"];
   // #region lifecycle
   daemonProcessMain({
     name: "fleet-top", // crash-arm narration prefix

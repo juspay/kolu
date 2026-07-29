@@ -11,11 +11,13 @@
 import type { ContractRouterClient } from "@orpc/contract";
 import {
   type ConvergenceIdentity,
+  controlCoreSurface,
   daemonBuild,
   daemonHome,
   readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
+import { composeSurfaceContracts } from "@kolu/surface/define";
 import {
   converge,
   type ConvergencePolicy,
@@ -27,7 +29,7 @@ import {
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import type { surface } from "./surface";
+import { surface } from "./surface";
 
 // Same home declaration the daemon uses — disagreement about gate/socket impossible.
 const home = daemonHome({ app: "fleet-top", placement: "state" });
@@ -49,7 +51,11 @@ function spawnEnvBase(): Record<string, string> {
 }
 
 /** The contract-typed client the endpoint holds. */
-type TopClient = ContractRouterClient<typeof surface.contract>;
+const daemonContract = composeSurfaceContracts({
+  app: surface,
+  control: controlCoreSurface,
+});
+type TopClient = ContractRouterClient<typeof daemonContract>;
 /** What "identity" means for this daemon — enough to prove the link answered. */
 interface TopIdentity {
   loadOne: number;
@@ -68,11 +74,11 @@ async function connectTop(
   socketPath: string,
 ): Promise<DaemonConnection<TopClient, TopIdentity>> {
   const socket = await dialSocket(socketPath);
-  const client: TopClient = stdioLink<typeof surface.contract>({
+  const client: TopClient = stdioLink<typeof daemonContract>({
     read: socket,
     write: socket,
   });
-  const load = await firstFrame(client.surface.load.get({}));
+  const load = await firstFrame(client.surface.app.load.get({}));
   const closeCbs: Array<() => void> = [];
   let closed = false;
   socket.once("close", () => {

@@ -30,7 +30,9 @@ it("plants a previous-shape padi session through the real conf store", async () 
   );
   planted.push(daemon);
 
-  const raw = JSON.parse(readFileSync(daemon.confPath as string, "utf8")) as {
+  if (daemon.state.kind !== "planted")
+    throw new Error("expected planted state");
+  const raw = JSON.parse(readFileSync(daemon.state.confPath, "utf8")) as {
     session: typeof previousSession;
   };
   expect(raw.session.terminals[0]?.cwd).toBe("/work/old");

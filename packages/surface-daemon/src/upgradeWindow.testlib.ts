@@ -7,10 +7,11 @@
  * packages or on-disk conventions into its source hydration closure.
  */
 
+import { throws } from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
+import { once } from "node:events";
 import {
   chmodSync,
-  mkdirSync,
   mkdtempSync,
   readdirSync,
   rmSync,
@@ -19,7 +20,8 @@ import {
 } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, join } from "node:path";
+import { isHolderLive } from "./pidGate.ts";
 import type { SharedArtifact } from "./sharedArtifact.ts";
 
 // ── Shared-artifact registry matchers + watchdog ────────────────────────────
@@ -75,18 +77,14 @@ export function isSharedArtifactLog(
 }
 
 export function listRelativeFilesUnder(root: string): string[] {
-  const found: string[] = [];
-  const walk = (dir: string, rel: string): void => {
-    for (const name of readdirSync(dir)) {
-      const path = join(dir, name);
-      const relative = rel ? `${rel}/${name}` : name;
-      const stat = statSync(path);
-      if (stat.isDirectory()) walk(path, relative);
-      else if (stat.isFile() || stat.isSocket()) found.push(relative);
-    }
-  };
-  walk(root, "");
-  return found;
+  const names = readdirSync(root, {
+    recursive: true,
+    encoding: "utf8",
+  }) as string[];
+  return names.filter((name) => {
+    const stat = statSync(join(root, name));
+    return stat.isFile() || stat.isSocket();
+  });
 }
 
 export function unknownProtocolFilesOnDisk(
@@ -190,25 +188,26 @@ export interface YesterdayDaemonOpts {
   plantState: (plant: YesterdayStatePlant) => void | Promise<void>;
 }
 
+export type YesterdayProcess =
+  | { kind: "absent" }
+  | { kind: "live"; child: ChildProcess; pid: number };
+
+export type YesterdayListener =
+  | { kind: "absent" }
+  | { kind: "listening"; server: Server };
+
+export type YesterdayState =
+  | { kind: "absent" }
+  | { kind: "planted"; stateRoot: string; confPath: string };
+
 export interface YesterdayDaemon {
   dir: string;
   gatePath: string;
   socketPath: string;
-  stateRoot: string | undefined;
-  confPath: string | undefined;
-  child: ChildProcess | undefined;
-  pid: number | undefined;
-  server: Server | undefined;
+  process: YesterdayProcess;
+  listener: YesterdayListener;
+  state: YesterdayState;
   dispose: () => Promise<void>;
-}
-
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function liveChild(assertSpawnAllowed: (label: string) => void): ChildProcess {
@@ -283,28 +282,42 @@ export async function plantYesterdayDaemon(
     });
   }
 
+  const daemonProcess: YesterdayProcess =
+    child !== undefined && pid !== undefined
+      ? { kind: "live", child, pid }
+      : { kind: "absent" };
+  const listener: YesterdayListener =
+    server === undefined ? { kind: "absent" } : { kind: "listening", server };
+  const state: YesterdayState =
+    stateRoot !== undefined && confPath !== undefined
+      ? { kind: "planted", stateRoot, confPath }
+      : { kind: "absent" };
+
   let disposed = false;
   const dispose = async (): Promise<void> => {
     if (disposed) return;
     disposed = true;
-    if (server !== undefined) {
+    if (listener.kind === "listening") {
       await new Promise<void>((resolve) => {
-        (
-          server as Server & { closeAllConnections?: () => void }
-        ).closeAllConnections?.();
-        server?.close(() => resolve());
+        const owned = listener.server as Server & {
+          closeAllConnections?: () => void;
+        };
+        owned.closeAllConnections?.();
+        owned.close(() => resolve());
       });
     }
-    if (child?.pid !== undefined && processAlive(child.pid)) {
+    if (daemonProcess.kind === "live" && isHolderLive(daemonProcess.pid)) {
       try {
-        child.kill("SIGKILL");
+        daemonProcess.child.kill("SIGKILL");
       } catch {
         // The process exited between the liveness probe and signal.
       }
-      await new Promise<void>((resolve) => {
-        child?.once("exit", resolve);
-        if (child?.exitCode !== null) resolve();
-      });
+      if (
+        daemonProcess.child.exitCode === null &&
+        daemonProcess.child.signalCode === null
+      ) {
+        await once(daemonProcess.child, "exit");
+      }
     }
     rmSync(dir, { recursive: true, force: true });
     if (stateRoot !== undefined) {
@@ -315,19 +328,11 @@ export async function plantYesterdayDaemon(
     dir,
     gatePath,
     socketPath,
-    stateRoot,
-    confPath,
-    child,
-    pid,
-    server,
+    process: daemonProcess,
+    listener,
+    state,
     dispose,
   };
-}
-
-export function ensurePrivateGateDir(gatePath: string): void {
-  const dir = dirname(gatePath);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  chmodSync(dir, 0o700);
 }
 
 // ── Previous-release harness ────────────────────────────────────────────────
@@ -396,23 +401,31 @@ export function createProcessReaper(graceMs = 2000): ProcessReaper {
     },
     async dispose() {
       for (const child of [...children]) {
-        if (child.exitCode === null) {
+        if (child.exitCode === null && child.signalCode === null) {
+          const gracefulExit = once(child, "exit", {
+            signal: AbortSignal.timeout(graceMs),
+          });
           try {
             child.kill("SIGTERM");
           } catch {
             // Already gone.
           }
-          await Promise.race([
-            new Promise<void>((resolve) => child.once("exit", () => resolve())),
-            new Promise<void>((resolve) => setTimeout(resolve, graceMs)),
-          ]);
+          try {
+            await gracefulExit;
+          } catch (error) {
+            if (!(error instanceof Error) || error.name !== "AbortError") {
+              throw error;
+            }
+          }
         }
-        if (child.exitCode === null) {
+        if (child.exitCode === null && child.signalCode === null) {
+          const forcedExit = once(child, "exit");
           try {
             child.kill("SIGKILL");
           } catch {
             // Already gone.
           }
+          await forcedExit;
         }
       }
       children.clear();
@@ -420,26 +433,19 @@ export function createProcessReaper(graceMs = 2000): ProcessReaper {
   };
 }
 
-export async function runPreviousReleaseWindow(opts: {
-  window: PreviousReleaseWindow;
-  newReadsOld: () => void | Promise<void>;
-  oldReadsNew: () => void | Promise<void>;
+export async function runPreviousReleaseWindow<
+  W extends PreviousReleaseWindow,
+>(opts: {
+  window: W;
+  newReadsOld: (window: W) => void | Promise<void>;
+  oldReadsNew: (window: W) => void | Promise<void>;
 }): Promise<void> {
   assertPreviousReleaseWindow(opts.window);
-  await opts.newReadsOld();
-  await opts.oldReadsNew();
+  await opts.newReadsOld(opts.window);
+  await opts.oldReadsNew(opts.window);
 }
 
 // ── Pure test patterns ──────────────────────────────────────────────────────
-
-function assertThrows(fn: () => unknown, label: string): void {
-  try {
-    fn();
-  } catch {
-    return;
-  }
-  throw new Error(`${label}: expected an exception`);
-}
 
 export function pinPreviousShapeRecovery<T>(opts: {
   previous: unknown;
@@ -448,12 +454,12 @@ export function pinPreviousShapeRecovery<T>(opts: {
   parse: (value: unknown) => T;
   assertRecovered: (value: T) => void;
 }): void {
-  assertThrows(
+  throws(
     () => opts.parse(opts.previous),
     "previous shape must require recovery",
   );
   opts.assertRecovered(opts.parse(opts.recover(opts.previous)));
-  assertThrows(
+  throws(
     () => opts.parse(opts.recover(opts.irrecoverable)),
     "irrecoverable shape must refuse",
   );

@@ -44,6 +44,9 @@ guard are required injected hooks. Matchers take the consumer registry as a
 parameter; no global registry exists in the framework. A `versionField` records
 the discriminator but does not excuse coverage—the artifact must name a
 disposition test that plants version+1 and observes a typed state.
+The fixture returns independent discriminated `process`, `listener`, and
+`state` arms, so a pid cannot exist without its child and a config path cannot
+exist without its state root.
 
 ## The on-disk home
 
@@ -222,6 +225,7 @@ and returns empty strings off-nix rather than inventing an identity. See
 <Aside type="note" title="Two convergence axes live here">
   `contractIsNewer` / `contractIsCompatible` (ordered) and `buildsMatch`
   (match-only, no ordering) live in this package and are re-exported by the
-  supervisor, so the supervisor stays `@kolu/surface`-free. Their use is in
+  supervisor. They remain daemon-domain vocabulary even though the supervisor
+  deliberately depends on `@kolu/surface` to dial the frozen core. Their use is in
   [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade).
 </Aside>
