@@ -219,8 +219,12 @@ type DockRowCore = {
  * parent's `subRows`, keeping the hierarchy as one validated product.
  * `pip` lives on the core (same as a top-level row): every sub-row surface
  * consumes the shared StatePip fold; kind only discriminates section-attention
- * membership and order-bucket validity, never whether a pip fact exists. */
-type SubDockRowCore = Omit<DockRowCore, "bucket">;
+ * membership and order-bucket validity, never whether a pip fact exists.
+ * Paint is `SubDockPaintBucket` (never `parked`) — a split shares its parent's
+ * window fate, so the never-park invariant is structural on order AND paint. */
+type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip"> & {
+  pip: SubDockPaintBucket;
+};
 
 type ShellSubDockOrderBucket = Extract<
   SubDockOrderBucket,

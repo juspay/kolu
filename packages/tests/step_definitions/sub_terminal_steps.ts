@@ -348,12 +348,11 @@ Then(
 );
 
 Then(
-  "the dock split sub-entry should have no agent attention chrome",
+  "the dock split sub-entry should show the shell identity pip without asking",
   async function (this: KoluWorld) {
-    // OWNER SUPERSESSION 2026-07-30: FX2 said agentless splits render
-    // "label + landing only — no state pip". Sub-entries now match top-level
-    // rows (identity pip + activity motion; unread can wash). A shell still
-    // cannot ask — assert identity pip present and no asking attribute.
+    // Owner supersession of FX2 "label + landing only": sub-entries match
+    // top-level rows (identity pip + activity motion). A shell still cannot
+    // ask — assert identity pip present and no asking attribute.
     const row = this.page.locator('[data-testid="dock-sub-row"]').first();
     assert.strictEqual(await row.getAttribute("data-agent-state"), null);
     assert.strictEqual(await row.getAttribute("data-asking"), null);

@@ -11,9 +11,10 @@
  *  toggle a dock filter, and an agent blocked long enough to fall out of the
  *  activity window is precisely the one whose count must still show.
  *
- *  Split entries widen to every shell, but section attention does not: only a
- *  split with an agent joins this fold. That preserves the agent-counting
- *  contract while still giving plain splits a landing row.
+ *  Split entries render for every shell (landing + shared StatePip fold), but
+ *  section attention does not: only a split with an agent joins this fold.
+ *  That is the agent-counting contract (a shell cannot ask) — not "shells have
+ *  no mark"; row chrome lives on the ranked pip + useStatePip path.
  *
  *  It returns IDS rather than counts, because the capsule that renders
  *  `.length` is the same capsule that jumps: the two must walk one list or the
@@ -34,8 +35,9 @@ export type SectionAttention = {
 };
 
 /** Flatten one section to the exact terminals its attention summary owns.
- * Every top-level row participates; only agent-bearing splits do, because a
- * plain split deliberately has no attention mark in the Dock. */
+ * Every top-level row participates; only agent-bearing splits do — a shell
+ * cannot ask. Shell splits still render the shared StatePip fold on their
+ * row; they simply do not join this section count/jump list. */
 export function sectionAttentionIds(group: DockGroup): TerminalId[] {
   const ids: TerminalId[] = [];
   for (const row of group.allTopRows) {
