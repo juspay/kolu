@@ -176,8 +176,16 @@ state cannot express it. Everything level-shaped goes through the fact.</li>
 <p>Introduce <code>focusedTerminalId</code> beside the activation choke point in
 <code>createViewState</code>; fold <code>activeId</code> from it; delete <code>focusTarget</code>, the seeding
 accessor, and the four-step walk; route <code>useTerminalStore.focusedId()</code>,
-<code>TerminalContent</code>’s pane resolution, and <code>useDockFocus</code> through the fact. No
-user-visible change.</p>
+<code>TerminalContent</code>’s pane resolution, and <code>useDockFocus</code> through the fact.</p>
+<p><strong>User-facing change</strong>: none — that is the point. Anything that looks
+different is a bug in the phase.</p>
+<p><strong>To test the PR</strong>: exercise every focus surface and confirm nothing moved.
+Open two terminals, give one a split; click between main pane, split pane, and
+the other tile — the dock highlight, the pane dimming, and where your keys land
+must behave exactly as on <code>master</code>. Then the edges: collapse the panel
+(keyboard returns to main), close a sub-tab by its ✕ (keyboard re-grabs),
+<code>Ctrl+Tab</code> / <code>Cmd+1..9</code> / <code>Cmd+F</code>, and a reload (same tile focused, panel
+state restored).</p>
 <p><strong>Done when</strong>: <code>focusTarget</code> and <code>getSubPanel</code> no longer exist in the client;
 <code>useDockFocus</code> is a single <code>focusTerminal</code> call; the nine
 <code>focusedTerminal.test.ts</code> cases from the reverted diff pass against the new
@@ -203,6 +211,16 @@ spreads <code>dockRowAttrs</code> (which derives <code>data-active</code> intern
 section headers count split agents through the same urgency fold the host tab
 already uses. Only agent-running splits earn a line; sub-entries share their
 parent’s activity-window fate.</p>
+<p><strong>User-facing change</strong>: an agent working in a split finally has a home in the
+dock — an indented entry under its host terminal’s row. Clicking it lands you
+<em>in that pane</em>, keyboard and all; repo section headers count these agents, so
+the header agrees with the host tab above it.</p>
+<p><strong>To test the PR</strong>: split a terminal (<code>Ctrl+Shift+`</code>), run <code>claude</code> in the split, and
+give it a task. An indented row should appear under the parent’s dock row
+(a plain <code>bash</code> split gets none — the <code>⊟ N</code> chip still covers those). Click
+the sub-entry: you land typing in that pane, and <strong>both</strong> the parent row and
+the sub-entry are highlighted. Let the agent block on a question: the
+sub-entry washes violet and the section header’s count matches the host tab’s.</p>
 <p><strong>Done when</strong>: the recovered matrix is green; a new e2e scenario types into a
 split and asserts the parent row <strong>and</strong> the sub-entry both carry
 <code>data-active</code>; a repo section header’s count equals its host tab’s; and the
@@ -216,7 +234,11 @@ placement is therefore a gate, not a style choice.</span></span></span></p>
 <p><code>data-active</code> is spelled <code>&quot;&quot;</code> on dock rows and <code>&quot;true&quot;</code> on canvas tiles, and
 <code>RailChip</code> hand-derives it outside <code>dockRowAttrs</code>. Settle on the presence form
 everywhere, route <code>RailChip</code> and <code>CanvasTile</code> through the selectors, and update
-the e2e steps that assert <code>&quot;true&quot;</code>. Independent of FX2.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+the e2e steps that assert <code>&quot;true&quot;</code>. Independent of FX2.</p>
+<p><strong>User-facing change</strong>: none — attribute plumbing only.</p>
+<p><strong>To test the PR</strong>: click across a few tiles and confirm the three places that
+mark “active” still light in lockstep: the canvas tile’s border, its dock row,
+and its rail chip when the dock is collapsed to the rail.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(
       document.querySelectorAll(".fn[data-fn]"),

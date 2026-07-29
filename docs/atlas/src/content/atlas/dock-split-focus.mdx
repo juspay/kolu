@@ -123,8 +123,18 @@ export const PT = [
 Introduce `focusedTerminalId` beside the activation choke point in
 `createViewState`; fold `activeId` from it; delete `focusTarget`, the seeding
 accessor, and the four-step walk; route `useTerminalStore.focusedId()`,
-`TerminalContent`'s pane resolution, and `useDockFocus` through the fact. No
-user-visible change.
+`TerminalContent`'s pane resolution, and `useDockFocus` through the fact.
+
+**User-facing change**: none — that is the point. Anything that looks
+different is a bug in the phase.
+
+**To test the PR**: exercise every focus surface and confirm nothing moved.
+Open two terminals, give one a split; click between main pane, split pane, and
+the other tile — the dock highlight, the pane dimming, and where your keys land
+must behave exactly as on `master`. Then the edges: collapse the panel
+(keyboard returns to main), close a sub-tab by its ✕ (keyboard re-grabs),
+`Ctrl+Tab` / `Cmd+1..9` / `Cmd+F`, and a reload (same tile focused, panel
+state restored).
 
 **Done when**: `focusTarget` and `getSubPanel` no longer exist in the client;
 `useDockFocus` is a single `focusTerminal` call; the nine
@@ -157,6 +167,18 @@ section headers count split agents through the same urgency fold the host tab
 already uses. Only agent-running splits earn a line; sub-entries share their
 parent's activity-window fate.
 
+**User-facing change**: an agent working in a split finally has a home in the
+dock — an indented entry under its host terminal's row. Clicking it lands you
+*in that pane*, keyboard and all; repo section headers count these agents, so
+the header agrees with the host tab above it.
+
+**To test the PR**: split a terminal (`` Ctrl+Shift+` ``), run `claude` in the split, and
+give it a task. An indented row should appear under the parent's dock row
+(a plain `bash` split gets none — the `⊟ N` chip still covers those). Click
+the sub-entry: you land typing in that pane, and **both** the parent row and
+the sub-entry are highlighted. Let the agent block on a question: the
+sub-entry washes violet and the section header's count matches the host tab's.
+
 **Done when**: the recovered matrix is green; a new e2e scenario types into a
 split and asserts the parent row **and** the sub-entry both carry
 `data-active`; a repo section header's count equals its host tab's; and the
@@ -174,3 +196,9 @@ placement is therefore a gate, not a style choice.</Footnote>
 `RailChip` hand-derives it outside `dockRowAttrs`. Settle on the presence form
 everywhere, route `RailChip` and `CanvasTile` through the selectors, and update
 the e2e steps that assert `"true"`. Independent of FX2.
+
+**User-facing change**: none — attribute plumbing only.
+
+**To test the PR**: click across a few tiles and confirm the three places that
+mark "active" still light in lockstep: the canvas tile's border, its dock row,
+and its rail chip when the dock is collapsed to the rail.
