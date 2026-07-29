@@ -123,4 +123,9 @@ code (`#951` R-4, slice R4a), consumed **in-process** by `kolu-server`. It now
 also ships the standalone `kaval` daemon: the same `PtyHost` served over a unix
 socket via `@kolu/surface-daemon`'s `gate → serve → teardown` skeleton, reached
 by the `kaval-tui` CLI. The primitive itself stays pure — it knows nothing about
-the socket, the gate, or the wire; those compose on top.
+the socket, the gate, or the wire; those compose on top. The daemon adds the
+frozen `control.core.hello` identity channel beside the historic flat pty-host
+surface; `system.version` remains byte-for-byte available to existing clients.
+Kaval cannot drain without destroying live PTYs, so its frozen `drain(): void`
+verb rejects with `PRECONDITION_FAILED`, and its not-drainable supervisor policy
+makes normal invocation structurally impossible.

@@ -25,9 +25,15 @@ surface is compatible. The hello fields are fixed:
 `CONTROL_CORE_VERSION` is frozen at `"1.0"`; it is not an application contract
 version.
 
+The wire says only `drain(): void`; it does not promise that every daemon is
+drainable. A daemon whose durable state cannot survive a drain implements the
+verb as an honest typed refusal (kaval throws `PRECONDITION_FAILED`) and declares
+the supervisor capability `not-drainable`, which makes policy-driven invocation
+unrepresentable. The refusal must leave the daemon and its owned resources alive.
+
 | Export | Role |
 | --- | --- |
-| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain` |
+| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain`; a not-drainable daemon's callback throws a typed refusal without exiting |
 | `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment contract, plus the spec seam for a daemon retaining extra frozen members |
 | `ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION` | immutable wire vocabulary |
 

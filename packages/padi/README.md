@@ -70,6 +70,13 @@ round-trips a terminal through its own kaval — and two padis at distinct
 state-roots stay isolated. *(kolu-server binds this process in stage 2 — the
 cutover.)*
 
+Padi also reads its kaval's build identity through that same frozen control
+fragment, before touching the versioned pty-host surface. A surviving kaval
+from before the fragment has a served socket but no identity route: padi treats
+that structured route absence as an older build and reports the existing
+update nudge. Only an honest missing listener becomes a null probe; other probe
+failures stay loud.
+
 ## W3.1 — the remote binding: padiSurface over ssh
 
 kolu-server can bind a padi **one ssh hop away** — the whole canvas becomes a

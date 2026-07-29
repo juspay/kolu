@@ -153,7 +153,9 @@ So the agents in your terminals survive the upgrade: they never stopped.
   on their own. A redeploy that changes padi's _build_ but not its version
   converges the same way — the server drains the old build once at boot and brings
   up its own — so a code change reaches you at deploy cadence, not only a version
-  bump.
+  bump. Kaval is the deliberate exception: draining it would kill the live PTYs,
+  so the same frozen channel identifies an old kaval but its not-drainable policy
+  only asks you to restart it when you are ready.
 </Aside>
 
 ## Compared to tmux and zellij

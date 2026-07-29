@@ -38,6 +38,12 @@ exemplar daemon of [@kolu/surface](/surface/the-daemon-spine) — the
 single-instance gate, live recycle, and frozen control core it is built on are
 documented there.
 
+That frozen side channel reports kaval's build and boot identity without moving
+its existing pty-host procedures. Kaval deliberately cannot drain: doing so
+would destroy the live PTYs it exists to preserve. A direct drain call is
+refused with a typed error, while padi's not-drainable policy can only keep the
+daemon running and show an update nudge when its build is old.
+
 ## How it fits together
 
 One daemon owns the terminals; everything else is a client. `kolu` no longer runs

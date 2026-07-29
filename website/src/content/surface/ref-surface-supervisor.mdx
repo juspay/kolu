@@ -117,6 +117,13 @@ mismatch is `uncorrelated`.
 | `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed` — evidence as data under `unconverged` |
 | `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
 
+The generic probe deliberately throws when a live pre-fragment daemon answers
+the socket but has no `control.core.hello` route. A consumer with a named upgrade
+window may catch only that structured `NOT_FOUND` frame and project it as an
+older-build observation. Kaval does this so its not-drainable policy reports the
+existing human nudge; it never turns the served-daemon fact into `null`, and no
+other probe error is caught.
+
 <Aside type="note" title="Two policies in the wild">
   [kaval](/kaval) declares `recycle-on-skew`; [padi](/padi) declares `drain-newer-else-refuse` with
   a drain-capable handshake. The step-by-step for both is in

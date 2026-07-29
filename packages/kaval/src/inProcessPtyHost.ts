@@ -441,6 +441,10 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   // (kaval-heap-oom.mdx), so it's the column to watch.
   return {
     ...surface,
+    // The daemon's frozen control hello and legacy `system.version` must name
+    // the SAME boot. Expose the one captured instant to the daemon composition
+    // instead of taking a second Date.now() sample there.
+    startedAt,
     terminalCount: () => host.size(),
     // Shutdown reaps every live PTY. node-pty `setsid`s each PTY into its own
     // session, so a process-group kill of the daemon can NEVER reach the
@@ -482,6 +486,8 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the runtime's router context type doesn't line up, though the runtime shape is exactly what serving wants.
   servedRouter: Router<any, any>;
   client: PtyHostClient;
+  /** The one boot instant shared by `system.version` and control-core hello. */
+  startedAt: number;
   /** Live-PTY count (sync) — the daemon's diagnostics samples it. */
   terminalCount: () => number;
   /** Rejects on an owned surface fault (inert today — no cell connectors). */
@@ -501,6 +507,7 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
     router,
     servedRouter: router,
     client: directLink<typeof ptyHostSurface.contract>(router),
+    startedAt: served.startedAt,
     terminalCount: served.terminalCount,
     done: served.done,
     close: served.close,

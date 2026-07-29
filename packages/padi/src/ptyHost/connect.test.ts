@@ -13,10 +13,17 @@ import { mkdtempSync } from "node:fs";
 import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "@kolu/surface-daemon";
+import {
+  controlCoreFragment,
+  controlCoreSurface,
+  type Logger,
+} from "@kolu/surface-daemon";
+import { implementSurfaces } from "@kolu/surface/server";
+import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
   type PtyHostSocketListener,
   createInProcessPtyHost,
+  serveKavalDaemonSurface,
   servePtyHostOverUnixSocket,
 } from "kaval";
 import { instanceKeyFromStartedAt } from "@kolu/surface-daemon-supervisor";
@@ -37,17 +44,80 @@ const silentLog = {
 
 /** Serve a kaval whose resolved lifetime is `boundToPid` (the CI/smoke policy),
  *  so a copy of the value can be distinguished from the production `forever`. */
-function serve(socketPath: string): Promise<PtyHostSocketListener> {
-  const { servedRouter } = createInProcessPtyHost({
+function makePtyHost() {
+  return createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-connect-rc-")),
     lifetime: { kind: "boundToPid", pid: 4242 },
   });
+}
+
+function serveLegacy(socketPath: string): Promise<PtyHostSocketListener> {
+  const { servedRouter } = makePtyHost();
   return servePtyHostOverUnixSocket({
     socketPath,
     router: servedRouter,
     log: silentLog,
   });
+}
+
+async function serveCurrent(
+  socketPath: string,
+): Promise<PtyHostSocketListener> {
+  const ptyHost = makePtyHost();
+  const runtime = serveKavalDaemonSurface({
+    ptyHost,
+    stateRoot: "/run/kaval-current",
+    commit: "fragment-commit",
+    buildId: "fragment-build",
+  });
+  const listener = await servePtyHostOverUnixSocket({
+    socketPath,
+    router: runtime.router,
+    log: silentLog,
+  });
+  return {
+    socketPath,
+    close: () => {
+      listener.close();
+      void runtime.close();
+    },
+  };
+}
+
+/** Serve ONLY the frozen fragment. A probe that regresses to system.version
+ * cannot pass this fixture because that route does not exist. */
+async function serveFrozenIdentity(
+  socketPath: string,
+): Promise<PtyHostSocketListener> {
+  const runtime = implementSurfaces(
+    { control: controlCoreSurface },
+    {},
+    {
+      control: controlCoreFragment({
+        stateRoot: "/run/kaval-probe",
+        surfaceVersion: "5.3",
+        startedAt: 777,
+        commit: "fragment-commit",
+        buildId: "fragment-build",
+        onDrain: () => {
+          throw new Error("not used by a not-drainable probe");
+        },
+      }),
+    },
+  );
+  const listener = await serveOverUnixSocket({
+    socketPath,
+    router: runtime.router as never,
+    log: silentLog,
+  });
+  return {
+    socketPath,
+    close: () => {
+      listener.close();
+      void runtime.close();
+    },
+  };
 }
 
 describe("connectKaval — mirrors the handshake lifetime onto the metadata", () => {
@@ -59,7 +129,7 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
       mkdtempSync(join(tmpdir(), "kolu-connect-sock-")),
       "pty-host.sock",
     );
-    listener = await serve(socketPath);
+    listener = await serveCurrent(socketPath);
   });
 
   afterAll(() => listener.close());
@@ -72,14 +142,40 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
       // stays green because the field is optional.
       expect(conn.metadata.lifetime).toEqual({ kind: "boundToPid", pid: 4242 });
       expect(conn.metadata.contractVersion).toBeTypeOf("string");
+      expect(conn.identity).toEqual({
+        staleKey: "fragment-build",
+        navigableCommit: "fragment-commit",
+      });
     } finally {
       conn.dispose();
     }
   });
 });
 
+describe("connectKaval — identity comes only from frozen hello", () => {
+  it("does not copy system.version identity when a surviving old daemon lacks the fragment", async () => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-connect-legacy-")),
+      "pty-host.sock",
+    );
+    const listener = await serveLegacy(socketPath);
+    try {
+      const conn = await connectKaval(socketPath);
+      try {
+        const legacyVersion = await conn.client.surface.system.version({});
+        expect(legacyVersion.identity).toBeDefined();
+        expect(conn.identity).toBeUndefined();
+      } finally {
+        conn.dispose();
+      }
+    } finally {
+      listener.close();
+    }
+  });
+});
+
 describe("connectKaval — the handshake read is bounded (F2)", () => {
-  it("rejects on the baked deadline when a peer accepts the socket but never answers system.version", async () => {
+  it("rejects on the baked deadline when a peer accepts the socket but never answers frozen hello", async () => {
     // A foreign squatter (or wedged daemon) accepts the unix connection but sends
     // no oRPC reply — without a deadline the read would pend forever and hang boot,
     // and the gate-less-squatter recovery would never reach its foreign refusal.
@@ -105,7 +201,9 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
       // Let the real dial complete and the deadline timer arm (setImmediate is not faked).
       for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
       await vi.advanceTimersByTimeAsync(10_000);
-      await expect(outcome).resolves.toMatch(/handshake read exceeded 10000ms/);
+      await expect(outcome).resolves.toMatch(
+        /control-core hello exceeded 10000ms deadline/,
+      );
     } finally {
       vi.useRealTimers();
       server.close();
@@ -114,11 +212,11 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
 });
 
 /**
- * W7.2 / W8.2: production-path pins for `probeKavalForConvergence`.
- * Catch-to-null, hard-coded pre-instance, ECONNREFUSED arm deletion, and
+ * Production-path pins for `probeKavalForConvergence`.
+ * Catch-to-null, a system.version regression, ECONNREFUSED arm deletion, and
  * no-op dispose must all stay mutation-red.
  */
-describe("probeKavalForConvergence — production path (W7.2 / W8.2)", () => {
+describe("probeKavalForConvergence — frozen production path", () => {
   it("ENOENT (missing path) ⇒ null (honest absence)", async () => {
     const missing = join(
       mkdtempSync(join(tmpdir(), "kolu-probe-absent-")),
@@ -147,7 +245,7 @@ describe("probeKavalForConvergence — production path (W7.2 / W8.2)", () => {
       "pty-host.sock",
     );
     const server = createServer(() => {
-      // accept, never answer system.version
+      // accept, never answer control.core.hello
     });
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
     vi.useFakeTimers({ toFake: ["setTimeout"] });
@@ -157,24 +255,24 @@ describe("probeKavalForConvergence — production path (W7.2 / W8.2)", () => {
         (e: unknown) => (e as Error).message,
       );
       for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
-      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(30_000);
       const result = await outcome;
       // Must reject with the deadline message — never resolve null.
       expect(result).not.toBe("null");
       expect(result).not.toBe("probe");
-      expect(result).toMatch(/handshake read exceeded 10000ms/);
+      expect(result).toMatch(/control-core hello timed out after 30000ms/);
     } finally {
       vi.useRealTimers();
       server.close();
     }
   });
 
-  it("real served kaval ⇒ startedAt key + dispose destroys the socket (observed)", async () => {
+  it("fragment-only server ⇒ frozen identity + startedAt key + observed dispose", async () => {
     const socketPath = join(
       mkdtempSync(join(tmpdir(), "kolu-probe-live-")),
       "pty-host.sock",
     );
-    const listener = await serve(socketPath);
+    const listener = await serveFrozenIdentity(socketPath);
     // Spy the production Socket.destroy boundary — a no-op dispose leaves this
     // call count unchanged and turns the test red (W8.2).
     const destroySpy = vi.spyOn(Socket.prototype, "destroy");
@@ -185,16 +283,12 @@ describe("probeKavalForConvergence — production path (W7.2 / W8.2)", () => {
         throw new Error("unreachable: probe null after expect");
       }
       expect(probe.capability).toBe("not-drainable");
-      expect(probe.identity.contractVersion).toBeTypeOf("string");
-      const conn = await connectKaval(socketPath);
-      try {
-        expect(probe.instanceKey).toEqual(
-          instanceKeyFromStartedAt(conn.startedAt),
-        );
-        expect(probe.instanceKey.kind).toBe("instance");
-      } finally {
-        conn.dispose();
-      }
+      expect(probe.identity).toEqual({
+        contractVersion: "5.3",
+        build: { kind: "known", id: "fragment-build" },
+      });
+      expect(probe.instanceKey).toEqual(instanceKeyFromStartedAt(777));
+      expect(probe.instanceKey.kind).toBe("instance");
       const destroysBefore = destroySpy.mock.calls.length;
       probe.dispose();
       // Observable transport close — not a vacuous "callable exists" check.

@@ -31,6 +31,7 @@ import {
 import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
 import { KAVAL_GATE_FILE } from "./socketPath.ts";
 import type { ptyHostSurface } from "./ptyHostSurface.ts";
+import type { kavalDaemonContract } from "./daemonSurface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SRC, "../../..");
@@ -231,6 +232,10 @@ function connect(socketPath: string): Promise<Conn> {
   return unixSocketLink<typeof ptyHostSurface.contract>({ socketPath });
 }
 
+function connectDaemon(socketPath: string) {
+  return unixSocketLink<typeof kavalDaemonContract>({ socketPath });
+}
+
 /** Poll-connect until the daemon answers a heartbeat, or fail loudly. */
 async function waitForSocket(socketPath: string, ms = 10000): Promise<void> {
   const deadline = Date.now() + ms;
@@ -342,6 +347,27 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       if (c.exitCode === null) c.kill("SIGKILL");
     }
   });
+
+  it("serves frozen identity beside the unchanged pty surface and refuses drain without exiting", async () => {
+    const d = track(await startDaemon());
+    const conn = await connectDaemon(d.socketPath);
+    try {
+      const version = await conn.client.surface.system.version({});
+      const hello = await conn.client.surface.control.core.hello();
+      expect(hello.surfaceVersion).toBe(version.contractVersion);
+      expect(hello.startedAt).toBe(version.startedAt);
+
+      await expect(
+        conn.client.surface.control.core.drain(),
+      ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+      await expect(conn.client.surface.control.core.hello()).resolves.toEqual(
+        hello,
+      );
+      expect(isAlive(d.child.pid ?? -1)).toBe(true);
+    } finally {
+      await conn.dispose();
+    }
+  }, 30000);
 
   it("single-instance gate: a second kaval yields (exit 0); a SIGKILL'd one leaves a stale gate the next reaps", async () => {
     const socketPath = socketIn();

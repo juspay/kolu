@@ -1,9 +1,9 @@
 /**
  * kolu's side of the daemon handshake — the `connect` the supervisor endpoint
- * is parameterized over. It dials kaval's unix socket, runs the
- * contract-version handshake BEFORE anything else (a skew becomes an honest
- * "restart it", never an opaque deep-RPC error or an import-time throw), and
- * hands back a `DaemonConnection` the endpoint holds.
+ * is parameterized over. It dials kaval's unix socket, reads the frozen identity
+ * first, then runs the versioned pty-host handshake (a skew becomes an honest
+ * "restart it", never an opaque deep-RPC error), and hands back a
+ * `DaemonConnection` the endpoint holds.
  *
  * It dials the socket *directly* (the supervisor's `dialSocket` + `stdioLink`)
  * rather than through `@kolu/surface`'s `unixSocketLink`, for one reason the
@@ -16,6 +16,7 @@
  * `unixSocketLink`.
  */
 
+import { ORPCError } from "@orpc/client";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import {
@@ -26,20 +27,24 @@ import {
   dialSocket,
   isNoListenerError,
   instanceKeyFromStartedAt,
+  probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
-import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
+import {
+  CONTROL_CORE_VERSION,
+  type DaemonLifetimeInfo,
+} from "@kolu/surface-daemon";
 import { withTimeout } from "../withTimeout.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostClient,
   type PtyHostIdentity,
-  type ptyHostSurface,
+  type kavalDaemonContract,
 } from "kaval";
 
 export { isNoListenerError };
 
-/** kaval reports `identity` as optional on the wire (a future daemon predating
- *  the field stays compatible), so the endpoint's identity type is nullable. */
+/** A live daemon from before the frozen fragment has no trusted identity, so the
+ * endpoint's identity type remains optional during this upgrade window. */
 export type KavalConnection = DaemonConnection<
   PtyHostClient,
   PtyHostIdentity | undefined,
@@ -56,24 +61,31 @@ export type KavalConnectionMetadata = {
   lifetime?: DaemonLifetimeInfo;
 };
 
-/** Dial kaval at `socketPath`, handshake, and return the live connection.
- *
- *  Three failure classes, distinguished for the supervisor's adopt path (F4):
- *  - a raw socket error (socket isn't up) → plain reject (non-skew, transient);
- *  - an unreadable `system.version` (handshake read failed) → plain `Error`
- *    (non-skew: the daemon is there but did not answer the probe this time);
- *  - a genuine contract-version mismatch → `DaemonContractSkewError`.
- *
- *  Only the LAST is a skew: it is the one failure that proves the daemon is
- *  incompatible, so it is the only one on which `adoptOrEnsure` recycles a live
- *  survivor. The first two are possibly-transient and must not cost a survivor
- *  its live PTYs, so they stay plain errors the endpoint retries. (`ensure`'s
- *  fresh-boot path turns any of the three into `dead` regardless.) */
-/** Deadline for the `system.version` handshake READ — the socket is already
- *  connected, so a healthy kaval answers in milliseconds; a peer that accepts but
- *  never replies (a foreign squatter, a wedged daemon) must reject here rather than
- *  hang boot. Generous enough that a loaded-box kaval never trips it. */
+/** Deadline for each handshake read. The socket is already connected, so a
+ * healthy kaval answers in milliseconds; a foreign or wedged peer must reject
+ * rather than hang boot. */
 const HANDSHAKE_READ_DEADLINE_MS = 10_000;
+
+function isMissingFrozenFragment(err: unknown): boolean {
+  return (
+    err instanceof ORPCError &&
+    err.code === "NOT_FOUND" &&
+    err.status === 404 &&
+    err.defined === false
+  );
+}
+
+/** Read the frozen hello on the same bounded handshake clock. A current kaval
+ * must answer; the caller alone interprets the structured old-route absence. */
+function readControlHelloBounded(
+  client: ReturnType<typeof stdioLink<typeof kavalDaemonContract>>,
+) {
+  return withTimeout(
+    client.surface.control.core.hello(),
+    HANDSHAKE_READ_DEADLINE_MS,
+    `control-core hello exceeded ${HANDSHAKE_READ_DEADLINE_MS}ms deadline`,
+  );
+}
 
 /** Read `system.version` off `client`, bounded by {@link HANDSHAKE_READ_DEADLINE_MS}:
  *  a peer that accepts the unix connection but never answers oRPC (a foreign squatter,
@@ -81,8 +93,7 @@ const HANDSHAKE_READ_DEADLINE_MS = 10_000;
  *  deadline is a BAKED constant, never an override knob (fail-fast). `Promise.race`
  *  attaches a handler to the version promise, so a late rejection after the caller's
  *  `socket.destroy()` is not unhandled. Throws on the deadline; the CALLER destroys
- *  the socket (both `connectKaval` and the convergence probe already do, in their own
- *  catch, so error handling stays where each wants it). */
+ *  the socket (the caller owns that error boundary). */
 function readSystemVersionBounded(
   client: PtyHostClient,
 ): Promise<Awaited<ReturnType<PtyHostClient["surface"]["system"]["version"]>>> {
@@ -97,10 +108,34 @@ export async function connectKaval(
   socketPath: string,
 ): Promise<KavalConnection> {
   const socket = await dialSocket(socketPath);
-  const client = stdioLink<typeof ptyHostSurface.contract>({
+  const client = stdioLink<typeof kavalDaemonContract>({
     read: socket,
     write: socket,
-  }) as PtyHostClient;
+  });
+
+  let hello: Awaited<ReturnType<typeof readControlHelloBounded>> | undefined;
+  try {
+    hello = await readControlHelloBounded(client);
+  } catch (err) {
+    if (!isMissingFrozenFragment(err)) {
+      socket.destroy();
+      throw new Error(
+        `pty-host handshake failed — could not read control.core.hello (${(err as Error).message})`,
+      );
+    }
+    // A live old kaval has no frozen route. Keep the versioned handshake for
+    // connectivity/metadata, but never read build identity from it: absence is
+    // the identity fact and the UI's #1671 fold turns that into the update nudge.
+  }
+  if (
+    hello !== undefined &&
+    hello.controlCoreVersion !== CONTROL_CORE_VERSION
+  ) {
+    socket.destroy();
+    throw new Error(
+      `pty-host handshake failed — unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
+    );
+  }
 
   let version: Awaited<
     ReturnType<PtyHostClient["surface"]["system"]["version"]>
@@ -113,9 +148,17 @@ export async function connectKaval(
       `pty-host handshake failed — could not read system.version (${(err as Error).message})`,
     );
   }
+  const reportedContractVersion =
+    hello?.surfaceVersion ?? version.contractVersion;
+  if (hello !== undefined && hello.surfaceVersion !== version.contractVersion) {
+    socket.destroy();
+    throw new Error(
+      `pty-host handshake failed — control-core reports surface ${hello.surfaceVersion} but system.version reports ${version.contractVersion}`,
+    );
+  }
   if (
     !isContractVersionCompatible(
-      version.contractVersion,
+      reportedContractVersion,
       PTY_HOST_CONTRACT_VERSION,
     )
   ) {
@@ -128,7 +171,7 @@ export async function connectKaval(
     // structurally, never re-parsing the message prose.
     throw new DaemonContractSkewError({
       subject: "pty-host",
-      daemonVersion: version.contractVersion,
+      daemonVersion: reportedContractVersion,
       requiredVersion: PTY_HOST_CONTRACT_VERSION,
       // The skewed daemon's OWN pid, so the gate-less-squatter recovery of an OLD
       // orphan (the 25494 case, which throws HERE before a connection exists) has
@@ -142,11 +185,17 @@ export async function connectKaval(
     closed = true;
   });
   return {
-    client,
-    identity: version.identity,
-    startedAt: version.startedAt,
+    client: client as PtyHostClient,
+    identity:
+      hello === undefined
+        ? undefined
+        : {
+            staleKey: hello.buildId ?? "",
+            navigableCommit: hello.commit ?? "",
+          },
+    startedAt: hello?.startedAt ?? version.startedAt,
     metadata: {
-      contractVersion: version.contractVersion,
+      contractVersion: reportedContractVersion,
       lifetime: version.lifetime,
     },
     dispose: () => socket.destroy(),
@@ -158,68 +207,38 @@ export async function connectKaval(
 }
 
 /**
- * The convergence PROBE for kaval — reads the running kaval's identity over
- * `system.version` and returns it to the shared convergence kit (`converge`), which
- * DECIDES the policy (kaval: recycle-on-skew + nudge-human). Distinct from
- * {@link connectKaval} in two load-bearing ways:
- *   - it does NOT judge — it reads `{ contractVersion, identity.staleKey }` and returns
- *     them WITHOUT the compatibility check (Pin 3: identity is read before, and
- *     independent of, the versioned handshake, so a contract skew still yields the
- *     running identity for `decide` to route to `recycle`); the endpoint's own
- *     `connectKaval` still raises `DaemonContractSkewError` at the recycle ENACTMENT.
- *   - it is NON-DRAINABLE (`capability: "not-drainable"`) — kaval has no `drain` verb
- *     (recycling it kills PTYs, so its build-mismatch policy is a human nudge, never an
- *     auto-drain), which the kit enforces at the type level (Pin 1).
+ * The convergence PROBE for kaval — reads identity only through the frozen
+ * control-core fragment, before the versioned pty-host handshake. The shared
+ * factory owns dial, timeout, transport disposal, and honest no-listener null.
  *
- * Returns `null` if no kaval answers (a fresh boot / mid-teardown) — the kit then spawns.
- * `buildId` folds an absent/off-nix `staleKey` to `""` (an honest "unknown", never a
- * fabricated match), exactly as the client-side currency nudge reads it.
+ * A served daemon that returns the structured missing-route frame predates the
+ * fragment. By the #1671 rule, absent means older: represent it as a compatible
+ * contract with an unknown build and a named pre-instance key. The existing
+ * not-drainable policy therefore chooses `nudge-human` (never silent adopt,
+ * never destructive recycle). Every other handshake failure still throws.
  */
-/**
- * True when the dial failure means "nothing listening" (honest null probe).
- * Exported so the W8.2 pin can assert both ECONNREFUSED and ENOENT arms —
- * deleting either from this classifier must turn that pin red.
- */
-/**
- * Returns `null` only for honest no-listener (ECONNREFUSED / ENOENT). Any other
- * dial or handshake failure **throws** — never collapses into "no daemon".
- * Instance key is derived from `version.startedAt` (never hard-coded pre-instance
- * when the handshake carries a startedAt).
- */
+const probeFrozenKavalIdentity = probeDaemonIdentity({
+  capability: "not-drainable",
+});
+
 export async function probeKavalForConvergence(
   socketPath: string,
 ): Promise<ConvergenceProbe<"not-drainable"> | null> {
-  let socket: Awaited<ReturnType<typeof dialSocket>>;
   try {
-    socket = await dialSocket(socketPath);
+    return await probeFrozenKavalIdentity(socketPath);
   } catch (err) {
-    if (isNoListenerError(err)) return null;
+    if (isMissingFrozenFragment(err)) {
+      return {
+        capability: "not-drainable",
+        identity: {
+          contractVersion: PTY_HOST_CONTRACT_VERSION,
+          build: daemonBuild(""),
+        },
+        instanceKey: instanceKeyFromStartedAt(undefined),
+        // The framework factory already disposed the failed route connection.
+        dispose: () => {},
+      };
+    }
     throw err;
   }
-  const client = stdioLink<typeof ptyHostSurface.contract>({
-    read: socket,
-    write: socket,
-  }) as PtyHostClient;
-  let version: Awaited<
-    ReturnType<PtyHostClient["surface"]["system"]["version"]>
-  >;
-  try {
-    // Bounded like `connectKaval` (F2): converge probes BEFORE the recovery runs, so
-    // a silent-accept holder here would hang boot before `adoptOrEnsure` could reach
-    // the recovery's foreign refusal. Other failures stay failures (not null).
-    version = await readSystemVersionBounded(client);
-  } catch (err) {
-    socket.destroy();
-    throw err;
-  }
-  return {
-    capability: "not-drainable",
-    identity: {
-      contractVersion: version.contractVersion,
-      build: daemonBuild(version.identity?.staleKey ?? ""),
-    },
-    // kaval does not drain; instance key still required — from the handshake.
-    instanceKey: instanceKeyFromStartedAt(version.startedAt),
-    dispose: () => socket.destroy(),
-  };
 }
