@@ -77,7 +77,11 @@ describe("resolveCreateTerminalTheme", () => {
   });
 
   it("shuffle with dark mode stays in the dark family", () => {
-    const picked = resolveCreateTerminalTheme({
+    // `_picked` — Biome flags the unused binding because we assert on the
+    // SECOND call below; the first call's return value is intentionally
+    // discarded (we only test that dark-mode shuffle stays in the dark
+    // family when a light peer is supplied).
+    const _picked = resolveCreateTerminalTheme({
       policy: shuffleDarkPolicy,
       peerThemeNames: [],
       rand: () => 0,
