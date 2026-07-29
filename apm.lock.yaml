@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-28T15:43:47.131940+00:00'
+generated_at: '2026-07-28T23:55:35.523800+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -27,6 +27,8 @@ dependencies:
   - .agents/skills/coordinator/SKILL.md
   - .agents/skills/diataxis
   - .agents/skills/diataxis/SKILL.md
+  - .agents/skills/hostility-review
+  - .agents/skills/hostility-review/SKILL.md
   - .agents/skills/kolu
   - .agents/skills/kolu/SKILL.md
   - .agents/skills/kolu/TUI.md
@@ -57,6 +59,8 @@ dependencies:
   - .claude/skills/coordinator/SKILL.md
   - .claude/skills/diataxis
   - .claude/skills/diataxis/SKILL.md
+  - .claude/skills/hostility-review
+  - .claude/skills/hostility-review/SKILL.md
   - .claude/skills/kolu
   - .claude/skills/kolu/SKILL.md
   - .claude/skills/kolu/TUI.md
@@ -81,6 +85,7 @@ dependencies:
     .agents/skills/bridge/dashboard/red-alert.mp3: sha256:61a535db70bb68738df7929c29b11a3bcb11ca23bf5eb7793a0b84f3e699e0fb
     .agents/skills/coordinator/SKILL.md: sha256:abac6960f10c8ce2603f94e9101cbbd3e876f073c13e6b3741698d98eaff39c7
     .agents/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
+    .agents/skills/hostility-review/SKILL.md: sha256:7085957afe45b78b1c4262b6e5e47a462686959d93eb3ff190bcd08c0b2647f4
     .agents/skills/kolu/SKILL.md: sha256:4688c89300aca3571358285502c0dbb8612656020baee760c86f34ff6b979291
     .agents/skills/kolu/TUI.md: sha256:e7a206b1f1d2738bdaf2e2af3bdfdb785da94872df03d45e7ac47ae92361244c
     .agents/skills/lens-debate/RATIONALE.md: sha256:5d27af06f554fb81fc344450f2d5031a097287c3282f19945eec2b55712a656a
@@ -100,6 +105,7 @@ dependencies:
     .claude/skills/bridge/dashboard/red-alert.mp3: sha256:61a535db70bb68738df7929c29b11a3bcb11ca23bf5eb7793a0b84f3e699e0fb
     .claude/skills/coordinator/SKILL.md: sha256:abac6960f10c8ce2603f94e9101cbbd3e876f073c13e6b3741698d98eaff39c7
     .claude/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
+    .claude/skills/hostility-review/SKILL.md: sha256:7085957afe45b78b1c4262b6e5e47a462686959d93eb3ff190bcd08c0b2647f4
     .claude/skills/kolu/SKILL.md: sha256:4688c89300aca3571358285502c0dbb8612656020baee760c86f34ff6b979291
     .claude/skills/kolu/TUI.md: sha256:e7a206b1f1d2738bdaf2e2af3bdfdb785da94872df03d45e7ac47ae92361244c
     .claude/skills/lens-debate/RATIONALE.md: sha256:5d27af06f554fb81fc344450f2d5031a097287c3282f19945eec2b55712a656a
@@ -1318,6 +1324,24 @@ deployments:
   content_hash: sha256:c7da3fda455cc17adc5788984954baf95a354f2e83367bff0efd1b01f45a96a3
 - kind: project-relative
   target: claude
+  value: .claude/skills/hostility-review
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/hostility-review/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: sha256:7085957afe45b78b1c4262b6e5e47a462686959d93eb3ff190bcd08c0b2647f4
+- kind: project-relative
+  target: claude
   value: .claude/skills/kolu
   runtime: null
   scope: project
@@ -2117,6 +2141,24 @@ deployments:
   - srid/agency
   active_owner: srid/agency
   content_hash: sha256:c7da3fda455cc17adc5788984954baf95a354f2e83367bff0efd1b01f45a96a3
+- kind: project-relative
+  target: codex
+  value: .agents/skills/hostility-review
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/hostility-review/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: sha256:7085957afe45b78b1c4262b6e5e47a462686959d93eb3ff190bcd08c0b2647f4
 - kind: project-relative
   target: codex
   value: .agents/skills/kolu
