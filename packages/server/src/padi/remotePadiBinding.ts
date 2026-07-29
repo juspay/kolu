@@ -36,7 +36,6 @@ import {
 import {
   convergeAdmit,
   createConnectorDrainBudget,
-  daemonBuild,
   probeDaemonIdentityFrom,
 } from "@kolu/surface-daemon-supervisor";
 import {
@@ -65,7 +64,7 @@ import { log } from "../log.ts";
 import {
   drainAndAwaitExit,
   drainRejectionSuffix,
-  padiConvergencePolicy,
+  padiConvergencePolicyForBinding,
 } from "./padiConvergence.ts";
 import {
   asPadiSession,
@@ -322,24 +321,14 @@ export function ensureRemotePadiBinding(
   const drainCeilingMs =
     deps.drainTeardownCeilingMs ?? REMOTE_DRAIN_TEARDOWN_CEILING_MS;
 
-  // ONE policy object for both arms; budget memory is per-supervisor-boot and
-  // SURVIVES adopts (no reset-on-adopt — that wiped the cross-supervisor signal).
-  // Connector budget (F7) — ConnectorPolicy only; recycle/nudge-human unspellable.
-  const policy = {
-    capability: "drainable" as const,
-    onContractSkew: { kind: "drain-newer-else-refuse" as const },
-    onBuildMismatch: { kind: "drain-and-replace" as const },
-    // Tests may tighten the budget; production uses the policy's own maxAttempts.
-    drainBudget: {
-      maxAttempts: maxDrains,
-      onGiveUp: "adopt-stale" as const,
-    },
-    // Allow a test to pin a different contract version than PADI_SURFACE_VERSION.
-    baked: {
-      contractVersion: binderVersion,
-      build: daemonBuild(binderBuildId),
-    },
-  };
+  // ONE policy factory for both arms; the values here come from this binding's
+  // test dependency seam. Production supplies the same baked constants as the
+  // local arm. Budget memory is per-supervisor-boot and SURVIVES adopts.
+  const policy = padiConvergencePolicyForBinding({
+    contractVersion: binderVersion,
+    binderBuildId,
+    maxBuildDrainsPerInstance: maxDrains,
+  });
   const budget = createConnectorDrainBudget(policy);
 
   // ── Arm-local convergence state (closures, not class fields) ────────────────
@@ -347,11 +336,15 @@ export function ensureRemotePadiBinding(
   // unconverged / cross-supervisor / link-failed), or null when healthy/bound.
   // Framework anomalies ride here AS-IS; `link-failed` is session-owned (set by onState).
   let convergence: PadiConvergence | null = null;
-  // The COMBINED dialed client (control.core + padi), stashed by the connector so the
-  // post-connect `admit` + `renew` can reach `control.core.hello`/`.drain`. The
-  // SESSION's client is the padi-SCOPED view; both are one connection.
-  let combined: PadiDaemonClient | null = null;
-  let combinedDispose: (() => void) | null = null;
+  // The COMBINED dialed connection (control.core + padi), stashed atomically so
+  // admit/renew cannot mix a client, disposer, and process-exit oracle from
+  // different connection generations. The SESSION sees only the padi-scoped view.
+  type ActiveCombined = {
+    client: PadiDaemonClient;
+    dispose: () => void;
+    processExit: Promise<void>;
+  };
+  let activeCombined: ActiveCombined | null = null;
   // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null`.
   // Separate axis from convergence (drv resolution fails before admit runs).
   let drvFaultCause: DrvFaultCause | null = null;
@@ -427,25 +420,29 @@ export function ensureRemotePadiBinding(
   // link or bootstrap loss — never process exit; leave the wait hanging until
   // the ceiling yields drain-not-taken (ssh link loss is deliberately
   // transport-failed on the session ClosedInfo).
-  let processExit: Promise<void> | null = null;
-
   const rawConnector: Connector<PadiSurfaceClient, SshProv> = async (ctx) => {
     const conn = await inner(ctx);
-    combined = conn.client;
-    combinedDispose = conn.teardown;
-    processExit = conn.closed.then((info) => {
+    const processExit = conn.closed.then((info) => {
       if (info.kind !== "exit") {
         // Keep the oracle unsettled so awaitExit only resolves on ceiling abort.
         return new Promise<void>(() => {});
       }
     });
+    activeCombined = {
+      client: conn.client,
+      dispose: conn.teardown,
+      processExit,
+    };
     return { ...conn, client: scopePadiSurface(conn.client) };
   };
 
   // ── Drain plumbing: process oracle, not hello-poll (F3) ────────────────────
   /** awaitExit resolves only from ClosedInfo.kind === "exit".
    *  transport-failed / link-down + ceiling → drain-not-taken, never replaced. */
-  function awaitExitViaProcessOracle(signal: AbortSignal): Promise<void> {
+  function awaitExitViaProcessOracle(
+    processExit: Promise<void>,
+    signal: AbortSignal,
+  ): Promise<void> {
     return new Promise<void>((resolve) => {
       if (signal.aborted) {
         resolve();
@@ -462,10 +459,6 @@ export function ensureRemotePadiBinding(
         done = true;
         signal.removeEventListener("abort", onAbort);
       };
-      if (processExit === null) {
-        // No oracle (not bound) — wait for ceiling abort only.
-        return;
-      }
       void processExit.then(() => {
         cleanup();
         resolve();
@@ -474,12 +467,13 @@ export function ensureRemotePadiBinding(
   }
 
   /** Fire the control-core drain + await process exit (not hello rejection). */
-  function drainAndAwaitClose(
-    c: PadiDaemonClient,
-  ): Promise<{ took: boolean; drainRejection: string | null }> {
+  function drainAndAwaitClose(active: ActiveCombined): Promise<{
+    took: boolean;
+    drainRejection: string | null;
+  }> {
     return drainAndAwaitExit(
-      () => c.surface.control.core.drain(),
-      awaitExitViaProcessOracle,
+      () => active.client.surface.control.core.drain(),
+      (signal) => awaitExitViaProcessOracle(active.processExit, signal),
       { ceilingMs: drainCeilingMs },
     );
   }
@@ -488,20 +482,17 @@ export function ensureRemotePadiBinding(
   // No raw decide(), no admitDrain, no convergeNewerContract / convergeBuildMismatch —
   // the framework owns the decision table, budget, race, and cross-supervisor memory.
   const admit: Admit<PadiSurfaceClient> = async (): Promise<AdmitVerdict> => {
-    const c = combined;
-    if (c === null) {
+    const active = activeCombined;
+    if (active === null) {
       // The connector always stashes before admit runs; a null here is a real bug.
-      throw new Error("remote padi admit: no combined client stashed");
-    }
-    const dispose = combinedDispose;
-    if (dispose === null) {
-      throw new Error("remote padi admit: no transport disposer stashed");
+      throw new Error("remote padi admit: no combined connection stashed");
     }
     const probe = await probeDaemonIdentityFrom({
-      client: c,
-      dispose,
+      client: active.client,
+      dispose: active.dispose,
       capability: "drainable",
-      awaitExit: awaitExitViaProcessOracle,
+      awaitExit: (signal) =>
+        awaitExitViaProcessOracle(active.processExit, signal),
       drainCeilingMs,
     });
     const runningBuild =
@@ -599,16 +590,14 @@ export function ensureRemotePadiBinding(
         kind: "link-failed",
         detail: s.error,
       };
-      combined = null;
-      combinedDispose = null;
+      activeCombined = null;
     } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the
       // next handshake); only a previously-healthy bind clears to null.
       if (convergence === null || convergence.kind === "link-failed") {
         convergence = null;
       }
-      combined = null;
-      combinedDispose = null;
+      activeCombined = null;
     }
   });
 
@@ -621,13 +610,13 @@ export function ensureRemotePadiBinding(
      *  reply, and THROW if it does not exit in the window — never report a success that
      *  did not happen. */
     renew: async () => {
-      const c = combined;
-      if (c === null) {
+      const active = activeCombined;
+      if (active === null) {
         throw new Error(
           "remote padi is not bound — cannot drain (the daemon is unreachable)",
         );
       }
-      const { took, drainRejection } = await drainAndAwaitClose(c);
+      const { took, drainRejection } = await drainAndAwaitClose(active);
       if (!took) {
         throw new Error(
           `remote padi drain did not complete — it did not exit within ${drainCeilingMs}ms (padi did not exit)` +

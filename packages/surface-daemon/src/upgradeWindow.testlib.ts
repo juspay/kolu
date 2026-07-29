@@ -163,8 +163,7 @@ export function createSharedArtifactWatchdog(
 export type GateShape =
   | { kind: "current" }
   | { kind: "foreign"; content: string }
-  | { kind: "absent" }
-  | { kind: "bytes"; content: string };
+  | { kind: "absent" };
 
 export interface YesterdayStatePlant {
   stateRoot: string;
@@ -248,7 +247,6 @@ export async function plantYesterdayDaemon(
       writeFileSync(gatePath, `${pid}\n`, { mode: 0o600 });
       break;
     case "foreign":
-    case "bytes":
       writeFileSync(gatePath, gate.content, { mode: 0o600 });
       break;
     case "absent":

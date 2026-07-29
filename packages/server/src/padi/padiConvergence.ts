@@ -36,6 +36,33 @@ export { drainAndAwaitExit };
  *  rejects, before treating the rejection as a real failure. */
 export const PADI_DRAIN_TEARDOWN_CEILING_MS = 2000;
 
+type PadiConvergencePolicyInputs = {
+  contractVersion: string;
+  binderBuildId: string;
+  maxBuildDrainsPerInstance: number;
+};
+
+/** Internal policy factory shared by the local and remote binding arms. The
+ * remote arm supplies values from its test dependency seam; production still
+ * reaches this only with baked constants. */
+export function padiConvergencePolicyForBinding(
+  inputs: PadiConvergencePolicyInputs,
+) {
+  return {
+    capability: "drainable",
+    baked: {
+      contractVersion: inputs.contractVersion,
+      build: daemonBuild(inputs.binderBuildId),
+    },
+    onContractSkew: { kind: "drain-newer-else-refuse" },
+    onBuildMismatch: { kind: "drain-and-replace" },
+    drainBudget: {
+      maxAttempts: inputs.maxBuildDrainsPerInstance,
+      onGiveUp: "adopt-stale",
+    },
+  } as const satisfies ConvergencePolicy<"drainable">;
+}
+
 /**
  * padi's full convergence policy for a given binder build id. Drainable; budget
  * survives adopts; `onGiveUp: "adopt-stale"` so a flapping link rides the resident
@@ -45,19 +72,14 @@ export const PADI_DRAIN_TEARDOWN_CEILING_MS = 2000;
 export function padiConvergencePolicy(
   binderBuildId: string,
 ): ConvergencePolicy<"drainable"> {
-  return {
-    capability: "drainable",
-    baked: {
-      contractVersion: PADI_SURFACE_VERSION,
-      build: daemonBuild(binderBuildId),
-    },
-    onContractSkew: { kind: "drain-newer-else-refuse" },
-    onBuildMismatch: { kind: "drain-and-replace" },
+  return padiConvergencePolicyForBinding({
+    contractVersion: PADI_SURFACE_VERSION,
+    binderBuildId,
     // Shared by local + ssh arms. Local used to be a once-per-boot boolean (≡ 1);
     // remote used 3. Unified at 3 so a same-instance flap still terminates, and the
     // budget's cross-supervisor memory survives adopts on both arms.
-    drainBudget: { maxAttempts: 3, onGiveUp: "adopt-stale" },
-  };
+    maxBuildDrainsPerInstance: 3,
+  });
 }
 
 /** The minimal connection shape the drain plumbing needs. */
