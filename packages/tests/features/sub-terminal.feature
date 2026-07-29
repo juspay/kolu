@@ -92,7 +92,7 @@ Feature: Sub-terminals
     And I click the main terminal
     Then the main terminal should have keyboard focus
     When I create a terminal
-    And I select workspace switcher entry 1
+    And I press the switch to terminal 1 shortcut
     Then the main terminal should have keyboard focus
     And there should be no page errors
 
@@ -100,7 +100,7 @@ Feature: Sub-terminals
     When I create a sub-terminal via command palette
     Then the sub-terminal should have keyboard focus
     When I create a terminal
-    And I select workspace switcher entry 1
+    And I press the switch to terminal 1 shortcut
     Then the sub-terminal should have keyboard focus
     And there should be no page errors
 
