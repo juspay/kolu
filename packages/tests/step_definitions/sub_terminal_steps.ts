@@ -350,15 +350,20 @@ Then(
 Then(
   "the dock split sub-entry should have no agent attention chrome",
   async function (this: KoluWorld) {
+    // OWNER SUPERSESSION 2026-07-30: FX2 said agentless splits render
+    // "label + landing only — no state pip". Sub-entries now match top-level
+    // rows (identity pip + activity motion; unread can wash). A shell still
+    // cannot ask — assert identity pip present and no asking attribute.
     const row = this.page.locator('[data-testid="dock-sub-row"]').first();
     assert.strictEqual(await row.getAttribute("data-agent-state"), null);
     assert.strictEqual(await row.getAttribute("data-asking"), null);
-    assert.strictEqual(await row.getAttribute("data-unread"), null);
+    const pip = row.locator('[data-testid="state-pip"]');
     assert.strictEqual(
-      await row.locator('[data-testid="state-pip"]').count(),
-      0,
-      "Expected an agentless split to render no state pip",
+      await pip.count(),
+      1,
+      "Expected an agentless split to render the shell identity StatePip",
     );
+    assert.strictEqual(await pip.getAttribute("data-glyph"), "shell");
   },
 );
 

@@ -27,6 +27,7 @@ function shellSubRow(id: string): Extract<SubRow, { kind: "shell" }> {
     id: id as TerminalId,
     kind: "shell",
     bucket: "idle",
+    pip: "idle",
     ts: 1,
   };
 }

@@ -61,12 +61,13 @@ function shellMeta(): TerminalMetadata {
   };
 }
 
-/** Ranked shell sub-row as master types it (no pip fact — the DRY gap). */
+/** Ranked shell sub-row — pip fact from the ranking fold (same as top-level). */
 function shellRankedRow() {
   return {
     id: SPLIT,
     kind: "shell" as const,
     bucket: "idle" as const,
+    pip: "idle" as const,
     ts: 1,
   };
 }
@@ -109,8 +110,10 @@ describe("SubTerminalRow — shell split consumes the shared StatePip fold", () 
       const row = host.querySelector('[data-testid="dock-sub-row"]');
       expect(row).not.toBeNull();
       const pip = row?.querySelector('[data-testid="state-pip"]');
-      expect(pip, "shell sub-entry must render StatePip like a top-level row").not
-        .toBeNull();
+      expect(
+        pip,
+        "shell sub-entry must render StatePip like a top-level row",
+      ).not.toBeNull();
       expect(pip?.getAttribute("data-glyph")).toBe("shell");
       expect(pip?.getAttribute("data-pip")).toBe("idle");
       // Shell cannot ask — no attention wash attribute.

@@ -808,8 +808,8 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
 );
 
 /** Split entry in the collapsed rail. It shares the parent's repo tint but has
- * no numeric shortcut. Shells render only an identity glyph and landing target;
- * agent splits additionally consume the ranked entry's pip/motion/unread facts. */
+ * no numeric shortcut. Same StatePip fold as cards-mode SubTerminalRow / top-
+ * level DockRow — identity, paint, motion, unread — no per-kind re-gate. */
 const RailSubChip: Component<{
   row: Extract<DockGroup["railEntries"][number], { kind: "split" }>["row"];
   repoColor: string;
@@ -823,37 +823,28 @@ const RailSubChip: Component<{
       {(m) => {
         const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
         const glyph = () => intentLeadGlyph(label());
-        const agentRow = match(props.row)
-          .with({ kind: "agent" }, (row) => row)
-          .with({ kind: "shell" }, () => null)
-          .exhaustive();
-        const agent = () => (agentRow ? activeArm(m())?.agent : undefined);
-        const pip = agentRow
-          ? useStatePip(
-              encActiveHost,
-              () => props.row.id,
-              m,
-              unread,
-              () => agentRow.pip,
-            )
-          : null;
+        const agent = () => activeArm(m())?.agent;
+        const pip = useStatePip(
+          encActiveHost,
+          () => props.row.id,
+          m,
+          unread,
+          () => props.row.pip,
+        );
         return (
           <button
             type="button"
             data-testid="dock-rail-sub"
             data-terminal-id={props.row.id}
-            data-bucket={agentRow?.pip}
-            data-motion={pip?.().motion ?? "none"}
+            data-bucket={props.row.pip}
+            data-motion={pip().motion}
             data-agent-state={agent()?.state}
             data-active={
               store.focusedTerminalId() === props.row.id ? "" : undefined
             }
-            data-unread={agentRow && unread() ? "" : undefined}
+            data-unread={unread() ? "" : undefined}
             onClick={() => focus(props.row.id)}
             class="dock-rail-chip w-[26px]! h-[26px]! rounded-[7px]! -mt-px"
-            classList={{
-              "bg-transparent! border-transparent! opacity-70": !agentRow,
-            }}
             style={{ "--repo-color": props.repoColor }}
             title={`Split · ${label()}`}
             aria-label={`Jump to split ${label()}`}
@@ -864,12 +855,12 @@ const RailSubChip: Component<{
                 {(value) => <span class="dock-rail-chip-sub">{value()}</span>}
               </Show>
             </span>
-            <Show when={pip?.().bytesLive}>
+            <Show when={pip().bytesLive}>
               <span class="pointer-events-none absolute -bottom-1 -right-1">
                 <LiveActivityDot />
               </span>
             </Show>
-            <Show when={pip && pip().motion !== "none"}>
+            <Show when={pip().motion !== "none"}>
               <div class="dock-rail-chip-glow" aria-hidden="true" />
             </Show>
           </button>

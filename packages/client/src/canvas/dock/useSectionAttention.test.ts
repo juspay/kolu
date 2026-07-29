@@ -14,7 +14,7 @@ const parent: RankedDockRow = {
   pip: "idle",
   ts: 1,
   subRows: [
-    { id: shellId, kind: "shell", bucket: "idle", ts: 1 },
+    { id: shellId, kind: "shell", bucket: "idle", pip: "idle", ts: 1 },
     {
       id: agentId,
       kind: "agent",
@@ -34,7 +34,9 @@ const group: DockGroup = {
 };
 
 describe("sectionAttentionIds", () => {
-  it("includes agent splits and excludes deliberately chromeless shells", () => {
+  it("includes agent splits and excludes shells (section counts only agents)", () => {
+    // Shells render a StatePip on their row; they still do not join the
+    // section attention fold because a shell cannot ask.
     expect(sectionAttentionIds(group)).toEqual([parentId, agentId]);
   });
 });
