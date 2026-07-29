@@ -48,6 +48,7 @@ export {
   isNoListenerError,
   probeDaemonIdentity,
   probeDaemonIdentityFrom,
+  readControlCoreHello,
   type ProbeDaemonIdentityFromOptions,
 } from "./probeDaemonIdentity.ts";
 export {

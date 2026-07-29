@@ -230,8 +230,9 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
     // no oRPC reply — without a deadline the read would pend forever and hang boot,
     // and the gate-less-squatter recovery would never reach its foreign refusal.
     // `connectKaval` carries NO deadline override (fail-fast: no knobs), so this
-    // drives the single baked 10s policy under FAKE timers — production and this test
-    // run the same parameterless implementation, just with the clock advanced.
+    // drives the supervisor's single baked policy under FAKE timers — production
+    // and this test run the same parameterless implementation, just with the clock
+    // advanced.
     const socketPath = join(
       mkdtempSync(join(tmpdir(), "kolu-silent-")),
       "pty-host.sock",
@@ -250,9 +251,9 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
       );
       // Let the real dial complete and the deadline timer arm (setImmediate is not faked).
       for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
-      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(30_000);
       await expect(outcome).resolves.toMatch(
-        /control-core hello exceeded 10000ms deadline/,
+        /control-core hello timed out after 30000ms/,
       );
     } finally {
       vi.useRealTimers();

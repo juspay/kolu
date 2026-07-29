@@ -18,6 +18,7 @@ import {
   acquirePidGate,
   confirmHeldGate,
   type DaemonExit,
+  type DaemonBuildIdentity,
   type DaemonLifetimeInfo,
   daemonLifetimeFromEnv,
   daemonMain,
@@ -25,11 +26,6 @@ import {
   lifetimeInfo,
   type Logger,
 } from "@kolu/surface-daemon";
-
-/** padi's boot time (ms epoch), stamped ONCE when this module first loads — i.e.
- *  at process start. The control-core `hello` echoes it so the binder measures
- *  honest uptime instead of resetting the age on every reconnect. */
-const PADI_STARTED_AT = Date.now();
 
 import { buildCommit } from "@kolu/surface/identity";
 import {
@@ -39,7 +35,7 @@ import {
 import type { Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
 import { initAutosaveGate } from "../session/autosaveGate.ts";
-import { currentPadiBuildId, currentPadiCommitHash } from "./buildId.ts";
+import { currentPadiBuildIdentity } from "./buildId.ts";
 import {
   setPadiActivityFeedStore,
   setPadiLastPairedDaemonStore,
@@ -91,6 +87,19 @@ import {
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
+
+/** Padi's immutable process boot facts, captured together exactly once. Every
+ * serving projection receives this same whole value, so repeated ambient env
+ * reads cannot describe different builds within one process. */
+interface PadiBoot {
+  readonly startedAt: number;
+  readonly identity: Readonly<DaemonBuildIdentity>;
+}
+
+const PADI_BOOT: PadiBoot = Object.freeze({
+  startedAt: Date.now(),
+  identity: Object.freeze(currentPadiBuildIdentity()),
+});
 
 export interface PadiDaemonOptions {
   /** The state-root to anchor to — padi's identity. Resolved via
@@ -216,6 +225,7 @@ function configureDaemonIdentity(
   stores: StoresReady,
   opts: PadiDaemonOptions,
   socketPath: string,
+  boot: PadiBoot,
 ): IdentityReady {
   // padi's OWN pid (a standalone daemon owns its disk) — koluRoot + PTY spawns need it.
   setDaemonProcessId(String(process.pid));
@@ -223,9 +233,11 @@ function configureDaemonIdentity(
   // `PADI_SOCKET` (the $KAVAL_SOCKET twin) — set well before `ensureLocalEndpoint` can
   // spawn a terminal.
   setPadiServeSocketPath(socketPath);
-  // `||` not `??`: `currentPadiCommitHash()` is "" off-nix and the setter refuses an
+  // `||` not `??`: the baked commit is "" off-nix and the setter refuses an
   // empty value — fall through to "dev".
-  setSpawnServerVersion(opts.spawnVersion || currentPadiCommitHash() || "dev");
+  setSpawnServerVersion(
+    opts.spawnVersion || boot.identity.navigableCommit || "dev",
+  );
   configureNixShellEnv(opts.nixShellWhitelist);
   ensureKoluRoot();
   // Register the scratch-root wipe on `exit` — only AFTER `ensureKoluRoot` created the
@@ -253,9 +265,10 @@ function serveDaemonSurfaces(
     onDrain: () => void;
     log: Logger;
     lifetime: DaemonLifetimeInfo;
+    boot: PadiBoot;
   },
 ): SurfacesServed {
-  const { stateRoot, onDrain, log, lifetime } = params;
+  const { stateRoot, onDrain, log, lifetime, boot } = params;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
   const runtime = implementSurfacesOnPublisher(
     padiDaemonSurfaces,
@@ -274,8 +287,8 @@ function serveDaemonSurfaces(
       identity: {
         padi: {
           contractVersion: PADI_SURFACE_VERSION,
-          buildId: currentPadiBuildId(),
-          commit: buildCommit(currentPadiCommitHash()),
+          buildId: boot.identity.staleKey,
+          commit: buildCommit(boot.identity.navigableCommit),
         },
       },
     },
@@ -286,8 +299,8 @@ function serveDaemonSurfaces(
         // The SAME `startedAt`/`commit` handed to the control-core `hello` below —
         // reused, never re-derived, so the padiSurface `identity` cell and `hello`
         // can't drift.
-        startedAt: PADI_STARTED_AT,
-        commit: currentPadiCommitHash(),
+        startedAt: boot.startedAt,
+        commit: boot.identity.navigableCommit,
         lifetime,
         // The `hostInventory` derived poll cell resolves its held-kaval fallback
         // address from this state-root.
@@ -295,13 +308,13 @@ function serveDaemonSurfaces(
       }),
       control: buildControlCoreDeps({
         stateRoot,
-        startedAt: PADI_STARTED_AT,
+        startedAt: boot.startedAt,
         // padi's navigable git commit (`PADI_COMMIT_HASH`), echoed by `hello` so the
         // binder surfaces the RUNNING padi's build. Empty "" off-nix → honest "—".
-        commit: currentPadiCommitHash(),
+        commit: boot.identity.navigableCommit,
         // padi's staleKey (`PADI_BUILD_ID`) — the binder's build-convergence key: a
         // same-contract build mismatch drains this padi once at binder boot (#1670).
-        buildId: currentPadiBuildId(),
+        buildId: boot.identity.staleKey,
         onDrain,
       }),
     },
@@ -417,7 +430,12 @@ export async function runPadiDaemon(
   // Gate → stores → identity: each phase takes the prior's token, so none can run
   // before the gate is claimed above (a lost gate-race returns before reaching here).
   const stores = openStateStores(gate, stateRoot, log);
-  const identity = configureDaemonIdentity(stores, opts, home.socketPath);
+  const identity = configureDaemonIdentity(
+    stores,
+    opts,
+    home.socketPath,
+    PADI_BOOT,
+  );
 
   // Resolve the lifetime ONCE: `forever` in production; `boundToPid` when a
   // harness/smoke run set `KOLU_DAEMON_BIND_PID`. Seeded into the padiSurface
@@ -465,6 +483,7 @@ export async function runPadiDaemon(
     onDrain,
     log,
     lifetime: lifetimeInfo(lifetime),
+    boot: PADI_BOOT,
   });
   try {
     const endpoint = await bootLocalEndpoint(served, {

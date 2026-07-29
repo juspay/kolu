@@ -83,6 +83,22 @@ function withHelloDeadline(
   });
 }
 
+/** Read and validate the frozen control-core hello on its one baked deadline.
+ * Transport ownership stays with the caller: this function neither catches nor
+ * rewrites protocol errors (including structured `NOT_FOUND`) and never disposes
+ * the connection. */
+export async function readControlCoreHello(
+  client: ControlCoreProbeClient,
+): Promise<ControlCoreHello> {
+  const hello = await withHelloDeadline(client.surface.control.core.hello());
+  if (hello.controlCoreVersion !== CONTROL_CORE_VERSION) {
+    throw new Error(
+      `unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
+    );
+  }
+  return hello;
+}
+
 /**
  * The single probe-assembly authority. Connector arms hand it their already-
  * dialed client and stronger process-exit oracle; the socket factory below
@@ -102,14 +118,7 @@ export async function probeDaemonIdentityFrom(
   if (opts.capability === "drainable") {
     assertDrainCeiling(opts.drainCeilingMs);
   }
-  const hello = await withHelloDeadline(
-    opts.client.surface.control.core.hello(),
-  );
-  if (hello.controlCoreVersion !== CONTROL_CORE_VERSION) {
-    throw new Error(
-      `unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
-    );
-  }
+  const hello = await readControlCoreHello(opts.client);
   const base = {
     identity: {
       contractVersion: hello.surfaceVersion,

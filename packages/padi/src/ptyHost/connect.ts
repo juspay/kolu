@@ -29,11 +29,9 @@ import {
   isNoListenerError,
   instanceKeyFromStartedAt,
   probeDaemonIdentity,
+  readControlCoreHello,
 } from "@kolu/surface-daemon-supervisor";
-import {
-  CONTROL_CORE_VERSION,
-  type DaemonLifetimeInfo,
-} from "@kolu/surface-daemon";
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { withTimeout } from "../withTimeout.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -80,18 +78,6 @@ function isMissingFrozenFragment(err: unknown): boolean {
   );
 }
 
-/** Read the frozen hello on the same bounded handshake clock. A current kaval
- * must answer; the caller alone interprets the structured old-route absence. */
-function readControlHelloBounded(
-  client: ReturnType<typeof stdioLink<typeof kavalDaemonContract>>,
-) {
-  return withTimeout(
-    client.surface.control.core.hello(),
-    HANDSHAKE_READ_DEADLINE_MS,
-    `control-core hello exceeded ${HANDSHAKE_READ_DEADLINE_MS}ms deadline`,
-  );
-}
-
 /** Read `system.version` off `client`, bounded by {@link HANDSHAKE_READ_DEADLINE_MS}:
  *  a peer that accepts the unix connection but never answers oRPC (a foreign squatter,
  *  a wedged daemon) would otherwise leave the read pending FOREVER and hang boot. The
@@ -112,7 +98,7 @@ function readSystemVersionBounded(
 type KavalSystemVersion = Awaited<
   ReturnType<PtyHostClient["surface"]["system"]["version"]>
 >;
-type KavalControlHello = Awaited<ReturnType<typeof readControlHelloBounded>>;
+type KavalControlHello = Awaited<ReturnType<typeof readControlCoreHello>>;
 
 type KavalHandshake =
   | {
@@ -133,7 +119,7 @@ async function readKavalHandshake(
 ): Promise<KavalHandshake> {
   let hello: KavalControlHello | undefined;
   try {
-    hello = await readControlHelloBounded(client);
+    hello = await readControlCoreHello(client);
   } catch (err) {
     if (!isMissingFrozenFragment(err)) {
       throw new Error(
@@ -143,15 +129,6 @@ async function readKavalHandshake(
     // A live old kaval has no frozen route. Keep the versioned handshake for
     // connectivity/metadata, but never read build identity from it: absence is
     // the identity fact and the UI's #1671 fold turns that into the update nudge.
-  }
-
-  if (
-    hello !== undefined &&
-    hello.controlCoreVersion !== CONTROL_CORE_VERSION
-  ) {
-    throw new Error(
-      `pty-host handshake failed — unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
-    );
   }
 
   let version: KavalSystemVersion;
@@ -199,6 +176,15 @@ async function readKavalHandshake(
     : { kind: "current", hello, version };
 }
 
+/** Project the frozen optional fields into Kaval's established raw identity.
+ * New daemons emit both; any older partial/absent payload is one honest unknown
+ * fact, never a half-identity. The frozen wire itself remains unchanged. */
+function projectKavalIdentity(hello: KavalControlHello): PtyHostIdentity {
+  return hello.buildId && hello.commit
+    ? { staleKey: hello.buildId, navigableCommit: hello.commit }
+    : { staleKey: "", navigableCommit: "" };
+}
+
 export async function connectKaval(
   socketPath: string,
 ): Promise<KavalConnection> {
@@ -220,10 +206,7 @@ export async function connectKaval(
   const projected = match(handshake)
     .with({ kind: "current" }, ({ hello }) => ({
       contractVersion: hello.surfaceVersion,
-      identity: {
-        staleKey: hello.buildId ?? "",
-        navigableCommit: hello.commit ?? "",
-      },
+      identity: projectKavalIdentity(hello),
       startedAt: hello.startedAt,
     }))
     .with({ kind: "pre-fragment" }, ({ version: legacyVersion }) => ({
