@@ -70,6 +70,7 @@ import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
+import { terminalFocusProvenance } from "./focusProvenance";
 import {
   trackCreate,
   trackDispose,
@@ -106,7 +107,8 @@ const Terminal: Component<{
   theme: ITheme;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
-  /** Fired when the user interacts with this terminal (click/keyboard focus). */
+  /** Fired when a user gesture moves focus into this terminal. Programmatic
+   *  DOM focus is selection's effect and must not feed back as a command. */
   onFocus?: () => void;
   /** When true, this terminal lives in a sub-panel — it owns its own grid
    *  (its container is independent of the main viewport) and stays out of
@@ -165,7 +167,8 @@ const Terminal: Component<{
   // switching/revealing a tile. So this is a no-op on touch. Real taps still
   // call terminal.focus() directly.
   function focusOnSelection() {
-    if (!isTouch()) handle()?.terminal?.focus();
+    if (isTouch()) return;
+    handle()?.terminal?.focus();
   }
 
   // Open a `path:line` reference in the Code tab. Shared by the hover link
@@ -340,9 +343,53 @@ const Terminal: Component<{
       return true;
     });
 
-    // Track user-initiated focus for "remember last focused" in sub-panel
     if (props.onFocus && term.textarea) {
-      makeEventListener(term.textarea, "focus", props.onFocus);
+      // xterm may stop gesture events inside its own subtree. Capture them at
+      // the mount boundary and arm one document-wide provenance token: Tab can
+      // move focus into a sibling terminal, while a pointer focus lands here.
+      // The first resulting focus consumes the token; mount/refocus/dialog
+      // `.focus()` calls have no token and can never echo into selection.
+      const armUserFocus = () => terminalFocusProvenance.arm();
+      makeEventListener(h.container, "pointerdown", armUserFocus, {
+        capture: true,
+      });
+      makeEventListener(
+        h.container,
+        "keydown",
+        (event) => {
+          if (event.key === "Tab") {
+            // Tab's focus event lands in another pane, which consumes this
+            // document-wide token there.
+            armUserFocus();
+          } else if (!props.focused) {
+            // A pane can already hold DOM focus without owning the selection
+            // (notably a browser restore, or the e2e tap stand-in). Its first
+            // real keystroke is user provenance and repairs the fact before
+            // xterm forwards the key to the PTY. Avoid arming on ordinary
+            // typing in the already-selected pane: that would turn every key
+            // into an unnecessary equal-id focus write.
+            armUserFocus();
+            terminalFocusProvenance.consume(() => props.onFocus?.());
+          }
+        },
+        { capture: true },
+      );
+      makeEventListener(term.textarea, "focus", () => {
+        terminalFocusProvenance.consume(() => props.onFocus?.());
+      });
+      // Clicking an already-focused textarea emits no new focus event. Consume
+      // any still-armed pointer token here so the explicit gesture can repair
+      // a transient DOM/selection mismatch without producing a second write.
+      makeEventListener(
+        h.container,
+        "click",
+        () => {
+          terminalFocusProvenance.consume(() => props.onFocus?.());
+        },
+        {
+          capture: true,
+        },
+      );
     }
 
     // On tab re-show, re-fit, clear the atlas, flush a lock engaged while hidden
@@ -632,7 +679,16 @@ const Terminal: Component<{
     on(
       () => [props.focused, props.refocusNonce] as const,
       () => {
-        if (props.focused && props.visible) focusOnSelection();
+        // A dock/canvas click writes selection from its click handler, before
+        // the browser has necessarily finished its own focus default. Focusing
+        // synchronously here lets that final default put focus back on the row.
+        // Re-check after the event turn and apply the already-written fact to
+        // the DOM; no selection write occurs on this path.
+        queueMicrotask(() => {
+          if (props.focused && props.visible) {
+            focusOnSelection();
+          }
+        });
       },
       { defer: true },
     ),

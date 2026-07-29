@@ -22,6 +22,8 @@ const h = vi.hoisted(() => ({
   expandAndFocusPanel: vi.fn(),
   collapsePanel: vi.fn(),
   collapsePanelChrome: vi.fn(),
+  focusMainPane: vi.fn(),
+  focusVisibleSubPane: vi.fn(),
 }));
 
 vi.mock("@corvu/resizable", () => {
@@ -105,8 +107,8 @@ vi.mock("./useSubPanel", () => ({
     collapsePanel: h.collapsePanel,
     collapsePanelChrome: h.collapsePanelChrome,
     selectSubTab: vi.fn(),
-    focusMainPane: vi.fn(),
-    focusVisibleSubPane: vi.fn(),
+    focusMainPane: h.focusMainPane,
+    focusVisibleSubPane: h.focusVisibleSubPane,
   }),
 }));
 
@@ -121,7 +123,15 @@ vi.mock("./useTerminalSearch", () => ({
   useTerminalSearch: () => ({ isOpen: () => false, setOpen: vi.fn() }),
 }));
 
-vi.mock("./Terminal", () => ({ default: () => <div /> }));
+vi.mock("./Terminal", () => ({
+  default: (props: { isSub?: boolean; onFocus?: () => void }) => (
+    <button
+      type="button"
+      data-testid={props.isSub ? "sub-terminal" : "main-terminal"}
+      onPointerDown={props.onFocus}
+    />
+  ),
+}));
 vi.mock("./DormantTileBody", () => ({ default: () => <div /> }));
 vi.mock("./SubPanelTabBar", () => ({ default: () => <div /> }));
 
@@ -164,12 +174,14 @@ describe("TerminalContent panel expansion intent", () => {
     );
   }
 
-  it("keeps a controlled expand chrome-only but focuses after a handle gesture", () => {
+  it("ignores controlled transitions but focuses after a handle gesture", () => {
     mountContent();
 
     expect(h.onExpand).toBeTypeOf("function");
     h.onExpand?.();
-    expect(h.expandPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
+    h.onCollapse?.();
+    expect(h.expandPanel).not.toHaveBeenCalled();
+    expect(h.collapsePanel).not.toHaveBeenCalled();
     expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
 
     h.onHandleDragStart?.();
@@ -186,7 +198,7 @@ describe("TerminalContent panel expansion intent", () => {
     h.onPointerCancel?.();
     h.onExpand?.();
 
-    expect(h.expandPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
+    expect(h.expandPanel).not.toHaveBeenCalled();
     expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
     expect(h.onHandleDragEnd).toBeTypeOf("function");
     expect(h.onLostPointerCapture).toBeTypeOf("function");
@@ -197,12 +209,12 @@ describe("TerminalContent panel expansion intent", () => {
 
     h.onKeyDown?.("Tab");
     h.onExpand?.();
-    expect(h.expandPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
+    expect(h.expandPanel).not.toHaveBeenCalled();
 
     h.onKeyDown?.("ArrowRight");
     h.onBlur?.();
     h.onExpand?.();
-    expect(h.expandPanel).toHaveBeenCalledTimes(2);
+    expect(h.expandPanel).not.toHaveBeenCalled();
     expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
   });
 
@@ -213,5 +225,20 @@ describe("TerminalContent panel expansion intent", () => {
     h.onExpand?.();
 
     expect(h.expandAndFocusPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
+  });
+
+  it("commits the exact pane entered by the pointer", () => {
+    mountContent();
+
+    const enter = (selector: string) =>
+      (host?.querySelector(selector) as HTMLElement).dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true }),
+      );
+
+    enter('[data-testid="main-terminal"]');
+    expect(h.focusMainPane).toHaveBeenCalledExactlyOnceWith(MAIN);
+
+    enter('[data-testid="sub-terminal"]');
+    expect(h.focusVisibleSubPane).toHaveBeenCalledExactlyOnceWith(MAIN, SUB);
   });
 });

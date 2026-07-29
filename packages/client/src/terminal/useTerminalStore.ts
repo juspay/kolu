@@ -123,16 +123,41 @@ export const useTerminalStore = createSharedRoot(() => {
   // to fall into.
   const activeMeta = () => active().meta;
 
-  /** Land on any terminal. Splits write their remembered panel chrome, then the
-   *  single focus fact; top-level terminals are the same focus verb without the
-   *  chrome write-through. */
+  /** Select a top-level tile without panning. Its existing panel chrome decides
+   *  which visible pane receives input, then that choice is committed to the
+   *  same one per-host focus fact. */
+  function setActiveSilently(id: TerminalId | null): void {
+    if (id === null) {
+      view.setActiveSilently(null);
+      return;
+    }
+    const record = metadata.getMetadata(id);
+    // Creation returns the new top-level id before its streamed metadata can
+    // arrive. The caller already names a tile; write its id as the gap hint and
+    // let live metadata supersede that hint as soon as it is present.
+    if (record && record.parentId !== null && record.parentId !== undefined) {
+      throw new Error(
+        `setActiveSilently: ${id} is a split; use focusTerminal instead`,
+      );
+    }
+    subPanel.focusVisiblePane(id);
+  }
+
+  /** Select a top-level tile and ask the canvas to center it. */
+  function activate(id: TerminalId | null): void {
+    setActiveSilently(id);
+    if (id !== null) view.requestCenterActive();
+  }
+
+  /** Land on any terminal. A top-level landing restores its visible pane; a
+   *  split landing first makes that split the visible remembered tab. */
   function focusTerminal(id: TerminalId): void {
     const record = metadata.getMetadata(id);
     if (!record)
       throw new Error(`focusTerminal: no terminal metadata for ${id}`);
     const parentId = record.parentId ?? null;
     if (parentId === null) {
-      view.activate(id);
+      activate(id);
       return;
     }
     subPanel.focusSubTab(parentId, id);
@@ -150,6 +175,10 @@ export const useTerminalStore = createSharedRoot(() => {
     ...view,
     // Server metadata + activity + derived ordering
     ...metadata,
+    // Public top-level selection resolves remembered pane chrome before writing
+    // the one focus fact; the raw view writers stay internal to this composer.
+    activate,
+    setActiveSilently,
     // The input-routing target (tile root, or its focused split).
     focusedId,
     // The one landing verb for either a top-level terminal or a split.

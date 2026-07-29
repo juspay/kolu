@@ -11,15 +11,19 @@
 
 const ACTIVE_TILE_SELECTOR = "[data-canvas-tile][data-active='true']";
 const TERMINAL_INNER_SELECTOR = "[data-visible][data-terminal-id]";
+const FOCUSED_TERMINAL_INNER_SELECTOR =
+  "[data-focused][data-visible][data-terminal-id]";
 
-/** The Terminal-element child of the active CanvasTile, or null when no
- *  tile is active. The returned node is the click/focus target the user
- *  perceives as "the terminal I'm looking at". */
+/** The focus-owning Terminal child of the active CanvasTile, or its first
+ *  visible terminal before pane focus is established. Returns null when no
+ *  tile is active. This keeps dialog-close refocus on a selected split instead
+ *  of blindly clicking the main pane that happens to come first in the DOM. */
 export function getActiveTerminalNode(): HTMLElement | null {
+  const tile = document.querySelector(ACTIVE_TILE_SELECTOR);
   return (
-    document
-      .querySelector(ACTIVE_TILE_SELECTOR)
-      ?.querySelector<HTMLElement>(TERMINAL_INNER_SELECTOR) ?? null
+    tile?.querySelector<HTMLElement>(FOCUSED_TERMINAL_INNER_SELECTOR) ??
+    tile?.querySelector<HTMLElement>(TERMINAL_INNER_SELECTOR) ??
+    null
   );
 }
 

@@ -41,8 +41,7 @@ const TerminalContent: Component<{
   /** Close a terminal — stays a prop because closing a top-level tile pops
    *  App's root-mounted `<CloseConfirm>` dialog (shell-owned orchestration). */
   onCloseTerminal: (id: TerminalId) => void;
-  /** Called when user focuses any terminal in this pane (click, keyboard).
-   *  Canvas mode uses this to set the active tile. */
+  /** Called when a user gesture moves focus into a terminal in this pane. */
   onFocus?: () => void;
 }> = (props) => {
   const store = useTerminalStore();
@@ -107,7 +106,9 @@ const TerminalContent: Component<{
 
   // Corvu reports physical collapsed/expanded transitions for controlled sizes;
   // those callbacks do not identify their source. Record an actual handle
-  // gesture separately so only pointer/keyboard intent is allowed to move focus.
+  // gesture separately so only pointer/keyboard intent may persist chrome or
+  // move focus. A programmatic transition is merely the consequence of the
+  // controlled `sizes` value and must not write that value's source state back.
   let resizeIntent = false;
   const markResizeIntent = () => {
     resizeIntent = true;
@@ -136,12 +137,10 @@ const TerminalContent: Component<{
   function handlePanelCollapse() {
     if (!hasSubs()) return;
     if (resizeIntent) subPanel.collapsePanel(props.terminalId);
-    else subPanel.collapsePanelChrome(props.terminalId);
   }
 
   function handlePanelExpand() {
     if (resizeIntent) subPanel.expandAndFocusPanel(props.terminalId);
-    else subPanel.expandPanel(props.terminalId);
   }
 
   return (
@@ -224,9 +223,7 @@ const TerminalContent: Component<{
           minSize={0}
           collapsible
           collapsedSize={0}
-          // Only PERSIST a collapse while the split actually has sub-terminals.
-          // Pointer/keyboard intent is tracked on the handle above so this generic
-          // Corvu transition can update chrome without masquerading as focus intent.
+          // Only PERSIST a collapse from pointer/keyboard intent on the handle.
           // On a host
           // switch-BACK the sub-terminal metadata (parentId) re-arrives a beat
           // AFTER the tile re-renders, so `hasSubs()` — hence `isExpanded()` —
@@ -235,9 +232,9 @@ const TerminalContent: Component<{
           // once the metadata lands, the stored `collapsed:true` keeps
           // `isExpanded()` false so the controlled `sizes` never returns to
           // [1-panelSize, panelSize] and the split is lost for good (srid's
-          // switch-back split-loss). Guarding on `hasSubs()` makes the transient
-          // programmatic collapse a no-op; the controlled `sizes` re-expands the
-          // moment the sub metadata arrives.
+          // switch-back split-loss). The intent gate makes every programmatic
+          // transition a no-op; the controlled `sizes` re-expands the moment the
+          // sub metadata arrives.
           onCollapse={handlePanelCollapse}
           onExpand={handlePanelExpand}
           data-pane="sub"

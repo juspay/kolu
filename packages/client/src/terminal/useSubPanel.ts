@@ -1,4 +1,4 @@
-/** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab per parent terminal.
+/** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab, and remembered pane per parent terminal.
  *  Reported to server for session snapshots; seeded from server on restore. */
 
 import type { TerminalId } from "kolu-common/surface";
@@ -13,6 +13,10 @@ interface SubPanelState {
   /** Panel size as fraction (0–1). */
   panelSize: number;
   activeSubTab: TerminalId | null;
+  /** Landing chrome only: verbs remember which pane to choose when this tile
+   *  is selected again. Focus derivations never read it. Optional so session
+   *  chrome hydration does not seed a focus preference; absence means main. */
+  rememberedPane?: "main" | "sub";
   /** Bumped to force the focus-target terminal to re-grab keyboard focus when
    *  the reactive `focused` state can't (it didn't change). Closing a sub-tab
    *  via its close button moves focus to that button; after the tab is removed
@@ -24,6 +28,7 @@ const DEFAULT_PANEL_STATE: Readonly<SubPanelState> = Object.freeze({
   collapsed: false,
   panelSize: 0.3,
   activeSubTab: null,
+  rememberedPane: "main",
   refocusNonce: 0,
 });
 
@@ -70,20 +75,52 @@ export function useSubPanel() {
    *  invariant; the broad terminal/view facades never expose this operation.
    *  A missing active scope is the expected host-removal race and follows the
    *  active-host facade convention: the departing owner's write is a no-op. */
-  function writePaneFocus(parentId: TerminalId, id: TerminalId): void {
+  function writePaneFocus(
+    parentId: TerminalId,
+    id: TerminalId,
+    remember = true,
+  ): void {
     const view = activeScope()?.view;
     if (!view) return;
+    const repeatsCurrentPane = view.focusedTerminalId() === id;
+    if (remember) {
+      const rememberedPane = id === parentId ? "main" : "sub";
+      const panel = state[parentId];
+      // Preserve the implicit main default for a never-touched tile: landing on
+      // it must not seed panel state merely to record the value it already has.
+      if (panel) setState(parentId, "rememberedPane", rememberedPane);
+      else if (rememberedPane === "sub") {
+        ensureState(parentId);
+        setState(parentId, "rememberedPane", "sub");
+      }
+    }
     view.writeFocus({ id, tileHint: parentId });
+    // `focusedTerminalId` is a value memo, so an equal-id write correctly does
+    // not notify its consumers. Selection may still need to restore DOM focus
+    // after a dock row or close button took it; the existing nonce is the
+    // edge-less DOM impulse, never another focus authority.
+    if (repeatsCurrentPane) {
+      ensureState(parentId);
+      setState(parentId, "refocusNonce", (n) => n + 1);
+    }
   }
 
   function focusVisiblePane(parentId: TerminalId): void {
     const panel = state[parentId];
     writePaneFocus(
       parentId,
-      panel && !panel.collapsed && panel.activeSubTab
+      panel?.rememberedPane === "sub" && !panel.collapsed && panel.activeSubTab
         ? panel.activeSubTab
         : parentId,
     );
+  }
+
+  /** Expanding an existing split is not a tile landing: the newly visible
+   *  active tab receives focus directly. `rememberedPane` is deliberately not
+   *  read here; only top-level tile activation consults that landing chrome. */
+  function focusExpandedPanel(parentId: TerminalId): void {
+    const panel = state[parentId];
+    writePaneFocus(parentId, panel?.activeSubTab ?? parentId);
   }
 
   return {
@@ -93,10 +130,17 @@ export function useSubPanel() {
       return state[parentId] ?? DEFAULT_PANEL_STATE;
     },
 
+    /** Focus a top-level tile's remembered pane. Both rememberedPane and the
+     *  remembered tab are verb-only chrome: this verb resolves them immediately
+     *  and writes the same one per-host focus fact as every other transition. */
+    focusVisiblePane,
+
     togglePanel(parentId: TerminalId) {
-      ensureState(parentId);
-      setState(parentId, "collapsed", (v) => !v);
-      focusVisiblePane(parentId);
+      const panel = ensureState(parentId);
+      const collapsing = !panel.collapsed;
+      setState(parentId, "collapsed", collapsing);
+      if (collapsing) writePaneFocus(parentId, parentId, false);
+      else focusExpandedPanel(parentId);
       reportToServer(parentId);
     },
 
@@ -106,13 +150,13 @@ export function useSubPanel() {
       reportToServer(parentId);
     },
 
-    /** User-driven expansion: update the panel chrome and restore keyboard
-     *  focus to its remembered pane. External split adoption uses the
+    /** User-driven expansion: update the panel chrome and focus its visible
+     *  active split. External split adoption uses the
      *  chrome-only `expandPanel` so an arrival never steals focus. */
     expandAndFocusPanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", false);
-      focusVisiblePane(parentId);
+      focusExpandedPanel(parentId);
       reportToServer(parentId);
     },
 
@@ -126,7 +170,9 @@ export function useSubPanel() {
     collapsePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", true);
-      writePaneFocus(parentId, parentId);
+      // Collapsing temporarily forces input to main; it must not erase the pane
+      // to restore when the user reopens this same split.
+      writePaneFocus(parentId, parentId, false);
       reportToServer(parentId);
     },
 

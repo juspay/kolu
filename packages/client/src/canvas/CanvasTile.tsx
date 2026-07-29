@@ -365,7 +365,19 @@ const CanvasTile: Component<{
       // mode-specific decoration (rounded corners vs. transparent border).
       classList={presentation().classes}
       style={presentation().style}
-      onMouseDown={() => props.onSelect()}
+      onMouseDown={(event) => {
+        // A live terminal owns the more precise pane landing (main vs split).
+        // Letting this shell-level tile selection run afterward would resolve
+        // the remembered visible split and overwrite an explicit main-pane
+        // click. Chrome and empty tile space still select through this path.
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest("[data-visible][data-terminal-id]")
+        )
+          return;
+        props.onSelect();
+      }}
       onAnimationEnd={onLandInAnim}
       onAnimationCancel={onLandInAnim}
     >
