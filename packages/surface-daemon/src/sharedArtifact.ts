@@ -9,8 +9,8 @@
  * machinery is shared.
  */
 
-/** One shared artifact an upgrade-window suite must account for. */
-export interface SharedArtifact {
+/** Fields shared by every artifact an upgrade-window suite must account for. */
+interface SharedArtifactBase {
   /** Stable id used by the watchdog + coverage registry. */
   id: string;
   /** Human path shape (not a literal — digests/ports vary). */
@@ -24,12 +24,6 @@ export interface SharedArtifact {
    * entries begin `null` until a consumer registry attaches coverage.
    */
   coveredByTest: string | null;
-  /**
-   * When non-null, the artifact embeds this named version field. This records
-   * the structural discriminator; `coveredByTest` still names the disposition
-   * proof for an unknown future version.
-   */
-  versionField: string | null;
   /**
    * Exact basenames this artifact may appear as on disk under the runtime
    * dir or state-root. Empty for logical entries that ride inside another
@@ -45,3 +39,17 @@ export interface SharedArtifact {
   /** Why this file is shared across generations. */
   why: string;
 }
+
+/** One shared artifact an upgrade-window suite must account for. */
+export type SharedArtifact =
+  | (SharedArtifactBase & {
+      /** This artifact has no embedded version discriminator. */
+      versionField: null;
+      versionDisposition?: never;
+    })
+  | (SharedArtifactBase & {
+      /** The named version field embedded by this artifact. */
+      versionField: string;
+      /** Reader outcome required after a suite plants version+1. */
+      versionDisposition: string;
+    });

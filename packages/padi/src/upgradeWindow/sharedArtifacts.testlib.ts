@@ -5,8 +5,8 @@
  *
  * Keep this list the single source of truth. When you invent a new path both
  * builds read or write under the state-root / runtime rendezvous, ADD IT HERE
- * (with `diskBasenames` if it is a real file) and either register a covering
- * test or declare its version field.
+ * (with `diskBasenames` if it is a real file) and register a covering test.
+ * Versioned entries additionally declare the reader outcome that test proves.
  */
 
 export type { SharedArtifact } from "@kolu/surface-daemon";
@@ -84,6 +84,7 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     role: "config",
     coveredByTest: "padi/sharedArtifacts.watchdog.test.ts",
     versionField: "__internal__.migrations.version (conf projectVersion)",
+    versionDisposition: "newer-project-version",
     diskBasenames: ["config.json"],
     diskBasenamePatterns: [],
     why: "Padi's persistent store: session + activityFeed + lastPairedDaemon. Survives deploys; old shape must restore or refuse by name.",

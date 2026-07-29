@@ -106,21 +106,23 @@ export type SharedArtifactWatchdog = {
 const EXECUTED_VERSION_DISPOSITION = Symbol("executed-version-disposition");
 
 /** Opaque receipt issued only after a suite planted the requested version,
- * read that exact value back from disk, and observed the reader disposition. */
+ * read that exact value back from disk, and returned a reader outcome whose
+ * kind exactly matches the registry's declared version+1 disposition. */
 export type ExecutedVersionDispositionProof = {
   readonly artifactId: string;
   readonly versionField: string;
+  readonly versionDisposition: string;
   readonly [EXECUTED_VERSION_DISPOSITION]: true;
 };
 
-/** Execute (rather than merely name) a version-disposition proof. The readback
- * prevents an empty/no-op plant callback from minting coverage. */
+/** Execute (rather than merely name) a version-disposition proof. Exact plant
+ * readback and registry-matched outcome observation are both required. */
 export async function executeVersionDispositionProof(options: {
   readonly artifact: SharedArtifact;
   readonly newerVersion: string;
   readonly plant: () => void | Promise<void>;
   readonly readPlantedVersion: () => unknown | Promise<unknown>;
-  readonly observeDisposition: () => void | Promise<void>;
+  readonly observeDisposition: () => unknown | Promise<unknown>;
 }): Promise<ExecutedVersionDispositionProof> {
   if (options.artifact.versionField === null) {
     throw new Error(
@@ -135,10 +137,22 @@ export async function executeVersionDispositionProof(options: {
         `read ${JSON.stringify(planted)}, expected ${JSON.stringify(options.newerVersion)}`,
     );
   }
-  await options.observeDisposition();
+  const observed = await options.observeDisposition();
+  const observedKind =
+    typeof observed === "object" && observed !== null && "kind" in observed
+      ? observed.kind
+      : undefined;
+  if (observedKind !== options.artifact.versionDisposition) {
+    throw new Error(
+      `${options.artifact.id}: observed version+1 disposition ` +
+        `${JSON.stringify(observedKind)}, expected registry declaration ` +
+        `${JSON.stringify(options.artifact.versionDisposition)}`,
+    );
+  }
   return {
     artifactId: options.artifact.id,
     versionField: options.artifact.versionField,
+    versionDisposition: options.artifact.versionDisposition,
     [EXECUTED_VERSION_DISPOSITION]: true,
   };
 }
@@ -155,7 +169,10 @@ export function createSharedArtifactWatchdog(
       const provedVersions = new Set(
         versionProofs
           .filter((proof) => proof[EXECUTED_VERSION_DISPOSITION])
-          .map((proof) => `${proof.artifactId}\0${proof.versionField}`),
+          .map(
+            (proof) =>
+              `${proof.artifactId}\0${proof.versionField}\0${proof.versionDisposition}`,
+          ),
       );
       for (const artifact of registry) {
         if (artifact.role === "log") continue;
@@ -173,10 +190,13 @@ export function createSharedArtifactWatchdog(
         }
         if (
           artifact.versionField !== null &&
-          !provedVersions.has(`${artifact.id}\0${artifact.versionField}`)
+          !provedVersions.has(
+            `${artifact.id}\0${artifact.versionField}\0${artifact.versionDisposition}`,
+          )
         ) {
           gaps.push(
-            `${artifact.id}: versionField=${artifact.versionField} has no executed version+1 disposition proof`,
+            `${artifact.id}: versionField=${artifact.versionField} has no executed ` +
+              `version+1 disposition proof for ${artifact.versionDisposition}`,
           );
         }
       }

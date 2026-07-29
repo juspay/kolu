@@ -1,7 +1,8 @@
 /**
  * Shared-artifact watchdog — every file both daemon generations touch must
- * either have a mixed-version test registered in the coverage manifest
- * (`sharedArtifacts.testlib.ts`) or declare an explicit version field.
+ * have a mixed-version test registered in the coverage manifest
+ * (`sharedArtifacts.testlib.ts`). Versioned entries must additionally declare
+ * and execute a proof of their version+1 reader outcome.
  *
  * Coverage alone is not enough: a new shared file nobody registers would pass
  * a hand-list-only audit. Grounding lives in `previousRelease.e2e.test.ts`
@@ -81,13 +82,15 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
           return config.__internal__?.migrations?.version;
         },
         observeDisposition: () => {
-          expect(openPadiStateStores(stateRoot)).toEqual({
+          const disposition = openPadiStateStores(stateRoot);
+          expect(disposition).toEqual({
             kind: "newer-project-version",
             configPath,
             runningVersion: newerVersion,
             supportedVersion: PADI_STATE_SCHEMA_VERSION,
           });
           expect(readFileSync(configPath, "utf8")).toBe(plantedBytes);
+          return disposition;
         },
       });
       expect(watchdog.coverageGaps(suiteFiles, [proof])).toEqual([]);
