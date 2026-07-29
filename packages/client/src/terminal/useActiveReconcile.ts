@@ -117,12 +117,11 @@ export function evictTerminal(
         if (wasFocused) ports.subPanel.selectSubTab(parentId, replacement);
         else ports.subPanel.setActiveSubTab(parentId, replacement);
       }
-      if (wasFocused) {
-        // Re-grab focus for the replacement: closing a focused tab via its close
-        // button moves DOM focus to that button, and the reactive focus fact is
-        // otherwise unchanged after selecting the replacement.
-        ports.subPanel.requestRefocus(parentId);
-      }
+      // Closing through a tab's button moves DOM focus onto the button no matter
+      // which pane owns the focus fact. Bump unconditionally: each pane's nonce
+      // consumer is self-gated by its `focused` prop, so background panes ignore
+      // it while the still-focused pane repairs DOM focus after removal.
+      ports.subPanel.requestRefocus(parentId);
     }
     return;
   }

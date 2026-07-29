@@ -189,7 +189,7 @@ describe("evictTerminal — sub-terminal branch", () => {
       T("S2"),
     );
     expect(calls.selectSubTab).not.toHaveBeenCalled();
-    expect(calls.requestRefocus).not.toHaveBeenCalled();
+    expect(calls.requestRefocus).toHaveBeenCalledExactlyOnceWith(T("P"));
   });
 });
 
