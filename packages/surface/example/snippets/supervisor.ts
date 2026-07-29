@@ -95,9 +95,7 @@ async function connectTop(
 }
 
 export async function bootSupervisor(
-  readProcessIdentity: (
-    pid: number,
-  ) => Promise<import("@kolu/surface-daemon").ProcessIdentity | undefined>,
+  readProcessIdentity: import("@kolu/surface-daemon").ReadProcessIdentity,
 ): Promise<void> {
   // #region endpoint
   const policy: ConvergencePolicy<"not-drainable"> = {

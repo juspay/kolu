@@ -638,7 +638,7 @@ export function ensurePadiBindingWith(
   >({
     hostId: PADI_HOST_ID,
     home,
-    readProcessIdentity: async (pid) => {
+    readProcessIdentity: (pid) => {
       const bin = process.env.KOLU_OSFACTS_BIN;
       if (!bin) {
         throw new Error(

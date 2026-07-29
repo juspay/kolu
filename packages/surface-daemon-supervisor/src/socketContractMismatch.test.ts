@@ -44,7 +44,7 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
           gatePath: survivor.gatePath,
           socketPath: survivor.socketPath,
         },
-        readProcessIdentity: async (pid) =>
+        readProcessIdentity: (pid) =>
           isHolderLive(pid) ? { pid, startUnixUs: pid * 1_000 } : undefined,
         policy: {
           capability: "not-drainable",

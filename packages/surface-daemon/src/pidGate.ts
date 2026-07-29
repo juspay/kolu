@@ -54,12 +54,7 @@ import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
  *  honor (or plant our pid in) a gate it pre-seeded. */
 export type GateAcquisition =
   | { kind: "acquired"; release: () => void }
-  | {
-      kind: "held";
-      pid: number;
-      /** True when the gate carried a start time. */
-      hasStartTime: boolean;
-    }
+  | { kind: "held"; pid: number }
   | { kind: "dir-not-private"; dir: string };
 
 /** A PID is not an identity: after exit the kernel can reuse it. The process
@@ -277,12 +272,7 @@ export function acquirePidGate(
       // socket state at this layer.)
       const holder = liveHolderPid(gatePath, readProcessIdentity);
       if (holder !== undefined) {
-        const read = readGateIdentity(gatePath);
-        return {
-          kind: "held",
-          pid: holder,
-          hasStartTime: read.kind === "ok" && read.startUnixUs !== undefined,
-        };
+        return { kind: "held", pid: holder };
       }
       try {
         unlinkSync(gatePath);
@@ -323,25 +313,19 @@ export function socketServeState(
   });
 }
 
-/** @deprecated prefer {@link socketServeState} — true only when actively serving */
-export async function socketIsServing(socketPath: string): Promise<boolean> {
-  return (await socketServeState(socketPath)) === "serving";
-}
-
 /**
- * After {@link acquirePidGate} returns `held` on a **one-field** (legacy) gate,
- * distinguish socket state for the status-quo pid-reuse fence:
+ * After {@link acquirePidGate} returns `held`, apply the one-field (legacy)
+ * socket fence — or skip it when the gate file is two-field:
+ *   - **two-field** → identity is truth; keep held (never reclaim on socket)
  *   - socket **serving** → real daemon, keep held
  *   - socket **absent** → holder still booting (gate-first fence); keep held
- *   - socket **dead** → stale gate (reboot PID reuse / crashed daemon); reclaim
+ *   - socket **dead** → stale one-field gate (reboot PID reuse / crash); reclaim
  *
- * Two-field holders must NOT pass through this reclaim path: identity is the
- * truth, and a mid-boot two-field holder (gate written, socket not yet up) is
- * still the right process. Callers should skip this when
- * `held.hasStartTime === true`.
- *
- * Reclaiming on "absent" would race a legitimate gate-first boot and let a
- * second process past the single-instance fence (the F12 regression).
+ * Generation is re-read from the gate file (the source of truth) — not carried
+ * as a flag on `held`. Reclaiming on "absent" would race a legitimate
+ * gate-first boot and let a second process past the single-instance fence
+ * (the F12 regression). Prefer {@link claimPidGate} at call sites: it composes
+ * acquire + this confirm so the sequence is not a convention.
  */
 export async function confirmHeldGate(
   held: Extract<GateAcquisition, { kind: "held" }>,
@@ -350,8 +334,9 @@ export async function confirmHeldGate(
   self: ProcessIdentity,
   readProcessIdentity: ReadProcessIdentity,
 ): Promise<GateAcquisition> {
-  // Two-field match: identity is truth — never reclaim on socket state.
-  if (held.hasStartTime) return held;
+  // Two-field: identity is truth — never reclaim on socket state.
+  const read = readGateIdentity(gatePath);
+  if (read.kind === "ok" && read.startUnixUs !== undefined) return held;
 
   const state = await socketServeState(socketPath);
   if (state !== "dead") return held;
@@ -361,4 +346,21 @@ export async function confirmHeldGate(
     // Peer already reaped — fall through to re-acquire.
   }
   return acquirePidGate(gatePath, self, readProcessIdentity);
+}
+
+/**
+ * Full single-instance claim: atomic {@link acquirePidGate}, then
+ * {@link confirmHeldGate} when held. One named sequence for every composition
+ * root (daemonMain, padi's pre-side-effect claim) so the acquire→confirm
+ * ordering is not a call-site convention.
+ */
+export async function claimPidGate(
+  gatePath: string,
+  socketPath: string,
+  self: ProcessIdentity,
+  readProcessIdentity: ReadProcessIdentity,
+): Promise<GateAcquisition> {
+  const gate = acquirePidGate(gatePath, self, readProcessIdentity);
+  if (gate.kind !== "held") return gate;
+  return confirmHeldGate(gate, gatePath, socketPath, self, readProcessIdentity);
 }

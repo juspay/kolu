@@ -15,8 +15,7 @@
 
 import { dirname } from "node:path";
 import {
-  acquirePidGate,
-  confirmHeldGate,
+  claimPidGate,
   type DaemonExit,
   type DaemonBuildIdentity,
   type DaemonLifetimeInfo,
@@ -150,7 +149,7 @@ export interface PadiDaemonOptions {
 // compiler-checked edge; the win is that those setters are grouped into one phase
 // instead of scattered across the boot the way they used to be.
 
-/** Padi's HELD single-instance gate — the `acquired` arm of `acquirePidGate`,
+/** Padi's HELD single-instance gate — the `acquired` arm of `claimPidGate`,
  *  narrowed past the `held` / `dir-not-private` exits. Threaded into every boot phase
  *  that must run UNDER the gate, so a phase reachable before the claim would not
  *  type-check (the loser of a state-root race can't clobber the winner's disk). */
@@ -419,30 +418,27 @@ export async function runPadiDaemon(
       `osfacts could not resolve this padi process (${process.pid})`,
     );
   }
-  let gate = acquirePidGate(home.gatePath, selfIdentity, readProcessIdentity);
-  if (gate.kind === "held") {
-    gate = await confirmHeldGate(
-      gate,
-      home.gatePath,
-      home.socketPath,
-      selfIdentity,
-      readProcessIdentity,
-    );
-  }
-  if (gate.kind === "held") {
+  const claimed = await claimPidGate(
+    home.gatePath,
+    home.socketPath,
+    selfIdentity,
+    readProcessIdentity,
+  );
+  if (claimed.kind === "held") {
     log.info(
-      { gatePath: home.gatePath, pid: gate.pid },
+      { gatePath: home.gatePath, pid: claimed.pid },
       "padi already running for this state-root; yielding to the live instance",
     );
-    return { kind: "already-running", pid: gate.pid };
+    return { kind: "already-running", pid: claimed.pid };
   }
-  if (gate.kind === "dir-not-private") {
+  if (claimed.kind === "dir-not-private") {
     log.error(
-      { gatePath: home.gatePath, dir: gate.dir },
+      { gatePath: home.gatePath, dir: claimed.dir },
       "padi gate directory is not private (owner-only); refusing to start",
     );
     return { kind: "serve-failed", detail: "dir-not-private" };
   }
+  const gate = claimed;
 
   // Gate → stores → identity: each phase takes the prior's token, so none can run
   // before the gate is claimed above (a lost gate-race returns before reaching here).

@@ -20,7 +20,7 @@ function createEndpoint<C, I, M = undefined>(
 ) {
   return createEndpointCore({
     ...spec,
-    readProcessIdentity: async (pid) =>
+    readProcessIdentity: (pid) =>
       isHolderLive(pid) ? { pid, startUnixUs: startTime(pid) } : undefined,
   });
 }

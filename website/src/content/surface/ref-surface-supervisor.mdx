@@ -45,7 +45,7 @@ It is generic over the client `C` and identity `I`.
 
 | Export | Role |
 | --- | --- |
-| `createEndpoint({ home, readProcessIdentity, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths`; `readProcessIdentity` is required (async OS fact reader for two-field gate identity) |
+| `createEndpoint({ home, readProcessIdentity, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths`; `readProcessIdentity` is the same sync inject as the daemon half (`ReadProcessIdentity`) for two-field gate identity |
 | `destructiveRecycleSteps()` | named no-preservation steps for fail-closed recycle (all steps still required) |
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
 | `recycle(endpoint, steps)` · `serializeRestart(endpoint)` | `recycle` is the composed `capture → drain → recycle → reattach` sequence; `serializeRestart` returns a single-flight `triggerRestart` wrapper |

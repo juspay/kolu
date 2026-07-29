@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     home: HOME, // SAME home declaration as the daemon — disagreement impossible
-    readProcessIdentity: async (pid) => readProcessIdentity(pid),
+    readProcessIdentity,
     policy: {
       capability: "not-drainable",
       baked: {

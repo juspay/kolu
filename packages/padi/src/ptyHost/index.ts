@@ -250,7 +250,7 @@ export async function ensureLocalEndpoint(opts: {
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: encodeHostLocation(LOCAL_LOCATION),
     home,
-    readProcessIdentity: async (pid) => processIdentity(osfactsBinPath(), pid),
+    readProcessIdentity: (pid) => processIdentity(osfactsBinPath(), pid),
     policy: kavalConvergencePolicy(),
     probe: (socketPath) => probeKavalForConvergence(socketPath),
     driver: localKavalDriver(home.socketPath),

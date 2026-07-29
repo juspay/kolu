@@ -34,8 +34,9 @@ import {
   identitiesMatch,
   isHolderLive,
   type Logger,
-  type ProcessIdentity,
+  type ReadProcessIdentity,
   readGateIdentity,
+  socketServeState,
 } from "@kolu/surface-daemon";
 import type {
   BindResult,
@@ -300,10 +301,10 @@ export interface EndpointSpec<
   /**
    * Resolve a PID to its current start-qualified identity. Required — the
    * endpoint compares start-qualified identities for two-field gates and never
-   * performs platform process traversal itself. Async so an osfacts-backed
-   * reader can await without blocking the event loop on every status poll.
+   * performs platform process traversal itself. Same sync inject as the daemon
+   * half's {@link ReadProcessIdentity} (osfacts reads are sync today; one type).
    */
-  readProcessIdentity(pid: number): Promise<ProcessIdentity | undefined>;
+  readProcessIdentity: ReadProcessIdentity;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -421,14 +422,9 @@ function waitForSocket(
  *  (no polling) and immediately closes — the recycle path uses it to prove a
  *  live gate-pid is actually the daemon (its socket answers) before SIGTERMing
  *  it, so a stale gate over a reused pid can't make us kill a stranger. */
+/** Boolean projection of {@link socketServeState} — one probe, two granularities. */
 function socketAccepting(socketPath: string): Promise<boolean> {
-  return dialSocket(socketPath).then(
-    (sock) => {
-      sock.destroy();
-      return true;
-    },
-    () => false,
-  );
+  return socketServeState(socketPath).then((s) => s === "serving");
 }
 
 /** The OS holders of `socketPath`, EXCLUDING the supervisor's own process. The
@@ -573,7 +569,7 @@ export function createEndpoint<
     if (recorded.kind !== "ok") return undefined;
 
     if (recorded.startUnixUs !== undefined) {
-      const current = await spec.readProcessIdentity(recorded.pid);
+      const current = spec.readProcessIdentity(recorded.pid);
       if (
         current === undefined ||
         !identitiesMatch(

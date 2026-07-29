@@ -99,11 +99,7 @@ describeDaemon("acquirePidGate", () => {
     writeFileSync(path, `${other.pid}\t${other.startUnixUs}\n`);
 
     const gate = acquirePidGate(path, SELF, readIdentity);
-    expect(gate).toEqual({
-      kind: "held",
-      pid: otherPid,
-      hasStartTime: true,
-    });
+    expect(gate).toEqual({ kind: "held", pid: otherPid });
     expect(readFileSync(path, "utf8").trim()).toBe(
       `${other.pid}\t${other.startUnixUs}`,
     );
@@ -115,11 +111,7 @@ describeDaemon("acquirePidGate", () => {
     writeFileSync(path, `${otherPid}\n`);
 
     const gate = acquirePidGate(path, SELF, readIdentity);
-    expect(gate).toEqual({
-      kind: "held",
-      pid: otherPid,
-      hasStartTime: false,
-    });
+    expect(gate).toEqual({ kind: "held", pid: otherPid });
     // gatePid still yields the pid so recycle can SIGTERM (the #2011 fix).
     expect(gatePid(path)).toBe(otherPid);
   });
