@@ -35,6 +35,8 @@ them is in [The daemon spine](/surface/the-daemon-spine).
 | Rule | Statement |
 | --- | --- |
 | Version-agnostic control core | Identity is read over a version-agnostic channel, *before* the versioned handshake, so it stays reachable at a skew. |
+| One probe assembly authority | `probeDaemonIdentityFrom` turns an already-dialed control-core client plus its exit oracle into the complete convergence probe. The socket-path `probeDaemonIdentity` delegates to it; transports do not reconstruct identity or drain fields themselves. |
+| Link loss is not exit | A connector's exit oracle must prove the daemon process exited. A closed transport alone never becomes the stronger `ClosedInfo.kind === "exit"` fact. |
 | Contracts are ordered | Contract versions are ordered — `contractIsCompatible` / `contractIsNewer` reuse `@kolu/surface`'s predicate. |
 | Builds are match-only | Build ids are match-only, with no ordering exported — store hashes do not order. |
 | Honest absence | `readBakedIdentity` returns empty strings off-nix rather than inventing an identity. |

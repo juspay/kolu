@@ -21,9 +21,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  pinPreviousShapeRecovery,
+  plantYesterdayDaemon,
+} from "@kolu/surface-daemon/upgrade-window.testlib";
 import { openPadiStateStores } from "../session/stateStore.ts";
 import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
-import { plantYesterdayDaemon } from "./yesterdayDaemon.fixture.testlib.ts";
+import { padiYesterdayDaemonOptions } from "./yesterdayDaemon.fixture.testlib.ts";
 
 /** A pre-discriminant, pre-location, pre-remoteUrl session — the shape a
  *  session saved before those schema bumps would have on disk. Every field
@@ -61,11 +65,13 @@ function previousShapeSession() {
 
 describe("old session file under new padi (upgrade-window)", () => {
   it("openPadiStateStores keeps a previous-shape session present (never silently empty)", async () => {
-    const d = await plantYesterdayDaemon({
-      session: previousShapeSession(),
-      withSocket: false,
-      gate: { kind: "absent" },
-    });
+    const d = await plantYesterdayDaemon(
+      padiYesterdayDaemonOptions({
+        session: previousShapeSession(),
+        withSocket: false,
+        gate: { kind: "absent" },
+      }),
+    );
     try {
       const stores = openPadiStateStores(d.stateRoot as string);
       const session = stores.session.get();
@@ -85,22 +91,23 @@ describe("old session file under new padi (upgrade-window)", () => {
   });
 
   it("backfillSavedSession + parse RESTORES a known previous shape (named recovery)", () => {
-    const previous = previousShapeSession();
-    // Without backfill, current schema rejects the blob (missing state/location/…).
-    expect(() => SavedSessionSchema.parse(previous)).toThrow();
-
-    const recovered = SavedSessionSchema.parse(backfillSavedSession(previous));
-    expect(recovered.terminals).toHaveLength(1);
-    const t = recovered.terminals[0];
-    expect(t).toMatchObject({
-      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      state: "active",
-      location: { kind: "local" },
-      cwd: "/home/user/project",
+    pinPreviousShapeRecovery({
+      previous: previousShapeSession(),
+      irrecoverable: { terminals: "not-an-array", savedAt: "nope" },
+      recover: backfillSavedSession,
+      parse: (value) => SavedSessionSchema.parse(value),
+      assertRecovered: (recovered) => {
+        expect(recovered.terminals).toHaveLength(1);
+        expect(recovered.terminals[0]).toMatchObject({
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          state: "active",
+          location: { kind: "local" },
+          cwd: "/home/user/project",
+        });
+        expect(recovered.activeTerminalId).toBeNull();
+        expect(recovered.savedAt).toBe(1_700_000_000_000);
+      },
     });
-    // activeTerminalId defaulted from the omitted key.
-    expect(recovered.activeTerminalId).toBeNull();
-    expect(recovered.savedAt).toBe(1_700_000_000_000);
   });
 
   it("irrecoverable garbage REFUSES by name (throws) — never collapses to empty", () => {

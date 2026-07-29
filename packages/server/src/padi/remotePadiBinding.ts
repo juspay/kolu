@@ -37,7 +37,7 @@ import {
   convergeAdmit,
   createConnectorDrainBudget,
   daemonBuild,
-  instanceKeyFromStartedAt,
+  probeDaemonIdentityFrom,
 } from "@kolu/surface-daemon-supervisor";
 import {
   type Admit,
@@ -351,6 +351,7 @@ export function ensureRemotePadiBinding(
   // post-connect `admit` + `renew` can reach `control.core.hello`/`.drain`. The
   // SESSION's client is the padi-SCOPED view; both are one connection.
   let combined: PadiDaemonClient | null = null;
+  let combinedDispose: (() => void) | null = null;
   // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null`.
   // Separate axis from convergence (drv resolution fails before admit runs).
   let drvFaultCause: DrvFaultCause | null = null;
@@ -431,6 +432,7 @@ export function ensureRemotePadiBinding(
   const rawConnector: Connector<PadiSurfaceClient, SshProv> = async (ctx) => {
     const conn = await inner(ctx);
     combined = conn.client;
+    combinedDispose = conn.teardown;
     processExit = conn.closed.then((info) => {
       if (info.kind !== "exit") {
         // Keep the oracle unsettled so awaitExit only resolves on ceiling abort.
@@ -482,7 +484,7 @@ export function ensureRemotePadiBinding(
     );
   }
 
-  // ── The admit hook: control-core hello → convergeAdmit ─────────────────────
+  // ── The admit hook: framework probe → convergeAdmit ────────────────────────
   // No raw decide(), no admitDrain, no convergeNewerContract / convergeBuildMismatch —
   // the framework owns the decision table, budget, race, and cross-supervisor memory.
   const admit: Admit<PadiSurfaceClient> = async (): Promise<AdmitVerdict> => {
@@ -491,8 +493,19 @@ export function ensureRemotePadiBinding(
       // The connector always stashes before admit runs; a null here is a real bug.
       throw new Error("remote padi admit: no combined client stashed");
     }
-    const hello = await c.surface.control.core.hello();
-    const runningBuild = hello.buildId ?? "";
+    const dispose = combinedDispose;
+    if (dispose === null) {
+      throw new Error("remote padi admit: no transport disposer stashed");
+    }
+    const probe = await probeDaemonIdentityFrom({
+      client: c,
+      dispose,
+      capability: "drainable",
+      awaitExit: awaitExitViaProcessOracle,
+      drainCeilingMs,
+    });
+    const runningBuild =
+      probe.identity.build.kind === "known" ? probe.identity.build.id : "";
 
     // Preserve the #1670 build-change breadcrumb when a build-axis drain fires —
     // the VM adoption arm greps this string. Logged here (before convergeAdmit)
@@ -500,14 +513,13 @@ export function ensureRemotePadiBinding(
     // generic line too.
     const verdict = await convergeAdmit({
       running: {
-        contractVersion: hello.surfaceVersion,
-        build: daemonBuild(runningBuild),
-        instanceKey: instanceKeyFromStartedAt(hello.startedAt),
+        ...probe.identity,
+        instanceKey: probe.instanceKey,
       },
       budget,
-      drain: () => c.surface.control.core.drain(),
-      awaitExit: awaitExitViaProcessOracle,
-      ceilingMs: drainCeilingMs,
+      drain: probe.fireDrain,
+      awaitExit: probe.awaitExit,
+      ceilingMs: probe.drainCeilingMs,
       log: log.child({ host }),
     });
 
@@ -588,6 +600,7 @@ export function ensureRemotePadiBinding(
         detail: s.error,
       };
       combined = null;
+      combinedDispose = null;
     } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the
       // next handshake); only a previously-healthy bind clears to null.
@@ -595,6 +608,7 @@ export function ensureRemotePadiBinding(
         convergence = null;
       }
       combined = null;
+      combinedDispose = null;
     }
   });
 

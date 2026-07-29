@@ -1516,6 +1516,9 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -1535,6 +1538,9 @@ importers:
 
   packages/surface-daemon-supervisor:
     dependencies:
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
       '@kolu/surface-daemon':
         specifier: workspace:*
         version: link:../surface-daemon

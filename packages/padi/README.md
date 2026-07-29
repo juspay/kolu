@@ -58,8 +58,9 @@ The package graduated to a **process**: `package = process = restart-hash`.
   workspace — and the daemon reaps itself (the spine's `anchor-gone` self-exit,
   kaval alike via its manifest) instead of leaking forever, and the kolu-server
   binder treats the gone root as terminal rather than respawning into it.
-- **The frozen control core** (`./surface`'s `padiControlSurface`, served in
-  `./controlCore`) — hello · version · drain · clock.now — is served BESIDE
+- **The frozen control core** (`@kolu/surface-daemon`'s identity/drain fragment,
+  extended by `./surface`'s padi-only version + clock members) — hello · version
+  · drain · clock.now — is served BESIDE
   `padiSurface` (sibling key `control`), so a binder reaches it even when
   `padiSurface` is version-skewed. It never versions.
 

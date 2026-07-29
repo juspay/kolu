@@ -141,7 +141,7 @@ export type PadiConnection = DaemonConnection<
  *  the CALLER's — this only opens the link and reads identity. Shared by
  *  {@link connectPadi} (which applies the `isContractVersionCompatible` gate, then
  *  holds or refuses) and the binder's convergence probe
- *  (`probePadiForConvergence`, which reads identity for padi's `ConvergencePolicy`
+ *  (`probeDaemonIdentity`, which reads identity for padi's `ConvergencePolicy`
  *  to drain or leave be). */
 export type PadiDial = {
   socket: Awaited<ReturnType<typeof dialSocket>>;

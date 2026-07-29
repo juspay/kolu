@@ -16,7 +16,7 @@
  * handshake + typed skew refusal) is imported from `@kolu/padi/dial`: W2.3 carved
  * it into padi's package as the client-side dial kit `padi-tui` shares. And padi's
  * CONVERGENCE declaration into the shared daemon-convergence kit
- * ({@link padiConvergencePolicy}, the FROZEN-control-core {@link probePadiForConvergence}
+ * ({@link padiConvergencePolicy} plus the framework's frozen-control-core probe
  * probe, and the drain plumbing) lives in `./padiConvergence.ts`: W4 ledger L6 carved it
  * out because it varies with daemon-lifecycle skew policy, a different volatility than the
  * binder. What stays HERE is the binder proper — the parts that spawn/supervise/re-serve:
@@ -66,12 +66,14 @@ import {
 } from "@kolu/surface-daemon";
 import {
   buildLabel,
+  type ConvergenceProbe,
   type ConvergenceOutcome,
   converge,
   createEndpoint,
   type DaemonDriver,
   isDownEndpointState,
   outcomeAnomaly,
+  probeDaemonIdentity,
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -92,8 +94,8 @@ import { log } from "../log.ts";
 // varies with daemon-lifecycle skew policy, a different volatility than the binder.
 import {
   drainViaControlCore,
+  PADI_DRAIN_TEARDOWN_CEILING_MS,
   padiConvergencePolicy,
-  probePadiForConvergence,
 } from "./padiConvergence.ts";
 import { asPadiSession, type PadiSession } from "./padiSession.ts";
 
@@ -380,7 +382,7 @@ export interface EnsurePadiBindingOptions {
  * driver / connect — never a public override knob.
  */
 export type PadiBindingDeps = {
-  probe: (socketPath: string) => ReturnType<typeof probePadiForConvergence>;
+  probe: (socketPath: string) => Promise<ConvergenceProbe<"drainable"> | null>;
   driver: DaemonDriver;
   connect: (socketPath: string) => ReturnType<typeof connectPadi>;
   policy: ReturnType<typeof padiConvergencePolicy>;
@@ -563,7 +565,10 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   const binderBuildId = currentPadiBuildId();
   return ensurePadiBindingWith(opts, {
     policy: padiConvergencePolicy(binderBuildId),
-    probe: (socketPath) => probePadiForConvergence(socketPath),
+    probe: probeDaemonIdentity({
+      capability: "drainable",
+      drainCeilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS,
+    }),
     driver: null, // resolved after home is known
     connect: (path) => connectPadi(path),
   });

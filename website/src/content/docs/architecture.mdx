@@ -422,7 +422,9 @@ _out_. The map, grouped:
   lifetime is the calling process's own.
 - **The framework** — [`surface`](/surface) (typed reactive `Cell` / `Collection`
   / `Stream` / `Event` + SolidJS hooks), `surface-remote` (the ssh mirror),
-  `surface-daemon` (the durable-daemon spine), and its supervisor half.
+  `surface-daemon` (the durable-daemon spine, frozen identity/drain fragment,
+  and mixed-version test kit), and its supervisor half (including the one
+  control-core probe assembler used by socket and already-dialed transports).
 - **Terminal machinery** — `xterm-kit` hides xterm.js's hazards (the pinned
   `_core` internals, in-place scrollback surgery, scroll-lock write buffering,
   mirror anchoring) behind a runtime-neutral core plus a `/solid` adapter, with

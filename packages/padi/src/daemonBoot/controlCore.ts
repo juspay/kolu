@@ -11,14 +11,17 @@
  * versions, the one call you need at a version mismatch is always reachable.
  */
 
-import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
+import { inMemoryStore } from "@kolu/surface/server";
+import { controlCoreFragment } from "@kolu/surface-daemon";
 import {
   CONTROL_CORE_VERSION,
   PADI_SURFACE_VERSION,
   type padiControlSurface,
 } from "../surface.ts";
 
-type ControlCoreDeps = ImplementSurfaceDeps<typeof padiControlSurface.spec>;
+type ControlCoreDeps = import("@kolu/surface/server").ImplementSurfaceDeps<
+  typeof padiControlSurface.spec
+>;
 
 /** Assemble the control-core server deps. `stateRoot` is padi's identity (echoed
  *  by `hello`); `startedAt` is padi's boot time (ms epoch), stamped once at daemon
@@ -36,6 +39,10 @@ export function buildControlCoreDeps(deps: {
   buildId: string;
   onDrain: () => void | Promise<void>;
 }): ControlCoreDeps {
+  const fragment = controlCoreFragment({
+    ...deps,
+    surfaceVersion: PADI_SURFACE_VERSION,
+  });
   return {
     cells: {
       // The frozen control-core version — a read-only build constant.
@@ -45,21 +52,8 @@ export function buildControlCoreDeps(deps: {
     },
     procedures: {
       core: {
-        hello: () => ({
-          stateRoot: deps.stateRoot,
-          surfaceVersion: PADI_SURFACE_VERSION,
-          controlCoreVersion: CONTROL_CORE_VERSION,
-          startedAt: deps.startedAt,
-          commit: deps.commit,
-          buildId: deps.buildId,
-        }),
+        ...fragment.procedures.core,
         controlVersion: () => ({ controlCoreVersion: CONTROL_CORE_VERSION }),
-        // Persist + exit. Await the caller's drain (a final session flush) BEFORE
-        // returning, so the socket close the binder observes truly follows the
-        // save — not a race where the process dies mid-write.
-        drain: async () => {
-          await deps.onDrain();
-        },
         clockNow: () => ({ epochMs: Date.now() }),
       },
     },

@@ -6,21 +6,26 @@ that owns a unix socket and serves a typed [`@kolu/surface`](../surface) repeats
 skeleton (`daemonMain`), a lifetime policy, and a bin half (`daemonProcessMain`)
 that owns the process exit. **Front it** over ssh-stdio so a
 remote session outlives the link (`frontDaemonOverStdio`). Plus the shared
-daemon-identity recipe (`readBakedIdentity`). A zero-`kolu-*`-dependency package;
+daemon-identity recipe (`readBakedIdentity`), the frozen identity/drain fragment
+(`controlCoreFragment`), and a dependency-free mixed-version test kit at
+`./upgrade-window.testlib`. A zero-`kolu-*`-dependency package;
 the client half lives in [`@kolu/surface-daemon-supervisor`](../surface-daemon-supervisor).
 
 ```ts
 import {
-  daemonHome, daemonMain, daemonProcessMain, stderrLogger,
+  controlCoreFragment, daemonHome, daemonMain, daemonProcessMain, stderrLogger,
 } from "@kolu/surface-daemon";
 
 const home = daemonHome({ app: "my-daemon", placement: "state" });
+const control = controlCoreFragment({
+  stateRoot, surfaceVersion: CONTRACT_VERSION, startedAt, commit, buildId, onDrain,
+});
 daemonProcessMain({
   name: "my-daemon",
   run: () => daemonMain({
     gatePath: home.gatePath,
     socketPath: home.socketPath,
-    router,
+    router: implementSurface(surface, { ...control, ...appDeps }).router,
     lifetime: { kind: "forever" },
     anchor: () => home.dir,
     log: stderrLogger(),

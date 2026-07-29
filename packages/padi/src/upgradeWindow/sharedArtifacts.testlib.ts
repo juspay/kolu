@@ -1,14 +1,7 @@
 /**
- * Inventory of every on-disk artifact BOTH daemon generations touch across a
- * mixed-version window (old kaval / new padi, or the reverse). The watchdog
- * asserts two things:
- *
- *   1. Coverage — every non-log inventory entry has a covering mixed-version
- *      test OR an explicit version field.
- *   2. Grounding — after real daemons boot, every non-log file present under
- *      the runtime dir + state-root matches an inventory entry. An unknown
- *      file is red with instructions (the hand-list-only miss this suite
- *      exists to catch).
+ * Kolu's data-only registry of every on-disk artifact both daemon generations
+ * touch. Generic matching, sweeping, messaging, and watchdog logic lives in
+ * `@kolu/surface-daemon/upgrade-window.testlib`.
  *
  * Keep this list the single source of truth. When you invent a new path both
  * builds read or write under the state-root / runtime rendezvous, ADD IT HERE
@@ -16,10 +9,6 @@
  * test or declare its version field.
  */
 
-import { readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
-// Type lives in @kolu/surface-daemon (UW0) so daemonHome can emit registry
-// entries by construction; the matchers/sweep stay here until UW2.
 export type { SharedArtifact } from "@kolu/surface-daemon";
 import type { SharedArtifact } from "@kolu/surface-daemon";
 
@@ -68,6 +57,16 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     diskBasenames: ["padi.pid"],
     diskBasenamePatterns: [],
     why: "Padi's own single-instance gate — same file format as kaval's, same foreign-gate disposition.",
+  },
+  {
+    id: "padi-supervisor-gate",
+    pathShape: "$XDG_RUNTIME_DIR/padi-<digest>/supervisor.pid",
+    role: "gate",
+    coveredByTest: "recycleForeignGate.test.ts",
+    versionField: null,
+    diskBasenames: ["supervisor.pid"],
+    diskBasenamePatterns: [],
+    why: "The kolu-server ownership claim sits beside padi.pid; old and new supervisors must agree on its pid-gate disposition.",
   },
   {
     id: "padi-socket",
@@ -151,106 +150,3 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     why: "Crash-catcher stderr — not a protocol surface.",
   },
 ] as const;
-
-/** Every exact on-disk basename the inventory lists (log + non-log). */
-export function knownDiskBasenames(): Set<string> {
-  const s = new Set<string>();
-  for (const a of SHARED_ARTIFACTS) {
-    for (const b of a.diskBasenames) s.add(b);
-  }
-  return s;
-}
-
-/** Does `name` (basename or relative path) match any inventory entry? */
-export function matchesInventory(name: string): boolean {
-  const base = basename(name);
-  if (knownDiskBasenames().has(base) || knownDiskBasenames().has(name)) {
-    return true;
-  }
-  for (const a of SHARED_ARTIFACTS) {
-    for (const re of a.diskBasenamePatterns) {
-      if (re.test(base) || re.test(name)) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Is this name a diagnostic log (or a rotate sibling)? Inventory log entries
- * + a conservative `.log` / `.log.N` / `.log.old` heuristic.
- */
-export function isLogName(name: string): boolean {
-  const base = basename(name);
-  for (const a of SHARED_ARTIFACTS) {
-    if (a.role !== "log") continue;
-    if (a.diskBasenames.includes(base)) return true;
-    for (const re of a.diskBasenamePatterns) {
-      if (re.test(base) || re.test(name)) return true;
-    }
-  }
-  if (base.endsWith(".log") || base.endsWith(".log.old")) return true;
-  if (/^[\w.-]+\.log\.\d+$/.test(base)) return true;
-  return false;
-}
-
-/** Recursively list relative file paths under `root` (files + sockets). */
-export function listRelativeFilesUnder(root: string): string[] {
-  const out: string[] = [];
-  const walk = (dir: string, rel: string): void => {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      return;
-    }
-    for (const name of entries) {
-      const p = join(dir, name);
-      const r = rel ? `${rel}/${name}` : name;
-      let st: ReturnType<typeof statSync>;
-      try {
-        st = statSync(p);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) walk(p, r);
-      else if (st.isFile() || st.isSocket()) out.push(r);
-    }
-  };
-  walk(root, "");
-  return out;
-}
-
-/**
- * Ground the inventory against a live runtime dir + state-root: every non-log
- * file found must match an inventory entry (exact basename or pattern).
- * Unknown protocol files fail with instructions. Returns the list of unknown
- * relative paths (empty = ok) so callers can `expect(unknown).toEqual([])`.
- */
-export function unknownProtocolFilesOnDisk(
-  runtimeRoot: string,
-  stateRoot: string,
-): string[] {
-  const found = [
-    ...listRelativeFilesUnder(runtimeRoot),
-    ...listRelativeFilesUnder(stateRoot),
-  ];
-  const unknown: string[] = [];
-  for (const name of found) {
-    if (isLogName(name)) continue;
-    if (matchesInventory(name)) continue;
-    unknown.push(name);
-  }
-  return unknown.sort();
-}
-
-/** Human-readable failure message for an unknown on-disk shared file. */
-export function unknownSharedFileMessage(unknown: string[]): string {
-  return (
-    `Unknown shared on-disk artifact(s) under the daemon runtime/state-root:\n` +
-    unknown.map((u) => `  - ${u}`).join("\n") +
-    `\n\nAdd an entry to SHARED_ARTIFACTS in sharedArtifacts.testlib.ts with ` +
-    `diskBasenames: ["${unknown[0] ?? "…"}"] (and a covering mixed-version ` +
-    `test or versionField). A new shared file without either is the miss this ` +
-    `watchdog exists to catch.`
-  );
-}

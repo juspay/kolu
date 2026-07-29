@@ -43,6 +43,12 @@ export {
 } from "./endpointStates.ts";
 export { dialSocket } from "./dialSocket.ts";
 export {
+  type ControlCoreProbeClient,
+  probeDaemonIdentity,
+  probeDaemonIdentityFrom,
+  type ProbeDaemonIdentityFromOptions,
+} from "./probeDaemonIdentity.ts";
+export {
   type DaemonDriver,
   type DaemonSpawnConfig,
   scrubDaemonNodeOptions,

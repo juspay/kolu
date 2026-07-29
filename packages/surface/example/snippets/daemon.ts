@@ -9,11 +9,13 @@
  */
 
 import {
+  controlCoreFragment,
   daemonHome,
   daemonMain,
   daemonProcessMain,
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
+  readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
 import { router as serveRouter } from "./serve";
@@ -28,6 +30,24 @@ const home = daemonHome({ app: "fleet-top", placement: "state" });
 // oRPC's `Lazy<Router>` spread isn't accepted by the strict `Router<any, any>`
 // input type; the runtime shape is valid (the same cast the fleet-top daemon uses).
 const router = serveRouter as Parameters<typeof daemonMain>[0]["router"];
+
+// #region control-core
+// Serve these deps beside the versioned application surface. `hello` remains
+// readable even when that application contract is skewed; `drain` waits for the
+// daemon's own persistence/shutdown hook.
+export function controlCore(controller: AbortController) {
+  return controlCoreFragment({
+    stateRoot: home.dir,
+    surfaceVersion: "1.0",
+    startedAt: Date.now(),
+    commit: readIdentity.navigableCommit,
+    buildId: readIdentity.staleKey,
+    onDrain: () => controller.abort(),
+  });
+}
+// #endregion control-core
+
+const readIdentity = readBakedIdentity("FLEET_TOP");
 
 // The example surface's flattened router — the same `router` a browser or a
 // unix-socket client reaches; the daemon just serves it durably.

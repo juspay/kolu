@@ -22,7 +22,7 @@ import {
   createEndpoint,
   type DaemonConnection,
   dialSocket,
-  type PlainProbe,
+  probeDaemonIdentity,
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -101,7 +101,7 @@ export async function bootSupervisor(): Promise<void> {
     hostId: "local",
     home, // SAME call as the daemon — disagreement impossible
     policy,
-    probe: () => probeIdentity(home.socketPath),
+    probe: probeDaemonIdentity({ capability: "not-drainable" }),
     driver: survivableSpawnDriver({
       binPath: daemonEntry,
       args: [],
@@ -141,16 +141,3 @@ const baked: ConvergenceIdentity = {
   contractVersion: "1.0",
   build: daemonBuild(readBakedIdentity("FLEET_TOP").staleKey),
 };
-
-// Read the running daemon's identity over a version-agnostic channel, so a skew
-// can't hide it. A daemon with no drain verb yields a `not-drainable` probe.
-async function probeIdentity(socketPath: string): Promise<PlainProbe | null> {
-  const socket = await dialSocket(socketPath);
-  return {
-    capability: "not-drainable",
-    identity: baked,
-    // Absent startedAt on a not-drainable probe still names pre-instance.
-    instanceKey: { kind: "pre-instance" },
-    dispose: () => socket.destroy(),
-  };
-}

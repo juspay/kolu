@@ -17,18 +17,16 @@ export interface SharedArtifact {
   /** What the file is for. */
   role: "gate" | "socket" | "session" | "config" | "manifest" | "log";
   /**
-   * Basename of a covering mixed-version test. `null` means either
-   * (a) `versionField` is set (version-skew is structural — no separate test),
-   * or (b) coverage is still pending. Framework-emitted entries from
-   * `daemonHome` start as (b) — both fields `null` — until UW2's inventory
-   * attaches a test or version field. The dual-null case is intentional for
-   * progressive registration, not an ambiguous product state.
+   * Basename of a covering mixed-version disposition test. A `versionField`
+   * never replaces this test: the suite must plant version+1 and observe a
+   * typed reader state rather than silence. Framework-emitted `daemonHome`
+   * entries begin `null` until a consumer registry attaches coverage.
    */
   coveredByTest: string | null;
   /**
-   * When non-null, the artifact embeds this named version field (no separate
-   * mixed-version test required — a version-skew is structural). See
-   * `coveredByTest` for the dual-null progressive-registration case.
+   * When non-null, the artifact embeds this named version field. This records
+   * the structural discriminator; `coveredByTest` still names the disposition
+   * proof for an unknown future version.
    */
   versionField: string | null;
   /**

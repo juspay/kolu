@@ -40,8 +40,9 @@
  *
  * Beside the surface, the frozen {@link padiControlSurface} (hello · version ·
  * drain · clock.now) — version-agnostic, never versions, served for real in
- * W2.2. It lives HERE (not `@kolu/surface-daemon`) and graduates only if a
- * second daemon ever adopts it (electricity test ③: proof before extraction).
+ * W2.2. Its universal hello/drain fragment now comes from
+ * `@kolu/surface-daemon`; padi extends that wire with its frozen legacy
+ * `version` and `clock.now` members.
  *
  * BROWSER-SAFE face: like `koluSurface` this imports
  * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
@@ -59,6 +60,12 @@ import {
   defineSurfaceWithPolicy,
   type SurfaceTypes,
 } from "@kolu/surface/define";
+import {
+  CONTROL_CORE_VERSION,
+  type ControlCoreHello,
+  ControlCoreHelloSchema,
+  controlCoreProcedureSpec,
+} from "@kolu/surface-daemon";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsFileInputSchema,
@@ -1178,50 +1185,14 @@ export function padiMemberKeys(): string[] {
  *  (persist + exit; PTYs survive in kaval) and spawns its own newer closure, so
  *  two binders at different `padiSurface` versions converge rather than
  *  livelock, and no path ever kill-9s a padi. */
-export const CONTROL_CORE_VERSION = "1.0";
+export { CONTROL_CORE_VERSION };
 
 /** `hello` — the identity handshake a binder reads first: who this padi is and
  *  what `padiSurface` version it serves. Version-agnostic (part of the frozen
  *  core), so a skewed binder still learns the running version to decide
  *  upgrade-me vs drain-you. */
-export const PadiHelloSchema = z.object({
-  /** The padi's identity — its state-root (the `(host, state-root)` identity). */
-  stateRoot: z.string(),
-  /** The `padiSurface` `major.minor` this padi serves (e.g. "1.0"). */
-  surfaceVersion: z.string(),
-  /** The frozen control-core version this padi speaks (always "1.0" today). */
-  controlCoreVersion: z.string(),
-  /** padi's boot time (ms epoch), stamped once at daemon init — the binder reads
-   *  it for HONEST uptime (never `Date.now()` at dial time, which would reset the
-   *  age on every reconnect). Additive to the frozen core's initial served shape
-   *  (the core has never shipped served), so `CONTROL_CORE_VERSION` stays "1.0". */
-  startedAt: z.number(),
-  /** padi's navigable git commit (`PADI_COMMIT_HASH`) — the RUNNING padi's build,
-   *  which the binder surfaces as the Padi dialog's "build commit" (mirroring the
-   *  Kaval dialog's, whose commit rides kaval's `system.version.identity`). padi's
-   *  socket serves no `system.version`-style member, so the hello is padi's identity
-   *  channel; the binder already reads it. Additive like `startedAt` (core never
-   *  shipped served → `CONTROL_CORE_VERSION` stays "1.0"), but OPTIONAL — a survivor
-   *  padi predating the field omits it and STILL handshakes (its hello validates),
-   *  reading as the honest "—" rather than breaking the bind. Empty `""` off-nix. */
-  commit: z.string().optional(),
-  /** padi's staleKey (`PADI_BUILD_ID`) — the content hash of padi's daemon source
-   *  closure, which flips iff a restart would load DIFFERENT daemon code. This is the
-   *  binder's build-convergence key (#1670): a binder compares it against its OWN baked
-   *  `PADI_BUILD_ID` and, on a same-contract mismatch, drains the survivor once at boot
-   *  and respawns its own build. Distinct from `commit` — the git ref is navigable but
-   *  does NOT capture the closure (two builds off one commit can differ; one commit can
-   *  change nothing padi runs). Additive like `commit` (the frozen core has never
-   *  shipped served → `CONTROL_CORE_VERSION` stays "1.0"), and OPTIONAL so a survivor
-   *  padi predating the field STILL handshakes. But an ABSENT id is NOT "adopt anyway":
-   *  a nix-built binder (which always bakes its own `PADI_BUILD_ID`) reads a missing id
-   *  as "this padi predates the field, so it is by definition an OLDER build" and DRAINS
-   *  it — otherwise the fix would fail to fire on the very first upgrade past a pre-field
-   *  padi (exactly the deploy it exists for). Only an OFF-NIX binder (its own id `""`)
-   *  never drains on build grounds — it cannot judge builds. Empty `""` off-nix. */
-  buildId: z.string().optional(),
-});
-export type PadiHello = z.infer<typeof PadiHelloSchema>;
+export const PadiHelloSchema = ControlCoreHelloSchema;
+export type PadiHello = ControlCoreHello;
 
 /** `version` — the control core's own version probe (just the frozen core
  *  version), distinct from the surface `version` cell. */
@@ -1259,14 +1230,11 @@ export const padiControlSurface = defineSurface({
     /** The frozen control verbs — the ONE namespace, never versions. Reached as
      *  `surface.control.core.<verb>` (the surface key `control` + this namespace). */
     core: {
+      ...controlCoreProcedureSpec,
       /** Identity handshake — who this padi is (`stateRoot`) + which
        *  `padiSurface` version it serves. Read FIRST by a binder. */
-      hello: { output: PadiHelloSchema },
       /** The frozen core's own version probe (just `controlCoreVersion`). */
       controlVersion: { output: PadiControlVersionSchema },
-      /** Persist state + exit; the PTYs survive in kaval, and the caller observes
-       *  the socket close. Takes no input, returns nothing. */
-      drain: {},
       /** padi's current clock — the binder RTT-halves it once per bind to age
        *  memory against the host's clock (deliberately NOT a ticking cell).
        *

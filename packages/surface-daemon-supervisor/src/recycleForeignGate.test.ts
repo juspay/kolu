@@ -24,15 +24,21 @@ import { dirname } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { afterEach, expect, it } from "vitest";
-import { describeDaemon } from "@kolu/daemon-test-gate";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { acquirePidGate, gatePid, isHolderLive } from "@kolu/surface-daemon";
+import {
+  plantYesterdayDaemon,
+  type YesterdayDaemonOpts,
+} from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
   createEndpoint,
   destructiveRecycleSteps,
   type EndpointStatus,
   recycle,
-} from "@kolu/surface-daemon-supervisor";
-import { plantYesterdayDaemon } from "./yesterdayDaemon.fixture.testlib.ts";
+} from "./index.ts";
 
 const silentLog = {
   debug() {},
@@ -58,6 +64,18 @@ afterEach(async () => {
 
 type Identity = { staleKey: string };
 
+function fixtureOptions(
+  opts: Partial<YesterdayDaemonOpts> = {},
+): YesterdayDaemonOpts {
+  return {
+    gateFile: "daemon.pid",
+    socketFile: "daemon.sock",
+    assertSpawnAllowed: assertDaemonSpawnAllowed,
+    plantState: () => {},
+    ...opts,
+  };
+}
+
 /** A fake accept-server the driver's spawn "starts" by listening. */
 function fakeListen(socketPath: string): {
   server: Server;
@@ -81,7 +99,9 @@ function fakeListen(socketPath: string): {
 
 describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
   it("(a) current gate shape: ensure recycles the live holder and spawns fresh", async () => {
-    const d = await plantYesterdayDaemon({ gate: { kind: "current" } });
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" } }),
+    );
     fixtures.push(d);
     const survivorPid = d.pid as number;
     const survivorExited = new Promise<void>((resolve) => {
@@ -159,13 +179,15 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
   });
 
   it("(b) foreign gate shape: ensure does NOT kill the fixture child; acquirePidGate reaps the garbage and proceeds", async () => {
-    const d = await plantYesterdayDaemon({
-      gate: { kind: "foreign", content: "not-a-pid-at-all\n" },
-      // No accepting socket under the foreign gate — liveServingHolder needs
-      // BOTH a parsable live pid AND an accepting socket. Foreign → no pid →
-      // no holder, so ensure goes straight to spawn.
-      withSocket: false,
-    });
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({
+        gate: { kind: "foreign", content: "not-a-pid-at-all\n" },
+        // No accepting socket under the foreign gate — liveServingHolder needs
+        // BOTH a parsable live pid AND an accepting socket. Foreign → no pid →
+        // no holder, so ensure goes straight to spawn.
+        withSocket: false,
+      }),
+    );
     fixtures.push(d);
     const fixturePid = d.pid as number;
     let fixtureDied = false;
@@ -244,10 +266,12 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     // gate format primitive both generations share. Mutate-to-prove: if
     // gatePid started accepting the garbage, acquire would treat a non-live
     // "pid" differently; today garbage → undefined → stale reap.
-    const d = await plantYesterdayDaemon({
-      gate: { kind: "foreign", content: '{"v":99}\n' },
-      withSocket: false,
-    });
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({
+        gate: { kind: "foreign", content: '{"v":99}\n' },
+        withSocket: false,
+      }),
+    );
     fixtures.push(d);
 
     expect(gatePid(d.gatePath)).toBeUndefined();

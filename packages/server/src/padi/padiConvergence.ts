@@ -12,7 +12,6 @@
  *   - {@link padiConvergencePolicy} — padi's declared policy (drainable; baked identity;
  *     drain-newer-else-refuse on contract skew; drain-and-replace on build mismatch;
  *     Cap-gated drainBudget). ONE object for BOTH arms.
- *   - {@link probePadiForConvergence} — the kit's identity probe for padi.
  *   - {@link drainViaControlCore} — the endpoint arm's drain, built on the framework's
  *     {@link drainAndAwaitExit}.
  *
@@ -20,19 +19,13 @@
  * framework union shape + app-only `link-failed`). There is no converter.
  */
 
-import {
-  dialPadiHello,
-  type PadiDaemonClient,
-  type PadiDial,
-} from "@kolu/padi/dial";
+import { type PadiDaemonClient } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
   type ConvergencePolicy,
-  type ConvergenceProbe,
   daemonBuild,
   drainAndAwaitExit,
   drainRejectionSuffix,
-  instanceKeyFromStartedAt,
 } from "@kolu/surface-daemon-supervisor";
 
 // Re-export the framework drain skeleton so the remote arm's existing import path
@@ -41,7 +34,7 @@ export { drainAndAwaitExit };
 
 /** How long `drainViaControlCore` waits for the socket to CLOSE after the drain RPC
  *  rejects, before treating the rejection as a real failure. */
-const DRAIN_TEARDOWN_CEILING_MS = 2000;
+export const PADI_DRAIN_TEARDOWN_CEILING_MS = 2000;
 
 /**
  * padi's full convergence policy for a given binder build id. Drainable; budget
@@ -85,75 +78,12 @@ export async function drainViaControlCore(conn: DrainableConn): Promise<void> {
     () => conn.client.surface.control.core.drain(),
     // The endpoint's exit signal is the SOCKET CLOSE.
     () => new Promise<void>((resolve) => conn.onClose(resolve)),
-    { ceilingMs: DRAIN_TEARDOWN_CEILING_MS },
+    { ceilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS },
   );
   if (!took) {
     throw new Error(
-      `padi drain did not complete — its socket did not close within ${DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
+      `padi drain did not complete — its socket did not close within ${PADI_DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
         drainRejectionSuffix(drainRejection),
     );
   }
-}
-
-/**
- * The kit's identity probe for padi: dial the running padi's FROZEN control core and
- * expose its identity + instance key + a `drain`, or `null` if none answers.
- */
-/** True when the dial failure means "nothing listening" (honest null probe). */
-function isNoListenerError(err: unknown): boolean {
-  const e = err as { code?: string; cause?: { code?: string } };
-  const code = e.code ?? e.cause?.code;
-  return code === "ECONNREFUSED" || code === "ENOENT";
-}
-
-/**
- * Probe a running padi. Returns `null` only for no-listener (ECONNREFUSED /
- * ENOENT). Any other dial/handshake failure **throws** (F2) — never collapses
- * into "no daemon" so a mismatched survivor is not silently adopted.
- */
-export async function probePadiForConvergence(
-  socketPath: string,
-): Promise<ConvergenceProbe<"drainable"> | null> {
-  let dialed: PadiDial;
-  try {
-    dialed = await dialPadiHello(socketPath);
-  } catch (err) {
-    if (isNoListenerError(err)) return null;
-    throw err; // F2: typed failure — converge must not treat as empty socket
-  }
-  const { socket, client, hello } = dialed;
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
-  });
-  return {
-    capability: "drainable",
-    identity: {
-      contractVersion: hello.surfaceVersion,
-      build: daemonBuild(hello.buildId ?? ""),
-    },
-    // Absent startedAt → pre-instance (older daemon), never overloaded null.
-    instanceKey: instanceKeyFromStartedAt(hello.startedAt),
-    // Plugs only — the framework runs drainAndAwaitExit (same as convergeAdmit).
-    fireDrain: () => client.surface.control.core.drain(),
-    awaitExit: (signal) =>
-      new Promise<void>((resolve) => {
-        if (closed) {
-          queueMicrotask(resolve);
-          return;
-        }
-        const onClose = () => resolve();
-        socket.once("close", onClose);
-        signal.addEventListener(
-          "abort",
-          () => {
-            socket.off("close", onClose);
-            resolve();
-          },
-          { once: true },
-        );
-      }),
-    drainCeilingMs: DRAIN_TEARDOWN_CEILING_MS,
-    dispose: () => socket.destroy(),
-  };
 }
