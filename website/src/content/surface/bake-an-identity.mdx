@@ -39,7 +39,9 @@ ref you surface as a clickable identity in the UI.
   Run outside the Nix build (a raw `vitest`, a dev process without the env) and
   `readBakedIdentity` returns empty strings. It shows nothing rather than
   inventing an identity — the fail-fast rule. Do not paper over it with a
-  fallback build id; an absent identity is a real, readable state.
+  fallback build id; an absent identity is a real, readable state. The two env
+  values are one fact: set both or neither. A half-baked pair throws during daemon
+  boot rather than presenting a build whose source cannot be named.
 </Aside>
 
 ## 3. Decide what the build id hashes

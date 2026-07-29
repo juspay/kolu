@@ -16,7 +16,9 @@
  * Nix-first: off-nix (raw `vitest`, or a build without the env) both are `""` — the
  * readout shows nothing rather than inventing an identity, and every currency /
  * convergence check reads an empty id as the honest "unknown" (never a false match,
- * never an invented mismatch). This lives in `@kolu/surface-daemon` (the daemon spine
+ * never an invented mismatch). A half-baked pair is contradictory: a Nix build id
+ * means the source commit was knowable, so either both fields are present or neither
+ * is. This lives in `@kolu/surface-daemon` (the daemon spine
  * both daemons already import) rather than either daemon package, so the read pattern
  * exists once; a daemon can't depend on the client-side supervisor, so the primitive
  * that BOTH the daemon (serving its identity) and the supervisor (baking its expected
@@ -32,11 +34,18 @@ export interface DaemonBuildIdentity {
 }
 
 /** Read a daemon's baked build identity from its `<PREFIX>_*` env namespace — the one
- *  recipe kaval (`"KAVAL"`) and padi (`"PADI"`) share. Absent env → `""` (honest
- *  "unknown"), never a fabricated id. */
+ *  recipe kaval (`"KAVAL"`) and padi (`"PADI"`) share. Both absent → `""` (honest
+ *  "unknown"), never a fabricated id. Exactly one present is a contradictory build
+ *  and throws during boot. */
 export function readBakedIdentity(prefix: string): DaemonBuildIdentity {
-  return {
-    staleKey: process.env[`${prefix}_BUILD_ID`] ?? "",
-    navigableCommit: process.env[`${prefix}_COMMIT_HASH`] ?? "",
-  };
+  const buildEnv = `${prefix}_BUILD_ID`;
+  const commitEnv = `${prefix}_COMMIT_HASH`;
+  const staleKey = process.env[buildEnv] ?? "";
+  const navigableCommit = process.env[commitEnv] ?? "";
+  if (Boolean(staleKey) !== Boolean(navigableCommit)) {
+    throw new Error(
+      `incomplete baked identity: ${buildEnv} and ${commitEnv} must be set together`,
+    );
+  }
+  return { staleKey, navigableCommit };
 }

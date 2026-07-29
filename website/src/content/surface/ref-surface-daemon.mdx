@@ -225,7 +225,10 @@ drops the link.
 
 `readBakedIdentity(prefix)` reads a Nix-baked env pair
 (`<PREFIX>_BUILD_ID` / `<PREFIX>_COMMIT_HASH`) into `{ staleKey, navigableCommit }`,
-and returns empty strings off-nix rather than inventing an identity. See
+and returns empty strings off-nix rather than inventing an identity. The pair is
+joint: both values must be present or both absent; a half-baked identity throws at
+daemon boot because a Nix build id without its knowable commit (or the reverse) is
+contradictory. See
 [How to bake an identity](/surface/bake-an-identity).
 
 <Aside type="note" title="Two convergence axes live here">

@@ -14,10 +14,12 @@ afterEach(() => {
 
 it("currentBuildId reads the nix-baked KAVAL_BUILD_ID", () => {
   process.env.KAVAL_BUILD_ID = "a1b2c3d4";
+  process.env.KAVAL_COMMIT_HASH = "deadbee";
   expect(currentBuildId()).toBe("a1b2c3d4");
 });
 
 it("currentCommitHash reads the nix-baked KAVAL_COMMIT_HASH", () => {
+  process.env.KAVAL_BUILD_ID = "a1b2c3d4";
   process.env.KAVAL_COMMIT_HASH = "deadbee";
   expect(currentCommitHash()).toBe("deadbee");
 });
