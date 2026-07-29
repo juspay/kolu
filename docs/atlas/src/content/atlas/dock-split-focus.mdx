@@ -119,8 +119,8 @@ below is one of the four faults made unspellable:
 
 export const PT = [
   { d: 0, g: "✓", c: "ship", l: "FX1 · one focus fact — behaviour-preserving", m: "shipped · #2043", h: "https://github.com/juspay/kolu/pull/2043" },
-  { d: 1, g: "▶", c: "prog", l: "FX2 · dock sub-entries, re-landed", m: "◀ do next · #2024", h: "https://github.com/juspay/kolu/issues/2024" },
-  { d: 1, g: "○", c: "last", l: "FX3 · one spelling of data-active", m: "independent of FX2" },
+  { d: 1, g: "✓", c: "ship", l: "FX2 · dock sub-entries, re-landed", m: "shipped · #2046", h: "https://github.com/juspay/kolu/pull/2046" },
+  { d: 1, g: "▶", c: "prog", l: "FX3 · one spelling of data-active", m: "◀ do next" },
 ];
 
 <PhaseTree title="ROADMAP — dock split sub-entries (#2024)" phases={PT} />
@@ -161,8 +161,8 @@ behaviour.</Footnote>
 
 ### FX2 — the sub-entry, re-landed
 
-<Phase id="FX2" name="dock sub-entries" status="next" needs={["FX1"]}
-  links={[{ label: "#2024", href: "https://github.com/juspay/kolu/issues/2024" }]} />
+<Phase id="FX2" name="dock sub-entries" status="shipped" needs={["FX1"]}
+  links={[{ label: "#2024", href: "https://github.com/juspay/kolu/issues/2024" }, { label: "#2046", href: "https://github.com/juspay/kolu/pull/2046" }]} />
 
 First commit: recover `dockRowActive.test.tsx` from the reverted diff and adapt
 it to the fact — the render-level state matrix is the only test in this story
@@ -214,7 +214,7 @@ placement is therefore a gate, not a style choice.</Footnote>
 
 ### FX3 — one spelling of `data-active`
 
-<Phase id="FX3" name="one data-active spelling" status="todo" needs={["FX1"]} />
+<Phase id="FX3" name="one data-active spelling" status="next" needs={["FX1"]} />
 
 `data-active` is spelled `""` on dock rows and `"true"` on canvas tiles, and
 `RailChip` hand-derives it outside `dockRowAttrs`. Settle on the presence form
