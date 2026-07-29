@@ -149,17 +149,30 @@ export const useTerminalStore = createSharedRoot(() => {
     if (id !== null) view.requestCenterActive();
   }
 
+  /** Explicitly land on a top-level terminal's main pane and center its tile.
+   *  The tile registry can name a newly-created tile before metadata arrives, so
+   *  absence is accepted; a live split record is a caller error. */
+  function focusMainTerminal(id: TerminalId): void {
+    const record = metadata.getMetadata(id);
+    if (record && record.parentId !== null && record.parentId !== undefined) {
+      throw new Error(`focusMainTerminal: ${id} is a split`);
+    }
+    subPanel.focusMainPane(id);
+    view.requestCenterActive();
+  }
+
   /** Land on any terminal without asking a canvas to pan. A top-level landing
-   *  restores its visible pane; a split landing first makes that split the
-   *  visible remembered tab. Touch layouts use this verb because they own no
-   *  canvas, while desktop composes centering below. */
+   *  focuses its main pane; a split landing first makes that split the visible
+   *  remembered tab. This is the explicit row/terminal verb: its target id fully
+   *  determines the pane, with no remembered-pane lookup. Touch layouts use it
+   *  because they own no canvas, while desktop composes centering below. */
   function focusTerminalSilently(id: TerminalId): void {
     const record = metadata.getMetadata(id);
     if (!record)
       throw new Error(`focusTerminalSilently: no terminal metadata for ${id}`);
     const parentId = record.parentId ?? null;
     if (parentId === null) {
-      setActiveSilently(id);
+      subPanel.focusMainPane(id);
       return;
     }
     subPanel.focusSubTab(parentId, id);
@@ -192,6 +205,7 @@ export const useTerminalStore = createSharedRoot(() => {
     // without panning, or desktop with a centering request.
     focusTerminalSilently,
     focusTerminal,
+    focusMainTerminal,
     // WebGL budget: whether a terminal should hold a WebGL renderer (#1403).
     holdsWebgl,
     // Lifecycle (view-state only — list is server-driven)
