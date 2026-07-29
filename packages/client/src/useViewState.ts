@@ -54,36 +54,11 @@ export function useViewState() {
   /** Canvas "pan to this tile" intent — see `canvas/useCanvasFocus.ts` for the
    *  consumer seam. `equals: false` so back-to-back requests for the same id
    *  still fire. Public reads only; the writer is private (external callers go
-   *  through `activate(id)`). */
+   *  through `useTerminalStore().activate(id)`). */
   // HOST-SCOPING: host-INDEPENDENT by design — a momentary write-and-consume
   // viewport command, not durable per-host state; nothing re-reads it across a switch.
   const [centerActiveRequest, setCenterActiveRequest] =
     createSignal<TerminalId | null>(null, { equals: false });
-
-  /** Make `id` the active terminal AND ask the canvas viewport to pan to it.
-   *  The single public writer for system-driven activation. `writeFocus` (in
-   *  the owner) is imperative — a pure host SWITCH re-keys `activeId()` without
-   *  running it, so a switch never fires a wrong-host `chrome.setActive`. */
-  function activate(id: TerminalId | null) {
-    setActiveSilently(id);
-    const tileId = activeId();
-    if (tileId !== null) setCenterActiveRequest(tileId);
-  }
-
-  /** Select a top-level tile without moving the canvas. Split landing belongs
-   *  to `useTerminalStore().focusTerminal`; invariant-safe pane transitions
-   *  stay inside `useSubPanel`, so ordinary consumers cannot write an arbitrary
-   *  split id into the raw focus fact. */
-  function setActiveSilently(id: TerminalId | null): void {
-    const scope = activeScope();
-    if (!scope) return;
-    if (id !== null && scope.wire.placementOf(id).kind === "split") {
-      throw new Error(
-        `setActiveSilently: ${id} is a split; use focusTerminal instead`,
-      );
-    }
-    scope.view.writeFocus(id === null ? null : { id, tileHint: id });
-  }
 
   /** Fire the "pan to the active tile" impulse for the CURRENT host without
    *  touching the active selection or reporting to the server — the switch-in
@@ -118,8 +93,6 @@ export function useViewState() {
     activeId,
     isFocused,
     isActiveTile,
-    activate,
-    setActiveSilently,
     canvasMaximized,
     toggleCanvasMaximized,
     mruOrder,

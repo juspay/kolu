@@ -161,10 +161,40 @@ describe("useSubPanel focus verbs", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
     panel.collapsePanel(PARENT);
+
+    expect(panel.peekSubPanel(PARENT).rememberedPane).toBe("sub");
+
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
 
     panel.expandAndFocusPanel(PARENT);
+
+    expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
+      id: SUB,
+      tileHint: PARENT,
+    });
+  });
+
+  it("preserves remembered split across a collapsed tile landing", () => {
+    const panel = useSubPanel();
+    panel.focusSubTab(PARENT, SUB);
+    panel.collapsePanel(PARENT);
+
+    panel.focusVisiblePane(PARENT);
+
+    expect(panel.peekSubPanel(PARENT).rememberedPane).toBe("sub");
+  });
+
+  it("lands back in the split after a collapsed landing and chrome-only expand", () => {
+    const panel = useSubPanel();
+    panel.focusSubTab(PARENT, SUB);
+    panel.collapsePanel(PARENT);
+    panel.focusVisiblePane(PARENT);
+    panel.expandPanel(PARENT);
+    panel.focusMainPane(OTHER);
+    h.writeFocus.mockClear();
+
+    panel.focusVisiblePane(PARENT);
 
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: SUB,

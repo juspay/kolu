@@ -112,6 +112,7 @@ export function useSubPanel() {
       panel?.rememberedPane === "sub" && !panel.collapsed && panel.activeSubTab
         ? panel.activeSubTab
         : parentId,
+      false,
     );
   }
 
@@ -134,6 +135,12 @@ export function useSubPanel() {
      *  remembered tab are verb-only chrome: this verb resolves them immediately
      *  and writes the same one per-host focus fact as every other transition. */
     focusVisiblePane,
+
+    /** Clear selection through the same narrow focus boundary. No pane chrome
+     *  exists to update when there is no focused terminal. */
+    clearFocus() {
+      activeScope()?.view.writeFocus(null);
+    },
 
     togglePanel(parentId: TerminalId) {
       const panel = ensureState(parentId);

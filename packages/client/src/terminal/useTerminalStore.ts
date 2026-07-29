@@ -128,7 +128,7 @@ export const useTerminalStore = createSharedRoot(() => {
    *  same one per-host focus fact. */
   function setActiveSilently(id: TerminalId | null): void {
     if (id === null) {
-      view.setActiveSilently(null);
+      subPanel.clearFocus();
       return;
     }
     const record = metadata.getMetadata(id);

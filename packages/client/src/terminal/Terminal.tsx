@@ -70,7 +70,7 @@ import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
-import { terminalFocusProvenance } from "./focusProvenance";
+import { installTerminalFocusProvenance } from "./focusProvenance";
 import {
   trackCreate,
   trackDispose,
@@ -349,46 +349,13 @@ const Terminal: Component<{
       // move focus into a sibling terminal, while a pointer focus lands here.
       // The first resulting focus consumes the token; mount/refocus/dialog
       // `.focus()` calls have no token and can never echo into selection.
-      const armUserFocus = () => terminalFocusProvenance.arm();
-      makeEventListener(h.container, "pointerdown", armUserFocus, {
-        capture: true,
-      });
-      makeEventListener(
-        h.container,
-        "keydown",
-        (event) => {
-          if (event.key === "Tab") {
-            // Tab's focus event lands in another pane, which consumes this
-            // document-wide token there.
-            armUserFocus();
-          } else if (!props.focused) {
-            // A pane can already hold DOM focus without owning the selection
-            // (notably a browser restore, or the e2e tap stand-in). Its first
-            // real keystroke is user provenance and repairs the fact before
-            // xterm forwards the key to the PTY. Avoid arming on ordinary
-            // typing in the already-selected pane: that would turn every key
-            // into an unnecessary equal-id focus write.
-            armUserFocus();
-            terminalFocusProvenance.consume(() => props.onFocus?.());
-          }
-        },
-        { capture: true },
-      );
-      makeEventListener(term.textarea, "focus", () => {
-        terminalFocusProvenance.consume(() => props.onFocus?.());
-      });
-      // Clicking an already-focused textarea emits no new focus event. Consume
-      // any still-armed pointer token here so the explicit gesture can repair
-      // a transient DOM/selection mismatch without producing a second write.
-      makeEventListener(
-        h.container,
-        "click",
-        () => {
-          terminalFocusProvenance.consume(() => props.onFocus?.());
-        },
-        {
-          capture: true,
-        },
+      onCleanup(
+        installTerminalFocusProvenance({
+          pane: h.container,
+          textarea: term.textarea,
+          isFocused: () => props.focused === true,
+          onFocus: props.onFocus,
+        }),
       );
     }
 
