@@ -24,6 +24,7 @@ import {
   onMount,
 } from "solid-js";
 import { safeApply } from "./safeApply";
+import { toError } from "./toError";
 import {
   ancestorDirectoryPaths,
   directoryRemovalOps,
@@ -383,6 +384,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // revealed. Expanding an already-open folder is a no-op, so this never
   // collapses anything.
   //
+  // On a throw: Pierre's `batch` has no rollback, so partial ops can leave
+  // the store half-applied while `appliedPaths` still names the old inventory
+  // — every later change re-diffs against that stale bookkeeping and freezes
+  // the tree forever (the Code-tab host-switch toast). Recover by rebuilding
+  // via `resetPaths` to the *desired* inventory, record it, then still
+  // surface the original error through `onError` (fail loud, never wedge).
+  //
   // `selectedPath` is deliberately *not* a dependency — routing selection
   // through here would re-run on every file click. The selection effect
   // below reveals the picked row imperatively instead; we read `selectedPath`
@@ -392,8 +400,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     on(
       [() => props.paths, () => props.expandPaths],
       ([paths, expandPaths]) => {
-        safeApply(() => {
-          if (!tree) return;
+        if (!tree) return;
+        const selectedPath = props.selectedPath ?? null;
+        const toOpen = [
+          ...(expandPaths ?? []),
+          ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
+        ];
+        try {
           const fileOps = pathDiffOperations(appliedPaths, paths);
           if (fileOps.length > 0) tree.batch(fileOps);
           // Pierre's `remove` promotes an emptied directory to an explicit
@@ -411,13 +424,21 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           }
           if (dirOps.length > 0) tree.batch(dirOps);
           appliedPaths = paths;
-          const selectedPath = props.selectedPath ?? null;
-          const toOpen = [
-            ...(expandPaths ?? []),
-            ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
-          ];
           expandDirs(tree, toOpen);
-        }, props.onError);
+        } catch (e) {
+          try {
+            tree.resetPaths(paths, { initialExpandedPaths: toOpen });
+            appliedPaths = paths;
+            expandDirs(tree, toOpen);
+          } catch (recoverErr) {
+            // Recovery failed too — bookkeeping may still be desynced; surface
+            // that loudly and leave appliedPaths so a later full inventory can
+            // still attempt recovery.
+            props.onError(toError(recoverErr));
+            return;
+          }
+          props.onError(toError(e));
+        }
       },
       { defer: true },
     ),

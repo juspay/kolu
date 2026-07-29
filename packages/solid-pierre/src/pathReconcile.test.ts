@@ -16,17 +16,16 @@ const remove = (path: string) => ({ type: "remove", path, recursive: true });
 // 1. The browse merge can transiently hold BOTH a collapsed overlay dir
 //    (".claude/") AND tracked files under it (".claude/a.md") — a state a
 //    single consistent git listing never produces.
-// 2. pathDiffOperations treats every inventory entry as a file, so when the
-//    stale ".claude/" drops it emits `{type:"remove", path:".claude/"}`
-//    WITHOUT recursive:true (only directoryRemovalOps sets that flag).
-// 3. @pierre/trees throws on non-recursive remove of a non-empty directory.
-// 4. FileTree.tsx's safeApply catches the throw but never advances
-//    appliedPaths, so every later paths change re-diffs against the stale
-//    bookkeeping, re-emits the doomed remove, and freezes the tree forever.
+// 2. pathDiffOperations used to treat every inventory entry as a file, so when
+//    the stale ".claude/" dropped it emitted `{type:"remove", path:".claude/"}`
+//    WITHOUT recursive:true. Directory keys now carry recursive:true via
+//    isDirectoryPath.
+// 3. @pierre/trees throws on non-recursive remove of a non-empty directory —
+//    the recursive op (and the merge drop) close that path.
+// 4. FileTree.tsx used to catch via safeApply without advancing appliedPaths,
+//    freezing every later paths change; recovery rebuilds via resetPaths.
 //
-// These tests assert the DESIRED behaviour (transition applies; tree advances).
-// They fail today for the bug's reason — that is intentional: this PR is
-// repro-only; the fix lands separately.
+// Desired behaviour: the transition applies; the tree advances.
 describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)", () => {
   // Inventory shape the host-switch race can hand FileTree for one tick.
   const mixed = [".claude/a.md", ".claude/"];
@@ -41,11 +40,19 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
       initialExpansion: "open",
     });
 
-  it("pathDiffOperations emits a non-recursive remove for the collapsed dir", () => {
-    // Pin the doomed op shape — this is what FileTree.batch receives today.
-    // A correct fix either never produces this op, or marks it recursive.
-    expect(pathDiffOperations(mixed, settled)).toEqual([
-      { type: "remove", path: ".claude/" },
+  it("pathDiffOperations skips removing a collapsed dir that still has inventory children", () => {
+    // The mixed→settled drop of ".claude/" while ".claude/a.md" remains must
+    // NOT emit a remove: recursive would wipe the tracked child, non-recursive
+    // throws. The directory node stays via the surviving child — a no-op for
+    // Pierre. (The prior bug emitted a non-recursive remove and froze.)
+    expect(pathDiffOperations(mixed, settled)).toEqual([]);
+  });
+
+  it("pathDiffOperations emits a recursive remove for an orphaned collapsed dir", () => {
+    // When no next path lives under the directory key, recursive remove is
+    // the correct op — Pierre rejects non-recursive remove of a directory.
+    expect(pathDiffOperations([".claude/", "other.ts"], ["other.ts"])).toEqual([
+      { type: "remove", path: ".claude/", recursive: true },
     ]);
   });
 
@@ -54,8 +61,8 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
     expect(tree.getItem(".claude/a.md")).not.toBeNull();
     expect(tree.getItem(".claude/")).not.toBeNull();
 
-    // Desired: dropping the stale collapsed-dir entry leaves the tracked child
-    // and does not throw. Today Pierre throws exactly the production toast.
+    // Dropping the stale collapsed-dir entry leaves the tracked child and
+    // does not throw.
     expect(() => {
       tree.batch(pathDiffOperations(mixed, settled));
     }).not.toThrow();
@@ -64,9 +71,9 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
   });
 
   it("does not freeze subsequent inventory changes after the collapsed-dir drop", () => {
-    // Models FileTree.tsx's paths-reconcile effect: safeApply catches the
-    // throw, so appliedPaths never advances past the mixed inventory. Every
-    // later change re-diffs against that stale bookkeeping and re-throws.
+    // Models FileTree.tsx's paths-reconcile effect: after a successful apply
+    // (or a recover-then-surface path), appliedPaths advances so later
+    // inventory changes still land.
     let appliedPaths = [...mixed];
     const tree = makeTree(appliedPaths);
 
@@ -77,12 +84,10 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
         appliedPaths = paths;
         return true;
       } catch {
-        // safeApply catches and toasts — appliedPaths stays put.
         return false;
       }
     };
 
-    // Desired: both steps succeed and the tree advances to the new inventory.
     expect(tryApply(settled)).toBe(true);
     expect(appliedPaths).toEqual(settled);
     expect(tryApply(later)).toBe(true);

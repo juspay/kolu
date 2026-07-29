@@ -61,16 +61,18 @@ export function ancestorDirectoryPaths(path: string): string[] {
   return out;
 }
 
-/** The add/remove operations that turn the `prev` file inventory into
- *  `next`, as Pierre `batch` ops. Driving path changes through `batch`
- *  rather than `resetPaths` mutates the tree in place: Pierre keeps the
- *  expansion, selection, and scroll state of every node it doesn't touch,
- *  so live-watcher churn (a file added or removed) and filter changes no
- *  longer collapse hand-opened folders. Removing a file does NOT delete its
- *  now-empty ancestor directories: Pierre `remove` promotes an emptied
- *  directory to an explicit empty folder so its row survives. The
- *  `FileTree.tsx` path-change effect runs `directoryRemovalOps` right after
- *  to prune those stranded rows; this function only diffs files. */
+/** The add/remove operations that turn the `prev` inventory into `next`, as
+ *  Pierre `batch` ops. Driving path changes through `batch` rather than
+ *  `resetPaths` mutates the tree in place: Pierre keeps the expansion,
+ *  selection, and scroll state of every node it doesn't touch, so
+ *  live-watcher churn (a file added or removed) and filter changes no longer
+ *  collapse hand-opened folders. Inventory entries may be files or collapsed
+ *  directory keys (trailing slash); a remove of a directory key is marked
+ *  `recursive` so Pierre does not throw when that node still has children.
+ *  Removing a *file* does NOT delete its now-empty ancestor directories:
+ *  Pierre `remove` promotes an emptied directory to an explicit empty folder
+ *  so its row survives. The `FileTree.tsx` path-change effect runs
+ *  `directoryRemovalOps` right after to prune those stranded rows. */
 export function pathDiffOperations(
   prev: readonly string[],
   next: readonly string[],
@@ -79,7 +81,25 @@ export function pathDiffOperations(
   const nextSet = new Set(next);
   const ops: FileTreeBatchOperation[] = [];
   for (const path of prev) {
-    if (!nextSet.has(path)) ops.push({ type: "remove", path });
+    if (nextSet.has(path)) continue;
+    if (isDirectoryPath(path)) {
+      // Collapsed directory key (trailing slash). Pierre's non-recursive
+      // remove throws when the node still has children — use recursive when
+      // the directory is fully gone from `next`. When any `next` path still
+      // lives under this prefix, skip the remove: those children keep the
+      // directory node alive, and a recursive remove would wipe them too.
+      // (`isDirectoryPath` is the sole directory-key predicate.)
+      let hasDescendant = false;
+      for (const n of next) {
+        if (n.startsWith(path)) {
+          hasDescendant = true;
+          break;
+        }
+      }
+      if (!hasDescendant) ops.push({ type: "remove", path, recursive: true });
+    } else {
+      ops.push({ type: "remove", path });
+    }
   }
   for (const path of next) {
     if (!prevSet.has(path)) ops.push({ type: "add", path });

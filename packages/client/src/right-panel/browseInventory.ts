@@ -1,3 +1,5 @@
+import { isDirectoryPath } from "@kolu/solid-pierre/paths";
+
 /** The browse tree's inventory merge — pure, so the three rules that have each
  *  already caused a bug are pinned by a table test rather than argued in a
  *  comment beside the reactive code.
@@ -12,10 +14,13 @@
  *     true at EVERY instant rather than only at settled ones.
  *  2. **Tracked wins.** The two listings are separate `git ls-files` reads taken
  *     at different instants against a live working tree, so a file ignored
- *     between them (an agent editing `.gitignore`) can appear in BOTH. Handing
- *     Pierre a duplicate `add` desyncs its wrapper's `appliedPaths` bookkeeping
- *     permanently, so the overlap is dropped from the overlay — the tracked
- *     listing is the authority on what the tree is FOR.
+ *     between them (an agent editing `.gitignore`) can appear in BOTH — and a
+ *     host-switch tick can retain a collapsed overlay dir (`.claude/`) while
+ *     tracked still lists children under it. Exact-string overlap alone left
+ *     that mixed inventory representable; Pierre then threw on a non-recursive
+ *     remove and froze the Code tab. Drop exact overlaps **and** any
+ *     trailing-slash overlay dir whose prefix still has tracked children — the
+ *     tracked listing is the authority on that subtree.
  *  3. **Readiness covers both sources, but only the ones being consulted.** The
  *     overlay leg counts only while the toggle is on, because an idle
  *     `createPolledQuery` stays `pending` forever — folding an idle query's
@@ -50,8 +55,16 @@ export function mergeBrowseInventory(
   // the default. The spread stays: callers depend on a fresh reference (see
   // `treeInventory`'s note on the reconciled store's in-place mutation).
   if (!ignored?.length) return { paths: [...tracked], ignored: [], pending };
-  // Rule 2 — the overlap belongs to the tracked listing.
+  // Rule 2 — exact overlap and tracked-under-dir both belong to tracked.
   const seen = new Set(tracked);
-  const overlay = ignored.filter((p) => !seen.has(p));
+  const overlay = ignored.filter((p) => {
+    if (seen.has(p)) return false;
+    if (isDirectoryPath(p)) {
+      for (const t of tracked) {
+        if (t.startsWith(p)) return false;
+      }
+    }
+    return true;
+  });
   return { paths: [...tracked, ...overlay], ignored: overlay, pending };
 }
