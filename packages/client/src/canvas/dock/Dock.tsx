@@ -814,7 +814,6 @@ const RailChip: Component<{
   // Active-tile highlight follows the TILE registry (so a focused sleeping tile
   // reads as the active row in PR 2); unread is terminal-attention, stays on
   // the terminal store.
-  const active = () => tileStore.isActiveTile(props.id);
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
@@ -838,7 +837,7 @@ const RailChip: Component<{
             data-bucket={props.pip}
             data-motion={pip().motion}
             data-agent-state={activeArm(c().meta)?.agent?.state}
-            data-active={active() ? "" : undefined}
+            data-active={tileStore.isActiveTile(props.id) ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
