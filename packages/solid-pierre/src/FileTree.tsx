@@ -361,7 +361,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // reveal usually carries no selection, so this is normally the only
       // scroll). The folder is already expanded via `initialExpandedPaths`.
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
-      appliedPaths = props.paths;
+      appliedPaths = dropRedundantDirKeys(props.paths);
       // Adopted empty; the (non-deferred) shadow-CSS effect below runs right
       // after this one in creation order and is what writes the content — one
       // call site for the rule, so the mount case can't drift from the change
