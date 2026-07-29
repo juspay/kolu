@@ -200,8 +200,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // of the host paths, after a successful apply or recover). Seeded at mount
   // and updated only when Pierre is left matching this list — so the next path
   // change can be applied as an in-place delta against a known-good prev.
-  // because that arg is `undefined` on the first post-`defer` run — which
-  // would drop the very first delta's removals.
+  // Tracked here rather than via `on`'s `prevInput` because that arg is
+  // `undefined` on the first post-`defer` run — which would drop the very
+  // first delta's removals.
   let appliedPaths: readonly string[] = [];
 
   // Provenance gate for `onSelectionChange` (juspay/kolu#1841). Pierre is a
