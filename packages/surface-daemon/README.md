@@ -7,9 +7,9 @@ skeleton (`daemonMain`), a lifetime policy, and a bin half (`daemonProcessMain`)
 that owns the process exit. **Front it** over ssh-stdio so a
 remote session outlives the link (`frontDaemonOverStdio`). Plus the shared
 daemon-identity recipe (`readBakedIdentity`), the frozen identity/drain fragment
-(`controlCoreFragment`), and a dependency-free mixed-version test kit at
-`./upgrade-window.testlib`. It depends on the shared `@kolu/surface` framework,
-but on no app package;
+(`controlCoreFragment`), and an app-independent mixed-version test kit at
+`./upgrade-window.testlib`. It depends on the shared `@kolu/surface` framework
+and `ts-pattern` for exhaustive fixture dispatch, but on no app package;
 the client half lives in [`@kolu/surface-daemon-supervisor`](../surface-daemon-supervisor).
 
 `controlCoreSurface` is the standalone frozen contract;

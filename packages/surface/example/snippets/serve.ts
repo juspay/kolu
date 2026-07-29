@@ -6,13 +6,8 @@
  */
 
 import {
-  type ControlCoreFragment,
-  controlCoreSurface,
-} from "@kolu/surface-daemon";
-import {
   type ImplementSurfaceDeps,
   implementSurface,
-  implementSurfaces,
   inMemoryStore,
 } from "@kolu/surface/server";
 import { type LogFrame, type Pid, type Proc, surface, ZERO } from "./surface";
@@ -32,7 +27,7 @@ async function* source(nodeId: string): AsyncIterable<LogFrame> {
 }
 
 // #region implement
-const deps: ImplementSurfaceDeps<typeof surface.spec> = {
+export const deps: ImplementSurfaceDeps<typeof surface.spec> = {
   cells: { load: { store: inMemoryStore(ZERO) } },
   collections: { processes: { readAll, upsert, remove } },
   streams: { nodeLog: { source } },
@@ -52,14 +47,5 @@ const runtime = implementSurface(surface, deps);
 // `.router` is already the FINAL flattened router — no re-finalize via oRPC.
 const router = runtime.router;
 // #endregion flatten
-
-/** The daemon serves the versioned app and frozen core as sibling surfaces. */
-export function daemonRouter(control: ControlCoreFragment) {
-  return implementSurfaces(
-    { app: surface, control: controlCoreSurface },
-    {},
-    { app: deps, control },
-  ).router;
-}
 
 export { runtime, router };

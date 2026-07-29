@@ -24,6 +24,7 @@ export const ControlCoreHelloSchema = z.object({
   commit: z.string().optional(),
   buildId: z.string().optional(),
 });
+/** Parsed identity payload returned by the frozen hello procedure. */
 export type ControlCoreHello = z.infer<typeof ControlCoreHelloSchema>;
 
 /** The frozen procedure spec, exported so a daemon may add legacy siblings
@@ -38,6 +39,7 @@ export const controlCoreSurface = defineSurface({
   procedures: { core: controlCoreProcedureSpec },
 });
 
+/** Server dependencies that implement the complete frozen control fragment. */
 export type ControlCoreFragment = ImplementSurfaceDeps<
   typeof controlCoreSurface.spec
 >;

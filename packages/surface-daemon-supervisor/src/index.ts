@@ -7,8 +7,9 @@
  *  odu-web next), never in the daemon. It is therefore deliberately NOT a
  *  staleKey hash root — a change here cannot change what a daemon restart would
  *  load. Its only workspace dependencies are the shared `@kolu/surface` transport
- *  and the `@kolu/surface-daemon` twin (pinned by `deps.closure.test.ts`), so the
- *  second tenant (`odu serve`, S2) reuses it without dragging an app package in.
+ *  and the `@kolu/surface-daemon` twin; `ts-pattern` provides exhaustive policy
+ *  dispatch. That closure is pinned by `deps.closure.test.ts`, so the second
+ *  tenant (`odu serve`, S2) reuses it without dragging an app package in.
  *  It composes the gate's file-format primitives (`gatePid`/`isHolderLive`) from
  *  the daemon half over a one-directional edge.
  *

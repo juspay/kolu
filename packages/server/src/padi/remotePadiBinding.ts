@@ -343,7 +343,14 @@ export function ensureRemotePadiBinding(
     client: PadiDaemonClient;
     dispose: () => void;
     processExit: Promise<void>;
+    /** This dial's generation fence. A superseded admit may settle late, but
+     * must never become the target of a later `renew()`. */
+    signal: AbortSignal;
   };
+  const combinedByScopedClient = new WeakMap<
+    PadiSurfaceClient,
+    ActiveCombined
+  >();
   let activeCombined: ActiveCombined | null = null;
   // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null`.
   // Separate axis from convergence (drv resolution fails before admit runs).
@@ -428,12 +435,15 @@ export function ensureRemotePadiBinding(
         return new Promise<void>(() => {});
       }
     });
-    activeCombined = {
+    const active = {
       client: conn.client,
       dispose: conn.teardown,
       processExit,
+      signal: ctx.signal,
     };
-    return { ...conn, client: scopePadiSurface(conn.client) };
+    const scopedClient = scopePadiSurface(conn.client);
+    combinedByScopedClient.set(scopedClient, active);
+    return { ...conn, client: scopedClient };
   };
 
   // ── Drain plumbing: process oracle, not hello-poll (F3) ────────────────────
@@ -481,11 +491,12 @@ export function ensureRemotePadiBinding(
   // ── The admit hook: framework probe → convergeAdmit ────────────────────────
   // No raw decide(), no admitDrain, no convergeNewerContract / convergeBuildMismatch —
   // the framework owns the decision table, budget, race, and cross-supervisor memory.
-  const admit: Admit<PadiSurfaceClient> = async (): Promise<AdmitVerdict> => {
-    const active = activeCombined;
-    if (active === null) {
-      // The connector always stashes before admit runs; a null here is a real bug.
-      throw new Error("remote padi admit: no combined connection stashed");
+  const admit: Admit<PadiSurfaceClient> = async (
+    scopedClient,
+  ): Promise<AdmitVerdict> => {
+    const active = combinedByScopedClient.get(scopedClient);
+    if (active === undefined) {
+      throw new Error("remote padi admit: no matching combined connection");
     }
     const probe = await probeDaemonIdentityFrom({
       client: active.client,
@@ -495,6 +506,12 @@ export function ensureRemotePadiBinding(
         awaitExitViaProcessOracle(active.processExit, signal),
       drainCeilingMs,
     });
+    // The identity hello is the first await under this binder's control. A
+    // recheck may supersede the dial while it is pending; fence before
+    // convergence so the stale generation cannot issue a drain.
+    if (active.signal.aborted) {
+      throw new Error("remote padi admit superseded");
+    }
     const runningBuild =
       probe.identity.build.kind === "known" ? probe.identity.build.id : "";
 
@@ -513,6 +530,12 @@ export function ensureRemotePadiBinding(
       ceilingMs: probe.drainCeilingMs,
       log: log.child({ host }),
     });
+    // `convergeAdmit` can itself outlive a recheck while its drain awaits. Once
+    // this generation is superseded it may not mutate the standing anomaly or
+    // the later renew target; makeSession will tear its connection down.
+    if (active.signal.aborted) {
+      throw new Error("remote padi admit superseded");
+    }
 
     // Breadcrumb for build-axis drains that took (or attempted) — keep the VM arm green.
     if (
@@ -531,11 +554,13 @@ export function ensureRemotePadiBinding(
       case "adopt": {
         // Clean adopt — budget memory SURVIVES (not reset). Clear standing anomaly.
         convergence = null;
+        activeCombined = active;
         return { kind: "adopt" };
       }
       case "adopt-stale": {
         // Framework anomaly rides the wire as-is (typed running + expected).
         convergence = verdict.anomaly;
+        activeCombined = active;
         return { kind: "adopt" };
       }
       case "replaced": {

@@ -9,6 +9,7 @@ import {
   plantYesterdayDaemon,
   type YesterdayDaemonOpts,
 } from "./upgradeWindow.testlib.ts";
+import { match } from "ts-pattern";
 
 const planted: Array<{ dispose: () => Promise<void> }> = [];
 afterEach(async () => {
@@ -22,8 +23,16 @@ function fixtureOptions(
     gateFile: "daemon.pid",
     socketFile: "daemon.sock",
     assertSpawnAllowed: assertDaemonSpawnAllowed,
-    plantState: ({ confPath, session, conf }) =>
-      writeFileSync(confPath, JSON.stringify(conf ?? { session })),
+    plantState: ({ confPath, state }) =>
+      writeFileSync(
+        confPath,
+        JSON.stringify(
+          match(state)
+            .with({ kind: "conf" }, ({ conf }) => conf)
+            .with({ kind: "session" }, ({ session }) => ({ session }))
+            .exhaustive(),
+        ),
+      ),
     ...opts,
   };
 }

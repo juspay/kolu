@@ -53,9 +53,15 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
   });
 
   it("versionField alone is red until a version+1 disposition test is registered", () => {
+    const stateConfig = SHARED_ARTIFACTS.find(
+      (artifact) => artifact.id === "padi-state-root-config",
+    );
+    if (stateConfig === undefined) {
+      throw new Error("padi-state-root-config missing from artifact registry");
+    }
     const versionOnly = [
       {
-        ...SHARED_ARTIFACTS.find((a) => a.id === "padi-state-root-config")!,
+        ...stateConfig,
         coveredByTest: null,
       },
     ];

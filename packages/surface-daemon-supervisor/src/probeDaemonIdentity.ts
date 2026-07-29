@@ -9,6 +9,7 @@ import {
 import { composeSurfaceContracts } from "@kolu/surface/define";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { setTimeout as delay } from "node:timers/promises";
+import { match } from "ts-pattern";
 import type {
   ConvergenceProbe,
   DrainableProbe,
@@ -20,6 +21,7 @@ import type { DrainCapability } from "./convergence/policy.ts";
 const controlCoreContract = composeSurfaceContracts({
   control: controlCoreSurface,
 });
+const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
 
 /** The already-dialed client shape the assembly authority needs. */
 export interface ControlCoreProbeClient {
@@ -39,6 +41,7 @@ type ProbeCommon = {
   dispose: () => void;
 };
 
+/** Client-form probe inputs, fenced by whether the daemon can drain. */
 export type ProbeDaemonIdentityFromOptions<Cap extends DrainCapability> =
   ProbeCommon &
     (Cap extends "drainable"
@@ -55,6 +58,33 @@ function assertDrainCeiling(ms: number): void {
       `probeDaemonIdentity drainCeilingMs must be a positive number, got ${ms}`,
     );
   }
+}
+
+/** Bound the frozen handshake without taking transport ownership from the
+ * caller. The socket factory disposes on rejection; connector sessions do the
+ * same in their admit boundary. */
+function withHelloDeadline(
+  hello: Promise<ControlCoreHello>,
+): Promise<ControlCoreHello> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `control-core hello timed out after ${CONTROL_CORE_HELLO_TIMEOUT_MS}ms`,
+        ),
+      );
+    }, CONTROL_CORE_HELLO_TIMEOUT_MS);
+    hello.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**
@@ -76,7 +106,9 @@ export async function probeDaemonIdentityFrom(
   if (opts.capability === "drainable") {
     assertDrainCeiling(opts.drainCeilingMs);
   }
-  const hello = await opts.client.surface.control.core.hello();
+  const hello = await withHelloDeadline(
+    opts.client.surface.control.core.hello(),
+  );
   if (hello.controlCoreVersion !== CONTROL_CORE_VERSION) {
     throw new Error(
       `unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
@@ -91,27 +123,19 @@ export async function probeDaemonIdentityFrom(
     dispose: opts.dispose,
   };
 
-  switch (opts.capability) {
-    case "not-drainable":
-      return {
-        ...base,
-        capability: "not-drainable",
-      };
-    case "drainable":
-      return {
-        ...base,
-        capability: "drainable",
-        fireDrain: () => opts.client.surface.control.core.drain(),
-        awaitExit: opts.awaitExit,
-        drainCeilingMs: opts.drainCeilingMs,
-      };
-    default: {
-      const _exhaustive: never = opts;
-      throw new Error(
-        `unreachable probe capability: ${JSON.stringify(_exhaustive)}`,
-      );
-    }
-  }
+  return match(opts)
+    .with({ capability: "not-drainable" }, () => ({
+      ...base,
+      capability: "not-drainable" as const,
+    }))
+    .with({ capability: "drainable" }, (drainable) => ({
+      ...base,
+      capability: "drainable" as const,
+      fireDrain: () => drainable.client.surface.control.core.drain(),
+      awaitExit: drainable.awaitExit,
+      drainCeilingMs: drainable.drainCeilingMs,
+    }))
+    .exhaustive();
 }
 
 /** True only for an honest absent listener. */

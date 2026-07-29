@@ -25,12 +25,18 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const ENTRY = resolve(SRC, "index.ts");
 
 // The stable, kolu-free deps the supervisor legitimately rests on: node
-// builtins, the daemon half (whose gate-format primitives it composes), and
-// @kolu/surface for the frozen control-core transport. UW2 deliberately admits
-// that last edge: probeDaemonIdentity is shared supervisor spine, and making
-// every consumer reassemble the same stdio dial/handshake would duplicate the
-// skew boundary this package exists to own. Emphatically NO kolu-* app package.
-const ALLOWED_EXTERNAL = ["node:", "@kolu/surface", "@kolu/surface-daemon"];
+// builtins, the daemon half (whose gate-format primitives it composes),
+// @kolu/surface for the frozen control-core transport, and ts-pattern for
+// exhaustive policy dispatch. UW2 deliberately admits the surface edge:
+// probeDaemonIdentity is shared supervisor spine, and making every consumer
+// reassemble the same stdio dial/handshake would duplicate the skew boundary
+// this package exists to own. Emphatically NO kolu-* app package.
+const ALLOWED_EXTERNAL = [
+  "node:",
+  "@kolu/surface",
+  "@kolu/surface-daemon",
+  "ts-pattern",
+];
 
 const isAllowed = (spec: string): boolean =>
   ALLOWED_EXTERNAL.some((p) => spec === p || spec.startsWith(p));

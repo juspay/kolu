@@ -10,6 +10,7 @@
 
 import {
   controlCoreFragment,
+  controlCoreSurface,
   daemonHome,
   daemonMain,
   daemonProcessMain,
@@ -18,7 +19,9 @@ import {
   readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
-import { daemonRouter } from "./serve";
+import { implementSurfaces } from "@kolu/surface/server";
+import { deps } from "./serve";
+import { surface } from "./surface";
 
 // #region home
 // Durable ⇒ state dir (never /run): a daemon supervised over ssh must outlive
@@ -27,12 +30,16 @@ import { daemonRouter } from "./serve";
 const home = daemonHome({ app: "fleet-top", placement: "state" });
 // #endregion home
 
-// #region control-core
-// Serve these deps beside the versioned application surface. `hello` remains
-// readable even when that application contract is skewed; `drain` waits for the
-// daemon's own persistence/shutdown hook.
-export function controlCore(controller: AbortController) {
-  return controlCoreFragment({
+const readIdentity = readBakedIdentity("FLEET_TOP");
+
+// The example surface's flattened router — the same `router` a browser or a
+// unix-socket client reaches; the daemon just serves it durably.
+export function runDaemon(controller: AbortController): void {
+  // #region control-core
+  // Serve these deps beside the versioned application surface. `hello` remains
+  // readable even when that application contract is skewed; `drain` waits for
+  // the daemon's own persistence/shutdown hook.
+  const control = controlCoreFragment({
     stateRoot: home.dir,
     surfaceVersion: "1.0",
     startedAt: Date.now(),
@@ -40,17 +47,12 @@ export function controlCore(controller: AbortController) {
     buildId: readIdentity.staleKey,
     onDrain: () => controller.abort(),
   });
-}
-// #endregion control-core
-
-const readIdentity = readBakedIdentity("FLEET_TOP");
-
-// The example surface's flattened router — the same `router` a browser or a
-// unix-socket client reaches; the daemon just serves it durably.
-export function runDaemon(controller: AbortController): void {
-  const router = daemonRouter(controlCore(controller)) as Parameters<
-    typeof daemonMain
-  >[0]["router"];
+  const router = implementSurfaces(
+    { app: surface, control: controlCoreSurface },
+    {},
+    { app: deps, control },
+  ).router as Parameters<typeof daemonMain>[0]["router"];
+  // #endregion control-core
   // #region lifecycle
   daemonProcessMain({
     name: "fleet-top", // crash-arm narration prefix

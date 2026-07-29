@@ -36,10 +36,15 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
-import { DAEMON_BIND_PID_ENV, gatePid } from "@kolu/surface-daemon";
+import {
+  DAEMON_BIND_PID_ENV,
+  gatePid,
+  isHolderLive,
+} from "@kolu/surface-daemon";
 import {
   assertPreviousReleaseWindow,
   createProcessReaper,
+  isPreviousReleaseTag,
   runPreviousReleaseWindow,
   unknownProtocolFilesOnDisk,
   unknownSharedFileMessage,
@@ -89,17 +94,6 @@ afterAll(() => {
 afterEach(async () => {
   await reaper.dispose();
 });
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const VERSION_TAG = /^v\d+\.\d+\.\d+$/;
 
 /** Store path of a kaval bin (…/nix/store/HASH-kaval/bin/kaval → …/HASH-kaval). */
 function storePathOfBin(bin: string): string {
@@ -167,21 +161,14 @@ async function resolvePreviousWindow(): Promise<{
         );
         currentStore = stdout.trim().split("\n").at(-1) ?? "";
       } catch (error) {
-        if (required()) {
-          throw new Error("failed to build the current kaval store", {
-            cause: error,
-          });
-        }
-        console.warn(
-          "SKIP: failed to build the current kaval store for the mixed-version check",
-          error,
-        );
-        return null;
+        throw new Error("failed to build the current kaval store", {
+          cause: error,
+        });
       }
     }
     const ref = envRef ?? "unknown";
     if (required()) {
-      if (!VERSION_TAG.test(ref)) {
+      if (!isPreviousReleaseTag(ref)) {
         throw new Error(
           `KOLU_UPGRADE_WINDOW_REQUIRE=1 but KOLU_PREVIOUS_KAVAL_REF='${ref}' is not a version tag — ` +
             `the recipe must git fetch --tags and refuse the last-kaval-commit fallback`,
@@ -194,7 +181,7 @@ async function resolvePreviousWindow(): Promise<{
         );
       }
       logWindow({ ref, previousStore, currentStore });
-    } else if (VERSION_TAG.test(ref) && currentStore) {
+    } else if (isPreviousReleaseTag(ref) && currentStore) {
       logWindow({ ref, previousStore, currentStore });
     }
     return {
@@ -207,34 +194,33 @@ async function resolvePreviousWindow(): Promise<{
   }
 
   // Local / unstamped path: fetch tags, require a version tag under REQUIRE.
-  try {
-    await execFileAsync("git", ["fetch", "--tags", "--force"], {
-      cwd: REPO_ROOT,
-    }).catch(() =>
-      execFileAsync("git", ["fetch", "--tags", "--force", "origin"], {
+  await execFileAsync("git", ["fetch", "--tags", "--force"], {
+    cwd: REPO_ROOT,
+  }).catch(async (localError) => {
+    try {
+      await execFileAsync("git", ["fetch", "--tags", "--force", "origin"], {
         cwd: REPO_ROOT,
-      }),
-    );
-  } catch {
-    // offline — fall through
-  }
+      });
+    } catch (originError) {
+      throw new AggregateError(
+        [localError, originError],
+        "failed to fetch version tags for the upgrade window",
+      );
+    }
+  });
 
   let ref: string | undefined;
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["tag", "--sort=-v:refname"],
-      { cwd: REPO_ROOT },
-    );
-    ref = stdout
-      .split("\n")
-      .map((t) => t.trim())
-      .find((t) => VERSION_TAG.test(t));
-  } catch {
-    ref = undefined;
-  }
+  const { stdout: tags } = await execFileAsync(
+    "git",
+    ["tag", "--sort=-v:refname"],
+    { cwd: REPO_ROOT },
+  );
+  ref = tags
+    .split("\n")
+    .map((t) => t.trim())
+    .find(isPreviousReleaseTag);
 
-  if (!ref || !VERSION_TAG.test(ref)) {
+  if (!ref || !isPreviousReleaseTag(ref)) {
     if (required()) {
       throw new Error(
         "KOLU_UPGRADE_WINDOW_REQUIRE=1 but no version tag (vX.Y.Z) after git fetch --tags — " +
@@ -280,16 +266,17 @@ async function resolvePreviousWindow(): Promise<{
       "bin",
       "padi",
     );
-    if (!existsSync(bin) || !existsSync(padiBin)) return null;
+    if (!existsSync(bin) || !existsSync(padiBin)) {
+      throw new Error(
+        `built previous-release binaries are missing: kaval=${bin}, padi=${padiBin}`,
+      );
+    }
     logWindow({ ref, previousStore, currentStore });
     return { bin, padiBin, ref, previousStore, currentStore };
   } catch (err) {
-    if (required()) throw err;
-    console.warn(
-      "previousRelease.e2e: could not nix-build previous/current kaval:",
-      (err as Error).message,
-    );
-    return null;
+    throw new Error("failed to build the mixed-version daemon window", {
+      cause: err,
+    });
   }
 }
 
@@ -341,7 +328,8 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
 
   const oldPid = gatePid(kavalGate);
   expect(oldPid).toBeTypeOf("number");
-  expect(isAlive(oldPid as number)).toBe(true);
+  if (oldPid === undefined) throw new Error("previous kaval gate has no pid");
+  expect(isHolderLive(oldPid)).toBe(true);
 
   // 2) Boot CURRENT padi against the same state-root. Compatible contract →
   //    adopt (PTYs would survive); we then force-recycle via recycleKaval.
@@ -440,7 +428,10 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
       unknownSharedFileMessage(SHARED_ARTIFACTS, unknown),
     ).toEqual([]);
 
-    const pidBeforeRecycle = gatePid(kavalGate) as number;
+    const pidBeforeRecycle = gatePid(kavalGate);
+    if (pidBeforeRecycle === undefined) {
+      throw new Error("kaval gate has no pid before recycle");
+    }
 
     // 4) Restart kaval — the production recycle path.
     await conn.client.surface.padi.lifecycle.recycleKaval(undefined);
@@ -451,7 +442,7 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     let newPid: number | undefined;
     while (Date.now() < recycleDeadline) {
       const p = gatePid(kavalGate);
-      if (p !== undefined && isAlive(p) && p !== pidBeforeRecycle) {
+      if (p !== undefined && isHolderLive(p) && p !== pidBeforeRecycle) {
         newPid = p;
         break;
       }
@@ -461,7 +452,7 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
       newPid,
       `kaval was not replaced after recycleKaval (still ${pidBeforeRecycle})`,
     ).toBeTypeOf("number");
-    expect(isAlive(pidBeforeRecycle)).toBe(false);
+    expect(isHolderLive(pidBeforeRecycle)).toBe(false);
 
     // 6) Session survived for restore — still on disk with the terminal.
     const after = JSON.parse(readFileSync(confPath, "utf8")) as {
@@ -471,7 +462,8 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     // padi itself stayed up (its gate unchanged through a kaval-only recycle).
     const padiPid = gatePid(padiGatePath(padiSock));
     expect(padiPid).toBeTypeOf("number");
-    expect(isAlive(padiPid as number)).toBe(true);
+    if (padiPid === undefined) throw new Error("padi gate has no pid");
+    expect(isHolderLive(padiPid)).toBe(true);
 
     // Re-ground after recycle — a new shared file introduced by the fresh
     // kaval must still match the inventory.
@@ -489,7 +481,7 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     // Reap kaval (current + any leftover) + padi.
     for (const g of [kavalGate, padiGatePath(padiSock)]) {
       const p = gatePid(g);
-      if (p !== undefined && isAlive(p)) {
+      if (p !== undefined && isHolderLive(p)) {
         try {
           process.kill(p, "SIGKILL");
         } catch {
@@ -537,6 +529,9 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
   });
   const currentKavalPid = gatePid(kavalGate);
   expect(currentKavalPid).toBeTypeOf("number");
+  if (currentKavalPid === undefined) {
+    throw new Error("current kaval gate has no pid");
+  }
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -578,11 +573,11 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
     // The previous padi reached and adopted the already-running current kaval:
     // the gate still names the same newer daemon instead of spawning its own.
     expect(gatePid(kavalGate)).toBe(currentKavalPid);
-    expect(isAlive(currentKavalPid as number)).toBe(true);
+    expect(isHolderLive(currentKavalPid)).toBe(true);
   } finally {
     for (const gate of [kavalGate, padiGatePath(padiSock)]) {
       const pid = gatePid(gate);
-      if (pid !== undefined && isAlive(pid)) {
+      if (pid !== undefined && isHolderLive(pid)) {
         try {
           process.kill(pid, "SIGKILL");
         } catch {

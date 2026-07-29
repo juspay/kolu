@@ -18,6 +18,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@orpc/server": "^1.13.13",
+    "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -1192,6 +1192,7 @@ export { CONTROL_CORE_VERSION };
  *  core), so a skewed binder still learns the running version to decide
  *  upgrade-me vs drain-you. */
 export const PadiHelloSchema = ControlCoreHelloSchema;
+/** Padi's byte-identical alias of the generic frozen hello payload. */
 export type PadiHello = ControlCoreHello;
 
 /** `version` — the control core's own version probe (just the frozen core

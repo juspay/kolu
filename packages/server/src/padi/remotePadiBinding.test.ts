@@ -128,6 +128,9 @@ function servedIdentity(hello: Hello) {
 /** A spawn the connector hands out: a served daemon (its hello + drain behaviour) or a
  *  connector-level rejection (a provision/ssh failure). */
 type ServeOpts = {
+  /** Hold every hello on this gate so a test can settle an old admit after a
+   * newer dial has already been adopted. */
+  helloGate?: Promise<void>;
   /** Drain kills the link (default true). `false` = a wedged daemon that keeps answering
    *  after the drain (the drain did not take). */
   diesOnDrain?: boolean;
@@ -200,6 +203,7 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
         control: {
           core: {
             hello: async (): Promise<Hello> => {
+              await spec.helloGate;
               if (drained && spec.wedgeAfterDrain)
                 return new Promise<Hello>(() => {}); // wedged: never settles
               if (drained && dies) {
@@ -461,6 +465,44 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     await flush(200);
     await r; // resolves only after the modelled link death
     expect(handles[0]!.drainCount).toBe(1);
+  });
+
+  it("renew drains the current generation when a superseded admit settles late", async () => {
+    let releaseFirstHello!: () => void;
+    const firstHello = new Promise<void>((resolve) => {
+      releaseFirstHello = resolve;
+    });
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-current",
+      drainTeardownCeilingMs: 200,
+    });
+    enqueue(
+      serve(helloVals({ startedAt: 1, buildId: "build-old" }), {
+        helloGate: firstHello,
+      }),
+    );
+
+    const firstPin = session.pin();
+    firstPin.catch(() => {});
+    await flush();
+    expect(handles).toHaveLength(1);
+
+    enqueue(serve(helloVals({ startedAt: 2, buildId: "build-current" })));
+    session.recheck();
+    await flush(CEIL);
+    await flush();
+    expect(handles).toHaveLength(2);
+    expect(session.currentState().phase).toBe("connected");
+
+    releaseFirstHello();
+    await flush();
+    await expect(firstPin).rejects.toThrow(/superseded/i);
+
+    const renewed = session.renew();
+    renewed.catch(() => {});
+    await flush(200);
+    await renewed;
+    expect(handles.map((handle) => handle.drainCount)).toEqual([0, 1]);
   });
 
   it("renew() THROWS when the padi does not exit in the window (never a phantom success)", async () => {

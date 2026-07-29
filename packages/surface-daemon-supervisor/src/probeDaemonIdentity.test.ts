@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface, implementSurfaces } from "@kolu/surface/server";
@@ -139,6 +139,33 @@ describe("probeDaemonIdentity", () => {
 });
 
 describe("probeDaemonIdentityFrom", () => {
+  it("bounds a frozen hello that never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = probeDaemonIdentityFrom({
+        client: {
+          surface: {
+            control: {
+              core: {
+                hello: () => new Promise(() => {}),
+                drain: async () => {},
+              },
+            },
+          },
+        },
+        dispose: () => {},
+        capability: "not-drainable",
+      });
+      const rejection = expect(pending).rejects.toThrow(
+        "control-core hello timed out after 30000ms",
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects an invalid drain ceiling before touching the wire", async () => {
     let helloCalls = 0;
     await expect(
