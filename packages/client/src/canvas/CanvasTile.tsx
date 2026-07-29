@@ -331,7 +331,7 @@ const CanvasTile: Component<{
       data-testid="canvas-tile"
       data-canvas-tile=""
       data-terminal-id={id}
-      data-active={props.active ? "true" : undefined}
+      data-active={props.active ? "" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
       data-sleeping={props.sleeping ? "" : undefined}

@@ -72,6 +72,11 @@ describe("CanvasTile shell selection", () => {
     );
     expect(paneContent).not.toBeNull();
     expect(titlebar).not.toBeNull();
+    expect(
+      host
+        .querySelector("[data-testid=canvas-tile]")
+        ?.getAttribute("data-active"),
+    ).toBe("");
 
     paneContent?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     expect(onSelect).not.toHaveBeenCalled();

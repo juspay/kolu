@@ -65,7 +65,7 @@ import {
   type ControlCoreHello,
   ControlCoreHelloSchema,
   controlCoreProcedureSpec,
-} from "@kolu/surface-daemon";
+} from "@kolu/surface-daemon/control-core";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsFileInputSchema,

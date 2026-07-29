@@ -48,8 +48,12 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   // deliberately does not read the live set: row order and colour move on agent
   // transitions, not on the ~1 s byte tick.
   const ranked = createMemo(() =>
-    rankDockRows(tileStore.tileIds(), store.getMetadata, isStale, (id) =>
-      facts.classOf(encActiveHost(), id),
+    rankDockRows(
+      tileStore.tileIds(),
+      store.getMetadata,
+      isStale,
+      (id) => facts.classOf(encActiveHost(), id),
+      store.getSubTerminalIds,
     ),
   );
   return createMemo(() =>

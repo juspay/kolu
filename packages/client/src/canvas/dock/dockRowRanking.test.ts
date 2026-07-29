@@ -93,6 +93,7 @@ function rankOne(meta: TerminalMetadata, stale: boolean) {
     () => meta,
     () => stale,
     classOfMeta(() => meta),
+    () => [],
   );
   const row = rows[0];
   if (!row) throw new Error("no row returned");
@@ -170,6 +171,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => makeSleepingMeta(1),
       () => true,
       classOfMeta(() => makeSleepingMeta(1)),
+      () => [],
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -197,6 +199,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       realStale(NOW, WINDOW),
       classOfMeta(() => meta),
+      () => [],
     );
     expect(rows[0]?.bucket).toBe("parked");
   });
@@ -214,6 +217,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       realStale(NOW, WINDOW),
       classOfMeta(() => meta),
+      () => [],
     );
     expect(rows[0]?.bucket).toBe("sleeping");
   });
@@ -230,6 +234,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => meta,
       () => true,
       classOfMeta(() => meta),
+      () => [],
     );
     expect(meta.agent).toBe(agentBefore); // identity preserved — same object reference
     expect(meta.agent?.state).toBe("waiting");
@@ -336,5 +341,95 @@ describe("rowRecencyAt — the one recency the window and the row display share"
       sleptAt: 999_000,
     } as TerminalMetadata;
     expect(rowRecencyAt(meta)).toBe(999_000);
+  });
+});
+
+describe("rankDockRows — split sub-entries", () => {
+  const PARENT = "parent" as TerminalId;
+  const AGENT_SPLIT = "split-agent" as TerminalId;
+  const PLAIN_SPLIT = "split-bash" as TerminalId;
+
+  const metas: Record<string, TerminalMetadata> = {
+    [PARENT]: makeMeta({ lastActivityAt: 100 }),
+    [AGENT_SPLIT]: makeMeta({
+      agent: makeAgent("thinking"),
+      lastActivityAt: 50,
+    }),
+    [PLAIN_SPLIT]: makeMeta({ lastActivityAt: 40 }),
+  };
+  const getMeta = (id: TerminalId) => metas[id as string];
+
+  function rank(subIds: TerminalId[]) {
+    return rankDockRows(
+      [PARENT],
+      getMeta,
+      () => false,
+      classOfMeta(getMeta),
+      () => subIds,
+    );
+  }
+
+  it("gives every split an entry under its parent", () => {
+    expect(
+      rank([AGENT_SPLIT, PLAIN_SPLIT])[0]?.subRows.map((row) => row.id),
+    ).toEqual([AGENT_SPLIT, PLAIN_SPLIT]);
+  });
+
+  it("orders sibling splits needs-you first, then by recency", () => {
+    const blocked = "split-blocked" as TerminalId;
+    const newerBusy = "split-newer-busy" as TerminalId;
+    metas[blocked] = makeMeta({
+      agent: makeAgent("awaiting_user"),
+      lastActivityAt: 10,
+    });
+    metas[newerBusy] = makeMeta({
+      agent: makeAgent("thinking"),
+      lastActivityAt: 1_000,
+    });
+
+    expect(rank([newerBusy, blocked])[0]?.subRows.map((row) => row.id)).toEqual(
+      [blocked, newerBusy],
+    );
+  });
+
+  it("uses split activity for the parent's window fate and displayed recency", () => {
+    const parent = makeMeta({ lastActivityAt: 10 });
+    const split = makeMeta({
+      agent: makeAgent("thinking"),
+      lastActivityAt: 1_000,
+    });
+    const getMeta = (id: TerminalId) =>
+      id === PARENT ? parent : id === AGENT_SPLIT ? split : undefined;
+    const staleInputs: Array<number | null> = [];
+
+    const result = rankDockRows(
+      [PARENT],
+      getMeta,
+      (recencyAt) => {
+        staleInputs.push(recencyAt);
+        return recencyAt !== null && recencyAt < 100;
+      },
+      classOfMeta(getMeta),
+      () => [AGENT_SPLIT],
+    );
+
+    expect(staleInputs).toEqual([1_000]);
+    expect(result[0]).toMatchObject({ ts: 1_000, bucket: "idle" });
+  });
+
+  it("omits a split while its projected metadata is still pending", () => {
+    const missing = "split-missing" as TerminalId;
+    expect(rank([missing])[0]?.subRows).toEqual([]);
+  });
+
+  it("classifies agentless splits as quiet rows", () => {
+    expect(rank([PLAIN_SPLIT])[0]?.subRows[0]).toMatchObject({
+      kind: "shell",
+      bucket: "idle",
+    });
+  });
+
+  it("classifies agent-bearing splits once for paint and attention consumers", () => {
+    expect(rank([AGENT_SPLIT])[0]?.subRows[0]?.kind).toBe("agent");
   });
 });

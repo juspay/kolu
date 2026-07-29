@@ -123,16 +123,17 @@ export function createViewState(
 
   function writeFocus(next: TerminalFocus | null): void {
     setFocus(next);
+    const focusedId = next?.id ?? null;
+    if (focusedId !== null && attention[focusedId] === "unread")
+      setAttention(
+        produce((a) => {
+          delete a[focusedId];
+        }),
+      );
     const tileId = activeTileOf(next, placementOf);
     if (tileId === null) return;
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
     visits.noteVisit(host, tileId);
-    if (attention[tileId] === "unread")
-      setAttention(
-        produce((a) => {
-          delete a[tileId];
-        }),
-      );
     // Report the active terminal to THIS owner's host for its session snapshot.
     // `writeFocus` only ever runs for the shown host (you focus a terminal on the
     // host you are viewing), so this fixed-host entry IS the active-host client.

@@ -84,12 +84,12 @@ export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-3 pl-3";
 
 /** Dock row column geometry — single invariant shared by the desktop
  *  dock (`Dock.tsx`) and the touch dock (`DockList.tsx`). The row is one
- *  concept: `[indicator 20px][branch minmax(0,1fr)][sub-count auto][time
- *  auto]` (the `DOCK_ROW_GRID` template below), with the line-2 flex row
+ *  concept: `[indicator 20px][branch minmax(0,1fr)][time auto]` (the
+ *  `DOCK_ROW_GRID` template below), with the line-2 flex row
  *  (PR pip + subline) starting at the branch column. Insert or remove a
  *  track and you MUST update `DOCK_ROW_GRID` and `DOCK_ROW_BRANCH_COL`
  *  together. 20 px matches `DOCK_ROW_PIP_BOX` (identity glyph column). */
-export const DOCK_ROW_GRID = "grid-cols-[20px_minmax(0,1fr)_auto_auto]";
+export const DOCK_ROW_GRID = "grid-cols-[20px_minmax(0,1fr)_auto]";
 /** Column gap between the status indicator and the branch label — Option C
  *  mockup (`gap: 0 0.7rem`). Shared by desktop cards and the touch list. */
 export const DOCK_ROW_GAP = "gap-x-[0.7rem]";

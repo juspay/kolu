@@ -415,7 +415,7 @@ const CanvasMinimap: Component<{
             const presence = () => state().presence;
             const parked = () => presence() === "parked";
             const sleeping = () => presence() === "sleeping";
-            const isActive = () => tileStore.activeId() === id;
+            const isActive = () => tileStore.isActiveTile(id);
             const hasAgent = () => presence() === "agent";
             const badgeVisible = () => hasAgent();
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a

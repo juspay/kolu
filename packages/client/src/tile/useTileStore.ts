@@ -84,6 +84,16 @@ export const useTileStore = createSharedRoot(() => {
     persistCanvasLayout(content.terminalId, layout);
   };
 
+  /** Explicit tile-identity landing: a top-level terminal tile denotes its main
+   *  pane, so no remembered split may override the id the caller supplied. */
+  const activate = (id: TileId | null): void => {
+    if (id === null) {
+      store.activate(null);
+      return;
+    }
+    store.focusMainTerminal(id);
+  };
+
   return {
     // Tile presence + content.
     tileIds,
@@ -102,7 +112,9 @@ export const useTileStore = createSharedRoot(() => {
     activeId: store.activeId,
     isFocused: store.isFocused,
     isActiveTile: store.isActiveTile,
-    activate: store.activate,
+    activate,
+    /** Tile-level/system landing with no explicit pane target. */
+    activateVisiblePane: store.activate,
     setActiveSilently: store.setActiveSilently,
   };
 });
