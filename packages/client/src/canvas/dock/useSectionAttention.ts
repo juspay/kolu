@@ -37,8 +37,8 @@ export type SectionAttention = {
 /** Flatten one section to the exact terminals its attention summary owns.
  * Every top-level row and every split participates. The fold decides each leg
  * (asking self-excludes agentless ids; live/unread shells count). Kind never
- * re-gates membership — that was the chrome-complecting gate this DRY fix
- * deleted at render sites. */
+ * re-gates membership — the same "kind is not a chrome/count axis" rule the
+ * row surfaces already follow for paint, motion, and unread. */
 export function sectionAttentionIds(group: DockGroup): TerminalId[] {
   const ids: TerminalId[] = [];
   for (const row of group.allTopRows) {
