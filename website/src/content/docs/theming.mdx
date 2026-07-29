@@ -62,8 +62,15 @@ and the <kbd>⌘⇧J</kbd> "shuffle this terminal" shortcut:
 
 <Aside type="note" title="Switching light/dark is forward-only">
   Flipping the app between light and dark affects terminals you open
-  <em>afterward</em>, never ones already on screen — a theme you chose for a tile
+  _afterward_, never ones already on screen — a theme you chose for a tile
   is never overwritten out from under you.
+</Aside>
+
+<Aside type="note" title="Applies to every new terminal">
+  The new-terminal theme preference is resolved by padi (the terminal daemon)
+  at the one front door every caller passes through — so a terminal created
+  by the MCP server, a TUI, or a script follows the same **Inherit** or
+  **Shuffle** setting as one you open from the keyboard.
 </Aside>
 
 ## The app theme

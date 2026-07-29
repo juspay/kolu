@@ -61,6 +61,10 @@ const HASHED_ROOTS: Record<string, string> = {
   "kolu-transcript-html": "transcript-html",
   "memorable-names": "memorable-names",
   nonempty: "nonempty",
+  // terminal-themes — padi's `terminalThemePolicy` imports `pickTheme`,
+  // `availableThemes`, `resolveThemeBgs` from it, so a theme-table or pick-logic
+  // change is daemon BEHAVIOUR that must flip padi's staleKey.
+  "terminal-themes": "terminal-themes",
   "kolu-pty": "integrations/pty",
   "kolu-git": "integrations/git",
   "kolu-github": "integrations/github",
@@ -83,6 +87,10 @@ const EXCLUDED: Record<string, string[]> = {
   // so it belongs to those consumers' code, not padi's staleKey. `watch.ts`
   // (the dial kit's client-side watch/wait helpers) rides the same exclusion.
   "@kolu/padi": ["dial.ts", "watch.ts"],
+  // terminal-themes' `color.ts` is a separate entry point
+  // (`terminal-themes/color`) that padi never imports — only the client does.
+  // It belongs to the client's code, not padi's staleKey.
+  "terminal-themes": ["color.ts"],
   // kaval's daemon EXECUTABLE — the separate process padi spawns via
   // KOLU_KAVAL_BIN, carrying its OWN KAVAL_BUILD_ID. padi embeds only kaval's
   // LIBRARY surface (`index.ts`), never these, so they belong to kaval's

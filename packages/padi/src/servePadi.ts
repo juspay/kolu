@@ -68,6 +68,7 @@ import {
   requireActiveTerminal,
   requireMutableTerminal,
   snapshotFor,
+  terminalEntries,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
@@ -86,7 +87,13 @@ import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
+  readTerminalThemePolicyFromEnv,
+  resolveCreateTerminalTheme,
+  type TerminalThemePolicy,
+} from "./terminalThemePolicy.ts";
+import {
   createTerminal,
+  getActiveTerminalId,
   killAllTerminals,
   killTerminal,
   setActiveTerminalId,
@@ -161,8 +168,16 @@ export function buildPadiSurfaceDeps(deps: {
   /** padi's resolved state-root — the `hostInventory` poll read resolves the
    *  held-kaval fallback address from it (`samplePadiHostInventory`). */
   stateRoot: string;
+  /** Source for the user's new-terminal theme preference. Defaults to reading
+   *  the live kolu-server conf (`$KOLU_STATE_DIR/config.json`) so out-of-band
+   *  create callers (MCP, a TUI, scripts) honour the same setting as the
+   *  browser. Tests inject a static source. */
+  terminalThemePolicy?: { get: () => TerminalThemePolicy };
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
+  const terminalThemePolicy = deps.terminalThemePolicy ?? {
+    get: readTerminalThemePolicyFromEnv,
+  };
   const fsGit = padiFsGitDeps(endpoint, log);
   // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
   // with terminals via `finish.project` (quiet-exit re-folds without an
@@ -435,8 +450,30 @@ export function buildPadiSurfaceDeps(deps: {
           // saved `lastActivityAt` through, via `respawnActive`, not this path.)
           if (input.parentId !== undefined)
             requireActiveTerminal(input.parentId);
+
+          // Resolve the new-terminal theme HERE, at the single front door every
+          // caller passes through. The browser no longer pre-computes it, so UI
+          // creates and MCP-created terminals see the same user preference.
+          const activeId = getActiveTerminalId();
+          const activeThemeName = activeId
+            ? getTerminal(activeId)?.meta.themeName
+            : undefined;
+          const saved = requirePadiSessionStore().get();
+          const savedActiveThemeName = saved?.terminals.find(
+            (t) => t.id === saved.activeTerminalId,
+          )?.themeName;
+          const themeName = resolveCreateTerminalTheme({
+            overrideThemeName: input.themeName,
+            policy: terminalThemePolicy.get(),
+            activeThemeName,
+            lastThemeName: savedActiveThemeName,
+            peerThemeNames: [...terminalEntries()].flatMap(([, entry]) =>
+              entry.meta.themeName ? [entry.meta.themeName] : [],
+            ),
+          });
+
           const info = createTerminal(input.cwd, input.parentId, {
-            themeName: input.themeName,
+            themeName,
             canvasLayout: input.canvasLayout,
             subPanel: input.subPanel,
             rightPanel: input.rightPanel,

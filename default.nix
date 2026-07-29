@@ -273,6 +273,17 @@ let
       # fold + fs/git endpoint INTO padi/src/terminalWorkspace, so what remains
       # here is the shared leaf; the whole src still hashes into padi's key).
       (padiPkgRoot ./packages/terminal-vocab)
+      # terminal-themes — padi's terminalThemePolicy imports pickTheme /
+      # availableThemes / resolveThemeBgs from it. A theme-table or pick-logic
+      # change is daemon behaviour, so it hashes into padi's staleKey. MINUS
+      # `color.ts` — a separate entry point (`terminal-themes/color`) only the
+      # client imports; padi's closure never reaches it.
+      (pkgs.lib.fileset.unions [
+        (pkgs.lib.fileset.difference
+          (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/terminal-themes/src)
+          ./packages/terminal-themes/src/color.ts)
+        ./packages/terminal-themes/package.json
+      ])
       # The domain leaves padi's closure reaches: serving, the agent/forge/git
       # integrations, transcripts, and the shared utilities. (`@kolu/surface` and
       # the npm deps are NOT here — surface is the framework "electricity" (a

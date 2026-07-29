@@ -289,6 +289,11 @@ function assignActiveTerminalId(id: TerminalId | null): void {
   activeTerminalId = id;
 }
 
+/** Read the client-reported active terminal id. */
+export function getActiveTerminalId(): TerminalId | null {
+  return activeTerminalId;
+}
+
 /** Store which terminal is active (reported by the client).
  *  Only emits session:changed when a terminal is actually selected —
  *  null (no selection, e.g. client reconnect) must not trigger
