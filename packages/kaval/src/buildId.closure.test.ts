@@ -73,6 +73,10 @@ const ALLOWED_EXTERNAL = [
   // IS hashed; a contract-compatible spine change must not fire kaval's PTY-costing nudge —
   // the zest incident, see header). So the walk STOPS at it rather than following its edge.
   "@kolu/surface-daemon",
+  // osfacts-client is the TypeScript face of the baked osfacts binary — a stable leaf
+  // used only for start-qualified process identity at the pid-gate (UW4). Its wire is the
+  // binary's TSV, not kaval's PTY contract; a client-only change must not fire the nudge.
+  "osfacts-client",
   // @kolu/xterm-kit is the graduated xterm machinery. kaval consumes ONLY its
   // runtime-neutral core (the mirror anchor + snapToWrapHead) — a stable leaf here,
   // NOT a hashed root, by the exact same reasoning as the spine: the anchor's
