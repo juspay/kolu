@@ -5,7 +5,7 @@
  *  `createStore` hand-keyed by `encodeHostKey(activeHost())`. The enumeration
  *  (a record whose fields a new fact must be remembered into, keyed by hand at a
  *  swap seam) DIES: the owner IS the host, so these are just plain signals —
- *  per-host by construction. Focus (`activeId`), MRU order, and per-tile
+ *  per-host by construction. Focus (`focusedTerminalId`), MRU order, and per-tile
  *  attention are the ratified "cheap, client-owned" state (ids + order — keeping
  *  them across a switch-away is free); they survive a switch-away in this owner
  *  and are disposed only when the host leaves `padiMap.entries`.
@@ -32,7 +32,13 @@
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createMemo, createSignal, type Setter } from "solid-js";
+import {
+  type Accessor,
+  createMemo,
+  createSelector,
+  createSignal,
+  type Setter,
+} from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { perHostBoolPref } from "../persistedPref";
 import { useVisitRecency } from "../terminal/visitRecency";
@@ -45,12 +51,17 @@ import { padiMap } from "../wire";
 type TerminalAttention = "unread";
 
 export interface HostViewState {
+  /** The one written focus fact: the terminal receiving keyboard input, whether
+   *  it is a top-level tile or a split. */
+  focusedTerminalId: Accessor<TerminalId | null>;
+  /** The active top-level tile, folded from `focusedTerminalId` via parentId. */
   activeId: Accessor<TerminalId | null>;
+  isFocused: (id: TerminalId) => boolean;
+  isActiveTile: (id: TerminalId) => boolean;
   mruOrder: Accessor<TerminalId[]>;
-  /** The single per-host activation write path: swaps the active tile, fronts the
-   *  MRU, clears the tile's unread, and reports it to THIS host's server session.
-   *  Named `writeActive` (the facade exposes it as `setActiveSilently`). */
-  writeActive: (id: TerminalId | null) => void;
+  /** The single per-host focus write path. Active-tile side effects use the
+   *  ancestor folded from this terminal. */
+  writeFocus: (id: TerminalId | null) => void;
   /** Seed empty host trail / reconcile live membership (order is seed-only). */
   reconcileLiveIds: (liveIds: readonly TerminalId[]) => void;
   /** Drop one terminal from the durable visit trail (kill path). */
@@ -70,8 +81,25 @@ export interface HostViewState {
   reset: () => void;
 }
 
-export function createViewState(host: HostKey): HostViewState {
-  const [activeId, setActiveId] = createSignal<TerminalId | null>(null);
+export function activeTileOf(
+  focusedId: TerminalId | null,
+  parentOf: (id: TerminalId) => TerminalId | null,
+): TerminalId | null {
+  if (focusedId === null) return null;
+  return parentOf(focusedId) ?? focusedId;
+}
+
+export function createViewState(
+  host: HostKey,
+  parentOf: (id: TerminalId) => TerminalId | null,
+): HostViewState {
+  const [focusedTerminalId, setFocusedTerminalId] =
+    createSignal<TerminalId | null>(null);
+  const activeId = createMemo(() =>
+    activeTileOf(focusedTerminalId(), parentOf),
+  );
+  const isFocused = createSelector(focusedTerminalId);
+  const isActiveTile = createSelector(activeId);
   const [attention, setAttention] = createStore<
     Record<TerminalId, TerminalAttention>
   >({});
@@ -98,19 +126,20 @@ export function createViewState(host: HostKey): HostViewState {
     fallback: false,
   });
 
-  function writeActive(id: TerminalId | null): void {
-    setActiveId(id);
-    if (id === null) return;
+  function writeFocus(id: TerminalId | null): void {
+    setFocusedTerminalId(id);
+    const tileId = activeTileOf(id, parentOf);
+    if (tileId === null) return;
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
-    visits.noteVisit(host, id);
-    if (attention[id] === "unread")
+    visits.noteVisit(host, tileId);
+    if (attention[tileId] === "unread")
       setAttention(
         produce((a) => {
-          delete a[id];
+          delete a[tileId];
         }),
       );
     // Report the active terminal to THIS owner's host for its session snapshot.
-    // `writeActive` only ever runs for the shown host (you activate a tile on the
+    // `writeFocus` only ever runs for the shown host (you focus a terminal on the
     // host you are viewing), so this fixed-host entry IS the active-host client.
     // A failure here leaves the server's saved-session snapshot momentarily stale
     // (the NEXT activation re-reports and self-heals), so this is best-effort — but
@@ -119,10 +148,10 @@ export function createViewState(host: HostKey): HostViewState {
     // activation, and a background bookkeeping report is not a user-facing action.
     void padiMap
       .entry(host)
-      .procedures.chrome.setActive({ id })
+      .procedures.chrome.setActive({ id: tileId })
       .catch((err: Error) => {
         console.error(
-          `hostScope: failed to report active terminal ${id} to ${encoded}: ${err.message}`,
+          `hostScope: failed to report active terminal ${tileId} to ${encoded}: ${err.message}`,
         );
       });
   }
@@ -154,16 +183,19 @@ export function createViewState(host: HostKey): HostViewState {
     // the tiled posture (matching the pre-per-host `reset` clearing `canvasMaximized`);
     // `setCanvasMaximized(false)` also writes `"false"` through the boolPref, so the
     // persisted posture is floored too — a reload after a close-all stays tiled.
-    setActiveId(null);
+    setFocusedTerminalId(null);
     visits.clearHost(host);
     setAttention(reconcile({}));
     setCanvasMaximized(false);
   }
 
   return {
+    focusedTerminalId,
     activeId,
+    isFocused,
+    isActiveTile,
     mruOrder,
-    writeActive,
+    writeFocus,
     reconcileLiveIds,
     forgetFromMru,
     markUnread,

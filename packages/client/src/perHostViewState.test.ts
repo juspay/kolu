@@ -190,7 +190,7 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         const vs = activeScope()?.view;
         if (!vs) throw new Error("no active view for HOST_A");
         // Mutate EVERY reset-on-close-all fact this factory owns.
-        vs.writeActive("term-1" as TerminalId);
+        vs.writeFocus("term-1" as TerminalId);
         vs.reconcileLiveIds(["term-1", "term-2"] as TerminalId[]);
         vs.markUnread("term-1" as TerminalId);
         vs.setCanvasMaximized(true);

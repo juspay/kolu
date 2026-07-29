@@ -141,7 +141,7 @@ vi.mock("./right-panel/useRightPanel", () => ({
 vi.mock("./terminal/useSubPanel", () => ({
   useSubPanel: () => ({
     seedPanel: () => {},
-    getSubPanel: () => ({ activeSubTab: null }),
+    peekSubPanel: () => ({ activeSubTab: null }),
     setActiveSubTab: () => {},
   }),
 }));

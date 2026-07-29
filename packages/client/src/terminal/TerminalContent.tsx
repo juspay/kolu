@@ -14,7 +14,7 @@ import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import DormantTileBody from "./DormantTileBody";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
-import { useSubPanel } from "./useSubPanel";
+import { DEFAULT_PANEL_SIZE, useSubPanel } from "./useSubPanel";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -59,20 +59,26 @@ const TerminalContent: Component<{
     sleepingArm(store.getMetadata(props.terminalId)) === undefined;
 
   const subTerminalIds = () => store.getSubTerminalIds(props.terminalId);
-  const panelState = () => subPanel.getSubPanel(props.terminalId);
+  const panelState = () => subPanel.peekSubPanel(props.terminalId);
+  const panelCollapsed = () => panelState()?.collapsed ?? false;
+  const panelSize = () => panelState()?.panelSize ?? DEFAULT_PANEL_SIZE;
   const hasSubs = () => subTerminalIds().length > 0;
-  const isExpanded = () => hasSubs() && !panelState().collapsed;
-  const activeSubTab = () => panelState().activeSubTab;
-  const focusTarget = () => panelState().focusTarget;
+  const isExpanded = () => hasSubs() && !panelCollapsed();
+  const activeSubTab = () => panelState()?.activeSubTab ?? null;
 
   // One owner for "which pane is live within this tile": only the focused tile's
-  // *open* split has a live pane (the `focusTarget` one), reusing the same
-  // signal that routes keystrokes — no parallel "active pane" state. Undefined
-  // when collapsed or when this tile isn't focused, so no unfocused tile lights
-  // a pane. The cue (`paneFocus`) and the keyboard routing (`shouldFocusSub`)
-  // below both read this, so they can't drift.
-  const livePane = () =>
-    props.focused && isExpanded() ? focusTarget() : undefined;
+  // *open* split has a live pane, folded directly from the one focus fact.
+  // Undefined when collapsed or when this tile isn't focused, so no unfocused
+  // tile lights a pane. The cue and keyboard routing both read this fold.
+  const livePane = (): "main" | "sub" | undefined => {
+    if (!props.focused || !isExpanded()) return undefined;
+    const focusedId = store.focusedTerminalId();
+    if (focusedId === props.terminalId) return "main";
+    return focusedId !== null &&
+      store.getMetadata(focusedId)?.parentId === props.terminalId
+      ? "sub"
+      : undefined;
+  };
 
   // Which pane the active-terminal cue marks: the live pane is "active", the
   // other "inactive" (which `RECEDE_INACTIVE_PANE` dims).
@@ -86,9 +92,9 @@ const TerminalContent: Component<{
         : "inactive";
 
   const shouldFocusMain = () =>
-    props.focused && (!isExpanded() || focusTarget() === "main");
+    props.focused && store.focusedTerminalId() === props.terminalId;
   const shouldFocusSub = (subId: TerminalId) =>
-    livePane() === "sub" && activeSubTab() === subId;
+    props.focused && isExpanded() && store.focusedTerminalId() === subId;
 
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle.
@@ -102,13 +108,11 @@ const TerminalContent: Component<{
   }
 
   function handleMainFocus() {
-    subPanel.setFocusTarget(props.terminalId, "main");
-    props.onFocus?.();
+    store.setActiveSilently(props.terminalId);
   }
 
-  function handleSubFocus() {
-    subPanel.setFocusTarget(props.terminalId, "sub");
-    props.onFocus?.();
+  function handleSubFocus(subId: TerminalId) {
+    store.setActiveSilently(subId);
   }
 
   return (
@@ -124,11 +128,7 @@ const TerminalContent: Component<{
     >
       <Resizable
         orientation="vertical"
-        sizes={
-          isExpanded()
-            ? [1 - panelState().panelSize, panelState().panelSize]
-            : [1, 0]
-        }
+        sizes={isExpanded() ? [1 - panelSize(), panelSize()] : [1, 0]}
         onSizesChange={handleSizesChange}
         class="flex-1 min-h-0"
       >
@@ -149,7 +149,7 @@ const TerminalContent: Component<{
               search.setOpen(props.terminalId, open)
             }
             onFocus={handleMainFocus}
-            refocusNonce={panelState().refocusNonce}
+            refocusNonce={panelState()?.refocusNonce ?? 0}
           />
         </Resizable.Panel>
 
@@ -231,8 +231,8 @@ const TerminalContent: Component<{
                   theme={props.theme}
                   searchOpen={false}
                   onSearchOpenChange={() => {}}
-                  onFocus={handleSubFocus}
-                  refocusNonce={panelState().refocusNonce}
+                  onFocus={() => handleSubFocus(subId)}
+                  refocusNonce={panelState()?.refocusNonce ?? 0}
                   isSub
                 />
               )}

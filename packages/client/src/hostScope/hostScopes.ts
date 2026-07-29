@@ -61,16 +61,25 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
     // GROUNDED against membership (juspay/kolu#1763) — never raw `activeHost`; a
     // not-yet-grounded boot host reads as `null`, not a non-member. See `wire.groundedActiveHost`.
     groundedActiveHost,
-    (host: HostKey): HostScope => ({
-      view: createViewState(host),
-      prefs: createHostPrefs(host),
-      camera: createCamera(),
-      restore: createSessionRestore(),
-      // SR11: `createHostWire` no longer needs `ctx.isActive` — the retained subs'
-      // active-toasts / background-logs split now lives in `interpretClientError`'s
-      // `scopedSub` arm (grounded enc-compare), so the wire owner opens them bare.
-      wire: createHostWire(host),
-    }),
+    (host: HostKey): HostScope => {
+      // The focus fold reads parentId from this host's retained collection. Build
+      // the wire first so `createViewState` gets a pure, host-fixed lookup rather
+      // than reaching through the active-host facade or a seeding UI store.
+      const wire = createHostWire(host);
+      return {
+        view: createViewState(
+          host,
+          (id) => wire.terminals.byKey(id)?.()?.parentId ?? null,
+        ),
+        prefs: createHostPrefs(host),
+        camera: createCamera(),
+        restore: createSessionRestore(),
+        // SR11: `createHostWire` no longer needs `ctx.isActive` — the retained subs'
+        // active-toasts / background-logs split now lives in `interpretClientError`'s
+        // `scopedSub` arm (grounded enc-compare), so the wire owner opens them bare.
+        wire,
+      };
+    },
   ),
 );
 

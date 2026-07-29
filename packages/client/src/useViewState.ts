@@ -38,7 +38,11 @@ export function useViewState() {
   // The active host's view slice, or `undefined` during the removal race.
   const view = () => activeScope()?.view;
 
+  const focusedTerminalId = () => view()?.focusedTerminalId() ?? null;
   const activeId = () => view()?.activeId() ?? null;
+  const isFocused = (id: TerminalId): boolean => view()?.isFocused(id) ?? false;
+  const isActiveTile = (id: TerminalId): boolean =>
+    view()?.isActiveTile(id) ?? false;
   const mruOrder = () => view()?.mruOrder() ?? [];
 
   /** Whether the workspace is in fullscreen-one-tile mode — the ACTIVE host's
@@ -57,16 +61,22 @@ export function useViewState() {
     createSignal<TerminalId | null>(null, { equals: false });
 
   /** Make `id` the active terminal AND ask the canvas viewport to pan to it.
-   *  The single public writer for system-driven activation. `writeActive` (in
+   *  The single public writer for system-driven activation. `writeFocus` (in
    *  the owner) is imperative — a pure host SWITCH re-keys `activeId()` without
    *  running it, so a switch never fires a wrong-host `chrome.setActive`. */
   function activate(id: TerminalId | null) {
-    view()?.writeActive(id);
-    if (id !== null) setCenterActiveRequest(id);
+    focusTerminal(id);
+    const tileId = activeId();
+    if (tileId !== null) setCenterActiveRequest(tileId);
   }
 
-  /** Set the active terminal without panning the canvas. */
-  const setActiveSilently = (id: TerminalId | null) => view()?.writeActive(id);
+  /** Focus a terminal without panning the canvas. This is the one public write
+   *  into the active host's `focusedTerminalId` fact. */
+  const focusTerminal = (id: TerminalId | null) => view()?.writeFocus(id);
+
+  /** Compatibility name for tile-oriented callers; it writes the same focus
+   *  fact and does not create a second active selection. */
+  const setActiveSilently = focusTerminal;
 
   /** Fire the "pan to the active tile" impulse for the CURRENT host without
    *  touching the active selection or reporting to the server — the switch-in
@@ -97,7 +107,11 @@ export function useViewState() {
   }
 
   return {
+    focusedTerminalId,
     activeId,
+    isFocused,
+    isActiveTile,
+    focusTerminal,
     activate,
     setActiveSilently,
     canvasMaximized,

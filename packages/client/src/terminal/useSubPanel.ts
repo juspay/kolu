@@ -5,6 +5,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
+import { useViewState } from "../useViewState";
 import { activePadiRpc } from "../wire";
 
 interface SubPanelState {
@@ -12,8 +13,6 @@ interface SubPanelState {
   /** Panel size as fraction (0–1). */
   panelSize: number;
   activeSubTab: TerminalId | null;
-  /** Which panel last had focus — restored when switching back to this terminal. */
-  focusTarget: "main" | "sub";
   /** Bumped to force the focus-target terminal to re-grab keyboard focus when
    *  the reactive `focused` state can't (it didn't change). Closing a sub-tab
    *  via its close button moves focus to that button; after the tab is removed
@@ -21,7 +20,7 @@ interface SubPanelState {
   refocusNonce: number;
 }
 
-const DEFAULT_PANEL_SIZE = 0.3;
+export const DEFAULT_PANEL_SIZE = 0.3;
 
 const [state, setState] = createStore<Record<TerminalId, SubPanelState>>({});
 
@@ -32,7 +31,6 @@ function ensureState(parentId: TerminalId): SubPanelState {
     collapsed: false,
     panelSize: DEFAULT_PANEL_SIZE,
     activeSubTab: null,
-    focusTarget: "sub",
     refocusNonce: 0,
   };
   setState(parentId, seeded);
@@ -64,34 +62,51 @@ function reportToServer(parentId: TerminalId) {
 }
 
 export function useSubPanel() {
+  const view = useViewState();
+
+  function focusVisiblePane(parentId: TerminalId): void {
+    const panel = state[parentId];
+    view.focusTerminal(
+      panel && !panel.collapsed && panel.activeSubTab
+        ? panel.activeSubTab
+        : parentId,
+    );
+  }
+
   return {
-    getSubPanel(parentId: TerminalId): SubPanelState {
-      return ensureState(parentId);
+    /** Pure read: absence stays absent. Derivations never seed panel state. */
+    peekSubPanel(parentId: TerminalId): SubPanelState | undefined {
+      return state[parentId];
     },
 
     togglePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", (v) => !v);
+      focusVisiblePane(parentId);
       reportToServer(parentId);
     },
 
     expandPanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", false);
-      setState(parentId, "focusTarget", "sub");
+      focusVisiblePane(parentId);
       reportToServer(parentId);
     },
 
     collapsePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", true);
-      setState(parentId, "focusTarget", "main");
+      view.focusTerminal(parentId);
       reportToServer(parentId);
     },
 
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
-      ensureState(parentId);
+      const panel = ensureState(parentId);
+      const focused = view.focusedTerminalId();
+      const followedActiveTab =
+        panel.activeSubTab !== null && focused === panel.activeSubTab;
       setState(parentId, "activeSubTab", subId);
+      if (followedActiveTab) view.focusTerminal(subId ?? parentId);
     },
 
     setPanelSize(parentId: TerminalId, size: number) {
@@ -107,12 +122,10 @@ export function useSubPanel() {
       const panel = ensureState(parentId);
       const current = ne.indexOf(panel.activeSubTab as string);
       const next = (current + direction + ne.length) % ne.length;
-      setState(parentId, "activeSubTab", ne[next] ?? ne[0]);
-    },
-
-    setFocusTarget(parentId: TerminalId, target: "main" | "sub") {
-      ensureState(parentId);
-      setState(parentId, "focusTarget", target);
+      const nextId = ne[next] ?? ne[0];
+      const followedActiveTab = view.focusedTerminalId() === panel.activeSubTab;
+      setState(parentId, "activeSubTab", nextId);
+      if (followedActiveTab) view.focusTerminal(nextId);
     },
 
     /** Ask the current focus-target terminal to re-grab keyboard focus. Used
@@ -133,7 +146,6 @@ export function useSubPanel() {
         collapsed: opts.collapsed,
         panelSize: opts.panelSize,
         activeSubTab: state[parentId]?.activeSubTab ?? null,
-        focusTarget: opts.collapsed ? "main" : "sub",
         refocusNonce: state[parentId]?.refocusNonce ?? 0,
       });
     },

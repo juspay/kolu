@@ -32,22 +32,12 @@ export const useTerminalStore = createSharedRoot(() => {
   });
   const subPanel = useSubPanel();
 
-  /** The terminal currently receiving input — the active sub-tab when the
-   *  active tile's split is expanded and focused, otherwise the active tile
-   *  itself. `activeId` names the focused *tile* (workspace root); but any
-   *  caller that routes input (the mobile key bar, copy-pane-text,
-   *  run-in-active-terminal) must target the focused *terminal*, which
-   *  diverges from the tile whenever a split has focus. This is the one place
-   *  that resolution lives, so a new input-routing site can't silently target
-   *  the parent instead. */
+  /** The terminal currently receiving input, narrowed to a live PTY. The focus
+   *  identity itself is the per-host fact in `createViewState`; this accessor
+   *  adds only the active-arm gate required by input-routing callers. */
   function focusedId(): TerminalId | null {
-    const parentId = view.activeId();
-    if (parentId === null) return null;
-    const panel = subPanel.getSubPanel(parentId);
-    const resolved =
-      !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
-        ? panel.activeSubTab
-        : parentId;
+    const resolved = view.focusedTerminalId();
+    if (resolved === null) return null;
     // A sleeping tile can be the active/selected tile, but it has no live PTY —
     // it is never an input target. Narrow to the active arm so every input-
     // routing site (mobile key bar, copy-pane-text, run-in-active-terminal)
@@ -81,7 +71,7 @@ export const useTerminalStore = createSharedRoot(() => {
     // same split rule down to individual terminals via `isActiveSplit`.
     return admitWebglTiles(
       ordered,
-      (id) => tileWebglCost(subPanel.getSubPanel(id)),
+      (id) => tileWebglCost(subPanel.peekSubPanel(id)),
       WEBGL_CONTEXT_CAP,
     );
   });
@@ -100,7 +90,7 @@ export const useTerminalStore = createSharedRoot(() => {
     const budget = webglTileBudget();
     const parentId = metadata.getMetadata(id)?.parentId ?? null;
     if (parentId === null) return budget.includes(id);
-    const panel = subPanel.getSubPanel(parentId);
+    const panel = subPanel.peekSubPanel(parentId);
     // A budgeted tile's slot covers exactly its active split (a collapsed split
     // is invisible and holds no context). `isActiveSplit` is the same predicate
     // `tileWebglCost` builds the budget from, so this per-terminal grant and the
@@ -133,6 +123,20 @@ export const useTerminalStore = createSharedRoot(() => {
   // to fall into.
   const activeMeta = () => active().meta;
 
+  /** Land on any terminal. Splits write their remembered panel chrome, then the
+   *  single focus fact; top-level terminals are the same focus verb without the
+   *  chrome write-through. */
+  function focusTerminal(id: TerminalId): void {
+    const parentId = metadata.getMetadata(id)?.parentId ?? null;
+    if (parentId === null) {
+      view.activate(id);
+      return;
+    }
+    subPanel.setActiveSubTab(parentId, id);
+    subPanel.expandPanel(parentId);
+    view.requestCenterActive();
+  }
+
   return {
     // Live terminal list from server (Subscription<TerminalInfo[]>).
     listSub: terminalListSub,
@@ -146,6 +150,8 @@ export const useTerminalStore = createSharedRoot(() => {
     ...metadata,
     // The input-routing target (tile root, or its focused split).
     focusedId,
+    // The one landing verb for either a top-level terminal or a split.
+    focusTerminal,
     // WebGL budget: whether a terminal should hold a WebGL renderer (#1403).
     holdsWebgl,
     // Lifecycle (view-state only — list is server-driven)

@@ -71,7 +71,8 @@ export const useTerminalCrud = createSharedRoot(() => {
         ),
     subPanel: {
       collapse: subPanel.collapsePanel,
-      activeSubTab: (parentId) => subPanel.getSubPanel(parentId).activeSubTab,
+      activeSubTab: (parentId) =>
+        subPanel.peekSubPanel(parentId)?.activeSubTab ?? null,
       setActiveSubTab: subPanel.setActiveSubTab,
       requestRefocus: subPanel.requestRefocus,
       remove: subPanel.removePanel,
