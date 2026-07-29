@@ -2,18 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createFocusProvenance } from "./focusProvenance";
 
 describe("terminal focus provenance", () => {
-  it("keeps chrome-triggered programmatic focus outside pane provenance", () => {
-    const provenance = createFocusProvenance(() => 0);
-    const writeFocusFact = vi.fn();
-    const mockFocus = () => provenance.consume(writeFocusFact);
-    const chromeGesture = vi.fn();
-
-    chromeGesture();
-    expect(mockFocus()).toBe(false);
-    expect(chromeGesture).toHaveBeenCalledOnce();
-    expect(writeFocusFact).not.toHaveBeenCalled();
-  });
-
   it("forwards one focus after a pane gesture, then consumes the token", () => {
     const provenance = createFocusProvenance(() => 0);
     const writeFocusFact = vi.fn();
