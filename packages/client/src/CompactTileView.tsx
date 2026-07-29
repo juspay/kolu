@@ -45,7 +45,7 @@ const CompactTileView: Component<{
         data-testid="compact-dock-rail"
         class="shrink-0 w-52 min-h-0 flex flex-col border-r border-edge bg-surface-1"
       >
-        <DockList onSelect={store.setActiveSilently} />
+        <DockList onSelect={store.focusTerminalSilently} />
       </aside>
       <MobileTileView
         orderedIds={props.orderedIds}

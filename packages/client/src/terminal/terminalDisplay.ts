@@ -37,7 +37,7 @@ export type TerminalDisplayInfo = {
 /** The both-present gate for a terminal's display row: the slow `info`
  *  decorations paired with the live `meta` record, or `null` until BOTH
  *  arrive. This is the single source of truth for that pairing — the dock
- *  factory (`createDockRowData`), the title-bar header, the mobile handle, and
+ *  Dock row-data factory, the title-bar header, the mobile handle, and
  *  `buildWorkspaceEntries` all gate through it, so no consumer re-spells the
  *  `info && meta` check. Wrapped in a `createMemo` by the reactive consumers, it
  *  recomputes only when either REFERENCE turns over (not on a per-leaf tick);
