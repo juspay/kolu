@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-28T23:55:35.523800+00:00'
+generated_at: '2026-07-29T04:32:28.693445+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -375,7 +375,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:50b0accf86ed19d60b56983abd1eb8ac797afb055b25fc3d4ab00e4ebae311c2
+  content_hash: sha256:c4def9ff953e276ae337768b3b541b838a0f18430c3e432b53491d01de4f6112
 - kind: project-relative
   target: agents
   value: .agents/skills/blog-post
@@ -898,7 +898,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:50b0accf86ed19d60b56983abd1eb8ac797afb055b25fc3d4ab00e4ebae311c2
+  content_hash: sha256:c4def9ff953e276ae337768b3b541b838a0f18430c3e432b53491d01de4f6112
 - kind: project-relative
   target: claude
   value: .claude/skills/be
@@ -2683,7 +2683,7 @@ local_deployed_files:
 - .claude/skills/test
 - .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
-  .agents/skills/atlas/SKILL.md: sha256:50b0accf86ed19d60b56983abd1eb8ac797afb055b25fc3d4ab00e4ebae311c2
+  .agents/skills/atlas/SKILL.md: sha256:c4def9ff953e276ae337768b3b541b838a0f18430c3e432b53491d01de4f6112
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .agents/skills/ci/SKILL.md: sha256:6e150a9c8332c9a9638d11fd285217b09f9954a7960809e4995be08c929f0ae2
   .agents/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
@@ -2720,7 +2720,7 @@ local_deployed_file_hashes:
   .claude/rules/surface.md: sha256:0ed3402945fdeb4f6d6c7bf3ba4a635576bbe71efcf2499d87d270a2dfe18863
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/rules/website-docs.md: sha256:09c4389e0f30d14acdc722e7d0a58486545c03645df4cbc8f9ccbc2df5612512
-  .claude/skills/atlas/SKILL.md: sha256:50b0accf86ed19d60b56983abd1eb8ac797afb055b25fc3d4ab00e4ebae311c2
+  .claude/skills/atlas/SKILL.md: sha256:c4def9ff953e276ae337768b3b541b838a0f18430c3e432b53491d01de4f6112
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/ci/SKILL.md: sha256:6e150a9c8332c9a9638d11fd285217b09f9954a7960809e4995be08c929f0ae2
   .claude/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
