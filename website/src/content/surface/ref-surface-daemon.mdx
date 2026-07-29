@@ -23,7 +23,9 @@ identify and drain a resident daemon before knowing whether that versioned
 surface is compatible. The hello fields are fixed:
 `stateRoot · surfaceVersion · controlCoreVersion · startedAt · commit · buildId`.
 `CONTROL_CORE_VERSION` is frozen at `"1.0"`; it is not an application contract
-version.
+version. Build id and commit are one observation: the shared reader accepts both
+absent, both empty (off-Nix), or both non-empty, and rejects every partial pair
+before convergence policy runs.
 
 The wire says only `drain(): void`; it does not promise that every daemon is
 drainable. A daemon whose durable state cannot survive a drain implements the

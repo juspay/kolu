@@ -19,8 +19,9 @@ export const ControlCoreHelloSchema = z.object({
   surfaceVersion: z.string(),
   controlCoreVersion: z.string(),
   startedAt: z.number(),
-  // Optional on the wire so a supervisor can still identify a survivor that
-  // predates either additive field. New fragment instances always emit both.
+  // Optional on the frozen wire so a supervisor can still identify a survivor
+  // predating the identity pair. Readers enforce the joint fact: both absent,
+  // both empty (off-nix), or both non-empty (baked).
   commit: z.string().optional(),
   buildId: z.string().optional(),
 });

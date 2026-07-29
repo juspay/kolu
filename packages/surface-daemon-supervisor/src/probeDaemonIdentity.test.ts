@@ -9,6 +9,7 @@ import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
   probeDaemonIdentity,
   probeDaemonIdentityFrom,
+  readControlCoreHello,
 } from "./probeDaemonIdentity.ts";
 
 const silentLog = { debug() {}, error() {} };
@@ -139,6 +140,34 @@ describe("probeDaemonIdentity", () => {
 });
 
 describe("probeDaemonIdentityFrom", () => {
+  it.each([
+    ["missing buildId", { commit: "def5678" }],
+    ["missing commit", { buildId: "remote-build" }],
+    ["empty buildId", { buildId: "", commit: "def5678" }],
+    ["empty commit", { buildId: "remote-build", commit: "" }],
+  ])("reader rejects a frozen hello with %s", async (_label, identity) => {
+    await expect(
+      readControlCoreHello({
+        surface: {
+          control: {
+            core: {
+              hello: async () => ({
+                stateRoot: "/state/remote",
+                surfaceVersion: "3.1",
+                controlCoreVersion: "1.0",
+                startedAt: 123,
+                ...identity,
+              }),
+              drain: async () => {},
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
+    );
+  });
+
   it("bounds a frozen hello that never answers", async () => {
     vi.useFakeTimers();
     try {

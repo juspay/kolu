@@ -40,12 +40,16 @@ import {
   isNoListenerError,
   probeKavalForConvergence,
 } from "./connect.ts";
+import { probeKavalStatus } from "../hostInventory.ts";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 const legacyVersionOnlyContract = oc.router({
   surface: {
     system: {
       version: ptyHostSurface.contract.surface.system.version,
+    },
+    terminal: {
+      list: ptyHostSurface.contract.surface.terminal.list,
     },
   },
 });
@@ -175,6 +179,9 @@ async function serveLegacyVersionOnly(
           },
         })),
       },
+      terminal: {
+        list: t.surface.terminal.list.handler(() => ({ entries: [] })),
+      },
     },
   });
   const listener = await serveOverUnixSocket({
@@ -196,6 +203,9 @@ async function serveLegacyHangingVersion(socketPath: string) {
         version: t.surface.system.version.handler(
           async () => await new Promise<never>(() => {}),
         ),
+      },
+      terminal: {
+        list: t.surface.terminal.list.handler(() => ({ entries: [] })),
       },
     },
   });
@@ -228,6 +238,9 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
         staleKey: "fragment-build",
         navigableCommit: "fragment-commit",
       });
+      await expect(probeKavalStatus(socketPath)).resolves.toMatchObject({
+        buildCommit: "fragment-commit",
+      });
     } finally {
       conn.dispose();
     }
@@ -240,15 +253,32 @@ describe("connectKaval — identity comes only from frozen hello", () => {
       mkdtempSync(join(tmpdir(), "kolu-connect-legacy-")),
       "pty-host.sock",
     );
-    const listener = await serveLegacy(socketPath);
+    const { listener } = await serveLegacyVersionOnly(
+      socketPath,
+      PTY_HOST_CONTRACT_VERSION,
+    );
     try {
       const conn = await connectKaval(socketPath);
       try {
         const legacyVersion = await conn.client.surface.system.version({});
-        expect(legacyVersion.identity).toBeDefined();
+        expect(legacyVersion.identity).toEqual({
+          staleKey: "legacy-build-must-not-be-trusted",
+          navigableCommit: "legacy-commit-must-not-be-trusted",
+        });
         expect(conn.identity).toEqual({
           staleKey: "",
           navigableCommit: "",
+        });
+        expect(conn.identity).not.toEqual(legacyVersion.identity);
+
+        // The inventory and the connected/dialog path tell the same truth about
+        // this one survivor: the frozen identity is absent, so neither path copies
+        // the tempting legacy identity fields.
+        const inventory = await probeKavalStatus(socketPath);
+        expect(inventory).toEqual({
+          terminalCount: 0,
+          buildCommit: null,
+          contractVersion: PTY_HOST_CONTRACT_VERSION,
         });
       } finally {
         conn.dispose();
@@ -288,7 +318,10 @@ describe("connectKaval — identity comes only from frozen hello", () => {
     });
     try {
       await expect(connectKaval(socketPath)).rejects.toThrow(
-        "incomplete kaval control-core identity: buildId and commit must be both empty or both non-empty",
+        "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
+      );
+      await expect(probeKavalStatus(socketPath)).rejects.toThrow(
+        "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
       );
     } finally {
       await listener.close();
