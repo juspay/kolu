@@ -25,8 +25,10 @@ import { SHARED_ARTIFACTS } from "./sharedArtifacts.testlib.ts";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR_SUITES = join(HERE, "../../../surface-daemon-supervisor/src");
 const suiteFiles = new Set([
-  ...readdirSync(HERE),
-  ...readdirSync(SUPERVISOR_SUITES),
+  ...readdirSync(HERE).map((name) => `padi/${name}`),
+  ...readdirSync(SUPERVISOR_SUITES).map(
+    (name) => `surface-daemon-supervisor/${name}`,
+  ),
 ]);
 const watchdog = createSharedArtifactWatchdog(SHARED_ARTIFACTS);
 

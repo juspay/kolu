@@ -11,7 +11,7 @@
  * versions, the one call you need at a version mismatch is always reachable.
  */
 
-import { inMemoryStore } from "@kolu/surface/server";
+import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { controlCoreFragment } from "@kolu/surface-daemon";
 import {
   CONTROL_CORE_VERSION,
@@ -19,9 +19,7 @@ import {
   type padiControlSurface,
 } from "../surface.ts";
 
-type ControlCoreDeps = import("@kolu/surface/server").ImplementSurfaceDeps<
-  typeof padiControlSurface.spec
->;
+type ControlCoreDeps = ImplementSurfaceDeps<typeof padiControlSurface.spec>;
 
 /** Assemble the control-core server deps. `stateRoot` is padi's identity (echoed
  *  by `hello`); `startedAt` is padi's boot time (ms epoch), stamped once at daemon

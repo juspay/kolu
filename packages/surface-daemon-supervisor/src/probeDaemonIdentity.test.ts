@@ -139,6 +139,32 @@ describe("probeDaemonIdentity", () => {
 });
 
 describe("probeDaemonIdentityFrom", () => {
+  it("rejects an invalid drain ceiling before touching the wire", async () => {
+    let helloCalls = 0;
+    await expect(
+      probeDaemonIdentityFrom({
+        client: {
+          surface: {
+            control: {
+              core: {
+                hello: async () => {
+                  helloCalls += 1;
+                  throw new Error("must not be called");
+                },
+                drain: async () => {},
+              },
+            },
+          },
+        },
+        dispose: () => {},
+        capability: "drainable",
+        drainCeilingMs: 0,
+        awaitExit: async () => {},
+      }),
+    ).rejects.toThrow("drainCeilingMs must be a positive number");
+    expect(helloCalls).toBe(0);
+  });
+
   it("is the single full-probe assembler for an already-dialed client", async () => {
     let drained = 0;
     let disposed = 0;

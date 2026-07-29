@@ -147,10 +147,13 @@ async function resolvePreviousWindow(): Promise<{
   const envCurrStore = process.env.KOLU_CURRENT_KAVAL_STORE;
 
   if (envBin && existsSync(envBin)) {
-    if (required() && (!envPadiBin || !existsSync(envPadiBin))) {
-      throw new Error(
-        "KOLU_UPGRADE_WINDOW_REQUIRE=1 but KOLU_PREVIOUS_PADI_BIN is missing",
-      );
+    if (!envPadiBin || !existsSync(envPadiBin)) {
+      if (required()) {
+        throw new Error(
+          "KOLU_UPGRADE_WINDOW_REQUIRE=1 but KOLU_PREVIOUS_PADI_BIN is missing",
+        );
+      }
+      return null;
     }
     const previousStore = envPrevStore ?? storePathOfBin(envBin);
     let currentStore = envCurrStore;
@@ -163,8 +166,17 @@ async function resolvePreviousWindow(): Promise<{
           { cwd: REPO_ROOT, env: process.env, maxBuffer: 10 * 1024 * 1024 },
         );
         currentStore = stdout.trim().split("\n").at(-1) ?? "";
-      } catch {
-        currentStore = "";
+      } catch (error) {
+        if (required()) {
+          throw new Error("failed to build the current kaval store", {
+            cause: error,
+          });
+        }
+        console.warn(
+          "SKIP: failed to build the current kaval store for the mixed-version check",
+          error,
+        );
+        return null;
       }
     }
     const ref = envRef ?? "unknown";
@@ -187,10 +199,10 @@ async function resolvePreviousWindow(): Promise<{
     }
     return {
       bin: envBin,
-      padiBin: envPadiBin ?? "",
+      padiBin: envPadiBin,
       ref,
       previousStore,
-      currentStore: currentStore || previousStore,
+      currentStore,
     };
   }
 

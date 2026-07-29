@@ -73,6 +73,9 @@ export async function probeDaemonIdentityFrom(
     | ProbeDaemonIdentityFromOptions<"drainable">
     | ProbeDaemonIdentityFromOptions<"not-drainable">,
 ): Promise<DrainableProbe | PlainProbe> {
+  if (opts.capability === "drainable") {
+    assertDrainCeiling(opts.drainCeilingMs);
+  }
   const hello = await opts.client.surface.control.core.hello();
   if (hello.controlCoreVersion !== CONTROL_CORE_VERSION) {
     throw new Error(
@@ -95,7 +98,6 @@ export async function probeDaemonIdentityFrom(
         capability: "not-drainable",
       };
     case "drainable":
-      assertDrainCeiling(opts.drainCeilingMs);
       return {
         ...base,
         capability: "drainable",

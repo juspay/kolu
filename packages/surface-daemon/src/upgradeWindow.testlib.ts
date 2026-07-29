@@ -82,8 +82,13 @@ export function listRelativeFilesUnder(root: string): string[] {
     encoding: "utf8",
   }) as string[];
   return names.filter((name) => {
-    const stat = statSync(join(root, name));
-    return stat.isFile() || stat.isSocket();
+    try {
+      const stat = statSync(join(root, name));
+      return stat.isFile() || stat.isSocket();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
   });
 }
 
