@@ -13,7 +13,7 @@
  * the in-flight request and leaves no active timer behind.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { collectLogger } from "./loggerStubs.testutil";
+import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import type { ClosedInfo, Connection, Connector } from "./session";
 import { makeSession } from "./session";
 

@@ -14,7 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
-import { silentLogger } from "./loggerStubs.testutil";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { directAgentDerivation } from "./agentDerivation";
 import { PROVISION_STEP_MAX_EXPIRIES } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";

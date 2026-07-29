@@ -12,7 +12,7 @@ import {
   HEADLESS_TERM_ID,
   type PtyHost,
 } from "./ptyHost.ts";
-import { silentLog } from "./silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { nextFrame } from "./streamFrame.testlib.ts";
 
 // @xterm packages ship CJS only — same interop as ptyHost.ts.

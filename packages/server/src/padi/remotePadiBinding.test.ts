@@ -52,7 +52,7 @@ import {
   type SessionState,
   type SshProv,
 } from "@kolu/surface-remote";
-import { collectLogger } from "@kolu/surface-remote/loggerStubs.testutil";
+import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PadiSession } from "./padiSession.ts";

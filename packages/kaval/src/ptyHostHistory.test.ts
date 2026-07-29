@@ -16,7 +16,7 @@ import {
   type PtyHistoryChunk,
   type PtyHost,
 } from "./ptyHost.ts";
-import { silentLog } from "./silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 /** Narrow a `getHistory` reply to its `chunk` arm, or fail — the common shape
  *  these tests assert on (the `stale` arm is asserted directly by the F3 test). */

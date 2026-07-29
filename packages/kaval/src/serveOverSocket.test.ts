@@ -25,7 +25,7 @@ import {
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
 } from "./serveOverSocket.ts";
-import { silentLog } from "./silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 function makeRouter(opts?: { dataMaxQueue?: number }) {
   const { servedRouter } = createInProcessPtyHost({

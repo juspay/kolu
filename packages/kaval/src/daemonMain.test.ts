@@ -20,7 +20,7 @@ import type { DaemonExit } from "@kolu/surface-daemon";
 import { afterEach, describe, expect, it } from "vitest";
 import { runKavalDaemon } from "./daemonMain.ts";
 import { KAVAL_GATE_FILE, writeStateRootManifest } from "./socketPath.ts";
-import { silentLog } from "./silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));

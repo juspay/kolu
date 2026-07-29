@@ -32,7 +32,7 @@ import {
   unfreezeAutosave,
 } from "../session/autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
-import { silentLogger as silentLog } from "@kolu/surface-remote/loggerStubs.testutil";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,

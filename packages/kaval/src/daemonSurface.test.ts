@@ -12,7 +12,7 @@ import {
   serveKavalDaemonSurface,
 } from "./daemonSurface.ts";
 import { PTY_HOST_CONTRACT_VERSION } from "./ptyHostSurface.ts";
-import { silentLog } from "./silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 const runtimes: Array<{ close(): Promise<void> }> = [];
 const savedEnv = { ...process.env };

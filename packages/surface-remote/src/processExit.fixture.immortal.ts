@@ -14,7 +14,7 @@
  * cannot be explained by the timer having fired.
  */
 import { ConnectError, makeSession } from "./session.ts";
-import { silentLogger } from "./loggerStubs.testutil.ts";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 
 const session = makeSession({
   initialConnection: "connecting",
