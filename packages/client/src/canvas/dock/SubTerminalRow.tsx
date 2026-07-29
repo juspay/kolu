@@ -30,12 +30,6 @@ export const SubTerminalRow: Component<{
   const store = useTerminalStore();
   const meta = () => store.getMetadata(props.row.id);
   const unread = () => store.isUnread(props.row.id);
-  const label = () => {
-    const value = meta();
-    return value
-      ? annotationLine(value.intent, cwdBasename(value.cwd))
-      : "terminal";
-  };
   return (
     <Show when={meta()}>
       {(m) => {
@@ -47,7 +41,7 @@ export const SubTerminalRow: Component<{
         }
         // Same unconditional binder as DockRow / DockListRow — one fold for
         // "what does this row's leading indicator show", kind never re-gates it.
-        const agent = () => activeArm(m())?.agent;
+        const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
         const pip = useStatePip(
           encActiveHost,
           () => props.row.id,
@@ -62,7 +56,7 @@ export const SubTerminalRow: Component<{
             {...dockRowAttrs({
               id: props.row.id,
               bucket: props.row.bucket,
-              agentState: agent()?.state,
+              agentState: activeArm(m())?.agent?.state,
               asking: pip().asking,
               unread: unread(),
             })}

@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
 /**
- * REPRO: a plain-shell split's dock sub-entry must consume the same StatePip
- * fold as a top-level DockRow — identity glyph (`#` / data-glyph="shell") and
- * unread passthrough. Master re-derives the question per surface and drops both
- * for shells; this test is red until that DRY violation is fixed.
+ * Shell split sub-entries consume the same StatePip fold as a top-level
+ * DockRow — identity glyph (`#` / data-glyph="shell") and unread passthrough.
+ * Kind never re-gates either axis.
  */
 
 import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";

@@ -825,7 +825,6 @@ export const RailSubChip: Component<{
       {(m) => {
         const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
         const glyph = () => intentLeadGlyph(label());
-        const agent = () => activeArm(m())?.agent;
         const pip = useStatePip(
           encActiveHost,
           () => props.row.id,
@@ -840,7 +839,7 @@ export const RailSubChip: Component<{
             data-terminal-id={props.row.id}
             data-bucket={props.row.pip}
             data-motion={pip().motion}
-            data-agent-state={agent()?.state}
+            data-agent-state={activeArm(m())?.agent?.state}
             data-active={
               store.focusedTerminalId() === props.row.id ? "" : undefined
             }

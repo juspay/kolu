@@ -218,8 +218,9 @@ type DockRowCore = {
  * The type is deliberately private: consumers receive it only through its
  * parent's `subRows`, keeping the hierarchy as one validated product.
  * `pip` lives on the core (same as a top-level row): every sub-row surface
- * consumes the shared StatePip fold; kind only discriminates section-attention
- * membership and order-bucket validity, never whether a pip fact exists.
+ * consumes the shared StatePip fold. `kind` only tags which order-bucket arm is
+ * valid (shell vs agent) — never whether a pip fact exists, and never whether
+ * the id joins section attention (every sub-row does; the fold decides legs).
  * Paint is `SubDockPaintBucket` (never `parked`) — a split shares its parent's
  * window fate, so the never-park invariant is structural on order AND paint. */
 type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip"> & {
@@ -232,9 +233,8 @@ type ShellSubDockOrderBucket = Extract<
 >;
 type AgentSubDockOrderBucket = Exclude<SubDockOrderBucket, "none" | "sleeping">;
 
-/** Kind is decided once while ranking: section-attention membership folds only
- * agent splits (a shell cannot ask). Paint/pip/unread ride the shared fold on
- * every surface — never re-gated by kind at the render site. */
+/** Kind tags the order-bucket arm once while ranking. Paint/pip/unread ride the
+ * shared fold on every surface — never re-gated by kind at the render site. */
 type SubDockRow =
   | (SubDockRowCore & {
       kind: "shell";
