@@ -356,6 +356,8 @@ Then(
     const row = this.page.locator('[data-testid="dock-sub-row"]').first();
     assert.strictEqual(await row.getAttribute("data-agent-state"), null);
     assert.strictEqual(await row.getAttribute("data-asking"), null);
+    // Fresh palette-spawned split: no agent has finished → not unread.
+    assert.strictEqual(await row.getAttribute("data-unread"), null);
     const pip = row.locator('[data-testid="state-pip"]');
     assert.strictEqual(
       await pip.count(),

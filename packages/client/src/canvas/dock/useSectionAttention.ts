@@ -11,10 +11,10 @@
  *  toggle a dock filter, and an agent blocked long enough to fall out of the
  *  activity window is precisely the one whose count must still show.
  *
- *  Split entries render for every shell (landing + shared StatePip fold), but
- *  section attention does not: only a split with an agent joins this fold.
- *  That is the agent-counting contract (a shell cannot ask) — not "shells have
- *  no mark"; row chrome lives on the ranked pip + useStatePip path.
+ *  Split entries widen to every sub-row id (shell and agent). The fold itself
+ *  decides each leg: a shell cannot appear in asking (padi never lists it),
+ *  but live and unread shells join active/unseen the same way top-level shells
+ *  do — so a spinning shell-split pip cannot sit under an uncounting header.
  *
  *  It returns IDS rather than counts, because the capsule that renders
  *  `.length` is the same capsule that jumps: the two must walk one list or the
@@ -35,15 +35,16 @@ export type SectionAttention = {
 };
 
 /** Flatten one section to the exact terminals its attention summary owns.
- * Every top-level row participates; only agent-bearing splits do — a shell
- * cannot ask. Shell splits still render the shared StatePip fold on their
- * row; they simply do not join this section count/jump list. */
+ * Every top-level row and every split participates. The fold decides each leg
+ * (asking self-excludes agentless ids; live/unread shells count). Kind never
+ * re-gates membership — that was the chrome-complecting gate this DRY fix
+ * deleted at render sites. */
 export function sectionAttentionIds(group: DockGroup): TerminalId[] {
   const ids: TerminalId[] = [];
   for (const row of group.allTopRows) {
     ids.push(row.id);
     for (const sub of row.subRows) {
-      if (sub.kind === "agent") ids.push(sub.id);
+      ids.push(sub.id);
     }
   }
   return ids;

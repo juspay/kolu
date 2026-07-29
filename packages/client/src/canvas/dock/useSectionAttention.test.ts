@@ -34,9 +34,9 @@ const group: DockGroup = {
 };
 
 describe("sectionAttentionIds", () => {
-  it("includes agent splits and excludes shells (section counts only agents)", () => {
-    // Shells render a StatePip on their row; they still do not join the
-    // section attention fold because a shell cannot ask.
-    expect(sectionAttentionIds(group)).toEqual([parentId, agentId]);
+  it("includes every split — shell and agent — so row marks and header agree", () => {
+    // Asking still self-excludes agentless ids inside the fold; membership
+    // no longer re-gates on kind (that was the chrome-complecting gate).
+    expect(sectionAttentionIds(group)).toEqual([parentId, shellId, agentId]);
   });
 });

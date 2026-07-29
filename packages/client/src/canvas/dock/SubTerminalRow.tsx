@@ -1,10 +1,12 @@
 /** A split terminal, indented directly beneath the dock row for its parent.
  *
  * Every split gets a landing row and the same StatePip fold a top-level row
- * uses — identity glyph, paint, motion, unread. A shell cannot ask (attention
- * wash still requires `asking`), but it is not a second, pip-less contract.
- * One component serves desktop and touch because the row has no shortcut hint,
- * PR link, or drawer gesture of its own. */
+ * uses — identity glyph, paint, motion, unread. Unread passthrough matters
+ * when an agent exits while still unread: the row re-ranks as a shell but the
+ * amber badge must survive until the user lands. A shell cannot ask (wash
+ * still requires `asking`), but it is not a second, pip-less contract. One
+ * component serves desktop and touch because the row has no shortcut hint, PR
+ * link, or drawer gesture of its own. */
 
 import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";

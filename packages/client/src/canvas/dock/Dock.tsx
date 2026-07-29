@@ -810,7 +810,8 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
 /** Split entry in the collapsed rail. It shares the parent's repo tint but has
  * no numeric shortcut. Same StatePip fold as cards-mode SubTerminalRow / top-
  * level DockRow — identity, paint, motion, unread — no per-kind re-gate. */
-const RailSubChip: Component<{
+/** Exported for the shell-pip contract test (same fold as SubTerminalRow). */
+export const RailSubChip: Component<{
   row: Extract<DockGroup["railEntries"][number], { kind: "split" }>["row"];
   repoColor: string;
 }> = (props) => {
