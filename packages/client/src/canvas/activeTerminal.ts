@@ -3,9 +3,9 @@
  *  contract (issue #845).
  *
  *  Scoped via the production-only `data-canvas-tile` marker, NOT via
- *  `data-active` alone: `data-active` is set by several
- *  unrelated producers via boolean coercion, and a bare global query
- *  can land on a non-tile element first in DOM order. The marker
+ *  `data-active` alone: several unrelated producers use the same presence
+ *  marker, and a bare global query can land on a non-tile element first in
+ *  DOM order. The marker
  *  lives outside `data-testid` so a future test-attribute rename
  *  can't silently break refocus. */
 
