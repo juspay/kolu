@@ -19,7 +19,7 @@ Then(
     await this.page.waitForFunction(
       (expected) => {
         const tile = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"]',
+          '[data-testid="canvas-tile"][data-active]',
         ) as HTMLElement | null;
         return tile
           ? getComputedStyle(tile).backgroundColor === expected
@@ -124,7 +124,7 @@ Then(
 When("I click the theme name in the header", async function (this: KoluWorld) {
   const themeButton = this.page
     .locator(
-      '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
+      '[data-testid="canvas-tile"][data-active] [data-testid="tile-theme-pill"]',
     )
     .first();
   await themeButton.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -139,14 +139,14 @@ Then(
     // tile has its own pill, so query the one inside the active tile.
     const themeName = this.page
       .locator(
-        '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
+        '[data-testid="canvas-tile"][data-active] [data-testid="tile-theme-pill"]',
       )
       .first();
     await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
       (expected) => {
         const el = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
+          '[data-testid="canvas-tile"][data-active] [data-testid="tile-theme-pill"]',
         );
         return el?.textContent?.trim() === expected;
       },

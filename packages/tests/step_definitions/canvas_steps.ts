@@ -196,7 +196,7 @@ Then(
 /** Poll until the picked tile's bounding-box center matches the canvas
  *  container's center within grid-snap tolerance. `pick` chooses which
  *  tile: "newest" = last in DOM order (waits for ≥2 to exist),
- *  "active" = the one carrying `data-active="true"`. */
+ *  "active" = the one carrying `data-active`. */
 async function waitForTileCenteredInViewport(
   world: KoluWorld,
   pick: "newest" | "active",
@@ -213,7 +213,7 @@ async function waitForTileCenteredInViewport(
         if (tiles.length < 2) return false;
         tile = tiles[tiles.length - 1] as HTMLElement;
       } else {
-        tile = container.querySelector('[data-active="true"]');
+        tile = container.querySelector("[data-active]");
       }
       if (!tile) return false;
       const cRect = container.getBoundingClientRect();
@@ -382,9 +382,7 @@ Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
 
 When("I save the active canvas tile id", async function (this: KoluWorld) {
   const id = await this.page.evaluate((sel: string) => {
-    const tile = document
-      .querySelector(sel)
-      ?.querySelector('[data-active="true"]');
+    const tile = document.querySelector(sel)?.querySelector("[data-active]");
     return (
       tile
         ?.querySelector("[data-terminal-id]")
@@ -402,14 +400,14 @@ async function waitForSavedActiveTileStillActive(world: KoluWorld) {
   if (!saved) throw new Error("No saved active canvas tile id");
   await world.page.waitForFunction(
     ({ sel, savedId }: { sel: string; savedId: string }) => {
-      // The active tile's CanvasTile wrapper carries data-active="true".
+      // The active tile's CanvasTile wrapper carries data-active.
       // Its inner Terminal element carries data-terminal-id. Walk down
       // from the active wrapper rather than checking every tile —
       // that makes "did active flip to a different tile" the failure
       // mode, not "is savedId still in the DOM" (it always is).
       const activeWrapper = document
         .querySelector(sel)
-        ?.querySelector('[data-active="true"]');
+        ?.querySelector("[data-active]");
       if (!activeWrapper) return false;
       const inner = activeWrapper.querySelector("[data-terminal-id]");
       const activeId =
@@ -995,7 +993,7 @@ Then(
 
 // Main pane vs. active split of the active tile — for the active-split-inherit
 // scenario, where both must end up on WebGL. The active tile carries
-// data-active="true"; its main pane is the non-sub Terminal, its focused split
+// data-active; its main pane is the non-sub Terminal, its focused split
 // is the one visible [data-sub-terminal].
 Then(
   "the main terminal should use the {word} renderer",
@@ -1003,7 +1001,7 @@ Then(
     await this.page.waitForFunction(
       ({ sel, w }: { sel: string; w: string }) => {
         const main = document.querySelector(
-          `${sel} [data-active="true"] [data-terminal-id][data-visible]:not([data-sub-terminal])`,
+          `${sel} [data-active] [data-terminal-id][data-visible]:not([data-sub-terminal])`,
         );
         return main?.getAttribute("data-renderer") === w;
       },
@@ -1019,7 +1017,7 @@ Then(
     await this.page.waitForFunction(
       ({ sel, w }: { sel: string; w: string }) => {
         const sub = document.querySelector(
-          `${sel} [data-active="true"] [data-sub-terminal][data-visible]`,
+          `${sel} [data-active] [data-sub-terminal][data-visible]`,
         );
         return sub?.getAttribute("data-renderer") === w;
       },
@@ -1051,7 +1049,7 @@ Then(
   async function (this: KoluWorld, index: number) {
     await this.page.waitForFunction(
       ({ sel, i }: { sel: string; i: number }) => {
-        // The active tile is the one with `data-active="true"` on its
+        // The active tile is the one with `data-active` on its
         // CanvasTile wrapper. Match by tile-rect index: find all
         // `data-terminal-id[data-visible]` descendants under the canvas
         // container and pick the nth.
@@ -1060,13 +1058,12 @@ Then(
         );
         const tile = tiles.item(i) as HTMLElement | null;
         if (!tile) return false;
-        // Walk up to find the CanvasTile wrapper (nearest ancestor with
-        // a data-active attribute, truthy or not).
+        // Walk up to find the active CanvasTile wrapper.
         let node: HTMLElement | null = tile;
         while (node && !node.hasAttribute("data-active")) {
           node = node.parentElement;
         }
-        return node?.getAttribute("data-active") === "true";
+        return node !== null;
       },
       { sel: CANVAS_SELECTOR, i: index - 1 },
       { timeout: POLL_TIMEOUT },

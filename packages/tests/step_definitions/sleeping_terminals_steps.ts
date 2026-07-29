@@ -50,7 +50,7 @@ const sleptIdByWorld = new WeakMap<KoluWorld, string>();
 async function activeTileId(world: KoluWorld): Promise<string> {
   const id = await world.page.evaluate((sel) => {
     const tile =
-      document.querySelector(`${sel}[data-active="true"]`) ??
+      document.querySelector(`${sel}[data-active]`) ??
       document.querySelector(sel);
     return tile?.getAttribute("data-terminal-id") ?? null;
   }, CANVAS_TILE_SELECTOR);

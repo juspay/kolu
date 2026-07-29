@@ -195,7 +195,7 @@ export async function openOverlappingTerminal(
   const activeBar = () =>
     world.page
       .locator(
-        '[data-testid="canvas-tile"][data-active="true"] [data-testid="canvas-tile-titlebar"]',
+        '[data-testid="canvas-tile"][data-active] [data-testid="canvas-tile-titlebar"]',
       )
       .boundingBox()
       .catch(() => null);

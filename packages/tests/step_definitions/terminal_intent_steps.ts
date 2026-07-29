@@ -2,7 +2,7 @@ import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const SLOT =
-  '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]';
+  '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]';
 const EDITOR = '[data-testid="intent-editor-textarea"]';
 const SAVE = '[data-testid="intent-editor-save"]';
 const CLEAR = '[data-testid="intent-editor-clear"]';
@@ -107,7 +107,7 @@ Then(
     await this.page.waitForFunction(
       (want) => {
         const slot = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
+          '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]',
         );
         const text = (slot?.textContent ?? "").trim();
         return text.startsWith(want);
@@ -128,7 +128,7 @@ Then(
     await this.page.waitForFunction(
       () => {
         const slot = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
+          '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]',
         );
         return slot !== null && slot.querySelector("a") === null;
       },
@@ -147,7 +147,7 @@ Then(
     await this.page.waitForFunction(
       () => {
         const slot = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
+          '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]',
         );
         return (slot?.textContent ?? "").trim() === "—";
       },

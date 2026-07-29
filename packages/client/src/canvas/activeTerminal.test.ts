@@ -10,7 +10,7 @@ afterEach(() => {
 describe("getActiveTerminalNode", () => {
   it("returns the focused split instead of the active tile's first terminal", () => {
     document.body.innerHTML = `
-      <div data-canvas-tile data-active="true">
+      <div data-canvas-tile data-active>
         <div data-terminal-id="main" data-visible></div>
         <div data-terminal-id="split" data-visible data-focused></div>
       </div>
@@ -21,7 +21,7 @@ describe("getActiveTerminalNode", () => {
 
   it("falls back to the first visible terminal before focus is established", () => {
     document.body.innerHTML = `
-      <div data-canvas-tile data-active="true">
+      <div data-canvas-tile data-active>
         <div data-terminal-id="main" data-visible></div>
       </div>
     `;

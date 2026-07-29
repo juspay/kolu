@@ -515,15 +515,15 @@ body {
 /* The active tile mutes its own aura so it doesn't compete with its brighter
  * focus ring, and the eye-grab always points somewhere new. Last so it wins
  * over the tier rules above. */
-[data-canvas-tile][data-active="true"] .tile-aura {
+[data-canvas-tile][data-active] .tile-aura {
   opacity: 0.4;
 }
 /* Alert pulse / finished exhale keyframes would otherwise outrank the mute
  * above — a running CSS animation beats normal declarations regardless of
  * selector order. Cancel those motion keyframes on the active tile so the
  * mute (opacity 0.4) wins. */
-[data-canvas-tile][data-active="true"][data-aura="alert"] .tile-aura,
-[data-canvas-tile][data-active="true"][data-aura="finished"] .tile-aura {
+[data-canvas-tile][data-active][data-aura="alert"] .tile-aura,
+[data-canvas-tile][data-active][data-aura="finished"] .tile-aura {
   animation: none;
   opacity: 0.4;
 }

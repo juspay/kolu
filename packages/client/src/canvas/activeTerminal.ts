@@ -3,13 +3,13 @@
  *  contract (issue #845).
  *
  *  Scoped via the production-only `data-canvas-tile` marker, NOT via
- *  `data-active='true'` alone: `data-active` is set by several
+ *  `data-active` alone: `data-active` is set by several
  *  unrelated producers via boolean coercion, and a bare global query
  *  can land on a non-tile element first in DOM order. The marker
  *  lives outside `data-testid` so a future test-attribute rename
  *  can't silently break refocus. */
 
-const ACTIVE_TILE_SELECTOR = "[data-canvas-tile][data-active='true']";
+const ACTIVE_TILE_SELECTOR = "[data-canvas-tile][data-active]";
 const TERMINAL_INNER_SELECTOR = "[data-visible][data-terminal-id]";
 const FOCUSED_TERMINAL_INNER_SELECTOR =
   "[data-focused][data-visible][data-terminal-id]";

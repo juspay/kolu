@@ -814,7 +814,7 @@ const RailChip: Component<{
   // Active-tile highlight follows the TILE registry (so a focused sleeping tile
   // reads as the active row in PR 2); unread is terminal-attention, stays on
   // the terminal store.
-  const active = () => tileStore.activeId() === props.id;
+  const active = () => tileStore.isActiveTile(props.id);
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;

@@ -164,7 +164,7 @@ async function resolveRefPoint(
     () => {
       const el =
         document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
+          '[data-testid="canvas-tile"][data-active] [data-testid="terminal-meta-branch"]',
         ) ??
         document.querySelector(
           '[data-testid="mobile-tile-titlebar"] [data-testid="terminal-meta-branch"]',

@@ -484,7 +484,7 @@ Then(
       );
       if (!handle) return { ok: false, setupError: "handle missing" } as const;
       const tile = document.querySelector(
-        '[data-testid="canvas-tile"][data-active="true"]',
+        '[data-testid="canvas-tile"][data-active]',
       ) as HTMLElement | null;
       if (!tile) {
         return {
