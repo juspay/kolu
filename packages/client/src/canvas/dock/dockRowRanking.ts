@@ -216,8 +216,16 @@ type DockRowCore = {
 
 /** A split's entry — it cannot itself carry splits because splits do not nest.
  * The type is deliberately private: consumers receive it only through its
- * parent's `subRows`, keeping the hierarchy as one validated product. */
-type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip">;
+ * parent's `subRows`, keeping the hierarchy as one validated product.
+ * `pip` lives on the core (same as a top-level row): every sub-row surface
+ * consumes the shared StatePip fold. `kind` only tags which order-bucket arm is
+ * valid (shell vs agent) — never whether a pip fact exists, and never whether
+ * the id joins section attention (every sub-row does; the fold decides legs).
+ * Paint is `SubDockPaintBucket` (never `parked`) — a split shares its parent's
+ * window fate, so the never-park invariant is structural on order AND paint. */
+type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip"> & {
+  pip: SubDockPaintBucket;
+};
 
 type ShellSubDockOrderBucket = Extract<
   SubDockOrderBucket,
@@ -225,9 +233,8 @@ type ShellSubDockOrderBucket = Extract<
 >;
 type AgentSubDockOrderBucket = Exclude<SubDockOrderBucket, "none" | "sleeping">;
 
-/** The role that controls split-entry chrome and section-attention membership.
- * It is decided once while ranking, then consumed as data by every surface — a
- * shell cannot accidentally gain an agent wash in one consumer but not another. */
+/** Kind tags the order-bucket arm once while ranking. Paint/pip/unread ride the
+ * shared fold on every surface — never re-gated by kind at the render site. */
 type SubDockRow =
   | (SubDockRowCore & {
       kind: "shell";
@@ -236,13 +243,12 @@ type SubDockRow =
   | (SubDockRowCore & {
       kind: "agent";
       bucket: AgentSubDockOrderBucket;
-      pip: SubDockPaintBucket;
     });
 
 export type RankedDockRow = DockRowCore & {
-  /** Every split inside this terminal, as an indented dock sub-entry. Plain
-   *  shells render label + landing only; agent-bearing splits additionally
-   *  render their pip and attention wash. */
+  /** Every split inside this terminal, as an indented dock sub-entry. Every
+   *  sub-entry carries the same paint pip fact a top-level row does — identity
+   *  glyph, motion, unread — so shell and agent sub-rows cannot drift. */
   subRows: readonly SubDockRow[];
 };
 
@@ -336,7 +342,13 @@ function rankSubRows(
     // reactive recomputation includes it.
     if (!meta) continue;
     const bucket = classifyDockRow(meta, false);
-    const core = { id, ts: rowRecencyAt(meta) };
+    // Paint once here — the same fact DockRow / DockListRow / SubTerminalRow /
+    // RailSubChip all hand to `useStatePip`. Never synthesize per-surface.
+    const core = {
+      id,
+      ts: rowRecencyAt(meta),
+      pip: paintDockRow(meta, classOf(id), false),
+    };
     const agent = activeArm(meta)?.agent;
     if (!agent) {
       rows.push(
@@ -361,7 +373,6 @@ function rankSubRows(
           ...core,
           kind: "agent" as const,
           bucket: agentBucket,
-          pip: paintDockRow(meta, classOf(id), false),
         }))
         .with(P.union("none", "sleeping"), (invalidBucket) => {
           throw new Error(

@@ -422,14 +422,18 @@ describe("rankDockRows — split sub-entries", () => {
     expect(rank([missing])[0]?.subRows).toEqual([]);
   });
 
-  it("classifies agentless splits as quiet rows", () => {
+  it("classifies agentless splits as quiet rows with a paint pip fact", () => {
     expect(rank([PLAIN_SPLIT])[0]?.subRows[0]).toMatchObject({
       kind: "shell",
       bucket: "idle",
+      // Same paint fold as a top-level shell row — identity mark, not blank.
+      pip: "idle",
     });
   });
 
   it("classifies agent-bearing splits once for paint and attention consumers", () => {
-    expect(rank([AGENT_SPLIT])[0]?.subRows[0]?.kind).toBe("agent");
+    const sub = rank([AGENT_SPLIT])[0]?.subRows[0];
+    expect(sub?.kind).toBe("agent");
+    expect(sub).toMatchObject({ pip: "working" });
   });
 });

@@ -11,9 +11,10 @@
  *  toggle a dock filter, and an agent blocked long enough to fall out of the
  *  activity window is precisely the one whose count must still show.
  *
- *  Split entries widen to every shell, but section attention does not: only a
- *  split with an agent joins this fold. That preserves the agent-counting
- *  contract while still giving plain splits a landing row.
+ *  Split entries widen to every sub-row id (shell and agent). The fold itself
+ *  decides each leg: a shell cannot appear in asking (padi never lists it),
+ *  but live and unread shells join active/unseen the same way top-level shells
+ *  do — so a spinning shell-split pip cannot sit under an uncounting header.
  *
  *  It returns IDS rather than counts, because the capsule that renders
  *  `.length` is the same capsule that jumps: the two must walk one list or the
@@ -34,14 +35,16 @@ export type SectionAttention = {
 };
 
 /** Flatten one section to the exact terminals its attention summary owns.
- * Every top-level row participates; only agent-bearing splits do, because a
- * plain split deliberately has no attention mark in the Dock. */
+ * Every top-level row and every split participates. The fold decides each leg
+ * (asking self-excludes agentless ids; live/unread shells count). Kind never
+ * re-gates membership — the same "kind is not a chrome/count axis" rule the
+ * row surfaces already follow for paint, motion, and unread. */
 export function sectionAttentionIds(group: DockGroup): TerminalId[] {
   const ids: TerminalId[] = [];
   for (const row of group.allTopRows) {
     ids.push(row.id);
     for (const sub of row.subRows) {
-      if (sub.kind === "agent") ids.push(sub.id);
+      ids.push(sub.id);
     }
   }
   return ids;
