@@ -41,11 +41,14 @@ import {
   type PtyHostIdentity,
   type kavalDaemonContract,
 } from "kaval";
+import { match } from "ts-pattern";
 
 export { isNoListenerError };
 
-/** A live daemon from before the frozen fragment has no trusted identity, so the
- * endpoint's identity type remains optional during this upgrade window. */
+/** A live daemon from before the frozen fragment gets the honest-unknown raw
+ * identity (both fields empty), never the legacy `system.version.identity`.
+ * The endpoint's identity remains optional at the shared status boundary so an
+ * older padi's pre-identity survivor can still be represented. */
 export type KavalConnection = DaemonConnection<
   PtyHostClient,
   PtyHostIdentity | undefined,
@@ -213,29 +216,31 @@ export async function connectKaval(
   }
 
   const { version } = handshake;
-  const contractVersion =
-    handshake.kind === "current"
-      ? handshake.hello.surfaceVersion
-      : version.contractVersion;
+  const projected = match(handshake)
+    .with({ kind: "current" }, ({ hello }) => ({
+      contractVersion: hello.surfaceVersion,
+      identity: {
+        staleKey: hello.buildId ?? "",
+        navigableCommit: hello.commit ?? "",
+      },
+      startedAt: hello.startedAt,
+    }))
+    .with({ kind: "pre-fragment" }, ({ version: legacyVersion }) => ({
+      contractVersion: legacyVersion.contractVersion,
+      identity: { staleKey: "", navigableCommit: "" },
+      startedAt: legacyVersion.startedAt,
+    }))
+    .exhaustive();
   let closed = false;
   socket.once("close", () => {
     closed = true;
   });
   return {
     client: client as PtyHostClient,
-    identity:
-      handshake.kind === "pre-fragment"
-        ? undefined
-        : {
-            staleKey: handshake.hello.buildId ?? "",
-            navigableCommit: handshake.hello.commit ?? "",
-          },
-    startedAt:
-      handshake.kind === "current"
-        ? handshake.hello.startedAt
-        : version.startedAt,
+    identity: projected.identity,
+    startedAt: projected.startedAt,
     metadata: {
-      contractVersion,
+      contractVersion: projected.contractVersion,
       lifetime: version.lifetime,
     },
     dispose: () => socket.destroy(),
@@ -253,7 +258,8 @@ export async function connectKaval(
  *
  * A served daemon that returns the structured missing-route frame predates the
  * fragment. By the #1671 rule, absent means older: represent it as a compatible
- * contract with an unknown build and a named pre-instance key. The existing
+ * contract with an unknown build and a named instance key from the observed
+ * legacy boot instant. The existing
  * not-drainable policy therefore chooses `nudge-human` (never silent adopt,
  * never destructive recycle). Every other handshake failure still throws.
  */

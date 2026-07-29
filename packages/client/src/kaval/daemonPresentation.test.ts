@@ -18,6 +18,7 @@ import {
   toKavalPresence,
   toneDot,
 } from "./daemonPresentation";
+import { kavalAttention } from "./kavalCurrency";
 
 // ── Wire-status fixtures — `liveDownState` takes the FULL status since SK4 (the
 // `incompatible` arm's version pair rides the same wire value). ──────────────
@@ -219,6 +220,20 @@ describe("toKavalPresence — P4: connected ⇒ identity present, by constructio
       contractVersion: "5.0",
       startedAt: 1000,
       socketPath: "/run/user/1000/kaval-abcd/pty-host.sock",
+    });
+  });
+
+  it("a pre-fragment honest-unknown identity stays connected, restartable, and nudging", () => {
+    const status = connectedStatus({
+      staleKey: "",
+      navigableCommit: "",
+    });
+    const presence = toKavalPresence(status, true);
+
+    expect(presence).toMatchObject({ kind: "connected" });
+    expect(offerRestartVerb(presence)).toBe(true);
+    expect(kavalAttention("current-build", status, true)).toEqual({
+      kind: "stale",
     });
   });
 

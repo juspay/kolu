@@ -262,15 +262,20 @@ export async function adoptSurvivingSession(): Promise<void> {
   const status = readDaemonStatus(encodeHostLocation(LOCAL_LOCATION));
   const running = status?.identity?.staleKey ?? "";
   const expected = expectedKavalIdentity().staleKey;
-  // By the time adoption runs the endpoint has already reported `connected` WITH
-  // an identity, so a present-status-but-missing-staleKey here is an anomaly (a
-  // status-propagation bug) — distinct from the benign off-nix empty, where
-  // `expected` is also "". Surface it rather than let `running=""` masquerade as
-  // current (which would read as "up to date" against an equally-empty expected).
-  if (status && !running && expected) {
+  // Current padi always reports an identity object for `connected`: a
+  // pre-fragment kaval gets the honest-unknown `{ staleKey: "", ... }`, which is
+  // expected to differ from a known baked build and drive the update nudge. Only
+  // a MISSING identity object is still a status-propagation anomaly (or an older
+  // padi's retained wire shape); keep that diagnostic without mislabeling the
+  // intentional empty staleKey.
+  if (
+    status?.state === "connected" &&
+    status.identity === undefined &&
+    expected
+  ) {
     log.warn(
       { status },
-      "kaval currency: adopted daemon status has no staleKey",
+      "kaval currency: adopted daemon status has no identity",
     );
   }
   log.info(

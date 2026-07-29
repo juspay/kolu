@@ -19,7 +19,6 @@ import {
   controlCoreFragment,
   controlCoreSurface,
   daemonBuild,
-  type Logger,
 } from "@kolu/surface-daemon";
 import { implementSurfaces } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
@@ -41,14 +40,7 @@ import {
   isNoListenerError,
   probeKavalForConvergence,
 } from "./connect.ts";
-
-const silentLog = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLog,
-} as unknown as Logger;
+import { silentLog } from "../silentLogger.testlib.ts";
 
 const legacyVersionOnlyContract = oc.router({
   surface: {
@@ -208,7 +200,7 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
 });
 
 describe("connectKaval — identity comes only from frozen hello", () => {
-  it("does not copy system.version identity when a surviving old daemon lacks the fragment", async () => {
+  it("projects honest unknown instead of copying system.version identity when an old daemon lacks the fragment", async () => {
     const socketPath = join(
       mkdtempSync(join(tmpdir(), "kolu-connect-legacy-")),
       "pty-host.sock",
@@ -219,7 +211,10 @@ describe("connectKaval — identity comes only from frozen hello", () => {
       try {
         const legacyVersion = await conn.client.surface.system.version({});
         expect(legacyVersion.identity).toBeDefined();
-        expect(conn.identity).toBeUndefined();
+        expect(conn.identity).toEqual({
+          staleKey: "",
+          navigableCommit: "",
+        });
       } finally {
         conn.dispose();
       }
