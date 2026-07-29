@@ -82,11 +82,11 @@ below is one of the four faults made unspellable:
 1. **Reads are pure.** Derivations (`createMemo`) may never touch an accessor
    that seeds state. The seeding `getSubPanel` is deleted outright: verbs call
   `ensureState` internally, reads get a peek-only face — so fault 2's whole
-  category (a read that writes, inside a memo) is gone.<Footnote>The hazard is
-  still live in shipped code: `useTerminalStore.focusedId()` and
-  `TerminalContent` both read through the seeding accessor today. It happens
-  to be inert (a fresh seed has `activeSubTab: null`), but FX1 removes the
-  landmine, not just the current trip-wire.</Footnote>
+  category (a read that writes, inside a memo) is gone.<Footnote>The hazard was
+  live until FX1: `useTerminalStore.focusedId()` and `TerminalContent` both read
+  through the seeding accessor. It happened to be inert (a fresh seed had
+  `activeSubTab: null`), but FX1 removed the landmine, not just the current
+  trip-wire.</Footnote>
 2. **Side effects live in verbs, never in effects watching derived state.**
    Visit-MRU, unread-clearing, and the `setActive` report happen inside
    `focusTerminal`. A `createEffect` on `activeTileId` would re-fire on restore
@@ -109,7 +109,7 @@ below is one of the four faults made unspellable:
 ## Phase tree
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "FX1 · one focus fact — behaviour-preserving", m: "gate: e2e untouched & green" },
+  { d: 0, g: "◐", c: "prog", l: "FX1 · one focus fact — behaviour-preserving", m: "build-clean · #2043", h: "https://github.com/juspay/kolu/pull/2043" },
   { d: 1, g: "○", c: "last", l: "FX2 · dock sub-entries, re-landed", m: "#2024", h: "https://github.com/juspay/kolu/issues/2024" },
   { d: 1, g: "○", c: "last", l: "FX3 · one spelling of data-active", m: "independent of FX2" },
 ];
@@ -118,7 +118,8 @@ export const PT = [
 
 ### FX1 — one focus fact
 
-<Phase id="FX1" name="one focus fact" status="next" blocks={["FX2", "FX3"]} />
+<Phase id="FX1" name="one focus fact" status="build-clean" blocks={["FX2", "FX3"]}
+  links={[{ label: "#2043", href: "https://github.com/juspay/kolu/pull/2043" }]} />
 
 Introduce `focusedTerminalId` beside the activation choke point in
 `createViewState`; fold `activeId` from it; delete `focusTarget`, the seeding

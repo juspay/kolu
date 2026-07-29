@@ -14,7 +14,7 @@ import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import DormantTileBody from "./DormantTileBody";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
-import { DEFAULT_PANEL_SIZE, useSubPanel } from "./useSubPanel";
+import { useSubPanel } from "./useSubPanel";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -60,11 +60,9 @@ const TerminalContent: Component<{
 
   const subTerminalIds = () => store.getSubTerminalIds(props.terminalId);
   const panelState = () => subPanel.peekSubPanel(props.terminalId);
-  const panelCollapsed = () => panelState()?.collapsed ?? false;
-  const panelSize = () => panelState()?.panelSize ?? DEFAULT_PANEL_SIZE;
   const hasSubs = () => subTerminalIds().length > 0;
-  const isExpanded = () => hasSubs() && !panelCollapsed();
-  const activeSubTab = () => panelState()?.activeSubTab ?? null;
+  const isExpanded = () => hasSubs() && !panelState().collapsed;
+  const activeSubTab = () => panelState().activeSubTab;
 
   // One owner for "which pane is live within this tile": only the focused tile's
   // *open* split has a live pane, folded directly from the one focus fact.
@@ -128,7 +126,11 @@ const TerminalContent: Component<{
     >
       <Resizable
         orientation="vertical"
-        sizes={isExpanded() ? [1 - panelSize(), panelSize()] : [1, 0]}
+        sizes={
+          isExpanded()
+            ? [1 - panelState().panelSize, panelState().panelSize]
+            : [1, 0]
+        }
         onSizesChange={handleSizesChange}
         class="flex-1 min-h-0"
       >
@@ -149,7 +151,7 @@ const TerminalContent: Component<{
               search.setOpen(props.terminalId, open)
             }
             onFocus={handleMainFocus}
-            refocusNonce={panelState()?.refocusNonce ?? 0}
+            refocusNonce={panelState().refocusNonce}
           />
         </Resizable.Panel>
 
@@ -199,7 +201,7 @@ const TerminalContent: Component<{
           onCollapse={() => {
             if (hasSubs()) subPanel.collapsePanel(props.terminalId);
           }}
-          onExpand={() => subPanel.expandPanel(props.terminalId)}
+          onExpand={() => subPanel.expandAndFocusPanel(props.terminalId)}
           data-pane="sub"
           data-pane-focus={paneFocus("sub")}
         >
@@ -232,7 +234,7 @@ const TerminalContent: Component<{
                   searchOpen={false}
                   onSearchOpenChange={() => {}}
                   onFocus={() => handleSubFocus(subId)}
-                  refocusNonce={panelState()?.refocusNonce ?? 0}
+                  refocusNonce={panelState().refocusNonce}
                   isSub
                 />
               )}

@@ -77,6 +77,8 @@ export interface HostWire {
   session: ReturnType<PadiEntry["cells"]["session"]["use"]>;
   activityFeed: ReturnType<PadiEntry["cells"]["activityFeed"]["use"]>;
   daemonStatus: ReturnType<PadiEntry["collections"]["daemonStatus"]["use"]>;
+  /** Pure parent lookup over this host's retained terminal collection. */
+  parentOf: (id: TerminalId) => TerminalId | null;
 }
 
 export function createHostWire(host: HostKey): HostWire {
@@ -133,6 +135,8 @@ export function createHostWire(host: HostKey): HostWire {
   // "Metadata error" policy rides the spec; the use-site keeps only `keys`.
   const keys = createMemo<TerminalId[]>(() => terminalKeys() ?? []);
   const terminals = entry.collections.terminals.use({ keys });
+  const parentOf = (id: TerminalId): TerminalId | null =>
+    terminals.byKey(id)?.()?.parentId ?? null;
 
   // The persisted saved-session cell (host-owned, restore-relevant).
   const session = entry.cells.session.use();
@@ -153,5 +157,6 @@ export function createHostWire(host: HostKey): HostWire {
     session,
     activityFeed,
     daemonStatus,
+    parentOf,
   };
 }

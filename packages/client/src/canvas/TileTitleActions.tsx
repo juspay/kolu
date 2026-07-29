@@ -57,7 +57,7 @@ const TileTitleActions: Component<{
   const themeName = () => getTerminalThemeName(props.id);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
-    subCount() > 0 && subPanel.peekSubPanel(props.id)?.collapsed !== true;
+    subCount() > 0 && !subPanel.peekSubPanel(props.id).collapsed;
 
   /** Chrome-action handler: interacting with a tile's chrome selects that tile,
    *  then runs the action. The "select first" policy lives here once instead of

@@ -47,27 +47,23 @@ interface PanelWebglShape {
  *  context, an expanded one with an active sub-tab does. Both `tileWebglCost`
  *  and the store's `holdsWebgl` build on this one sub-fact, so the budgeted
  *  count and the per-terminal grant can't drift apart. */
-function hasActiveSplit(panel: PanelWebglShape | undefined): boolean {
-  return panel !== undefined && !panel.collapsed && panel.activeSubTab !== null;
+function hasActiveSplit(panel: PanelWebglShape): boolean {
+  return !panel.collapsed && panel.activeSubTab !== null;
 }
 
 /** Whether `childId` is the tile's expanded, active split — i.e. the one
  *  sub-terminal that inherits the tile's WebGL slot. */
 export function isActiveSplit(
-  panel: PanelWebglShape | undefined,
+  panel: PanelWebglShape,
   childId: TerminalId,
 ): boolean {
-  return (
-    panel !== undefined &&
-    hasActiveSplit(panel) &&
-    panel.activeSubTab === childId
-  );
+  return hasActiveSplit(panel) && panel.activeSubTab === childId;
 }
 
 /** A tile's WebGL-context cost: 1 for its main pane, +1 for an expanded, active
  *  split — the quantity `admitWebglTiles` counts against the cap (#575). Built on
  *  `hasActiveSplit`, so it stays in lockstep with the per-terminal grant. */
-export function tileWebglCost(panel: PanelWebglShape | undefined): number {
+export function tileWebglCost(panel: PanelWebglShape): number {
   return 1 + (hasActiveSplit(panel) ? 1 : 0);
 }
 

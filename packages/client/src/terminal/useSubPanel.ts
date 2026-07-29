@@ -20,19 +20,19 @@ interface SubPanelState {
   refocusNonce: number;
 }
 
-export const DEFAULT_PANEL_SIZE = 0.3;
+const DEFAULT_PANEL_STATE: Readonly<SubPanelState> = Object.freeze({
+  collapsed: false,
+  panelSize: 0.3,
+  activeSubTab: null,
+  refocusNonce: 0,
+});
 
 const [state, setState] = createStore<Record<TerminalId, SubPanelState>>({});
 
 function ensureState(parentId: TerminalId): SubPanelState {
   const existing = state[parentId];
   if (existing) return existing;
-  const seeded: SubPanelState = {
-    collapsed: false,
-    panelSize: DEFAULT_PANEL_SIZE,
-    activeSubTab: null,
-    refocusNonce: 0,
-  };
+  const seeded: SubPanelState = { ...DEFAULT_PANEL_STATE };
   setState(parentId, seeded);
   return seeded;
 }
@@ -66,7 +66,7 @@ export function useSubPanel() {
 
   function focusVisiblePane(parentId: TerminalId): void {
     const panel = state[parentId];
-    view.focusTerminal(
+    view.writeFocusFact(
       panel && !panel.collapsed && panel.activeSubTab
         ? panel.activeSubTab
         : parentId,
@@ -74,9 +74,10 @@ export function useSubPanel() {
   }
 
   return {
-    /** Pure read: absence stays absent. Derivations never seed panel state. */
-    peekSubPanel(parentId: TerminalId): SubPanelState | undefined {
-      return state[parentId];
+    /** Pure read: an absent entry returns the immutable defaults without
+     *  seeding the store. */
+    peekSubPanel(parentId: TerminalId): Readonly<SubPanelState> {
+      return state[parentId] ?? DEFAULT_PANEL_STATE;
     },
 
     togglePanel(parentId: TerminalId) {
@@ -89,6 +90,15 @@ export function useSubPanel() {
     expandPanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", false);
+      reportToServer(parentId);
+    },
+
+    /** User-driven expansion: update the panel chrome and restore keyboard
+     *  focus to its remembered pane. External split adoption uses the
+     *  chrome-only `expandPanel` so an arrival never steals focus. */
+    expandAndFocusPanel(parentId: TerminalId) {
+      ensureState(parentId);
+      setState(parentId, "collapsed", false);
       focusVisiblePane(parentId);
       reportToServer(parentId);
     },
@@ -96,7 +106,7 @@ export function useSubPanel() {
     collapsePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", true);
-      view.focusTerminal(parentId);
+      view.writeFocusFact(parentId);
       reportToServer(parentId);
     },
 
@@ -106,7 +116,7 @@ export function useSubPanel() {
       const followedActiveTab =
         panel.activeSubTab !== null && focused === panel.activeSubTab;
       setState(parentId, "activeSubTab", subId);
-      if (followedActiveTab) view.focusTerminal(subId ?? parentId);
+      if (followedActiveTab) view.writeFocusFact(subId ?? parentId);
     },
 
     setPanelSize(parentId: TerminalId, size: number) {
@@ -125,7 +135,7 @@ export function useSubPanel() {
       const nextId = ne[next] ?? ne[0];
       const followedActiveTab = view.focusedTerminalId() === panel.activeSubTab;
       setState(parentId, "activeSubTab", nextId);
-      if (followedActiveTab) view.focusTerminal(nextId);
+      if (followedActiveTab) view.writeFocusFact(nextId);
     },
 
     /** Ask the current focus-target terminal to re-grab keyboard focus. Used
@@ -145,8 +155,10 @@ export function useSubPanel() {
       setState(parentId, {
         collapsed: opts.collapsed,
         panelSize: opts.panelSize,
-        activeSubTab: state[parentId]?.activeSubTab ?? null,
-        refocusNonce: state[parentId]?.refocusNonce ?? 0,
+        activeSubTab:
+          state[parentId]?.activeSubTab ?? DEFAULT_PANEL_STATE.activeSubTab,
+        refocusNonce:
+          state[parentId]?.refocusNonce ?? DEFAULT_PANEL_STATE.refocusNonce,
       });
     },
 

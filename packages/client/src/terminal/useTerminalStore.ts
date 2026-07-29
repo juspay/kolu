@@ -127,13 +127,16 @@ export const useTerminalStore = createSharedRoot(() => {
    *  single focus fact; top-level terminals are the same focus verb without the
    *  chrome write-through. */
   function focusTerminal(id: TerminalId): void {
-    const parentId = metadata.getMetadata(id)?.parentId ?? null;
+    const record = metadata.getMetadata(id);
+    if (!record)
+      throw new Error(`focusTerminal: no terminal metadata for ${id}`);
+    const parentId = record.parentId ?? null;
     if (parentId === null) {
       view.activate(id);
       return;
     }
     subPanel.setActiveSubTab(parentId, id);
-    subPanel.expandPanel(parentId);
+    subPanel.expandAndFocusPanel(parentId);
     view.requestCenterActive();
   }
 

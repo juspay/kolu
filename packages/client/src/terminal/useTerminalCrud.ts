@@ -71,8 +71,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         ),
     subPanel: {
       collapse: subPanel.collapsePanel,
-      activeSubTab: (parentId) =>
-        subPanel.peekSubPanel(parentId)?.activeSubTab ?? null,
+      activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
       requestRefocus: subPanel.requestRefocus,
       remove: subPanel.removePanel,
@@ -229,7 +228,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         throw err;
       });
     subPanel.setActiveSubTab(parentId, info.id);
-    subPanel.expandPanel(parentId);
+    subPanel.expandAndFocusPanel(parentId);
   }
 
   /** Toggle a terminal's split: create the first sub-terminal if none exist

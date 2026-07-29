@@ -130,8 +130,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     );
     for (const [parentId, group] of Object.entries(subs)) {
       const subIds = group?.map(({ t }) => t.id) ?? [];
-      const activeSubTab =
-        subPanel.peekSubPanel(parentId)?.activeSubTab ?? null;
+      const activeSubTab = subPanel.peekSubPanel(parentId).activeSubTab;
       if (!activeSubTab || !subIds.includes(activeSubTab)) {
         subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
       }

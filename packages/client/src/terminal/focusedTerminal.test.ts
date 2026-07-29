@@ -4,7 +4,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
-import { activeTileOf } from "../hostScope/createViewState";
+import { activeTileOf } from "./focusedTerminal";
 
 const TILE = "tile" as TerminalId;
 const SUB = "sub" as TerminalId;

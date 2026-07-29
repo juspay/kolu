@@ -41,6 +41,7 @@ import {
 } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { perHostBoolPref } from "../persistedPref";
+import { activeTileOf } from "../terminal/focusedTerminal";
 import { useVisitRecency } from "../terminal/visitRecency";
 import { padiMap } from "../wire";
 
@@ -79,14 +80,6 @@ export interface HostViewState {
   canvasMaximized: Accessor<boolean>;
   setCanvasMaximized: Setter<boolean>;
   reset: () => void;
-}
-
-export function activeTileOf(
-  focusedId: TerminalId | null,
-  parentOf: (id: TerminalId) => TerminalId | null,
-): TerminalId | null {
-  if (focusedId === null) return null;
-  return parentOf(focusedId) ?? focusedId;
 }
 
 export function createViewState(

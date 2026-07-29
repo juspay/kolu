@@ -144,8 +144,7 @@ export function useTerminals() {
     restorePhase: () => activeScope()?.restore.phase ?? "pending",
     ports: {
       expandPanel: subPanel.expandPanel,
-      activeSubTab: (parentId) =>
-        subPanel.peekSubPanel(parentId)?.activeSubTab ?? null,
+      activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
     },
   });
