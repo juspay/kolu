@@ -390,8 +390,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // the store half-applied while `appliedPaths` still names the old inventory
   // — every later change re-diffs against that stale bookkeeping and freezes
   // the tree forever (the Code-tab host-switch toast). Recover by rebuilding
-  // via `resetPaths` to the *desired* inventory, record it, then still
-  // surface the original error through `onError` (fail loud, never wedge).
+  // via `resetPaths` to the normalized desired inventory and recording it.
+  // onError fires only when recovery itself fails (successful recover must
+  // not toast "render failed"); the original throw is logged for visibility.
   //
   // `selectedPath` is deliberately *not* a dependency — routing selection
   // through here would re-run on every file click. The selection effect
@@ -408,13 +409,27 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           ...(expandPaths ?? []),
           ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
         ];
+        // Normalize both sides so a collapsed dir key never coexists with
+        // inventory children — pathDiff can then always recursive-remove
+        // orphaned directory keys without a skip branch. Shared by the happy
+        // path and the recovery rebuild so mixed keys never re-enter Pierre.
+        const prev = dropRedundantDirKeys(appliedPaths);
+        const next = dropRedundantDirKeys(paths);
         try {
-          // Normalize both sides so a collapsed dir key never coexists with
-          // inventory children — pathDiff can then always recursive-remove
-          // orphaned directory keys without a skip branch.
-          const prev = dropRedundantDirKeys(appliedPaths);
-          const next = dropRedundantDirKeys(paths);
-          const pathOps = pathDiffOperations(prev, next);
+          const pathOps = pathDiffOperations(prev, next).filter((op) => {
+            // Pierre promotes an emptied directory to an explicit empty-folder
+            // node on file remove — so files→collapsed-dir can try to `add` a
+            // dir key that already exists. Skip those adds (mirrors getItem
+            // guard on dirOps).
+            if (
+              op.type === "add" &&
+              isDirectoryPath(op.path) &&
+              tree.getItem(op.path)
+            ) {
+              return false;
+            }
+            return true;
+          });
           if (pathOps.length > 0) tree.batch(pathOps);
           // Pierre's `remove` promotes an emptied directory to an explicit
           // empty folder instead of deleting it (see `directoryRemovalOps`),
@@ -430,21 +445,29 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             if (tree.getItem(op.path)) dirOps.push(op);
           }
           if (dirOps.length > 0) tree.batch(dirOps);
-          appliedPaths = paths;
+          appliedPaths = next;
           expandDirs(tree, toOpen);
-        } catch {
+        } catch (err) {
           try {
-            tree.resetPaths(paths, { initialExpandedPaths: toOpen });
-            appliedPaths = paths;
+            tree.resetPaths(next, { initialExpandedPaths: toOpen });
+            appliedPaths = next;
             expandDirs(tree, toOpen);
-            // Recovered: tree matches desired inventory. Do not toast as a
-            // render failure — onError is reserved for unrecovered throws.
-            // Original throw is intentionally not re-surfaced to the host.
+            // Recovered — tree matches desired inventory. Log the original
+            // throw so recurrence is visible; do not toast as render failure.
+            console.error(
+              "FileTree paths batch failed; recovered via resetPaths:",
+              err,
+            );
             return;
           } catch (recoverErr) {
             // Recovery failed — bookkeeping may still be desynced; surface
             // loudly and leave appliedPaths so a later inventory can retry.
-            props.onError(toError(recoverErr));
+            const recovered = toError(recoverErr);
+            props.onError(
+              recovered.cause == null
+                ? new Error(recovered.message, { cause: err })
+                : recovered,
+            );
             return;
           }
         }

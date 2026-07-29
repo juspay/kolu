@@ -83,12 +83,25 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
 
     const tryApply = (paths: string[]): boolean => {
       try {
+        const next = dropRedundantDirKeys(paths);
         const ops = pathDiffOperations(
           dropRedundantDirKeys(appliedPaths),
-          dropRedundantDirKeys(paths),
+          next,
+        ).filter(
+          (op) =>
+            !(
+              op.type === "add" &&
+              op.path.endsWith("/") &&
+              tree.getItem(op.path)
+            ),
         );
         if (ops.length > 0) tree.batch(ops);
-        appliedPaths = paths;
+        const dirOps = directoryRemovalOps(
+          dropRedundantDirKeys(appliedPaths),
+          next,
+        ).filter((op) => tree.getItem(op.path));
+        if (dirOps.length > 0) tree.batch(dirOps);
+        appliedPaths = next;
         return true;
       } catch {
         return false;
@@ -101,6 +114,39 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
     expect(appliedPaths).toEqual(later);
     expect(tree.getItem("src/app.ts")).not.toBeNull();
     tree.cleanUp();
+  });
+
+  it("applies the reverse files→collapsed-dir transition without throwing", () => {
+    // Host switch / fully-ignored dir: prev has tracked children, next is the
+    // bare overlay dir key. Pierre promotes the emptied dir to an explicit
+    // empty folder, so a naive add of ".claude/" throws Path already exists —
+    // the FileTree getItem guard on dir-key adds (and directoryRemovalOps
+    // treating next dir keys as survivors) close that path.
+    const withFiles = [".claude/a.md"];
+    const collapsed = [".claude/"];
+    const tree = makeTree(withFiles);
+    const prev = dropRedundantDirKeys(withFiles);
+    const next = dropRedundantDirKeys(collapsed);
+    const pathOps = pathDiffOperations(prev, next).filter(
+      (op) =>
+        !(op.type === "add" && op.path.endsWith("/") && tree.getItem(op.path)),
+    );
+    expect(() => {
+      if (pathOps.length > 0) tree.batch(pathOps);
+      const dirOps = directoryRemovalOps(prev, next).filter((op) =>
+        tree.getItem(op.path),
+      );
+      if (dirOps.length > 0) tree.batch(dirOps);
+    }).not.toThrow();
+    expect(tree.getItem(".claude/")).not.toBeNull();
+    tree.cleanUp();
+  });
+});
+
+describe("directoryRemovalOps with bare directory keys in next", () => {
+  it("does not prune a directory that next still lists as a collapsed key", () => {
+    // files → collapsed-dir: the bare key is a survivor, not a stranded empty.
+    expect(directoryRemovalOps([".claude/a.md"], [".claude/"])).toEqual([]);
   });
 });
 

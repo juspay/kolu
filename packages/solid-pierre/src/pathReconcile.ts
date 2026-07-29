@@ -37,11 +37,15 @@ export function hasPathUnderPrefix(
 /** Drop collapsed directory keys that still have a sibling path under them —
  *  those keys are redundant once any child is listed (the directory node is
  *  implied by the child). Normalizing both sides of a path-diff removes the
- *  need for a skip-remove branch and keeps `appliedPaths` a single meaning. */
+ *  need for a skip-remove branch and keeps `appliedPaths` a single meaning.
+ *  Single pass: collect ancestor prefixes of every path, then drop any dir key
+ *  that appears in that set — O(total path segments), not O(dirKeys × n). */
 export function dropRedundantDirKeys(paths: readonly string[]): string[] {
-  return paths.filter(
-    (p) => !isDirectoryPath(p) || !hasPathUnderPrefix(p, paths),
-  );
+  const coveredByChildren = new Set<string>();
+  for (const p of paths) {
+    for (const dir of ancestorDirectoryPaths(p)) coveredByChildren.add(dir);
+  }
+  return paths.filter((p) => !isDirectoryPath(p) || !coveredByChildren.has(p));
 }
 
 /** `"/"`, as a char code — compared numerically in the scan below so the loop
@@ -143,6 +147,11 @@ export function directoryRemovalOps(
 ): FileTreeRemoveOperation[] {
   const nextDirs = new Set<string>();
   for (const file of next) {
+    // A bare directory key in `next` is itself a surviving directory (collapsed
+    // overlay row). ancestorDirectoryPaths of such a key is empty, so seed it
+    // explicitly — otherwise files→collapsed-dir transitions would prune the
+    // row the inventory still lists.
+    if (isDirectoryPath(file)) nextDirs.add(file);
     for (const dir of ancestorDirectoryPaths(file)) nextDirs.add(dir);
   }
   const roots = new Set<string>();
