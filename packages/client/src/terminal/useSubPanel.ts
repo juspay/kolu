@@ -67,13 +67,20 @@ export function useSubPanel() {
 
   /** The raw fact write is deliberately trapped inside this panel boundary.
    *  Every exported caller below first establishes or checks the pane chrome
-   *  invariant; the broad terminal/view facades never expose this operation. */
-  const writePaneFocus = (id: TerminalId): void =>
-    activeScope()?.view.writeFocus(id);
+   *  invariant; the broad terminal/view facades never expose this operation.
+   *  A missing active scope is the expected host-removal race and follows the
+   *  active-host facade convention: the departing owner's write is a no-op. */
+  function writePaneFocus(parentId: TerminalId, id: TerminalId): void {
+    const view = activeScope()?.view;
+    if (!view) return;
+    if (id === parentId) view.writeFocus(id);
+    else view.writeSplitFocus(parentId, id);
+  }
 
   function focusVisiblePane(parentId: TerminalId): void {
     const panel = state[parentId];
     writePaneFocus(
+      parentId,
       panel && !panel.collapsed && panel.activeSubTab
         ? panel.activeSubTab
         : parentId,
@@ -120,7 +127,7 @@ export function useSubPanel() {
     collapsePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", true);
-      writePaneFocus(parentId);
+      writePaneFocus(parentId, parentId);
       reportToServer(parentId);
     },
 
@@ -135,7 +142,7 @@ export function useSubPanel() {
     selectSubTab(parentId: TerminalId, subId: TerminalId | null) {
       ensureState(parentId);
       setState(parentId, "activeSubTab", subId);
-      writePaneFocus(subId ?? parentId);
+      writePaneFocus(parentId, subId ?? parentId);
     },
 
     /** Split landing: reveal the chosen tab without focus side effects, then
@@ -145,13 +152,13 @@ export function useSubPanel() {
       setState(parentId, "activeSubTab", subId);
       setState(parentId, "collapsed", false);
       reportToServer(parentId);
-      writePaneFocus(subId);
+      writePaneFocus(parentId, subId);
     },
 
     /** Pane DOM focus may commit only a pane already made visible by chrome. */
     focusMainPane(parentId: TerminalId) {
       ensureState(parentId);
-      writePaneFocus(parentId);
+      writePaneFocus(parentId, parentId);
     },
 
     focusVisibleSubPane(parentId: TerminalId, subId: TerminalId) {
@@ -161,7 +168,7 @@ export function useSubPanel() {
           `focusVisibleSubPane: ${subId} is not the visible split of ${parentId}`,
         );
       }
-      writePaneFocus(subId);
+      writePaneFocus(parentId, subId);
     },
 
     setPanelSize(parentId: TerminalId, size: number) {
@@ -180,7 +187,7 @@ export function useSubPanel() {
       const nextId = ne[next] ?? ne[0];
       const followedActiveTab = focusedTerminalId() === panel.activeSubTab;
       setState(parentId, "activeSubTab", nextId);
-      if (followedActiveTab) writePaneFocus(nextId);
+      if (followedActiveTab) writePaneFocus(parentId, nextId);
     },
 
     /** Ask the current focus-target terminal to re-grab keyboard focus. Used

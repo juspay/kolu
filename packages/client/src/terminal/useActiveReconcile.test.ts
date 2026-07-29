@@ -43,6 +43,7 @@ describe("pickAutoSwitchTarget", () => {
 function makePorts(over: {
   getSubTerminalIds?: (parentId: TerminalId) => readonly TerminalId[];
   activeId?: () => TerminalId | null;
+  focusedTerminalId?: () => TerminalId | null;
   activeSubTab?: (parentId: TerminalId) => TerminalId | null;
 }) {
   const calls = {
@@ -50,6 +51,7 @@ function makePorts(over: {
     activate: vi.fn<(id: TerminalId | null) => void>(),
     dropFromMru: vi.fn<(id: TerminalId) => void>(),
     collapse: vi.fn<(id: TerminalId) => void>(),
+    collapseChrome: vi.fn<(id: TerminalId) => void>(),
     setActiveSubTab:
       vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
     selectSubTab:
@@ -62,11 +64,13 @@ function makePorts(over: {
   const ports: TerminalEvictionPorts = {
     getSubTerminalIds: over.getSubTerminalIds ?? (() => []),
     activeId: over.activeId ?? (() => null),
+    focusedTerminalId: over.focusedTerminalId ?? (() => null),
     activate: calls.activate,
     dropFromMru: calls.dropFromMru,
     promoteToTopLevel: calls.promoteToTopLevel,
     subPanel: {
       collapse: calls.collapse,
+      collapseChrome: calls.collapseChrome,
       activeSubTab: over.activeSubTab ?? (() => null),
       setActiveSubTab: calls.setActiveSubTab,
       selectSubTab: calls.selectSubTab,
@@ -132,9 +136,10 @@ describe("evictTerminal — top-level branch", () => {
 });
 
 describe("evictTerminal — sub-terminal branch", () => {
-  it("collapses the parent's panel AND clears the active tab when the last sub departs", () => {
+  it("collapses, clears the tab, and focuses the parent when the focused last sub departs", () => {
     const { ports, calls } = makePorts({
       getSubTerminalIds: () => [], // no siblings remain
+      focusedTerminalId: () => T("S"),
     });
     evictTerminal(ports, T("S"), T("P"), [], new Set([T("S")]));
     expect(calls.collapse).toHaveBeenCalledWith(T("P"));
@@ -142,13 +147,29 @@ describe("evictTerminal — sub-terminal branch", () => {
     // invariant "activeSubTab is null or a live sub" that lets adopt/restore
     // trust a plain null-check.
     expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), null);
+    expect(calls.collapseChrome).not.toHaveBeenCalled();
     expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
+  });
+
+  it("keeps a background tile's focus untouched when its last sub departs", () => {
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: () => [],
+      focusedTerminalId: () => T("OTHER"),
+    });
+
+    evictTerminal(ports, T("S"), T("P"), [], new Set([T("S")]));
+
+    expect(calls.collapseChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
+    expect(calls.collapse).not.toHaveBeenCalled();
+    expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), null);
+    expect(calls.requestRefocus).not.toHaveBeenCalled();
   });
 
   it("switches the active sub-tab to a sibling and refocuses", () => {
     const { ports, calls } = makePorts({
       getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []), // S1 already gone
       activeSubTab: () => T("S1"),
+      focusedTerminalId: () => T("S1"),
     });
     evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
     expect(calls.selectSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
@@ -156,15 +177,19 @@ describe("evictTerminal — sub-terminal branch", () => {
     expect(calls.collapse).not.toHaveBeenCalled();
   });
 
-  it("refocuses without switching when the removed sub was not the active tab", () => {
+  it("keeps main-pane focus while repairing a departed active sub tab", () => {
     const { ports, calls } = makePorts({
       getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []),
-      activeSubTab: () => T("S2"), // a different tab is active
+      activeSubTab: () => T("S1"),
+      focusedTerminalId: () => T("P"),
     });
     evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
-    expect(calls.setActiveSubTab).not.toHaveBeenCalled();
+    expect(calls.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(
+      T("P"),
+      T("S2"),
+    );
     expect(calls.selectSubTab).not.toHaveBeenCalled();
-    expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
+    expect(calls.requestRefocus).not.toHaveBeenCalled();
   });
 });
 
@@ -201,6 +226,7 @@ function setupReconcile(init: {
   rawIds: TerminalId[];
   parents: Record<string, TerminalId | null>;
   activeId?: TerminalId | null;
+  focusedTerminalId?: TerminalId | null;
   activeSubTab?: Record<string, TerminalId | null>;
   /** Daemon-connected gate (FIX 1). Defaults to CONNECTED so the existing
    *  cleanup tests are unchanged; a supervised-drain test flips it false. */
@@ -212,6 +238,7 @@ function setupReconcile(init: {
 }) {
   const state = {
     active: init.activeId ?? null,
+    focused: init.focusedTerminalId ?? null,
     activeSubTab: init.activeSubTab ?? {},
   };
   let handles!: {
@@ -234,6 +261,7 @@ function setupReconcile(init: {
       getSubTerminalIds: (pid) =>
         rawIds().filter((id) => (parents()[id] ?? null) === pid),
       activeId: () => state.active,
+      focusedTerminalId: () => state.focused,
       activeSubTab: (pid) => state.activeSubTab[pid] ?? null,
     });
     calls.activate.mockImplementation((id) => {
@@ -290,6 +318,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
       rawIds: [T("P"), T("S1"), T("S2")],
       parents: { P: null, S1: T("P"), S2: T("P") },
       activeSubTab: { P: T("S1") },
+      focusedTerminalId: T("S1"),
     });
     await tick();
 

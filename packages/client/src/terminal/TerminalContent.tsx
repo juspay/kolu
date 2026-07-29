@@ -8,7 +8,7 @@ import Resizable from "@corvu/resizable";
 import { sleepingArm } from "@kolu/padi/surface";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { type Component, For, type JSX, Show } from "solid-js";
 import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import DormantTileBody from "./DormantTileBody";
@@ -120,6 +120,22 @@ const TerminalContent: Component<{
   const markResizeIntent = () => {
     resizeIntent = true;
   };
+  const markKeyboardResizeIntent: JSX.EventHandler<
+    HTMLButtonElement,
+    KeyboardEvent
+  > = (event) => {
+    if (
+      [
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Home",
+        "End",
+      ].includes(event.key)
+    )
+      markResizeIntent();
+  };
   const clearResizeIntent = () => {
     resizeIntent = false;
   };
@@ -128,13 +144,11 @@ const TerminalContent: Component<{
     if (!hasSubs()) return;
     if (resizeIntent) subPanel.collapsePanel(props.terminalId);
     else subPanel.collapsePanelChrome(props.terminalId);
-    clearResizeIntent();
   }
 
   function handlePanelExpand() {
     if (resizeIntent) subPanel.expandAndFocusPanel(props.terminalId);
     else subPanel.expandPanel(props.terminalId);
-    clearResizeIntent();
   }
 
   return (
@@ -203,8 +217,11 @@ const TerminalContent: Component<{
             aria-label="Resize terminal split"
             onPointerDown={markResizeIntent}
             onPointerUp={clearResizeIntent}
-            onKeyDown={markResizeIntent}
+            onPointerCancel={clearResizeIntent}
+            onLostPointerCapture={clearResizeIntent}
+            onKeyDown={markKeyboardResizeIntent}
             onKeyUp={clearResizeIntent}
+            onBlur={clearResizeIntent}
           />
         </Show>
 

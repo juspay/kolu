@@ -63,6 +63,7 @@ export interface HostViewState {
   /** The single per-host focus write path. Active-tile side effects use the
    *  ancestor folded from this terminal. */
   writeFocus: (id: TerminalId | null) => void;
+  writeSplitFocus: (parentId: TerminalId, id: TerminalId) => void;
   /** Seed empty host trail / reconcile live membership (order is seed-only). */
   reconcileLiveIds: (liveIds: readonly TerminalId[]) => void;
   /** Drop one terminal from the durable visit trail (kill path). */
@@ -119,9 +120,8 @@ export function createViewState(
     fallback: false,
   });
 
-  function writeFocus(id: TerminalId | null): void {
+  function commitFocus(id: TerminalId | null, tileId: TerminalId | null): void {
     setFocusedTerminalId(id);
-    const tileId = activeTileOf(id, parentOf);
     if (tileId === null) return;
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
     visits.noteVisit(host, tileId);
@@ -147,6 +147,17 @@ export function createViewState(
           `hostScope: failed to report active terminal ${tileId} to ${encoded}: ${err.message}`,
         );
       });
+  }
+
+  function writeFocus(id: TerminalId | null): void {
+    commitFocus(id, activeTileOf(id, parentOf));
+  }
+
+  /** Focus a split whose parent is already known by the panel boundary. This
+   *  keeps activation side effects on the containing tile even before the
+   *  retained metadata collection publishes the new split. */
+  function writeSplitFocus(parentId: TerminalId, id: TerminalId): void {
+    commitFocus(id, parentId);
   }
 
   function reconcileLiveIds(liveIds: readonly TerminalId[]): void {
@@ -189,6 +200,7 @@ export function createViewState(
     isActiveTile,
     mruOrder,
     writeFocus,
+    writeSplitFocus,
     reconcileLiveIds,
     forgetFromMru,
     markUnread,

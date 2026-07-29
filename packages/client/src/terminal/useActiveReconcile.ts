@@ -60,6 +60,7 @@ export interface TerminalEvictionPorts {
   /** Sub-terminal ids for a parent, read LIVE (list-driven). */
   getSubTerminalIds: (parentId: TerminalId) => readonly TerminalId[];
   activeId: () => TerminalId | null;
+  focusedTerminalId: () => TerminalId | null;
   /** Pan-and-activate a survivor (or `null`). */
   activate: (id: TerminalId | null) => void;
   /** Drop an id from the tile MRU. */
@@ -68,6 +69,7 @@ export interface TerminalEvictionPorts {
   promoteToTopLevel: (subId: TerminalId) => void;
   subPanel: {
     collapse: (parentId: TerminalId) => void;
+    collapseChrome: (parentId: TerminalId) => void;
     activeSubTab: (parentId: TerminalId) => TerminalId | null;
     setActiveSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
     selectSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
@@ -94,11 +96,14 @@ export function evictTerminal(
   departing: ReadonlySet<TerminalId>,
 ) {
   if (parentId !== null) {
-    // Sub-terminal: switch/collapse the parent's sub-panel; a sub is never the
-    // active tile, so no focus auto-switch here.
+    // Sub-terminal: always repair the parent's remembered chrome, but move DOM
+    // and keyboard focus only when the departing sub actually held it. A
+    // background split exit must not steal focus from the tile being used.
+    const wasFocused = ports.focusedTerminalId() === id;
     const subs = ports.getSubTerminalIds(parentId).filter((x) => x !== id);
     if (subs.length === 0) {
-      ports.subPanel.collapse(parentId);
+      if (wasFocused) ports.subPanel.collapse(parentId);
+      else ports.subPanel.collapseChrome(parentId);
       // Clear the active tab too: the parent's last split is gone, so `activeSubTab`
       // must not dangle at a departed sub. Keeping the invariant "`activeSubTab` is
       // null or a LIVE sub of this parent" global lets consumers trust a plain
@@ -108,13 +113,16 @@ export function evictTerminal(
       ports.subPanel.setActiveSubTab(parentId, null);
     } else {
       if (ports.subPanel.activeSubTab(parentId) === id) {
-        ports.subPanel.selectSubTab(parentId, subs[0] ?? null);
+        const replacement = subs[0] ?? null;
+        if (wasFocused) ports.subPanel.selectSubTab(parentId, replacement);
+        else ports.subPanel.setActiveSubTab(parentId, replacement);
       }
-      // Re-grab focus for the remaining active sub-terminal: closing a tab via
-      // its close button moves focus to that button, and the reactive focus
-      // state is otherwise unchanged, so the edge-triggered focus effect can't
-      // restore it (browser focus-after-removal is non-deterministic).
-      ports.subPanel.requestRefocus(parentId);
+      if (wasFocused) {
+        // Re-grab focus for the replacement: closing a focused tab via its close
+        // button moves DOM focus to that button, and the reactive focus fact is
+        // otherwise unchanged after selecting the replacement.
+        ports.subPanel.requestRefocus(parentId);
+      }
     }
     return;
   }

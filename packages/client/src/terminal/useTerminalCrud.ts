@@ -61,6 +61,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   const evictionPorts: TerminalEvictionPorts = {
     getSubTerminalIds: store.getSubTerminalIds,
     activeId: store.activeId,
+    focusedTerminalId: store.focusedTerminalId,
     activate: store.activate,
     dropFromMru: (id) => store.forgetFromMru(id),
     promoteToTopLevel: (subId) =>
@@ -71,6 +72,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         ),
     subPanel: {
       collapse: subPanel.collapsePanel,
+      collapseChrome: subPanel.collapsePanelChrome,
       activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
       selectSubTab: subPanel.selectSubTab,

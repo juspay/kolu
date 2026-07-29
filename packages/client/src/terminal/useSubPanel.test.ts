@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   focused: null as TerminalId | null,
   writeFocus: vi.fn(),
+  writeSplitFocus: vi.fn(),
   setSubPanel: vi.fn(() => Promise.resolve()),
 }));
 
@@ -12,6 +13,7 @@ vi.mock("../hostScope/hostScopes", () => ({
     view: {
       focusedTerminalId: () => h.focused,
       writeFocus: h.writeFocus,
+      writeSplitFocus: h.writeSplitFocus,
     },
   }),
 }));
@@ -33,6 +35,7 @@ describe("useSubPanel focus verbs", () => {
   beforeEach(() => {
     h.focused = null;
     h.writeFocus.mockClear();
+    h.writeSplitFocus.mockClear();
     h.setSubPanel.mockClear();
   });
 
@@ -54,18 +57,18 @@ describe("useSubPanel focus verbs", () => {
 
     panel.expandAndFocusPanel(PARENT);
 
-    expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith(SUB);
+    expect(h.writeSplitFocus).toHaveBeenCalledExactlyOnceWith(PARENT, SUB);
   });
 
   it("lands on a different split with one focus commit", () => {
     const panel = useSubPanel();
     panel.setActiveSubTab(PARENT, "focus-test-old" as TerminalId);
     h.focused = "focus-test-old" as TerminalId;
-    h.writeFocus.mockClear();
+    h.writeSplitFocus.mockClear();
 
     panel.focusSubTab(PARENT, SUB);
 
-    expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith(SUB);
+    expect(h.writeSplitFocus).toHaveBeenCalledExactlyOnceWith(PARENT, SUB);
     expect(h.setSubPanel).toHaveBeenCalledExactlyOnceWith({
       id: PARENT,
       collapsed: false,
@@ -77,6 +80,7 @@ describe("useSubPanel focus verbs", () => {
     useSubPanel().setActiveSubTab(PARENT, SUB);
 
     expect(h.writeFocus).not.toHaveBeenCalled();
+    expect(h.writeSplitFocus).not.toHaveBeenCalled();
   });
 
   it("collapsing returns keyboard focus to the parent", () => {

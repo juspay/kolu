@@ -11,7 +11,12 @@ const SUB = "focus-intent-sub" as TerminalId;
 
 const h = vi.hoisted(() => ({
   onExpand: undefined as (() => void) | undefined,
+  onCollapse: undefined as (() => void) | undefined,
   onPointerDown: undefined as (() => void) | undefined,
+  onPointerCancel: undefined as (() => void) | undefined,
+  onLostPointerCapture: undefined as (() => void) | undefined,
+  onKeyDown: undefined as ((key: string) => void) | undefined,
+  onBlur: undefined as (() => void) | undefined,
   expandPanel: vi.fn(),
   expandAndFocusPanel: vi.fn(),
   collapsePanel: vi.fn(),
@@ -25,6 +30,9 @@ vi.mock("@corvu/resizable", () => {
     if (typeof props.onExpand === "function") {
       h.onExpand = props.onExpand as () => void;
     }
+    if (typeof props.onCollapse === "function") {
+      h.onCollapse = props.onCollapse as () => void;
+    }
     return <div>{props.children}</div>;
   };
   const Handle: Component<Bag> = (props) => {
@@ -33,6 +41,28 @@ vi.mock("@corvu/resizable", () => {
         (props.onPointerDown as (event: PointerEvent) => void)(
           new PointerEvent("pointerdown"),
         );
+    }
+    if (typeof props.onPointerCancel === "function") {
+      h.onPointerCancel = () =>
+        (props.onPointerCancel as (event: PointerEvent) => void)(
+          new PointerEvent("pointercancel"),
+        );
+    }
+    if (typeof props.onLostPointerCapture === "function") {
+      h.onLostPointerCapture = () =>
+        (props.onLostPointerCapture as (event: PointerEvent) => void)(
+          new PointerEvent("lostpointercapture"),
+        );
+    }
+    if (typeof props.onKeyDown === "function") {
+      h.onKeyDown = (key) =>
+        (props.onKeyDown as (event: KeyboardEvent) => void)(
+          new KeyboardEvent("keydown", { key }),
+        );
+    }
+    if (typeof props.onBlur === "function") {
+      h.onBlur = () =>
+        (props.onBlur as (event: FocusEvent) => void)(new FocusEvent("blur"));
     }
     return <div data-testid="resize-handle" />;
   };
@@ -99,7 +129,12 @@ afterEach(() => {
   dispose = undefined;
   host = undefined;
   h.onExpand = undefined;
+  h.onCollapse = undefined;
   h.onPointerDown = undefined;
+  h.onPointerCancel = undefined;
+  h.onLostPointerCapture = undefined;
+  h.onKeyDown = undefined;
+  h.onBlur = undefined;
   vi.clearAllMocks();
 });
 
@@ -126,7 +161,61 @@ describe("TerminalContent panel expansion intent", () => {
     expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
 
     h.onPointerDown?.();
+    h.onCollapse?.();
+    expect(h.collapsePanel).toHaveBeenCalledExactlyOnceWith(MAIN);
     h.onExpand?.();
     expect(h.expandAndFocusPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
+  });
+
+  it("clears pointer intent when the resize gesture is cancelled", () => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    dispose = render(
+      () => (
+        <TerminalContent
+          terminalId={MAIN}
+          visible
+          focused
+          theme={{} as ITheme}
+          onCloseTerminal={() => {}}
+        />
+      ),
+      host,
+    );
+
+    h.onPointerDown?.();
+    h.onPointerCancel?.();
+    h.onExpand?.();
+
+    expect(h.expandPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
+    expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
+    expect(h.onLostPointerCapture).toBeTypeOf("function");
+  });
+
+  it("does not treat keyboard navigation as resize intent", () => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    dispose = render(
+      () => (
+        <TerminalContent
+          terminalId={MAIN}
+          visible
+          focused
+          theme={{} as ITheme}
+          onCloseTerminal={() => {}}
+        />
+      ),
+      host,
+    );
+
+    h.onKeyDown?.("Tab");
+    h.onExpand?.();
+    expect(h.expandPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
+
+    h.onKeyDown?.("ArrowRight");
+    h.onBlur?.();
+    h.onExpand?.();
+    expect(h.expandPanel).toHaveBeenCalledTimes(2);
+    expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
   });
 });
