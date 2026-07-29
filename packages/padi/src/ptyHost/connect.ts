@@ -100,6 +100,11 @@ type KavalSystemVersion = Awaited<
 >;
 type KavalControlHello = Awaited<ReturnType<typeof readControlCoreHello>>;
 
+const UNKNOWN_KAVAL_IDENTITY: PtyHostIdentity = Object.freeze({
+  staleKey: "",
+  navigableCommit: "",
+});
+
 type KavalHandshake =
   | {
       kind: "current";
@@ -182,7 +187,7 @@ async function readKavalHandshake(
 function projectKavalIdentity(hello: KavalControlHello): PtyHostIdentity {
   return hello.buildId && hello.commit
     ? { staleKey: hello.buildId, navigableCommit: hello.commit }
-    : { staleKey: "", navigableCommit: "" };
+    : UNKNOWN_KAVAL_IDENTITY;
 }
 
 export async function connectKaval(
@@ -211,7 +216,7 @@ export async function connectKaval(
     }))
     .with({ kind: "pre-fragment" }, ({ version: legacyVersion }) => ({
       contractVersion: legacyVersion.contractVersion,
-      identity: { staleKey: "", navigableCommit: "" },
+      identity: UNKNOWN_KAVAL_IDENTITY,
       startedAt: legacyVersion.startedAt,
     }))
     .exhaustive();

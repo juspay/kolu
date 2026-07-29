@@ -167,6 +167,23 @@ async function serveLegacyVersionOnly(
   return { listener, startedAt };
 }
 
+/** A pre-fragment daemon whose frozen route is absent but whose legacy version
+ * read never settles. This binds the second, 10s handshake deadline rather than
+ * the supervisor-owned 30s frozen-hello deadline. */
+async function serveLegacyHangingVersion(socketPath: string) {
+  const t = implement(legacyVersionOnlyContract);
+  const router = t.router({
+    surface: {
+      system: {
+        version: t.surface.system.version.handler(
+          async () => await new Promise<never>(() => {}),
+        ),
+      },
+    },
+  });
+  return await serveOverUnixSocket({ socketPath, router, log: silentLog });
+}
+
 describe("connectKaval — mirrors the handshake lifetime onto the metadata", () => {
   let listener: Awaited<ReturnType<typeof serveCurrent>>;
   let socketPath: string;
@@ -258,6 +275,29 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
     } finally {
       vi.useRealTimers();
       server.close();
+    }
+  });
+
+  it("rejects on the 10s version deadline after detecting a pre-fragment daemon", async () => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-legacy-silent-")),
+      "pty-host.sock",
+    );
+    const listener = await serveLegacyHangingVersion(socketPath);
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const outcome = connectKaval(socketPath).then(
+        () => "resolved",
+        (e: unknown) => (e as Error).message,
+      );
+      for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(outcome).resolves.toMatch(
+        /handshake read exceeded 10000ms deadline/,
+      );
+    } finally {
+      vi.useRealTimers();
+      listener.close();
     }
   });
 });
