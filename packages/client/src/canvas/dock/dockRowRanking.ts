@@ -330,11 +330,11 @@ function rankSubRows(
   const rows: SubDockRow[] = [];
   for (const id of subIds) {
     const meta = getMeta(id);
-    if (!meta) {
-      throw new Error(
-        `rankDockRows: split ${id} was listed without terminal metadata`,
-      );
-    }
+    // IDs and projected metadata are independent reactive reads. Match the
+    // top-level row contract above: reading a missing slot subscribes this memo
+    // to its arrival, so omit the not-yet-paintable row for this frame; the
+    // reactive recomputation includes it.
+    if (!meta) continue;
     const bucket = classifyDockRow(meta, false);
     const core = { id, ts: rowRecencyAt(meta) };
     const agent = activeArm(meta)?.agent;

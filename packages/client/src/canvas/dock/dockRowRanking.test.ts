@@ -417,11 +417,9 @@ describe("rankDockRows — split sub-entries", () => {
     expect(result[0]).toMatchObject({ ts: 1_000, bucket: "idle" });
   });
 
-  it("fails fast when a listed split has no metadata", () => {
+  it("omits a split while its projected metadata is still pending", () => {
     const missing = "split-missing" as TerminalId;
-    expect(() => rank([missing])).toThrow(
-      `rankDockRows: split ${missing} was listed without terminal metadata`,
-    );
+    expect(rank([missing])[0]?.subRows).toEqual([]);
   });
 
   it("classifies agentless splits as quiet rows", () => {
