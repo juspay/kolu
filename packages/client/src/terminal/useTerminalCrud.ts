@@ -61,6 +61,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   const evictionPorts: TerminalEvictionPorts = {
     getSubTerminalIds: store.getSubTerminalIds,
     activeId: store.activeId,
+    focusedTerminalId: store.focusedTerminalId,
     activate: store.activate,
     dropFromMru: (id) => store.forgetFromMru(id),
     promoteToTopLevel: (subId) =>
@@ -71,8 +72,10 @@ export const useTerminalCrud = createSharedRoot(() => {
         ),
     subPanel: {
       collapse: subPanel.collapsePanel,
-      activeSubTab: (parentId) => subPanel.getSubPanel(parentId).activeSubTab,
+      collapseChrome: subPanel.collapsePanelChrome,
+      activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
+      selectSubTab: subPanel.selectSubTab,
       requestRefocus: subPanel.requestRefocus,
       remove: subPanel.removePanel,
     },
@@ -227,8 +230,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;
       });
-    subPanel.setActiveSubTab(parentId, info.id);
-    subPanel.expandPanel(parentId);
+    subPanel.focusSubTab(parentId, info.id);
   }
 
   /** Toggle a terminal's split: create the first sub-terminal if none exist

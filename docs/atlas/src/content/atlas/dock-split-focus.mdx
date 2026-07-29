@@ -1,0 +1,214 @@
+---
+title: Dock Split Sub-Entries on One Focus Fact
+description: Plan of record for #2024 — make "which terminal has the keyboard" the one written fact (FX1), then re-land the dock's split sub-entries on top of it (FX2).
+parents: [agent-attention, feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-28
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import Footnote from "../../components/Footnote.astro";
+import Phase from "../../components/Phase.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import diagram from "../../diagrams/dock-split-focus.svg?raw";
+
+An agent working in a split has no dock row anywhere
+([#2024](https://github.com/juspay/kolu/issues/2024)). <PrLink pr={2019} /> built
+the indented sub-entry, then reverted it after the active-row highlight failed
+four separate times.<Footnote>The four faults, from the recovered post-mortem:
+(1) the sub-entry hardcoded `active: false` (`b5f0bdc58`); (2) the fix read
+focus through the seeding accessor, so *asking* darkened the parent row
+(`1ea67bc33`); (3) the fix for that made parent and split mutually exclusive,
+breaking the parent-keyed e2e contract (`0f550d896` fixed it); (4) the fix for
+*that* set `data-active` with no CSS listening (`baf4bf8bf` fixed it). All four
+passed a green unit suite.</Footnote> The faults were not four accidents: each
+was a different way of mis-assembling a fact the client never stores — **which
+terminal has the keyboard**. The server already treats a split as a full
+terminal (an optional `parentId` <Cite file="packages/padi/src/vocab.ts" />);
+the client demotes it to chrome of its parent, storing its focus
+parent-relatively (`focusTarget: "main" | "sub"` + `activeSubTab` in
+`useSubPanel`), so every surface must join two stores to answer the question —
+and each join is a fresh chance to get it wrong.<Footnote>The join is spelled
+today in `useTerminalStore.focusedId()`, in `TerminalContent`'s pane
+resolution, and (before the revert) in `useFocusedTerminal` — three spellings
+of one question. Note also a correction to #2024: it says `peekSubPanel` was
+"kept"; it was not — the revert removed it.</Footnote>
+
+The plan: store the answer **once**, derive everything else, then re-land the
+sub-entry. Equal as data, subordinate on screen — hierarchy survives only as
+placement (`parentId`) and presentation (indentation, no `Cmd+N` of its
+own).<Footnote>Peer rows stay rejected per #2024: flattening would break the
+one-to-one mapping between top-level rows and `Cmd+N` shortcuts.</Footnote>
+
+<Svg svg={diagram} wide caption="FX architecture: verbs write one per-host signal; the active tile, the row selectors, and the pane resolution are pure folds of it. The parallel focus store and the four-step landing walk are deleted." />
+
+## The fact and its folds
+
+One per-host signal, `focusedTerminalId: TerminalId | null`, valid for any
+terminal — split or top-level. It is written only by verbs
+(`focusTerminal(id)`, `collapsePanel(parent)`), and everything the four faults
+mis-assembled becomes a derivation:<Footnote>The implementation keeps exactly
+one written value, `{ id, tileHint }`, and exposes `focusedTerminalId()` as its
+public projection. `tileHint` bridges only the create-RPC → retained-metadata
+gap, preventing the active tile from flickering to a not-yet-published split;
+live placement always wins as soon as it arrives, so later re-parenting remains
+honest.</Footnote>
+
+- **The active tile is a fold, not a second fact**: `activeTileId =
+  topLevelOf(focused)` via `parentId`. Parent row and sub-entry can never fight
+  — the tile fact is *defined* as the ancestor of the focus fact, so "both lit
+  when you type in a split" holds by construction, and fault 3 becomes a
+  contradiction in terms.<Footnote>Deriving in this direction (focus written,
+  tile folded) rather than the reverse keeps exactly one written fact. The
+  reverse — tile written, focus in a side store — is today's model, and the
+  join is the bug factory. Deriving also keeps re-parenting honest for free:
+  `setTerminalParent` and restore's `promoteOrphanedRestoreChildren` change
+  `parentId`, and a memo follows; a stored tile id would go stale.</Footnote>
+- **`useSubPanel` shrinks to genuine chrome**: `collapsed`, `panelSize`, the
+  remembered tab, `rememberedPane`, `refocusNonce`. `focusTarget` is deleted;
+  "is focus in this panel" is `parentOf(focused()) === id`.<Footnote>
+  `rememberedPane` is written and read only by focus verbs: it lets a landing
+  choose main or the remembered visible split, but no derivation or memo may
+  consult it. That verb-only path is why this is landing chrome rather than
+  `focusTarget` returning as a second focus authority.</Footnote>
+- **The landing walk collapses**: today reaching a split takes four writes
+  across two stores <Cite file="packages/client/src/canvas/dock/useDockFocus.ts" />;
+  `focusTerminal(id)` becomes one write plus write-through of remembered
+  chrome. `useDockFocus` keeps its interface and loses its body.
+- **The wire is untouched**: `chrome.setActive` still reports the *derived*
+  tile; only `collapsed`/`panelSize` persist, as today. Restore focuses the
+  persisted top-level terminal.
+
+## Solid reactivity rules
+
+The model only stays sound if the reactive discipline is explicit — each rule
+below is one of the four faults made unspellable:
+
+1. **Reads are pure.** Derivations (`createMemo`) may never touch an accessor
+   that seeds state. The seeding `getSubPanel` is deleted outright: verbs call
+  `ensureState` internally, reads get a peek-only face — so fault 2's whole
+  category (a read that writes, inside a memo) is gone.<Footnote>The hazard was
+  live until FX1: `useTerminalStore.focusedId()` and `TerminalContent` both read
+  through the seeding accessor. It happened to be inert (a fresh seed had
+  `activeSubTab: null`), but FX1 removed the landmine, not just the current
+  trip-wire.</Footnote>
+2. **Side effects live in verbs, never in effects watching derived state.**
+   Visit-MRU, unread-clearing, and the `setActive` report happen inside
+   `focusTerminal`. A `createEffect` on `activeTileId` would re-fire on restore
+   seeding and on transient metadata gaps; a verb fires exactly when the user
+   acts, so a momentarily-wrong memo (e.g. `parentId` not yet streamed during
+   restore) is inert.<Footnote>While metadata for the focused id is absent,
+   `topLevelOf` returns the id itself and the memo corrects when `parentId`
+   arrives — safe only because nothing effectful watches it.</Footnote>
+3. **Row predicates are `createSelector`s.** `isFocused` and `isActiveTile`
+   wrap the two folds, so a focus move updates the two affected rows instead
+   of re-running an equality in every row of the dock.<Footnote>`createSelector`
+   subscribes each key individually: a change notifies the old and new key
+   only — O(2) — where `activeId() === row.id` in N rows is N comparisons per
+   move. With sub-entries the dock's row count grows, so this stops being
+   theoretical.</Footnote>
+4. **Edge-triggered stays imperative.** `refocusNonce` survives as-is: "re-grab
+   the keyboard with an unchanged value" is an edge, not a level, and reactive
+   state cannot express it. Everything level-shaped goes through the fact.
+
+## Phase tree
+
+export const PT = [
+  { d: 0, g: "◐", c: "prog", l: "FX1 · one focus fact — behaviour-preserving", m: "build-clean · #2043", h: "https://github.com/juspay/kolu/pull/2043" },
+  { d: 1, g: "○", c: "last", l: "FX2 · dock sub-entries, re-landed", m: "#2024", h: "https://github.com/juspay/kolu/issues/2024" },
+  { d: 1, g: "○", c: "last", l: "FX3 · one spelling of data-active", m: "independent of FX2" },
+];
+
+<PhaseTree title="ROADMAP — dock split sub-entries (#2024)" phases={PT} />
+
+### FX1 — one focus fact
+
+<Phase id="FX1" name="one focus fact" status="build-clean" blocks={["FX2", "FX3"]}
+  links={[{ label: "#2043", href: "https://github.com/juspay/kolu/pull/2043" }]} />
+
+Introduce `focusedTerminalId` beside the activation choke point in
+`createViewState`; fold `activeId` from it; delete `focusTarget`, the seeding
+accessor, and the four-step walk; route `useTerminalStore.focusedId()`,
+`TerminalContent`'s pane resolution, and `useDockFocus` through the fact.
+
+**User-facing change**: none — that is the point. Anything that looks
+different is a bug in the phase.
+
+**To test the PR**: exercise every focus surface and confirm nothing moved.
+Open two terminals, give one a split; click between main pane, split pane, and
+the other tile — the dock highlight, the pane dimming, and where your keys land
+must behave exactly as on `master`. Then the edges: collapse the panel
+(keyboard returns to main), close a sub-tab by its ✕ (keyboard re-grabs),
+`Ctrl+Tab` / `Cmd+1..9` / `Cmd+F`, and a reload (same tile focused, panel
+state restored).
+
+**Done when**: `focusTarget` and `getSubPanel` no longer exist in the client;
+`useDockFocus` is a single `focusTerminal` call; the six
+`focusedTerminal.test.ts` fold cases and the `useSubPanel.test.ts` transition
+cases pass against the new derivation; and the existing e2e
+contracts pass **unmodified** — the parent-keyed active row, the exact-`""`
+assertion, the `[data-focused]` world contract.<Footnote>The contracts:
+`dock.feature` "Active terminal carries a visible indicator",
+`terminal-switcher.feature:23` (asserts `data-active === ""`),
+`sub-terminal.feature`'s count steps, `world.ts`'s
+`[data-focused] .xterm-screen`. Green-with-edits is not the gate;
+green-untouched is — the phase exists to prove the fact re-plumb changes no
+behaviour.</Footnote>
+
+### FX2 — the sub-entry, re-landed
+
+<Phase id="FX2" name="dock sub-entries" status="todo" needs={["FX1"]}
+  links={[{ label: "#2024", href: "https://github.com/juspay/kolu/issues/2024" }]} />
+
+First commit: recover `dockRowActive.test.tsx` from the reverted diff and adapt
+it to the fact — the render-level state matrix is the only test in this story
+that lived where the bugs did.<Footnote>Recovery: `git fetch origin
+refs/pull/2019/head`; the test is whole in `baf4bf8bf`, `SubAgentRow.tsx`'s
+final form in `4ed6fc809`, the revert is `7a3d7edef`. The matrix: never-opened
+split, focus in main, focus in the split (both lit), sibling split focused,
+collapsed, different tile, no tile.</Footnote> Then the feature: `SubAgentRow`
+spreads `dockRowAttrs` (which derives `data-active` internally for splits via
+`isFocused` — no parameter to hardcode), lands via `focusTerminal(id)`, and
+section headers count split agents through the same urgency fold the host tab
+already uses. Only agent-running splits earn a line; sub-entries share their
+parent's activity-window fate.
+
+**User-facing change**: an agent working in a split finally has a home in the
+dock — an indented entry under its host terminal's row. Clicking it lands you
+*in that pane*, keyboard and all; repo section headers count these agents, so
+the header agrees with the host tab above it.
+
+**To test the PR**: split a terminal (`` Ctrl+Shift+` ``), run `claude` in the split, and
+give it a task. An indented row should appear under the parent's dock row
+(a plain `bash` split gets none — the `⊟ N` chip still covers those). Click
+the sub-entry: you land typing in that pane, and **both** the parent row and
+the sub-entry are highlighted. Let the agent block on a question: the
+sub-entry washes violet and the section header's count matches the host tab's.
+
+**Done when**: the recovered matrix is green; a new e2e scenario types into a
+split and asserts the parent row **and** the sub-entry both carry
+`data-active`; a repo section header's count equals its host tab's; and the
+sub-entry renders as a direct child of `.dock-cards-section`.<Footnote>The
+active-highlight and wash rules are scoped with a direct-child combinator
+(`.dock-cards-section > [data-dock-row]`); a sub-entry nested in a wrapper
+element silently exits every rule — fault 4 by another door. Direct-child
+placement is therefore a gate, not a style choice.</Footnote>
+
+### FX3 — one spelling of `data-active`
+
+<Phase id="FX3" name="one data-active spelling" status="todo" needs={["FX1"]} />
+
+`data-active` is spelled `""` on dock rows and `"true"` on canvas tiles, and
+`RailChip` hand-derives it outside `dockRowAttrs`. Settle on the presence form
+everywhere, route `RailChip` and `CanvasTile` through the selectors, and update
+the e2e steps that assert `"true"`. Independent of FX2.
+
+**User-facing change**: none — attribute plumbing only.
+
+**To test the PR**: click across a few tiles and confirm the three places that
+mark "active" still light in lockstep: the canvas tile's border, its dock row,
+and its rail chip when the dock is collapsed to the rail.

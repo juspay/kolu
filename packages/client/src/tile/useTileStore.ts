@@ -100,6 +100,8 @@ export const useTileStore = createSharedRoot(() => {
     // registry is a later optional migration, deferred like the layout-home
     // schema move. `TileId === TerminalId`, so these are already tile-typed.
     activeId: store.activeId,
+    isFocused: store.isFocused,
+    isActiveTile: store.isActiveTile,
     activate: store.activate,
     setActiveSilently: store.setActiveSilently,
   };

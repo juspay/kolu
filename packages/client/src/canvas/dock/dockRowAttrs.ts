@@ -56,7 +56,7 @@ export function dockRowAttrs(row: {
     "data-terminal-id": row.id,
     "data-bucket": row.bucket,
     "data-agent-state": row.agentState,
-    "data-active": tileStore.activeId() === row.id ? "" : undefined,
+    "data-active": tileStore.isActiveTile(row.id) ? "" : undefined,
     "data-asking": row.asking ? "" : undefined,
     "data-unread": row.unread ? "" : undefined,
   };

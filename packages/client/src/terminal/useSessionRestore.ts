@@ -130,8 +130,8 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     );
     for (const [parentId, group] of Object.entries(subs)) {
       const subIds = group?.map(({ t }) => t.id) ?? [];
-      const panel = subPanel.getSubPanel(parentId);
-      if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
+      const activeSubTab = subPanel.peekSubPanel(parentId).activeSubTab;
+      if (!activeSubTab || !subIds.includes(activeSubTab)) {
         subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
       }
     }
@@ -158,7 +158,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         : serverActiveId && topIds.includes(serverActiveId as TerminalId)
           ? (serverActiveId as TerminalId)
           : (topIds[0] ?? null);
-    // Seed/reconcile the durable visit trail BEFORE activation. writeActive
+    // Seed/reconcile the durable visit trail BEFORE activation. writeFocus
     // noteVisit's the pick; if we seed after, a non-empty one-entry trail
     // would skip multi-id restore order (Ctrl+Tab would only see the pick).
     store.reconcileLiveIds(
