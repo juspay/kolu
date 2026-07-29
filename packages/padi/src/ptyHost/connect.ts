@@ -190,6 +190,15 @@ async function readKavalHandshake(
  * The shared hello reader has already rejected a partial pair; absent or empty
  * fields are one honest unknown fact. The frozen wire itself remains unchanged. */
 function projectKavalIdentity(hello: KavalControlHello): PtyHostIdentity {
+  const buildIsPresent = hello.buildId !== undefined;
+  const commitIsPresent = hello.commit !== undefined;
+  const buildHasValue = Boolean(hello.buildId);
+  const commitHasValue = Boolean(hello.commit);
+  if (buildIsPresent !== commitIsPresent || buildHasValue !== commitHasValue) {
+    throw new Error(
+      "incomplete kaval control-core identity: buildId and commit must be both empty or both non-empty",
+    );
+  }
   return hello.buildId && hello.commit
     ? { staleKey: hello.buildId, navigableCommit: hello.commit }
     : UNKNOWN_KAVAL_IDENTITY;

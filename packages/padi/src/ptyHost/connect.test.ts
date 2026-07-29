@@ -71,7 +71,10 @@ function serveLegacy(socketPath: string): Promise<PtyHostSocketListener> {
 
 async function serveCurrent(
   socketPath: string,
-  opts: { controlStartedAtOffset?: number } = {},
+  opts: {
+    controlStartedAtOffset?: number;
+    controlIdentity?: { staleKey: string; navigableCommit: string };
+  } = {},
 ) {
   const savedBuildId = process.env.KAVAL_BUILD_ID;
   const savedCommit = process.env.KAVAL_COMMIT_HASH;
@@ -86,15 +89,18 @@ async function serveCurrent(
     if (savedCommit === undefined) delete process.env.KAVAL_COMMIT_HASH;
     else process.env.KAVAL_COMMIT_HASH = savedCommit;
   }
-  const controlPtyHost = opts.controlStartedAtOffset
-    ? {
-        ...ptyHost,
-        boot: Object.freeze({
-          ...ptyHost.boot,
-          startedAt: ptyHost.boot.startedAt + opts.controlStartedAtOffset,
-        }),
-      }
-    : ptyHost;
+  const controlPtyHost =
+    opts.controlStartedAtOffset || opts.controlIdentity
+      ? {
+          ...ptyHost,
+          boot: Object.freeze({
+            ...ptyHost.boot,
+            startedAt:
+              ptyHost.boot.startedAt + (opts.controlStartedAtOffset ?? 0),
+            identity: opts.controlIdentity ?? ptyHost.boot.identity,
+          }),
+        }
+      : ptyHost;
   const runtime = serveKavalDaemonSurface({
     ptyHost: controlPtyHost,
     stateRoot: "/run/kaval-current",
@@ -263,6 +269,26 @@ describe("connectKaval — identity comes only from frozen hello", () => {
     try {
       await expect(connectKaval(socketPath)).rejects.toThrow(
         /pty-host handshake failed — control-core reports boot .* but system\.version reports/,
+      );
+    } finally {
+      await listener.close();
+    }
+  });
+
+  it("rejects a current kaval whose frozen identity is only half-present", async () => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-connect-partial-identity-")),
+      "pty-host.sock",
+    );
+    const listener = await serveCurrent(socketPath, {
+      controlIdentity: {
+        staleKey: "",
+        navigableCommit: "fragment-commit",
+      },
+    });
+    try {
+      await expect(connectKaval(socketPath)).rejects.toThrow(
+        "incomplete kaval control-core identity: buildId and commit must be both empty or both non-empty",
       );
     } finally {
       await listener.close();
