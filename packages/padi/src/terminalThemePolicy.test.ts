@@ -3,10 +3,10 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TERMINAL_THEME_POLICY,
-  readTerminalThemePolicyFromEnv,
+  readTerminalThemePolicy,
   resolveCreateTerminalTheme,
 } from "./terminalThemePolicy.ts";
 
@@ -95,27 +95,14 @@ describe("resolveCreateTerminalTheme", () => {
   });
 });
 
-describe("readTerminalThemePolicyFromEnv", () => {
-  const ORIGINAL_STATE_DIR = process.env.KOLU_STATE_DIR;
-
-  afterEach(() => {
-    if (ORIGINAL_STATE_DIR === undefined) {
-      delete process.env.KOLU_STATE_DIR;
-    } else {
-      process.env.KOLU_STATE_DIR = ORIGINAL_STATE_DIR;
-    }
+describe("readTerminalThemePolicy", () => {
+  it("returns defaults for a missing config file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-missing-"));
+    expect(readTerminalThemePolicy(dir)).toEqual(DEFAULT_TERMINAL_THEME_POLICY);
   });
 
-  it("returns defaults when KOLU_STATE_DIR is absent", () => {
-    delete process.env.KOLU_STATE_DIR;
-    expect(readTerminalThemePolicyFromEnv()).toEqual(
-      DEFAULT_TERMINAL_THEME_POLICY,
-    );
-  });
-
-  it("reads the two theme fields from the conf file", () => {
+  it("reads the three theme fields from the conf file", () => {
     const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-"));
-    process.env.KOLU_STATE_DIR = dir;
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
@@ -126,36 +113,37 @@ describe("readTerminalThemePolicyFromEnv", () => {
         },
       }),
     );
-    expect(readTerminalThemePolicyFromEnv()).toEqual({
+    expect(readTerminalThemePolicy(dir)).toEqual({
       newTerminalTheme: "inherit",
       shuffleBehavior: "dark",
       colorScheme: "dark",
     });
   });
 
-  it("returns defaults for a missing config file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-missing-"));
-    process.env.KOLU_STATE_DIR = dir;
-    expect(readTerminalThemePolicyFromEnv()).toEqual(
-      DEFAULT_TERMINAL_THEME_POLICY,
-    );
-  });
-
-  it("ignores invalid values and returns defaults", () => {
-    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-invalid-"));
-    process.env.KOLU_STATE_DIR = dir;
+  it("falls back field-by-field for invalid values via zod catch", () => {
+    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-partial-"));
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
         preferences: {
           newTerminalTheme: "monochrome",
-          shuffleBehavior: 123,
+          shuffleBehavior: "dark",
           colorScheme: true,
         },
       }),
     );
-    expect(readTerminalThemePolicyFromEnv()).toEqual(
-      DEFAULT_TERMINAL_THEME_POLICY,
-    );
+    // newTerminalTheme and colorScheme land on their .catch defaults;
+    // shuffleBehavior passes through.
+    expect(readTerminalThemePolicy(dir)).toEqual({
+      newTerminalTheme: DEFAULT_TERMINAL_THEME_POLICY.newTerminalTheme,
+      shuffleBehavior: "dark",
+      colorScheme: DEFAULT_TERMINAL_THEME_POLICY.colorScheme,
+    });
+  });
+
+  it("falls back to whole-block defaults for a corrupt file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-corrupt-"));
+    writeFileSync(join(dir, "config.json"), "{ not-json");
+    expect(readTerminalThemePolicy(dir)).toEqual(DEFAULT_TERMINAL_THEME_POLICY);
   });
 });
