@@ -55,42 +55,83 @@ describe("shuffleMode", () => {
   });
 });
 
-describe("PadiConvergenceSchema — a discriminated union: build fields can't disagree with state", () => {
-  it("accepts adopted-stale with a real build pair, and the three reason-only states with null", () => {
+describe("PadiConvergenceSchema — framework-shaped arms, no z.null() padding", () => {
+  const identity = (contractVersion: string, buildId: string) => ({
+    contractVersion,
+    build: { kind: "known" as const, id: buildId },
+  });
+
+  it("accepts adopted-stale with running + expected identities", () => {
     expect(
       PadiConvergenceSchema.safeParse({
-        state: "adopted-stale",
-        runningBuild: "abc",
-        expectedBuild: "def",
+        kind: "adopted-stale",
+        running: identity("1.0", "abc"),
+        expected: identity("1.0", "def"),
         detail: "mismatch",
       }).success,
     ).toBe(true);
-    for (const state of ["skew-refused", "unconverged", "link-failed"]) {
-      expect(
-        PadiConvergenceSchema.safeParse({
-          state,
-          runningBuild: null,
-          expectedBuild: null,
-          detail: "reason",
-        }).success,
-      ).toBe(true);
-    }
   });
 
-  it("rejects a non-adopted-stale state carrying a build pair, and adopted-stale carrying null", () => {
+  it("accepts skew-refused with typed identities (no null padding)", () => {
+    expect(
+      PadiConvergenceSchema.safeParse({
+        kind: "skew-refused",
+        running: identity("99.0", "x"),
+        expected: identity("1.0", "y"),
+        detail: "refusing",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts cross-supervisor with drained + observed instance keys as data", () => {
+    expect(
+      PadiConvergenceSchema.safeParse({
+        kind: "cross-supervisor",
+        drained: { kind: "instance", key: 1 },
+        observed: { kind: "instance", key: 2 },
+        running: identity("1.0", "old"),
+        detail: "fight",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts unconverged and link-failed without padding fields", () => {
+    expect(
+      PadiConvergenceSchema.safeParse({
+        kind: "unconverged",
+        running: identity("1.0", "x"),
+        expected: identity("1.0", "y"),
+        cause: {
+          kind: "budget-exhausted",
+          axis: "build",
+          attempts: 3,
+          maxAttempts: 3,
+        },
+        detail: "budget",
+      }).success,
+    ).toBe(true);
+    expect(
+      PadiConvergenceSchema.safeParse({
+        kind: "link-failed",
+        detail: "ssh died",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects old wire shape (state + null padding)", () => {
     expect(
       PadiConvergenceSchema.safeParse({
         state: "link-failed",
-        runningBuild: "abc",
-        expectedBuild: "def",
+        runningBuild: null,
+        expectedBuild: null,
         detail: "reason",
       }).success,
     ).toBe(false);
     expect(
       PadiConvergenceSchema.safeParse({
-        state: "adopted-stale",
-        runningBuild: null,
-        expectedBuild: null,
+        kind: "adopted-stale",
+        runningBuild: "abc",
+        expectedBuild: "def",
         detail: "mismatch",
       }).success,
     ).toBe(false);

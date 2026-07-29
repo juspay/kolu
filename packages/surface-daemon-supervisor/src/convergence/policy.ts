@@ -1,21 +1,21 @@
 /**
- * Convergence POLICY — the parameter each daemon declares, one policy per trigger
- * (contract-skew, build-mismatch). The machinery (probe → decide → enact) is shared;
- * only these declarations vary per daemon.
+ * Convergence POLICY — the consumer's entire convergence surface: who I am + how I
+ * converge, stated once, read by both enactments (`converge` for endpoints,
+ * `convergeAdmit` for connectors).
  *
  * Pin 1 (drain capability is typed, make-illegal-unrepresentable): a `drain-and-replace`
  * / `drain-newer-else-refuse` arm PERSISTS the daemon (graceful drain, its children
  * survive) rather than killing it — which requires the daemon to actually expose a drain
- * verb on its handshake. So the drain arms exist in the policy union ONLY when the
- * `DrainCapability` is `"drainable"`, and `converge()` ties that capability to the
- * PROBE's (a probe with a `drain()` is `"drainable"`, one without is `"not-drainable"`).
- * A daemon whose handshake has no drain verb (kaval — recycling it kills PTYs, so it
- * never drains) therefore CANNOT spell a drain policy: the arm is `never` and the
- * declaration is a compile error, not a runtime surprise.
+ * verb on its handshake. So the drain arms AND `drainBudget` exist ONLY when the
+ * `DrainCapability` is `"drainable"`. A drainless daemon (kaval) therefore CANNOT spell
+ * a budget or a drain policy: the fields are `never` and the declaration is a compile
+ * error, not a runtime surprise (and never an inert fence constructed for type-filling).
  */
 
+import type { ConvergenceIdentity } from "@kolu/surface-daemon";
+
 /** Whether a daemon's handshake exposes a `drain` verb — the type-level gate on the
- *  drain policy arms. */
+ *  drain policy arms and the budget. */
 export type DrainCapability = "drainable" | "not-drainable";
 
 /** What to do when the running daemon is a CONTRACT skew (incompatible wire version):
@@ -38,28 +38,65 @@ export type ContractSkewPolicy<Cap extends DrainCapability> =
  *   - `nudge-human` — take NO supervisor action; RETURN the mismatch as an outcome the
  *     caller surfaces (kaval: acting would recycle → kill PTYs, so a human decides via
  *     the currency nudge). The kit detects; the caller enacts what it owns.
- *   - `drain-and-replace` — DRAIN the survivor ONCE per supervisor boot (fenced) and
- *     spawn our own build (padi: drain is cheap, its kaval + PTYs survive). Drain-capable
- *     only. Store hashes don't order, so this is match-vs-mismatch, never newer/older. */
+ *   - `drain-and-replace` — DRAIN the survivor (budgeted) and spawn our own build (padi:
+ *     drain is cheap, its kaval + PTYs survive). Drain-capable only. Store hashes don't
+ *     order, so this is match-vs-mismatch, never newer/older. */
 export type BuildMismatchPolicy<Cap extends DrainCapability> =
   | { readonly kind: "nudge-human" }
   | (Cap extends "drainable" ? { readonly kind: "drain-and-replace" } : never);
 
-/** A daemon's full convergence policy — its capability + one policy per trigger. The
- *  `capability` field is tied to the probe's at the `converge()` call site, so the drain
- *  arms are spellable iff the handshake can actually drain (Pin 1). */
-export interface ConvergencePolicy<Cap extends DrainCapability> {
+/** Cap-gated budget: how many times this supervisor may drain a lineage before giving
+ *  up, and what to do then. State lives inside the supervisor (per boot), survives
+ *  adopts, and is owned by the framework — consumers declare this data, never a budget
+ *  object. Unspellable on a not-drainable policy (Pin 1). */
+export type DrainBudget = {
+  readonly maxAttempts: number;
+  /** After the budget is spent for a SAME-instance flap:
+   *   - `"adopt-stale"` — ride the resident daemon (canvas works; anomaly surfaces)
+   *   - `"refuse"` — leave standing + degraded, never adopt a contested build
+   *  Cross-supervisor fight-detection (a drained lineage reappearing under a foreign
+   *  instance) always yields the `cross-supervisor` anomaly, independent of this. */
+  readonly onGiveUp: "refuse" | "adopt-stale";
+};
+
+/** A daemon's full convergence policy — capability + baked identity + one policy per
+ *  trigger + (when drainable) the budget. The `capability` field is tied to the probe's
+ *  at the enactment call site, so the drain arms/budget are spellable iff the handshake
+ *  can actually drain (Pin 1). `baked` folds into the policy so the policy object alone
+ *  is the consumer's whole convergence surface. */
+export type ConvergencePolicy<Cap extends DrainCapability> = {
   readonly capability: Cap;
+  /** The supervisor's OWN baked identity — the daemon it would spawn. */
+  readonly baked: ConvergenceIdentity;
   readonly onContractSkew: ContractSkewPolicy<Cap>;
   readonly onBuildMismatch: BuildMismatchPolicy<Cap>;
-}
+} & (Cap extends "drainable"
+  ? { readonly drainBudget: DrainBudget }
+  : { readonly drainBudget?: never });
+
+/**
+ * Connector-arm policy — the subset of drainable policies `convergeAdmit` accepts.
+ * `recycle` is endpoint-only (kill); `nudge-human` has no connector surface to surface
+ * a mismatch without a host UI. Unspellable arms make illegal connectors a type error.
+ */
+export type ConnectorPolicy = {
+  readonly capability: "drainable";
+  readonly baked: ConvergenceIdentity;
+  readonly onContractSkew:
+    | { readonly kind: "drain-newer-else-refuse" }
+    | { readonly kind: "refuse" };
+  readonly onBuildMismatch: { readonly kind: "drain-and-replace" };
+  readonly drainBudget: DrainBudget;
+};
 
 /** The widened, all-arms view the PURE `decide()` consumes. Every `ConvergencePolicy<Cap>`
  *  is assignable to this (its arms are a subset of the drainable arms), so `decide` stays
- *  exhaustive over a concrete union while Pin 1 — the drain arms gated on capability — is
- *  enforced at the `converge()` boundary, where the probe fixes `Cap`. `decide` never sees
- *  a drain arm for a non-drainable daemon because `converge` can't be handed one. */
+ *  exhaustive over a concrete union while Pin 1 is enforced at the enactment boundary.
+ *  Includes `baked` so decide never takes a free-standing baked arg (F8). */
 export interface AnyConvergencePolicy {
+  readonly capability: DrainCapability;
+  readonly baked: ConvergenceIdentity;
   readonly onContractSkew: ContractSkewPolicy<"drainable">;
   readonly onBuildMismatch: BuildMismatchPolicy<"drainable">;
+  readonly drainBudget?: DrainBudget;
 }

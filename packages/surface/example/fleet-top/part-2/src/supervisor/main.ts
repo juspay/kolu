@@ -9,13 +9,13 @@
  *   connecting → dead           (couldn't spawn / connect)
  *   connected  → degraded       (the daemon died mid-session)
  *
- * `ensure()` is the always-recycle boot: a live survivor is killed, then a
+ * `converge(endpoint)` is the only boot verb: a live survivor is killed, then a
  * fresh daemon is spawned — every boot exercises kill → `waitForPidGone` →
  * spawn → connect (composed from `@kolu/surface-daemon`'s gate primitives).
  * `survivableSpawnDriver` launches the daemon so it OUTLIVES us (systemd-run
  * --user under a service; detached + unref otherwise).
  *
- * The finale is the LIVE recycle under a connected client: `restart` runs the
+ * The finale is the LIVE recycle under a connected client: `recycle` runs the
  * fixed `capture → drain → recycle → reattach` sequence. This demo makes no
  * survival promise, so it supplies the degenerate steps (B2's boot recycle);
  * part 3's remote fan-out is where the same sequence carries real per-host
@@ -25,8 +25,9 @@
 import { fileURLToPath } from "node:url";
 import { stderrLogger } from "@kolu/surface-daemon";
 import {
+  converge,
   createEndpoint,
-  restart,
+  recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { GATE_PATH, HOME, SOCKET_PATH } from "../common/paths";
@@ -51,6 +52,16 @@ async function main(): Promise<void> {
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     home: HOME, // SAME home declaration as the daemon — disagreement impossible
+    policy: {
+      capability: "not-drainable",
+      baked: {
+        contractVersion: "1.0",
+        build: { kind: "known", id: "fleet-top" },
+      },
+      onContractSkew: { kind: "recycle" },
+      onBuildMismatch: { kind: "nudge-human" },
+    },
+    probe: async () => null,
     driver: survivableSpawnDriver({
       binPath: process.execPath, // node
       args: ["--import", "tsx/esm", daemonEntry],
@@ -74,7 +85,7 @@ async function main(): Promise<void> {
 
   // Boot: always-recycle → spawn → connect. Throws (after reporting `dead`) if
   // it cannot bring the daemon up.
-  await endpoint.ensure();
+  await converge(endpoint);
 
   const conn = endpoint.current();
   if (conn === undefined)
@@ -88,7 +99,7 @@ async function main(): Promise<void> {
   // The LIVE recycle: kill the daemon under us and stand a fresh one up, with
   // the status held at one honest "restarting". Degenerate steps — nothing to
   // preserve in this part.
-  await restart(endpoint, {
+  await recycle(endpoint, {
     capture: async () => undefined,
     drain: async () => {},
     reattach: async () => {},

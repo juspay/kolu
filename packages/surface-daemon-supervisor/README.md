@@ -5,14 +5,39 @@ to spawn, watch, and recycle a surface daemon it does *not* run in — the mirro
 [`@kolu/surface-daemon`](../surface-daemon). It runs in the *client*, never the
 daemon, so it is never a staleKey root. Beside the endpoint state machine it
 carries the **convergence kit** — the policy-driven answer to "the running daemon
-is not the one I shipped: detect it, decide, converge it." Zero `kolu-*`
-dependencies.
+is not the one I shipped: detect it, decide, converge it." Depends only on
+`@kolu/surface-daemon` (the daemon-half twin); no other workspace packages.
 
 ```ts
-import { createEndpoint, survivableSpawnDriver, restart } from "@kolu/surface-daemon-supervisor";
+import {
+  converge,
+  createEndpoint,
+  daemonBuild,
+  recycle,
+  survivableSpawnDriver,
+} from "@kolu/surface-daemon-supervisor";
 
-const endpoint = createEndpoint({ hostId, gatePath, socketPath, driver, connect, log, onStatus });
-await restart(endpoint, { capture, drain, reattach }); // boot = live recycle
+const endpoint = createEndpoint({
+  hostId: "local",
+  home, // DaemonHomePaths — gate + socket from the same spine as the daemon
+  policy: {
+    capability: "not-drainable",
+    baked: { contractVersion: "1.0", build: daemonBuild(staleKey) },
+    onContractSkew: { kind: "recycle" },
+    onBuildMismatch: { kind: "nudge-human" },
+  },
+  probe: (socketPath) => probeIdentity(socketPath),
+  driver: survivableSpawnDriver({ binPath, args: [], env }),
+  connect: (socketPath) => connectDaemon(socketPath),
+  log,
+  onStatus,
+});
+
+// The only boot verb — policy is fixed on the endpoint.
+await converge(endpoint);
+
+// The only replace verb — all steps required (no silent snapshot skip).
+await recycle(endpoint, { capture, drain, reattach });
 ```
 
 Part of the kolu monorepo — `"@kolu/surface-daemon-supervisor": "workspace:*"`.

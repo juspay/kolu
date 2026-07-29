@@ -20,9 +20,11 @@ import { implementSurface } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import type { Router } from "@orpc/server";
 import {
+  converge,
   createEndpoint,
   DaemonContractSkewError,
   type EndpointStatus,
+  outcomeAdopted,
 } from "@kolu/surface-daemon-supervisor";
 import { z } from "zod";
 import { connectKaval } from "../ptyHost/connect.ts";
@@ -142,6 +144,16 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
       const endpoint = createEndpoint<string, { staleKey: string }>({
         hostId: "local",
         home: { dir: dirname(socketPath), gatePath, socketPath },
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "refuse" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             throw new Error("spawn must not run on a refuse-policy skew");
@@ -162,12 +174,13 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
         adoptConnectRetryMs: 1,
       });
 
-      // kaval's policy is recycle-on-skew (adoptOrEnsure), which KILLS the
-      // survivor. Pin the incompatible arm via adoptOrSpawnOrRefuse (refuse
-      // policy) — the same status shape kaval emits mid-recycle when a FRESH
-      // spawn still skews (SK4). For the refuse path:
-      const adopted = await endpoint.adoptOrSpawnOrRefuse();
-      expect(adopted).toBe(false);
+      // Refuse-on-skew (padi binder policy) leaves the survivor standing and
+      // reports incompatible — same status shape as SK4 mid-recycle skew.
+      // Probe is null (no version-agnostic channel in this fixture); bind finds the
+      // live squatter and refuse-on-skew leaves it standing → not-adopted outcome,
+      // incompatible status.
+      const out = await converge(endpoint);
+      expect(outcomeAdopted(out)).toBe(false);
       expect(statuses.map((s) => s.state)).toContain("incompatible");
       const last = statuses.at(-1);
       expect(last?.state).toBe("incompatible");

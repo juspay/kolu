@@ -28,7 +28,9 @@ import { describeDaemon } from "@kolu/daemon-test-gate";
 import { acquirePidGate, gatePid, isHolderLive } from "@kolu/surface-daemon";
 import {
   createEndpoint,
+  destructiveRecycleSteps,
   type EndpointStatus,
+  recycle,
 } from "@kolu/surface-daemon-supervisor";
 import { plantYesterdayDaemon } from "./yesterdayDaemon.fixture.testlib.ts";
 
@@ -102,6 +104,16 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         gatePath: d.gatePath,
         socketPath: d.socketPath,
       },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           // The recycle must have killed the survivor before we spawn.
@@ -136,7 +148,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await recycle(endpoint, destructiveRecycleSteps());
     await survivorExited;
     expect(spawned).toBe(true);
     expect(isHolderLive(survivorPid)).toBe(false);
@@ -184,6 +196,16 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         gatePath: d.gatePath,
         socketPath: d.socketPath,
       },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawned = true;
@@ -204,7 +226,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await recycle(endpoint, destructiveRecycleSteps());
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
 

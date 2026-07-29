@@ -11,6 +11,7 @@ import {
   DaemonContractSkewError,
   type EndpointStatus,
 } from "./endpoint.ts";
+import { endpointPrivate } from "./endpoint.private.ts";
 import { serializeRestart } from "./restart.ts";
 
 const silentLog = {
@@ -105,6 +106,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     >({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => conn,
       log: silentLog,
@@ -112,7 +123,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await endpointPrivate(endpoint).ensure();
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
     const connected = statuses.find((s) => s.state === "connected");
     expect(connected?.identity).toEqual({ staleKey: "abc" });
@@ -134,6 +145,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => ({
         client: "C",
@@ -149,7 +170,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await endpointPrivate(endpoint).ensure();
     closeCb?.();
     expect(statuses.map((s) => s.state)).toEqual([
       "connecting",
@@ -170,6 +191,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => {
         throw new Error("skew");
@@ -179,7 +210,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await expect(endpoint.ensure()).rejects.toThrow("skew");
+    await expect(endpointPrivate(endpoint).ensure()).rejects.toThrow("skew");
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
   });
 
@@ -193,6 +224,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       // A bad binPath / un-forkable systemd-run surfaces as a rejecting spawn.
       driver: {
         spawn: async () => {
@@ -208,7 +249,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await expect(endpoint.ensure()).rejects.toThrow("ENOENT");
+    await expect(endpointPrivate(endpoint).ensure()).rejects.toThrow("ENOENT");
     // The contract: failures publish `dead` before they throw, so the UI never
     // sticks at `connecting`. And a failed spawn must not reach the handshake.
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
@@ -242,6 +283,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           // The recycle must have killed the survivor before we spawn.
@@ -260,7 +311,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await endpointPrivate(endpoint).ensure();
     await survivorExited; // the boot policy killed it
     expect(spawned).toBe(true);
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
@@ -288,6 +339,16 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       // The fresh daemon brings the socket up — the stranger's pid is untouched.
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => ({
@@ -302,7 +363,7 @@ describeDaemon("createEndpoint — boot, status, death", () => {
       socketPollMs: 5,
     });
 
-    await endpoint.ensure();
+    await endpointPrivate(endpoint).ensure();
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
     expect(strangerSignalled).toBe(false);
@@ -333,6 +394,16 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: async () => {} }, // the fake is already serving
       connect: async (_socketPath) => {
         connects += 1;
@@ -348,7 +419,7 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
-    await endpoint.ensure(); // boot: connecting → connected
+    await endpointPrivate(endpoint).ensure(); // boot: connecting → connected
     statuses.length = 0; // focus the assertions on the restart
     return { endpoint, statuses, connectCount: () => connects };
   }
@@ -400,6 +471,16 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: async () => {} },
       connect: async (_socketPath) => {
         connects += 1;
@@ -418,7 +499,7 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
-    await endpoint.ensure(); // boot ok
+    await endpointPrivate(endpoint).ensure(); // boot ok
     statuses.length = 0;
 
     await expect(serializeRestart(endpoint)(noopSteps)).rejects.toThrow("skew");
@@ -499,6 +580,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawnCalled = true;
@@ -517,11 +608,11 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       socketPollMs: 5,
     });
 
-    const adopted = await endpoint.adoptOrEnsure();
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(adopted).toBe(true);
+    expect(adopted.kind).toBe("adopted-resident");
     expect(spawnCalled).toBe(false); // never spawned a fresh daemon
     expect(survivorExited).toBe(false); // never killed the survivor
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
@@ -557,6 +648,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawnCalled = true;
@@ -579,10 +680,10 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1, // keep the test fast
     });
 
-    const adopted = await endpoint.adoptOrEnsure();
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(adopted).toBe(true); // adopted on the retry, not recycled
+    expect(adopted.kind).toBe("adopted-resident"); // adopted on the retry, not recycled
     expect(connectCount).toBe(2); // failed once, succeeded on the second attempt
     expect(spawnCalled).toBe(false); // never spawned a fresh daemon
     expect(survivorExited).toBe(false); // never killed the survivor
@@ -613,6 +714,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawned = true;
@@ -642,10 +753,10 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1,
     });
 
-    const adopted = await endpoint.adoptOrEnsure();
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await survivorExited; // the skewed survivor was killed before the fresh spawn
 
-    expect(adopted).toBe(false); // recycled, not adopted
+    expect(adopted.kind).toBe("spawned-fresh"); // recycled, not adopted
     expect(spawned).toBe(true); // a fresh daemon was spawned after the kill
     // 1 skew (no retry — skew is terminal) + 1 fresh connect = 2, NOT 4.
     expect(connectCount).toBe(2);
@@ -681,6 +792,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: async () => {} },
       // EVERY connect skews — the survivor AND the fresh spawn: the closure on
       // this host cannot speak the required contract, whoever runs it.
@@ -694,7 +815,9 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1,
     });
 
-    await expect(endpoint.adoptOrEnsure()).rejects.toMatchObject({
+    await expect(
+      endpointPrivate(endpoint).adoptOrEnsure(),
+    ).rejects.toMatchObject({
       isContractSkew: true,
     });
     await survivorExited; // the skewed survivor was still recycled (killed)
@@ -729,6 +852,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: async () => {} },
       connect: async (_socketPath) => {
         throw skewError();
@@ -739,7 +872,9 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     });
 
     await endpoint.holdRestarting(async () => {
-      await endpoint.ensure().catch(() => {});
+      await endpointPrivate(endpoint)
+        .ensure()
+        .catch(() => {});
     });
 
     // `connecting` was coerced into the hold's `restarting`; the skew verdict
@@ -780,6 +915,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: {
         spawn: async () => {
           spawnCalled = true;
@@ -798,10 +943,10 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1,
     });
 
-    const adopted = await endpoint.adoptOrEnsure();
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(adopted).toBe(false); // nothing adopted, nothing to reconcile
+    expect(adopted.kind).toBe("refused-or-failed"); // nothing adopted, nothing to reconcile
     expect(connectCount).toBe(3); // retried every attempt before giving up
     expect(spawnCalled).toBe(false); // NEVER spawned a fresh daemon
     expect(survivorExited).toBe(false); // NEVER killed the survivor (PTYs preserved)
@@ -820,6 +965,16 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
       driver: { spawn: () => fake.listen() },
       connect: async (_socketPath) => ({
         client: "FRESH",
@@ -833,8 +988,8 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       socketPollMs: 5,
     });
 
-    const adopted = await endpoint.adoptOrEnsure();
-    expect(adopted).toBe(false);
+    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    expect(adopted.kind).not.toBe("adopted-resident");
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
   });
 });
@@ -871,6 +1026,16 @@ describeDaemon(
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
         home: { dir: dirname(socketPath), gatePath, socketPath },
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             spawnCalled = true;
@@ -891,11 +1056,11 @@ describeDaemon(
         adoptConnectRetryMs: 1,
       });
 
-      const adopted = await endpoint.adoptOrSpawnOrRefuse();
+      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
       // Give any (erroneous) SIGTERM a tick to land.
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(adopted).toBe(false); // refused, not adopted
+      expect(adopted.kind).toBe("refused-or-failed"); // refused, not adopted
       expect(spawnCalled).toBe(false); // NEVER spawned a fresh daemon over it
       expect(survivorExited).toBe(false); // NEVER killed the running padi (the delta)
       expect(connectCount).toBe(1); // skew is terminal — no retries
@@ -937,6 +1102,16 @@ describeDaemon(
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
         home: { dir: dirname(socketPath), gatePath, socketPath },
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             spawnCalled = true;
@@ -954,10 +1129,10 @@ describeDaemon(
         socketPollMs: 5,
       });
 
-      const adopted = await endpoint.adoptOrSpawnOrRefuse();
+      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(adopted).toBe(true);
+      expect(adopted.kind).toBe("adopted-resident");
       expect(spawnCalled).toBe(false);
       expect(survivorExited).toBe(false);
       expect(endpoint.current()?.identity).toEqual({ staleKey: "survivor" });
@@ -973,6 +1148,16 @@ describeDaemon(
       const endpoint = createEndpoint<string, Identity>({
         hostId: "local",
         home: { dir: dirname(socketPath), gatePath, socketPath },
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: { spawn: () => fake.listen() },
         connect: async (_socketPath) => ({
           client: "FRESH",
@@ -986,8 +1171,8 @@ describeDaemon(
         socketPollMs: 5,
       });
 
-      const adopted = await endpoint.adoptOrSpawnOrRefuse();
-      expect(adopted).toBe(false);
+      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
+      expect(adopted.kind).not.toBe("adopted-resident");
       expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
     });
   },
@@ -1055,6 +1240,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
@@ -1077,10 +1272,10 @@ describeDaemon(
         onSpawned: () => {},
       });
 
-      const adopted = await ep.adoptOrEnsure();
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
-      expect(adopted).toBe(true);
+      expect(adopted.kind).toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "primary" });
       expect(hintConnectCalled).toBe(false); // the hint is only a PRIMARY-empty fallback
       expect(onAdoptedCalled).toBe(false);
@@ -1107,6 +1302,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
@@ -1126,10 +1331,10 @@ describeDaemon(
         onSpawned: () => {},
       });
 
-      const adopted = await ep.adoptOrEnsure();
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
-      expect(adopted).toBe(true);
+      expect(adopted.kind).toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "legacy" }); // adopted the hint
       expect(onAdoptedCalled).toBe(true); // recorded the hint socket as the live location
       expect(driverSpawnCalled).toBe(false); // adopted, never spawned a fresh digest kaval
@@ -1157,6 +1362,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             driverSpawnCalled = true;
@@ -1184,10 +1399,10 @@ describeDaemon(
         },
       });
 
-      const adopted = await ep.adoptOrEnsure();
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
       await tick();
 
-      expect(adopted).toBe(false);
+      expect(adopted.kind).toBe("spawned-fresh");
       expect(legacy.exited()).toBe(true); // the SKEWED legacy kaval was recycled (killed)
       expect(driverSpawnCalled).toBe(true); // fresh spawn — at the PRIMARY (digest), not the hint
       expect(ep.current()?.identity).toEqual({ staleKey: "primary-fresh" });
@@ -1221,6 +1436,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             await fakePrimary.listen();
@@ -1255,7 +1480,7 @@ describeDaemon(
         },
       });
 
-      await expect(ep.adoptOrEnsure()).rejects.toMatchObject({
+      await expect(endpointPrivate(ep).adoptOrEnsure()).rejects.toMatchObject({
         isContractSkew: true,
       });
       await tick();
@@ -1288,6 +1513,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: { spawn: () => fakePrimary.listen() },
         connect: async (_socketPath) => conn("primary-fresh"),
         log: silentLog,
@@ -1308,8 +1543,8 @@ describeDaemon(
         },
       });
 
-      const adopted = await ep.adoptOrEnsure();
-      expect(adopted).toBe(false);
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      expect(adopted.kind).not.toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "primary-fresh" });
       expect(hintConnectCalled).toBe(false); // no live daemon at the hint gate to connect to
       expect(onAdoptedCalled).toBe(false);
@@ -1338,6 +1573,16 @@ describeDaemon(
       const ep = createEndpoint<string, Identity>({
         hostId: "local",
         home: primary,
+        policy: {
+          capability: "not-drainable",
+          baked: {
+            contractVersion: "test",
+            build: { kind: "known", id: "test-build" },
+          },
+          onContractSkew: { kind: "recycle" },
+          onBuildMismatch: { kind: "nudge-human" },
+        },
+        probe: async () => null,
         driver: {
           spawn: async () => {
             driverSpawnCalled += 1;
@@ -1361,8 +1606,8 @@ describeDaemon(
       });
 
       // Boot: no digest survivor, adopt the legacy hint.
-      const adopted = await ep.adoptOrEnsure();
-      expect(adopted).toBe(true);
+      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      expect(adopted.kind).toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "legacy" });
       expect(onAdoptedCalled).toBe(true);
       expect(driverSpawnCalled).toBe(0); // adopted, never spawned
@@ -1370,7 +1615,7 @@ describeDaemon(
       // A Restart-kaval recycle (`ensure()`) probes the HELD rendezvous — the adopted
       // legacy socket, not the primary — so it SIGTERMs the legacy daemon and spawns
       // fresh at the PRIMARY (digest). The bounded migration converges here.
-      await ep.ensure();
+      await endpointPrivate(ep).ensure();
       await tick();
 
       expect(legacy.exited()).toBe(true); // the adopted legacy kaval was killed by the recycle

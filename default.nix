@@ -165,11 +165,13 @@ let
   # `isHashedSourcePadi` broadens kaval's `.ts`-only filter to `.ts`+`.tsx` —
   # padi's closure reaches a `.tsx` module (`@kolu/transcript-html`), which
   # `hasExt "ts"` would silently drop. Test-only files (`.test.ts` / `.test.tsx`
-  # / `.testlib.ts`) are dropped, matching the id's content-addressed intent.
+  # / `.test-d.ts` type pins / `.testlib.ts`) are dropped, matching the id's
+  # content-addressed intent.
   isHashedSourcePadi =
     f: (f.hasExt "ts" || f.hasExt "tsx")
       && !pkgs.lib.hasSuffix ".test.ts" f.name
       && !pkgs.lib.hasSuffix ".test.tsx" f.name
+      && !pkgs.lib.hasSuffix ".test-d.ts" f.name
       && !pkgs.lib.hasSuffix ".testlib.ts" f.name;
   # A hashed root contributes its `src`'s non-test sources plus its package.json
   # (a dependency/version change is a behaviour change) — the same pairing kaval

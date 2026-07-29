@@ -49,7 +49,12 @@ export {
   type SpawnDriverDeps,
   survivableSpawnDriver,
 } from "./driver.ts";
-export { type RestartSteps, restart, serializeRestart } from "./restart.ts";
+export {
+  type RestartSteps,
+  destructiveRecycleSteps,
+  recycle,
+  serializeRestart,
+} from "./restart.ts";
 export {
   type WaitForPidGoneOptions,
   waitForPidGone,

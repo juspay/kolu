@@ -19,12 +19,13 @@
 import {
   type ConvergencePolicy,
   converge,
-  createBuildDrainFence,
   createEndpoint,
   daemonBuild,
+  destructiveRecycleSteps,
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
+  recycle,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
@@ -59,21 +60,25 @@ type Identity = PtyHostIdentity | undefined;
  * kaval's declaration into the shared daemon-convergence kit (`converge`). kaval is
  * NON-DRAINABLE — recycling it kills its PTYs (no graceful drain verb), so:
  *   - `onContractSkew: recycle` — a wire-incompatible survivor can't serve the new
- *     supervisor, so kill + respawn (its PTYs die, unavoidable at a wire break). This is
- *     the recycle-on-skew arm, byte-identical to the pre-kit `adoptOrEnsure`: the kit
- *     routes a `recycle` decision straight back to `adoptOrEnsure`.
+ *     supervisor, so kill + respawn (its PTYs die, unavoidable at a wire break).
  *   - `onBuildMismatch: nudge-human` — a same-contract build change is NOT auto-acted on
  *     (draining/recycling would cost live PTYs); the kit reports the mismatch as an
  *     outcome and takes no supervisor action. kaval's "update available" nudge stays a
- *     human decision, surfaced by padi serving `expectedKaval` + the running identity for
- *     the client's `kavalStale` to compare — unchanged.
- * Being non-drainable, kaval CANNOT spell a drain policy (Pin 1 — a compile error).
+ *     human decision.
+ * Being non-drainable, kaval CANNOT spell a drain policy or a `drainBudget` (Pin 1 —
+ * a compile error). No inert fence is constructed.
  */
-const KAVAL_CONVERGENCE_POLICY: ConvergencePolicy<"not-drainable"> = {
-  capability: "not-drainable",
-  onContractSkew: { kind: "recycle" },
-  onBuildMismatch: { kind: "nudge-human" },
-};
+function kavalConvergencePolicy(): ConvergencePolicy<"not-drainable"> {
+  return {
+    capability: "not-drainable",
+    baked: {
+      contractVersion: PTY_HOST_CONTRACT_VERSION,
+      build: daemonBuild(currentPtyHostIdentity().staleKey),
+    },
+    onContractSkew: { kind: "recycle" },
+    onBuildMismatch: { kind: "nudge-human" },
+  };
+}
 
 /** The kolu app version stamped as `TERM_PROGRAM_VERSION` on every spawned PTY.
  *  INJECTED at boot by {@link setSpawnServerVersion} rather than read from a
@@ -238,9 +243,13 @@ export async function ensureLocalEndpoint(opts: {
   // the primary home by default; the adopt-hint flips it to the legacy socket
   // when an upgrade adopts the port kaval, and a spawn resets it back.
   setLocalSocketPath(home.socketPath);
+  // Refresh baked identity at boot (staleKey is process-constant, but keep the
+  // policy object the single source — bake is already fixed on the const above).
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: encodeHostLocation(LOCAL_LOCATION),
     home,
+    policy: kavalConvergencePolicy(),
+    probe: (socketPath) => probeKavalForConvergence(socketPath),
     driver: localKavalDriver(home.socketPath),
     // the framework hands you the path
     connect: (path) => connectKaval(path),
@@ -265,29 +274,9 @@ export async function ensureLocalEndpoint(opts: {
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
   try {
-    // The boot, B3.3: adopt-or-recycle, now DELEGATED to the shared convergence kit
-    // under kaval's declared {@link KAVAL_CONVERGENCE_POLICY} (recycle-on-skew +
-    // nudge-human). The kit probes the running kaval's identity over `system.version`
-    // (Pin 3), decides, and enacts through the endpoint's EXISTING boot methods — a
-    // `recycle` decision routes straight to `adoptOrEnsure`, so a contract skew still
-    // kills + respawns exactly as before, and a compatible survivor (same OR different
-    // build) is ADOPTED (its PTYs preserved). A same-contract build change comes back as
-    // `mismatch-reported` and takes NO supervisor action — kaval's currency nudge stays
-    // the human's call, served for the client to compare (unchanged). We map the outcome
-    // back to the `adopted` boolean the reconcile below already consumes.
-    const outcome = await converge({
-      endpoint: ep,
-      baked: {
-        contractVersion: PTY_HOST_CONTRACT_VERSION,
-        build: daemonBuild(currentPtyHostIdentity().staleKey),
-      },
-      probe: () => probeKavalForConvergence(home.socketPath),
-      policy: KAVAL_CONVERGENCE_POLICY,
-      // kaval never build-drains (nudge-human), so the fence is unused here — but the kit
-      // requires one; a fresh per-boot fence is the honest, inert value.
-      buildFence: createBuildDrainFence(),
-      log,
-    });
+    // The only boot verb: policy is fixed on the endpoint; no fence, no budget,
+    // no boot-method choice at the call site.
+    const outcome = await converge(ep);
     const adopted = outcomeAdopted(outcome);
     if (adopted && opts.onAdopted) {
       try {
@@ -302,7 +291,7 @@ export async function ensureLocalEndpoint(opts: {
           { err },
           "surviving-session reconciliation failed — recycling the adopted daemon",
         );
-        await ep.ensure();
+        await recycle(ep, destructiveRecycleSteps());
         // The recycle spawned a FRESH daemon — nothing live survives now, so this
         // is the no-survivor path: park the saved session for the restore card.
         opts.onNotAdopted?.();

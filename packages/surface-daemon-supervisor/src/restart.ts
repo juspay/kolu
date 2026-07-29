@@ -17,12 +17,13 @@
  * accidentally skip the snapshot: there is no restart entry point that omits a
  * step.
  *
- * The `recycle` itself is `endpoint.ensure()` — kill the live holder, wait for
- * it to actually go, spawn fresh, connect. This module only sequences the
- * caller's steps around it.
+ * The `recycle` itself is private `ensure()` via the endpoint WeakMap — kill the
+ * live holder, wait for it to actually go, spawn fresh, connect. This module only
+ * sequences the caller's steps around it.
  */
 
 import type { DaemonConnection, Endpoint } from "./endpoint.ts";
+import { endpointPrivate } from "./endpoint.private.ts";
 
 export interface RestartSteps<C, I, Ctx, M = undefined> {
   /** Snapshot whatever must outlive the restart, BEFORE the old daemon dies.
@@ -36,19 +37,36 @@ export interface RestartSteps<C, I, Ctx, M = undefined> {
   reattach(ctx: Ctx, connection: DaemonConnection<C, I, M>): Promise<void>;
 }
 
-/** Run the composed restart: capture, drain, recycle the endpoint, reattach.
- *  Throws if the recycle leaves no connection (a failed boot already reported
- *  `dead`/`degraded` via the endpoint's status). */
-export async function restart<C, I, Ctx, M = undefined>(
+/**
+ * Named canonical steps for a **destructive** recycle with no preservation
+ * (F4). Every field is still required by the type — this constant makes the
+ * no-preservation intent visible at the call site (kaval fail-closed recovery).
+ */
+export function destructiveRecycleSteps<C, I, M = undefined>(): RestartSteps<
+  C,
+  I,
+  undefined,
+  M
+> {
+  return {
+    capture: async () => undefined,
+    drain: async () => {},
+    reattach: async () => {},
+  };
+}
+
+/** The public replace verb — capture → drain → recycle → reattach. Pairs with
+ *  `converge` on the endpoint. Throws if the recycle leaves no connection. */
+export async function recycle<C, I, Ctx, M = undefined>(
   endpoint: Endpoint<C, I, M>,
   steps: RestartSteps<C, I, Ctx, M>,
 ): Promise<void> {
   const ctx = await steps.capture();
   await steps.drain(ctx);
-  await endpoint.ensure();
+  await endpointPrivate(endpoint).ensure();
   const connection = endpoint.current();
   if (!connection) {
-    throw new Error("restart: no connection after recycle");
+    throw new Error("recycle: no connection after recycle");
   }
   await steps.reattach(ctx, connection);
 }
@@ -56,23 +74,12 @@ export async function restart<C, I, Ctx, M = undefined>(
 /**
  * Bind a **serialized** session-preserving restart to one endpoint.
  *
- * Where the bare `restart()` is the composed sequence (and the boot recycle's
+ * Where the bare `recycle()` is the composed sequence (and the boot recycle's
  * one shape), `serializeRestart` adds the two things a *user-initiated* restart
  * needs over a boot:
  *
  *   - **Coalescing.** Returns a trigger that runs at most one restart at a time.
- *     A double-click, or two clients both hitting the restart button, ride the
- *     *same* in-flight run instead of each launching a kill→spawn — a second
- *     recycle over a half-restarted daemon is exactly the kind of race #1034
- *     lost. The trigger resolves all callers when that single run settles.
- *   - **The emit-guard.** Wraps the run in `endpoint.holdRestarting`, so the
- *     whole sequence reports as one `restarting` rather than the recycle's
- *     internal degraded→connecting→connected flicker (see `endpoint.ts`'s
- *     `emit`). The terminal `connected`/`dead` ends the hold.
- *
- * The composed steps (capture → drain → recycle → reattach) and what they mean
- * stay the caller's soul, exactly as for `restart()`; this only governs *when*
- * a restart may run and *how* it is reported.
+ *   - **The emit-guard.** Wraps the run in `endpoint.holdRestarting`.
  */
 export function serializeRestart<C, I, M = undefined>(
   endpoint: Endpoint<C, I, M>,
@@ -80,11 +87,10 @@ export function serializeRestart<C, I, M = undefined>(
   let inFlight: Promise<void> | undefined;
   return <Ctx>(steps: RestartSteps<C, I, Ctx, M>): Promise<void> => {
     // Presence of the promise IS the in-flight flag — a concurrent caller rides
-    // it rather than starting a second recycle. (`!== undefined`, not a bare
-    // truthiness check, so it reads as "is one running", not a misused await.)
+    // it rather than starting a second recycle.
     if (inFlight !== undefined) return inFlight;
     inFlight = endpoint
-      .holdRestarting(() => restart(endpoint, steps))
+      .holdRestarting(() => recycle(endpoint, steps))
       .finally(() => {
         inFlight = undefined;
       });
