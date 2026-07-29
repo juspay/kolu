@@ -16,31 +16,17 @@ import { parse } from "@babel/parser";
 import {
   type ConvergenceIdentity,
   daemonBuild,
-  isHolderLive,
   type Logger,
 } from "@kolu/surface-daemon";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  createEndpoint as createEndpointCore,
-  type EndpointSpec,
-} from "../endpoint.ts";
+import { createEndpointForTest as createEndpoint } from "../createEndpoint.forTest.ts";
+
 import { createConnectorDrainBudget } from "./budget.ts";
 import { convergeAdmit } from "./convergeAdmit.ts";
 import { converge, outcomeAdopted, outcomeAnomaly } from "./converge.ts";
 import { drainAndAwaitExit } from "./drainAndAwaitExit.ts";
 import { type InstanceKey, instanceKeyFromStartedAt } from "./instanceKey.ts";
 import type { ConnectorPolicy, ConvergencePolicy } from "./policy.ts";
-
-const __startTime = (pid: number) => pid * 1_000;
-function createEndpoint<C, I, M = undefined>(
-  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
-) {
-  return createEndpointCore({
-    ...spec,
-    readProcessIdentity: (pid: number) =>
-      isHolderLive(pid) ? { pid, startUnixUs: __startTime(pid) } : undefined,
-  });
-}
 
 const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 

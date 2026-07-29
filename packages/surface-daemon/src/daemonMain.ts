@@ -269,13 +269,16 @@ export interface DaemonSpec {
    *  via {@link claimPidGate} (kaval's path). */
   gate?: Extract<GateAcquisition, { kind: "acquired" }>;
   /**
-   * This daemon's OS identity, supplied by the composition root. Required when
-   * `gate` is omitted (the spine claims). The spine compares it but never reads
-   * platform process state.
+   * This daemon's OS identity, supplied by the composition root. **Always
+   * required** so the inject can never be forgotten when the gate is pre-claimed
+   * today and the spine claims tomorrow. Consumed by the spine only when it
+   * claims (`gate` omitted → {@link claimPidGate}); pre-claimed callers still
+   * pass identity so the requirement is uniform. The spine never reads platform
+   * process state itself.
    */
   processIdentity: ProcessIdentity;
   /** Resolve a PID to its current start-qualified identity. Injected — never
-   *  defaulted. A missing inject is a type error at the composition root. */
+   *  defaulted. Always required (same uniformity as {@link processIdentity}). */
   readProcessIdentity: ReadProcessIdentity;
 }
 

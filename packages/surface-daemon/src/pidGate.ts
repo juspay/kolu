@@ -14,17 +14,23 @@
  *
  * ## The pid-first tolerant-reader law
  *
- * **The first token of a gate file is the pid, in every generation, and
- * readers ignore anything after it.** A one-field legacy gate is simply an
- * older gate — pid usable, start time unknown. A two-field gate is
- * `${pid}\t${startUnixUs}\n`. A future third field must still yield the pid
- * to today's reader. Never refuse a shape whose first token is a valid pid
- * (that refusal is the #2011 brick).
+ * **Reader half (every generation):** the first token of a gate file is the
+ * pid — extraction matches **legacy `parseInt`** (leading decimal digit run;
+ * ignore everything after it). A shape whose leading token is a valid pid is
+ * never refused (that refusal is the #2011 brick). Residue after the digit run
+ * that is **not** the exact v2 start-time field is ignored for pid purposes
+ * (one-field semantics: pid usable, start time unknown).
  *
- * Process-start comparison uses a ±2 s tolerance: the start instant is derived
- * from `/proc/stat` btime at read time, and NTP steps / suspend / VM pauses
- * shift it by whole seconds — strict equality would misread a live daemon as
- * pid-reuse.
+ * **Writer half (this generation):** writers emit exactly
+ * `${pid}\t${startUnixUs}\n`. Future fields must be **appended after a tab** so
+ * today's start-time parse stays exact (`pid\tstart…`); the reader still yields
+ * the pid for non-tab residues (spaces, hyphens, third fields) via parseInt.
+ *
+ * **Start time:** only the exact v2 shape (`pid\t` + positive integer start)
+ * records `startUnixUs`. Comparison uses a ±2 s tolerance: the start instant is
+ * derived from `/proc/stat` btime at read time, and NTP steps / suspend / VM
+ * pauses shift it by whole seconds — strict equality would misread a live
+ * daemon as pid-reuse.
  *
  * OS process traversal is **injected** via {@link ReadProcessIdentity}; this
  * package never imports osfacts. Composition roots (kaval, padi, kolu-server,
@@ -110,7 +116,9 @@ export function isHolderLive(pid: number): boolean {
 }
 
 /** Read the gate under the pid-first law. Never refuses a shape whose first
- * token is a valid pid — that refusal is the #2011 brick. */
+ * token is a valid pid — that refusal is the #2011 brick. Pid extraction is
+ * legacy `parseInt` (leading decimal digits). Start time only from exact
+ * `pid\tstartUnixUs…`. */
 export function readGateIdentity(gatePath: string): GateIdentityRead {
   let contents: string;
   try {
@@ -121,17 +129,22 @@ export function readGateIdentity(gatePath: string): GateIdentityRead {
       : { kind: "unreadable" };
   }
 
-  const fields = contents.trim().split("\t");
-  const pid = Number(fields[0]);
+  const body = contents.trim();
+  // Same tolerance as yesterday's readers in the wild: parseInt stops at the
+  // first non-digit after an optional leading sign/whitespace — we require a
+  // positive integer pid, so non-digit-leading content is malformed.
+  const pid = Number.parseInt(body, 10);
   if (!Number.isSafeInteger(pid) || pid <= 0) return { kind: "malformed" };
 
-  if (fields.length >= 2) {
-    const startUnixUs = Number(fields[1]);
+  // Exact v2 start-time shape only: digit run, tab, positive integer start
+  // (optional further tab-fields). Anything else with a valid leading pid is
+  // one-field semantics (start unknown).
+  const v2 = body.match(/^(\d+)\t(\d+)(?:\t|$)/);
+  if (v2 !== null) {
+    const startUnixUs = Number(v2[2]);
     if (Number.isSafeInteger(startUnixUs) && startUnixUs > 0) {
-      return { kind: "ok", pid, startUnixUs };
+      return { kind: "ok", pid: Number(v2[1]), startUnixUs };
     }
-    // Second field present but not a start time — still a valid pid (the law
-    // says ignore anything after the first token). Treat as one-field.
   }
   return { kind: "ok", pid };
 }

@@ -1,3 +1,4 @@
+import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.forTest";
 /**
  * The W2.2 CUTOVER acceptance gate — kolu-server's padi BINDER end-to-end.
  *
@@ -51,27 +52,14 @@ import {
   PADI_SURFACE_VERSION,
   padiSurface,
 } from "@kolu/padi/surface";
-import { DAEMON_BIND_PID_ENV, isHolderLive } from "@kolu/surface-daemon";
+import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
-  createEndpoint as createEndpointCore,
-  type EndpointSpec,
   daemonBuild,
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
-
-const __startTime = (pid: number) => pid * 1_000;
-function createEndpoint<C, I, M = undefined>(
-  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
-) {
-  return createEndpointCore({
-    ...spec,
-    readProcessIdentity: (pid: number) =>
-      isHolderLive(pid) ? { pid, startUnixUs: __startTime(pid) } : undefined,
-  });
-}
 
 import {
   isSurfaceRelayTransportLost,

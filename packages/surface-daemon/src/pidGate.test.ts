@@ -22,6 +22,8 @@ import {
 import { afterEach, expect, it } from "vitest";
 import {
   acquirePidGate,
+  claimPidGate,
+  confirmHeldGate,
   gateIdentity,
   gatePid,
   identitiesMatch,
@@ -225,6 +227,78 @@ describeDaemon("pid-first tolerant reader", () => {
     writeFileSync(path, "55\tnot-a-start\n");
     expect(readGateIdentity(path)).toEqual({ kind: "ok", pid: 55 });
     expect(gatePid(path)).toBe(55);
+  });
+
+  it("parseInt residue: space after pid is one-field (pid 123)", () => {
+    const path = gateIn();
+    writeFileSync(path, "123 456\n");
+    expect(readGateIdentity(path)).toEqual({ kind: "ok", pid: 123 });
+    expect(gatePid(path)).toBe(123);
+    expect(gateIdentity(path)).toBeUndefined();
+  });
+
+  it("parseInt residue: hyphen after pid is one-field (pid 123)", () => {
+    const path = gateIn();
+    writeFileSync(path, "123-garbage\n");
+    expect(readGateIdentity(path)).toEqual({ kind: "ok", pid: 123 });
+    expect(gatePid(path)).toBe(123);
+  });
+
+  it("wholly non-digit-leading content is malformed", () => {
+    const path = gateIn();
+    writeFileSync(path, "garbage\n");
+    expect(readGateIdentity(path)).toEqual({ kind: "malformed" });
+    expect(gatePid(path)).toBeUndefined();
+  });
+});
+
+describeDaemon("claimPidGate mid-boot (F1)", () => {
+  it("two-field match + no socket (absent) → held (never reap)", async () => {
+    const path = gateIn();
+    const otherPid = liveChild();
+    const other = identities.get(otherPid)!;
+    writeFileSync(path, `${other.pid}\t${other.startUnixUs}\n`);
+    // No co-located socket file at all (mid-boot / absent).
+    const absentSocket = join(dirname(path), "missing.sock");
+    const gate = await claimPidGate(path, absentSocket, SELF, readIdentity);
+    expect(gate).toEqual({ kind: "held", pid: otherPid });
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(path, "utf8").trim()).toBe(
+      `${other.pid}\t${other.startUnixUs}`,
+    );
+  });
+
+  it("two-field match + dead socket inode → held (identity is truth, not socket)", async () => {
+    // Distinguishes the two-field early-return from one-field: a non-socket
+    // path is socketServeState "dead". One-field would reclaim; two-field must not.
+    const path = gateIn();
+    const otherPid = liveChild();
+    const other = identities.get(otherPid)!;
+    writeFileSync(path, `${other.pid}\t${other.startUnixUs}\n`);
+    const deadSocket = join(dirname(path), "stale.sock");
+    writeFileSync(deadSocket, "not-a-socket");
+    const gate = await claimPidGate(path, deadSocket, SELF, readIdentity);
+    expect(gate).toEqual({ kind: "held", pid: otherPid });
+    expect(existsSync(path)).toBe(true);
+  });
+
+  it("one-field live + absent socket → confirmHeldGate keeps held (F12 fence)", async () => {
+    const path = gateIn();
+    const otherPid = liveChild();
+    writeFileSync(path, `${otherPid}\n`);
+    const absentSocket = join(dirname(path), "missing.sock");
+    const held = acquirePidGate(path, SELF, readIdentity);
+    expect(held.kind).toBe("held");
+    if (held.kind !== "held") throw new Error("unreachable");
+    const confirmed = await confirmHeldGate(
+      held,
+      path,
+      absentSocket,
+      SELF,
+      readIdentity,
+    );
+    expect(confirmed).toEqual({ kind: "held", pid: otherPid });
+    expect(existsSync(path)).toBe(true);
   });
 });
 

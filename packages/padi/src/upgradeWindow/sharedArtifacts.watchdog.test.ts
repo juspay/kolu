@@ -82,6 +82,21 @@ async function provePidFirstTolerant(
         pid: knownPid,
       });
       expect(gatePid(gatePath)).toBe(knownPid);
+      // Genuine v3 (third tab field): still yields the pid — forward half of the law.
+      writeFileSync(gatePath, `${knownPid}\t${startUnixUs}\textra\n`);
+      expect(gatePid(gatePath)).toBe(knownPid);
+      expect(readGateIdentity(gatePath)).toEqual({
+        kind: "ok",
+        pid: knownPid,
+        startUnixUs,
+      });
+      // Non-tab future residue (parseInt tolerance): pid still usable.
+      writeFileSync(gatePath, `${knownPid} ${startUnixUs} extra\n`);
+      expect(gatePid(gatePath)).toBe(knownPid);
+      expect(readGateIdentity(gatePath)).toEqual({
+        kind: "ok",
+        pid: knownPid,
+      });
       return { kind: "pid-first-tolerant", pid: knownPid };
     },
   });

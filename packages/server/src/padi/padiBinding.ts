@@ -88,7 +88,7 @@ import {
 } from "@kolu/surface-remote";
 import { assertDaemonSpawnAllowed } from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
-import { processIdentity } from "osfacts-client";
+import { bakedOsFactsBin, processIdentity } from "osfacts-client";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
@@ -638,15 +638,8 @@ export function ensurePadiBindingWith(
   >({
     hostId: PADI_HOST_ID,
     home,
-    readProcessIdentity: (pid) => {
-      const bin = process.env.KOLU_OSFACTS_BIN;
-      if (!bin) {
-        throw new Error(
-          "KOLU_OSFACTS_BIN is not set — padi supervision requires the baked osfacts binary",
-        );
-      }
-      return processIdentity(bin, pid);
-    },
+    readProcessIdentity: (pid) =>
+      processIdentity(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pid),
     // Policy stated once — baked identity + Cap-gated budget. The only boot verb is
     // `converge(ep)`; boot methods are internal.
     policy: deps.policy,

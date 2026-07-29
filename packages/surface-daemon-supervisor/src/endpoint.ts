@@ -418,10 +418,6 @@ function waitForSocket(
   });
 }
 
-/** One-shot probe: does `socketPath` accept a connection RIGHT NOW? Dials once
- *  (no polling) and immediately closes — the recycle path uses it to prove a
- *  live gate-pid is actually the daemon (its socket answers) before SIGTERMing
- *  it, so a stale gate over a reused pid can't make us kill a stranger. */
 /** Boolean projection of {@link socketServeState} — one probe, two granularities. */
 function socketAccepting(socketPath: string): Promise<boolean> {
   return socketServeState(socketPath).then((s) => s === "serving");

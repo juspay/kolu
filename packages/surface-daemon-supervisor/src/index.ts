@@ -35,8 +35,8 @@ export {
   isSocketSquatterForeignError,
   SocketSquatterForeignError,
 } from "./endpoint.ts";
-// EndpointSpec re-exported above — used by test wrappers that inject
-// readProcessIdentity without repeating the field at every call site.
+// EndpointSpec re-exported for consumers and for `./createEndpoint.forTest`
+// (suites inject identity once via that helper).
 export { type SocketHolder, socketHolders } from "./socketHolder.ts";
 // The down/terminal classification lives at the states' home (the browser-safe
 // `/states` leaf, like `ENDPOINT_STATES` itself) and is re-exported here for

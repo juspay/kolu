@@ -38,7 +38,7 @@ import {
   type ProcessIdentity,
   type ReadProcessIdentity,
 } from "@kolu/surface-daemon";
-import { processIdentity } from "osfacts-client";
+import { bakedOsFactsBin, processIdentity } from "osfacts-client";
 
 /** The supervisor gate filename — sits BESIDE padi's own `padi.pid` in the
  *  ephemeral `$XDG_RUNTIME_DIR/padi-<digest>/` runtime dir, so it is boot-wiped
@@ -70,9 +70,18 @@ export type SupervisorClaim =
   | { kind: "foreign"; pid: number }
   | { kind: "dir-not-private"; dir: string };
 
-/** Injection seam for tests — a fake gate acquirer and/or gate-path resolver so a
- *  two-supervisor war can be exercised without a real padi runtime dir. Defaults
- *  are the real {@link acquirePidGate} / {@link supervisorGatePath}. */
+/**
+ * Injection seam for tests — a fake gate acquirer and/or gate-path resolver so a
+ * two-supervisor war can be exercised without a real padi runtime dir. Defaults
+ * are the real {@link acquirePidGate} / {@link supervisorGatePath}.
+ *
+ * Optional identity fields **extend this pre-existing deps seam** (same class as
+ * `acquire?` / `resolveGatePath?`). They are **not** the gate API's optional
+ * inject (ruling 4 bans that on acquirePidGate/DaemonSpec/EndpointSpec). The
+ * default when omitted is the **strong** production osfacts reader — omission
+ * cannot silently run weaker (opposite of the banned degrade pattern). This
+ * module is server-internal wiring, not the shared gate surface.
+ */
 export interface SupervisorClaimDeps {
   acquire?: (
     gatePath: string,
@@ -80,19 +89,13 @@ export interface SupervisorClaimDeps {
     readProcessIdentity: ReadProcessIdentity,
   ) => GateAcquisition;
   resolveGatePath?: (stateRoot: string) => string;
-  /** Test-only identity inject. Production reads via osfacts. */
+  /**
+   * Optional identity inject for tests. Default: osfacts via
+   * `KOLU_OSFACTS_BIN` (strong production path — see interface doc).
+   */
   readProcessIdentity?: ReadProcessIdentity;
+  /** Optional self identity for tests. Default: osfacts of `process.pid`. */
   processIdentity?: ProcessIdentity;
-}
-
-function osfactsBinPath(): string {
-  const path = process.env.KOLU_OSFACTS_BIN;
-  if (!path) {
-    throw new Error(
-      "KOLU_OSFACTS_BIN is not set — supervisor ownership requires the baked osfacts binary",
-    );
-  }
-  return path;
 }
 
 /** Claim the local supervisor gate for `stateRoot`. A thin, total mapping over
@@ -106,7 +109,8 @@ export function claimLocalSupervisor(
   const gatePath = (deps.resolveGatePath ?? supervisorGatePath)(stateRoot);
   const readIdentity =
     deps.readProcessIdentity ??
-    ((pid: number) => processIdentity(osfactsBinPath(), pid));
+    ((pid: number) =>
+      processIdentity(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pid));
   const self =
     deps.processIdentity ??
     (() => {

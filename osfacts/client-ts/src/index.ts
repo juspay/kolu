@@ -57,6 +57,7 @@ export {
   snapshotHost,
   snapshotPids,
   snapshotPidsSync,
+  bakedOsFactsBin,
   processIdentity,
   host,
 } from "./client.ts";

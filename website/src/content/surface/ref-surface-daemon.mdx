@@ -134,7 +134,7 @@ rest of the process's life.
 | `claimPidGate(gatePath, socketPath, self, readProcessIdentity)` | the named full claim: `acquirePidGate` then `confirmHeldGate` when held — composition roots use this, not the two steps by convention |
 | `acquirePidGate(gatePath, self, readProcessIdentity)` | atomic single-instance claim via `link(2)`; writes `${pid}\t${startUnixUs}\n`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` |
 | `ProcessIdentity` · `ReadProcessIdentity` | canonical start-qualified identity (`{ pid, startUnixUs }`) and the injected OS fact reader — the spine never imports osfacts |
-| `readGateIdentity` · `gatePid` · `gateIdentity` · `liveHolderPid` · `identitiesMatch` · `startTimesMatch` · `START_TIME_TOLERANCE_US` | pid-first tolerant reader (±2 s start-time match); first token is always the pid; one-field legacy gates still yield a pid |
+| `readGateIdentity` · `gatePid` · `gateIdentity` · `liveHolderPid` · `identitiesMatch` · `startTimesMatch` · `START_TIME_TOLERANCE_US` | pid-first tolerant reader: pid via legacy `parseInt` (leading digits); start time only from exact `pid\tstart…`; ±2 s match; writers emit `${pid}\t${startUnixUs}\n` |
 | `confirmHeldGate(held, …)` | one-field (legacy) socket fence only — re-reads the gate for generation; dead socket reclaims; absent waits (mid-boot); two-field match skips (identity is truth) |
 | `isHolderLive(pid)` | `kill(0)` liveness probe for one-field holders and cheap checks |
 | `socketServeState(socketPath)` | three-way socket probe (`serving` · `dead` · `absent`) used by the one-field reclaim fence |

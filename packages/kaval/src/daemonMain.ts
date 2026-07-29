@@ -24,7 +24,7 @@ import {
   type ProcessIdentity,
   resolveDaemonHome,
 } from "@kolu/surface-daemon";
-import { processIdentity } from "osfacts-client";
+import { bakedOsFactsBin, processIdentity } from "osfacts-client";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import { serveKavalDaemonSurface } from "./daemonSurface.ts";
 import {
@@ -33,18 +33,8 @@ import {
   readStateRootManifest,
 } from "./socketPath.ts";
 
-function osfactsBinPath(): string {
-  const path = process.env.KOLU_OSFACTS_BIN;
-  if (!path) {
-    throw new Error(
-      "KOLU_OSFACTS_BIN is not set — kaval requires the baked osfacts binary (nix wrappers set it via osfactsBakeArg)",
-    );
-  }
-  return path;
-}
-
 function readProcessIdentity(pid: number): ProcessIdentity | undefined {
-  return processIdentity(osfactsBinPath(), pid);
+  return processIdentity(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pid);
 }
 
 function selfIdentity(): ProcessIdentity {

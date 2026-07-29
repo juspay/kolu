@@ -33,23 +33,11 @@ import {
   type YesterdayDaemonOpts,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
-  createEndpoint as createEndpointCore,
   destructiveRecycleSteps,
-  type EndpointSpec,
   type EndpointStatus,
   recycle,
 } from "./index.ts";
-
-const __startTime = (pid: number) => pid * 1_000;
-function createEndpoint<C, I, M = undefined>(
-  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
-) {
-  return createEndpointCore({
-    ...spec,
-    readProcessIdentity: (pid: number) =>
-      isHolderLive(pid) ? { pid, startUnixUs: __startTime(pid) } : undefined,
-  });
-}
+import { createEndpointForTest as createEndpoint } from "./createEndpoint.forTest.ts";
 
 const silentLog = {
   debug() {},
@@ -198,6 +186,70 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     expect(gatePid(d.gatePath)).toBe(process.pid);
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
     expect(statuses.map((s) => s.state)).toContain("connected");
+  });
+
+  it("two-field identity match + socket down: recycle still SIGTERMs the holder", async () => {
+    // Supervisor liveServingHolder two-field arm: identity is truth — socket
+    // need not accept for a kill target (mid-boot / dead socket).
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivor = d.process;
+    const survivorPid = survivor.pid;
+    // Overwrite fixture one-field plant with two-field matching the test
+    // inject (startUnixUs = pid * 1000).
+    writeFileSync(d.gatePath, `${survivorPid}\t${survivorPid * 1_000}\n`);
+    expect(gatePid(d.gatePath)).toBe(survivorPid);
+
+    const survivorExited = new Promise<void>((resolve) => {
+      survivor.child.once("exit", () => resolve());
+    });
+    let spawned = false;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      driver: {
+        spawn: async () => {
+          expect(isHolderLive(survivorPid)).toBe(false);
+          spawned = true;
+          const fresh = fakeListen(d.socketPath);
+          servers.push(fresh.server);
+          await fresh.listen();
+          writeFileSync(d.gatePath, `${process.pid}\t${process.pid * 1_000}\n`);
+        },
+      },
+      connect: async () => ({
+        client: "fresh",
+        identity: { staleKey: "fresh" },
+        startedAt: Date.now(),
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    await recycle(endpoint, destructiveRecycleSteps());
+    await survivorExited;
+    expect(spawned).toBe(true);
+    expect(isHolderLive(survivorPid)).toBe(false);
   });
 
   it("(b) foreign gate shape: ensure does NOT kill the fixture child; acquirePidGate reaps the garbage and proceeds", async () => {

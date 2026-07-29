@@ -826,6 +826,28 @@ export function snapshotPidsSync(
 }
 
 /**
+ * Absolute path of the baked osfacts binary from an env var (cross-repo:
+ * kolu uses `KOLU_OSFACTS_BIN`, drishti `DRISHTI_OSFACTS_BIN`). Loud if unset —
+ * no PATH fallback. Composition roots pass the name their wrapper bakes.
+ */
+export function bakedOsFactsBin(envVar: string): string {
+  if (!envVar) {
+    throw new OsfactsClientError(
+      "spawn",
+      "bakedOsFactsBin: env var name is empty",
+    );
+  }
+  const path = process.env[envVar];
+  if (!path) {
+    throw new OsfactsClientError(
+      "spawn",
+      `${envVar} is not set — the baked osfacts binary path is required (nix wrappers set it; no PATH fallback)`,
+    );
+  }
+  return path;
+}
+
+/**
  * Resolve a pid's start-qualified identity via osfacts `--start-time`.
  *
  * Returns the structural `{ pid, startUnixUs }` (no named `ProcessIdentity` —

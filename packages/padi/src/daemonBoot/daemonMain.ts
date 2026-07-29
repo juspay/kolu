@@ -26,8 +26,7 @@ import {
   type Logger,
   type ProcessIdentity,
 } from "@kolu/surface-daemon";
-import { processIdentity } from "osfacts-client";
-import { osfactsBinPath } from "../ports/scan.ts";
+import { bakedOsFactsBin, processIdentity } from "osfacts-client";
 
 import { buildCommit } from "@kolu/surface/identity";
 import {
@@ -411,7 +410,7 @@ export async function runPadiDaemon(
   // otherwise acquires it last, after all of that). A crash mid-boot (the fail-fast
   // import) leaves a gate held by a dead pid, which the next launch reclaims.
   const readProcessIdentity = (pid: number): ProcessIdentity | undefined =>
-    processIdentity(osfactsBinPath(), pid);
+    processIdentity(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pid);
   const selfIdentity = readProcessIdentity(process.pid);
   if (selfIdentity === undefined) {
     throw new Error(

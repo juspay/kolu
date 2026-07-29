@@ -1,3 +1,4 @@
+import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.forTest";
 /**
  * The in-app **Restart kaval** path (`restartLocalDaemon` → capture → drain →
  * recycle → reattach/park) must NOT lose the session — the zest regression.
@@ -61,24 +62,9 @@ import type {
 } from "../vocab.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
 import {
-  createEndpoint as createEndpointCore,
-  type EndpointSpec,
   destructiveRecycleSteps,
   recycle,
 } from "@kolu/surface-daemon-supervisor";
-import { isHolderLive } from "@kolu/surface-daemon";
-
-const __startTime = (pid: number) => pid * 1_000;
-function createEndpoint<C, I, M = undefined>(
-  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
-) {
-  return createEndpointCore({
-    ...spec,
-    readProcessIdentity: (pid: number) =>
-      isHolderLive(pid) ? { pid, startUnixUs: __startTime(pid) } : undefined,
-  });
-}
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
