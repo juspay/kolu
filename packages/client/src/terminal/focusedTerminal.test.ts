@@ -1,66 +1,50 @@
-/** FX1's recovered nine-case focus matrix. The old implementation reconstructed
- *  keyboard focus from active tile + mutable sub-panel chrome. The new model
- *  writes that terminal id once and derives only its top-level tile. */
-
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
-import { activeTileOf } from "./focusedTerminal";
+import {
+  activeTileOf,
+  type TerminalFocus,
+  type TerminalPlacement,
+} from "./focusedTerminal";
 
-const TILE = "tile" as TerminalId;
+const TILE_A = "tile-a" as TerminalId;
+const TILE_B = "tile-b" as TerminalId;
 const SUB = "sub" as TerminalId;
-const OTHER_SUB = "other-sub" as TerminalId;
+const focus: TerminalFocus = { id: SUB, tileHint: TILE_A };
 
-const parentOf = (id: TerminalId): TerminalId | null =>
-  id === SUB || id === OTHER_SUB ? TILE : null;
-
-describe("the one focused-terminal fact", () => {
-  it("names the SPLIT you clicked into, not the tile holding it — THE REPORTED BUG", () => {
-    const focusedTerminalId = SUB;
-    expect(focusedTerminalId).toBe(SUB);
-    expect(activeTileOf(focusedTerminalId, parentOf)).toBe(TILE);
+describe("activeTileOf", () => {
+  it("returns no tile when no terminal is focused", () => {
+    expect(activeTileOf(null, () => ({ kind: "missing" }))).toBeNull();
   });
 
-  it("names the tile when focus is in the main pane", () => {
-    expect(activeTileOf(TILE, parentOf)).toBe(TILE);
+  it("uses the write-time tile hint while metadata is missing", () => {
+    expect(activeTileOf(focus, () => ({ kind: "missing" }))).toBe(TILE_A);
   });
 
-  it("names the tile when the panel is collapsed", () => {
-    // `collapsePanel(parent)` writes the parent into the focus fact.
-    const focusedTerminalId = TILE;
-    expect(activeTileOf(focusedTerminalId, parentOf)).toBe(TILE);
+  it("uses the focused id when live metadata says it is top-level", () => {
+    expect(activeTileOf(focus, () => ({ kind: "top-level" }))).toBe(SUB);
   });
 
-  it("follows the selected tab when you switch splits", () => {
-    const focusedTerminalId = OTHER_SUB;
-    expect(focusedTerminalId).toBe(OTHER_SUB);
-    expect(activeTileOf(focusedTerminalId, parentOf)).toBe(TILE);
+  it("uses the live parent for a split", () => {
+    expect(
+      activeTileOf(focus, () => ({ kind: "split", parentId: TILE_A })),
+    ).toBe(TILE_A);
   });
 
-  it("falls back to the tile when the panel is open at no tab", () => {
-    const focusedTerminalId = TILE;
-    expect(activeTileOf(focusedTerminalId, parentOf)).toBe(TILE);
+  it("lets streamed re-parenting override the write-time hint", () => {
+    let placement: TerminalPlacement = { kind: "missing" };
+    const placementOf = () => placement;
+
+    expect(activeTileOf(focus, placementOf)).toBe(TILE_A);
+    placement = { kind: "split", parentId: TILE_B };
+    expect(activeTileOf(focus, placementOf)).toBe(TILE_B);
   });
 
-  it("names nothing when no tile is active", () => {
-    expect(activeTileOf(null, parentOf)).toBeNull();
-  });
+  it("is a pure one-read fold", () => {
+    const placementOf = vi.fn(
+      (): TerminalPlacement => ({ kind: "split", parentId: TILE_A }),
+    );
 
-  it("never names the tile and its split at the same time", () => {
-    const focusedTerminalId: TerminalId = SUB;
-    const activeTileId = activeTileOf(focusedTerminalId, parentOf);
-    expect(focusedTerminalId).not.toBe(activeTileId);
-    expect([focusedTerminalId, activeTileId]).toEqual([SUB, TILE]);
-  });
-});
-
-describe("a terminal that merely HAS splits", () => {
-  it("names the TILE when you have never focused into a split", () => {
-    expect(activeTileOf(TILE, parentOf)).toBe(TILE);
-  });
-
-  it("asks with a READ, never seeding state as a side effect", () => {
-    const readParent = vi.fn(() => null);
-    expect(activeTileOf(TILE, readParent)).toBe(TILE);
-    expect(readParent).toHaveBeenCalledExactlyOnceWith(TILE);
+    expect(activeTileOf(focus, placementOf)).toBe(TILE_A);
+    expect(placementOf).toHaveBeenCalledExactlyOnceWith(SUB);
   });
 });

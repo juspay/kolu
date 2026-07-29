@@ -73,8 +73,7 @@ export function useSubPanel() {
   function writePaneFocus(parentId: TerminalId, id: TerminalId): void {
     const view = activeScope()?.view;
     if (!view) return;
-    if (id === parentId) view.writeFocus(id);
-    else view.writeSplitFocus(parentId, id);
+    view.writeFocus({ id, tileHint: parentId });
   }
 
   function focusVisiblePane(parentId: TerminalId): void {

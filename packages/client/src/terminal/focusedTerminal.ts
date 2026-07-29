@@ -1,12 +1,29 @@
 import type { TerminalId } from "kolu-common/surface";
+import { match } from "ts-pattern";
 
-/** Fold the focused terminal to the top-level tile that contains it. A missing
- *  record is temporarily treated as top-level; the reactive parent read
- *  corrects the fold when metadata arrives, with no effect watching the fold. */
+/** The one written focus value. `tileHint` bridges only the interval before a
+ *  newly-created terminal's retained metadata arrives. */
+export interface TerminalFocus {
+  id: TerminalId;
+  tileHint: TerminalId;
+}
+
+/** A terminal's live placement in the retained metadata collection. */
+export type TerminalPlacement =
+  | { kind: "missing" }
+  | { kind: "top-level" }
+  | { kind: "split"; parentId: TerminalId };
+
+/** Fold the one focus value to its containing top-level tile. Live placement
+ *  always overrides the write-time hint, so later re-parenting wins. */
 export function activeTileOf(
-  focusedId: TerminalId | null,
-  parentOf: (id: TerminalId) => TerminalId | null,
+  focus: TerminalFocus | null,
+  placementOf: (id: TerminalId) => TerminalPlacement,
 ): TerminalId | null {
-  if (focusedId === null) return null;
-  return parentOf(focusedId) ?? focusedId;
+  if (focus === null) return null;
+  return match(placementOf(focus.id))
+    .with({ kind: "missing" }, () => focus.tileHint)
+    .with({ kind: "top-level" }, () => focus.id)
+    .with({ kind: "split" }, ({ parentId }) => parentId)
+    .exhaustive();
 }

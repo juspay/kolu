@@ -115,7 +115,12 @@ one-to-one mapping between top-level rows and <code>Cmd+N</code> shortcuts.</spa
 <p>One per-host signal, <code>focusedTerminalId: TerminalId | null</code>, valid for any
 terminal — split or top-level. It is written only by verbs
 (<code>focusTerminal(id)</code>, <code>collapsePanel(parent)</code>), and everything the four faults
-mis-assembled becomes a derivation:</p>
+mis-assembled becomes a derivation:<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The implementation keeps exactly
+one written value, <code>{ id, tileHint }</code>, and exposes <code>focusedTerminalId()</code> as its
+public projection. <code>tileHint</code> bridges only the create-RPC → retained-metadata
+gap, preventing the active tile from flickering to a not-yet-published split;
+live placement always wins as soon as it arrives, so later re-parenting remains
+honest.</span></span></span></p>
 <ul>
 <li><strong>The active tile is a fold, not a second fact</strong>: <code>activeTileId = topLevelOf(focused)</code> via <code>parentId</code>. Parent row and sub-entry can never fight
 — the tile fact is <em>defined</em> as the ancestor of the focus fact, so “both lit
@@ -187,9 +192,9 @@ must behave exactly as on <code>master</code>. Then the edges: collapse the pane
 <code>Ctrl+Tab</code> / <code>Cmd+1..9</code> / <code>Cmd+F</code>, and a reload (same tile focused, panel
 state restored).</p>
 <p><strong>Done when</strong>: <code>focusTarget</code> and <code>getSubPanel</code> no longer exist in the client;
-<code>useDockFocus</code> is a single <code>focusTerminal</code> call; the nine
-<code>focusedTerminal.test.ts</code> cases from the reverted diff pass against the new
-derivation (including “asks with a READ, never seeding”); and the existing e2e
+<code>useDockFocus</code> is a single <code>focusTerminal</code> call; the six
+<code>focusedTerminal.test.ts</code> fold cases and the <code>useSubPanel.test.ts</code> transition
+cases pass against the new derivation; and the existing e2e
 contracts pass <strong>unmodified</strong> — the parent-keyed active row, the exact-<code>&quot;&quot;</code>
 assertion, the <code>[data-focused]</code> world contract.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The contracts:
 <code>dock.feature</code> “Active terminal carries a visible indicator”,

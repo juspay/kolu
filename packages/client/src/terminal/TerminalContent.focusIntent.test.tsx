@@ -2,7 +2,7 @@
 
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, type JSX } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

@@ -67,7 +67,7 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
       // than reaching through the active-host facade or a seeding UI store.
       const wire = createHostWire(host);
       return {
-        view: createViewState(host, wire.parentOf),
+        view: createViewState(host, wire.placementOf),
         prefs: createHostPrefs(host),
         camera: createCamera(),
         restore: createSessionRestore(),

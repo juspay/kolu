@@ -105,14 +105,6 @@ const TerminalContent: Component<{
     }
   }
 
-  function handleMainFocus() {
-    subPanel.focusMainPane(props.terminalId);
-  }
-
-  function handleSubFocus(subId: TerminalId) {
-    subPanel.focusVisibleSubPane(props.terminalId, subId);
-  }
-
   // Corvu reports physical collapsed/expanded transitions for controlled sizes;
   // those callbacks do not identify their source. Record an actual handle
   // gesture separately so only pointer/keyboard intent is allowed to move focus.
@@ -189,7 +181,7 @@ const TerminalContent: Component<{
             onSearchOpenChange={(open) =>
               search.setOpen(props.terminalId, open)
             }
-            onFocus={handleMainFocus}
+            onFocus={() => subPanel.focusMainPane(props.terminalId)}
             refocusNonce={panelState().refocusNonce}
           />
         </Resizable.Panel>
@@ -279,7 +271,9 @@ const TerminalContent: Component<{
                   theme={props.theme}
                   searchOpen={false}
                   onSearchOpenChange={() => {}}
-                  onFocus={() => handleSubFocus(subId)}
+                  onFocus={() =>
+                    subPanel.focusVisibleSubPane(props.terminalId, subId)
+                  }
                   refocusNonce={panelState().refocusNonce}
                   isSub
                 />

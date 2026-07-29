@@ -51,7 +51,12 @@ one-to-one mapping between top-level rows and `Cmd+N` shortcuts.</Footnote>
 One per-host signal, `focusedTerminalId: TerminalId | null`, valid for any
 terminal — split or top-level. It is written only by verbs
 (`focusTerminal(id)`, `collapsePanel(parent)`), and everything the four faults
-mis-assembled becomes a derivation:
+mis-assembled becomes a derivation:<Footnote>The implementation keeps exactly
+one written value, `{ id, tileHint }`, and exposes `focusedTerminalId()` as its
+public projection. `tileHint` bridges only the create-RPC → retained-metadata
+gap, preventing the active tile from flickering to a not-yet-published split;
+live placement always wins as soon as it arrives, so later re-parenting remains
+honest.</Footnote>
 
 - **The active tile is a fold, not a second fact**: `activeTileId =
   topLevelOf(focused)` via `parentId`. Parent row and sub-entry can never fight
@@ -138,9 +143,9 @@ must behave exactly as on `master`. Then the edges: collapse the panel
 state restored).
 
 **Done when**: `focusTarget` and `getSubPanel` no longer exist in the client;
-`useDockFocus` is a single `focusTerminal` call; the nine
-`focusedTerminal.test.ts` cases from the reverted diff pass against the new
-derivation (including "asks with a READ, never seeding"); and the existing e2e
+`useDockFocus` is a single `focusTerminal` call; the six
+`focusedTerminal.test.ts` fold cases and the `useSubPanel.test.ts` transition
+cases pass against the new derivation; and the existing e2e
 contracts pass **unmodified** — the parent-keyed active row, the exact-`""`
 assertion, the `[data-focused]` world contract.<Footnote>The contracts:
 `dock.feature` "Active terminal carries a visible indicator",

@@ -41,7 +41,11 @@ import {
 } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { perHostBoolPref } from "../persistedPref";
-import { activeTileOf } from "../terminal/focusedTerminal";
+import {
+  activeTileOf,
+  type TerminalFocus,
+  type TerminalPlacement,
+} from "../terminal/focusedTerminal";
 import { useVisitRecency } from "../terminal/visitRecency";
 import { padiMap } from "../wire";
 
@@ -62,8 +66,7 @@ export interface HostViewState {
   mruOrder: Accessor<TerminalId[]>;
   /** The single per-host focus write path. Active-tile side effects use the
    *  ancestor folded from this terminal. */
-  writeFocus: (id: TerminalId | null) => void;
-  writeSplitFocus: (parentId: TerminalId, id: TerminalId) => void;
+  writeFocus: (focus: TerminalFocus | null) => void;
   /** Seed empty host trail / reconcile live membership (order is seed-only). */
   reconcileLiveIds: (liveIds: readonly TerminalId[]) => void;
   /** Drop one terminal from the durable visit trail (kill path). */
@@ -85,13 +88,11 @@ export interface HostViewState {
 
 export function createViewState(
   host: HostKey,
-  parentOf: (id: TerminalId) => TerminalId | null,
+  placementOf: (id: TerminalId) => TerminalPlacement,
 ): HostViewState {
-  const [focusedTerminalId, setFocusedTerminalId] =
-    createSignal<TerminalId | null>(null);
-  const activeId = createMemo(() =>
-    activeTileOf(focusedTerminalId(), parentOf),
-  );
+  const [focus, setFocus] = createSignal<TerminalFocus | null>(null);
+  const focusedTerminalId = createMemo(() => focus()?.id ?? null);
+  const activeId = createMemo(() => activeTileOf(focus(), placementOf));
   const isFocused = createSelector(focusedTerminalId);
   const isActiveTile = createSelector(activeId);
   const [attention, setAttention] = createStore<
@@ -120,8 +121,9 @@ export function createViewState(
     fallback: false,
   });
 
-  function commitFocus(id: TerminalId | null, tileId: TerminalId | null): void {
-    setFocusedTerminalId(id);
+  function writeFocus(next: TerminalFocus | null): void {
+    setFocus(next);
+    const tileId = activeTileOf(next, placementOf);
     if (tileId === null) return;
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
     visits.noteVisit(host, tileId);
@@ -147,17 +149,6 @@ export function createViewState(
           `hostScope: failed to report active terminal ${tileId} to ${encoded}: ${err.message}`,
         );
       });
-  }
-
-  function writeFocus(id: TerminalId | null): void {
-    commitFocus(id, activeTileOf(id, parentOf));
-  }
-
-  /** Focus a split whose parent is already known by the panel boundary. This
-   *  keeps activation side effects on the containing tile even before the
-   *  retained metadata collection publishes the new split. */
-  function writeSplitFocus(parentId: TerminalId, id: TerminalId): void {
-    commitFocus(id, parentId);
   }
 
   function reconcileLiveIds(liveIds: readonly TerminalId[]): void {
@@ -187,7 +178,7 @@ export function createViewState(
     // the tiled posture (matching the pre-per-host `reset` clearing `canvasMaximized`);
     // `setCanvasMaximized(false)` also writes `"false"` through the boolPref, so the
     // persisted posture is floored too — a reload after a close-all stays tiled.
-    setFocusedTerminalId(null);
+    setFocus(null);
     visits.clearHost(host);
     setAttention(reconcile({}));
     setCanvasMaximized(false);
@@ -200,7 +191,6 @@ export function createViewState(
     isActiveTile,
     mruOrder,
     writeFocus,
-    writeSplitFocus,
     reconcileLiveIds,
     forgetFromMru,
     markUnread,

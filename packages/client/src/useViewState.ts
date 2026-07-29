@@ -77,12 +77,12 @@ export function useViewState() {
   function setActiveSilently(id: TerminalId | null): void {
     const scope = activeScope();
     if (!scope) return;
-    if (id !== null && scope.wire.parentOf(id) !== null) {
+    if (id !== null && scope.wire.placementOf(id).kind === "split") {
       throw new Error(
         `setActiveSilently: ${id} is a split; use focusTerminal instead`,
       );
     }
-    scope.view.writeFocus(id);
+    scope.view.writeFocus(id === null ? null : { id, tileHint: id });
   }
 
   /** Fire the "pan to the active tile" impulse for the CURRENT host without
