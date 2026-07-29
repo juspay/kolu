@@ -96,6 +96,15 @@ export async function readControlCoreHello(
       `unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
     );
   }
+  const buildIsPresent = hello.buildId !== undefined;
+  const commitIsPresent = hello.commit !== undefined;
+  const buildHasValue = Boolean(hello.buildId);
+  const commitHasValue = Boolean(hello.commit);
+  if (buildIsPresent !== commitIsPresent || buildHasValue !== commitHasValue) {
+    throw new Error(
+      "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
+    );
+  }
   return hello;
 }
 

@@ -40,9 +40,11 @@ export interface DaemonBuildIdentity {
 export function readBakedIdentity(prefix: string): DaemonBuildIdentity {
   const buildEnv = `${prefix}_BUILD_ID`;
   const commitEnv = `${prefix}_COMMIT_HASH`;
-  const staleKey = process.env[buildEnv] ?? "";
-  const navigableCommit = process.env[commitEnv] ?? "";
-  if (Boolean(staleKey) !== Boolean(navigableCommit)) {
+  const staleKey = process.env[buildEnv];
+  const navigableCommit = process.env[commitEnv];
+  const neitherBaked = staleKey === undefined && navigableCommit === undefined;
+  if (neitherBaked) return { staleKey: "", navigableCommit: "" };
+  if (!staleKey || !navigableCommit) {
     throw new Error(
       `incomplete baked identity: ${buildEnv} and ${commitEnv} must be set together`,
     );

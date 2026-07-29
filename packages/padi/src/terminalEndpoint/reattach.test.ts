@@ -29,6 +29,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // makes (`terminal.list`) to model a REPLACED, empty daemon; every other export
 // (buildTerminalSpawnInput, …) rides through untouched.
 const listEntries = vi.hoisted(() => ({ value: [] as PtyHostListEntry[] }));
+const logCalls = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+}));
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
   return {
@@ -40,6 +44,14 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
     },
   };
 });
+vi.mock("../log.ts", () => ({
+  log: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: logCalls.warn,
+    error: logCalls.error,
+  },
+}));
 
 import { inMemoryStore } from "@kolu/surface/server";
 import { setPadiLastPairedDaemonStore } from "../session/confStores.ts";
@@ -133,6 +145,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   await new Promise((r) => setTimeout(r, 0));
+  vi.unstubAllEnvs();
+  vi.clearAllMocks();
   clearRegistry();
   __resetPadiSurfaceCtxForTest();
 });
@@ -161,6 +175,26 @@ describe("adoptSurvivingSession — the session-clobber regression (PATH A)", ()
 
     expect(getTerminal(A_ID)?.meta.state).toBe("parked");
     expect(getTerminal(B_ID)?.meta.state).toBe("parked");
+  });
+});
+
+describe("adoptSurvivingSession — currency diagnostics", () => {
+  it("logs a connected status missing its required identity as an error", async () => {
+    vi.stubEnv("KAVAL_BUILD_ID", "expected-build");
+    vi.stubEnv("KAVAL_COMMIT_HASH", "expected-commit");
+    connectDaemon(1000);
+
+    await adoptSurvivingSession();
+
+    expect(logCalls.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: expect.objectContaining({
+          state: "connected",
+          identity: undefined,
+        }),
+      }),
+      "kaval currency: adopted daemon status has no identity",
+    );
   });
 });
 

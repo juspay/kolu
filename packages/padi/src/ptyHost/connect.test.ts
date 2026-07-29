@@ -69,7 +69,10 @@ function serveLegacy(socketPath: string): Promise<PtyHostSocketListener> {
   });
 }
 
-async function serveCurrent(socketPath: string) {
+async function serveCurrent(
+  socketPath: string,
+  opts: { controlStartedAtOffset?: number } = {},
+) {
   const savedBuildId = process.env.KAVAL_BUILD_ID;
   const savedCommit = process.env.KAVAL_COMMIT_HASH;
   process.env.KAVAL_BUILD_ID = "fragment-build";
@@ -83,8 +86,17 @@ async function serveCurrent(socketPath: string) {
     if (savedCommit === undefined) delete process.env.KAVAL_COMMIT_HASH;
     else process.env.KAVAL_COMMIT_HASH = savedCommit;
   }
+  const controlPtyHost = opts.controlStartedAtOffset
+    ? {
+        ...ptyHost,
+        boot: Object.freeze({
+          ...ptyHost.boot,
+          startedAt: ptyHost.boot.startedAt + opts.controlStartedAtOffset,
+        }),
+      }
+    : ptyHost;
   const runtime = serveKavalDaemonSurface({
-    ptyHost,
+    ptyHost: controlPtyHost,
     stateRoot: "/run/kaval-current",
   });
   const listener = await servePtyHostOverUnixSocket({
@@ -237,6 +249,23 @@ describe("connectKaval — identity comes only from frozen hello", () => {
       }
     } finally {
       listener.close();
+    }
+  });
+
+  it("rejects a current daemon whose two handshake surfaces name different boots", async () => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-connect-split-boot-")),
+      "pty-host.sock",
+    );
+    const listener = await serveCurrent(socketPath, {
+      controlStartedAtOffset: 1,
+    });
+    try {
+      await expect(connectKaval(socketPath)).rejects.toThrow(
+        /pty-host handshake failed — control-core reports boot .* but system\.version reports/,
+      );
+    } finally {
+      await listener.close();
     }
   });
 });

@@ -152,6 +152,11 @@ async function readKavalHandshake(
       `pty-host handshake failed — control-core reports surface ${hello.surfaceVersion} but system.version reports ${version.contractVersion}`,
     );
   }
+  if (hello !== undefined && hello.startedAt !== version.startedAt) {
+    throw new Error(
+      `pty-host handshake failed — control-core reports boot ${hello.startedAt} but system.version reports ${version.startedAt}`,
+    );
+  }
   if (
     !isContractVersionCompatible(
       reportedContractVersion,
@@ -182,8 +187,8 @@ async function readKavalHandshake(
 }
 
 /** Project the frozen optional fields into Kaval's established raw identity.
- * New daemons emit both; any older partial/absent payload is one honest unknown
- * fact, never a half-identity. The frozen wire itself remains unchanged. */
+ * The shared hello reader has already rejected a partial pair; absent or empty
+ * fields are one honest unknown fact. The frozen wire itself remains unchanged. */
 function projectKavalIdentity(hello: KavalControlHello): PtyHostIdentity {
   return hello.buildId && hello.commit
     ? { staleKey: hello.buildId, navigableCommit: hello.commit }

@@ -37,4 +37,17 @@ describe("readBakedIdentity", () => {
       "incomplete baked identity: IDENTITY_TEST_BUILD_ID and IDENTITY_TEST_COMMIT_HASH must be set together",
     );
   });
+
+  it.each([
+    ["both explicitly empty", "", ""],
+    ["empty build", "", "deadbeef"],
+    ["empty commit", "build-closure", ""],
+  ])("crashes when %s", (_label, build, commit) => {
+    vi.stubEnv(BUILD_ENV, build);
+    vi.stubEnv(COMMIT_ENV, commit);
+
+    expect(() => readBakedIdentity("IDENTITY_TEST")).toThrow(
+      "incomplete baked identity: IDENTITY_TEST_BUILD_ID and IDENTITY_TEST_COMMIT_HASH must be set together",
+    );
+  });
 });

@@ -273,7 +273,7 @@ export async function adoptSurvivingSession(): Promise<void> {
     status.identity === undefined &&
     expected
   ) {
-    log.warn(
+    log.error(
       { status },
       "kaval currency: adopted daemon status has no identity",
     );
