@@ -177,7 +177,7 @@ Drishti's UW3 PR then imports the same subpath: its own registry, its own watchd
 
 ## The plan
 
-Six PRs. UW0 opens — small and behavior-free. UW1 → UW2 → UW3 → UW4 is a strict chain — each needs the previous one's API. UW5 needs only UW2 and can land any time after it, in parallel with the rest. *(Status: UW0–UW3 and UW5 have landed; UW4 — the capstone — remains.)* Every phase updates the surface reference docs in the same PR and posts an odu-impact verdict.<Footnote>odu doesn't consume either package yet — `odu serve` (the parent note's S2) hasn't shipped. So verdicts will be `none` or `adoption-opportunity` for a while; the point of posting them anyway is that the ledger catches the exact moment that changes.</Footnote>
+Six PRs. UW0 opens — small and behavior-free. UW1 → UW2 → UW3 → UW4 is a strict chain — each needs the previous one's API. UW5 needs only UW2 and can land any time after it, in parallel with the rest. *(Status: UW0–UW5 landed — UW4 in <PrLink pr={2058} />.)* Every phase updates the surface reference docs in the same PR and posts an odu-impact verdict.<Footnote>odu doesn't consume either package yet — `odu serve` (the parent note's S2) hasn't shipped. So verdicts will be `none` or `adoption-opportunity` for a while; the point of posting them anyway is that the ledger catches the exact moment that changes.</Footnote>
 
 ### UW0 — daemonHome: where a daemon's files live, decided once
 
@@ -232,6 +232,8 @@ Landed drishti-side in [srid/drishti#128](https://github.com/srid/drishti/pull/1
 - With the daemon **not running** (drain it or wait out the idle timeout first — a live daemon holds the ring in memory and rewrites the file): `ssh <host> 'echo garbage > ~/.local/state/drishti/history.ring.json'`, reconnect: typed "history unavailable", file moved aside — never an empty chart.
 
 ### UW4 — re-land the gate change, without the brick
+
+Lands in <PrLink pr={2058} />.
 
 **TL;DR:** the gate file gains a second field (process start time — kills pid-reuse misidentification), governed by one law: **the first token of a gate file is the pid, in every generation, and readers ignore anything after it.** Restart then works across every upgrade *and* rollback boundary. This unblocks [OSF8](./os-facts-tool.html).
 
