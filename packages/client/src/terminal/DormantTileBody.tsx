@@ -60,7 +60,7 @@ const DormantTileBody: Component<{
       class="flex min-h-0 flex-1 select-none flex-col items-center justify-center gap-3 bg-[var(--moonlit-bg)] px-4 text-center text-[var(--moonlit-accent)]"
       // Moonlit palette flows from the single MOONLIT source as CSS custom
       // properties so the arbitrary-value classes (which can't read a JS const)
-      // and the hover state stay in sync with the minimap + RowPips ☾.
+      // and the hover state stay in sync with the minimap + Dock row ☾.
       style={{
         "--moonlit-bg": MOONLIT.bg,
         "--moonlit-accent": MOONLIT.accent,
