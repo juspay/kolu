@@ -335,6 +335,9 @@ When("I focus the Code tab content", async function (this: KoluWorld) {
 Then("the Code tab should be active", async function (this: KoluWorld) {
   // The Code tab button exposes data-active reflecting the active
   // tab, which is independent of in-repo vs no-repo content.
+  await this.page
+    .locator('[data-testid="right-panel-tab-code"][data-active]')
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await this.page.waitForFunction(
     () =>
       document
@@ -349,6 +352,9 @@ Then("the Code tab should be active", async function (this: KoluWorld) {
 });
 
 Then("the Inspector tab should be active", async function (this: KoluWorld) {
+  await this.page
+    .locator('[data-testid="right-panel-tab-inspector"][data-active]')
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await this.page.waitForFunction(
     () =>
       document
