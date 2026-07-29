@@ -375,6 +375,30 @@ describe("rankDockRows — split sub-entries", () => {
     ).toEqual([AGENT_SPLIT, PLAIN_SPLIT]);
   });
 
+  it("orders sibling splits needs-you first, then by recency", () => {
+    const blocked = "split-blocked" as TerminalId;
+    const newerBusy = "split-newer-busy" as TerminalId;
+    metas[blocked] = makeMeta({
+      agent: makeAgent("awaiting_user"),
+      lastActivityAt: 10,
+    });
+    metas[newerBusy] = makeMeta({
+      agent: makeAgent("thinking"),
+      lastActivityAt: 1_000,
+    });
+
+    expect(rank([newerBusy, blocked])[0]?.subRows.map((row) => row.id)).toEqual(
+      [blocked, newerBusy],
+    );
+  });
+
+  it("fails fast when a listed split has no metadata", () => {
+    const missing = "split-missing" as TerminalId;
+    expect(() => rank([missing])).toThrow(
+      `rankDockRows: split ${missing} was listed without terminal metadata`,
+    );
+  });
+
   it("classifies agentless splits as quiet rows", () => {
     expect(rank([PLAIN_SPLIT])[0]?.subRows[0]?.bucket).toBe("idle");
   });

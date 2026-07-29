@@ -58,6 +58,16 @@ import {
  *  dropped, so the activity-window selector compresses old dormant tiles too. */
 export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
 
+/** Values the ORDER fold can actually emit. `linger` is paint-only. */
+type DockOrderBucket = Exclude<DockRowBucket, "linger">;
+
+/** Values the PAINT fold can actually emit. A classless row paints `idle`. */
+type DockPaintBucket = Exclude<DockRowBucket, "none">;
+
+/** A split shares its parent's window fate, so it cannot independently park. */
+type SubDockOrderBucket = Exclude<DockOrderBucket, "parked">;
+type SubDockPaintBucket = Exclude<DockPaintBucket, "parked">;
+
 /** Tiebreak ordering for rows with equal `ts` (typically never-touched
  *  shells whose `lastActivityAt === null`). Pure-recency sort dominates
  *  everywhere else; this table only decides the order of rows that
@@ -99,8 +109,16 @@ function dockOverlayBucket(
 
 function classifyDockRow(
   meta: TerminalMetadata,
+  parked: false,
+): SubDockOrderBucket;
+function classifyDockRow(
+  meta: TerminalMetadata,
   parked: boolean,
-): DockRowBucket {
+): DockOrderBucket;
+function classifyDockRow(
+  meta: TerminalMetadata,
+  parked: boolean,
+): DockOrderBucket {
   const overlay = dockOverlayBucket(meta, parked);
   if (overlay) return overlay;
   // The agent-state core IS the shared needs-you projection, so the dock ranks
@@ -142,8 +160,22 @@ function classifyDockRow(
 export function paintDockRow(
   meta: TerminalMetadata,
   klass: AttentionClass,
+): SubDockPaintBucket;
+export function paintDockRow(
+  meta: TerminalMetadata,
+  klass: AttentionClass,
+  parked: false,
+): SubDockPaintBucket;
+export function paintDockRow(
+  meta: TerminalMetadata,
+  klass: AttentionClass,
+  parked: boolean,
+): DockPaintBucket;
+export function paintDockRow(
+  meta: TerminalMetadata,
+  klass: AttentionClass,
   parked: boolean = false,
-): DockRowBucket {
+): DockPaintBucket {
   // The overlay also runs in the paint fold so the two folds stay aligned by
   // construction — even though a parked pip never paints (`dockTree` drops the
   // row before it can reach a pip). Dormancy is a property of the TILE, not of
@@ -163,27 +195,33 @@ export function paintDockRow(
   return paint === "none" ? "idle" : paint;
 }
 
-/** A split's entry — a row that cannot itself carry splits, because splits do
- *  not nest. The invariant lives in the type rather than in a recursive row
- *  shape that every consumer would have to remember to stop traversing. */
-export type SubDockRow = {
+/** The neutral projection shared by every dock row. */
+type DockRowCore = {
   id: TerminalId;
   /** The ORDER bucket — read through `DOCK_ROW_BUCKET_PRIORITY` by BOTH sorts
    *  that touch a row: this module's `ts`-tiebreak below, and `dockTree.ts`'s
    *  blocked-first leg for top-level rows. Also the `data-bucket` attribute /
    *  rail-glow. Reads `agentUrgency`, so `waiting` is `idle` here (it does not
    *  float into the needs-you order). */
-  bucket: DockRowBucket;
+  bucket: DockOrderBucket;
   /** The PIP bucket — drives the row's `StatePip` colour, decoupled from order
    *  so it reads identically to the tile title's pip. Reads the terminal's
    *  ATTENTION CLASS (the same value its motion and every count read), so a
    *  fresh `waiting` agent is `linger` here — it keeps a dim glow while the
    *  ORDER bucket ranks it idle. */
-  pip: DockRowBucket;
+  pip: DockPaintBucket;
   ts: number | null;
 };
 
-export type RankedDockRow = SubDockRow & {
+/** A split's entry — it cannot itself carry splits because splits do not nest.
+ * The type is deliberately private: consumers receive it only through its
+ * parent's `subRows`, keeping the hierarchy as one validated product. */
+type SubDockRow = Omit<DockRowCore, "bucket" | "pip"> & {
+  bucket: SubDockOrderBucket;
+  pip: SubDockPaintBucket;
+};
+
+export type RankedDockRow = DockRowCore & {
   /** Every split inside this terminal, as an indented dock sub-entry. Plain
    *  shells render label + landing only; agent-bearing splits additionally
    *  render their pip and attention wash. */
@@ -268,7 +306,11 @@ function rankSubRows(
   const rows: SubDockRow[] = [];
   for (const id of subIds) {
     const meta = getMeta(id);
-    if (!meta) continue;
+    if (!meta) {
+      throw new Error(
+        `rankDockRows: split ${id} was listed without terminal metadata`,
+      );
+    }
     rows.push({
       id,
       bucket: classifyDockRow(meta, false),
@@ -276,13 +318,23 @@ function rankSubRows(
       ts: rowRecencyAt(meta),
     });
   }
-  rows.sort(byRecencyThenBucket);
+  rows.sort(byBucketThenRecency);
   return rows;
 }
 
-function byRecencyThenBucket(a: SubDockRow, b: SubDockRow): number {
+function byRecencyThenBucket(
+  a: Pick<DockRowCore, "bucket" | "ts">,
+  b: Pick<DockRowCore, "bucket" | "ts">,
+): number {
   if (a.ts !== b.ts) return tsRank(b.ts) - tsRank(a.ts);
   return (
     DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket]
   );
+}
+
+/** Needs-you first for sibling splits, then newest within the same urgency. */
+function byBucketThenRecency(a: SubDockRow, b: SubDockRow): number {
+  const urgency =
+    DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket];
+  return urgency !== 0 ? urgency : tsRank(b.ts) - tsRank(a.ts);
 }

@@ -589,14 +589,7 @@ const RepoSection: Component<{
               flatIndex={props.flatIndexOf.get(row.id) ?? -1}
             />
             <For each={row.subRows}>
-              {(sub) => (
-                <SubTerminalRow
-                  id={sub.id}
-                  parentId={row.id}
-                  bucket={sub.bucket}
-                  pip={sub.pip}
-                />
-              )}
+              {(sub) => <SubTerminalRow row={sub} onSelect={focus} />}
             </For>
           </>
         )}

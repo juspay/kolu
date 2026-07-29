@@ -149,18 +149,25 @@ export const useTerminalStore = createSharedRoot(() => {
     if (id !== null) view.requestCenterActive();
   }
 
-  /** Land on any terminal. A top-level landing restores its visible pane; a
-   *  split landing first makes that split the visible remembered tab. */
-  function focusTerminal(id: TerminalId): void {
+  /** Land on any terminal without asking a canvas to pan. A top-level landing
+   *  restores its visible pane; a split landing first makes that split the
+   *  visible remembered tab. Touch layouts use this verb because they own no
+   *  canvas, while desktop composes centering below. */
+  function focusTerminalSilently(id: TerminalId): void {
     const record = metadata.getMetadata(id);
     if (!record)
-      throw new Error(`focusTerminal: no terminal metadata for ${id}`);
+      throw new Error(`focusTerminalSilently: no terminal metadata for ${id}`);
     const parentId = record.parentId ?? null;
     if (parentId === null) {
-      activate(id);
+      setActiveSilently(id);
       return;
     }
     subPanel.focusSubTab(parentId, id);
+  }
+
+  /** Land on any terminal and ask the desktop canvas to center its tile. */
+  function focusTerminal(id: TerminalId): void {
+    focusTerminalSilently(id);
     view.requestCenterActive();
   }
 
@@ -181,7 +188,9 @@ export const useTerminalStore = createSharedRoot(() => {
     setActiveSilently,
     // The input-routing target (tile root, or its focused split).
     focusedId,
-    // The one landing verb for either a top-level terminal or a split.
+    // Landing verbs for either a top-level terminal or a split: touch-safe
+    // without panning, or desktop with a centering request.
+    focusTerminalSilently,
     focusTerminal,
     // WebGL budget: whether a terminal should hold a WebGL renderer (#1403).
     holdsWebgl,

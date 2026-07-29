@@ -1,16 +1,20 @@
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
+import type { RankedDockRow } from "./dockRowRanking";
 import { buildDockTree } from "./dockTree";
 
-function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
+function row(
+  id: string,
+  bucket: RankedDockRow["bucket"],
+  ts: number,
+): RankedDockRow {
   // dockTree only reads `bucket`/`ts`; the pip is exercised in dockRowRanking's
   // own tests, so mirror the order bucket here.
   return {
     id: id as TerminalId,
     bucket,
-    pip: bucket,
+    pip: "idle",
     ts,
     subRows: [],
   };

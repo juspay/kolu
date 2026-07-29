@@ -44,10 +44,7 @@ import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockOrder } from "./useDockOrder";
 import { useSectionAttention } from "./useSectionAttention";
 
-export function DockList(props: {
-  onSelect: (id: TerminalId) => void;
-  onSubSelected?: () => void;
-}) {
+export function DockList(props: { onSelect: (id: TerminalId) => void }) {
   const tree = useDockOrder();
   return (
     <>
@@ -60,11 +57,7 @@ export function DockList(props: {
         <div class="flex flex-col gap-2.5 p-2">
           <For each={tree().groups}>
             {(group) => (
-              <DockListSection
-                group={group}
-                onSelect={props.onSelect}
-                onSubSelected={props.onSubSelected}
-              />
+              <DockListSection group={group} onSelect={props.onSelect} />
             )}
           </For>
         </div>
@@ -87,7 +80,6 @@ export function DockList(props: {
 function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
-  onSubSelected?: () => void;
 }) {
   // Same shared fold as the desktop header — the two headers cannot count
   // differently. Capsules stay plain spans here (no jump handlers): the rows
@@ -154,12 +146,9 @@ function DockListSection(props: {
             <For each={row.subRows}>
               {(sub) => (
                 <SubTerminalRow
-                  id={sub.id}
-                  parentId={row.id}
-                  bucket={sub.bucket}
-                  pip={sub.pip}
+                  row={sub}
                   padClass="py-2"
-                  onSelected={props.onSubSelected}
+                  onSelect={props.onSelect}
                 />
               )}
             </For>

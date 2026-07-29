@@ -176,10 +176,9 @@ const MobileTileView: Component<{
               <div data-testid="mobile-dock-sheet" class="flex flex-col h-full">
                 <DockList
                   onSelect={(id) => {
-                    store.setActiveSilently(id);
+                    store.focusTerminalSilently(id);
                     onDockOpenChange(false);
                   }}
-                  onSubSelected={() => onDockOpenChange(false)}
                 />
               </div>
             </Drawer.Content>

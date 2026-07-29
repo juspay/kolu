@@ -17,55 +17,53 @@ import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
 import { dockRowAttrs } from "./dockRowAttrs";
-import type { DockRowBucket } from "./dockRowRanking";
+import type { RankedDockRow } from "./dockRowRanking";
 
 export const SubTerminalRow: Component<{
-  id: TerminalId;
-  parentId: TerminalId;
-  bucket: DockRowBucket;
-  pip: DockRowBucket;
+  row: RankedDockRow["subRows"][number];
+  onSelect: (id: TerminalId) => void;
   padClass?: string;
-  onSelected?: () => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const meta = () => store.getMetadata(props.id);
-  const unread = () => store.isUnread(props.id);
+  const meta = () => store.getMetadata(props.row.id);
+  const unread = () => store.isUnread(props.row.id);
   const label = () => {
     const value = meta();
     return value
       ? annotationLine(value.intent, cwdBasename(value.cwd))
       : "terminal";
   };
-  const open = () => {
-    store.focusTerminal(props.id);
-    props.onSelected?.();
-  };
-
   return (
     <Show when={meta()}>
       {(m) => {
+        const parentId = m().parentId;
+        if (!parentId) {
+          throw new Error(
+            `SubTerminalRow: ${props.row.id} has no parent terminal`,
+          );
+        }
         const agent = () => activeArm(m())?.agent;
         const pip = useStatePip(
           encActiveHost,
-          () => props.id,
+          () => props.row.id,
           m,
           unread,
-          () => props.pip,
+          () => props.row.pip,
         );
         return (
           <button
             type="button"
             data-testid="dock-sub-row"
             {...dockRowAttrs({
-              id: props.id,
-              bucket: props.bucket,
+              id: props.row.id,
+              bucket: props.row.bucket,
               agentState: agent()?.state,
               asking: agent() ? pip().asking : false,
               unread: agent() ? unread() : false,
             })}
-            data-parent-id={props.parentId}
+            data-parent-id={parentId}
             class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.padClass ?? "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
-            onClick={open}
+            onClick={() => props.onSelect(props.row.id)}
             title="Jump to this split"
           >
             <span
