@@ -363,6 +363,18 @@ test-quick *args: install
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
+# Dev-mode smoke: boot `just dev` on random ports, load Kolu in a real browser,
+# fail on any console error. The ONLY check that exercises the DEV module graph
+# — `just test` and `just test-quick` both run a production bundle, which is
+# tree-shaken, and tree-shaking is exactly what hid kolu#2042 (a `node:fs`
+# import reached through a package barrel: `nix build` green, dev server dead).
+# See packages/tests/devSmoke.ts.
+test-dev: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd packages/tests
+    {{ nix_shell_e2e }} pnpm test:dev-smoke
+
 # Capture marketing screencasts (KOLU_X11CAP): headful Chrome at 2x under Xvfb,
 # grabbed by `ffmpeg -f x11grab`, transcoded into website/public/demo/. Per do.md
 # this is meant to run on a pu box. Layers the screencast nix deps (ffmpeg-full +

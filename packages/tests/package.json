@@ -15,6 +15,7 @@
   },
   "scripts": {
     "test": "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui",
+    "test:dev-smoke": "node --import tsx ./devSmoke.ts",
     "test:unit": "node --import tsx --test support/scenarioSetupRetry.test.ts"
   }
 }

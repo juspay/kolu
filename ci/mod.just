@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -161,6 +161,20 @@ home-manager: nix
 # runtime proof.
 smoke: nix
     {{ nix_shell }} bash .apm/skills/ci/smoke.sh
+
+# `smoke`'s dev-mode twin. `smoke` boots the PACKAGED binary; this one boots
+# `just dev` and asserts the browser console is clean — the only node that
+# exercises Vite's DEV module graph, which is untree-shaken and therefore the
+# only place a server-only module reached through a package barrel is visible
+# (kolu#2042: `node:fs` in the browser, `nix build` and the whole e2e suite
+# green, `just dev` dead on load).
+#
+# Needs no `nix build`, so it does NOT depend on `nix` — it runs from source
+# like `unit` does. `--no-deps`: ci::install already installed the workspace,
+# and a second concurrent `pnpm install` corrupts the shared node_modules/.bin
+# (see the funnel rule at the top of this file).
+dev-smoke: install
+    {{ nix_shell }} just --no-deps test-dev
 
 # `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
 # `nix` as well as the shared pnpm install so that build is an already-realized
