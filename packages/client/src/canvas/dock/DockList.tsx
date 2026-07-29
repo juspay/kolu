@@ -34,10 +34,10 @@ import {
 import RepoMonogram from "../../ui/RepoMonogram";
 import { encActiveHost } from "../../wire";
 import { dockRowAttrs } from "./dockRowAttrs";
-import type { DockRowBucket } from "./dockRowRanking";
+import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell, { recencyMode } from "./RecencyCell";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
 import { rowSubline } from "./rowSubline";
@@ -190,6 +190,7 @@ function DockListRow(props: {
           unread,
           () => props.pip,
         );
+        const mode = () => recencyMode(pip());
         return (
           // Row is `<div role="button">` rather than `<button>` so the
           // `<a>` PR pip on line 2 stays valid HTML (no `<a>` inside
@@ -248,9 +249,13 @@ function DockListRow(props: {
             {/* Recency — hidden while active; width reserved. Blocked rows
              *  show the violet wait chip instead (see RecencyCell). */}
             <RecencyCell
-              recencyAt={props.recencyAt}
+              recencyAt={displayRecencyAt(
+                mode(),
+                props.recencyAt,
+                rowRecencyAt(c().meta),
+              )}
               textSize="text-[0.65rem]"
-              mode={recencyMode(pip())}
+              mode={mode()}
             />
             {/* Second line — flex row spanning the branch column → end.
              *  PR pip on the left (anchored to the branch column's left

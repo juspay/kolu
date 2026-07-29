@@ -113,10 +113,10 @@ import {
   setDockCardsWidth,
 } from "./dockCardsWidth";
 import { dockRowAttrs } from "./dockRowAttrs";
-import type { DockRowBucket } from "./dockRowRanking";
+import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell, { recencyMode } from "./RecencyCell";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
 import { rowSubline } from "./rowSubline";
@@ -664,6 +664,7 @@ const DockRow: Component<{
           unread,
           () => props.pip,
         );
+        const mode = () => recencyMode(pip());
         return (
           // Row is `<div role="button">` rather than `<button>` so the
           // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
@@ -720,9 +721,13 @@ const DockRow: Component<{
              *  row it flips to the violet WAIT chip: how long the agent has
              *  waited on you IS the signal (a 20 h wait must be legible). */}
             <RecencyCell
-              recencyAt={props.recencyAt}
+              recencyAt={displayRecencyAt(
+                mode(),
+                props.recencyAt,
+                rowRecencyAt(c().meta),
+              )}
               textSize="text-[0.6rem]"
-              mode={recencyMode(pip())}
+              mode={mode()}
             />
             <Show when={showShortcutHint()}>
               <span
