@@ -11,7 +11,7 @@ import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { z } from "zod";
 import { connectKaval } from "../ptyHost/connect.ts";
-import { silentLog } from "../silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/surface-remote/loggerStubs.testutil";
 import { PTY_HOST_CONTRACT_VERSION } from "kaval";
 
 const skewSurface = defineSurface({

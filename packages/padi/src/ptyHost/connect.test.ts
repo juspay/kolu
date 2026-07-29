@@ -40,7 +40,7 @@ import {
   isNoListenerError,
   probeKavalForConvergence,
 } from "./connect.ts";
-import { silentLog } from "../silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/surface-remote/loggerStubs.testutil";
 
 const legacyVersionOnlyContract = oc.router({
   surface: {

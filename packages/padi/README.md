@@ -41,8 +41,10 @@ The package graduated to a **process**: `package = process = restart-hash`.
   (`./daemonMain`): resolve the state-root → serve `padiSurface` + the frozen
   control core over a unix socket → adopt-or-spawn padi's OWN kaval → reconcile
   the saved session → stay up until drained. The Nix wrapper runs it as
-  `node --import <tsx loader> bin.ts` with a `PADI_BUILD_ID` staleKey (a content
-  hash of padi's daemon source closure — pinned by `buildId.closure.test.ts`).
+  `node --import <tsx loader> bin.ts` with the joint `PADI_BUILD_ID` staleKey
+  (a content hash of padi's daemon source closure — pinned by
+  `buildId.closure.test.ts`) and `PADI_COMMIT_HASH` navigable source identity.
+  The pair is both-or-neither; a half-baked identity crashes at boot.
 - **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
   root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
   (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not

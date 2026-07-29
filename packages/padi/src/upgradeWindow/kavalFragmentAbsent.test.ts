@@ -17,7 +17,7 @@ import {
 } from "kaval";
 import { expect, it } from "vitest";
 import { probeKavalForConvergence } from "../ptyHost/connect.ts";
-import { silentLog } from "../silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/surface-remote/loggerStubs.testutil";
 import { padiYesterdayDaemonOptions } from "./yesterdayDaemon.fixture.testlib.ts";
 
 describeDaemon("yesterday kaval without the frozen fragment", () => {

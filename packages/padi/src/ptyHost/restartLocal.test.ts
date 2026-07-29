@@ -32,7 +32,7 @@ import {
   unfreezeAutosave,
 } from "../session/autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
-import { silentLog } from "../silentLogger.testlib.ts";
+import { silentLogger as silentLog } from "@kolu/surface-remote/loggerStubs.testutil";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -216,7 +216,7 @@ async function realEndpoint(recycleMs: number) {
     },
     connect: async () => ({
       client: makeClient(),
-      identity: undefined as undefined,
+      identity: { staleKey: "", navigableCommit: "" },
       startedAt: Date.now(),
       metadata: { contractVersion: "test" },
       dispose: () => {},

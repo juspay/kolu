@@ -47,11 +47,12 @@ export { isNoListenerError };
 
 /** A live daemon from before the frozen fragment gets the honest-unknown raw
  * identity (both fields empty), never the legacy `system.version.identity`.
- * The endpoint's identity remains optional at the shared status boundary so an
- * older padi's pre-identity survivor can still be represented. */
+ * Current padi connections therefore always carry an identity. The published
+ * wire status remains optional at its compatibility boundary so an older padi's
+ * pre-identity survivor can still be decoded. */
 export type KavalConnection = DaemonConnection<
   PtyHostClient,
-  PtyHostIdentity | undefined,
+  PtyHostIdentity,
   KavalConnectionMetadata
 >;
 
