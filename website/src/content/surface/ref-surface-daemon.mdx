@@ -23,11 +23,19 @@ identify and drain a resident daemon before knowing whether that versioned
 surface is compatible. The hello fields are fixed:
 `stateRoot · surfaceVersion · controlCoreVersion · startedAt · commit · buildId`.
 `CONTROL_CORE_VERSION` is frozen at `"1.0"`; it is not an application contract
-version.
+version. Build id and commit are one observation: the shared reader accepts both
+absent, both empty (off-Nix), or both non-empty, and rejects every partial pair
+before convergence policy runs.
+
+The wire says only `drain(): void`; it does not promise that every daemon is
+drainable. A daemon whose durable state cannot survive a drain implements the
+verb as an honest typed refusal (kaval throws `PRECONDITION_FAILED`) and declares
+the supervisor capability `not-drainable`, which makes policy-driven invocation
+unrepresentable. The refusal must leave the daemon and its owned resources alive.
 
 | Export | Role |
 | --- | --- |
-| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain` |
+| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain`; a not-drainable daemon's callback throws a typed refusal without exiting |
 | `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment contract, plus the spec seam for a daemon retaining extra frozen members |
 | `ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION` | immutable wire vocabulary |
 
@@ -219,7 +227,11 @@ drops the link.
 
 `readBakedIdentity(prefix)` reads a Nix-baked env pair
 (`<PREFIX>_BUILD_ID` / `<PREFIX>_COMMIT_HASH`) into `{ staleKey, navigableCommit }`,
-and returns empty strings off-nix rather than inventing an identity. See
+and returns empty strings when both variables are absent off-nix rather than
+inventing an identity. The pair is joint: both variables must contain non-empty
+values or both must be absent; a half-baked or explicitly empty baked identity
+throws at daemon boot because a Nix build id without its knowable commit (or the
+reverse) is contradictory. See
 [How to bake an identity](/surface/bake-an-identity).
 
 <Aside type="note" title="Two convergence axes live here">

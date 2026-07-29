@@ -367,7 +367,7 @@ export const DEFAULT_PADI_STATUS: PadiStatus = {};
 // second padi at another state-root) is visible AT A GLANCE. (srid hit this dogfooding
 // W2.2: a leaked pre-W2.2 kaval was invisible in the UI — only a `kaval-tui: more than
 // one kaval daemon is running` CLI error surfaced it.) Read-only enumeration: scan the
-// runtime dir, read each gate pid, best-effort probe status — it NEVER kills/reaps.
+// runtime dir, read each gate pid, read-only probe status — it NEVER kills/reaps.
 //
 // These live HERE, in @kolu/padi's browser-safe surface vocabulary, because padi OWNS
 // the daemon domain (it discovers, adopts, and supervises the host's daemons — a kaval
@@ -392,13 +392,13 @@ export const RunningKavalSchema = z.object({
   kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
   /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
   gatePid: z.number().int().nullable(),
-  /** Live terminal count from a best-effort `terminal.list` probe, or null when the
-   *  probe failed / the daemon didn't answer (never a fake 0). */
+  /** Live terminal count from `terminal.list`, or null when the listener is honestly
+   *  absent (never a fake 0 and never a swallowed protocol failure). */
   terminalCount: z.number().int().nullable(),
-  /** The kaval's build commit (`navigableCommit`) from a best-effort `system.version`
-   *  probe, or null when unreadable. */
+  /** The kaval's build commit from the frozen `control.core.hello` identity fragment,
+   *  or null for honest unknown (pre-fragment/off-Nix) or an absent listener. */
   buildCommit: z.string().nullable(),
-  /** The pty-host contract version from the probe, or null when unreadable. */
+  /** The pty-host contract version, or null when the listener is honestly absent. */
   contractVersion: z.string().nullable(),
   /** Whether the scanning host's kolu ACTIVELY owns this kaval ("in use by kolu"), and —
    *  when it does — whether it sits at the pre-padi LEGACY `kaval-<port>/` address (padi

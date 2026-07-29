@@ -41,8 +41,11 @@ The package graduated to a **process**: `package = process = restart-hash`.
   (`./daemonMain`): resolve the state-root → serve `padiSurface` + the frozen
   control core over a unix socket → adopt-or-spawn padi's OWN kaval → reconcile
   the saved session → stay up until drained. The Nix wrapper runs it as
-  `node --import <tsx loader> bin.ts` with a `PADI_BUILD_ID` staleKey (a content
-  hash of padi's daemon source closure — pinned by `buildId.closure.test.ts`).
+  `node --import <tsx loader> bin.ts` with the joint `PADI_BUILD_ID` staleKey
+  (a content hash of padi's daemon source closure — pinned by
+  `buildId.closure.test.ts`) and `PADI_COMMIT_HASH` navigable source identity.
+  The pair is both-or-neither: both values are non-empty or both variables are
+  absent; a half-baked or explicitly empty baked identity crashes at boot.
 - **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
   root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
   (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not
@@ -69,6 +72,13 @@ private state-root, dialed over its socket, handshakes the control core and
 round-trips a terminal through its own kaval — and two padis at distinct
 state-roots stay isolated. *(kolu-server binds this process in stage 2 — the
 cutover.)*
+
+Padi also reads its kaval's build identity through that same frozen control
+fragment, before touching the versioned pty-host surface. A surviving kaval
+from before the fragment has a served socket but no identity route: padi treats
+that structured route absence as an older build and reports the existing
+update nudge. Only an honest missing listener becomes a null probe; other probe
+failures stay loud.
 
 ## W3.1 — the remote binding: padiSurface over ssh
 

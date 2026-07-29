@@ -330,11 +330,9 @@ describe("padiSurface contract", () => {
       buildId: "cafef00d",
     };
     expect(PadiHelloSchema.parse(hello)).toEqual(hello);
-    // `commit` AND `buildId` are OPTIONAL — a survivor padi predating either field
-    // omits it and STILL handshakes (its hello validates), so the bind never breaks.
-    // (An absent `buildId` is read by a nix-built binder as an older build → drained;
-    // that policy lives in padiBinding, not the schema — the schema only proves the
-    // handshake never fails on the missing field.)
+    // `commit` AND `buildId` are OPTIONAL as one pair — a survivor predating the pair
+    // omits both and its wire shape still validates. The shared hello reader rejects a
+    // one-sided pair before convergence; the schema remains the frozen decoder.
     const helloNoBuildFields = {
       stateRoot: "/home/u/.local/state/padi",
       surfaceVersion: PADI_SURFACE_VERSION,

@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { expect, it, vi } from "vitest";
 
 // Mock the primitive so `createPtyHost().spawn` throws synchronously. Only the
@@ -30,14 +31,6 @@ vi.mock("./ptyHost.ts", () => ({
 }));
 
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
-import type { Logger } from "@kolu/surface-daemon";
-
-const silentLog: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-};
 
 describeDaemon(
   "spawn handler — init-file rollback on host.spawn failure",

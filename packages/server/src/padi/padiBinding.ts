@@ -63,6 +63,7 @@ import {
   DAEMON_BIND_PID_ENV,
   gatePid,
   isHolderLive,
+  readBakedIdentity,
 } from "@kolu/surface-daemon";
 import {
   buildLabel,
@@ -174,10 +175,11 @@ export function daemonEnv(
   // nothing, leaving its kaval-currency check (`expectedKaval`, terminalEndpoint/
   // reattach.ts) reading "" so the "update available" nudge can never fire. Forward
   // kolu-server's own baked value so dev matches production.
-  if (process.env.KAVAL_BUILD_ID)
-    env.KAVAL_BUILD_ID = process.env.KAVAL_BUILD_ID;
-  if (process.env.KAVAL_COMMIT_HASH)
-    env.KAVAL_COMMIT_HASH = process.env.KAVAL_COMMIT_HASH;
+  const kavalIdentity = readBakedIdentity("KAVAL");
+  if (kavalIdentity.staleKey) {
+    env.KAVAL_BUILD_ID = kavalIdentity.staleKey;
+    env.KAVAL_COMMIT_HASH = kavalIdentity.navigableCommit;
+  }
   // Agent-detection dir/db OVERRIDES that padi's sensors read from their own env (via
   // the `@kolu/integrations-*` agent packages — codex/claude-code/grok/opencode) to
   // LOCATE agent session state. Unset in production, where they default to `~/.codex`,

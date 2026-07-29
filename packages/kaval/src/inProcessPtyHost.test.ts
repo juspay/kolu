@@ -14,6 +14,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { expect, it } from "vitest";
 import {
   drainForOverflow,
@@ -25,15 +26,6 @@ import {
   type PtyHostClient,
 } from "./inProcessPtyHost.ts";
 import { nextFrame } from "./streamFrame.testlib.ts";
-import type { Logger } from "@kolu/surface-daemon";
-
-const silentLog: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-};
-
 function makeClient(opts?: { dataMaxQueue?: number }): PtyHostClient {
   return createInProcessPtyHost({
     log: silentLog,

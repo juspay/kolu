@@ -38,14 +38,17 @@ export type KavalAttention =
   | ({ kind: "incompatible" } & KavalSkewVersions);
 
 /** True when the running daemon is provably a build behind the kaval the server
- *  would spawn (B3.4 — "update pending"): it's `connected`, both build-ids are
- *  known (non-empty), and they differ.
+ *  would spawn (B3.4 — "update pending"): it's `connected`, the expected build
+ *  is known, and the running build differs OR is absent. A missing running id
+ *  means the daemon predates the frozen identity fragment — by the #1671 rule,
+ *  absent means older, never "can't compare, adopt".
  *
  *  Keyed on the closure-hash `staleKey` — the `expected` from padiSurface's
  *  `status.expectedKaval` cell, the `reported` from the connected daemon's
  *  `daemonStatus.identity` — NEVER the per-deploy `navigableCommit`, so a
  *  server-/client-only deploy (which leaves kaval's staleKey bit-identical) never
- *  nudges (#1034). Off-nix both ids are "" (nix-first, no dev fallback) → silent.
+ *  nudges (#1034). An off-nix expected id is still silent; only a nix-built
+ *  supervisor can assert that an absent/off-nix running identity is older.
  *  The `connected` gate excludes the transient/down states, which carry no
  *  reported identity to compare. Orthogonal to `DaemonState` — a build-behind
  *  daemon is honestly `connected`, so this is a SECOND axis, not a state.
@@ -56,11 +59,12 @@ export type KavalAttention =
  *  can't be re-minted. */
 function kavalStale(
   expected: string | undefined,
-  reported: string | undefined,
-  state: DaemonStatus["state"] | undefined,
+  status: DaemonStatus | undefined,
 ): boolean {
   return (
-    state === "connected" && !!expected && !!reported && expected !== reported
+    status?.state === "connected" &&
+    !!expected &&
+    expected !== status.identity?.staleKey
   );
 }
 
@@ -86,8 +90,7 @@ export function kavalAttention(
       requiredVersion: status.requiredVersion,
     };
   }
-  const reported = status.identity?.staleKey;
-  if (kavalStale(expected, reported, status.state)) {
+  if (kavalStale(expected, status)) {
     return { kind: "stale" };
   }
   return { kind: "none" };

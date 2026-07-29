@@ -16,18 +16,11 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { DaemonExit, Logger } from "@kolu/surface-daemon";
+import type { DaemonExit } from "@kolu/surface-daemon";
 import { afterEach, describe, expect, it } from "vitest";
 import { runKavalDaemon } from "./daemonMain.ts";
 import { KAVAL_GATE_FILE, writeStateRootManifest } from "./socketPath.ts";
-
-const silentLog = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLog,
-} as unknown as Logger;
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));

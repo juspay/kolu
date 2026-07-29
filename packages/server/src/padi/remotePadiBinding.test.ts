@@ -52,7 +52,7 @@ import {
   type SessionState,
   type SshProv,
 } from "@kolu/surface-remote";
-import { collectLogger } from "@kolu/surface-remote/loggerStubs.testutil";
+import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PadiSession } from "./padiSession.ts";
@@ -834,15 +834,20 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(handles[1]!.drainCount).toBe(1);
   });
 
-  it("ABSENT buildId (a pre-field survivor) → drains as an older build", async () => {
+  it("ABSENT identity pair (a pre-field survivor) → drains as an older build", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
     });
-    // A hello with NO buildId field (`undefined`) — `?? ""` folds it to off-nix, which
-    // never matches the binder's known id, so it drains (a pre-field padi is an older
-    // build). Omit it via override rather than `delete` (noDelete).
-    const h = { ...helloVals({ startedAt: 1000 }), buildId: undefined };
+    // A hello with neither identity field — `?? ""` folds the honest unknown pair to
+    // off-nix, which never matches the binder's known id, so it drains (a pre-field padi
+    // is an older build). The fields entered the frozen schema together; a one-sided
+    // payload is contradictory, not a historical generation.
+    const h = {
+      ...helloVals({ startedAt: 1000 }),
+      buildId: undefined,
+      commit: undefined,
+    };
     enqueue(serve(h));
     const p = session.pin();
     p.catch(() => {});

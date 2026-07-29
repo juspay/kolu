@@ -14,7 +14,7 @@
  * is unref'd, which is exactly the exit window.
  */
 import { makeSession } from "./session.ts";
-import { silentLogger } from "./loggerStubs.testutil.ts";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 
 const session = makeSession<{ hello: () => Promise<void> }>({
   initialConnection: "connecting",

@@ -18,7 +18,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { silentLogger } from "./loggerStubs.testutil";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import {
   type ClosedInfo,
   type ConnectContext,

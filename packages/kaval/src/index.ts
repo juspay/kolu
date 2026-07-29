@@ -46,6 +46,7 @@ export {
 export {
   createInProcessPtyHost,
   type InProcessPtyHostDeps,
+  type PtyHostBoot,
   type PtyHostClient,
   type PtyHostRouter,
   servePtyHost,
@@ -102,6 +103,14 @@ export {
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
 } from "./serveOverSocket.ts";
+// The standalone daemon's additive wire: historic flat pty-host paths plus the
+// frozen control-core sibling. Exported for the supervisor's combined client
+// type; ordinary pty-host consumers keep using `ptyHostSurface` unchanged.
+export {
+  type KavalDaemonRouter,
+  kavalDaemonContract,
+  serveKavalDaemonSurface,
+} from "./daemonSurface.ts";
 // The well-known unix-socket path the pty-host is served on (kolu-server) and
 // connected to (kaval-tui) — one resolver both packages share so the default
 // path can never drift between them.

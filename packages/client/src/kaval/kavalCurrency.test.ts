@@ -2,8 +2,9 @@
  *  the ONE joined derivation nudges, and on which axis.
  *
  *  Mirrors surface-app's `clientIsStale` test: the falsifiable proof the
- *  currency nudge fires ONLY for a connected daemon whose reported staleKey
- *  provably differs from the server's expected build, and stays silent on every
+ *  currency nudge fires for a connected daemon whose reported staleKey differs
+ *  from the server's expected build OR is absent (the #1671 older-daemon arm),
+ *  and stays silent on every
  *  #1034 over-prompting trap (a matching build, an off-nix "" id on either
  *  side, a transient/down state). Plus the SK5 axis rules: the `incompatible`
  *  verdict reads the TYPED status arm (both versions), floors on the same
@@ -64,8 +65,8 @@ describe("kavalAttention — the currency axis (B3.4 truth table)", () => {
     {
       expected: "newhash",
       status: connected(""),
-      result: { kind: "none" },
-      why: "reported is '' (off-nix daemon) → silent",
+      result: { kind: "stale" },
+      why: "reported is '' under a nix-built supervisor → absent means older (nudge)",
     },
     {
       expected: "",
@@ -82,8 +83,8 @@ describe("kavalAttention — the currency axis (B3.4 truth table)", () => {
     {
       expected: "newhash",
       status: connected(undefined),
-      result: { kind: "none" },
-      why: "no reported (identity absent) → silent",
+      result: { kind: "stale" },
+      why: "no reported identity (pre-fragment survivor) → absent means older (nudge)",
     },
     {
       expected: "newhash",

@@ -54,7 +54,7 @@ import {
 } from "./daemonStatus.ts";
 import { localKavalDriver } from "./localDriver.ts";
 
-type Identity = PtyHostIdentity | undefined;
+type Identity = PtyHostIdentity;
 
 /**
  * kaval's declaration into the shared daemon-convergence kit (`converge`). kaval is

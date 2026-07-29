@@ -1,6 +1,6 @@
 /**
  * The host-daemon inventory scanner — the ONE implementation that enumerates every
- * running kaval + padi on a host, best-effort probes each kaval, and assembles the
+ * running kaval + padi on a host, read-only probes each kaval, and assembles the
  * padi-owned {@link RunningKaval}/{@link RunningPadi} rows the Kaval + Padi info
  * dialogs list. padi OWNS the daemon domain (it discovers, adopts, and supervises
  * the host's daemons), so the scanner lives here — and two callers reuse it:
@@ -18,8 +18,8 @@
  *
  * STRICTLY READ-ONLY. It reuses the SAME discovery `kaval-tui`/`padi-tui` use
  * (`discoverKavalDaemons` / `discoverPadiDaemons` — scan the runtime dir, read each
- * gate `.pid`, read the `state-root` manifest) and, for each kaval, a best-effort
- * `system.version` + `terminal.list` status probe over a short-lived client. It NEVER
+ * gate `.pid`, read the `state-root` manifest) and, for each kaval, a read-only frozen
+ * identity + legacy status probe over a short-lived client. It NEVER
  * spawns, writes, kills, or reaps — no path here touches a daemon's lifecycle.
  */
 
@@ -27,11 +27,15 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
+import {
+  isNoListenerError,
+  readControlCoreHello,
+} from "@kolu/surface-daemon-supervisor";
 import { withTimeout } from "./withTimeout.ts";
 import {
   discoverKavalDaemons,
+  type kavalDaemonContract,
   type KavalDaemon,
-  type ptyHostSurface,
 } from "kaval";
 import {
   getPadiServeSocketPath,
@@ -48,16 +52,17 @@ import type {
   RunningPadi,
 } from "./surface.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
+import { isMissingFrozenFragment } from "./ptyHost/missingFrozenFragment.ts";
 
-/** The best-effort status a kaval socket answered — every field `null` when the
- *  probe failed / the daemon didn't answer (honest "unknown", never a fake value). */
+/** The read-only status a kaval socket answered — fields are null only where the
+ *  daemon/listener is honestly absent, never because a failure was swallowed. */
 export interface KavalProbe {
   terminalCount: number | null;
   buildCommit: string | null;
   contractVersion: string | null;
 }
 
-/** The empty probe — what an unreachable / slow / failed kaval reads as. */
+/** The empty probe — what an honestly absent kaval reads as. */
 const EMPTY_PROBE: KavalProbe = {
   terminalCount: null,
   buildCommit: null,
@@ -66,7 +71,7 @@ const EMPTY_PROBE: KavalProbe = {
 
 /**
  * PURE: assemble the wire `RunningKaval[]` from discovered kaval daemons, their
- * best-effort status probes (keyed by socket), the socket the scanning host's padi
+ * read-only status probes (keyed by socket), the socket the scanning host's padi
  * actually HOLDS (or `null` — no daemon here is kolu's, e.g. a local-machine scan under
  * a remote binding), and whether that held socket is the pre-padi LEGACY address.
  *
@@ -129,41 +134,50 @@ export function assemblePadiInventory(
   }));
 }
 
-/** How long a single kaval status probe (connect + version + list) may take before it
- *  folds to the empty probe — a slow/wedged daemon must never stall the sampler. */
+/** How long each kaval status read may take before the sampler fails loudly. */
 const PROBE_TIMEOUT_MS = 1500;
 
 /**
- * Best-effort READ-ONLY status probe of one kaval socket: dial it, read
- * `system.version` (contract + build) and `terminal.list` (live terminal count), then
- * dispose the short-lived client. Bounded by {@link PROBE_TIMEOUT_MS}. NEVER throws — a
- * dead/absent/slow daemon yields the all-`null` empty probe. Read-only: it calls only
- * status/list verbs; it never spawns, writes, kills, or reaps.
+ * READ-ONLY status probe of one kaval socket: dial it, read frozen
+ * `control.core.hello` (build commit), `system.version` (contract), and
+ * `terminal.list` (live terminal count), then dispose the short-lived client. A
+ * pre-fragment survivor has an honestly absent frozen identity and therefore reports a
+ * null build commit; a current off-Nix empty identity projects to the same null display
+ * fact. Only an honestly absent listener folds to {@link EMPTY_PROBE}; a connected peer
+ * that times out or returns an invalid/error response fails loudly.
  */
 export async function probeKavalStatus(
   socket: string,
   timeoutMs = PROBE_TIMEOUT_MS,
 ): Promise<KavalProbe> {
-  let conn: UnixSocketConnection<typeof ptyHostSurface.contract> | undefined;
+  let conn: UnixSocketConnection<typeof kavalDaemonContract> | undefined;
   try {
     conn = await withTimeout(
-      unixSocketLink<typeof ptyHostSurface.contract>({ socketPath: socket }),
+      unixSocketLink<typeof kavalDaemonContract>({ socketPath: socket }),
       timeoutMs,
     );
     const { client } = conn;
-    // Two INDEPENDENT reads over the one open connection — race them together so the
-    // probe pays `connect + max(version, list)`, not `connect + version + list`.
-    const [version, list] = await Promise.all([
+    // Three independent reads share one connection. Missing frozen route is the one
+    // honest transition absence; every other hello failure stays loud.
+    const [commit, version, list] = await Promise.all([
+      withTimeout(readControlCoreHello(client), timeoutMs).then(
+        (hello) => hello.commit || null,
+        (err: unknown) => {
+          if (isMissingFrozenFragment(err)) return null;
+          throw err;
+        },
+      ),
       withTimeout(client.surface.system.version({}), timeoutMs),
       withTimeout(client.surface.terminal.list({}), timeoutMs),
     ]);
     return {
       terminalCount: list.entries.length,
-      buildCommit: version.identity?.navigableCommit ?? null,
+      buildCommit: commit,
       contractVersion: version.contractVersion,
     };
-  } catch {
-    return EMPTY_PROBE;
+  } catch (err) {
+    if (isNoListenerError(err)) return EMPTY_PROBE;
+    throw err;
   } finally {
     conn?.dispose();
   }
@@ -190,9 +204,9 @@ export interface HostDaemonScanDeps {
 }
 
 /** Take one read-only reading of the host-daemon inventory: discover every kaval +
- *  padi, probe each kaval socket in parallel (best-effort), and assemble the marked
- *  rows. Never throws — each probe folds its own failure to the empty probe. Pure of
- *  side effects (it does not publish) — the caller decides where the reading goes. */
+ *  padi, probe each kaval socket in parallel, and assemble the marked rows. An honestly
+ *  absent listener is an empty probe; every other probe failure rejects the reading so
+ *  a broken identity/status observation cannot silently become nulls. */
 export async function enumerateHostDaemons(
   deps: HostDaemonScanDeps,
 ): Promise<PadiHostInventory> {
@@ -200,14 +214,7 @@ export async function enumerateHostDaemons(
   const padiDaemons = deps.discoverPadis();
   const probeEntries = await Promise.all(
     kavalDaemons.map(
-      // A probe that throws folds to the empty probe — an honest per-row "unknown"
-      // (#1034), never a dropped row and never a rejected scan. `probeKavalStatus`
-      // already never throws; this keeps the guarantee total for ANY probe seam.
-      async (d) =>
-        [
-          d.socket,
-          await deps.probe(d.socket).catch(() => EMPTY_PROBE),
-        ] as const,
+      async (d) => [d.socket, await deps.probe(d.socket)] as const,
     ),
   );
   const probes = new Map(probeEntries);

@@ -5,9 +5,11 @@
 # wrapper live here in default.nix because they need per-invocation args
 # (commitHash, koluEnv, koluClientDist) that aren't on pkgs.
 #
-# Used by flake.nix (thin wrapper), shell.nix, and nix-build directly.
+# Used by flake.nix (thin wrapper) and nix-build directly. A direct nix-build
+# must pass `--argstr commitHash "$(git rev-parse HEAD)"`: a Nix-built daemon
+# cannot honestly carry a build id without the source commit that produced it.
 { pkgs ? import ./nix/nixpkgs.nix { }
-, commitHash ? ""
+, commitHash
   # TEST-ONLY hook: when set (e.g. "9.0"), rewrite the daemon's
   # `PTY_HOST_CONTRACT_VERSION` so this build's server *and* the kaval it spawns
   # speak an incompatible wire. Used by the adoption-skew VM test to build a
@@ -481,11 +483,10 @@ let
   # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
   # instead of silently falling back to the production ~/.config/kolu path.
   #
-  # Two identity bakes here: `${kavalIdentity.bakeArgs}` is the shared kaval-identity pair
-  # (the from-source kaval-currency nudge reads it); `PADI_BUILD_ID` is a LEAF — the padi
-  # build id the BINDER expects (#1670 drain-on-build-mismatch), BUILD_ID only (no
-  # COMMIT_HASH), binder-specific, so it stays an explicit `--set` rather than the
-  # `padiIdentity.bakeArgs` pair. It equals what this build's KOLU_PADI_BIN spawns.
+  # Two identity pairs are baked here. The kaval pair drives the from-source
+  # currency nudge; the padi pair lets the binder compare the exact daemon it
+  # would spawn (#1670) while preserving readBakedIdentity's both-or-neither
+  # invariant. Both equal the identities baked into their corresponding bins.
   koluBin = pkgs.runCommand "kolu-bin"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -502,7 +503,7 @@ let
       ${kavalIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
-      --set PADI_BUILD_ID "${padiIdentity.buildId}" \
+      ${padiIdentity.bakeArgs} \
       ${agentFlakeRefBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}

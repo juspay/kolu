@@ -123,4 +123,37 @@ code (`#951` R-4, slice R4a), consumed **in-process** by `kolu-server`. It now
 also ships the standalone `kaval` daemon: the same `PtyHost` served over a unix
 socket via `@kolu/surface-daemon`'s `gate → serve → teardown` skeleton, reached
 by the `kaval-tui` CLI. The primitive itself stays pure — it knows nothing about
-the socket, the gate, or the wire; those compose on top.
+the socket, the gate, or the wire; those compose on top. The daemon adds the
+frozen `control.core.hello` identity channel beside the historic flat pty-host
+surface; `system.version` remains byte-for-byte available to existing clients.
+Kaval cannot drain without destroying live PTYs, so its frozen `drain(): void`
+verb rejects with `PRECONDITION_FAILED`, and its not-drainable supervisor policy
+makes normal invocation structurally impossible.
+
+### Compose the daemon wire
+
+`serveKavalDaemonSurface` is the supported composition boundary for embedding
+the complete daemon router. It takes an already-created pty-host runtime plus
+the daemon home, and returns a typed
+`KavalDaemonRouter` with the shared `{ done, close }` lifetime. Clients type the
+same wire from `kavalDaemonContract`; consumers that need only the historic
+pty-host API continue to use `ptyHostSurface`. The pty-host captures one boot
+record; both the historic version route and frozen identity channel project
+from it.
+
+```ts
+import {
+  createInProcessPtyHost,
+  kavalDaemonContract,
+  serveKavalDaemonSurface,
+} from "kaval";
+
+const ptyHost = createInProcessPtyHost({ log, rcDir, lifetime });
+const daemon = serveKavalDaemonSurface({
+  ptyHost,
+  stateRoot: daemonHome.dir,
+});
+
+serveOverUnixSocket({ socketPath, router: daemon.router, log });
+// Observe daemon.done; await daemon.close() during teardown.
+```

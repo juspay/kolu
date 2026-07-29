@@ -24,7 +24,7 @@
  * fail; case 2's resolver rejects before `provisionAgent` is ever reached.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { collectLogger } from "./loggerStubs.testutil";
+import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import {

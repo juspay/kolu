@@ -289,31 +289,25 @@ describe("enumerateHostDaemons — the shared scan orchestration", () => {
     expect(inv.padis[0]?.active).toBe(false);
   });
 
-  it("a probe that THROWS folds to an honest-null row (never a dropped row, never a rejected scan)", async () => {
-    // The brief's caution: a probe failure on the remote is an honest per-row "unknown",
-    // never a silently missing row. `probeKavalStatus` never throws, but the scan keeps
-    // that guarantee total for any seam — one throwing probe must not sink the whole scan.
-    const inv = await enumerateHostDaemons({
-      discoverKavals: () => [
-        kaval({ socket: ACTIVE }),
-        kaval({ socket: STANDALONE, kind: "standalone" }),
-      ],
-      discoverPadis: () => [],
-      probe: async (socket) => {
-        if (socket === STANDALONE) throw new Error("probe blew up");
-        return probe({ terminalCount: 7 });
-      },
-      activeKavalSocket: ACTIVE,
-      activeKavalAtLegacy: false,
-      activePadiSocket: null,
-    });
-    // Both rows land — the healthy one with its probe, the throwing one honest-null.
-    expect(inv.kavals).toHaveLength(2);
-    expect(inv.kavals.find((k) => k.socket === ACTIVE)?.terminalCount).toBe(7);
-    expect(inv.kavals.find((k) => k.socket === STANDALONE)).toMatchObject({
-      terminalCount: null,
-      buildCommit: null,
-      contractVersion: null,
-    });
+  it("a probe that THROWS rejects the scan instead of fabricating an honest-null row", async () => {
+    // Only an absent listener is honest absence. A connected peer's protocol, timeout,
+    // or validation failure must surface; catching this seam would turn a failed
+    // observation into a plausible all-null row.
+    await expect(
+      enumerateHostDaemons({
+        discoverKavals: () => [
+          kaval({ socket: ACTIVE }),
+          kaval({ socket: STANDALONE, kind: "standalone" }),
+        ],
+        discoverPadis: () => [],
+        probe: async (socket) => {
+          if (socket === STANDALONE) throw new Error("probe blew up");
+          return probe({ terminalCount: 7 });
+        },
+        activeKavalSocket: ACTIVE,
+        activeKavalAtLegacy: false,
+        activePadiSocket: null,
+      }),
+    ).rejects.toThrow("probe blew up");
   });
 });

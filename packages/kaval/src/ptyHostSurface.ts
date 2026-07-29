@@ -358,10 +358,10 @@ export const DaemonLifetimeInfoSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("boundToPid"), pid: z.number() }),
 ]) satisfies z.ZodType<DaemonLifetimeInfo>;
 
-// Exported so `systemVersionShape.test.ts` can pin its exact key-set: `system.version`
-// is the supervisor's VERSION-AGNOSTIC identity read (the convergence kit reads
-// `{ contractVersion, identity.staleKey }` off it BEFORE the compat check — Pin 3), so a
-// silent field rename/removal here must fail loudly rather than break that frozen read.
+// Exported so `systemVersionShape.test.ts` can pin its exact key-set. The frozen
+// control fragment now owns supervisor identity; this legacy procedure stays
+// byte-identical because other consumers still read pid, lifetime, and build
+// readout data from it.
 export const SystemVersionOutputSchema = z.object({
   contractVersion: z.string(),
   pid: z.number().int(),

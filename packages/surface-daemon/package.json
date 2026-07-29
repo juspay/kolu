@@ -17,6 +17,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/log": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@orpc/server": "^1.13.13",
     "ts-pattern": "^5.9.0",

@@ -32,6 +32,7 @@ import {
   unfreezeAutosave,
 } from "../session/autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -137,13 +138,6 @@ function sessionBackedCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
   } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
 }
 
-const silentLog = {
-  debug() {},
-  info() {},
-  warn() {},
-  error() {},
-};
-
 const epTmpDirs: string[] = [];
 const epServers: Server[] = [];
 
@@ -222,7 +216,7 @@ async function realEndpoint(recycleMs: number) {
     },
     connect: async () => ({
       client: makeClient(),
-      identity: undefined as undefined,
+      identity: { staleKey: "", navigableCommit: "" },
       startedAt: Date.now(),
       metadata: { contractVersion: "test" },
       dispose: () => {},

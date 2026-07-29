@@ -4,7 +4,7 @@
  * differential) and `servePadi.recycleKaval.test.ts` (the SK3 typed rethrow)
  * both construct the deps with. Extracted so a `TerminalEndpoint` / padi-deps
  * shape change is a one-file edit, not two divergent copies (the `*.testutil`
- * convention, cf. `surface-remote/src/loggerStubs.testutil.ts`).
+ * convention, cf. `@kolu/log/loggerStubs.testutil`).
  */
 
 import type { Logger } from "pino";
