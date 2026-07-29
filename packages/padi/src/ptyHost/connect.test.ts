@@ -13,20 +13,28 @@ import { mkdtempSync } from "node:fs";
 import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { oc } from "@orpc/contract";
+import { implement } from "@orpc/server";
 import {
   controlCoreFragment,
   controlCoreSurface,
+  daemonBuild,
   type Logger,
 } from "@kolu/surface-daemon";
 import { implementSurfaces } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
   type PtyHostSocketListener,
+  PTY_HOST_CONTRACT_VERSION,
   createInProcessPtyHost,
+  ptyHostSurface,
   serveKavalDaemonSurface,
   servePtyHostOverUnixSocket,
 } from "kaval";
-import { instanceKeyFromStartedAt } from "@kolu/surface-daemon-supervisor";
+import {
+  decide,
+  instanceKeyFromStartedAt,
+} from "@kolu/surface-daemon-supervisor";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   connectKaval,
@@ -41,6 +49,14 @@ const silentLog = {
   error: () => {},
   child: () => silentLog,
 } as unknown as Logger;
+
+const legacyVersionOnlyContract = oc.router({
+  surface: {
+    system: {
+      version: ptyHostSurface.contract.surface.system.version,
+    },
+  },
+});
 
 /** Serve a kaval whose resolved lifetime is `boundToPid` (the CI/smoke policy),
  *  so a copy of the value can be distinguished from the production `forever`. */
@@ -118,6 +134,39 @@ async function serveFrozenIdentity(
       void runtime.close();
     },
   };
+}
+
+/** A pre-fragment daemon that reports a chosen observed contract version. It
+ * deliberately serves no frozen route and carries a tempting legacy build id,
+ * which the transition probe must discard. */
+async function serveLegacyVersionOnly(
+  socketPath: string,
+  contractVersion: string,
+) {
+  const startedAt = 424_242;
+  const t = implement(legacyVersionOnlyContract);
+  const router = t.router({
+    surface: {
+      system: {
+        version: t.surface.system.version.handler(() => ({
+          contractVersion,
+          pid: process.pid,
+          startedAt,
+          lifetime: { kind: "forever" as const },
+          identity: {
+            staleKey: "legacy-build-must-not-be-trusted",
+            navigableCommit: "legacy-commit-must-not-be-trusted",
+          },
+        })),
+      },
+    },
+  });
+  const listener = await serveOverUnixSocket({
+    socketPath,
+    router,
+    log: silentLog,
+  });
+  return { listener, startedAt };
 }
 
 describe("connectKaval — mirrors the handshake lifetime onto the metadata", () => {
@@ -264,6 +313,63 @@ describe("probeKavalForConvergence — frozen production path", () => {
     } finally {
       vi.useRealTimers();
       server.close();
+    }
+  });
+
+  it("pre-fragment fallback preserves the old daemon's observed version and boot, never its legacy build identity", async () => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-probe-legacy-version-")),
+      "pty-host.sock",
+    );
+    const { listener, startedAt } = await serveLegacyVersionOnly(
+      socketPath,
+      "5.4",
+    );
+    try {
+      const probe = await probeKavalForConvergence(socketPath);
+      expect(probe).not.toBeNull();
+      if (probe === null) throw new Error("legacy served daemon became null");
+      expect(probe.identity).toEqual({
+        contractVersion: "5.4",
+        build: { kind: "off-nix" },
+      });
+      expect(probe.instanceKey).toEqual(instanceKeyFromStartedAt(startedAt));
+      probe.dispose();
+    } finally {
+      listener.close();
+    }
+  });
+
+  it("pre-fragment daemon on the same contract is an older-build nudge, never a clean adopt", async () => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-probe-legacy-nudge-")),
+      "pty-host.sock",
+    );
+    const { listener } = await serveLegacyVersionOnly(
+      socketPath,
+      PTY_HOST_CONTRACT_VERSION,
+    );
+    try {
+      const probe = await probeKavalForConvergence(socketPath);
+      expect(probe).not.toBeNull();
+      if (probe === null) throw new Error("legacy served daemon became null");
+      expect(
+        decide(
+          {
+            capability: "not-drainable",
+            baked: {
+              contractVersion: PTY_HOST_CONTRACT_VERSION,
+              build: daemonBuild("current-kaval-build"),
+            },
+            onContractSkew: { kind: "recycle" },
+            onBuildMismatch: { kind: "nudge-human" },
+          },
+          probe.identity,
+        ),
+      ).toMatchObject({ kind: "report-mismatch" });
+      probe.dispose();
+    } finally {
+      listener.close();
     }
   });
 

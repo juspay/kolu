@@ -59,10 +59,13 @@ export type KavalAttention =
  *  can't be re-minted. */
 function kavalStale(
   expected: string | undefined,
-  reported: string | undefined,
-  state: DaemonStatus["state"] | undefined,
+  status: DaemonStatus | undefined,
 ): boolean {
-  return state === "connected" && !!expected && expected !== reported;
+  return (
+    status?.state === "connected" &&
+    !!expected &&
+    expected !== status.identity?.staleKey
+  );
 }
 
 /** The ONE attention derivation (SK5). `live` (the watchdog-backed channel
@@ -87,8 +90,7 @@ export function kavalAttention(
       requiredVersion: status.requiredVersion,
     };
   }
-  const reported = status.identity?.staleKey;
-  if (kavalStale(expected, reported, status.state)) {
+  if (kavalStale(expected, status)) {
     return { kind: "stale" };
   }
   return { kind: "none" };

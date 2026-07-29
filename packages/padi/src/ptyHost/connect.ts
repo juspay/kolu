@@ -221,6 +221,35 @@ const probeFrozenKavalIdentity = probeDaemonIdentity({
   capability: "not-drainable",
 });
 
+/** The one finite transition read for a daemon that predates the frozen route.
+ * Read only facts the old wire can honestly supply: its contract version and
+ * boot instant. Its old build field is deliberately ignored; build identity is
+ * trusted only from the frozen fragment. */
+async function probePreFragmentKaval(
+  socketPath: string,
+): Promise<ConvergenceProbe<"not-drainable">> {
+  const socket = await dialSocket(socketPath);
+  const client = stdioLink<typeof kavalDaemonContract>({
+    read: socket,
+    write: socket,
+  });
+  try {
+    const version = await readSystemVersionBounded(client as PtyHostClient);
+    return {
+      capability: "not-drainable",
+      identity: {
+        contractVersion: version.contractVersion,
+        build: daemonBuild(""),
+      },
+      instanceKey: instanceKeyFromStartedAt(version.startedAt),
+      dispose: () => socket.destroy(),
+    };
+  } catch (err) {
+    socket.destroy();
+    throw err;
+  }
+}
+
 export async function probeKavalForConvergence(
   socketPath: string,
 ): Promise<ConvergenceProbe<"not-drainable"> | null> {
@@ -228,16 +257,11 @@ export async function probeKavalForConvergence(
     return await probeFrozenKavalIdentity(socketPath);
   } catch (err) {
     if (isMissingFrozenFragment(err)) {
-      return {
-        capability: "not-drainable",
-        identity: {
-          contractVersion: PTY_HOST_CONTRACT_VERSION,
-          build: daemonBuild(""),
-        },
-        instanceKey: instanceKeyFromStartedAt(undefined),
-        // The framework factory already disposed the failed route connection.
-        dispose: () => {},
-      };
+      // The framework factory disposed the failed route connection. Redial the
+      // old daemon through the only identity-era wire it has and preserve only
+      // its observed contract/boot facts; fragment absence supplies the honest
+      // unknown-build fact that drives the existing update nudge.
+      return await probePreFragmentKaval(socketPath);
     }
     throw err;
   }

@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { daemonBuild, type Logger } from "@kolu/surface-daemon";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
-import { decide } from "@kolu/surface-daemon-supervisor";
+import {
+  decide,
+  instanceKeyFromStartedAt,
+} from "@kolu/surface-daemon-supervisor";
 import {
   createInProcessPtyHost,
   PTY_HOST_CONTRACT_VERSION,
@@ -47,7 +50,9 @@ describeDaemon("yesterday kaval without the frozen fragment", () => {
         contractVersion: PTY_HOST_CONTRACT_VERSION,
         build: { kind: "off-nix" },
       });
-      expect(probe.instanceKey).toEqual({ kind: "pre-instance" });
+      expect(probe.instanceKey).toEqual(
+        instanceKeyFromStartedAt(ptyHost.startedAt),
+      );
 
       const decision = decide(
         {
@@ -61,7 +66,13 @@ describeDaemon("yesterday kaval without the frozen fragment", () => {
         },
         probe.identity,
       );
-      expect(decision.kind).toBe("report-mismatch");
+      expect(decision).toMatchObject({
+        kind: "report-mismatch",
+        running: {
+          contractVersion: PTY_HOST_CONTRACT_VERSION,
+          build: { kind: "off-nix" },
+        },
+      });
       probe.dispose();
     } finally {
       listener.close();
