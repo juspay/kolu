@@ -38,8 +38,6 @@ export type KavalDaemonRouter = Router<
 export function serveKavalDaemonSurface(opts: {
   ptyHost: PtyHostRuntime;
   stateRoot: string;
-  commit: string;
-  buildId: string;
 }): {
   router: KavalDaemonRouter;
   done: Promise<void>;
@@ -50,9 +48,9 @@ export function serveKavalDaemonSurface(opts: {
     controlCoreFragment({
       stateRoot: opts.stateRoot,
       surfaceVersion: PTY_HOST_CONTRACT_VERSION,
-      startedAt: opts.ptyHost.startedAt,
-      commit: opts.commit,
-      buildId: opts.buildId,
+      startedAt: opts.ptyHost.boot.startedAt,
+      commit: opts.ptyHost.boot.identity.navigableCommit,
+      buildId: opts.ptyHost.boot.identity.staleKey,
       // The frozen schema requires a drain verb, but kaval cannot drain: ending
       // the process destroys its live PTYs. Refuse as a typed application error;
       // the not-drainable convergence policy makes this unreachable in normal

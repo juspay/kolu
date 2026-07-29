@@ -25,7 +25,6 @@ import {
 } from "@kolu/surface-daemon";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import { serveKavalDaemonSurface } from "./daemonSurface.ts";
-import { currentPtyHostIdentity } from "./buildId.ts";
 import {
   KAVAL_NS_PREFIX,
   PTY_HOST_SOCK_FILE,
@@ -76,12 +75,9 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     rcDir,
     lifetime: lifetimeInfo(lifetime),
   });
-  const identity = currentPtyHostIdentity();
   const daemonSurface = serveKavalDaemonSurface({
     ptyHost,
     stateRoot: home.dir,
-    commit: identity.navigableCommit,
-    buildId: identity.staleKey,
   });
   const { router: servedRouter } = daemonSurface;
   const { terminalCount } = ptyHost;

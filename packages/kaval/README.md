@@ -134,10 +134,12 @@ makes normal invocation structurally impossible.
 
 `serveKavalDaemonSurface` is the supported composition boundary for embedding
 the complete daemon router. It takes an already-created pty-host runtime plus
-the daemon-home and baked identity values, and returns a typed
+the daemon home, and returns a typed
 `KavalDaemonRouter` with the shared `{ done, close }` lifetime. Clients type the
 same wire from `kavalDaemonContract`; consumers that need only the historic
-pty-host API continue to use `ptyHostSurface`.
+pty-host API continue to use `ptyHostSurface`. The pty-host captures one boot
+record; both the historic version route and frozen identity channel project
+from it.
 
 ```ts
 import {
@@ -150,8 +152,6 @@ const ptyHost = createInProcessPtyHost({ log, rcDir, lifetime });
 const daemon = serveKavalDaemonSurface({
   ptyHost,
   stateRoot: daemonHome.dir,
-  commit: identity.navigableCommit,
-  buildId: identity.staleKey,
 });
 
 serveOverUnixSocket({ socketPath, router: daemon.router, log });

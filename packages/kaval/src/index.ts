@@ -46,6 +46,7 @@ export {
 export {
   createInProcessPtyHost,
   type InProcessPtyHostDeps,
+  type PtyHostBoot,
   type PtyHostClient,
   type PtyHostRouter,
   servePtyHost,

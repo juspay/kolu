@@ -23,22 +23,28 @@ const silentLog = {
 } as unknown as Logger;
 
 const runtimes: Array<{ close(): Promise<void> }> = [];
+const savedEnv = { ...process.env };
 afterEach(async () => {
   for (const runtime of runtimes.splice(0)) await runtime.close();
+  process.env = { ...savedEnv };
 });
 
 describe("kaval daemon surface", () => {
   it("adds frozen identity without moving system.version, and drain refuses without ending the daemon", async () => {
+    process.env.KAVAL_COMMIT_HASH = "abc1234";
+    process.env.KAVAL_BUILD_ID = "kaval-build-7";
     const ptyHost = createInProcessPtyHost({
       log: silentLog,
       rcDir: mkdtempSync(join(tmpdir(), "kaval-control-rc-")),
       lifetime: { kind: "forever" },
     });
+    // Both channels must stay closed over the one boot record, rather than
+    // re-reading mutable ambient identity at request/composition time.
+    process.env.KAVAL_COMMIT_HASH = "changed-after-boot";
+    process.env.KAVAL_BUILD_ID = "changed-after-boot";
     const runtime = serveKavalDaemonSurface({
       ptyHost,
       stateRoot: "/run/user/1000/kaval-test",
-      commit: "abc1234",
-      buildId: "kaval-build-7",
     });
     runtimes.push(runtime);
     const client = directLink<typeof kavalDaemonContract>(runtime.router);
@@ -53,6 +59,10 @@ describe("kaval daemon surface", () => {
       "startedAt",
     ]);
     expect(version.contractVersion).toBe(PTY_HOST_CONTRACT_VERSION);
+    expect(version.identity).toEqual({
+      staleKey: "kaval-build-7",
+      navigableCommit: "abc1234",
+    });
 
     const hello = await client.surface.control.core.hello();
     expect(hello).toEqual({

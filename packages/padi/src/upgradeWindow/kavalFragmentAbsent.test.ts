@@ -51,7 +51,7 @@ describeDaemon("yesterday kaval without the frozen fragment", () => {
         build: { kind: "off-nix" },
       });
       expect(probe.instanceKey).toEqual(
-        instanceKeyFromStartedAt(ptyHost.startedAt),
+        instanceKeyFromStartedAt(ptyHost.boot.startedAt),
       );
 
       const decision = decide(

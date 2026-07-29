@@ -80,12 +80,22 @@ function serveLegacy(socketPath: string): Promise<PtyHostSocketListener> {
 async function serveCurrent(
   socketPath: string,
 ): Promise<PtyHostSocketListener> {
-  const ptyHost = makePtyHost();
+  const savedBuildId = process.env.KAVAL_BUILD_ID;
+  const savedCommit = process.env.KAVAL_COMMIT_HASH;
+  process.env.KAVAL_BUILD_ID = "fragment-build";
+  process.env.KAVAL_COMMIT_HASH = "fragment-commit";
+  let ptyHost: ReturnType<typeof makePtyHost>;
+  try {
+    ptyHost = makePtyHost();
+  } finally {
+    if (savedBuildId === undefined) delete process.env.KAVAL_BUILD_ID;
+    else process.env.KAVAL_BUILD_ID = savedBuildId;
+    if (savedCommit === undefined) delete process.env.KAVAL_COMMIT_HASH;
+    else process.env.KAVAL_COMMIT_HASH = savedCommit;
+  }
   const runtime = serveKavalDaemonSurface({
     ptyHost,
     stateRoot: "/run/kaval-current",
-    commit: "fragment-commit",
-    buildId: "fragment-build",
   });
   const listener = await servePtyHostOverUnixSocket({
     socketPath,
