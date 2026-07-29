@@ -1,9 +1,10 @@
 /** Dock recency cell — renders a terminal's "Xs ago" (`formatTimeAgo`).
  *
- *  The timestamp is the row's `rowRecencyAt` — `lastActivityAt` for a live
- *  tile, `sleptAt` for a sleeping one — the SAME value the activity window
- *  keys on, so the age a row shows is the age that decides whether the window
- *  hides it.
+ *  The ordinary timestamp is the whole tile's window key — the newest activity
+ *  across parent and splits — so the age shown is the age that decides whether
+ *  the window hides it. The WAIT chip is different by definition: it shows how
+ *  long THIS row's agent has awaited input, so callers select the row's own
+ *  `rowRecencyAt` for that mode. `displayRecencyAt` owns this two-channel seam.
  *
  *  Three renderings, ONE prop naming which. Active rows hide the label: an
  *  active terminal (the shared `attentionActive` predicate — do not re-derive
@@ -50,9 +51,20 @@ export function recencyMode(pip: {
   return pip.active ? "hidden" : "ago";
 }
 
+/** Pick the timestamp whose meaning matches the rendering. A split's fresh
+ * activity keeps its parent tile visible, but must not shorten the parent's
+ * own blocked-on-you duration. */
+export function displayRecencyAt(
+  mode: RecencyMode,
+  windowRecencyAt: number | null,
+  ownRecencyAt: number | null,
+): number | null {
+  return mode === "wait-chip" ? ownRecencyAt : windowRecencyAt;
+}
+
 const RecencyCell: Component<{
-  /** The row's recency timestamp (`rowRecencyAt`) — `lastActivityAt` for a
-   *  live tile, `sleptAt` for a sleeping one. The age the window acts on.
+  /** Timestamp already selected for the rendering: the tile's window recency
+   *  in `ago`/`hidden`, or this row's own agent recency in `wait-chip`.
    *  `null` — never-active — renders as the empty string in `ago` mode
    *  (`formatTimeAgo`'s honest "nothing to report") and as the dash in the
    *  wait chip, which cannot render an empty capsule: a violet pill with no

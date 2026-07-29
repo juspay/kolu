@@ -139,7 +139,7 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "aaa"
     When I create a terminal
     And I run "rm -rf /tmp/kolu-codetab-otherdir && mkdir -p /tmp/kolu-codetab-otherdir && cd /tmp/kolu-codetab-otherdir"
-    And I select workspace switcher entry 1
+    And I click dock row 1
     Then the selected file should show content "aaa"
 
     Examples:
@@ -162,9 +162,9 @@ Feature: Code tab (review + browse)
     Given a Code tab in "browse" mode showing file "shared.txt" with content "from-B"
     When I open file "shared.txt" in the Code tab
     Then the selected file should show content "from-B"
-    When I select workspace switcher entry 1
+    When I click dock row 1
     Then the selected file should show content "from-A"
-    When I select workspace switcher entry 2
+    When I click dock row 2
     Then the selected file should show content "from-B"
 
   # Regression: with two terminals in different repos and DIFFERENT
@@ -186,15 +186,15 @@ Feature: Code tab (review + browse)
     Given a Code tab in "browse" mode showing file "file-b.txt" with content "BBBB"
     When I open file "file-b.txt" in the Code tab
     Then the selected file should show content "BBBB"
-    When I select workspace switcher entry 1
+    When I click dock row 1
     Then the selected file should show content "AAAA"
-    When I select workspace switcher entry 2
+    When I click dock row 2
     Then the selected file should show content "BBBB"
-    When I select workspace switcher entry 1
+    When I click dock row 1
     Then the selected file should show content "AAAA"
-    When I select workspace switcher entry 2
+    When I click dock row 2
     Then the selected file should show content "BBBB"
-    When I select workspace switcher entry 1
+    When I click dock row 1
     Then the selected file should show content "AAAA"
 
   # Regression: a manual tree-click after a terminal file-ref click is lost on a
@@ -226,7 +226,7 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "other-B"
     # Back to terminal A: print a path, click it in the terminal — the preview
     # now follows the front-door `pendingOpen` request to the clicked file.
-    When I select workspace switcher entry 1
+    When I click dock row 1
     And I run "echo 'jump to clicked.txt:1 now'"
     And I trigger the terminal file-ref link "clicked.txt:1"
     Then the selected file should show content "clicked-A"
@@ -236,9 +236,9 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "manual-A"
     # Round-trip to B and back. The manual pick must still be showing — not the
     # stale clicked file.
-    When I select workspace switcher entry 2
+    When I click dock row 2
     Then the selected file should show content "other-B"
-    When I select workspace switcher entry 1
+    When I click dock row 1
     Then the selected file should show content "manual-A"
 
   # The symmetric half of the invariant: the file you previewed last persists
@@ -265,14 +265,14 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "other-B"
     # Back to terminal A: click a file-ref in the terminal. This is the last
     # preview action — no manual tree pick follows it.
-    When I select workspace switcher entry 1
+    When I click dock row 1
     And I run "echo 'jump to clicked.txt:1 now'"
     And I trigger the terminal file-ref link "clicked.txt:1"
     Then the selected file should show content "clicked-A"
     # Round-trip to B and back. The clicked file must still be showing.
-    When I select workspace switcher entry 2
+    When I click dock row 2
     Then the selected file should show content "other-B"
-    When I select workspace switcher entry 1
+    When I click dock row 1
     Then the selected file should show content "clicked-A"
 
   # Regression: opening a file in the Code tab and refreshing the browser
@@ -753,7 +753,7 @@ Feature: Code tab (review + browse)
     And the Code tab "back" button should be enabled
     # Switch back to terminal A: its history must be untouched by the switch —
     # back is still live and retraces A's own stack, not wiped by the reset.
-    When I select workspace switcher entry 1
+    When I click dock row 1
     Then the selected file should show content "two-A"
     # Wait for A's repo view to RE-HYDRATE after the switch before checking the
     # toolbar. The file viewer can paint A's *cached* content while repoPath() is
@@ -769,7 +769,7 @@ Feature: Code tab (review + browse)
     When I go back in the Code tab
     Then the selected file should show content "one-A"
     # And terminal B's history is likewise intact when we return to it.
-    When I select workspace switcher entry 2
+    When I click dock row 2
     Then the selected file should show content "two-B"
     # Same re-hydration wait as above on the return to terminal B — key it on
     # `only-in-b.txt` (unique to repoB) for the same reason.
@@ -1336,7 +1336,7 @@ Feature: Code tab (review + browse)
     # (the bug). Switching back before this races past the path the fix
     # guards, so the regression could pass vacuously without it.
     Then the Code tab should indicate no git repository
-    When I select workspace switcher entry 1
+    When I click dock row 1
     Then the selected file should show content "aaa"
     And the Code tab preview pane height should match the noted height
 

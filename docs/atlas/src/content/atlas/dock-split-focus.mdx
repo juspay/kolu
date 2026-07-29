@@ -4,7 +4,7 @@ description: Plan of record for #2024 — make "which terminal has the keyboard"
 parents: [agent-attention, feature]
 status: proposed
 maturity: seedling
-updated: 2026-07-28
+updated: 2026-07-29
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -118,16 +118,16 @@ below is one of the four faults made unspellable:
 ## Phase tree
 
 export const PT = [
-  { d: 0, g: "◐", c: "prog", l: "FX1 · one focus fact — behaviour-preserving", m: "build-clean · #2043", h: "https://github.com/juspay/kolu/pull/2043" },
-  { d: 1, g: "○", c: "last", l: "FX2 · dock sub-entries, re-landed", m: "#2024", h: "https://github.com/juspay/kolu/issues/2024" },
-  { d: 1, g: "○", c: "last", l: "FX3 · one spelling of data-active", m: "independent of FX2" },
+  { d: 0, g: "✓", c: "ship", l: "FX1 · one focus fact — behaviour-preserving", m: "shipped · #2043", h: "https://github.com/juspay/kolu/pull/2043" },
+  { d: 1, g: "✓", c: "ship", l: "FX2 · dock sub-entries, re-landed", m: "shipped · #2046", h: "https://github.com/juspay/kolu/pull/2046" },
+  { d: 1, g: "▶", c: "prog", l: "FX3 · one spelling of data-active", m: "◀ do next" },
 ];
 
 <PhaseTree title="ROADMAP — dock split sub-entries (#2024)" phases={PT} />
 
 ### FX1 — one focus fact
 
-<Phase id="FX1" name="one focus fact" status="build-clean" blocks={["FX2", "FX3"]}
+<Phase id="FX1" name="one focus fact" status="shipped" blocks={["FX2", "FX3"]}
   links={[{ label: "#2043", href: "https://github.com/juspay/kolu/pull/2043" }]} />
 
 Introduce `focusedTerminalId` beside the activation choke point in
@@ -161,8 +161,8 @@ behaviour.</Footnote>
 
 ### FX2 — the sub-entry, re-landed
 
-<Phase id="FX2" name="dock sub-entries" status="todo" needs={["FX1"]}
-  links={[{ label: "#2024", href: "https://github.com/juspay/kolu/issues/2024" }]} />
+<Phase id="FX2" name="dock sub-entries" status="shipped" needs={["FX1"]}
+  links={[{ label: "#2024", href: "https://github.com/juspay/kolu/issues/2024" }, { label: "#2046", href: "https://github.com/juspay/kolu/pull/2046" }]} />
 
 First commit: recover `dockRowActive.test.tsx` from the reverted diff and adapt
 it to the fact — the render-level state matrix is the only test in this story
@@ -170,26 +170,42 @@ that lived where the bugs did.<Footnote>Recovery: `git fetch origin
 refs/pull/2019/head`; the test is whole in `baf4bf8bf`, `SubAgentRow.tsx`'s
 final form in `4ed6fc809`, the revert is `7a3d7edef`. The matrix: never-opened
 split, focus in main, focus in the split (both lit), sibling split focused,
-collapsed, different tile, no tile.</Footnote> Then the feature: `SubAgentRow`
-spreads `dockRowAttrs` (which derives `data-active` internally for splits via
-`isFocused` — no parameter to hardcode), lands via `focusTerminal(id)`, and
-section headers count split agents through the same urgency fold the host tab
-already uses. Only agent-running splits earn a line; sub-entries share their
-parent's activity-window fate.
+collapsed, different tile, no tile.</Footnote> Then the feature: **every split
+earns an indented sub-entry** under its parent's row — agent or plain
+shell.<Footnote>This widens #2024, which argued agent-only rows; the owner
+overrode that on 2026-07-29: all sub-terminals show in the dock. An agentless
+split renders label + landing only — no state pip, no attention wash (it has
+no agent to speak for).</Footnote> The row component spreads `dockRowAttrs`
+(which derives `data-active` internally for splits via `isFocused` — no
+parameter to hardcode) and lands via `focusTerminal(id)`; section headers
+still count only split *agents*, through the same urgency fold the host tab
+already uses; sub-entries share their parent's activity-window fate. With
+splits enumerated, the `⊟ N` sub-count chip is redundant and is **removed**
+(`SubCountChip`, `data-sub-count`, and their e2e steps).<Footnote>Deliberate
+waiver: the "existing e2e unmodified" gate is lifted for exactly the chip
+assertions in `sub-terminal.feature` / `sub_terminal_steps.ts`, which are
+replaced by sub-entry assertions. Every other existing assertion — the
+parent-keyed active row above all — remains untouchable.</Footnote>
 
-**User-facing change**: an agent working in a split finally has a home in the
-dock — an indented entry under its host terminal's row. Clicking it lands you
-*in that pane*, keyboard and all; repo section headers count these agents, so
-the header agrees with the host tab above it.
+**User-facing change**: every split has a home in the dock — an indented entry
+under its host terminal's row (agents wear their state glyph there; an asking
+or unread row washes only while it is not active, and a plain shell split is
+just a labeled row). Clicking one lands you *in that pane*, keyboard and all.
+The `⊟ N` chip is gone — the rows themselves are the count. Repo section
+headers still count split agents, so the header agrees with the host tab above
+it.
 
-**To test the PR**: split a terminal (`` Ctrl+Shift+` ``), run `claude` in the split, and
-give it a task. An indented row should appear under the parent's dock row
-(a plain `bash` split gets none — the `⊟ N` chip still covers those). Click
-the sub-entry: you land typing in that pane, and **both** the parent row and
-the sub-entry are highlighted. Let the agent block on a question: the
-sub-entry washes violet and the section header's count matches the host tab's.
+**To test the PR**: split a terminal (`` Ctrl+Shift+` ``) — an indented row
+appears under the parent's dock row immediately, plain `bash` and all, and the
+`⊟ N` chip is gone. Run `claude` in the split and give it a task: the entry
+gains the working pip. Click the sub-entry: you land typing in that pane, and
+**both** the parent row and the sub-entry are highlighted. Let the agent block
+on a question: the sub-entry's awaiting glyph turns violet; move focus away to
+see its violet row wash, which is suppressed while the row is active. The
+section header's count matches the host tab's.
 
-**Done when**: the recovered matrix is green; a new e2e scenario types into a
+**Done when**: the recovered matrix is green; a new e2e scenario asserts an
+agentless split's row exists (and no `⊟` chip anywhere); another types into a
 split and asserts the parent row **and** the sub-entry both carry
 `data-active`; a repo section header's count equals its host tab's; and the
 sub-entry renders as a direct child of `.dock-cards-section`.<Footnote>The
@@ -200,7 +216,7 @@ placement is therefore a gate, not a style choice.</Footnote>
 
 ### FX3 — one spelling of `data-active`
 
-<Phase id="FX3" name="one data-active spelling" status="todo" needs={["FX1"]} />
+<Phase id="FX3" name="one data-active spelling" status="next" needs={["FX1"]} />
 
 `data-active` is spelled `""` on dock rows and `"true"` on canvas tiles, and
 `RailChip` hand-derives it outside `dockRowAttrs`. Settle on the presence form
