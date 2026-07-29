@@ -129,3 +129,31 @@ surface; `system.version` remains byte-for-byte available to existing clients.
 Kaval cannot drain without destroying live PTYs, so its frozen `drain(): void`
 verb rejects with `PRECONDITION_FAILED`, and its not-drainable supervisor policy
 makes normal invocation structurally impossible.
+
+### Compose the daemon wire
+
+`serveKavalDaemonSurface` is the supported composition boundary for embedding
+the complete daemon router. It takes an already-created pty-host runtime plus
+the daemon-home and baked identity values, and returns a typed
+`KavalDaemonRouter` with the shared `{ done, close }` lifetime. Clients type the
+same wire from `kavalDaemonContract`; consumers that need only the historic
+pty-host API continue to use `ptyHostSurface`.
+
+```ts
+import {
+  createInProcessPtyHost,
+  kavalDaemonContract,
+  serveKavalDaemonSurface,
+} from "kaval";
+
+const ptyHost = createInProcessPtyHost({ log, rcDir, lifetime });
+const daemon = serveKavalDaemonSurface({
+  ptyHost,
+  stateRoot: daemonHome.dir,
+  commit: identity.navigableCommit,
+  buildId: identity.staleKey,
+});
+
+serveOverUnixSocket({ socketPath, router: daemon.router, log });
+// Observe daemon.done; await daemon.close() during teardown.
+```

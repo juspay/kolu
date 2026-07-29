@@ -29,6 +29,10 @@ export const kavalDaemonContract = oc.router({
 });
 
 type PtyHostRuntime = ReturnType<typeof createInProcessPtyHost>;
+export type KavalDaemonRouter = Router<
+  typeof kavalDaemonContract,
+  Record<never, never>
+>;
 
 /** Assemble the final kaval router without re-finalizing either child surface. */
 export function serveKavalDaemonSurface(opts: {
@@ -37,8 +41,7 @@ export function serveKavalDaemonSurface(opts: {
   commit: string;
   buildId: string;
 }): {
-  // biome-ignore lint/suspicious/noExplicitAny: oRPC exposes the assembled top-level server router with dynamic context/output parameters; kavalDaemonContract pins its wire shape.
-  router: Router<any, any>;
+  router: KavalDaemonRouter;
   done: Promise<void>;
   close(): Promise<void>;
 } {
@@ -71,8 +74,7 @@ export function serveKavalDaemonSurface(opts: {
   const controlNamespaces = (control.router as { surface: object }).surface;
   const router = t.router({
     surface: { ...ptyNamespaces, control: controlNamespaces },
-    // biome-ignore lint/suspicious/noExplicitAny: oRPC exposes the assembled top-level server router with dynamic context/output parameters; kavalDaemonContract pins its wire shape.
-  }) as Router<any, any>;
+  }) as KavalDaemonRouter;
 
   // The pty-host runtime owns the terminal resources and is therefore the
   // terminal source: close it first, then release the passive control runtime.

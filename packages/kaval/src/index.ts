@@ -106,6 +106,7 @@ export {
 // frozen control-core sibling. Exported for the supervisor's combined client
 // type; ordinary pty-host consumers keep using `ptyHostSurface` unchanged.
 export {
+  type KavalDaemonRouter,
   kavalDaemonContract,
   serveKavalDaemonSurface,
 } from "./daemonSurface.ts";

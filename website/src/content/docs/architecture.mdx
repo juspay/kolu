@@ -145,7 +145,7 @@ So the agents in your terminals survive the upgrade: they never stopped.
   </svg>
 </figure>
 
-<Aside type="tip" title="Newest wins, and nothing is force-killed">
+<Aside type="tip" title="Padi drains; kaval preserves compatible survivors">
   A newer client that meets an older padi asks it to _drain_ — save its session
   and exit, while the PTYs stay alive in kaval — then starts the new build in its
   place. An older client meeting a newer padi is refused, loudly. The version
@@ -154,8 +154,9 @@ So the agents in your terminals survive the upgrade: they never stopped.
   converges the same way — the server drains the old build once at boot and brings
   up its own — so a code change reaches you at deploy cadence, not only a version
   bump. Kaval is the deliberate exception: draining it would kill the live PTYs,
-  so the same frozen channel identifies an old kaval but its not-drainable policy
-  only asks you to restart it when you are ready.
+  so a compatible older build stays alive and asks you to restart it when you
+  are ready. A genuinely incompatible pty-host contract cannot serve the new
+  client and requires a destructive recycle; that rare wire break ends its PTYs.
 </Aside>
 
 ## Compared to tmux and zellij
@@ -191,7 +192,7 @@ layer you restart or redeploy isn't the layer holding your shells.
         <td>Upgrade the binary under live sessions</td>
         <td class="c-mid">attach breaks on a protocol-version bump</td>
         <td class="c-mid">sessions orphaned on a contract-version change</td>
-        <td class="c-yes">compatible daemon + live PTYs adopted; a skewed one is drained, not killed</td>
+        <td class="c-yes">compatible daemon + live PTYs adopted; skewed padi drains, while skewed kaval stays alive and asks before restart</td>
       </tr>
       <tr>
         <td>Machine reboot</td>
