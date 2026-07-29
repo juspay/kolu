@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ancestorDirectoryPaths,
   directoryRemovalOps,
+  dropRedundantDirKeys,
   pathDiffOperations,
 } from "./pathReconcile";
 
@@ -40,12 +41,11 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
       initialExpansion: "open",
     });
 
-  it("pathDiffOperations skips removing a collapsed dir that still has inventory children", () => {
-    // The mixed→settled drop of ".claude/" while ".claude/a.md" remains must
-    // NOT emit a remove: recursive would wipe the tracked child, non-recursive
-    // throws. The directory node stays via the surviving child — a no-op for
-    // Pierre. (The prior bug emitted a non-recursive remove and froze.)
-    expect(pathDiffOperations(mixed, settled)).toEqual([]);
+  it("dropRedundantDirKeys strips a collapsed dir that still has inventory children", () => {
+    // FileTree normalizes both sides before pathDiff so a dir key never
+    // coexists with children on either side of the diff.
+    expect(dropRedundantDirKeys(mixed)).toEqual([".claude/a.md"]);
+    expect(dropRedundantDirKeys(settled)).toEqual(settled);
   });
 
   it("pathDiffOperations emits a recursive remove for an orphaned collapsed dir", () => {
@@ -61,25 +61,32 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
     expect(tree.getItem(".claude/a.md")).not.toBeNull();
     expect(tree.getItem(".claude/")).not.toBeNull();
 
-    // Dropping the stale collapsed-dir entry leaves the tracked child and
-    // does not throw.
+    // After normalize, dropping the stale collapsed-dir entry is a no-op
+    // for pathDiff (dir key already stripped) — tracked child remains.
     expect(() => {
-      tree.batch(pathDiffOperations(mixed, settled));
+      tree.batch(
+        pathDiffOperations(
+          dropRedundantDirKeys(mixed),
+          dropRedundantDirKeys(settled),
+        ),
+      );
     }).not.toThrow();
     expect(tree.getItem(".claude/a.md")).not.toBeNull();
     tree.cleanUp();
   });
 
   it("does not freeze subsequent inventory changes after the collapsed-dir drop", () => {
-    // Models FileTree.tsx's paths-reconcile effect: after a successful apply
-    // (or a recover-then-surface path), appliedPaths advances so later
-    // inventory changes still land.
+    // Models FileTree.tsx's paths-reconcile effect: normalize both sides,
+    // apply, advance appliedPaths so later inventory changes still land.
     let appliedPaths = [...mixed];
     const tree = makeTree(appliedPaths);
 
     const tryApply = (paths: string[]): boolean => {
       try {
-        const ops = pathDiffOperations(appliedPaths, paths);
+        const ops = pathDiffOperations(
+          dropRedundantDirKeys(appliedPaths),
+          dropRedundantDirKeys(paths),
+        );
         if (ops.length > 0) tree.batch(ops);
         appliedPaths = paths;
         return true;

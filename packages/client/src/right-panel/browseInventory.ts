@@ -1,4 +1,4 @@
-import { isDirectoryPath } from "@kolu/solid-pierre/paths";
+import { hasPathUnderPrefix, isDirectoryPath } from "@kolu/solid-pierre/paths";
 
 /** The browse tree's inventory merge — pure, so the three rules that have each
  *  already caused a bug are pinned by a table test rather than argued in a
@@ -59,11 +59,7 @@ export function mergeBrowseInventory(
   const seen = new Set(tracked);
   const overlay = ignored.filter((p) => {
     if (seen.has(p)) return false;
-    if (isDirectoryPath(p)) {
-      for (const t of tracked) {
-        if (t.startsWith(p)) return false;
-      }
-    }
+    if (isDirectoryPath(p) && hasPathUnderPrefix(p, tracked)) return false;
     return true;
   });
   return { paths: [...tracked, ...overlay], ignored: overlay, pending };

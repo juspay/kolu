@@ -28,6 +28,7 @@ import { toError } from "./toError";
 import {
   ancestorDirectoryPaths,
   directoryRemovalOps,
+  dropRedundantDirKeys,
   type FileTreeRemoveOperation,
   isDirectoryPath,
   pathDiffOperations,
@@ -195,9 +196,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // The one adopted sheet carrying the host's CSS, rewritten in place whenever
   // `shadowCss` changes. Dies with the shadow root on cleanup.
   let hostSheet: CSSStyleSheet | undefined | null;
-  // The path inventory Pierre's tree currently holds. Seeded at mount and
-  // updated after every `batch`, so the next path change can be applied as
-  // an in-place delta. Tracked here rather than via `on`'s `prevInput`
+  // The last reconciled desired inventory (host `paths`, after a successful
+  // apply or recover). Seeded at mount and updated only when Pierre is left
+  // matching this list — so the next path change can be applied as an in-place
+  // delta against a known-good prev. Tracked here rather than via `on`'s `prevInput`
   // because that arg is `undefined` on the first post-`defer` run — which
   // would drop the very first delta's removals.
   let appliedPaths: readonly string[] = [];
@@ -407,8 +409,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
         ];
         try {
-          const fileOps = pathDiffOperations(appliedPaths, paths);
-          if (fileOps.length > 0) tree.batch(fileOps);
+          // Normalize both sides so a collapsed dir key never coexists with
+          // inventory children — pathDiff can then always recursive-remove
+          // orphaned directory keys without a skip branch.
+          const prev = dropRedundantDirKeys(appliedPaths);
+          const next = dropRedundantDirKeys(paths);
+          const pathOps = pathDiffOperations(prev, next);
+          if (pathOps.length > 0) tree.batch(pathOps);
           // Pierre's `remove` promotes an emptied directory to an explicit
           // empty folder instead of deleting it (see `directoryRemovalOps`),
           // so the file removals above would otherwise strand a filter's
@@ -419,25 +426,27 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           // touches a surviving directory's expansion, so a hand-collapsed
           // match folder stays collapsed.
           const dirOps: FileTreeRemoveOperation[] = [];
-          for (const op of directoryRemovalOps(appliedPaths, paths)) {
+          for (const op of directoryRemovalOps(prev, next)) {
             if (tree.getItem(op.path)) dirOps.push(op);
           }
           if (dirOps.length > 0) tree.batch(dirOps);
           appliedPaths = paths;
           expandDirs(tree, toOpen);
-        } catch (e) {
+        } catch {
           try {
             tree.resetPaths(paths, { initialExpandedPaths: toOpen });
             appliedPaths = paths;
             expandDirs(tree, toOpen);
+            // Recovered: tree matches desired inventory. Do not toast as a
+            // render failure — onError is reserved for unrecovered throws.
+            // Original throw is intentionally not re-surfaced to the host.
+            return;
           } catch (recoverErr) {
-            // Recovery failed too — bookkeeping may still be desynced; surface
-            // that loudly and leave appliedPaths so a later full inventory can
-            // still attempt recovery.
+            // Recovery failed — bookkeeping may still be desynced; surface
+            // loudly and leave appliedPaths so a later inventory can retry.
             props.onError(toError(recoverErr));
             return;
           }
-          props.onError(toError(e));
         }
       },
       { defer: true },

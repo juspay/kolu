@@ -20,6 +20,30 @@ export function isDirectoryPath(path: string): boolean {
   return path.endsWith("/");
 }
 
+/** True when any path in `paths` other than `prefix` itself lives under the
+ *  directory key `prefix` (trailing slash required — callers use
+ *  `isDirectoryPath`). Shared by merge inventory and path-diff so the
+ *  "tracked/next children under this dir" rule cannot drift. */
+export function hasPathUnderPrefix(
+  prefix: string,
+  paths: readonly string[],
+): boolean {
+  for (const p of paths) {
+    if (p !== prefix && p.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+/** Drop collapsed directory keys that still have a sibling path under them —
+ *  those keys are redundant once any child is listed (the directory node is
+ *  implied by the child). Normalizing both sides of a path-diff removes the
+ *  need for a skip-remove branch and keeps `appliedPaths` a single meaning. */
+export function dropRedundantDirKeys(paths: readonly string[]): string[] {
+  return paths.filter(
+    (p) => !isDirectoryPath(p) || !hasPathUnderPrefix(p, paths),
+  );
+}
+
 /** `"/"`, as a char code — compared numerically in the scan below so the loop
  *  does no per-character string allocation. */
 const SLASH = 47;
@@ -82,24 +106,15 @@ export function pathDiffOperations(
   const ops: FileTreeBatchOperation[] = [];
   for (const path of prev) {
     if (nextSet.has(path)) continue;
-    if (isDirectoryPath(path)) {
-      // Collapsed directory key (trailing slash). Pierre's non-recursive
-      // remove throws when the node still has children — use recursive when
-      // the directory is fully gone from `next`. When any `next` path still
-      // lives under this prefix, skip the remove: those children keep the
-      // directory node alive, and a recursive remove would wipe them too.
-      // (`isDirectoryPath` is the sole directory-key predicate.)
-      let hasDescendant = false;
-      for (const n of next) {
-        if (n.startsWith(path)) {
-          hasDescendant = true;
-          break;
-        }
-      }
-      if (!hasDescendant) ops.push({ type: "remove", path, recursive: true });
-    } else {
-      ops.push({ type: "remove", path });
-    }
+    // Directory keys (trailing slash) must remove recursively — Pierre throws
+    // on non-recursive remove of a non-empty directory. Callers normalize with
+    // `dropRedundantDirKeys` so a dir key never coexists with inventory
+    // children on either side; recursive then cannot wipe a surviving child.
+    ops.push(
+      isDirectoryPath(path)
+        ? { type: "remove", path, recursive: true }
+        : { type: "remove", path },
+    );
   }
   for (const path of next) {
     if (!prevSet.has(path)) ops.push({ type: "add", path });
