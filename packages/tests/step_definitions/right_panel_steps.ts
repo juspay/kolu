@@ -1,7 +1,12 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  MOD_KEY,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 /** Expand the Inspector's Attach section — it ships COLLAPSED (reference
  *  tier), so any step that reads a kaval command opens the disclosure first,
@@ -478,14 +483,12 @@ Then(
     // `waitForFunction` timeout: it names the exact (x, y) and the
     // covering element so a regression points at its cause.
     await this.waitForFrame();
-    const result = await this.page.evaluate(() => {
+    const result = await this.page.evaluate((activeTileSel) => {
       const handle = document.querySelector(
         '[data-testid="right-panel-handle"]',
       );
       if (!handle) return { ok: false, setupError: "handle missing" } as const;
-      const tile = document.querySelector(
-        '[data-testid="canvas-tile"][data-active="true"]',
-      ) as HTMLElement | null;
+      const tile = document.querySelector(activeTileSel) as HTMLElement | null;
       if (!tile) {
         return {
           ok: false,
@@ -516,7 +519,7 @@ Then(
         }
       }
       return { ok: dead.length === 0, dead } as const;
-    });
+    }, ACTIVE_CANVAS_TILE_SELECTOR);
     if (!result.ok && "setupError" in result) {
       assert.fail(`Setup failed: ${result.setupError}`);
     }

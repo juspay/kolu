@@ -3,7 +3,7 @@
  *  is red without opening the PR. `title` attributes preserve newlines
  *  natively across modern browsers, so the same string renders as a
  *  stacked tooltip on every surface that hangs it on the PR icon:
- *  dock pip (`RowPips`), tile title bar (`TerminalMeta`), workspace
+ *  dock PR pip, tile title bar (`TerminalMeta`), workspace
  *  terminal switcher, close-confirm dialog (`CloseConfirm`).
  *  One source = one verdict everywhere.
  *

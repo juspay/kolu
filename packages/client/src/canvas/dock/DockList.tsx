@@ -37,9 +37,11 @@ import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell, { recencyMode } from "./RecencyCell";
-import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
+import { createDockRowData } from "./dockRowData";
+import { PrPip } from "./PrPip";
 import { rowSubline } from "./rowSubline";
+import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockOrder } from "./useDockOrder";
 import { useSectionAttention } from "./useSectionAttention";
 
@@ -85,7 +87,7 @@ function DockListSection(props: {
   // they summarize are directly below on a touch surface.
   const attn = useSectionAttention(() => props.group);
   // Subgrid container — same shape as the desktop dock (the shared
-  // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
+  // `DOCK_ROW_GRID`). Three cols: indicator · branch · time.
   // The leading 20px indicator track is fixed (not `auto`) holding
   // `StatePip`, so the indicator never shifts as its axes flip. PR
   // pip lives on line 2 (left) alongside the subline, anchored to the
@@ -120,9 +122,9 @@ function DockListSection(props: {
         </span>
         <span
           class="dock-cards-section-count font-mono text-[0.6rem]"
-          title={`${props.group.rows.length} terminals`}
+          title={`${props.group.railEntries.length} terminals`}
         >
-          {props.group.rows.length}
+          {props.group.railEntries.length}
         </span>
         <AttentionTriplet
           active={attn().activeIds.length}
@@ -133,14 +135,26 @@ function DockListSection(props: {
           class="ml-auto"
         />
       </div>
-      <For each={props.group.rows}>
+      <For each={props.group.topRows}>
         {(row) => (
-          <DockListRow
-            id={row.id}
-            bucket={row.bucket}
-            pip={row.pip}
-            onSelect={props.onSelect}
-          />
+          <>
+            <DockListRow
+              id={row.id}
+              bucket={row.bucket}
+              pip={row.pip}
+              recencyAt={row.ts}
+              onSelect={props.onSelect}
+            />
+            <For each={row.subRows}>
+              {(sub) => (
+                <SubTerminalRow
+                  row={sub}
+                  surface="touch"
+                  onSelect={props.onSelect}
+                />
+              )}
+            </For>
+          </>
         )}
       </For>
     </section>
@@ -148,7 +162,7 @@ function DockListSection(props: {
 }
 
 /** Touch counterpart to `Dock.tsx`'s `DockRow`. Geometry is shared
- *  (two-line subgrid, indicator + branch + sub-count + time on line 1,
+ *  (two-line subgrid, indicator + branch + time on line 1,
  *  PR pip + subline on line 2); the two diverge on touch target sizing,
  *  the Corvu drag-to-dismiss pointer-down trap, and the absence of a
  *  `Cmd+N` shortcut hint. Update both files when row geometry changes. */
@@ -159,6 +173,8 @@ function DockListRow(props: {
   /** PIP bucket — drives the `StatePip` colour, identical to the tile title's
    *  pip (both `agentPaintClass`), decoupled from order. */
   pip: DockRowBucket;
+  /** Newest activity in the whole tile, including its splits. */
+  recencyAt: number | null;
   onSelect: (id: TerminalId) => void;
 }) {
   const store = useTerminalStore();
@@ -174,6 +190,7 @@ function DockListRow(props: {
           unread,
           () => props.pip,
         );
+        const mode = () => recencyMode(pip());
         return (
           // Row is `<div role="button">` rather than `<button>` so the
           // `<a>` PR pip on line 2 stays valid HTML (no `<a>` inside
@@ -195,9 +212,6 @@ function DockListRow(props: {
               asking: pip().asking,
               unread: unread(),
             })}
-            data-sub-count={
-              c().info.subCount > 0 ? c().info.subCount : undefined
-            }
             data-sleeping={pip().sleeping ? "" : undefined}
             // stopPropagation on pointerdown keeps Corvu Drawer's
             // drag-to-dismiss from claiming the tap (no-op in the rail,
@@ -232,13 +246,16 @@ function DockListRow(props: {
                 markdown={annotationLine(c().meta.intent, c().info.key.label)}
               />
             </span>
-            <SubCountCell subCount={c().info.subCount} />
             {/* Recency — hidden while active; width reserved. Blocked rows
              *  show the violet wait chip instead (see RecencyCell). */}
             <RecencyCell
-              recencyAt={rowRecencyAt(c().meta)}
+              recencyAt={displayRecencyAt(
+                mode(),
+                props.recencyAt,
+                rowRecencyAt(c().meta),
+              )}
               textSize="text-[0.65rem]"
-              mode={recencyMode(pip())}
+              mode={mode()}
             />
             {/* Second line — flex row spanning the branch column → end.
              *  PR pip on the left (anchored to the branch column's left

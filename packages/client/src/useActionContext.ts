@@ -37,7 +37,7 @@ export function useActionContext(): ActionContext {
 
   return {
     terminalIds: store.terminalIds,
-    dockOrderedIds: () => dockTree().flatRows.map((r) => r.id),
+    dockOrderedIds: () => dockTree().flatShortcutRows.map((r) => r.id),
     activeId: store.activeId,
     activate: store.activate,
     mruOrder: store.mruOrder,

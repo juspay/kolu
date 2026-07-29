@@ -1,7 +1,10 @@
 // Shared kolu-domain helpers for authoring recordings. (Kolu domain — knows
 // about claude/terminals; depends on the World, never on the engine.)
 import { padiFold } from "../../support/padiEnvelope.ts";
-import type { KoluWorld } from "../../support/world";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+} from "../../support/world";
 
 /** Sleep `ms` — paces a recording at human speed. */
 export const pause = (world: KoluWorld, ms: number): Promise<void> =>
@@ -195,7 +198,7 @@ export async function openOverlappingTerminal(
   const activeBar = () =>
     world.page
       .locator(
-        '[data-testid="canvas-tile"][data-active="true"] [data-testid="canvas-tile-titlebar"]',
+        `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="canvas-tile-titlebar"]`,
       )
       .boundingBox()
       .catch(() => null);

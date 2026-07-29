@@ -244,15 +244,14 @@ const TerminalCanvas: Component<{
           props.onLayoutChange(p.id, defaultLayout);
           placed.push({ id: p.id, layout: defaultLayout, isNew: true });
         }
-        // Pan to the active newly-placed tile. `activate` is a no-op
-        // setter when active is already this id (handleCreate already set
-        // it via setActiveSilently before the cascade ran) — the call's
-        // job here is bumping the centering signal once the new tile's
-        // pending layout exists. Same mechanism the `focus.request`
-        // effect below uses for every other system-driven activation.
+        // Pan to the active newly-placed tile. This is a tile-level landing with
+        // no explicit pane target, so it preserves the visible remembered pane;
+        // the call's job is bumping the centering signal once the new tile's
+        // pending layout exists. Same mechanism the `focus.request` effect below
+        // uses for every other system-driven activation.
         const activeId = tileStore.activeId();
         if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
-          tileStore.activate(activeId);
+          tileStore.activateVisiblePane(activeId);
         }
       },
     ),
@@ -426,7 +425,7 @@ const TerminalCanvas: Component<{
     tileId: TileId,
     terminalId: TerminalId,
   ): JSX.Element {
-    const active = () => tileStore.activeId() === tileId;
+    const active = () => tileStore.isActiveTile(tileId);
     const mode = (): CanvasTileMode =>
       posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
     return (
@@ -449,12 +448,7 @@ const TerminalCanvas: Component<{
                 ? () => props.renderTileTitleActions?.(tileId)
                 : undefined
             }
-            renderBody={() =>
-              props.renderTileBody(
-                tileId,
-                () => tileStore.activeId() === tileId,
-              )
-            }
+            renderBody={() => props.renderTileBody(tileId, active)}
             layouts={layouts()}
             startResize={startResize}
             panX={viewport.panX}

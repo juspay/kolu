@@ -33,6 +33,16 @@ Feature: Mobile dock drawer
     And there should be no page errors
 
   @mobile
+  Scenario: Selecting a split lands in that pane and closes the drawer
+    When I create a sub-terminal via command palette
+    And I click the main terminal
+    And I tap the mobile dock handle
+    And I tap mobile dock split sub-entry 1
+    Then the mobile dock sheet should not be visible
+    And the sub pane should be the active pane
+    And there should be no page errors
+
+  @mobile
   Scenario: Tapping the backdrop dismisses the dock drawer
     When I tap the mobile dock handle
     Then the mobile dock sheet should be visible

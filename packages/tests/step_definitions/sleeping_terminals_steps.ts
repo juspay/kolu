@@ -32,11 +32,15 @@ import { LOCAL_LOCATION, type SavedSleepingTerminal } from "@kolu/padi/surface";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { padiFold } from "../support/padiEnvelope.ts";
 import { pollFor } from "../support/poll.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 import { codexMockCwd } from "./codex_steps.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
-const CANVAS_TILE_SELECTOR = '[data-testid="canvas-tile"]';
 
 /** The stable id of the terminal we slept (sleep flips IN PLACE on the same id),
  *  and — separately — the saved id of a sleeping record planted/restored. Kept on
@@ -48,12 +52,10 @@ const sleptIdByWorld = new WeakMap<KoluWorld, string>();
  *  terminal is the one the user was just interacting with; with one tile up
  *  that is unambiguous. */
 async function activeTileId(world: KoluWorld): Promise<string> {
-  const id = await world.page.evaluate((sel) => {
-    const tile =
-      document.querySelector(`${sel}[data-active="true"]`) ??
-      document.querySelector(sel);
+  const id = await world.page.evaluate((activeTileSel) => {
+    const tile = document.querySelector(activeTileSel);
     return tile?.getAttribute("data-terminal-id") ?? null;
-  }, CANVAS_TILE_SELECTOR);
+  }, ACTIVE_CANVAS_TILE_SELECTOR);
   if (!id) throw new Error("No canvas tile on screen to sleep");
   return id;
 }

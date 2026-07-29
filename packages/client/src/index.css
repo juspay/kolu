@@ -515,15 +515,15 @@ body {
 /* The active tile mutes its own aura so it doesn't compete with its brighter
  * focus ring, and the eye-grab always points somewhere new. Last so it wins
  * over the tier rules above. */
-[data-canvas-tile][data-active="true"] .tile-aura {
+[data-canvas-tile][data-active] .tile-aura {
   opacity: 0.4;
 }
 /* Alert pulse / finished exhale keyframes would otherwise outrank the mute
  * above — a running CSS animation beats normal declarations regardless of
  * selector order. Cancel those motion keyframes on the active tile so the
  * mute (opacity 0.4) wins. */
-[data-canvas-tile][data-active="true"][data-aura="alert"] .tile-aura,
-[data-canvas-tile][data-active="true"][data-aura="finished"] .tile-aura {
+[data-canvas-tile][data-active][data-aura="alert"] .tile-aura,
+[data-canvas-tile][data-active][data-aura="finished"] .tile-aura {
   animation: none;
   opacity: 0.4;
 }
@@ -860,13 +860,11 @@ body {
   white-space: nowrap;
 }
 /* Soft row dividers — mockup-quiet; last row has none. */
-.dock-cards-section > [data-testid="dock-row"],
-.dock-cards-section > [data-testid="mobile-dock-row"] {
+.dock-cards-section > [data-dock-row] {
   border-bottom: 1px solid
     color-mix(in oklab, var(--color-edge) 28%, transparent);
 }
-.dock-cards-section > [data-testid="dock-row"]:last-child,
-.dock-cards-section > [data-testid="mobile-dock-row"]:last-child {
+.dock-cards-section > [data-dock-row]:last-child {
   border-bottom: 0;
 }
 
@@ -1030,14 +1028,9 @@ body {
 .dock-rail-chip[data-bucket="working"] {
   border-color: var(--color-busy);
 }
-.dock-rail-chip[data-bucket="none"] {
-  opacity: 0.5;
-}
-/* Active wins the dim — a freshly-created plain shell that becomes
- * active in rail mode would otherwise still read as half-dim. */
-.dock-rail-chip[data-bucket="none"][data-active] {
-  opacity: 1;
-}
+/* Paint fold never emits data-bucket="none" (paintDockRow maps none→idle —
+ * Option C identity glyph). Dim rules keyed on none were unreachable for both
+ * RailChip and RailSubChip; deleted rather than re-keying to idle. */
 /* Activity motion on a child (compositor-friendly — #1308). Driven by
  * bindStatePip's motion kind (data-motion), same fold as cards StatePip:
  * glow = needs-you; spin = working / live / waiting-until-EF2. */
