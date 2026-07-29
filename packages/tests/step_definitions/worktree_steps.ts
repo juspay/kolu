@@ -4,7 +4,7 @@ import { Then, When } from "@cucumber/cucumber";
 import {
   type KoluWorld,
   POLL_TIMEOUT,
-  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
+  DOCK_ROW_SELECTOR,
 } from "../support/world.ts";
 
 When(
@@ -147,9 +147,7 @@ Then(
       this.savedWorkspaceSwitcherCount !== undefined,
       "Must note workspace switcher count first",
     );
-    const current = await this.page
-      .locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR)
-      .count();
+    const current = await this.page.locator(DOCK_ROW_SELECTOR).count();
     assert.strictEqual(
       current,
       this.savedWorkspaceSwitcherCount,
@@ -164,7 +162,7 @@ Then(
     const saved = this.savedWorkspaceSwitcherCount;
     assert.ok(saved !== undefined, "Must note workspace switcher count first");
     const expected = saved - fewer;
-    const sel = WORKSPACE_SWITCHER_ENTRY_SELECTOR;
+    const sel = DOCK_ROW_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },

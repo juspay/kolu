@@ -7,7 +7,7 @@ import { waitForBufferContains } from "../support/buffer.ts";
 import {
   type KoluWorld,
   POLL_TIMEOUT,
-  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
+  DOCK_ROW_SELECTOR,
 } from "../support/world.ts";
 
 When("I create a terminal", async function (this: KoluWorld) {
@@ -42,7 +42,7 @@ When(
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
     // Click the workspace-switcher branch for this terminal.
     await this.page
-      .locator(`${WORKSPACE_SWITCHER_ENTRY_SELECTOR}[data-terminal-id="${id}"]`)
+      .locator(`${DOCK_ROW_SELECTOR}[data-terminal-id="${id}"]`)
       .click();
     // Wait for the selected terminal to take focus.
     await this.page
@@ -52,10 +52,10 @@ When(
   },
 );
 
-/** Select a terminal by its position in the workspace switcher (1-based),
+/** Click a terminal's dock row by its rendered position (1-based),
  *  regardless of `createdTerminalIds`. Complements
  *  `I select terminal {int} in the workspace switcher` (ID-based, waits on
- *  `data-focused`): this variant addresses entries by DOM position and
+ *  `data-focused`): this variant addresses dock rows by DOM position and
  *  waits on `data-visible`, which is what scenarios that don't track
  *  created IDs (or want to address pre-existing background terminals)
  *  need.
@@ -68,14 +68,12 @@ When(
  *  addressing isn't safe for them; reach for the ID-based sibling step
  *  instead. */
 When(
-  "I select workspace switcher entry {int}",
+  "I click dock row {int}",
   async function (this: KoluWorld, position: number) {
-    const entry = this.page
-      .locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR)
-      .nth(position - 1);
-    await entry.click();
-    const id = await entry.getAttribute("data-terminal-id");
-    assert.ok(id, `Workspace switcher entry ${position} has no terminal ID`);
+    const row = this.page.locator(DOCK_ROW_SELECTOR).nth(position - 1);
+    await row.click();
+    const id = await row.getAttribute("data-terminal-id");
+    assert.ok(id, `Dock row ${position} has no terminal ID`);
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
@@ -87,7 +85,7 @@ Given(
   "I note the workspace switcher entry count",
   async function (this: KoluWorld) {
     this.savedWorkspaceSwitcherCount = await this.page
-      .locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR)
+      .locator(DOCK_ROW_SELECTOR)
       .count();
   },
 );
@@ -96,7 +94,7 @@ Then(
   "the workspace switcher should have {int} more terminal entry/entries",
   async function (this: KoluWorld, delta: number) {
     const expected = (this.savedWorkspaceSwitcherCount ?? 0) + delta;
-    const buttons = this.page.locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR);
+    const buttons = this.page.locator(DOCK_ROW_SELECTOR);
     await buttons
       .nth(expected - 1)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });

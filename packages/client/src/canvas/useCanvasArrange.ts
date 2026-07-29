@@ -67,12 +67,13 @@ export function useCanvasArrange() {
     const arranged = arrangeRepoIslands(tiles);
     applyLayoutBatch(arranged);
     // Recenter on the active tile's new position so a far-away active
-    // tile doesn't end up off-screen after arrange. `activate` re-bumps
-    // the centering signal even though active hasn't changed (the canvas
-    // resolves the just-applied pending layout via `layoutOf`), so this
-    // shares the create/close path.
+    // tile doesn't end up off-screen after arrange. This tile-level landing has
+    // no explicit pane target, so it preserves the visible remembered pane while
+    // re-bumping the centering signal (the canvas resolves the just-applied
+    // pending layout via `layoutOf`).
     const activeId = tileStore.activeId();
-    if (activeId && arranged.has(activeId)) tileStore.activate(activeId);
+    if (activeId && arranged.has(activeId))
+      tileStore.activateVisiblePane(activeId);
   }
 
   /** Center the canvas on the active tile (the "Center on active tile" palette
@@ -82,14 +83,14 @@ export function useCanvasArrange() {
   function centerActive() {
     if (!supportsSpatialCanvas()) return;
     const id = tileStore.activeId();
-    if (id) tileStore.activate(id);
+    if (id) tileStore.activateVisiblePane(id);
   }
 
   /** Reset the active tile to the default width/height and drop it back at the
    *  viewport center — the "Reset terminal size" Debug palette command for a
    *  tile dragged or resized into an awkward state. Seeds pending for instant
    *  feedback (same path as drag/resize/arrange), persists via the tile-store
-   *  write seam, and recenters via `activate`. No-op off the spatial canvas
+   *  write seam, and recenters without changing the visible pane. No-op off the spatial canvas
    *  (mobile / narrow) or at zero tiles. */
   function resetActiveTileSize() {
     if (!supportsSpatialCanvas()) return;
@@ -110,7 +111,7 @@ export function useCanvasArrange() {
     };
     pendingLayouts.setOne(id, layout);
     tileStore.setLayout(id, layout);
-    tileStore.activate(id);
+    tileStore.activateVisiblePane(id);
   }
 
   return { handleCanvasAutoArrange, centerActive, resetActiveTileSize };

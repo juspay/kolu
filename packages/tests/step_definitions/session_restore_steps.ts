@@ -9,7 +9,7 @@ import {
   HYDRATION_TIMEOUT,
   type KoluWorld,
   POLL_TIMEOUT,
-  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
+  DOCK_ROW_SELECTOR,
 } from "../support/world.ts";
 
 /** Post the saved-session payload to the server. Used both at scenario
@@ -166,7 +166,7 @@ When(
     // reactive DOM check instead of locator.waitFor.
     await this.page.waitForFunction(
       (sel) => document.querySelectorAll(sel).length > 0,
-      WORKSPACE_SWITCHER_ENTRY_SELECTOR,
+      DOCK_ROW_SELECTOR,
       { timeout: 45_000 },
     );
   },
@@ -175,11 +175,11 @@ When(
 Then(
   "there should be {int} workspace switcher entries",
   async function (this: KoluWorld, expected: number) {
-    const entries = this.page.locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR);
+    const entries = this.page.locator(DOCK_ROW_SELECTOR);
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: WORKSPACE_SWITCHER_ENTRY_SELECTOR, count: expected },
+      { selector: DOCK_ROW_SELECTOR, count: expected },
       { timeout: 15000 },
     );
     const actual = await entries.count();
