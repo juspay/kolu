@@ -126,6 +126,7 @@ const TerminalContent: Component<{
   > = (event) => {
     if (
       [
+        "Enter",
         "ArrowLeft",
         "ArrowRight",
         "ArrowUp",
@@ -215,8 +216,8 @@ const TerminalContent: Component<{
             }}
             style={{ "z-index": Z_HANDLE_INNER }}
             aria-label="Resize terminal split"
-            onPointerDown={markResizeIntent}
-            onPointerUp={clearResizeIntent}
+            onHandleDragStart={markResizeIntent}
+            onHandleDragEnd={clearResizeIntent}
             onPointerCancel={clearResizeIntent}
             onLostPointerCapture={clearResizeIntent}
             onKeyDown={markKeyboardResizeIntent}

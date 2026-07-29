@@ -12,7 +12,8 @@ const SUB = "focus-intent-sub" as TerminalId;
 const h = vi.hoisted(() => ({
   onExpand: undefined as (() => void) | undefined,
   onCollapse: undefined as (() => void) | undefined,
-  onPointerDown: undefined as (() => void) | undefined,
+  onHandleDragStart: undefined as (() => void) | undefined,
+  onHandleDragEnd: undefined as (() => void) | undefined,
   onPointerCancel: undefined as (() => void) | undefined,
   onLostPointerCapture: undefined as (() => void) | undefined,
   onKeyDown: undefined as ((key: string) => void) | undefined,
@@ -36,10 +37,16 @@ vi.mock("@corvu/resizable", () => {
     return <div>{props.children}</div>;
   };
   const Handle: Component<Bag> = (props) => {
-    if (typeof props.onPointerDown === "function") {
-      h.onPointerDown = () =>
-        (props.onPointerDown as (event: PointerEvent) => void)(
+    if (typeof props.onHandleDragStart === "function") {
+      h.onHandleDragStart = () =>
+        (props.onHandleDragStart as (event: PointerEvent) => void)(
           new PointerEvent("pointerdown"),
+        );
+    }
+    if (typeof props.onHandleDragEnd === "function") {
+      h.onHandleDragEnd = () =>
+        (props.onHandleDragEnd as (event: PointerEvent) => void)(
+          new PointerEvent("pointerup"),
         );
     }
     if (typeof props.onPointerCancel === "function") {
@@ -130,7 +137,8 @@ afterEach(() => {
   host = undefined;
   h.onExpand = undefined;
   h.onCollapse = undefined;
-  h.onPointerDown = undefined;
+  h.onHandleDragStart = undefined;
+  h.onHandleDragEnd = undefined;
   h.onPointerCancel = undefined;
   h.onLostPointerCapture = undefined;
   h.onKeyDown = undefined;
@@ -139,7 +147,7 @@ afterEach(() => {
 });
 
 describe("TerminalContent panel expansion intent", () => {
-  it("keeps a controlled expand chrome-only but focuses after a handle gesture", () => {
+  function mountContent(): void {
     host = document.createElement("div");
     document.body.appendChild(host);
     dispose = render(
@@ -154,13 +162,17 @@ describe("TerminalContent panel expansion intent", () => {
       ),
       host,
     );
+  }
+
+  it("keeps a controlled expand chrome-only but focuses after a handle gesture", () => {
+    mountContent();
 
     expect(h.onExpand).toBeTypeOf("function");
     h.onExpand?.();
     expect(h.expandPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
     expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
 
-    h.onPointerDown?.();
+    h.onHandleDragStart?.();
     h.onCollapse?.();
     expect(h.collapsePanel).toHaveBeenCalledExactlyOnceWith(MAIN);
     h.onExpand?.();
@@ -168,45 +180,20 @@ describe("TerminalContent panel expansion intent", () => {
   });
 
   it("clears pointer intent when the resize gesture is cancelled", () => {
-    host = document.createElement("div");
-    document.body.appendChild(host);
-    dispose = render(
-      () => (
-        <TerminalContent
-          terminalId={MAIN}
-          visible
-          focused
-          theme={{} as ITheme}
-          onCloseTerminal={() => {}}
-        />
-      ),
-      host,
-    );
+    mountContent();
 
-    h.onPointerDown?.();
+    h.onHandleDragStart?.();
     h.onPointerCancel?.();
     h.onExpand?.();
 
     expect(h.expandPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
     expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
+    expect(h.onHandleDragEnd).toBeTypeOf("function");
     expect(h.onLostPointerCapture).toBeTypeOf("function");
   });
 
   it("does not treat keyboard navigation as resize intent", () => {
-    host = document.createElement("div");
-    document.body.appendChild(host);
-    dispose = render(
-      () => (
-        <TerminalContent
-          terminalId={MAIN}
-          visible
-          focused
-          theme={{} as ITheme}
-          onCloseTerminal={() => {}}
-        />
-      ),
-      host,
-    );
+    mountContent();
 
     h.onKeyDown?.("Tab");
     h.onExpand?.();
@@ -217,5 +204,14 @@ describe("TerminalContent panel expansion intent", () => {
     h.onExpand?.();
     expect(h.expandPanel).toHaveBeenCalledTimes(2);
     expect(h.expandAndFocusPanel).not.toHaveBeenCalled();
+  });
+
+  it("treats Corvu's Enter toggle as explicit resize intent", () => {
+    mountContent();
+
+    h.onKeyDown?.("Enter");
+    h.onExpand?.();
+
+    expect(h.expandAndFocusPanel).toHaveBeenCalledExactlyOnceWith(MAIN);
   });
 });
