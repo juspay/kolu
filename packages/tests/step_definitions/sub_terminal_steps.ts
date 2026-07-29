@@ -312,46 +312,111 @@ Then(
 );
 
 Then(
-  "the active dock row should show sub-terminal count {int}",
-  async function (this: KoluWorld, expected: number) {
-    // Poll until data-sub-count reaches the expected value — the reactive
-    // attribute update is async relative to the sub-terminal DOM mounting.
+  /^the dock should show (\d+) split sub-entr(?:y|ies)$/,
+  async function (this: KoluWorld, expectedText: string) {
+    const expected = Number(expectedText);
     await this.page.waitForFunction(
-      (n) =>
-        document
-          .querySelector('[data-testid="dock-row"][data-active]')
-          ?.getAttribute("data-sub-count") === String(n),
+      (count) =>
+        document.querySelectorAll('[data-testid="dock-sub-row"]').length ===
+        count,
       expected,
       { timeout: POLL_TIMEOUT },
-    );
-    const chip = this.page.locator(
-      '[data-testid="dock-row"][data-active] [data-testid="dock-sub-count"]',
-    );
-    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const text = await chip.textContent();
-    assert.ok(
-      text?.includes(`${expected}`),
-      `Expected dock chip to show "${expected}", got "${text}"`,
     );
   },
 );
 
 Then(
-  "the active dock row should not show a sub-terminal count",
+  "every dock split sub-entry should be a direct child of its section",
   async function (this: KoluWorld) {
-    // Poll until data-sub-count is absent — reactive removal is async.
+    const direct = await this.page
+      .locator('[data-testid="dock-sub-row"]')
+      .evaluateAll((rows) =>
+        rows.every((row) => row.parentElement?.matches(".dock-cards-section")),
+      );
+    assert.ok(direct, "Expected every split row directly under its section");
+  },
+);
+
+Then(
+  "the dock split sub-entry should have no agent attention chrome",
+  async function (this: KoluWorld) {
+    const row = this.page.locator('[data-testid="dock-sub-row"]').first();
+    assert.strictEqual(await row.getAttribute("data-agent-state"), null);
+    assert.strictEqual(await row.getAttribute("data-asking"), null);
+    assert.strictEqual(await row.getAttribute("data-unread"), null);
+    assert.strictEqual(
+      await row.locator('[data-testid="state-pip"]').count(),
+      0,
+      "Expected an agentless split to render no state pip",
+    );
+  },
+);
+
+Then(
+  "the dock should show no split count chip",
+  async function (this: KoluWorld) {
+    const count = await this.page
+      .locator('[data-testid="dock-sub-count"]')
+      .count();
+    assert.strictEqual(
+      count,
+      0,
+      "Expected the dock split count chip to be gone",
+    );
+  },
+);
+
+When(
+  "I click dock split sub-entry {int}",
+  async function (this: KoluWorld, index: number) {
+    await this.page
+      .locator('[data-testid="dock-sub-row"]')
+      .nth(index - 1)
+      .click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the parent dock row and focused split sub-entry should both be active",
+  async function (this: KoluWorld) {
     await this.page.waitForFunction(
-      () =>
-        document
-          .querySelector('[data-testid="dock-row"][data-active]')
-          ?.getAttribute("data-sub-count") === null,
+      () => {
+        const split = document.querySelector(
+          '[data-testid="dock-sub-row"][data-active]',
+        );
+        const parentId = split?.getAttribute("data-parent-id");
+        if (!parentId) return false;
+        return [...document.querySelectorAll('[data-testid="dock-row"]')].some(
+          (row) =>
+            row.getAttribute("data-terminal-id") === parentId &&
+            row.hasAttribute("data-active"),
+        );
+      },
       { timeout: POLL_TIMEOUT },
     );
-    const chip = this.page.locator(
-      '[data-testid="dock-row"][data-active] [data-testid="dock-sub-count"]',
+  },
+);
+
+Then(
+  "the dock section active count should equal the active host tab",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      () => {
+        const section = document.querySelector(
+          '[data-testid="dock-section-header"] [data-testid="attention-active"]',
+        );
+        const host = document.querySelector(
+          '[data-testid="host-chip"][data-active] [data-testid="attention-active"]',
+        );
+        return (
+          section !== null &&
+          host !== null &&
+          section.textContent?.trim() === host.textContent?.trim()
+        );
+      },
+      { timeout: POLL_TIMEOUT },
     );
-    const count = await chip.count();
-    assert.strictEqual(count, 0, "Expected no dock-sub-count chip");
   },
 );
 

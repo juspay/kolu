@@ -7,7 +7,8 @@
  *  final painted order of top-level rows: `dockTree.ts` re-sorts them
  *  blocked-first (`compareRows`, layered on THIS module's priority table) after
  *  clustering them by branch, so the recency-first order `rankDockRows` returns
- *  is a baseline the tree refines — not the sequence on screen.
+ *  is a baseline the tree refines — not the sequence on screen. Sub-entries
+ *  (`rankSubRows`) keep this module's order all the way to the pixel.
  *
  *  Desktop `Dock.tsx`, the touch `DockList.tsx`, and the `Cmd+1..9`
  *  keyboard shortcut all read the same rows, through the same tree, so the
@@ -162,7 +163,10 @@ export function paintDockRow(
   return paint === "none" ? "idle" : paint;
 }
 
-export type RankedDockRow = {
+/** A split's entry — a row that cannot itself carry splits, because splits do
+ *  not nest. The invariant lives in the type rather than in a recursive row
+ *  shape that every consumer would have to remember to stop traversing. */
+export type SubDockRow = {
   id: TerminalId;
   /** The ORDER bucket — read through `DOCK_ROW_BUCKET_PRIORITY` by BOTH sorts
    *  that touch a row: this module's `ts`-tiebreak below, and `dockTree.ts`'s
@@ -177,6 +181,13 @@ export type RankedDockRow = {
    *  ORDER bucket ranks it idle. */
   pip: DockRowBucket;
   ts: number | null;
+};
+
+export type RankedDockRow = SubDockRow & {
+  /** Every split inside this terminal, as an indented dock sub-entry. Plain
+   *  shells render label + landing only; agent-bearing splits additionally
+   *  render their pip and attention wash. */
+  subRows: readonly SubDockRow[];
 };
 
 /** The recency timestamp the dock keys a row on — WHEN YOU PUT IT TO SLEEP
@@ -217,12 +228,16 @@ export function tsRank(ts: number | null): number {
  *  over a recency timestamp — `rowRecencyAt` (`lastActivityAt` for an active
  *  tile, `sleptAt` for a sleeping one). Identity for stale-but-still-awaiting
  *  agents lives at the render layer (`QuietRowBody` paints `AgentIndicator` when
- *  `meta.agent` is set), not in the bucket decision here. */
+ *  `meta.agent` is set), not in the bucket decision here.
+ *
+ *  `getSubIds` is required: silently defaulting to no splits would erase the
+ *  very rows this projection exists to surface. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   isStale: (lastActivityAt: number | null) => boolean,
   classOf: (id: TerminalId) => AttentionClass,
+  getSubIds: (parentId: TerminalId) => readonly TerminalId[],
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {
@@ -235,13 +250,37 @@ export function rankDockRows(
       bucket: classifyDockRow(meta, parked),
       pip: paintDockRow(meta, classOf(id), parked),
       ts: recencyAt,
+      subRows: rankSubRows(getSubIds(id), getMeta, classOf),
     });
   }
   rows.sort(byRecencyThenBucket);
   return rows;
 }
 
-function byRecencyThenBucket(a: RankedDockRow, b: RankedDockRow): number {
+/** Rank every split under its parent. A sub-entry shares its parent's activity
+ *  window fate, so it is never independently parked. Agent urgency orders the
+ *  entries; an agentless split naturally falls into the quiet tail. */
+function rankSubRows(
+  subIds: readonly TerminalId[],
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+  classOf: (id: TerminalId) => AttentionClass,
+): SubDockRow[] {
+  const rows: SubDockRow[] = [];
+  for (const id of subIds) {
+    const meta = getMeta(id);
+    if (!meta) continue;
+    rows.push({
+      id,
+      bucket: classifyDockRow(meta, false),
+      pip: paintDockRow(meta, classOf(id), false),
+      ts: rowRecencyAt(meta),
+    });
+  }
+  rows.sort(byRecencyThenBucket);
+  return rows;
+}
+
+function byRecencyThenBucket(a: SubDockRow, b: SubDockRow): number {
   if (a.ts !== b.ts) return tsRank(b.ts) - tsRank(a.ts);
   return (
     DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket]

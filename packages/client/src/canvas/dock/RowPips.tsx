@@ -3,8 +3,7 @@
  *  Two independent change axes share this file because each
  *  produces a small JSX cell consumed identically by both the
  *  desktop dock and the mobile drawer. The file groups them so the
- *  two callers can `import { PrPip, SubCountCell }`
- *  rather than reach into separate single-export modules:
+ *  two callers can import the same PR presentation rather than hand-spell it:
  *
  *    - `PrPip` (PR state + checks tooltip) — leading glyph on
  *      row line 2. Inline, not a grid cell: wherever the caller
@@ -17,12 +16,6 @@
  *      (stopPropagation). Tooltip via `prTooltip` carries the
  *      multi-line checks breakdown. Volatility axis: PR display
  *      composition (changed when `prTooltip` was unified).
- *    - `SubCountCell` (sub-terminal chip wrapper) — last grid
- *      column of line 1 when present. Empty span collapses the
- *      column to 0 when the row has no sub-terminals, giving the
- *      width back to the branch label. Volatility axis: sub-
- *      terminal presence visualization (low-volatility today).
- *
  *  Live-output presence no longer has its own cell — activity is the
  *  StatePip motion channel (spin/glow), so the row leading column is
  *  identity + paint + motion + alert only.
@@ -46,7 +39,6 @@ import {
 } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PrStateIcon } from "../../ui/Icons";
-import { SubCountChip } from "./SubCountChip";
 
 /** Per-row combined reactive data — `info` + `meta` in a single memo.
  *  Three components (`DockRow`, `RailChip`, `DockListRow`) build the same
@@ -89,14 +81,3 @@ export const PrPip: Component<{ meta: TerminalMetadata }> = (props) => {
     </Show>
   );
 };
-
-/** Sub-count cell — grid cell on line 1. Empty span collapses to 0
- *  width when this row has no sub-terminals, so the column gives
- *  its width back to the branch label. */
-export const SubCountCell: Component<{ subCount: number }> = (props) => (
-  <span class="flex items-center justify-end">
-    <Show when={props.subCount > 0}>
-      <SubCountChip count={props.subCount} testId="dock-sub-count" />
-    </Show>
-  </span>
-);

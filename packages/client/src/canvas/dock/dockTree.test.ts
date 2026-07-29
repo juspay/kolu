@@ -12,6 +12,7 @@ function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
     bucket,
     pip: bucket,
     ts,
+    subRows: [],
   };
 }
 

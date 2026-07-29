@@ -33,8 +33,8 @@
  *     — so one glance reads who is driving and whether they need you.
  *     Agent kind is not labeled in text here — it lives on the terminal
  *     title bar where there's room. PR pip is a link to the PR with the
- *     live checks verdict in its tooltip; the sub-terminal chip surfaces
- *     when there are nested terminals. The active row gets a quiet
+ *     live checks verdict in its tooltip; nested terminals appear as indented
+ *     sub-entries beneath their parent. The active row gets a quiet
  *     highlight (`bg-surface-2` + accent left-edge stripe matching
  *     `--dock-edge-stripe-w`); row geometry stays constant so the dock
  *     never reflows when the active terminal changes. Pip columns share
@@ -116,8 +116,9 @@ import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell, { recencyMode } from "./RecencyCell";
-import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
+import { createDockRowData, PrPip } from "./RowPips";
 import { rowSubline } from "./rowSubline";
+import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockFocus } from "./useDockFocus";
 import { useDockOrder } from "./useDockOrder";
 import { useSectionAttention } from "./useSectionAttention";
@@ -520,16 +521,15 @@ const RepoSection: Component<{
     if (next === undefined) return;
     focus(next);
   };
-  // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
-  // template): indicator · branch · sub-count · time. The leading
+  // Section is the grid container. Three columns (the `DOCK_ROW_GRID`
+  // template): indicator · branch · time. The leading
   // indicator column is a fixed 20px reserved track holding `StatePip`
   // so the indicator never shifts as its axes flip and pips stay
   // aligned across rows. PR pip is NOT a grid column — it lives inline
   // on line 2 (left of the subline text), anchored to the branch
   // column's left edge so its X stays consistent across every section.
-  // Branch is `minmax(0,1fr)` so it stretches and truncates; sub-count
-  // and time are `auto`, so an empty sub-count column collapses to 0
-  // and gives its width back to the branch. Each DockRow is a subgrid
+  // Branch is `minmax(0,1fr)` so it stretches and truncates; time is `auto`.
+  // Each DockRow is a subgrid
   // item that inherits these columns, keeping the icons aligned
   // vertically across rows in one section.
   return (
@@ -581,12 +581,24 @@ const RepoSection: Component<{
       </div>
       <For each={props.group.rows}>
         {(row) => (
-          <DockRow
-            id={row.id}
-            bucket={row.bucket}
-            pip={row.pip}
-            flatIndex={props.flatIndexOf.get(row.id) ?? -1}
-          />
+          <>
+            <DockRow
+              id={row.id}
+              bucket={row.bucket}
+              pip={row.pip}
+              flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+            />
+            <For each={row.subRows}>
+              {(sub) => (
+                <SubTerminalRow
+                  id={sub.id}
+                  parentId={row.id}
+                  bucket={sub.bucket}
+                  pip={sub.pip}
+                />
+              )}
+            </For>
+          </>
         )}
       </For>
     </section>
@@ -595,16 +607,15 @@ const RepoSection: Component<{
 
 /** A row in cards mode — two lines:
  *
- *    Line 1: `indicator · branch · sub-count · time`
+ *    Line 1: `indicator · branch · time`
  *    Line 2: `[PR pip] subline`  (branch col → end)
  *
  *  A single leading status indicator (`StatePip`) folds the old
  *  activity/agent glyphs into one column; the branch column starts at
  *  col 2 (`DOCK_ROW_BRANCH_COL = col-start-2`). The PR pip rides on
  *  line 2 at the leftmost X (anchored to the branch column's left edge,
- *  col 2) so PR icons align across every section. Sub-count cell
- *  is empty when the row has none, collapsing the column back into
- *  branch width. Active row gets a quiet highlight (`bg-accent/15` +
+ *  col 2) so PR icons align across every section. Active row gets a quiet
+ *  highlight (`bg-accent/15` +
  *  3 px accent left stripe) but identical geometry, so the dock
  *  doesn't reflow on activation.
  *
@@ -673,9 +684,6 @@ const DockRow: Component<{
               asking: pip().asking,
               unread: unread(),
             })}
-            data-sub-count={
-              c().info.subCount > 0 ? c().info.subCount : undefined
-            }
             data-sleeping={pip().sleeping ? "" : undefined}
             onClick={() => tileStore.activate(props.id)}
             onKeyDown={(e) => {
@@ -702,7 +710,6 @@ const DockRow: Component<{
                 markdown={annotationLine(c().meta.intent, c().info.key.label)}
               />
             </span>
-            <SubCountCell subCount={c().info.subCount} />
             {/* Recency — hidden while active; width reserved. On a blocked
              *  row it flips to the violet WAIT chip: how long the agent has
              *  waited on you IS the signal (a 20 h wait must be legible). */}
@@ -840,9 +847,6 @@ const RailChip: Component<{
             data-agent-state={activeArm(c().meta)?.agent?.state}
             data-active={active() ? "" : undefined}
             data-unread={unread() ? "" : undefined}
-            data-sub-count={
-              c().info.subCount > 0 ? c().info.subCount : undefined
-            }
             onClick={() => tileStore.activate(props.id)}
             class="dock-rail-chip"
             style={{ "--repo-color": c().info.repoColor }}

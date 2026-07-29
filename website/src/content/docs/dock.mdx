@@ -84,6 +84,13 @@ running one long-lived agent session stays fresh on its *output*, not only when 
 agent's identity changes, so a busy week-old session doesn't sink to the bottom
 reading "24h ago".
 
+Every split is an indented sub-entry directly beneath its parent row. Clicking
+one lands in that pane, and both the parent row and the split stay highlighted:
+the parent names the active tile, while the sub-entry names where the keyboard
+is inside it. A plain shell split is label-only; an agent split adds the same
+state pip and violet/amber attention wash as a top-level agent. The entries are
+the inventory, so there is no separate split-count chip on the parent row.
+
 <Aside type="note" title="Attention rolls up here first">
   Only an agent genuinely **awaiting you** floats — a just-finished agent keeps
   its place in recency order rather than sitting where something is blocked on

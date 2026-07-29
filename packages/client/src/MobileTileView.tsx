@@ -179,6 +179,7 @@ const MobileTileView: Component<{
                     store.setActiveSilently(id);
                     onDockOpenChange(false);
                   }}
+                  onSubSelected={() => onDockOpenChange(false)}
                 />
               </div>
             </Drawer.Content>

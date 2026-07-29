@@ -38,12 +38,16 @@ import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell, { recencyMode } from "./RecencyCell";
-import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
+import { createDockRowData, PrPip } from "./RowPips";
 import { rowSubline } from "./rowSubline";
+import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockOrder } from "./useDockOrder";
 import { useSectionAttention } from "./useSectionAttention";
 
-export function DockList(props: { onSelect: (id: TerminalId) => void }) {
+export function DockList(props: {
+  onSelect: (id: TerminalId) => void;
+  onSubSelected?: () => void;
+}) {
   const tree = useDockOrder();
   return (
     <>
@@ -56,7 +60,11 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
         <div class="flex flex-col gap-2.5 p-2">
           <For each={tree().groups}>
             {(group) => (
-              <DockListSection group={group} onSelect={props.onSelect} />
+              <DockListSection
+                group={group}
+                onSelect={props.onSelect}
+                onSubSelected={props.onSubSelected}
+              />
             )}
           </For>
         </div>
@@ -79,13 +87,14 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
 function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
+  onSubSelected?: () => void;
 }) {
   // Same shared fold as the desktop header — the two headers cannot count
   // differently. Capsules stay plain spans here (no jump handlers): the rows
   // they summarize are directly below on a touch surface.
   const attn = useSectionAttention(() => props.group);
   // Subgrid container — same shape as the desktop dock (the shared
-  // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
+  // `DOCK_ROW_GRID`). Three cols: indicator · branch · time.
   // The leading 20px indicator track is fixed (not `auto`) holding
   // `StatePip`, so the indicator never shifts as its axes flip. PR
   // pip lives on line 2 (left) alongside the subline, anchored to the
@@ -135,12 +144,26 @@ function DockListSection(props: {
       </div>
       <For each={props.group.rows}>
         {(row) => (
-          <DockListRow
-            id={row.id}
-            bucket={row.bucket}
-            pip={row.pip}
-            onSelect={props.onSelect}
-          />
+          <>
+            <DockListRow
+              id={row.id}
+              bucket={row.bucket}
+              pip={row.pip}
+              onSelect={props.onSelect}
+            />
+            <For each={row.subRows}>
+              {(sub) => (
+                <SubTerminalRow
+                  id={sub.id}
+                  parentId={row.id}
+                  bucket={sub.bucket}
+                  pip={sub.pip}
+                  padClass="py-2"
+                  onSelected={props.onSubSelected}
+                />
+              )}
+            </For>
+          </>
         )}
       </For>
     </section>
@@ -148,7 +171,7 @@ function DockListSection(props: {
 }
 
 /** Touch counterpart to `Dock.tsx`'s `DockRow`. Geometry is shared
- *  (two-line subgrid, indicator + branch + sub-count + time on line 1,
+ *  (two-line subgrid, indicator + branch + time on line 1,
  *  PR pip + subline on line 2); the two diverge on touch target sizing,
  *  the Corvu drag-to-dismiss pointer-down trap, and the absence of a
  *  `Cmd+N` shortcut hint. Update both files when row geometry changes. */
@@ -195,9 +218,6 @@ function DockListRow(props: {
               asking: pip().asking,
               unread: unread(),
             })}
-            data-sub-count={
-              c().info.subCount > 0 ? c().info.subCount : undefined
-            }
             data-sleeping={pip().sleeping ? "" : undefined}
             // stopPropagation on pointerdown keeps Corvu Drawer's
             // drag-to-dismiss from claiming the tap (no-op in the rail,
@@ -232,7 +252,6 @@ function DockListRow(props: {
                 markdown={annotationLine(c().meta.intent, c().info.key.label)}
               />
             </span>
-            <SubCountCell subCount={c().info.subCount} />
             {/* Recency — hidden while active; width reserved. Blocked rows
              *  show the violet wait chip instead (see RecencyCell). */}
             <RecencyCell
