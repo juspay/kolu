@@ -16,6 +16,7 @@
  * `unixSocketLink`.
  */
 
+import type { Socket } from "node:net";
 import { ORPCError } from "@orpc/client";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
@@ -266,8 +267,14 @@ const probeFrozenKavalIdentity = probeDaemonIdentity({
  * trusted only from the frozen fragment. */
 async function probePreFragmentKaval(
   socketPath: string,
-): Promise<ConvergenceProbe<"not-drainable">> {
-  const socket = await dialSocket(socketPath);
+): Promise<ConvergenceProbe<"not-drainable"> | null> {
+  let socket: Socket;
+  try {
+    socket = await dialSocket(socketPath);
+  } catch (err) {
+    if (isNoListenerError(err)) return null;
+    throw err;
+  }
   const client = stdioLink<typeof kavalDaemonContract>({
     read: socket,
     write: socket,

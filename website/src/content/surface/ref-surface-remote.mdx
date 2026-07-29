@@ -90,6 +90,7 @@ your sink until the link dies.
 
 `pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal? }` — an optional `signal` STOPS the pump (aborting the active spawn's mirror, whose per-key pumps settle via `signal.reason`) without destroying the caller-owned session.
 `reServeSurface`'s `close()` aborts its pump via that signal and releases its runtime's owned sources; its `done` also rejects on an owned runtime fault. Idempotent. The pump is a **terminal source** (it ends on its own when the session is destroyed): supervision routes through `@kolu/surface`'s `superviseTerminalSource(runtime, terminal)`, the framework combinator that pairs a passive runtime with a terminal driver — `reServeSurface` no longer hand-rolls the teardown.
+The terminal close is attempted first and the runtime close is always attempted afterward; one close failure is rethrown unchanged, while several are surfaced together as an `AggregateError`.
 `makeSink` takes `{ seq }` (the spawn counter, **not** a client) and is rebuilt
 every spawn, so no per-client state survives a reconnect. `onLinkDown` fires after
 holders clear — the cue to drop any per-link local fold so the next spawn rebuilds

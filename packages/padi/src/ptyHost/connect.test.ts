@@ -77,9 +77,7 @@ function serveLegacy(socketPath: string): Promise<PtyHostSocketListener> {
   });
 }
 
-async function serveCurrent(
-  socketPath: string,
-): Promise<PtyHostSocketListener> {
+async function serveCurrent(socketPath: string) {
   const savedBuildId = process.env.KAVAL_BUILD_ID;
   const savedCommit = process.env.KAVAL_COMMIT_HASH;
   process.env.KAVAL_BUILD_ID = "fragment-build";
@@ -104,18 +102,16 @@ async function serveCurrent(
   });
   return {
     socketPath,
-    close: () => {
+    close: async () => {
       listener.close();
-      void runtime.close();
+      await runtime.close();
     },
   };
 }
 
 /** Serve ONLY the frozen fragment. A probe that regresses to system.version
  * cannot pass this fixture because that route does not exist. */
-async function serveFrozenIdentity(
-  socketPath: string,
-): Promise<PtyHostSocketListener> {
+async function serveFrozenIdentity(socketPath: string) {
   const runtime = implementSurfaces(
     { control: controlCoreSurface },
     {},
@@ -139,9 +135,9 @@ async function serveFrozenIdentity(
   });
   return {
     socketPath,
-    close: () => {
+    close: async () => {
       listener.close();
-      void runtime.close();
+      await runtime.close();
     },
   };
 }
@@ -180,7 +176,7 @@ async function serveLegacyVersionOnly(
 }
 
 describe("connectKaval — mirrors the handshake lifetime onto the metadata", () => {
-  let listener: PtyHostSocketListener;
+  let listener: Awaited<ReturnType<typeof serveCurrent>>;
   let socketPath: string;
 
   beforeAll(async () => {
@@ -191,7 +187,7 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
     listener = await serveCurrent(socketPath);
   });
 
-  afterAll(() => listener.close());
+  afterAll(async () => await listener.close());
 
   it("carries the served lifetime through to metadata.lifetime", async () => {
     const conn = await connectKaval(socketPath);
@@ -282,6 +278,32 @@ describe("probeKavalForConvergence — frozen production path", () => {
       "no.sock",
     );
     await expect(probeKavalForConvergence(missing)).resolves.toBeNull();
+  });
+
+  it("old daemon exiting between missing-fragment detection and the legacy redial ⇒ null", async () => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-probe-legacy-exit-")),
+      "pty-host.sock",
+    );
+    const listener = await serveLegacy(socketPath);
+    const realDestroy = Socket.prototype.destroy;
+    let listenerClosed = false;
+    const destroySpy = vi
+      .spyOn(Socket.prototype, "destroy")
+      .mockImplementation(function (this: Socket, error?: Error) {
+        if (!listenerClosed) {
+          listenerClosed = true;
+          listener.close();
+        }
+        return realDestroy.call(this, error);
+      });
+    try {
+      await expect(probeKavalForConvergence(socketPath)).resolves.toBeNull();
+      expect(listenerClosed).toBe(true);
+    } finally {
+      destroySpy.mockRestore();
+      listener.close();
+    }
   });
 
   it("W8.2: isNoListenerError accepts both ECONNREFUSED and ENOENT (classifier pin)", () => {
@@ -411,7 +433,7 @@ describe("probeKavalForConvergence — frozen production path", () => {
       expect(destroySpy.mock.calls.length).toBeGreaterThan(destroysBefore);
     } finally {
       destroySpy.mockRestore();
-      listener.close();
+      await listener.close();
     }
   });
 });
