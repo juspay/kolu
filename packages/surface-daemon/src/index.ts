@@ -46,6 +46,15 @@ export {
   readBakedIdentity,
 } from "./buildIdentity.ts";
 export {
+  CONTROL_CORE_VERSION,
+  type ControlCoreFragment,
+  type ControlCoreHello,
+  ControlCoreHelloSchema,
+  controlCoreFragment,
+  controlCoreProcedureSpec,
+  controlCoreSurface,
+} from "./controlCore.ts";
+export {
   buildLabel,
   buildsMatch,
   contractIsCompatible,

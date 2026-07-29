@@ -11,23 +11,25 @@
 import type { ContractRouterClient } from "@orpc/contract";
 import {
   type ConvergenceIdentity,
+  controlCoreSurface,
   daemonBuild,
   daemonHome,
   readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
+import { composeSurfaceContracts } from "@kolu/surface/define";
 import {
   converge,
   type ConvergencePolicy,
   createEndpoint,
   type DaemonConnection,
   dialSocket,
-  type PlainProbe,
+  probeDaemonIdentity,
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import type { surface } from "./surface";
+import { surface } from "./surface";
 
 // Same home declaration the daemon uses — disagreement about gate/socket impossible.
 const home = daemonHome({ app: "fleet-top", placement: "state" });
@@ -49,7 +51,11 @@ function spawnEnvBase(): Record<string, string> {
 }
 
 /** The contract-typed client the endpoint holds. */
-type TopClient = ContractRouterClient<typeof surface.contract>;
+const daemonContract = composeSurfaceContracts({
+  app: surface,
+  control: controlCoreSurface,
+});
+type TopClient = ContractRouterClient<typeof daemonContract>;
 /** What "identity" means for this daemon — enough to prove the link answered. */
 interface TopIdentity {
   loadOne: number;
@@ -68,11 +74,11 @@ async function connectTop(
   socketPath: string,
 ): Promise<DaemonConnection<TopClient, TopIdentity>> {
   const socket = await dialSocket(socketPath);
-  const client: TopClient = stdioLink<typeof surface.contract>({
+  const client: TopClient = stdioLink<typeof daemonContract>({
     read: socket,
     write: socket,
   });
-  const load = await firstFrame(client.surface.load.get({}));
+  const load = await firstFrame(client.surface.app.load.get({}));
   const closeCbs: Array<() => void> = [];
   let closed = false;
   socket.once("close", () => {
@@ -101,7 +107,7 @@ export async function bootSupervisor(): Promise<void> {
     hostId: "local",
     home, // SAME call as the daemon — disagreement impossible
     policy,
-    probe: () => probeIdentity(home.socketPath),
+    probe: probeDaemonIdentity({ capability: "not-drainable" }),
     driver: survivableSpawnDriver({
       binPath: daemonEntry,
       args: [],
@@ -141,16 +147,3 @@ const baked: ConvergenceIdentity = {
   contractVersion: "1.0",
   build: daemonBuild(readBakedIdentity("FLEET_TOP").staleKey),
 };
-
-// Read the running daemon's identity over a version-agnostic channel, so a skew
-// can't hide it. A daemon with no drain verb yields a `not-drainable` probe.
-async function probeIdentity(socketPath: string): Promise<PlainProbe | null> {
-  const socket = await dialSocket(socketPath);
-  return {
-    capability: "not-drainable",
-    identity: baked,
-    // Absent startedAt on a not-drainable probe still names pre-instance.
-    instanceKey: { kind: "pre-instance" },
-    dispose: () => socket.destroy(),
-  };
-}
