@@ -83,7 +83,7 @@ const subPanelSpy = vi.hoisted(() => ({ setActiveSubTab: vi.fn() }));
 vi.mock("./useSubPanel", () => ({
   useSubPanel: () => ({
     seedPanel: () => {},
-    getSubPanel: () => ({ activeSubTab: null }),
+    peekSubPanel: () => ({ activeSubTab: null }),
     setActiveSubTab: subPanelSpy.setActiveSubTab,
   }),
 }));

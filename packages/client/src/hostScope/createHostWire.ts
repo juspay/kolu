@@ -60,6 +60,7 @@ import {
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
+import type { TerminalPlacement } from "../terminal/focusedTerminal";
 import { interpretClientError, padiMap } from "../wire";
 
 /** The map entry lens `createHostWire` opens its cells/collections through. Aliased
@@ -77,6 +78,8 @@ export interface HostWire {
   session: ReturnType<PadiEntry["cells"]["session"]["use"]>;
   activityFeed: ReturnType<PadiEntry["cells"]["activityFeed"]["use"]>;
   daemonStatus: ReturnType<PadiEntry["collections"]["daemonStatus"]["use"]>;
+  /** Pure placement lookup over this host's retained terminal collection. */
+  placementOf: (id: TerminalId) => TerminalPlacement;
 }
 
 export function createHostWire(host: HostKey): HostWire {
@@ -133,6 +136,13 @@ export function createHostWire(host: HostKey): HostWire {
   // "Metadata error" policy rides the spec; the use-site keeps only `keys`.
   const keys = createMemo<TerminalId[]>(() => terminalKeys() ?? []);
   const terminals = entry.collections.terminals.use({ keys });
+  const placementOf = (id: TerminalId): TerminalPlacement => {
+    const terminal = terminals.byKey(id)?.();
+    if (!terminal) return { kind: "missing" };
+    return terminal.parentId === undefined || terminal.parentId === null
+      ? { kind: "top-level" }
+      : { kind: "split", parentId: terminal.parentId };
+  };
 
   // The persisted saved-session cell (host-owned, restore-relevant).
   const session = entry.cells.session.use();
@@ -153,5 +163,6 @@ export function createHostWire(host: HostKey): HostWire {
     session,
     activityFeed,
     daemonStatus,
+    placementOf,
   };
 }

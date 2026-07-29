@@ -17,6 +17,8 @@ const bag = vi.hoisted(() => ({
     id: TerminalId,
   ) => TestMeta | undefined,
   activeId: (() => null) as () => TerminalId | null,
+  isFocused: vi.fn(() => false),
+  isActiveTile: vi.fn(() => false),
   activate: vi.fn(),
   setActiveSilently: vi.fn(),
   persistCanvasLayout: vi.fn(),
@@ -27,6 +29,8 @@ vi.mock("../terminal/useTerminalStore", () => ({
     terminalIds: bag.terminalIds,
     getMetadata: bag.metaOf,
     activeId: bag.activeId,
+    isFocused: bag.isFocused,
+    isActiveTile: bag.isActiveTile,
     activate: bag.activate,
     setActiveSilently: bag.setActiveSilently,
   }),
@@ -110,6 +114,8 @@ describe("useTileStore layout (registry hides where it lives)", () => {
 describe("useTileStore selection (one source of truth)", () => {
   it("re-exposes the view-state selection signals by reference", () => {
     expect(store.activeId).toBe(bag.activeId);
+    expect(store.isFocused).toBe(bag.isFocused);
+    expect(store.isActiveTile).toBe(bag.isActiveTile);
     expect(store.activate).toBe(bag.activate);
     expect(store.setActiveSilently).toBe(bag.setActiveSilently);
   });

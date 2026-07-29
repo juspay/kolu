@@ -8,7 +8,7 @@ import Resizable from "@corvu/resizable";
 import { sleepingArm } from "@kolu/padi/surface";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { type Component, For, type JSX, Show } from "solid-js";
 import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import DormantTileBody from "./DormantTileBody";
@@ -41,8 +41,7 @@ const TerminalContent: Component<{
   /** Close a terminal — stays a prop because closing a top-level tile pops
    *  App's root-mounted `<CloseConfirm>` dialog (shell-owned orchestration). */
   onCloseTerminal: (id: TerminalId) => void;
-  /** Called when user focuses any terminal in this pane (click, keyboard).
-   *  Canvas mode uses this to set the active tile. */
+  /** Called when a user gesture moves focus into a terminal in this pane. */
   onFocus?: () => void;
 }> = (props) => {
   const store = useTerminalStore();
@@ -59,20 +58,24 @@ const TerminalContent: Component<{
     sleepingArm(store.getMetadata(props.terminalId)) === undefined;
 
   const subTerminalIds = () => store.getSubTerminalIds(props.terminalId);
-  const panelState = () => subPanel.getSubPanel(props.terminalId);
+  const panelState = () => subPanel.peekSubPanel(props.terminalId);
   const hasSubs = () => subTerminalIds().length > 0;
   const isExpanded = () => hasSubs() && !panelState().collapsed;
   const activeSubTab = () => panelState().activeSubTab;
-  const focusTarget = () => panelState().focusTarget;
 
   // One owner for "which pane is live within this tile": only the focused tile's
-  // *open* split has a live pane (the `focusTarget` one), reusing the same
-  // signal that routes keystrokes — no parallel "active pane" state. Undefined
-  // when collapsed or when this tile isn't focused, so no unfocused tile lights
-  // a pane. The cue (`paneFocus`) and the keyboard routing (`shouldFocusSub`)
-  // below both read this, so they can't drift.
-  const livePane = () =>
-    props.focused && isExpanded() ? focusTarget() : undefined;
+  // *open* split has a live pane, folded directly from the one focus fact.
+  // Undefined when collapsed or when this tile isn't focused, so no unfocused
+  // tile lights a pane. The cue and keyboard routing both read this fold.
+  const livePane = (): "main" | "sub" | undefined => {
+    if (!props.focused || !isExpanded()) return undefined;
+    const focusedId = store.focusedTerminalId();
+    if (focusedId === props.terminalId) return "main";
+    return focusedId !== null &&
+      store.getMetadata(focusedId)?.parentId === props.terminalId
+      ? "sub"
+      : undefined;
+  };
 
   // Which pane the active-terminal cue marks: the live pane is "active", the
   // other "inactive" (which `RECEDE_INACTIVE_PANE` dims).
@@ -86,9 +89,9 @@ const TerminalContent: Component<{
         : "inactive";
 
   const shouldFocusMain = () =>
-    props.focused && (!isExpanded() || focusTarget() === "main");
+    props.focused && store.focusedTerminalId() === props.terminalId;
   const shouldFocusSub = (subId: TerminalId) =>
-    livePane() === "sub" && activeSubTab() === subId;
+    props.focused && isExpanded() && store.focusedTerminalId() === subId;
 
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle.
@@ -101,14 +104,43 @@ const TerminalContent: Component<{
     }
   }
 
-  function handleMainFocus() {
-    subPanel.setFocusTarget(props.terminalId, "main");
-    props.onFocus?.();
+  // Corvu reports physical collapsed/expanded transitions for controlled sizes;
+  // those callbacks do not identify their source. Record an actual handle
+  // gesture separately so only pointer/keyboard intent may persist chrome or
+  // move focus. A programmatic transition is merely the consequence of the
+  // controlled `sizes` value and must not write that value's source state back.
+  let resizeIntent = false;
+  const markResizeIntent = () => {
+    resizeIntent = true;
+  };
+  const markKeyboardResizeIntent: JSX.EventHandler<
+    HTMLButtonElement,
+    KeyboardEvent
+  > = (event) => {
+    if (
+      [
+        "Enter",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Home",
+        "End",
+      ].includes(event.key)
+    )
+      markResizeIntent();
+  };
+  const clearResizeIntent = () => {
+    resizeIntent = false;
+  };
+
+  function handlePanelCollapse() {
+    if (!hasSubs()) return;
+    if (resizeIntent) subPanel.collapsePanel(props.terminalId);
   }
 
-  function handleSubFocus() {
-    subPanel.setFocusTarget(props.terminalId, "sub");
-    props.onFocus?.();
+  function handlePanelExpand() {
+    if (resizeIntent) subPanel.expandAndFocusPanel(props.terminalId);
   }
 
   return (
@@ -148,7 +180,7 @@ const TerminalContent: Component<{
             onSearchOpenChange={(open) =>
               search.setOpen(props.terminalId, open)
             }
-            onFocus={handleMainFocus}
+            onFocus={() => subPanel.focusMainPane(props.terminalId)}
             refocusNonce={panelState().refocusNonce}
           />
         </Resizable.Panel>
@@ -175,6 +207,13 @@ const TerminalContent: Component<{
             }}
             style={{ "z-index": Z_HANDLE_INNER }}
             aria-label="Resize terminal split"
+            onHandleDragStart={markResizeIntent}
+            onHandleDragEnd={clearResizeIntent}
+            onPointerCancel={clearResizeIntent}
+            onLostPointerCapture={clearResizeIntent}
+            onKeyDown={markKeyboardResizeIntent}
+            onKeyUp={clearResizeIntent}
+            onBlur={clearResizeIntent}
           />
         </Show>
 
@@ -184,8 +223,8 @@ const TerminalContent: Component<{
           minSize={0}
           collapsible
           collapsedSize={0}
-          // Only PERSIST a collapse that reflects USER intent — a genuine
-          // drag-to-collapse while the split actually has sub-terminals. On a host
+          // Only PERSIST a collapse from pointer/keyboard intent on the handle.
+          // On a host
           // switch-BACK the sub-terminal metadata (parentId) re-arrives a beat
           // AFTER the tile re-renders, so `hasSubs()` — hence `isExpanded()` —
           // flickers false and drives `sizes` to [1, 0]; Corvu then fires this
@@ -193,13 +232,11 @@ const TerminalContent: Component<{
           // once the metadata lands, the stored `collapsed:true` keeps
           // `isExpanded()` false so the controlled `sizes` never returns to
           // [1-panelSize, panelSize] and the split is lost for good (srid's
-          // switch-back split-loss). Guarding on `hasSubs()` makes the transient
-          // programmatic collapse a no-op; the controlled `sizes` re-expands the
-          // moment the sub metadata arrives.
-          onCollapse={() => {
-            if (hasSubs()) subPanel.collapsePanel(props.terminalId);
-          }}
-          onExpand={() => subPanel.expandPanel(props.terminalId)}
+          // switch-back split-loss). The intent gate makes every programmatic
+          // transition a no-op; the controlled `sizes` re-expands the moment the
+          // sub metadata arrives.
+          onCollapse={handlePanelCollapse}
+          onExpand={handlePanelExpand}
           data-pane="sub"
           data-pane-focus={paneFocus("sub")}
         >
@@ -208,7 +245,7 @@ const TerminalContent: Component<{
               subIds={subTerminalIds()}
               activeSubTab={activeSubTab()}
               getMetadata={store.getMetadata}
-              onSelect={(id) => subPanel.setActiveSubTab(props.terminalId, id)}
+              onSelect={(id) => subPanel.selectSubTab(props.terminalId, id)}
               onClose={props.onCloseTerminal}
               onCollapse={() => subPanel.collapsePanel(props.terminalId)}
               onCreate={() =>
@@ -231,7 +268,9 @@ const TerminalContent: Component<{
                   theme={props.theme}
                   searchOpen={false}
                   onSearchOpenChange={() => {}}
-                  onFocus={handleSubFocus}
+                  onFocus={() =>
+                    subPanel.focusVisibleSubPane(props.terminalId, subId)
+                  }
                   refocusNonce={panelState().refocusNonce}
                   isSub
                 />
