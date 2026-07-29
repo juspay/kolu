@@ -102,6 +102,7 @@ const App: Component = () => {
   const focus = useDockFocus();
   const attention = useAttention({
     activeId: store.activeId,
+    focusedId: store.focusedTerminalId,
     activate: focus,
     markUnread: store.markUnread,
     activeSubject: getSubject,
