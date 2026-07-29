@@ -19,7 +19,7 @@ version: Unreleased
 ### [Theming](/theming)
 
 - <Change kind="added" title="Shuffle behaviour: Colourful" pr={2040}>**Shuffle behaviour** gains **Colourful** — <kbd>⌘⇧J</kbd> and shuffled new terminals stay on saturated schemes and skip grey / monochrome tints, without forcing light or dark. Auto / Dark / Light / Random are unchanged.</Change>
-- <Change kind="fixed" title="MCP-created terminals now honour the Inherit / Shuffle preference" pr={2046}>A terminal created by the MCP server (or any out-of-band caller — a TUI, a script) landed on the built-in default theme instead of following the **New terminal theme** setting. The theme for a new terminal is now resolved by padi at the single <code>lifecycle.create</code> front door every caller passes through, so **Inherit** copies the active terminal's theme and **Shuffle** picks a distinct background regardless of who asked for the terminal.</Change>
+- <Change kind="fixed" title="MCP-created terminals now honour the Inherit / Shuffle preference" pr={2051}>A terminal created by the MCP server (or any out-of-band caller — a TUI, a script) landed on the built-in default theme instead of following the **New terminal theme** setting. The theme for a new terminal is now resolved by padi at the single <code>lifecycle.create</code> front door every caller passes through, so **Inherit** copies the active terminal's theme and **Shuffle** picks a distinct background regardless of who asked for the terminal.</Change>
 
 ### [Sessions, Sleep & Wake](/sessions)
 
