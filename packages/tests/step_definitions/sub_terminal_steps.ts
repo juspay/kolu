@@ -393,6 +393,7 @@ Then(
             row.hasAttribute("data-active"),
         );
       },
+      null,
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -415,6 +416,7 @@ Then(
           section.textContent?.trim() === host.textContent?.trim()
         );
       },
+      null,
       { timeout: POLL_TIMEOUT },
     );
   },

@@ -151,19 +151,17 @@ export function buildDockTree(
   const groups: DockGroup[] = [...byName.entries()]
     .map(([name, g]) => {
       const topRows = flattenLabelClusters(g.byLabel);
+      const railEntries = topRows.flatMap<DockRailEntry>((row) => [
+        { kind: "top", row },
+        ...row.subRows.map((sub) => ({ kind: "split" as const, row: sub })),
+      ]);
       return {
         name,
         color: g.color,
         topRows,
         allTopRows: g.allTopRows,
-        visibleEntryCount: topRows.reduce(
-          (count, row) => count + 1 + row.subRows.length,
-          0,
-        ),
-        railEntries: topRows.flatMap<DockRailEntry>((row) => [
-          { kind: "top", row },
-          ...row.subRows.map((sub) => ({ kind: "split" as const, row: sub })),
-        ]),
+        visibleEntryCount: railEntries.length,
+        railEntries,
       };
     })
     // A repo whose every row is filtered out has no header to hang its
