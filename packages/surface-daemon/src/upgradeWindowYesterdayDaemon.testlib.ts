@@ -73,8 +73,10 @@ export interface YesterdayDaemon {
   dispose: () => Promise<void>;
 }
 
-function liveChild(assertSpawnAllowed: (label: string) => void): ChildProcess {
-  assertSpawnAllowed("yesterday-daemon fixture child");
+function liveChild(
+  assertDaemonSpawnAllowed: (label: string) => void,
+): ChildProcess {
+  assertDaemonSpawnAllowed("yesterday-daemon fixture child");
   return spawn(process.execPath, ["-e", "setTimeout(() => {}, 600_000)"], {
     stdio: "ignore",
   });
