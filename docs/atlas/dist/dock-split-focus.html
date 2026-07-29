@@ -231,18 +231,20 @@ assertions in <code>sub-terminal.feature</code> / <code>sub_terminal_steps.ts</c
 replaced by sub-entry assertions. Every other existing assertion — the
 parent-keyed active row above all — remains untouchable.</span></span></span></p>
 <p><strong>User-facing change</strong>: every split has a home in the dock — an indented entry
-under its host terminal’s row (agents wear their pip and attention wash there;
-a plain shell split is just a labeled row). Clicking one lands you <em>in that
-pane</em>, keyboard and all. The <code>⊟ N</code> chip is gone — the rows themselves are the
-count. Repo section headers still count split agents, so the header agrees
-with the host tab above it.</p>
+under its host terminal’s row (agents wear their state glyph there; an asking
+or unread row washes only while it is not active, and a plain shell split is
+just a labeled row). Clicking one lands you <em>in that pane</em>, keyboard and all.
+The <code>⊟ N</code> chip is gone — the rows themselves are the count. Repo section
+headers still count split agents, so the header agrees with the host tab above
+it.</p>
 <p><strong>To test the PR</strong>: split a terminal (<code>Ctrl+Shift+`</code>) — an indented row
 appears under the parent’s dock row immediately, plain <code>bash</code> and all, and the
 <code>⊟ N</code> chip is gone. Run <code>claude</code> in the split and give it a task: the entry
 gains the working pip. Click the sub-entry: you land typing in that pane, and
 <strong>both</strong> the parent row and the sub-entry are highlighted. Let the agent block
-on a question: the sub-entry washes violet and the section header’s count
-matches the host tab’s.</p>
+on a question: the sub-entry’s awaiting glyph turns violet; move focus away to
+see its violet row wash, which is suppressed while the row is active. The
+section header’s count matches the host tab’s.</p>
 <p><strong>Done when</strong>: the recovered matrix is green; a new e2e scenario asserts an
 agentless split’s row exists (and no <code>⊟</code> chip anywhere); another types into a
 split and asserts the parent row <strong>and</strong> the sub-entry both carry
