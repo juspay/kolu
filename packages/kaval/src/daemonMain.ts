@@ -37,7 +37,7 @@ function osfactsBinPath(): string {
   const path = process.env.KOLU_OSFACTS_BIN;
   if (!path) {
     throw new Error(
-      "KOLU_OSFACTS_BIN is not set — kaval requires the baked osfacts binary",
+      "KOLU_OSFACTS_BIN is not set — kaval requires the baked osfacts binary (nix wrappers set it via osfactsBakeArg)",
     );
   }
   return path;

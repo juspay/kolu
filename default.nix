@@ -577,6 +577,7 @@ let
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
       ${kavalIdentity.bakeArgs} \
+      ${osfactsBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
