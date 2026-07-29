@@ -74,6 +74,9 @@ async function runDaemon(): Promise<DaemonExit> {
       gatePath: join(dir, "gate.pid"),
       socketPath: join(dir, "daemon.sock"),
     },
+    processIdentity: { pid: process.pid, startUnixUs: 1_000_000 },
+    readProcessIdentity: (pid) =>
+      pid === process.pid ? { pid, startUnixUs: 1_000_000 } : undefined,
     router,
     // The fixture exercises tenure (exit ownership), not the anchor — honestly
     // unanchored, like any daemon with no on-disk identity.

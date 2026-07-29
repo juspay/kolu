@@ -33,6 +33,8 @@ import {
   confirmHeldGate,
   type GateAcquisition,
   isHolderLive,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
 } from "./pidGate.ts";
 
 /** How long the daemon stays up once serving. `forever` waits for a signal or
@@ -266,6 +268,16 @@ export interface DaemonSpec {
    *  this gate and releases it on teardown, exactly as if it had acquired it.
    *  Omitted → `daemonMain` acquires the gate itself (kaval's path). */
   gate?: GateAcquisition;
+  /**
+   * This daemon's OS identity, supplied by the composition root. Required when
+   * `gate` is omitted (the spine acquires). Required even when `gate` is
+   * supplied if a held one-field gate may need {@link confirmHeldGate} reclaim
+   * → re-acquire. The spine compares it but never reads platform process state.
+   */
+  processIdentity: ProcessIdentity;
+  /** Resolve a PID to its current start-qualified identity. Injected — never
+   *  defaulted. A missing inject is a type error at the composition root. */
+  readProcessIdentity: ReadProcessIdentity;
 }
 
 /** Run the daemon: take the gate, serve the router over the socket, then wait
@@ -278,12 +290,20 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   const anchor = spec.anchor ?? (() => home.dir);
 
   // The caller may have claimed the gate already (padi, to fence its boot side
-  // effects behind it); otherwise acquire it here (kaval). Always confirm a
-  // held gate against the co-located socket so a reboot-stale PID reuse cannot
-  // strand us as already-running with no listener.
-  let gate = spec.gate ?? acquirePidGate(gatePath);
+  // effects behind it); otherwise acquire it here (kaval). One-field (legacy)
+  // held gates still go through confirmHeldGate (socket dead → reclaim; absent
+  // → mid-boot wait). Two-field matches are identity-truth and skip reclaim.
+  let gate =
+    spec.gate ??
+    acquirePidGate(gatePath, spec.processIdentity, spec.readProcessIdentity);
   if (gate.kind === "held") {
-    gate = await confirmHeldGate(gate, gatePath, socketPath);
+    gate = await confirmHeldGate(
+      gate,
+      gatePath,
+      socketPath,
+      spec.processIdentity,
+      spec.readProcessIdentity,
+    );
   }
   if (gate.kind === "held") {
     log.info(

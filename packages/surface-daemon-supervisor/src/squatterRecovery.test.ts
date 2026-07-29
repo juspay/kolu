@@ -22,12 +22,25 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import {
-  createEndpoint,
+  createEndpoint as createEndpointCore,
+  type EndpointSpec,
   type DaemonConnection,
   DaemonContractSkewError,
   type EndpointStatus,
   isSocketSquatterForeignError,
 } from "./endpoint.ts";
+
+const __startTime = (pid: number) => pid * 1_000;
+function createEndpoint<C, I, M = undefined>(
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
+) {
+  return createEndpointCore({
+    ...spec,
+    readProcessIdentity: async (pid: number) =>
+      isHolderLive(pid) ? { pid, startUnixUs: __startTime(pid) } : undefined,
+  });
+}
+
 import { endpointPrivate } from "./endpoint.private.ts";
 
 const silentLog = {

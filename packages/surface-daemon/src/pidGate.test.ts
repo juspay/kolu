@@ -1,10 +1,8 @@
 /**
  * The pid-gate mechanism, unit-level — acquire / held / stale-reap / release /
  * read, with real OS pids for the liveness probe (a live child for "held", a
- * reaped child for "stale"). The cross-*process* race choreography against a
- * real spawned daemon lives in kaval's e2e; here we pin the file-format and
- * liveness logic that both sides share — including `liveHolder`, the exact
- * composition (`isHolderLive(gatePid(path))`) the B2 supervisor will run.
+ * reaped child for "stale"). Pins the pid-first tolerant-reader law, the ±2 s
+ * start-time tolerance, and the #2011 one-field recycle path.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -22,13 +20,27 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it } from "vitest";
-import { acquirePidGate, gatePid, isHolderLive } from "./pidGate.ts";
+import {
+  acquirePidGate,
+  gateIdentity,
+  gatePid,
+  identitiesMatch,
+  isHolderLive,
+  liveHolderPid,
+  type ProcessIdentity,
+  readGateIdentity,
+  START_TIME_TOLERANCE_US,
+  startTimesMatch,
+} from "./pidGate.ts";
 
-/** The supervisor's read, composed from the shared primitives: the live
- *  holder's pid, or `undefined` (absent, malformed, or stale). */
+const SELF: ProcessIdentity = { pid: process.pid, startUnixUs: 1_000_000 };
+const identities = new Map<number, ProcessIdentity>([[process.pid, SELF]]);
+const readIdentity = (pid: number): ProcessIdentity | undefined =>
+  identities.get(pid);
+
+/** The supervisor's read for two-field-aware live holders. */
 function liveHolder(gatePath: string): number | undefined {
-  const pid = gatePid(gatePath);
-  return pid !== undefined && isHolderLive(pid) ? pid : undefined;
+  return liveHolderPid(gatePath, readIdentity);
 }
 
 const children: ChildProcess[] = [];
@@ -44,6 +56,7 @@ function liveChild(): number {
   });
   children.push(child);
   if (child.pid === undefined) throw new Error("child failed to start");
+  identities.set(child.pid, { pid: child.pid, startUnixUs: child.pid * 1_000 });
   return child.pid;
 }
 
@@ -65,34 +78,67 @@ function gateIn(): string {
 }
 
 describeDaemon("acquirePidGate", () => {
-  it("acquires a free gate, records this pid, and release removes it", () => {
+  it("acquires a free gate, records two-field identity, and release removes it", () => {
     const path = gateIn();
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
     expect(liveHolder(path)).toBe(process.pid);
-    expect(readFileSync(path, "utf8").trim()).toBe(String(process.pid));
+    expect(readFileSync(path, "utf8").trim()).toBe(
+      `${process.pid}\t${SELF.startUnixUs}`,
+    );
 
     if (gate.kind === "acquired") gate.release();
     expect(existsSync(path)).toBe(false);
     expect(liveHolder(path)).toBeUndefined();
   });
 
-  it("reports `held` (not acquired) when a live process owns the gate", () => {
+  it("reports `held` (not acquired) when a live process owns the two-field gate", () => {
+    const path = gateIn();
+    const otherPid = liveChild();
+    const other = identities.get(otherPid)!;
+    writeFileSync(path, `${other.pid}\t${other.startUnixUs}\n`);
+
+    const gate = acquirePidGate(path, SELF, readIdentity);
+    expect(gate).toEqual({
+      kind: "held",
+      pid: otherPid,
+      hasStartTime: true,
+    });
+    expect(readFileSync(path, "utf8").trim()).toBe(
+      `${other.pid}\t${other.startUnixUs}`,
+    );
+  });
+
+  it("holds a legacy one-field gate when the pid is live (#2011 path)", () => {
     const path = gateIn();
     const otherPid = liveChild();
     writeFileSync(path, `${otherPid}\n`);
 
-    const gate = acquirePidGate(path);
-    expect(gate).toEqual({ kind: "held", pid: otherPid });
-    // The live holder's gate is left untouched.
-    expect(readFileSync(path, "utf8").trim()).toBe(String(otherPid));
+    const gate = acquirePidGate(path, SELF, readIdentity);
+    expect(gate).toEqual({
+      kind: "held",
+      pid: otherPid,
+      hasStartTime: false,
+    });
+    // gatePid still yields the pid so recycle can SIGTERM (the #2011 fix).
+    expect(gatePid(path)).toBe(otherPid);
   });
 
-  it("reaps a stale gate (dead holder) and acquires it", async () => {
+  it("reaps a stale two-field gate (dead holder) and acquires it", async () => {
+    const path = gateIn();
+    const dead = await deadPid();
+    writeFileSync(path, `${dead}\t1\n`);
+
+    const gate = acquirePidGate(path, SELF, readIdentity);
+    expect(gate.kind).toBe("acquired");
+    expect(liveHolder(path)).toBe(process.pid);
+  });
+
+  it("reaps a stale one-field gate (dead holder) and acquires it", async () => {
     const path = gateIn();
     writeFileSync(path, `${await deadPid()}\n`);
 
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
     expect(liveHolder(path)).toBe(process.pid);
   });
@@ -101,24 +147,21 @@ describeDaemon("acquirePidGate", () => {
     const path = gateIn();
     writeFileSync(path, "not-a-pid\n");
 
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
     expect(liveHolder(path)).toBe(process.pid);
   });
 
   it("refuses (dir-not-private) when the gate dir is group/other-accessible", () => {
-    // Simulate the multi-user `/tmp/<app>-$UID` attack: a loose-perm dir with a
-    // pre-seeded gate holding a live pid. Honoring it would DoS the daemon
-    // (exit 0 as "already running") before the socket-side privacy check runs.
     const path = gateIn();
     const dir = dirname(path);
-    writeFileSync(path, `${liveChild()}\n`);
+    const holderPid = liveChild();
+    const holder = identities.get(holderPid)!;
+    writeFileSync(path, `${holder.pid}\t${holder.startUnixUs}\n`);
     chmodSync(dir, 0o755);
 
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     if (process.getuid === undefined) {
-      // No uid semantics (Windows): the check is a no-op and the live gate is
-      // honored — nothing to assert about privacy here.
       expect(gate.kind).toBe("held");
       return;
     }
@@ -127,16 +170,117 @@ describeDaemon("acquirePidGate", () => {
 
   it("release does not remove a gate that a successor now owns", () => {
     const path = gateIn();
-    const gate = acquirePidGate(path);
+    const gate = acquirePidGate(path, SELF, readIdentity);
     expect(gate.kind).toBe("acquired");
 
-    // A successor takes the gate (simulated by overwriting the pid).
     const successor = liveChild();
-    writeFileSync(path, `${successor}\n`);
+    const successorIdentity = identities.get(successor)!;
+    writeFileSync(
+      path,
+      `${successorIdentity.pid}\t${successorIdentity.startUnixUs}\n`,
+    );
 
     if (gate.kind === "acquired") gate.release();
-    // The successor's gate survives our (late) release.
-    expect(readFileSync(path, "utf8").trim()).toBe(String(successor));
+    expect(readFileSync(path, "utf8").trim()).toBe(
+      `${successorIdentity.pid}\t${successorIdentity.startUnixUs}`,
+    );
+  });
+
+  it("reaps a live reused pid whose start time no longer matches", () => {
+    const path = gateIn();
+    const pid = liveChild();
+    const current = identities.get(pid)!;
+    // Plant a start time far outside tolerance — pid-reuse.
+    writeFileSync(
+      path,
+      `${pid}\t${current.startUnixUs - START_TIME_TOLERANCE_US - 1}\n`,
+    );
+
+    const gate = acquirePidGate(path, SELF, readIdentity);
+    expect(gate.kind).toBe("acquired");
+    expect(liveHolder(path)).toBe(process.pid);
+  });
+});
+
+describeDaemon("pid-first tolerant reader", () => {
+  it("yields the pid from a two-field write through the legacy parseInt path (rollback contract)", () => {
+    const path = gateIn();
+    const body = `${4242}\t${9_001_000}\n`;
+    writeFileSync(path, body);
+    // The previous-release reader: Number.parseInt stops at the tab.
+    expect(Number.parseInt(readFileSync(path, "utf8").trim(), 10)).toBe(4242);
+    expect(gatePid(path)).toBe(4242);
+    expect(gateIdentity(path)).toEqual({ pid: 4242, startUnixUs: 9_001_000 });
+  });
+
+  it("yields the pid from a legacy one-field gate (the #2011 incident)", () => {
+    const path = gateIn();
+    writeFileSync(path, "772500\n");
+    expect(readGateIdentity(path)).toEqual({ kind: "ok", pid: 772500 });
+    expect(gatePid(path)).toBe(772500);
+    expect(gateIdentity(path)).toBeUndefined(); // start unknown
+  });
+
+  it("ignores a third field — first token is still the pid", () => {
+    const path = gateIn();
+    writeFileSync(path, "99\t1000\textra\n");
+    expect(gatePid(path)).toBe(99);
+    expect(gateIdentity(path)).toEqual({ pid: 99, startUnixUs: 1000 });
+  });
+
+  it("treats a non-numeric second field as one-field (pid still usable)", () => {
+    const path = gateIn();
+    writeFileSync(path, "55\tnot-a-start\n");
+    expect(readGateIdentity(path)).toEqual({ kind: "ok", pid: 55 });
+    expect(gatePid(path)).toBe(55);
+  });
+});
+
+describeDaemon("start-time tolerance (±2 s)", () => {
+  it("matches within tolerance (holder not lost to clock skew)", () => {
+    const recorded = { pid: 1, startUnixUs: 10_000_000 };
+    const skewed = {
+      pid: 1,
+      startUnixUs: 10_000_000 + START_TIME_TOLERANCE_US,
+    };
+    expect(startTimesMatch(recorded.startUnixUs, skewed.startUnixUs)).toBe(
+      true,
+    );
+    expect(identitiesMatch(recorded, skewed)).toBe(true);
+  });
+
+  it("rejects beyond tolerance (pid-reuse)", () => {
+    const recorded = { pid: 1, startUnixUs: 10_000_000 };
+    const reused = {
+      pid: 1,
+      startUnixUs: 10_000_000 + START_TIME_TOLERANCE_US + 1,
+    };
+    expect(startTimesMatch(recorded.startUnixUs, reused.startUnixUs)).toBe(
+      false,
+    );
+    expect(identitiesMatch(recorded, reused)).toBe(false);
+  });
+
+  it("liveHolderPid keeps a holder whose start time is within tolerance", () => {
+    const path = gateIn();
+    const pid = liveChild();
+    const current = identities.get(pid)!;
+    writeFileSync(
+      path,
+      `${pid}\t${current.startUnixUs - START_TIME_TOLERANCE_US}\n`,
+    );
+    expect(liveHolder(path)).toBe(pid);
+  });
+
+  it("liveHolderPid drops a holder whose start time is beyond tolerance", () => {
+    const path = gateIn();
+    const pid = liveChild();
+    const current = identities.get(pid)!;
+    writeFileSync(
+      path,
+      `${pid}\t${current.startUnixUs - START_TIME_TOLERANCE_US - 1}\n`,
+    );
+    expect(liveHolder(path)).toBeUndefined();
   });
 });
 
@@ -145,16 +289,25 @@ describeDaemon("liveHolder (supervisor read)", () => {
     expect(liveHolder(gateIn())).toBeUndefined();
   });
 
-  it("returns the live holder's pid", () => {
+  it("returns the live holder's pid (two-field)", () => {
+    const path = gateIn();
+    const pid = liveChild();
+    const identity = identities.get(pid)!;
+    writeFileSync(path, `${identity.pid}\t${identity.startUnixUs}\n`);
+    expect(liveHolder(path)).toBe(pid);
+  });
+
+  it("returns the live holder's pid (one-field, kill-0)", () => {
     const path = gateIn();
     const pid = liveChild();
     writeFileSync(path, `${pid}\n`);
     expect(liveHolder(path)).toBe(pid);
+    expect(isHolderLive(pid)).toBe(true);
   });
 
   it("returns undefined for a stale gate", async () => {
     const path = gateIn();
-    writeFileSync(path, `${await deadPid()}\n`);
+    writeFileSync(path, `${await deadPid()}\t1\n`);
     expect(liveHolder(path)).toBeUndefined();
   });
 });

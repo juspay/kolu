@@ -31,6 +31,7 @@ import {
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { GATE_PATH, HOME, SOCKET_PATH } from "../common/paths";
+import { readProcessIdentity } from "../common/processIdentity";
 import { connectTop, type TopClient, type TopIdentity } from "./connect";
 
 async function firstFrame<T>(
@@ -52,6 +53,7 @@ async function main(): Promise<void> {
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     home: HOME, // SAME home declaration as the daemon — disagreement impossible
+    readProcessIdentity: async (pid) => readProcessIdentity(pid),
     policy: {
       capability: "not-drainable",
       baked: {

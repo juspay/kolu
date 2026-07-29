@@ -32,7 +32,13 @@ import { dirname, join } from "node:path";
 // Reach padi ONLY through its `/assembly` barrel — the package-boundary seal
 // (`seal.test.ts`) forbids a deep `@kolu/padi/stateRoot` import from kolu-server.
 import { padiSocketPath, residentPadiSocket } from "@kolu/padi/assembly";
-import { acquirePidGate, type GateAcquisition } from "@kolu/surface-daemon";
+import {
+  acquirePidGate,
+  type GateAcquisition,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
+} from "@kolu/surface-daemon";
+import { processIdentity } from "osfacts-client";
 
 /** The supervisor gate filename — sits BESIDE padi's own `padi.pid` in the
  *  ephemeral `$XDG_RUNTIME_DIR/padi-<digest>/` runtime dir, so it is boot-wiped
@@ -68,8 +74,25 @@ export type SupervisorClaim =
  *  two-supervisor war can be exercised without a real padi runtime dir. Defaults
  *  are the real {@link acquirePidGate} / {@link supervisorGatePath}. */
 export interface SupervisorClaimDeps {
-  acquire?: (gatePath: string) => GateAcquisition;
+  acquire?: (
+    gatePath: string,
+    self: ProcessIdentity,
+    readProcessIdentity: ReadProcessIdentity,
+  ) => GateAcquisition;
   resolveGatePath?: (stateRoot: string) => string;
+  /** Test-only identity inject. Production reads via osfacts. */
+  readProcessIdentity?: ReadProcessIdentity;
+  processIdentity?: ProcessIdentity;
+}
+
+function osfactsBinPath(): string {
+  const path = process.env.KOLU_OSFACTS_BIN;
+  if (!path) {
+    throw new Error(
+      "KOLU_OSFACTS_BIN is not set — supervisor ownership requires the baked osfacts binary",
+    );
+  }
+  return path;
 }
 
 /** Claim the local supervisor gate for `stateRoot`. A thin, total mapping over
@@ -81,7 +104,21 @@ export function claimLocalSupervisor(
 ): SupervisorClaim {
   const acquire = deps.acquire ?? acquirePidGate;
   const gatePath = (deps.resolveGatePath ?? supervisorGatePath)(stateRoot);
-  const acq = acquire(gatePath);
+  const readIdentity =
+    deps.readProcessIdentity ??
+    ((pid: number) => processIdentity(osfactsBinPath(), pid));
+  const self =
+    deps.processIdentity ??
+    (() => {
+      const identity = readIdentity(process.pid);
+      if (identity === undefined) {
+        throw new Error(
+          `osfacts could not resolve kolu-server pid ${process.pid}`,
+        );
+      }
+      return identity;
+    })();
+  const acq = acquire(gatePath, self, readIdentity);
   switch (acq.kind) {
     case "acquired":
       return { kind: "self", release: acq.release };

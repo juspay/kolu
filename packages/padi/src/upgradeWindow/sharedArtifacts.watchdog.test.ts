@@ -23,9 +23,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { gatePid, readGateIdentity } from "@kolu/surface-daemon";
 import {
   createSharedArtifactWatchdog,
   executeVersionDispositionProof,
+  type ExecutedVersionDispositionProof,
   unknownProtocolFilesOnDisk,
   unknownSharedFileMessage,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
@@ -46,6 +48,45 @@ const suiteFiles = new Set([
 ]);
 const watchdog = createSharedArtifactWatchdog(SHARED_ARTIFACTS);
 
+/** Prove the pid-first tolerant-reader law for one gate artifact:
+ *  - plant a two-field (current) write and read the generation marker back
+ *  - observe disposition by also exercising one-field (legacy) + legacy parseInt */
+async function provePidFirstTolerant(
+  artifact: (typeof SHARED_ARTIFACTS)[number],
+  gatePath: string,
+): Promise<ExecutedVersionDispositionProof> {
+  const knownPid = 424_242;
+  const startUnixUs = 1_700_000_000_000_000;
+  const newerVersion = "two-field";
+  return executeVersionDispositionProof({
+    artifact,
+    newerVersion,
+    plant: () => {
+      mkdirSync(dirname(gatePath), { recursive: true, mode: 0o700 });
+      writeFileSync(gatePath, `${knownPid}\t${startUnixUs}\n`);
+    },
+    readPlantedVersion: () => {
+      const fields = readFileSync(gatePath, "utf8").trim().split("\t");
+      return fields.length >= 2 ? "two-field" : "one-field";
+    },
+    observeDisposition: () => {
+      // Two-field write: modern reader gets pid + start; legacy parseInt gets pid.
+      expect(gatePid(gatePath)).toBe(knownPid);
+      expect(Number.parseInt(readFileSync(gatePath, "utf8").trim(), 10)).toBe(
+        knownPid,
+      );
+      // One-field (legacy) plant: reader still yields the pid — the #2011 fix.
+      writeFileSync(gatePath, `${knownPid}\n`);
+      expect(readGateIdentity(gatePath)).toEqual({
+        kind: "ok",
+        pid: knownPid,
+      });
+      expect(gatePid(gatePath)).toBe(knownPid);
+      return { kind: "pid-first-tolerant", pid: knownPid };
+    },
+  });
+}
+
 describe("shared-artifact watchdog (upgrade-window)", () => {
   it("every non-log shared artifact has a real, executed disposition test", async () => {
     const stateConfig = SHARED_ARTIFACTS.find(
@@ -54,7 +95,17 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
     if (stateConfig === undefined) {
       throw new Error("padi-state-root-config missing from artifact registry");
     }
+    const gateArtifacts = SHARED_ARTIFACTS.filter(
+      (a) => a.versionDisposition === "pid-first-tolerant",
+    );
+    expect(gateArtifacts.map((a) => a.id).sort()).toEqual([
+      "kaval-gate",
+      "padi-gate",
+      "padi-supervisor-gate",
+    ]);
+
     const stateRoot = mkdtempSync(join(tmpdir(), "uw-version-disposition-"));
+    const gateRoot = mkdtempSync(join(tmpdir(), "uw-gate-disposition-"));
     try {
       // Materialise today's Conf-owned projectVersion first. The proof helper
       // then owns the version+1 plant and verifies its effect from disk before
@@ -64,7 +115,7 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
       const [major] = PADI_STATE_SCHEMA_VERSION.split(".").map(Number);
       const newerVersion = `${major! + 1}.0.0`;
       let plantedBytes = "";
-      const proof = await executeVersionDispositionProof({
+      const configProof = await executeVersionDispositionProof({
         artifact: stateConfig,
         newerVersion,
         plant: () => {
@@ -93,9 +144,27 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
           return disposition;
         },
       });
-      expect(watchdog.coverageGaps(suiteFiles, [proof])).toEqual([]);
+
+      const gateProofs: ExecutedVersionDispositionProof[] = [];
+      for (const artifact of gateArtifacts) {
+        const basename = artifact.diskBasenames[0];
+        if (basename === undefined) {
+          throw new Error(`${artifact.id}: expected a disk basename`);
+        }
+        gateProofs.push(
+          await provePidFirstTolerant(
+            artifact,
+            join(gateRoot, artifact.id, basename),
+          ),
+        );
+      }
+
+      expect(
+        watchdog.coverageGaps(suiteFiles, [configProof, ...gateProofs]),
+      ).toEqual([]);
     } finally {
       rmSync(stateRoot, { recursive: true, force: true });
+      rmSync(gateRoot, { recursive: true, force: true });
     }
   });
 

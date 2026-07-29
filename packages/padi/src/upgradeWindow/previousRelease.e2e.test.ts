@@ -330,6 +330,11 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
   expect(oldPid).toBeTypeOf("number");
   if (oldPid === undefined) throw new Error("previous kaval gate has no pid");
   expect(isHolderLive(oldPid)).toBe(true);
+  // Previous binary still writes one-field gates; the current reader must
+  // yield the pid under the pid-first law (the #2011 rollback/forward window).
+  const previousGateBody = readFileSync(kavalGate, "utf8").trim();
+  expect(previousGateBody.includes("\t")).toBe(false);
+  expect(previousGateBody).toBe(String(oldPid));
 
   // 2) Boot CURRENT padi against the same state-root. Compatible contract →
   //    adopt (PTYs would survive); we then force-recycle via recycleKaval.

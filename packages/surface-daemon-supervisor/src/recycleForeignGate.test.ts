@@ -1,4 +1,3 @@
-import { dirname } from "node:path";
 /**
  * Recycle vs a foreign gate — pins what master actually does when the new
  * supervisor meets a previous-build (or garbage) gate.
@@ -6,9 +5,8 @@ import { dirname } from "node:path";
  * Two arms, both driven through the REAL supervisor endpoint (`createEndpoint`
  * → `ensure` = always-recycle boot) against the yesterday-daemon fixture:
  *
- *   (a) current gate shape + accepting socket → the live holder is SIGTERM'd,
- *       a fresh daemon is spawned, and a fresh gate is written by the spawn
- *       path (here the driver's spawn stands in for that write).
+ *   (a) #2011 one-field legacy gate + accepting socket → the live holder is
+ *       SIGTERM'd, a fresh daemon is spawned.
  *   (b) foreign/garbage gate shape → `gatePid` returns undefined, so
  *       `liveServingHolder` finds no holder; ensure proceeds to spawn WITHOUT
  *       killing the (unrelated) fixture child. The foreign gate is left for
@@ -23,6 +21,7 @@ import { dirname } from "node:path";
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
+import { dirname } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
@@ -34,11 +33,23 @@ import {
   type YesterdayDaemonOpts,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
-  createEndpoint,
+  createEndpoint as createEndpointCore,
   destructiveRecycleSteps,
+  type EndpointSpec,
   type EndpointStatus,
   recycle,
 } from "./index.ts";
+
+const __startTime = (pid: number) => pid * 1_000;
+function createEndpoint<C, I, M = undefined>(
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
+) {
+  return createEndpointCore({
+    ...spec,
+    readProcessIdentity: async (pid: number) =>
+      isHolderLive(pid) ? { pid, startUnixUs: __startTime(pid) } : undefined,
+  });
+}
 
 const silentLog = {
   debug() {},
@@ -98,7 +109,11 @@ function fakeListen(socketPath: string): {
 }
 
 describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
-  it("(a) current gate shape: ensure recycles the live holder and spawns fresh", async () => {
+  it("(a) #2011: one-field legacy gate — recycle SIGTERMs the right pid", async () => {
+    // The fixture plants a one-field gate (yesterday's format). Under the
+    // pid-first law the current reader must still yield that pid so recycle
+    // can kill the holder — the exact production brick in #2011 was a reader
+    // that refused the shape and silently no-oped the recycle.
     const d = await plantYesterdayDaemon(
       fixtureOptions({ gate: { kind: "current" } }),
     );
@@ -106,6 +121,8 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     if (d.process.kind !== "live") throw new Error("expected live process");
     const survivor = d.process;
     const survivorPid = survivor.pid;
+    expect(readFileSync(d.gatePath, "utf8").trim()).toBe(String(survivorPid));
+    expect(gatePid(d.gatePath)).toBe(survivorPid);
     const survivorExited = new Promise<void>((resolve) => {
       survivor.child.once("exit", () => resolve());
     });
@@ -208,7 +225,17 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     expect(foreignContent).toBe("not-a-pid-at-all\n");
     expect(gatePid(d.gatePath)).toBeUndefined();
 
-    const claim = acquirePidGate(d.gatePath);
+    const self = {
+      pid: process.pid,
+      startUnixUs: 1_000_000,
+    };
+    const readId = (pid: number) =>
+      pid === process.pid
+        ? self
+        : isHolderLive(pid)
+          ? { pid, startUnixUs: pid * 1_000 }
+          : undefined;
+    const claim = acquirePidGate(d.gatePath, self, readId);
     expect(claim.kind).toBe("acquired");
     expect(gatePid(d.gatePath)).toBe(process.pid);
     if (claim.kind === "acquired") claim.release();
@@ -281,7 +308,17 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     fixtures.push(d);
 
     expect(gatePid(d.gatePath)).toBeUndefined();
-    const gate = acquirePidGate(d.gatePath);
+    const self = {
+      pid: process.pid,
+      startUnixUs: 1_000_000,
+    };
+    const readId = (pid: number) =>
+      pid === process.pid
+        ? self
+        : isHolderLive(pid)
+          ? { pid, startUnixUs: pid * 1_000 }
+          : undefined;
+    const gate = acquirePidGate(d.gatePath, self, readId);
     expect(gate.kind).toBe("acquired");
     expect(gatePid(d.gatePath)).toBe(process.pid);
     if (gate.kind === "acquired") gate.release();

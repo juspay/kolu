@@ -25,7 +25,10 @@ import {
   type GateAcquisition,
   lifetimeInfo,
   type Logger,
+  type ProcessIdentity,
 } from "@kolu/surface-daemon";
+import { processIdentity } from "osfacts-client";
+import { osfactsBinPath } from "../ports/scan.ts";
 
 import { buildCommit } from "@kolu/surface/identity";
 import {
@@ -408,9 +411,23 @@ export async function runPadiDaemon(
   // gate is acquired here, at the top, and HANDED to the spine's `daemonMain` (which
   // otherwise acquires it last, after all of that). A crash mid-boot (the fail-fast
   // import) leaves a gate held by a dead pid, which the next launch reclaims.
-  let gate = acquirePidGate(home.gatePath);
+  const readProcessIdentity = (pid: number): ProcessIdentity | undefined =>
+    processIdentity(osfactsBinPath(), pid);
+  const selfIdentity = readProcessIdentity(process.pid);
+  if (selfIdentity === undefined) {
+    throw new Error(
+      `osfacts could not resolve this padi process (${process.pid})`,
+    );
+  }
+  let gate = acquirePidGate(home.gatePath, selfIdentity, readProcessIdentity);
   if (gate.kind === "held") {
-    gate = await confirmHeldGate(gate, home.gatePath, home.socketPath);
+    gate = await confirmHeldGate(
+      gate,
+      home.gatePath,
+      home.socketPath,
+      selfIdentity,
+      readProcessIdentity,
+    );
   }
   if (gate.kind === "held") {
     log.info(
@@ -514,6 +531,8 @@ export async function runPadiDaemon(
     return await daemonMain({
       // Full home — gate+socket from one resolve; override absorbed at construction.
       home,
+      processIdentity: selfIdentity,
+      readProcessIdentity,
       // The router is the serve phase's output — read it straight off `served` rather
       // than re-threading it through the endpoint token that neither owns nor touches it.
       router: served.router,

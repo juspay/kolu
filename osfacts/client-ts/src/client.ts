@@ -1,6 +1,6 @@
 /** Spawn osfacts and parse its versioned TSV. Node builtins only. */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -728,6 +728,30 @@ async function runOsfacts(bin: string, args: string[]): Promise<string> {
   }
 }
 
+function runOsfactsSync(bin: string, args: string[]): string {
+  if (!bin)
+    throw new OsfactsClientError(
+      "spawn",
+      "osfacts binary path is empty — the caller must supply an absolute path",
+    );
+  try {
+    return execFileSync(bin, args, {
+      timeout: OSFACTS_COMMAND_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+      maxBuffer: 8 * 1024 * 1024,
+      encoding: "utf8",
+    });
+  } catch (err) {
+    const document = failureDocument(err);
+    if (document !== undefined) return document;
+    throw new OsfactsClientError(
+      "spawn",
+      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
+      { cause: err },
+    );
+  }
+}
+
 /**
  * The child's stdout when a non-zero exit still produced a V2 document.
  *
@@ -786,6 +810,53 @@ export function snapshotPids(
     ? Promise.resolve(emptySnapshotReading())
     : snapshot(bin, snapshotArgs("--pids", pids, facets));
 }
+
+/** Sync twin of {@link snapshotPids} — for gate acquisition and other sites
+ * that must not introduce async into a sync claim path. */
+export function snapshotPidsSync(
+  bin: string,
+  pids: readonly number[],
+  facets: SnapshotFacets,
+): SnapshotReading {
+  return pids.length === 0
+    ? emptySnapshotReading()
+    : parseSnapshotOutput(
+        runOsfactsSync(bin, snapshotArgs("--pids", pids, facets)),
+      );
+}
+
+/**
+ * Resolve a pid's start-qualified identity via osfacts `--start-time`.
+ *
+ * Returns the structural `{ pid, startUnixUs }` (no named `ProcessIdentity` —
+ * that name lives in `@kolu/surface-daemon`, and this package must not import
+ * it). `undefined` for a dead/absent pid (ESRCH/ENOENT) is an honest domain
+ * answer; any other unreadable or missing row throws.
+ */
+export function processIdentity(
+  bin: string,
+  pid: number,
+): { pid: number; startUnixUs: number } | undefined {
+  const reading = snapshotPidsSync(bin, [pid], { startTime: true });
+  const row = reading.startTimes.find((value) => value.pid === pid);
+  if (row !== undefined) return { pid: row.pid, startUnixUs: row.startUnixUs };
+  const unreadable = reading.unreadable.find(
+    (value) => value.pid === pid && value.facet === "start_time",
+  );
+  if (
+    unreadable !== undefined &&
+    (unreadable.errno === "ESRCH" || unreadable.errno === "ENOENT")
+  ) {
+    return undefined;
+  }
+  throw new OsfactsClientError(
+    "parse",
+    unreadable !== undefined
+      ? `osfacts could not read pid ${pid} start time (${unreadable.errno})`
+      : `osfacts returned no start time for pid ${pid}`,
+  );
+}
+
 export async function host(
   bin: string,
   facets: HostFacets,

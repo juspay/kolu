@@ -129,10 +129,13 @@ rest of the process's life.
 
 | Export | Role |
 | --- | --- |
-| `daemonMain({ home, … })` | the gate → serve → teardown skeleton; gate/socket/default-anchor from `home`; resolves a `DaemonExit` |
+| `daemonMain({ home, processIdentity, readProcessIdentity, … })` | the gate → serve → teardown skeleton; gate/socket/default-anchor from `home`; identity is injected (never defaulted); resolves a `DaemonExit` |
 | `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm) |
-| `acquirePidGate(gatePath)` | atomic single-instance claim via `link(2)`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` (the gate dir failed the owner-only check) |
-| `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |
+| `acquirePidGate(gatePath, self, readProcessIdentity)` | atomic single-instance claim via `link(2)`; writes `${pid}\t${startUnixUs}\n`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid, hasStartTime }`, or `{ kind: "dir-not-private", dir }` |
+| `ProcessIdentity` · `ReadProcessIdentity` | canonical start-qualified identity (`{ pid, startUnixUs }`) and the injected OS fact reader — the spine never imports osfacts |
+| `readGateIdentity` · `gatePid` · `gateIdentity` · `liveHolderPid` · `identitiesMatch` · `startTimesMatch` · `START_TIME_TOLERANCE_US` | pid-first tolerant reader (±2 s start-time match); first token is always the pid; one-field legacy gates still yield a pid |
+| `confirmHeldGate(held, …)` | one-field (legacy) socket fence only — dead socket reclaims; absent waits (mid-boot); two-field match skips (identity is truth) |
+| `isHolderLive(pid)` | `kill(0)` liveness probe for one-field holders and cheap checks |
 | `stderrLogger()` · `Logger` · `DaemonExit` | the structural logging contract and the exit record `daemonMain` resolves (its exit-code classification lives inside `daemonProcessMain`) |
 | `daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV` | resolve the lifetime from `KOLU_DAEMON_BIND_PID` — a valid pid → `boundToPid`, unset → `fallback`, any present-but-invalid value (incl. `""`) throws |
 | `lifetimeInfo(lifetime)` · `DaemonLifetimeInfo` | the serializable projection of a `DaemonLifetime` — the three kinds with the non-wire members dropped (`idleTimeout`'s `isIdle`, `boundToPid`'s `pollMs`); what a daemon publishes about itself for a UI to read |

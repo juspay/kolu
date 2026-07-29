@@ -10,8 +10,9 @@
  *  and the `@kolu/surface-daemon` twin; `ts-pattern` provides exhaustive policy
  *  dispatch. That closure is pinned by `deps.closure.test.ts`, so the second
  *  tenant (`odu serve`, S2) reuses it without dragging an app package in.
- *  It composes the gate's file-format primitives (`gatePid`/`isHolderLive`) from
- *  the daemon half over a one-directional edge.
+ *  It composes the gate's file-format primitives (`readGateIdentity` /
+ *  `identitiesMatch` / `isHolderLive`) from the daemon half over a
+ *  one-directional edge; process identity is injected on `EndpointSpec`.
  *
  *  What's spine here (program-agnostic): the endpoint state machine, the
  *  `waitForPidGone` reap-wait, the composed `restart` sequence, and the
@@ -34,6 +35,8 @@ export {
   isSocketSquatterForeignError,
   SocketSquatterForeignError,
 } from "./endpoint.ts";
+// EndpointSpec re-exported above — used by test wrappers that inject
+// readProcessIdentity without repeating the field at every call site.
 export { type SocketHolder, socketHolders } from "./socketHolder.ts";
 // The down/terminal classification lives at the states' home (the browser-safe
 // `/states` leaf, like `ENDPOINT_STATES` itself) and is re-exported here for

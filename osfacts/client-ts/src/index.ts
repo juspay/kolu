@@ -56,5 +56,7 @@ export {
   snapshotSubtree,
   snapshotHost,
   snapshotPids,
+  snapshotPidsSync,
+  processIdentity,
   host,
 } from "./client.ts";

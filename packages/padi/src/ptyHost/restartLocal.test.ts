@@ -61,10 +61,24 @@ import type {
 } from "../vocab.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
 import {
-  createEndpoint,
+  createEndpoint as createEndpointCore,
+  type EndpointSpec,
   destructiveRecycleSteps,
   recycle,
 } from "@kolu/surface-daemon-supervisor";
+import { isHolderLive } from "@kolu/surface-daemon";
+
+const __startTime = (pid: number) => pid * 1_000;
+function createEndpoint<C, I, M = undefined>(
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
+) {
+  return createEndpointCore({
+    ...spec,
+    readProcessIdentity: async (pid: number) =>
+      isHolderLive(pid) ? { pid, startUnixUs: __startTime(pid) } : undefined,
+  });
+}
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";

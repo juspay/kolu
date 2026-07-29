@@ -5,12 +5,25 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { isHolderLive } from "@kolu/surface-daemon";
 import {
-  createEndpoint,
+  createEndpoint as createEndpointCore,
   type DaemonConnection,
   DaemonContractSkewError,
+  type EndpointSpec,
   type EndpointStatus,
 } from "./endpoint.ts";
+
+const startTime = (pid: number) => pid * 1_000;
+function createEndpoint<C, I, M = undefined>(
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
+) {
+  return createEndpointCore({
+    ...spec,
+    readProcessIdentity: async (pid) =>
+      isHolderLive(pid) ? { pid, startUnixUs: startTime(pid) } : undefined,
+  });
+}
 import { endpointPrivate } from "./endpoint.private.ts";
 import { serializeRestart } from "./restart.ts";
 

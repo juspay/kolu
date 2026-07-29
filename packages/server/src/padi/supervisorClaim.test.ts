@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isHolderLive } from "@kolu/surface-daemon";
 import {
   claimLocalSupervisor,
   SUPERVISOR_GATE_FILE,
@@ -23,6 +24,18 @@ import {
 let dir: string;
 const gatePath = (): string => join(dir, SUPERVISOR_GATE_FILE);
 const resolveGatePath = () => gatePath();
+
+/** Test identity inject — no osfacts dependency in the unit suite. */
+const SELF = { pid: process.pid, startUnixUs: 1_000_000 };
+const identityDeps = {
+  processIdentity: SELF,
+  readProcessIdentity: (pid: number) =>
+    pid === process.pid
+      ? SELF
+      : isHolderLive(pid)
+        ? { pid, startUnixUs: pid * 1_000 }
+        : undefined,
+};
 
 beforeEach(() => {
   // `mkdtempSync` yields an owner-only 0700 dir, so the gate's dir-privacy guard
@@ -44,7 +57,10 @@ function deadPid(): number {
 
 describe("claimLocalSupervisor", () => {
   it("claims a fresh gate as `self` and hands back a release", () => {
-    const claim = claimLocalSupervisor("ignored", { resolveGatePath });
+    const claim = claimLocalSupervisor("ignored", {
+      resolveGatePath,
+      ...identityDeps,
+    });
     expect(claim.kind).toBe("self");
     if (claim.kind !== "self") throw new Error("unreachable");
     expect(typeof claim.release).toBe("function");
@@ -53,12 +69,18 @@ describe("claimLocalSupervisor", () => {
 
   it("REFUSES a second supervisor on the same state root (the two-local-kolu war)", () => {
     // First kolu-server claims and HOLDS the gate.
-    const first = claimLocalSupervisor("ignored", { resolveGatePath });
+    const first = claimLocalSupervisor("ignored", {
+      resolveGatePath,
+      ...identityDeps,
+    });
     expect(first.kind).toBe("self");
 
     // A second kolu-server pointed at the SAME state root finds a LIVE holder and
     // is refused — the fence that stops two supervisors draining one padi.
-    const second = claimLocalSupervisor("ignored", { resolveGatePath });
+    const second = claimLocalSupervisor("ignored", {
+      resolveGatePath,
+      ...identityDeps,
+    });
     expect(second.kind).toBe("foreign");
     if (second.kind !== "foreign") throw new Error("unreachable");
     // The live holder is this very process (the gate was just claimed here).
@@ -68,7 +90,10 @@ describe("claimLocalSupervisor", () => {
   it("a SAME-LINEAGE restart (dead predecessor pid) reaps the stale gate and claims `self`", () => {
     // A crashed supervisor left its pid in the gate; the process is gone.
     writeFileSync(gatePath(), `${deadPid()}\n`);
-    const claim = claimLocalSupervisor("ignored", { resolveGatePath });
+    const claim = claimLocalSupervisor("ignored", {
+      resolveGatePath,
+      ...identityDeps,
+    });
     // The stale gate is reaped and the restart claims it — so it can still adopt /
     // drain its padi; only a LIVE foreign holder blocks.
     expect(claim.kind).toBe("self");
@@ -77,6 +102,7 @@ describe("claimLocalSupervisor", () => {
   it("surfaces `dir-not-private` when the acquirer reports an untrusted gate dir", () => {
     const claim = claimLocalSupervisor("ignored", {
       acquire: () => ({ kind: "dir-not-private", dir: "/tmp/evil" }),
+      ...identityDeps,
     });
     expect(claim).toEqual({ kind: "dir-not-private", dir: "/tmp/evil" });
   });

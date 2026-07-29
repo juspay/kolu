@@ -31,9 +31,11 @@
 
 import {
   type DaemonHomePaths,
-  gatePid,
+  identitiesMatch,
   isHolderLive,
   type Logger,
+  type ProcessIdentity,
+  readGateIdentity,
 } from "@kolu/surface-daemon";
 import type {
   BindResult,
@@ -295,6 +297,13 @@ export interface EndpointSpec<
    * Bound into `converge(endpoint)` — never re-threaded at the call site.
    */
   probe: (socketPath: string) => Promise<ConvergenceProbe<Cap> | null>;
+  /**
+   * Resolve a PID to its current start-qualified identity. Required — the
+   * endpoint compares start-qualified identities for two-field gates and never
+   * performs platform process traversal itself. Async so an osfacts-backed
+   * reader can await without blocking the event loop on every status poll.
+   */
+  readProcessIdentity(pid: number): Promise<ProcessIdentity | undefined>;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -546,24 +555,48 @@ export function createEndpoint<
   };
 
   // The gate-holder check shared by every boot policy: return the live holder
-  // whose socket is *accepting* (a real daemon — the adopt-or-kill candidate),
-  // or undefined. The gate is PID-ONLY: a hard kill (SIGKILL / power loss)
-  // leaves the pidfile behind and the OS can later reuse that pid for an
-  // UNRELATED process, so a live pid whose socket is dead/absent is a stale gate
-  // over a possibly-reused pid — log it and leave that pid alone (never SIGTERM
-  // a stranger), letting the freshly-spawned daemon's own `acquirePidGate` reap
-  // the stale gate.
+  // that is a safe kill/adopt target, or undefined.
+  //
+  // Two-field gates: identity is the truth (±2 s). A matching live process is
+  // the holder even if the socket is not yet accepting (mid-boot) — the gate
+  // layer's job ends at "held by a live matching identity"; whether to replace
+  // an unresponsive holder is the caller's (converge/drain budget) decision.
+  //
+  // One-field (legacy) gates: start time unknown, so keep the status-quo
+  // socket-accepting fence — a live pid whose socket is dead may be pid-reuse;
+  // never SIGTERM a stranger; let the fresh daemon's acquirePidGate reap.
   const liveServingHolder = async (rv: {
     gatePath: string;
     socketPath: string;
   }): Promise<number | undefined> => {
-    const holder = gatePid(rv.gatePath);
-    if (holder === undefined || !isHolderLive(holder)) return undefined;
-    if (await socketAccepting(rv.socketPath)) return holder;
+    const recorded = readGateIdentity(rv.gatePath);
+    if (recorded.kind !== "ok") return undefined;
+
+    if (recorded.startUnixUs !== undefined) {
+      const current = await spec.readProcessIdentity(recorded.pid);
+      if (
+        current === undefined ||
+        !identitiesMatch(
+          { pid: recorded.pid, startUnixUs: recorded.startUnixUs },
+          current,
+        )
+      ) {
+        return undefined;
+      }
+      return recorded.pid;
+    }
+
+    if (!isHolderLive(recorded.pid)) return undefined;
+    if (await socketAccepting(rv.socketPath)) return recorded.pid;
     spec.log.warn(
-      { hostId: spec.hostId, pid: holder, socketPath: rv.socketPath },
-      "gate names a live pid but its socket is dead — treating gate as " +
-        "stale (not killing the pid: it may be an unrelated reused pid)",
+      {
+        hostId: spec.hostId,
+        pid: recorded.pid,
+        socketPath: rv.socketPath,
+      },
+      "legacy one-field gate names a live pid but its socket is dead — " +
+        "treating gate as stale (not killing the pid: it may be an unrelated " +
+        "reused pid)",
     );
     return undefined;
   };

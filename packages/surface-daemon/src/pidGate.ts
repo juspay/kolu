@@ -4,24 +4,31 @@
  *
  * A "surface daemon" (kaval today, `odu serve` next) must run at most once per
  * scope. The gate is a small file at a scope-keyed path whose content is the
- * holder's pid. Acquisition is atomic by construction: write the pid to a
- * private temp file, then `link(2)` it onto the gate path — `link` fails with
- * `EEXIST` if the gate already exists, so two racers cannot both believe they
- * acquired it (unlike a check-then-write, which has a window). On `EEXIST` the
- * loser reads the gate and liveness-probes the holder; a *live* holder means
- * "already running" (the caller exits 0), a *dead* one means a crashed
- * predecessor left a stale gate, which is unlinked and retried.
+ * holder's pid and (from this generation) process-start instant. Acquisition is
+ * atomic by construction: write that identity to a private temp file, then
+ * `link(2)` it onto the gate path — `link` fails with `EEXIST` if the gate
+ * already exists, so two racers cannot both believe they acquired it. On
+ * `EEXIST` the loser reads the gate and liveness-probes the holder; a *live*
+ * holder means "already running" (the caller exits 0), a *dead* one means a
+ * crashed predecessor left a stale gate, which is unlinked and retried.
  *
- * Everything here runs **inside the daemon**: `acquirePidGate` (kaval's
- * `daemonMain`) plus the two pieces the gate's file format is made of — the pid
- * parse (`gatePid`) and the liveness probe (`isHolderLive`). The supervisor
- * that spawns and watches the daemon (kolu-server, from B2) does not get a
- * reader of its own here; it composes these same primitives where it lives, so
- * the gate's file format — pid as decimal text — stays defined in one place
- * without dragging supervisor code into this daemon-hashed package.
+ * ## The pid-first tolerant-reader law
  *
- * No survival, adoption, or env policy lives here: this is pure lifecycle
- * mechanism, parameterized only by the gate path (the scope key).
+ * **The first token of a gate file is the pid, in every generation, and
+ * readers ignore anything after it.** A one-field legacy gate is simply an
+ * older gate — pid usable, start time unknown. A two-field gate is
+ * `${pid}\t${startUnixUs}\n`. A future third field must still yield the pid
+ * to today's reader. Never refuse a shape whose first token is a valid pid
+ * (that refusal is the #2011 brick).
+ *
+ * Process-start comparison uses a ±2 s tolerance: the start instant is derived
+ * from `/proc/stat` btime at read time, and NTP steps / suspend / VM pauses
+ * shift it by whole seconds — strict equality would misread a live daemon as
+ * pid-reuse.
+ *
+ * OS process traversal is **injected** via {@link ReadProcessIdentity}; this
+ * package never imports osfacts. Composition roots (kaval, padi, kolu-server,
+ * drishti) supply the reader.
  */
 
 import {
@@ -47,13 +54,57 @@ import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
  *  honor (or plant our pid in) a gate it pre-seeded. */
 export type GateAcquisition =
   | { kind: "acquired"; release: () => void }
-  | { kind: "held"; pid: number }
+  | {
+      kind: "held";
+      pid: number;
+      /** True when the gate carried a start time. */
+      hasStartTime: boolean;
+    }
   | { kind: "dir-not-private"; dir: string };
 
+/** A PID is not an identity: after exit the kernel can reuse it. The process
+ * start instant makes gate ownership stable across that reuse. Canonical home
+ * of this type — osfacts-client returns the structural twin without naming it. */
+export interface ProcessIdentity {
+  pid: number;
+  startUnixUs: number;
+}
+
+/** Resolve a PID to its current start-qualified identity. `undefined` means the
+ * process is gone (ESRCH/ENOENT) — an honest domain answer. Any other failure
+ * (osfacts unreadable, parse error) must throw at the composition root. */
+export type ReadProcessIdentity = (pid: number) => ProcessIdentity | undefined;
+
+/**
+ * ±2 seconds in microseconds. Start instants come from `/proc/stat` btime at
+ * read time; NTP / suspend / VM pauses shift that by whole seconds.
+ */
+export const START_TIME_TOLERANCE_US = 2_000_000;
+
+/** Do two start instants name the same process under the gate's clock tolerance? */
+export function startTimesMatch(a: number, b: number): boolean {
+  return Math.abs(a - b) <= START_TIME_TOLERANCE_US;
+}
+
+/** A gate read keeps absence, I/O failure, and a present-but-unparseable body
+ * distinct. A valid first-token pid is always accepted (the pid-first law);
+ * `startUnixUs` is present only when the second field parses as a positive
+ * integer. */
+export type GateIdentityRead =
+  | {
+      kind: "ok";
+      pid: number;
+      /** Set when the second tab-field is a valid positive integer. */
+      startUnixUs?: number;
+    }
+  | { kind: "absent" }
+  | { kind: "unreadable" }
+  | { kind: "malformed" };
+
 /** Is `pid` a live process? `kill(pid, 0)` sends no signal — it only probes:
- *  success or `EPERM` (exists, not ours) ⇒ alive; `ESRCH` ⇒ gone. The daemon's
- *  stale-reap uses it; the supervisor (B2) composes it with `gatePid` to decide
- *  connect-vs-spawn — same primitive, read from where each side lives. */
+ *  success or `EPERM` (exists, not ours) ⇒ alive; `ESRCH` ⇒ gone. Used for
+ *  one-field (legacy) gates where start time is unknown, and as a cheap probe
+ *  elsewhere. */
 export function isHolderLive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -63,25 +114,107 @@ export function isHolderLive(pid: number): boolean {
   }
 }
 
-/** The gate's raw pid, or `undefined` if the file is absent or malformed. Does
- *  NOT check liveness — that is each reader's job (acquire treats a dead pid as
- *  stale; the supervisor pairs this with `isHolderLive` for a live-only read).
- *  The parse half of the gate's file format, single-sourced here. */
-export function gatePid(gatePath: string): number | undefined {
+/** Read the gate under the pid-first law. Never refuses a shape whose first
+ * token is a valid pid — that refusal is the #2011 brick. */
+export function readGateIdentity(gatePath: string): GateIdentityRead {
+  let contents: string;
   try {
-    const pid = Number.parseInt(readFileSync(gatePath, "utf8").trim(), 10);
-    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-  } catch {
-    return undefined;
+    contents = readFileSync(gatePath, "utf8");
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT"
+      ? { kind: "absent" }
+      : { kind: "unreadable" };
   }
+
+  const fields = contents.trim().split("\t");
+  const pid = Number(fields[0]);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return { kind: "malformed" };
+
+  if (fields.length >= 2) {
+    const startUnixUs = Number(fields[1]);
+    if (Number.isSafeInteger(startUnixUs) && startUnixUs > 0) {
+      return { kind: "ok", pid, startUnixUs };
+    }
+    // Second field present but not a start time — still a valid pid (the law
+    // says ignore anything after the first token). Treat as one-field.
+  }
+  return { kind: "ok", pid };
+}
+
+/** Full two-field identity when present; `undefined` for absent / unreadable /
+ * one-field / malformed. Ownership checks that need start time use this;
+ * recycle kill targets that only need the pid use {@link gatePid}. */
+export function gateIdentity(gatePath: string): ProcessIdentity | undefined {
+  const read = readGateIdentity(gatePath);
+  if (read.kind !== "ok" || read.startUnixUs === undefined) return undefined;
+  return { pid: read.pid, startUnixUs: read.startUnixUs };
+}
+
+/** The gate's raw pid, or `undefined` if the file is absent, unreadable, or
+ * the first token is not a positive integer. Does NOT check liveness. This is
+ * the frozen rollback contract: a two-field write must still yield the pid to
+ * a legacy `parseInt`-style reader, and our reader must yield the pid of a
+ * one-field legacy gate (the #2011 fix). */
+export function gatePid(gatePath: string): number | undefined {
+  const read = readGateIdentity(gatePath);
+  return read.kind === "ok" ? read.pid : undefined;
+}
+
+/** True when `current` is the same process `recorded` named, under tolerance. */
+export function identitiesMatch(
+  recorded: ProcessIdentity,
+  current: ProcessIdentity,
+): boolean {
+  return (
+    recorded.pid === current.pid &&
+    startTimesMatch(recorded.startUnixUs, current.startUnixUs)
+  );
+}
+
+/**
+ * Is the gate's recorded holder still the live process it names?
+ *
+ * - **Two-field:** compare with the injected identity reader (±2 s). Match →
+ *   the holder's pid; mismatch / dead → `undefined` (reap).
+ * - **One-field:** start time unknown — fall back to `kill(0)` only (cannot
+ *   prove pid-reuse). Status quo for old gates; not a weaker default for new
+ *   ones.
+ */
+export function liveHolderPid(
+  gatePath: string,
+  readProcessIdentity: ReadProcessIdentity,
+): number | undefined {
+  const read = readGateIdentity(gatePath);
+  if (read.kind !== "ok") return undefined;
+
+  if (read.startUnixUs !== undefined) {
+    const current = readProcessIdentity(read.pid);
+    if (current === undefined) return undefined;
+    return identitiesMatch(
+      { pid: read.pid, startUnixUs: read.startUnixUs },
+      current,
+    )
+      ? read.pid
+      : undefined;
+  }
+
+  return isHolderLive(read.pid) ? read.pid : undefined;
 }
 
 /** Take the gate for *this* process, atomically. Returns `acquired` (with a
- *  `release` to call at teardown) or `held` (a live process owns the PID in the
- *  gate file — call {@link confirmHeldGate} with the co-located socket to tell a
- *  real daemon from a reboot-stale PID reuse). Bounded retry: each pass either
- *  acquires, observes a live holder, or clears one stale gate and tries again. */
-export function acquirePidGate(gatePath: string): GateAcquisition {
+ *  `release` to call at teardown) or `held` (a live process owns the gate).
+ *  Bounded retry: each pass either acquires, observes a live holder, or clears
+ *  one stale gate and tries again. */
+export function acquirePidGate(
+  gatePath: string,
+  self: ProcessIdentity,
+  readProcessIdentity: ReadProcessIdentity,
+): GateAcquisition {
+  if (self.pid !== process.pid) {
+    throw new Error(
+      `pid-gate identity pid ${self.pid} does not match this process ${process.pid}`,
+    );
+  }
   const dir = dirname(gatePath);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
 
@@ -90,7 +223,7 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
   // plant our pid, in a directory another local user could own. This mirrors
   // `serveOverUnixSocket`'s `dir-not-private` refusal, run here at the gate so
   // a pre-seeded `kaval.pid` can't short-circuit us to a bogus "already
-  // running" exit before the socket-side check would have refused.
+  // running" exit before the socket-side privacy check would have refused.
   if (!isPrivateOwnedDir(dir)) {
     return { kind: "dir-not-private", dir };
   }
@@ -101,7 +234,7 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
     const tmp = `${gatePath}.tmp.${process.pid}.${attempt}`;
     const fd = openSync(tmp, "w", 0o600);
     try {
-      writeSync(fd, `${process.pid}\n`);
+      writeSync(fd, `${self.pid}\t${self.startUnixUs}\n`);
     } finally {
       closeSync(fd);
     }
@@ -119,7 +252,8 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
           // Remove the gate only while it is still ours — never unlink a
           // successor's gate (we may be releasing late, after a stale-reap
           // handed the gate to another process).
-          if (gatePid(gatePath) === process.pid) {
+          const recorded = gateIdentity(gatePath);
+          if (recorded !== undefined && identitiesMatch(recorded, self)) {
             try {
               unlinkSync(gatePath);
             } catch {
@@ -136,14 +270,19 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
       }
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
 
-      // The gate exists. A live holder wins at this layer; a dead one is stale —
-      // reap and retry. (Confirm with {@link confirmHeldGate} that a co-located
-      // socket is actually serving — reboot can reuse a PID while the socket is
-      // dead.) Concurrent reapers are safe: ENOENT on unlink just means a peer
-      // reaped first.
-      const pid = gatePid(gatePath);
-      if (pid !== undefined && isHolderLive(pid)) {
-        return { kind: "held", pid };
+      // The gate exists. A live matching holder wins; a dead / mismatched one
+      // is stale — reap and retry. (Confirm one-field holders with
+      // {@link confirmHeldGate}: socket dead → reclaim; socket absent →
+      // mid-boot wait. Two-field match is identity-truth — never reclaim on
+      // socket state at this layer.)
+      const holder = liveHolderPid(gatePath, readProcessIdentity);
+      if (holder !== undefined) {
+        const read = readGateIdentity(gatePath);
+        return {
+          kind: "held",
+          pid: holder,
+          hasStartTime: read.kind === "ok" && read.startUnixUs !== undefined,
+        };
       }
       try {
         unlinkSync(gatePath);
@@ -190,10 +329,16 @@ export async function socketIsServing(socketPath: string): Promise<boolean> {
 }
 
 /**
- * After {@link acquirePidGate} returns `held`, distinguish:
+ * After {@link acquirePidGate} returns `held` on a **one-field** (legacy) gate,
+ * distinguish socket state for the status-quo pid-reuse fence:
  *   - socket **serving** → real daemon, keep held
  *   - socket **absent** → holder still booting (gate-first fence); keep held
  *   - socket **dead** → stale gate (reboot PID reuse / crashed daemon); reclaim
+ *
+ * Two-field holders must NOT pass through this reclaim path: identity is the
+ * truth, and a mid-boot two-field holder (gate written, socket not yet up) is
+ * still the right process. Callers should skip this when
+ * `held.hasStartTime === true`.
  *
  * Reclaiming on "absent" would race a legitimate gate-first boot and let a
  * second process past the single-instance fence (the F12 regression).
@@ -202,7 +347,12 @@ export async function confirmHeldGate(
   held: Extract<GateAcquisition, { kind: "held" }>,
   gatePath: string,
   socketPath: string,
+  self: ProcessIdentity,
+  readProcessIdentity: ReadProcessIdentity,
 ): Promise<GateAcquisition> {
+  // Two-field match: identity is truth — never reclaim on socket state.
+  if (held.hasStartTime) return held;
+
   const state = await socketServeState(socketPath);
   if (state !== "dead") return held;
   try {
@@ -210,5 +360,5 @@ export async function confirmHeldGate(
   } catch {
     // Peer already reaped — fall through to re-acquire.
   }
-  return acquirePidGate(gatePath);
+  return acquirePidGate(gatePath, self, readProcessIdentity);
 }

@@ -94,7 +94,11 @@ async function connectTop(
   };
 }
 
-export async function bootSupervisor(): Promise<void> {
+export async function bootSupervisor(
+  readProcessIdentity: (
+    pid: number,
+  ) => Promise<import("@kolu/surface-daemon").ProcessIdentity | undefined>,
+): Promise<void> {
   // #region endpoint
   const policy: ConvergencePolicy<"not-drainable"> = {
     capability: "not-drainable",
@@ -106,6 +110,7 @@ export async function bootSupervisor(): Promise<void> {
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     home, // SAME call as the daemon — disagreement impossible
+    readProcessIdentity,
     policy,
     probe: probeDaemonIdentity({ capability: "not-drainable" }),
     driver: survivableSpawnDriver({

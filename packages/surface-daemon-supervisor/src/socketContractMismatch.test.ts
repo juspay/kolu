@@ -5,6 +5,7 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { isHolderLive } from "@kolu/surface-daemon";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
   converge,
@@ -43,6 +44,8 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
           gatePath: survivor.gatePath,
           socketPath: survivor.socketPath,
         },
+        readProcessIdentity: async (pid) =>
+          isHolderLive(pid) ? { pid, startUnixUs: pid * 1_000 } : undefined,
         policy: {
           capability: "not-drainable",
           baked: {

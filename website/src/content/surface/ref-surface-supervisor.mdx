@@ -15,10 +15,12 @@ used to dial the frozen control core.
 
 ## The endpoint
 
-`createEndpoint({ home, policy, probe, connect: (socketPath) => …, … })` is the
+`createEndpoint({ home, readProcessIdentity, policy, probe, connect: (socketPath) => …, … })` is the
 state machine: `connecting → connected | dead | incompatible`, then
 `connected → degraded` if the daemon dies mid-session. Gate and socket come from
-`home` (the same spine primitive `daemonMain` takes); `connect` receives the
+`home` (the same spine primitive `daemonMain` takes); `readProcessIdentity` is the
+injected OS fact reader for start-qualified gate ownership (required — never
+defaulted); `connect` receives the
 socket path from the framework so callers never re-thread it. The policy is the
 consumer's whole convergence surface (who I am + how I converge); the public
 verbs are `converge(endpoint)` and `recycle(endpoint, steps)` — the boot-method
@@ -43,7 +45,7 @@ It is generic over the client `C` and identity `I`.
 
 | Export | Role |
 | --- | --- |
-| `createEndpoint({ home, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths` |
+| `createEndpoint({ home, readProcessIdentity, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths`; `readProcessIdentity` is required (async OS fact reader for two-field gate identity) |
 | `destructiveRecycleSteps()` | named no-preservation steps for fail-closed recycle (all steps still required) |
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
 | `recycle(endpoint, steps)` · `serializeRestart(endpoint)` | `recycle` is the composed `capture → drain → recycle → reattach` sequence; `serializeRestart` returns a single-flight `triggerRestart` wrapper |
