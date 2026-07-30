@@ -121,6 +121,22 @@ Feature: Sub-terminals
     And the active tile should not show a sub-terminal count
     And there should be no page errors
 
+  # A split that is HIDDEN when the page loads has no measurable box, so xterm
+  # sits at the 80x24 grid its constructor invents. Painting the attach
+  # snapshot — which the host serialized at the REAL grid — into that invented
+  # grid wraps every wide line, and revealing the pane then REFLOWS the damage
+  # instead of repainting it: the split shows stale rows and hides its own live
+  # bottom. Nudging the divider used to be the only repair, because kaval
+  # no-ops a same-dimensions resize, so no SIGWINCH ever reaches the process.
+  Scenario: A split hidden at page load shows its live output when revealed
+    When I create a sub-terminal via command palette
+    And I fill the sub-terminal with output wider than the default grid
+    And I toggle the sub-panel via command palette
+    And I refresh the page
+    And I toggle the sub-panel via command palette
+    Then the sub-terminal viewport should show its latest output
+    And there should be no page errors
+
   Scenario: Resize handle visible when expanded
     When I create a sub-terminal via command palette
     Then the resize handle should be visible

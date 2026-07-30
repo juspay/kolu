@@ -39,7 +39,29 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | exit           | child exit code                 | `exitPromise`             |
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 
-## Two load-bearing properties
+## Three load-bearing properties
+
+**The snapshot is serialized at the consumer's grid — and `attach()` is a
+write.** A serialized screen is bytes laid out *for a specific cols×rows* —
+cursor moves and wraps only mean anything at the width they were written for. So
+`attach()` takes `resizeTo`, the grid the consumer will render into, **resizes
+the PTY to it**, and serializes as **one act**. The name is deliberate: this is
+the same `resize()` every other caller uses, so a genuine change `SIGWINCH`es the
+child, reflows the shared mirror, invalidates the snapshot memo, and (on a width
+change) bumps the reflow epoch that stales every *other* attached client's
+backfill cursor. Attaching mutates state the whole PTY can see; the policy is
+last-attach-wins. Because a re-attach is now a resize, two differently-sized
+viewers move the PTY on any stream *re-subscribe*, not only when a human resizes.
+
+What the fusion buys is that the size travels *with* the request instead of
+racing it through a separate `resize()` — so "a snapshot for a size the consumer
+isn't" can no longer be produced by two calls landing out of order. It used to be
+a discipline each caller had to remember (resize first, then attach), and a
+caller that got it wrong had no way back: a same-dimensions `resize()` is
+correctly a no-op, so no `SIGWINCH` reaches the process and nothing ever
+repaints. The bad state is still *expressible* by omitting `resizeTo` — which
+only a caller with no grid of its own (a CLI dumping the screen) may do, and
+which reads the PTY at its current size.
 
 **Race-free attach.** `attach()` calls `subscribe()` then `serialize()` as two
 back-to-back *synchronous* statements. Because the PTY publishes data only from
@@ -103,8 +125,12 @@ const { id, pid } = host.spawn({
   onDispose: () => cleanupRcFiles(),
 });
 
-// Late-join client: snapshot first, then live deltas.
-const { snapshot, deltas } = host.attach(id, signal);
+// Late-join client: snapshot first, then live deltas. `resizeTo` RESIZES the
+// shared PTY (SIGWINCH + mirror reflow) and the snapshot comes back laid out
+// for it — omit it if you have no grid of your own.
+const { snapshot, deltas } = host.attach(id, signal, {
+  resizeTo: { cols: 120, rows: 40 },
+});
 if (snapshot) send(snapshot);
 for await (const chunk of deltas) send(chunk);
 

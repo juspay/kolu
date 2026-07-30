@@ -385,12 +385,17 @@ export function buildPadiSurfaceDeps(deps: {
       // remote tile's attach reaches its host (a remote endpoint arrives with the
       // cross-host work); local today.
       terminalAttach: {
-        source: async function* ({ id }, signal) {
+        source: async function* ({ id, resizeTo }, signal) {
           const entry = requireActiveTerminal(id);
+          // The caller's grid rides through to the host verbatim — it arrives as
+          // one composite, so there is nothing to validate or reassemble here.
+          // Note this makes the attach a WRITE: the host resizes the terminal to
+          // it before serializing (see `PadiTerminalAttachInputSchema`).
           const { snapshot, topLine, reflowEpoch, deltas } =
             await resolveTerminalEndpoint(entry.meta.location).attach(
               id,
               signal,
+              resizeTo,
             );
           // First frame is a `snapshot` carrying the backfill seed (`topLine`)
           // and the reflow generation (`reflowEpoch`) alongside the snapshot
@@ -474,8 +479,16 @@ export function buildPadiSurfaceDeps(deps: {
         // Fire-and-forget stream ops: a resize/keystroke landing just after a
         // kill is an EXPECTED race, so quiet-drop via `getActiveTerminal`
         // (#1628) rather than throwing NOT_FOUND.
-        resize: ({ input }) => {
-          getActiveTerminal(input.id)?.handle.resize(input.cols, input.rows);
+        // AWAITED, unlike `sendInput` below: the quiet-drop on a killed terminal
+        // stays (that race is expected), but once a live terminal HAS been
+        // found, whether the host accepted the new grid is the caller's business
+        // — a client told "resized" while the PTY kept its old size would render
+        // against a size nothing has, silently.
+        resize: async ({ input }) => {
+          await getActiveTerminal(input.id)?.handle.resize(
+            input.cols,
+            input.rows,
+          );
         },
         sendInput: ({ input }) => {
           getActiveTerminal(input.id)?.handle.write(input.data);
