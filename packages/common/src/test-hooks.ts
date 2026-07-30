@@ -32,8 +32,19 @@ declare global {
      *  installed once per scenario by the e2e harness in `hooks.ts` via
      *  `page.addInitScript`. Returns the joined visible-buffer text, or
      *  `""` if the selector matches nothing or the element has no
-     *  `__xterm` attached. Used by the shared `support/buffer.ts` helpers. */
-    __readXtermBuffer?: (sel: string, idx: number) => string;
+     *  `__xterm` attached. Used by the shared `support/buffer.ts` helpers.
+     *
+     *  `opts.viewport` narrows the read to the rows the user can actually SEE
+     *  (`[viewportY, viewportY + rows)`) instead of the whole buffer including
+     *  scrollback. The distinction is load-bearing: a terminal can hold the
+     *  right bytes while showing the wrong window onto them, which is exactly
+     *  the split-render defect — a whole-buffer read passes on a screen the
+     *  user sees as broken. */
+    __readXtermBuffer?: (
+      sel: string,
+      idx: number,
+      opts?: { viewport?: boolean },
+    ) => string;
 
     /** Stash of stringified `WebSocket.send` payloads captured by
      *  `Given I intercept oRPC sendInput calls`. The interceptor monkey-

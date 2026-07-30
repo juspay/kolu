@@ -198,6 +198,48 @@ const PtyIdSchema = z.string();
 
 const TerminalIdInputSchema = z.object({ id: PtyIdSchema });
 
+/** A PTY grid — cols AND rows, together or not at all. The ONE grid rule this
+ *  surface has: every member that carries a grid reuses it, so tightening the
+ *  rule is one edit rather than a re-derivation per member. */
+export const PtyGridSchema = z.object({
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
+});
+export type PtyGrid = z.infer<typeof PtyGridSchema>;
+
+/** Attach input: the PTY, plus — optionally — a grid to RESIZE it to first.
+ *
+ *  `resizeTo` is not a description of the caller; it is a command. The host
+ *  runs the full `resize()` before serializing: SIGWINCH to the child, a reflow
+ *  of the SHARED mirror, and on a width change a reflow-epoch bump that stales
+ *  every other attached client's backfill cursor. Attaching is therefore a
+ *  WRITE to shared, process-visible state whenever this is present and differs
+ *  from the PTY's current grid; the cross-client policy is last-attach-wins.
+ *
+ *  It is fused with the attach on purpose: the snapshot is bytes laid out for a
+ *  specific cols×rows, so resize-and-serialize must be ONE act — rather than
+ *  the consumer publishing its size through a separate `resize` and hoping it
+ *  lands first. When it didn't, nothing repaired the screen: a same-dimensions
+ *  `resize` is (correctly) a no-op, so no SIGWINCH reached the process and the
+ *  consumer was left reflowing a snapshot laid out for a width it never had.
+ *  Omit it only when the caller has no grid of its own (a CLI dumping the
+ *  screen), which reads the PTY at its current size.
+ *
+ *  OPTIONAL, and deliberately carried WITHOUT a contract bump. Absence degrades
+ *  to exactly the previous reading in both skew directions (a 6.0 daemon strips
+ *  it and serializes at its own size; a newer daemon serving an older padi
+ *  receives none and does the same) — the `commandRooted` / `shellJoin` class
+ *  this contract already documents as no-bump, not the emitted-variant class
+ *  that must recycle. Bumping would force-recycle a surviving kaval, killing
+ *  the user's live PTYs, to buy a graceful improvement. */
+const TerminalAttachInputSchema = z.object({
+  id: PtyIdSchema,
+  // ONE optional composite, never two optional scalars — see the note on padi's
+  // mirror of this schema. Half a grid is not a size, so it must not be a
+  // sendable request rather than something each reader remembers to discard.
+  resizeTo: PtyGridSchema.optional(),
+});
+
 /** A file the client wants present on the host before the shell starts — a
  *  wrapper rcfile (bash `--rcfile`, zsh `ZDOTDIR/.zshrc`), named relative to
  *  the host's `rcDir` (from `system.info`). The host writes each under its
@@ -252,11 +294,9 @@ const TerminalWriteInputSchema = z.object({
   data: z.string(),
 });
 
-const TerminalResizeInputSchema = z.object({
-  id: PtyIdSchema,
-  cols: z.number().int().positive(),
-  rows: z.number().int().positive(),
-});
+// The SAME grid rule the attach carries — `resize` and `attach` describe one
+// value with one meaning, so they must not derive it twice.
+const TerminalResizeInputSchema = PtyGridSchema.extend({ id: PtyIdSchema });
 
 /** A PTY the pty-host still owns. The minimal shape kolu-server needs to
  *  reattach by id across its own restart. */
@@ -414,7 +454,7 @@ export const ptyHostSurface = defineSurface({
   streams: {
     /** Per-terminal output stream — snapshot then live deltas. */
     terminalAttach: {
-      inputSchema: TerminalIdInputSchema,
+      inputSchema: TerminalAttachInputSchema,
       outputSchema: TerminalDataMsgSchema,
     },
     /** OSC 7 cwd reports. */
@@ -494,6 +534,10 @@ export const ptyHostSurface = defineSurface({
         input: TerminalWriteInputSchema,
         output: z.object({ ok: z.boolean() }),
       },
+      // `ok` is a real answer, not a constant: FALSE means the host had no such
+      // PTY (it exited before the call arrived), so the caller's grid claim
+      // landed on nothing. TRUE covers both a real resize and an exact
+      // same-dimensions no-op — either way the PTY now holds that grid.
       resize: {
         input: TerminalResizeInputSchema,
         output: z.object({ ok: z.boolean() }),

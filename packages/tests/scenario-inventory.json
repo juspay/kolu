@@ -7358,6 +7358,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "3667a93547bf99b3a2f504d45cb6c7f2a6390517"
+    },
+    {
+      "revisionId": "revision-ac70b681a51a948a1476",
+      "scenarioKey": "scenario-65db81c159a51516556a",
+      "feature": "features/sub-terminal.feature",
+      "scenario": "A split hidden at page load shows its live output when revealed",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e79e181df1151e6e9be5ded3606185eade4d44abd848b3b153054451d538d07d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a442170cddaf07b81dc2b7559ba62c53c6422fc4"
     }
   ]
 }
