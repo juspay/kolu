@@ -30,6 +30,12 @@ a package `WeakMap` keyed by the genuine `createEndpoint` handle; kit modules
 (`converge`, `recycle`) and same-package tests resolve them via a
 package-internal relative import of `endpoint.private.ts` — there is no public
 `asEndpointInternal` or `./testing` subpath.
+**Unreadable gate (EACCES/EIO):** the endpoint's holder probe folds the daemon
+half's three-way gate-read law exhaustively — when `readGateIdentity` yields
+`unreadable`, `ensure` / recycle **throw before any unlink, kill, or spawn**
+(status still emits `connecting → dead` then rethrows so the UI never wedges).
+An unreadable gate is not free and not stale; a mode-`000` gate is the unit pin
+(`recycleForeignGate.test.ts`).
 `incompatible` is the PROVEN contract-skew verdict — a respawn from the
 realised closure already skewed (or a refuse-policy survivor skews at
 handshake) — reported with both contract versions on the status
@@ -45,7 +51,7 @@ It is generic over the client `C` and identity `I`.
 
 | Export | Role |
 | --- | --- |
-| `createEndpoint({ home, readProcessIdentity, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths`; `readProcessIdentity` is `ReadProcessIdentityAsync` (may be async so osfacts does not block the serving loop — prefer `processIdentityFromEnvAsync`). The async type lives in this package beside `EndpointSpec`; the daemon half keeps only the sync `ReadProcessIdentity` |
+| `createEndpoint({ home, readProcessIdentity, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths`; `readProcessIdentity` is `ReadProcessIdentityAsync` (may be async so osfacts does not block the serving loop — prefer `processIdentityFromEnvAsync`). The async type lives in this package beside `EndpointSpec`; the daemon half keeps only the sync `ReadProcessIdentity`. **Gate unreadable** (EACCES/EIO) → throw before unlink/kill/spawn; emit `dead` then rethrow |
 | `destructiveRecycleSteps()` | named no-preservation steps for fail-closed recycle (all steps still required) |
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
 | `recycle(endpoint, steps)` · `serializeRestart(endpoint)` | `recycle` is the composed `capture → drain → recycle → reattach` sequence; `serializeRestart` returns a single-flight `triggerRestart` wrapper |
