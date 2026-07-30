@@ -25,6 +25,7 @@
 
 import { currentPadiBuildId } from "@kolu/padi/assembly";
 import {
+  PADI_REMOTE_DIAL,
   type PadiDaemonClient,
   type PadiSurfaceClient,
   scopePadiSurface,
@@ -263,7 +264,16 @@ function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
     // settles on `failed` and the entry publishes the reason, rather than retrying a
     // config/deploy fault forever.
     try {
-      return await resolveBakedAgentDrv("padi", ctx);
+      // `.package` (`padi-agent`), not `.binary` (`padi`): the flake attr names
+      // the CLOSURE to provision (the daemon plus the client toolchain a
+      // terminal on that host needs), while `sshConnector`'s `binary` names what
+      // to exec inside it. Two facts, already two parameters in surface-remote —
+      // the framework needs no change for a host to receive more than the bare
+      // daemon. See `default.nix`'s `padi-agent`, whose wrapper self-bakes the
+      // tools path, which is why nothing has to ride argv (ssh has no env
+      // channel). Both halves come from ONE constant so this path and
+      // `dialPadiViaHost` cannot name different closures for the same host.
+      return await resolveBakedAgentDrv(PADI_REMOTE_DIAL.package, ctx);
     } catch (err) {
       if (!(err instanceof ResolveDrvError)) throw err;
       // ONE enrichment arm over `DRV_FAULT`: which cause, and whether the hint
@@ -433,7 +443,7 @@ export function ensureRemotePadiBinding(
   const resolveDrv = makeResolvePadiDrv();
   const inner = sshConnector<PadiDaemonContract>({
     host,
-    binary: "padi",
+    binary: PADI_REMOTE_DIAL.binary,
     extraArgs,
     // localhost spawn env: clean allowlist via kolu-pty's composeSpawnEnv; see the
     // localEnv doc on buildAgentCommand. (Remote-padi operational overrides ride

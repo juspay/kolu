@@ -27,6 +27,11 @@ describe("kavalHostDialOptions", () => {
     expect(options).toEqual({
       host: "nix@prod",
       localEnv,
+      // Stated, not defaulted: `kaval-tui --host` deliberately provisions the
+      // bare daemon, so a host kolu already provisioned with `padi-agent`
+      // realises a SECOND closure when reached this way. That asymmetry is a
+      // decision — pinning it here is what keeps it one.
+      package: "kaval",
       binary: "kaval",
       fatalPrefix: "kaval --stdio:",
     });
