@@ -17,7 +17,7 @@ version: Unreleased
 
 ### [Sessions, Sleep & Wake](/sessions)
 
-- <Change kind="fixed" title="Split agents resume with the rest of the session">An agent running in a **split** (or any parented terminal) is resumed on session restore just like a top-level one. The restore card lists every saved terminal as its own row — no more collapsed "+N splits" line — and the host, not the browser, decides who is resumable, so a client filter can never drop a whole class of terminals again. A terminal that fails to restore keeps its resume token and surfaces a real error instead of being silently erased.</Change>
+- <Change kind="fixed" title="Split agents resume with the rest of the session" pr={2068}>An agent running in a **split** (or any parented terminal) is resumed on session restore just like a top-level one. The restore card lists every saved terminal as its own row — no more collapsed "+N splits" line — and the host, not the browser, decides who is resumable, so a client filter can never drop a whole class of terminals again. A terminal that fails to restore keeps its resume token and surfaces a real error instead of being silently erased.</Change>
 
 ### [Padi](/padi)
 
