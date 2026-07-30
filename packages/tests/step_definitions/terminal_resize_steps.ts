@@ -22,16 +22,17 @@ async function visibleTerminalId(world: KoluWorld): Promise<string> {
   return id;
 }
 
-When("I wait for all terminals to settle", async function (this: KoluWorld) {
-  // Poll until every mounted terminal reports a non-zero cols —
-  // filters out the race where a still-mounting xterm hasn't
-  // constructed its buffer yet.
+When("I wait for both terminals to settle", async function (this: KoluWorld) {
+  // Both callers create a second terminal and immediately compare the pair.
+  // Requiring only a non-empty node list let the original terminal satisfy
+  // this wait before the new tile mounted, so the following snapshot flaked.
+  // Wait for the actual precondition: two mounted xterms, both initialized.
   await this.page.waitForFunction(
     () => {
       const nodes = document.querySelectorAll(
         "[data-terminal-id][data-font-size]",
       );
-      if (nodes.length === 0) return false;
+      if (nodes.length < 2) return false;
       for (const n of nodes) {
         const term = (n as unknown as { __xterm?: { cols: number } }).__xterm;
         if (!term?.cols) return false;

@@ -7322,6 +7322,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "665c203fcc1dad6491ea7f79c43127b65e3b11b1"
+    },
+    {
+      "revisionId": "revision-a482fda676980a939130",
+      "scenarioKey": "scenario-4d82a29b533ee62ee45d",
+      "feature": "features/code-tab.feature",
+      "scenario": "Browse mode tints ancestor folders that contain a change",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "313efa64bac79b77c4f7f68b22c0aa565eb48a972b6c5cc437b49c3f2b7fa76b",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "98ddac361bffbf0cde5f159f196555aa1205c875"
+    },
+    {
+      "revisionId": "revision-637634c94a6557ce3541",
+      "scenarioKey": "scenario-9d491a0d4cbbf5ce9091",
+      "feature": "features/terminal-resize.feature",
+      "scenario": "Resizing the active mobile terminal does not resize hidden terminals",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "075e3c0a02a5e1ec89c3089d1376a857909afe778b60d876fb811dff9988519d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "98ddac361bffbf0cde5f159f196555aa1205c875"
+    },
+    {
+      "revisionId": "revision-e4a430ce659dffb7957e",
+      "scenarioKey": "scenario-d658cd89cdb288522921",
+      "feature": "features/terminal.feature",
+      "scenario": "Zoom only affects the focused canvas tile",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "294466c68741941a5b84c94c0af62e4a298cbd0071dedd0cb47c8fc0572a7de8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "98ddac361bffbf0cde5f159f196555aa1205c875"
     }
   ]
 }

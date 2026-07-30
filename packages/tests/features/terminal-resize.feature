@@ -17,7 +17,7 @@ Feature: Per-terminal viewport grid
     # Make t0 active again so t1 is the one hidden. (The newly-created
     # terminal is always active; swiping moves us back to t0.)
     When I swipe left on the mobile tile view
-    And I wait for all terminals to settle
+    And I wait for both terminals to settle
     And I snapshot each terminal's cols
     # Widen the viewport while staying below the 640px mobile breakpoint,
     # so MobileTileView is not torn down and remounted. Only the active

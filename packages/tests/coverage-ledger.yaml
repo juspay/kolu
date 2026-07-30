@@ -1917,7 +1917,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-aed82841ff73951a75e0
+      - revision-a482fda676980a939130
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
@@ -1933,7 +1933,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-aed82841ff73951a75e0
+      - revision-a482fda676980a939130
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
@@ -1960,7 +1960,7 @@ retirements:
           test: pollOnChange > coalesces a pulse burst without aborting or starving the in-flight query
           note: The framework-level test pins progress under the exact burst that made the browser wait nondeterministic; the surviving browser scenario still proves the real initial and post-mount user flow.
     survivorRevisionIds:
-      - revision-aed82841ff73951a75e0
+      - revision-a482fda676980a939130
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
@@ -1976,7 +1976,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-aed82841ff73951a75e0
+      - revision-a482fda676980a939130
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
@@ -1992,8 +1992,79 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-aed82841ff73951a75e0
+      - revision-a482fda676980a939130
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
       test: The surviving scenario still opens an already-dirty tree, checks the clean sibling, performs a real post-mount edit, and verifies its ancestor tint; only the repeated no-op touches were removed.
+  - id: revise-aed82841ff73951a75e0
+    revisionId: revision-aed82841ff73951a75e0
+    action: revised
+    status: landed
+    promise: Initial and live ancestor status remain user-visible when a nested working-tree subtree is created after watcher subscription
+    defectSurface:
+      - browse-folder-status-rollup
+      - dynamic-nested-directory-watch
+      - initial-query-hydration
+    destinationLayer: L5
+    replacements:
+      - file: packages/integrations/git/src/working-tree-watcher.test.ts
+        test: watchWorkingTree recursive coverage > observes later edits below a nested subtree created in one burst
+        lane: unit
+        platforms: [linux, darwin]
+        realism:
+          - real Parcel native watcher rooted before a nested subtree is created
+          - real later edit below the dynamically created descendant
+        reviewEvidence:
+          file: packages/integrations/git/src/working-tree-watcher.test.ts
+          test: watchWorkingTree recursive coverage > observes later edits below a nested subtree created in one burst
+          note: The unit pin makes the Linux inotify topology race deterministic, while the surviving browser journey still proves initial dirty roll-up, a clean sibling, a post-mount nested edit, and visible ancestor tinting through the full UI.
+      - file: packages/surface/src/pollOnChange.test.ts
+        test: pollOnChange > hydrates before the pulse stream delivers its first frame
+        lane: unit
+        platforms: [linux, darwin]
+        realism:
+          - withheld first pulse frame
+          - real query and AbortSignal lifetime
+        reviewEvidence:
+          file: packages/surface/src/pollOnChange.test.ts
+          test: pollOnChange > hydrates before the pulse stream delivers its first frame
+          note: Direct hydration is pinned below the browser, and the surviving browser scenario verifies the initial dirty result remains visible before exercising live watcher updates.
+    survivorRevisionIds:
+      - revision-a482fda676980a939130
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
+      test: The current browser revision opens an already-dirty tree, proves src and lib clean, observes a separate post-mount watcher update, then edits a nested src file and verifies its ancestor mark and tint while lib remains clean.
+  - id: revise-ce020103f9ac2b4be0a2
+    revisionId: revision-ce020103f9ac2b4be0a2
+    action: revised
+    status: landed
+    promise: Resizing one mobile terminal preserves the hidden terminal's independent grid
+    defectSurface:
+      - per-terminal-viewport-grid
+      - two-terminal-mount-readiness
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-637634c94a6557ce3541
+    sameCodePathEvidence:
+      file: packages/tests/features/terminal-resize.feature
+      symbol: "Scenario: Resizing the active mobile terminal does not resize hidden terminals"
+      test: The browser journey is unchanged; its shared readiness step now waits for both initialized xterms instead of returning when only the original terminal exists.
+  - id: revise-0014ed15f857587bc54e
+    revisionId: revision-0014ed15f857587bc54e
+    action: revised
+    status: landed
+    promise: Zoom changes only the focused canvas terminal when two terminals are mounted
+    defectSurface:
+      - focused-terminal-zoom
+      - two-terminal-mount-readiness
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-e4a430ce659dffb7957e
+    sameCodePathEvidence:
+      file: packages/tests/features/terminal.feature
+      symbol: "Scenario: Zoom only affects the focused canvas tile"
+      test: The browser journey and focused-versus-unfocused font-size comparison are unchanged; the precondition now waits until both xterms are mounted and initialized.
