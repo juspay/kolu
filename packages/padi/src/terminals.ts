@@ -18,7 +18,11 @@
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
-import { getTerminal, terminalEntries } from "./terminal-registry.ts";
+import {
+  getTerminal,
+  rejectNestedParent,
+  terminalEntries,
+} from "./terminal-registry.ts";
 import {
   beginSleepLocal,
   releaseSleptLocalPty,
@@ -129,6 +133,10 @@ export function createTerminal(
   parentId?: string,
   initial?: CreateTerminalInput,
 ): TerminalInfo {
+  // One-level splits only (#2059) — fence at the generative write so every
+  // non-restore door that assigns parentId shares the rule. Session restore
+  // uses restoreSpawn and deliberately rehydrates saved graphs (no auto-flatten).
+  if (parentId !== undefined) rejectNestedParent(parentId);
   const id = crypto.randomUUID();
   // P3 will select the endpoint per create — e.g. a sub-terminal
   // inheriting its parent's endpoint; today every terminal is local.
@@ -191,6 +199,9 @@ export function setTerminalParent(
   id: TerminalId,
   parentId: string | null,
 ): void {
+  // Same one-level fence as createTerminal (#2059) — the other generative
+  // write of a non-null parent edge. Clearing (null) is always legal.
+  if (parentId !== null) rejectNestedParent(parentId);
   const entry = getTerminal(id);
   if (entry) {
     const newParent = parentId ?? undefined;

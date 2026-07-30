@@ -64,7 +64,6 @@ import {
   getActiveTerminal,
   getTerminal,
   registryMap,
-  rejectNestedParent,
   requireActiveTerminal,
   requireMutableTerminal,
   snapshotFor,
@@ -391,17 +390,16 @@ export function buildPadiSurfaceDeps(deps: {
       lifecycle: {
         create: ({ input }) => {
           // A sub-terminal must hang off a LIVE parent (F3) — the same
-          // live-PTY narrow every per-terminal handler uses. `PadiCreateInput`
-          // omits `lastActivityAt`: a fresh terminal seeds `lastActivityAt: 0`
-          // (via `createAuthoredActive` → `seedMemory`), and the fold stamps recency
-          // later — the client can't supply it. (Only `session.restore` threads a
-          // saved `lastActivityAt` through, via `respawnActive`, not this path.)
-          if (input.parentId !== undefined) {
-            // Live parent (F3) + one-level splits only (#2059): a nested
-            // parentId would create a live terminal the canvas never paints.
+          // live-PTY narrow every per-terminal handler uses. Nested depth is
+          // fenced inside createTerminal (#2059) — the generative write — so
+          // every non-restore parent assignment shares one rule.
+          // `PadiCreateInput` omits `lastActivityAt`: a fresh terminal seeds
+          // `lastActivityAt: 0` (via `createAuthoredActive` → `seedMemory`),
+          // and the fold stamps recency later — the client can't supply it.
+          // (Only `session.restore` threads a saved `lastActivityAt` through,
+          // via `respawnActive`, not this path.)
+          if (input.parentId !== undefined)
             requireActiveTerminal(input.parentId);
-            rejectNestedParent(input.parentId);
-          }
           const info = createTerminal(input.cwd, input.parentId, {
             themeName: input.themeName,
             canvasLayout: input.canvasLayout,
@@ -515,13 +513,11 @@ export function buildPadiSurfaceDeps(deps: {
         },
         setParent: ({ input }) => {
           requireMutableTerminal(input.id);
-          // Same one-level fence as lifecycle.create (#2059) — re-parenting
-          // onto a split child is the other door into the invisible nest.
-          if (input.parentId !== null) rejectNestedParent(input.parentId);
           log.info(
             { terminal: input.id, parent: input.parentId },
             "set terminal parent",
           );
+          // Nested depth is fenced inside setTerminalParent (#2059).
           setTerminalParent(input.id, input.parentId);
         },
         setActive: ({ input }) => {
