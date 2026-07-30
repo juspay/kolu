@@ -1131,8 +1131,13 @@ export interface SocketHolder {
  * spawns a second daemon onto a live rendezvous socket.
  */
 export type SocketHolderReading =
-  /** At least one process the OS named. Never empty. */
-  | { readonly kind: "holders"; readonly holders: readonly SocketHolder[] }
+  /** At least one process the OS named. Non-empty BY TYPE, not by comment: a
+   *  consumer that re-checks `holders.length === 0` is checking something
+   *  unreachable, and a dead safety branch reads exactly like a live one. */
+  | {
+      readonly kind: "holders";
+      readonly holders: readonly [SocketHolder, ...SocketHolder[]];
+    }
   /** Proven: nothing holds this path. Only linux can prove this — its
    *  `/proc/net/unix` table lists every bound unix socket, so absence from it
    *  is evidence rather than silence. */
@@ -1166,7 +1171,10 @@ export function foldSocketHoldersReading(
         ]
       : [],
   );
-  if (named.length > 0) return { kind: "holders", holders: named };
+  // Destructured rather than length-checked, so the non-empty tuple is BUILT
+  // rather than asserted — no cast, and no way to return an empty `holders`.
+  const [first, ...rest] = named;
+  if (first !== undefined) return { kind: "holders", holders: [first, ...rest] };
   // A bound socket the tool could not attribute to any readable pid. Linux
   // emits this when the path IS in its table but no pid it may inspect holds
   // the inode — a foreign-uid holder, and emphatically not a free socket.

@@ -245,6 +245,73 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     );
   });
 
+  /**
+   * The DARWIN NORMAL PATH, forced on any platform: the socket is accepting and
+   * the OS will not say who holds it.
+   *
+   * A descriptor walk denied another user's processes is the ordinary result on
+   * macOS, so `unattributed` is not an edge case there — it is the usual answer.
+   * The refusal must therefore carry the reading's `detail` all the way to the
+   * operator. Before this pin the three-way was folded exhaustively for the
+   * DECISION and then flattened for the EXPLANATION, so the message read "an
+   * unidentifiable process" — the exact sentence this feature's changelog entry
+   * promises is gone.
+   */
+  it("Unattributable holder: the refusal says WHY the OS would not name it", {
+    timeout: 15_000,
+  }, async () => {
+    const d = dir();
+    const socketPath = join(d, "pty.sock");
+    const gatePath = join(d, "kaval.pid");
+    const holderPid = await spawnSocketHolder(socketPath);
+    const blind =
+      "the holder search could not complete (darwin_proc_fds: BLIND_OR_EMPTY)";
+
+    const endpoint = createEndpoint<string, Identity, Meta>({
+      hostId: "local",
+      home: { dir: dirname(socketPath), gatePath, socketPath },
+      // The OS answers `unattributed`, exactly as darwin's denied fd walk does.
+      readSocketHolders: async () => ({ kind: "unattributed", detail: blind }),
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      driver: freshDaemon(socketPath),
+      connect: async () => {
+        throw new Error("not kaval: connection reset");
+      },
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptConnectAttempts: 1,
+      adoptConnectRetryMs: 5,
+    });
+
+    const err = await endpointPrivate(endpoint)
+      .ensure()
+      .then(
+        () => {
+          throw new Error("expected an unattributable holder to be refused");
+        },
+        (caught: unknown) => caught,
+      );
+
+    expect(isSocketSquatterForeignError(err)).toBe(true);
+    if (!isSocketSquatterForeignError(err)) return;
+    expect(err.holders).toEqual([]);
+    expect(err.detail).toBe(blind);
+    expect(err.message).toContain(blind);
+    expect(err.message).not.toContain("an unidentifiable process");
+    // And nothing was killed on the way to saying so.
+    expect(isHolderLive(holderPid)).toBe(true);
+  });
+
   it("Pid-absent speaker: a version that fails schema (no self-reported pid) is FOREIGN, not killed", {
     timeout: 15_000,
   }, async () => {

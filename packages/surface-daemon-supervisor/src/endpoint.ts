@@ -222,16 +222,30 @@ export class SocketSquatterForeignError extends Error {
   /** Every pid the OS reported holding the socket, each with a readable command
    *  — named so an operator can identify (and deal with) the squatter by hand. */
   readonly holders: readonly SocketHolder[];
-  constructor(socketPath: string, holders: readonly SocketHolder[]) {
+  /** What the OS said INSTEAD of a name, when `holders` is empty — the
+   *  `unattributed` arm's `detail`. The whole point of the three-way answer is
+   *  that a nameless holder is still an explained one ("the socket is bound,
+   *  but its holder is not ours to inspect"; "the holder search could not
+   *  complete (darwin_proc_fds: BLIND_OR_EMPTY)"), and on darwin that is the
+   *  NORMAL path — a descriptor walk denied another user's processes. Dropping
+   *  it here and rendering "an unidentifiable process" would put the exact
+   *  message this feature deleted back in front of the operator. */
+  readonly detail: string | undefined;
+  constructor(
+    socketPath: string,
+    holders: readonly SocketHolder[],
+    detail?: string,
+  ) {
     const who = holders.length
       ? holders.map((h) => `pid ${h.pid} (${h.command})`).join(", ")
-      : "an unidentifiable process";
+      : (detail ?? "an unidentifiable process");
     super(
       `rendezvous socket ${socketPath} is held by ${who}, which did not complete the daemon handshake — refusing to kill a process that is not a verified daemon of this endpoint`,
     );
     this.name = "SocketSquatterForeignError";
     this.socketPath = socketPath;
     this.holders = holders;
+    this.detail = detail;
   }
 }
 
@@ -501,23 +515,21 @@ function waitForSocket(
   });
 }
 
-/** The named OS holders of `socketPath`, EXCLUDING the supervisor's own process.
+/** The named holders of a reading, EXCLUDING the supervisor's own process.
  *  The supervisor spawns its daemon as a SEPARATE process (the survivable-spawn
  *  model), so its OWN pid holding the rendezvous is never a squatter — only an
  *  in-process serve (a test's in-process daemon) would be — and must never be a
- *  kill target. Single source for that self-exclusion safety invariant, so it
- *  can't drift across the recovery's read sites.
+ *  kill target.
  *
- *  The unnamed arms of the reading (`none`, `unattributed`) flatten to an empty
- *  list HERE and only here, at the two sites that ask "is this specific pid
- *  still among the holders" — a question all three answers say *no* to. The
- *  site that must keep them apart (`recoverGatelessSquatter`) folds the reading
- *  itself and never calls this. */
-async function namedExternalHolders(
-  read: ReadSocketHolders,
-  socketPath: string,
-): Promise<SocketHolder[]> {
-  const reading = await read(socketPath);
+ *  `h.pid === process.pid` is spelled HERE AND NOWHERE ELSE in this file, which
+ *  is the point: if "our own process" ever gains a second component (a pid AND
+ *  a start time, as the daemon-identity gate already qualifies it), that is one
+ *  edit rather than a hunt across the recovery's read sites.
+ *
+ *  It takes the READING, not the reader, so the caller that must keep the three
+ *  answers apart (`recoverGatelessSquatter`, and the squatter error's `detail`)
+ *  still holds them: this only drops the pids, never the arm. */
+function externalHolders(reading: SocketHolderReading): SocketHolder[] {
   return reading.kind === "holders"
     ? reading.holders.filter((h) => h.pid !== process.pid)
     : [];
@@ -839,8 +851,11 @@ export function createEndpoint<
   // (→ the caller may spawn) ONLY when a fresh probe proves the socket NOT accepting
   // (a holder that just closed); otherwise the socket is still accepting and we
   // cannot name who holds it — NOT proof of freedom, so we fail LOUD rather than let
-  // the caller spawn onto it (F5). The error names "an unidentifiable process" when
-  // the OS still returns no holder.
+  // the caller spawn onto it (F5). This is the feature's ONE operator-facing exit, so
+  // it carries the reading's `detail` into the error: when the OS names nobody, the
+  // refusal says WHY it could not (a bound-but-uninspectable holder, or a search that
+  // went blind) instead of "an unidentifiable process" — which on darwin, where a
+  // denied descriptor walk is the normal result, would be the normal message.
   const freeOrFailLoud = async (rv: {
     gatePath: string;
     socketPath: string;
@@ -855,22 +870,23 @@ export function createEndpoint<
       case "indeterminate":
         throw new SocketProbeIndeterminateError(rv);
       case "serving": {
-        const held = await namedExternalHolders(
-          spec.readSocketHolders,
-          rv.socketPath,
-        );
+        const reading = await spec.readSocketHolders(rv.socketPath);
+        const held = externalHolders(reading);
+        const detail =
+          reading.kind === "unattributed" ? reading.detail : undefined;
         spec.log.error(
           {
             hostId: spec.hostId,
             socketPath: rv.socketPath,
             holders: held.map((h) => h.pid),
+            detail,
           },
           // The `holders` field carries whatever the OS now names — a set (a holder
           // that reappeared after a flap) or empty (unidentifiable) — so the message
           // doesn't assert which; either way an accepting socket is not proven free.
           "rendezvous socket is still accepting after recovery — failing loud rather than spawning onto it",
         );
-        throw new SocketSquatterForeignError(rv.socketPath, held);
+        throw new SocketSquatterForeignError(rv.socketPath, held, detail);
       }
       default: {
         const _exhaustive: never = state;
@@ -970,19 +986,18 @@ export function createEndpoint<
       // daemon as a SEPARATE process (the survivable-spawn model), so a real
       // squatter is never us — but an in-process serve (a test's in-process daemon)
       // would be, and "recovering" it means SIGTERMing ourselves. Never a kill.
-      const heldByUs = reading.holders.some((h) => h.pid === process.pid);
-      const holders = reading.holders.filter((h) => h.pid !== process.pid);
+      const holders = externalHolders(reading);
       if (holders.length === 0) {
-        if (heldByUs) {
-          // The socket is held by OUR OWN process (an in-process serve) — never a
-          // squatter, never a kill. Safe to treat as free.
-          spec.log.warn(
-            { hostId: spec.hostId, socketPath: rv.socketPath },
-            "rendezvous socket is held by our own process — nothing to recover",
-          );
-          return "free";
-        }
-        return await freeOrFailLoud(rv);
+        // The `holders` arm is non-empty BY TYPE, so an empty exclusion result
+        // means every named holder is us: an in-process serve — never a
+        // squatter, never a kill. Safe to treat as free. (There is no third
+        // case to fall through to; a `heldByUs` flag guarding it would be
+        // guarding a branch that cannot be reached.)
+        spec.log.warn(
+          { hostId: spec.hostId, socketPath: rv.socketPath },
+          "rendezvous socket is held by our own process — nothing to recover",
+        );
+        return "free";
       }
       const holderPids = holders.map((h) => h.pid);
 
@@ -1109,10 +1124,11 @@ export function createEndpoint<
         continue;
       }
       // OS corroboration AFTER the fresh handshake (F3 order): the just-attested pid
-      // must still be a live holder of THIS socket right now.
-      const finalHolders = await namedExternalHolders(
-        spec.readSocketHolders,
-        rv.socketPath,
+      // must still be a live holder of THIS socket right now. Flattening the
+      // reading's unnamed arms to `[]` is lossless HERE: the question is "is this
+      // specific pid among the holders", and `none` / `unattributed` both answer no.
+      const finalHolders = externalHolders(
+        await spec.readSocketHolders(rv.socketPath),
       );
       if (!finalHolders.some((h) => h.pid === reportedPid)) {
         spec.log.warn(
