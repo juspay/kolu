@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { buildRemotePool } from "@kolu/surface-remote";
 import Conf from "conf";
 import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
 import { store } from "./state.ts";
 
@@ -12,11 +12,13 @@ const LOCAL = encodeHostKey(LOCAL_HOST); // "local"
 const NO_SEEDS: ReadonlySet<string> = new Set();
 
 // hostPersistence reads/writes the `hosts` field of the module conf `store` (state.ts),
-// opened at the harness's ephemeral KOLU_STATE_DIR. Reset the field around each test so
-// cases don't bleed into one another (and so an invalid value a throw-case wrote doesn't
-// linger on disk for the next test / file).
-beforeEach(() => store.set("hosts", []));
-afterEach(() => store.set("hosts", []));
+// opened at the harness's ephemeral KOLU_STATE_DIR. Reset a MUTATED field after each test
+// so cases don't bleed into one another (and so an invalid value a throw-case wrote doesn't
+// linger on disk for the next test / file). Avoid writing an already-empty value: Conf's
+// synchronous atomic write includes fsync, which is both real work and load-sensitive.
+afterEach(() => {
+  if (store.get("hosts").length > 0) store.set("hosts", []);
+});
 
 describe("getPersistedHosts", () => {
   it("returns [] on a fresh store (conf's empty default merges in)", () => {

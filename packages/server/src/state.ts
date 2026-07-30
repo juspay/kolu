@@ -233,7 +233,13 @@ export function stripLegacyStateKeys_1_31_0(store: Conf<PersistedState>): void {
     // first backup with a lossy one.
     copyFileSync(store.path, bakPath);
   }
-  for (const key of LEGACY_KEYS_STRIPPED_1_31_0) deleteLegacyKey(store, key);
+  // Conf persists every `delete` as a synchronous atomic write, even when the
+  // key is absent. Delete only the keys this snapshot actually contains: a
+  // clean post-W2.2 store needs no rewrite at all, while a legacy store keeps
+  // the same backup-first and per-key crash-recovery semantics.
+  for (const key of LEGACY_KEYS_STRIPPED_1_31_0) {
+    if (key in raw) deleteLegacyKey(store, key);
+  }
 }
 
 export const store = new Conf<PersistedState>({

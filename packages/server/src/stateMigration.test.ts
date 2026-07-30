@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 // Importing state.ts opens its own throwaway store at the test harness's
 // KOLU_STATE_DIR (set by the `test:unit` script) — unrelated to the fixtures
 // below, which each build their own Conf under a fresh temp dir.
@@ -83,10 +83,12 @@ describe("stripLegacyStateKeys_1_31_0", () => {
   it("creates no .bak for a file without any legacy key", () => {
     const conf = makeStore({});
     const bakPath = `${conf.path}.pre-1.31-strip.bak`;
+    const deleteSpy = vi.spyOn(conf, "delete");
 
     stripLegacyStateKeys_1_31_0(conf as never);
 
     expect(existsSync(bakPath)).toBe(false);
+    expect(deleteSpy).not.toHaveBeenCalled();
     expect(readJson(conf.path).preferences).toBeDefined();
   });
 
