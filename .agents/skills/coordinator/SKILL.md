@@ -14,7 +14,9 @@ Three moves. The mechanics (spawn, send, wait, read) are the `/kolu` skill's
 problem; this skill is what you send, not how.
 
 1. **Brief in a file, dispatch a pointer.** Spawn the agent in a kolu terminal
-   in the target checkout. The brief names the spec to read, the `/be` entry,
+   in the target checkout. **Dispatch at the top level by default:** call
+   `lifecycle_create` without `parentId`; a split is opt-in only when the human
+   explicitly asks for one. The brief names the spec to read, the `/be` entry,
    the debate peer, and exactly which branch/PR the work lands on — the agent
    should never have to guess where its commits go.
 
