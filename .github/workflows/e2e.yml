@@ -1,0 +1,79 @@
+# Run the FULL Cucumber e2e suite on GitHub-hosted runners, on both platforms
+# odu already gates on (x86_64-linux + aarch64-darwin), so the suite has a
+# second, vendor-neutral home besides the self-hosted venue pool.
+#
+# This is the same node the odu pipeline calls `ci::e2e`: `just --no-deps test`
+# under the repo's CUCUMBER_RETRY policy, which nix-builds `.#koluBin` and runs
+# Cucumber inside the `.#e2e` devshell (Playwright browsers). Nothing is
+# reimplemented here — the workflow only provisions Nix and calls the recipe,
+# so the justfile stays the single source of truth for what "full e2e" means.
+name: e2e
+
+on:
+  push:
+    branches: [master]
+  # `ready_for_review` is what makes the draft gate below usable: without it a
+  # PR that flips draft → ready emits no event and would never get a run.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push supersedes the in-flight suite for the same ref — this job is
+# measured in tens of minutes, so queued duplicates are pure waste.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    # Draft PRs skip the suite. `github.event.pull_request` is null for push /
+    # workflow_dispatch, so `!= true` (not `== false`) is what keeps those
+    # non-PR runs alive.
+    if: github.event.pull_request.draft != true
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-latest → x86_64-linux; macos-latest → aarch64-darwin.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # GitHub's default is 360; cap well under that so a hung suite fails in
+    # bounded time instead of holding a runner for six hours.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same pinned installer and cache wiring as nix-cache.yml — that workflow
+      # pushes both platforms' closures to this Attic cache, so the koluBin
+      # build below mostly substitutes instead of compiling.
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+        with:
+          nix_conf: |
+            extra-substituters = https://cache.nixos.asia/oss
+            extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+            accept-flake-config = true
+
+      # The hosted x86 image ships ~14 GB free on /; the Nix store for the
+      # devshells + koluBin + Playwright browsers does not comfortably fit
+      # beside preinstalled toolchains we never use.
+      - name: Free disk space (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h /
+
+      # The single workspace `pnpm install`, exactly as the odu `ci::install`
+      # node does it — `ci::e2e` and the `test` recipe both assume the
+      # workspace is already installed and run with `--no-deps` so no second
+      # concurrent install can corrupt node_modules/.bin.
+      - name: Install workspace
+        run: nix develop --accept-flake-config -c just --no-deps ci::install
+
+      # The suite. `--no-deps` because `ci::e2e`'s `install`/`nix` deps are
+      # provisioned above (install) or unnecessary here (the full Nix gate is
+      # odu's job; `test` builds `.#koluBin` on its own).
+      - name: Full e2e suite
+        run: nix develop --accept-flake-config -c just --no-deps ci::e2e
