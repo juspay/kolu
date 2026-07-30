@@ -170,11 +170,14 @@ One source can cost several facets; it says so **once per facet** (e.g. dead `ke
 
 ## Who uses it
 
-| consumer | how |
+| consumer | shipped use |
 | --- | --- |
-| [kolu](https://github.com/juspay/kolu) | port sensor (poll), memory sampler, socket takeover, daemon supervisor |
-| [drishti](https://github.com/srid/drishti) | process inspection |
+| [kolu](https://github.com/juspay/kolu) | terminal-subtree port sensor, padi/kaval memory sampler, start-qualified daemon identity |
 | you | `--json` or the TS client |
+
+Planned consumers remain explicit rather than aspirationally present-tense:
+kolu's socket-holder lookup, then Drishti's process inspection and host
+telemetry as part of extraction.
 
 TS client: `client-ts/` → package `osfacts-client` (no `@kolu` scope, zero npm runtime deps). Path in: `KOLU_OSFACTS_BIN` (kolu store).
 

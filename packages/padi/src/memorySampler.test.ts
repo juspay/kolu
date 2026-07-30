@@ -1,16 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { KAVAL_GATE_FILE } from "kaval";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   installOsfactsMemoryFixture,
   type OsfactsMemoryFixture,
 } from "./memorySampler.testlib.ts";
 
-const daemon = vi.hoisted(() => ({
-  state: "disconnected",
-  socketPath: undefined as string | undefined,
+const endpoint = vi.hoisted(() => ({
+  target: undefined as { pid: number; startedAt: number } | undefined,
 }));
 const legacyProcessMemory = vi.hoisted(() =>
   vi.fn(async () => {
@@ -18,11 +13,8 @@ const legacyProcessMemory = vi.hoisted(() =>
   }),
 );
 
-vi.mock("./ptyHost/daemonStatus.ts", () => ({
-  readDaemonStatus: () => ({ state: daemon.state }),
-  getLocalSocketPath: () => daemon.socketPath,
-}));
 vi.mock("./ptyHost/index.ts", () => ({
+  currentKavalProcessTarget: () => endpoint.target,
   ptyHostClient: {
     surface: { system: { processMemory: legacyProcessMemory } },
   },
@@ -32,13 +24,9 @@ vi.mock("./log.ts", () => ({ log: { error: vi.fn() } }));
 import { samplePadiMemory } from "./memorySampler.ts";
 
 let fixture: OsfactsMemoryFixture | undefined;
-let runtimeDir: string | undefined;
 
-function connectedKaval(gateBody = "4242\n"): void {
-  runtimeDir = mkdtempSync(join(tmpdir(), "padi-memory-kaval-"));
-  daemon.state = "connected";
-  daemon.socketPath = join(runtimeDir, "pty-host.sock");
-  writeFileSync(join(runtimeDir, KAVAL_GATE_FILE), gateBody);
+function connectedKaval(): void {
+  endpoint.target = { pid: 4242, startedAt: 1_000 };
 }
 
 function osfacts(rows: readonly string[]): OsfactsMemoryFixture {
@@ -46,20 +34,15 @@ function osfacts(rows: readonly string[]): OsfactsMemoryFixture {
   return fixture;
 }
 
-afterEach(() => {
-  fixture?.restore();
+afterEach(async () => {
+  await fixture?.restore();
   fixture = undefined;
-  if (runtimeDir !== undefined) {
-    rmSync(runtimeDir, { recursive: true, force: true });
-    runtimeDir = undefined;
-  }
-  daemon.state = "disconnected";
-  daemon.socketPath = undefined;
+  endpoint.target = undefined;
   legacyProcessMemory.mockClear();
 });
 
 describe("samplePadiMemory — osfacts V2 RSS", () => {
-  it("samples padi and a connected legacy-gate kaval in one osfacts call", async () => {
+  it("samples padi and the endpoint's connected kaval in one osfacts call", async () => {
     connectedKaval();
     const f = osfacts([`M\t${process.pid}\t10485760`, "M\t4242\t20971520"]);
 
@@ -119,7 +102,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
       kaval: { status: "absent" },
     });
 
-    fixture?.restore();
+    await fixture?.restore();
     fixture = installOsfactsMemoryFixture([
       `M\t${process.pid}\t10485760`,
       "U\t4242\tmem\tEACCES",
@@ -130,13 +113,39 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     });
   });
 
-  it("fails loudly when connected status has no gate to identify", async () => {
+  it("does not publish a prior kaval generation after an in-flight recycle", async () => {
     connectedKaval();
-    rmSync(join(runtimeDir!, KAVAL_GATE_FILE));
-    osfacts([`M\t${process.pid}\t10485760`]);
-
-    await expect(samplePadiMemory()).rejects.toThrow(
-      /connected kaval gate is absent/,
+    const f = installOsfactsMemoryFixture(
+      [`M\t${process.pid}\t10485760`, "M\t4242\t20971520"],
+      2,
+      { paused: true },
     );
+    fixture = f;
+
+    const sample = samplePadiMemory();
+    await vi.waitFor(() => expect(f.hasStarted()).toBe(true));
+    endpoint.target = { pid: 4242, startedAt: 2_000 };
+    f.release();
+
+    await expect(sample).resolves.toEqual({
+      padi: { status: "ok", rssBytes: 10_485_760 },
+      kaval: { status: "absent" },
+    });
+  });
+
+  it("does not misreport a failed prior-generation read as a current kaval error", async () => {
+    connectedKaval();
+    const f = installOsfactsMemoryFixture([], 999, { paused: true });
+    fixture = f;
+
+    const sample = samplePadiMemory();
+    await vi.waitFor(() => expect(f.hasStarted()).toBe(true));
+    endpoint.target = { pid: 4242, startedAt: 2_000 };
+    f.release();
+
+    await expect(sample).resolves.toEqual({
+      padi: { status: "error" },
+      kaval: { status: "absent" },
+    });
   });
 });

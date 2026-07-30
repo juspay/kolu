@@ -941,6 +941,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

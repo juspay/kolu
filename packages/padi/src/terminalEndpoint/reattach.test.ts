@@ -209,7 +209,7 @@ function connectDaemon(startedAt: number): void {
     state: "connected",
     identity: undefined,
     startedAt,
-    metadata: { contractVersion: "test" },
+    metadata: { contractVersion: "test", pid: 4242 },
   });
 }
 

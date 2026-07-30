@@ -4,19 +4,19 @@
  * `kaval` owns **only** the PTY: the node-pty children, the
  * `@xterm/headless` screen mirror, and the raw VT-derived taps. It knows
  * nothing of git / PR / agent-detection — that volatile, most-edited code
- * (the provider DAG) runs in kolu-server, which consumes these raw taps and
- * runs detection fresh. This contract is the `PtyHost` interface projected
+ * runs in padi, which consumes these raw taps and runs detection fresh. This
+ * contract is the `PtyHost` interface projected
  * onto a wire: control RPCs (spawn / kill / write / resize / list / screen)
  * plus the raw tap streams (attach bytes · cwd · title · command-run ·
  * foreground · exit).
  *
- * In-process today, kolu-server consumes this contract through the identity
- * link (`directLink` over `servePtyHost`'s router — `implementSurface` with no
- * wire). The point of stating it as a *contract* now
- * is that the consumer is written against `ContractRouterClient<contract>`,
- * so a later step can serve the same shape over a unix socket (a surviving
- * daemon) or ssh stdio (a remote pty-host) by swapping only which morphism
- * builds the client — the consumer is invariant. See
+ * Today the surviving kaval daemon serves this contract over its unix socket;
+ * padi is its supervisor and primary client. `kaval-tui` reaches the same
+ * surface locally, while its ssh stdio front reaches the daemon remotely. The
+ * transport-independent `ContractRouterClient<contract>` keeps those consumers
+ * invariant. The frozen control identity/drain fragment is served beside this
+ * versioned surface, so connection identity is established before this wire is
+ * judged for compatibility. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * Contract version. Keyed on the *wire shape*, not the kolu binary — so a
@@ -25,8 +25,8 @@
  * from `@kolu/surface/define`; an incompatible skew is the (rare, accepted)
  * forced restart. The *build
  * identity* — a finer per-build key for an "update pending" nudge on a
- * wire-compatible but stale survivor — is a separate concern layered onto
- * `system.version` later; this module defines only the wire shape.
+ * wire-compatible but stale survivor — remains a separate frozen-control
+ * concern; this module defines only the versioned wire shape.
  *
  * Layering note. Co-locating the contract here gives `kaval` a
  * **contract-definition-only** dependency on `@kolu/surface` (just
