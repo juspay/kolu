@@ -18,10 +18,19 @@
  * satisfies — non-emptiness is not the property that broke.
  */
 
-import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
+import {
+  type ActiveTerminal,
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  assignColors,
+  buildTerminalDisplayInfos,
+} from "../terminal/terminalDisplay";
 import WorkSection from "./WorkSection";
 
 let dispose: (() => void) | undefined;
@@ -34,7 +43,7 @@ afterEach(() => {
   host = undefined;
 });
 
-type ActivePr = Extract<TerminalMetadata, { state: "active" }>["pr"];
+type ActivePr = ActiveTerminal["pr"];
 
 function terminal(git: {
   repoName: string;
@@ -86,16 +95,13 @@ function mount(initial: TerminalMetadata) {
   return { setMeta };
 }
 
-const text = (testid: string) =>
-  host?.querySelector(`[data-testid="${testid}"]`)?.textContent?.trim();
-
 const el = (testid: string) =>
   host?.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
 
-/** `--chip-hue` sits on the CHIP FRAME — `inspector-branch` is the frame, and
- *  the repo frame carries `inspector-repo-chip` (its `inspector-repo` testid is
- *  on the inner name span, so the monogram glyph stays out of the textContent
- *  a reader asking "what repo?" gets). Both are queried directly. */
+const text = (testid: string) => el(testid)?.textContent?.trim();
+
+/** `--chip-hue` sits on the chip FRAME: `inspector-branch` is itself the frame,
+ *  and the repo frame is `inspector-repo-chip`. */
 const hue = (testid: string) =>
   el(testid)?.style.getPropertyValue("--chip-hue");
 
@@ -121,28 +127,22 @@ describe("WorkSection identity chips", () => {
     expect(text("inspector-repo")).toBe("AI");
   });
 
-  /** The monogram is deliberately OUTSIDE the `inspector-repo` testid (its glyph
-   *  would otherwise read as "Kkolu"), which means the name and hue assertions
-   *  above cannot see it. Snapshot `RepoMonogram`'s `group` and they would all
-   *  still pass while the visible glyph stayed on the previous repo. */
+  /** The glyph lives OUTSIDE the `inspector-repo` testid, so no assertion above
+   *  can see it — snapshot `RepoMonogram`'s `group` and they all stay green
+   *  while the visible letter sits on the previous repo. */
   it("repaints the repo monogram glyph when the terminal switches", () => {
     const { setMeta } = mount(RESIZE_BUG);
-    const glyph = () =>
-      el("inspector-repo-chip")
-        ?.querySelector(".repo-monogram")
-        ?.textContent?.trim();
 
-    expect(glyph()).toBe("K");
+    expect(text("inspector-repo-monogram")).toBe("K");
 
     setMeta(PI);
 
-    expect(glyph()).toBe("A");
+    expect(text("inspector-repo-monogram")).toBe("A");
   });
 
   it("drops the worktree glyph when switching to a non-worktree terminal", () => {
     const { setMeta } = mount(RESIZE_BUG);
-    const branch = () =>
-      host?.querySelector('[data-testid="inspector-branch"]');
+    const branch = () => el("inspector-branch");
 
     expect(branch()?.getAttribute("title")).toBe("worktree");
     expect(branch()?.querySelector("svg")).not.toBeNull();
@@ -153,42 +153,56 @@ describe("WorkSection identity chips", () => {
     expect(branch()?.querySelector("svg")).toBeNull();
   });
 
-  /** Paint is derived from the git NAMES alone (`assignColors`, a pure
-   *  function of the key string) — the same derivation the dock's fleet-wide
-   *  projection feeds on, so the chips and the dock agree by construction and
-   *  there is no store to stub. Asserting against real hues rather than
-   *  hand-written strings is the point: a mocked `getDisplayInfo` proved
-   *  forwarding, not paint. */
-  it("repaints BOTH fleet hues from the git names when the terminal switches", () => {
-    const { setMeta } = mount(RESIZE_BUG);
-
-    const first = {
-      branch: hue("inspector-branch"),
-      repo: hue("inspector-repo-chip"),
+  /** Paint is derived from the git NAMES alone (`assignColors`, a pure function
+   *  of the key string) — the same derivation the dock's fleet-wide projection
+   *  feeds on, which is the stated justification for the Inspector holding no
+   *  store read at all.
+   *
+   *  So assert the EXACT expected hue, computed from `assignColors` itself, not
+   *  merely that the values look like `oklch(...)` and moved. A shape-only
+   *  assertion stays green if the two `color=` props are swapped — branch chip
+   *  wearing the repo hue and vice versa — which is precisely the
+   *  chips-disagree-with-the-dock failure this file claims to defend against. */
+  it("paints each chip the exact fleet hue for its own git name", () => {
+    const expected = (repo: string, branch: string) => {
+      const colors = assignColors([repo, branch]);
+      return { repo: colors.get(repo), branch: colors.get(branch) };
     };
-    expect(first.branch).toMatch(/^oklch\(/);
-    expect(first.repo).toMatch(/^oklch\(/);
+
+    const { setMeta } = mount(RESIZE_BUG);
+    const kolu = expected("kolu", "resize-bug");
+    expect(hue("inspector-repo-chip")).toBe(kolu.repo);
+    expect(hue("inspector-branch")).toBe(kolu.branch);
 
     setMeta(PI);
 
-    const second = {
-      branch: hue("inspector-branch"),
-      repo: hue("inspector-repo-chip"),
-    };
-    expect(second.branch).toMatch(/^oklch\(/);
-    expect(second.repo).toMatch(/^oklch\(/);
-    // BOTH must move. The bug pinned the first terminal's pair for the life of
-    // the panel, so a single-hue assertion would not have caught it.
-    expect(second.branch).not.toBe(first.branch);
-    expect(second.repo).not.toBe(first.repo);
+    const ai = expected("AI", "docs/pesu-chat-rewrite");
+    expect(hue("inspector-repo-chip")).toBe(ai.repo);
+    expect(hue("inspector-branch")).toBe(ai.branch);
+    // BOTH must have moved. The bug pinned the first terminal's pair for the
+    // life of the panel, so a single-hue assertion would not have caught it.
+    expect(ai.repo).not.toBe(kolu.repo);
+    expect(ai.branch).not.toBe(kolu.branch);
+  });
 
-    // And the hue is a STABLE function of the name, not of the co-set: a fresh
-    // mount of the first terminal repaints the original pair exactly.
-    dispose?.();
-    host?.remove();
+  /** The Inspector's chips are supposed to wear the SAME hue the dock paints
+   *  for the same terminal — that equality is why this component reads no store.
+   *  Nothing pinned it, so a change to `terminalKey`'s git arm, or to which key
+   *  `buildTerminalDisplayInfos` colours by, would drift the two apart silently.
+   *  Assert against the dock's own projection rather than restating its rule. */
+  it("wears the same hues the dock projection paints for that terminal", () => {
+    const id = "t1" as TerminalId;
+    const dock = buildTerminalDisplayInfos(
+      [id],
+      () => RESIZE_BUG,
+      () => [],
+    ).get(id);
+    if (!dock) throw new Error("no display info built for the fixture");
+
     mount(RESIZE_BUG);
-    expect(hue("inspector-branch")).toBe(first.branch);
-    expect(hue("inspector-repo-chip")).toBe(first.repo);
+
+    expect(hue("inspector-repo-chip")).toBe(dock.repoColor);
+    expect(hue("inspector-branch")).toBe(dock.annotationColor);
   });
 });
 
@@ -241,7 +255,9 @@ describe("WorkSection PR and CI", () => {
     },
   });
 
-  const prLink = () => host?.querySelector<HTMLAnchorElement>("a[href]");
+  // By testid, not `a[href]` — `ProviderUnavailableContent` also renders an
+  // anchor, so a bare tag query silently retargets the moment it appears.
+  const prLink = () => el("inspector-pr-link") as HTMLAnchorElement | undefined;
   const checkNames = () =>
     [
       ...(host?.querySelectorAll('[data-testid="inspector-pr-checks"] li') ??

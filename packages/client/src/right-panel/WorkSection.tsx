@@ -7,8 +7,9 @@
  *  Its own file because it is the one section of the Inspector with real
  *  derivation of its own (identity + paint, the check fold) rather than
  *  layout — and because that makes it renderable in a test without dragging
- *  the Inspector's `../wire`-bound siblings (Compose / Ports / Attach) into
- *  the module graph. */
+ *  the Inspector's wire-bound siblings into the module graph (Compose and
+ *  Ports import `../wire` directly; Attach reaches it transitively through
+ *  `useTerminalStore`). */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
@@ -78,9 +79,9 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
 
-/** Repo identity chip — monogram + name in the shared repo-colour frame.
- *  Colour is the fleet hue for the repo name, the same `assignColors` key the
- *  dock monogram paints from. Not a status chip. */
+/** Repo identity chip — monogram + name in the shared repo-colour frame. The
+ *  caller supplies the paint; where that hue comes from is `identity()`'s
+ *  account to give, not a second one here. Not a status chip. */
 const RepoIdentityChip: Component<{ name: string; color: string }> = (
   props,
 ) => (
@@ -90,7 +91,12 @@ const RepoIdentityChip: Component<{ name: string; color: string }> = (
     title={props.name}
     data-testid="inspector-repo-chip"
   >
-    <RepoMonogram group={props.name} color={props.color} size="xs" />
+    <RepoMonogram
+      group={props.name}
+      color={props.color}
+      size="xs"
+      data-testid="inspector-repo-monogram"
+    />
     {/* testid on the NAME alone — the monogram is decorative (aria-hidden)
      *  and would otherwise prepend its glyph to the element's textContent, so
      *  a reader asking "what repo?" gets "Kkolu" instead of "kolu". The FRAME
@@ -104,8 +110,11 @@ const RepoIdentityChip: Component<{ name: string; color: string }> = (
 
 /** Branch identity chip — hue frame + optional worktree glyph. A component,
  *  not inline JSX, for the same reason its repo peer is one: props compile to
- *  getters, so there is no expression inside the `<Show>` body that an editor
- *  could snapshot into a `const` and re-freeze the chips with. */
+ *  getters, so each value reaches its element through an accessor rather than
+ *  an expression sitting in the `<Show>` body waiting to be assigned to a
+ *  `const`. That narrows the #2037 hazard, it does not make it unspellable —
+ *  `const g = id().git` in that body still re-freezes both chips, which is what
+ *  `WorkSection.test.tsx` is there to catch. */
 const BranchIdentityChip: Component<{
   branch: string;
   isWorktree: boolean;
@@ -170,27 +179,34 @@ const WorkSection: Component<{
   const work = createMemo(() => {
     const arm = activeArm(props.meta);
     if (!arm) return null;
+    const unavailable = prUnavailableSource(arm.pr);
     const pr = prValue(arm.pr);
-    const counts = pr ? countChecks(pr.checkRuns) : null;
+    if (!pr) return { unavailable, pr: null };
+    const counts = countChecks(pr.checkRuns);
     return {
-      unavailable: prUnavailableSource(arm.pr),
-      pr:
-        pr && counts
-          ? {
-              ...pr,
-              counts,
-              summary: checksSummary(counts),
-              runs: [...pr.checkRuns].sort(
-                (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
-              ),
-              /** Anything but a clean pass is an exception, and an exception
-               *  opens the list on its own. Read off the server's fold — the
-               *  same verdict the chip wears. `null` is "no checks
-               *  configured", which is not an exception (and renders no list
-               *  at all), so it is not read as not-pass. */
-              hasException: pr.checks !== null && pr.checks !== "pass",
-            }
-          : null,
+      unavailable,
+      pr: {
+        ...pr,
+        // Overrides the spread: ONE name for this list, already sorted. Keeping
+        // both `checkRuns` and a sorted `runs` twin let the JSX gate on one and
+        // render the other, and nothing stopped a later edit from rendering the
+        // unsorted one — which type-checks and silently drops the triage order.
+        checkRuns: [...pr.checkRuns].sort(
+          (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
+        ),
+        summary: checksSummary(counts),
+        // The rollup is FOLDED HERE rather than published as a `counts` field
+        // for the view to re-derive: it is the whole reason the memo bundles,
+        // so finishing it here makes "verdict and tally describe one PR"
+        // structural instead of a convention the JSX has to keep.
+        rollup: pr.checks ? ciRollup(pr.checks, counts) : null,
+        /** Anything but a clean pass is an exception, and an exception
+         *  opens the list on its own. Read off the server's fold — the
+         *  same verdict the chip wears. `null` is "no checks
+         *  configured", which is not an exception (and renders no list
+         *  at all), so it is not read as not-pass. */
+        hasException: pr.checks !== null && pr.checks !== "pass",
+      },
     };
   });
   return (
@@ -221,21 +237,19 @@ const WorkSection: Component<{
                   target="_blank"
                   rel="noopener noreferrer"
                   class="hover:underline"
+                  data-testid="inspector-pr-link"
                 >
                   <Chip tone="neutral">
                     <PrStateIcon state={p().state} class="h-3 w-3 shrink-0" />
                     <span class="text-accent">#{p().number}</span>
                   </Chip>
                 </a>
-                <Show when={p().checks}>
-                  {(checks) => {
-                    const rollup = () => ciRollup(checks(), p().counts);
-                    return (
-                      <Chip tone={rollup().tone} data-testid="inspector-ci">
-                        {rollup().label}
-                      </Chip>
-                    );
-                  }}
+                <Show when={p().rollup}>
+                  {(rollup) => (
+                    <Chip tone={rollup().tone} data-testid="inspector-ci">
+                      {rollup().label}
+                    </Chip>
+                  )}
                 </Show>
               </>
             )}
@@ -268,7 +282,7 @@ const WorkSection: Component<{
                   data-testid="inspector-pr-checks"
                   class="flex flex-col gap-0.5 text-[11px]"
                 >
-                  <For each={p().runs}>
+                  <For each={p().checkRuns}>
                     {(c) => (
                       <li class="flex min-w-0 items-center gap-1.5">
                         <ChecksIndicator status={c.outcome} />
