@@ -201,12 +201,14 @@ class PtyHostTerminalProxy implements TerminalHandle {
       .catch((err) => log.error({ terminal: this.id, err }, "pty-host write"));
   }
 
-  resize(cols: number, rows: number): void {
-    void this.ready
-      .then(() =>
-        this.client.surface.terminal.resize({ id: this.id, cols, rows }),
-      )
-      .catch((err) => log.error({ terminal: this.id, err }, "pty-host resize"));
+  /** AWAITED, unlike `write`: a resize is a CLAIM about the consumer's grid, and
+   *  a claim that silently failed to land leaves that consumer rendering against
+   *  a size the PTY does not have — the exact wrong-grid screen this subsystem
+   *  exists to prevent, with no way for the caller to know. So the rejection
+   *  propagates to the caller instead of collapsing into a server-side log. */
+  async resize(cols: number, rows: number): Promise<void> {
+    await this.ready;
+    await this.client.surface.terminal.resize({ id: this.id, cols, rows });
   }
 
   async getScreenState(): Promise<string> {

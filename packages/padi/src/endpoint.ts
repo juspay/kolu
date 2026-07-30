@@ -166,7 +166,11 @@ export interface TerminalHandle {
    *  it. Optional so a handle whose PTY exists at construction can omit it. */
   readonly ready?: Promise<void>;
   write(data: string): void;
-  resize(cols: number, rows: number): void;
+  /** Awaited, unlike `write`: a resize is a CLAIM about the consumer's grid, and
+   *  a claim the host never accepted leaves that consumer rendering against a
+   *  size the PTY does not have. The caller must be able to learn it failed, so
+   *  this rejects rather than logging and resolving. */
+  resize(cols: number, rows: number): Promise<void>;
   /** Serialized screen state (VT escape sequences) for late-joining
    *  clients. Empty string when the PTY hasn't produced output yet. Always a
    *  Promise: even the local handle reads it through the pty-host contract,

@@ -55,6 +55,15 @@ runs the instant you return; and when a flooding terminal outruns its view, it
 re-attaches and repaints from a fresh snapshot rather than freezing. You should
 never need a keypress or a reload to see output that already happened.
 
+A terminal's screen is drawn for one specific width and height, so a pane waits
+until it has actually been measured before it asks for anything, and asks for the
+screen **at** its own size. That matters most for a **split you open later** — a
+collapsed panel, or a tab that was in the background when the page loaded. It has
+no size on screen to measure yet, so rather than guess one and paint a screen
+drawn for the wrong width, it stays empty until you reveal it and then paints
+once, correctly. You should never have to nudge the divider to fix a split's
+rendering.
+
 ## On touch devices
 
 A **mobile key bar** sends the keys soft keyboards lack — Esc, Tab, arrows,

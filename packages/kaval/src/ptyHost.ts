@@ -1052,6 +1052,21 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   ): PtyAttachment {
     const { onOverflow, resizeTo } = opts ?? {};
     const entry = requireEntry(id);
+    // An attach whose signal is ALREADY aborted — the re-issued half of a
+    // reconnect storm, whose client has gone — must do NOTHING, and that
+    // includes the resize below. `resizeTo` mutates the SHARED PTY: it
+    // SIGWINCHes the child, reflows the mirror every other client reads, and on
+    // a width change bumps the reflow epoch that stales their backfill cursors.
+    // Letting a subscriber that will never read a byte inflict that on everyone
+    // else would contradict the no-op contract this fast path exists to keep —
+    // so it is taken BEFORE the write, not after it.
+    if (signal?.aborted)
+      return {
+        snapshot: "",
+        topLine: snapshotTopLineOf(entry),
+        reflowEpoch: entry.anchor.reflowEpoch(),
+        deltas: entry.data.subscribe(signal, onOverflow),
+      };
     // Size the PTY to the consumer's grid BEFORE serializing, so the snapshot is
     // bytes laid out for the grid that will paint them. This is the whole point
     // of carrying the grid on the attach: the resize and the serialize become
@@ -1069,17 +1084,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // (and thus no post-parse publish) can interleave between the two, so
     // every chunk lands in exactly one of snapshot / deltas.
     const deltas = entry.data.subscribe(signal, onOverflow);
-    // An attach whose signal is ALREADY aborted — the re-issued half of a
-    // reconnect storm, whose client has gone — does zero serialize work: the
-    // subscribe above already returned an empty stream, so an empty snapshot
-    // (a no-op `term.write("")` on the client) completes a no-op attach.
-    if (signal?.aborted)
-      return {
-        snapshot: "",
-        topLine: snapshotTopLineOf(entry),
-        reflowEpoch: entry.anchor.reflowEpoch(),
-        deltas,
-      };
     // Coalesce within the publish-epoch: the first attach serializes and
     // memoizes via boundedSnapshotOf(); the rest of a burst reuse the identical
     // immutable string. Race-free — the memo is set through boundedSnapshotOf()

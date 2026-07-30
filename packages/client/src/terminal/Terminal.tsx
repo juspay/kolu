@@ -218,19 +218,19 @@ const Terminal: Component<{
         rows,
       });
     } catch (err) {
-      // A killed terminal is the one EXPECTED loss here (the tile tears down via
-      // terminalExit), and it is not worth a toast. Anything else means this
-      // pane's size claim did NOT land — and since `reassertGrid` below rides
-      // this same channel as the ONLY repair for a replayed stale grid, letting
-      // it fall into a bare `catch {}` would leave the user with exactly the
-      // stuck garbled screen this path exists to prevent, with no trace to find
-      // it by. So it surfaces (see `.agency/code-police.md` →
-      // caught-error-must-not-collapse-to-empty) rather than collapsing to a
-      // no-op.
-      console.warn(
-        `terminal ${props.terminalId}: resize to ${cols}x${rows} did not land`,
-        err,
-      );
+      // This claim is now ACKNOWLEDGED end-to-end — padi awaits kaval's accept
+      // rather than logging the rejection server-side and resolving — so a
+      // rejection here means the PTY genuinely kept its old size while this pane
+      // renders against the new one. That is a wrong-grid screen with no other
+      // symptom, so it must not collapse to a no-op (`.agency/code-police.md` →
+      // caught-error-must-not-collapse-to-empty). A killed terminal is the one
+      // EXPECTED loss (the tile tears down via terminalExit) and is quiet; one
+      // STABLE toast id keeps a flurry of failed resizes to a single message.
+      if (activeArm(terminalStore.getMetadata(props.terminalId)) === undefined)
+        return;
+      toast.error(`Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`, {
+        id: `terminal-resize-failed-${props.terminalId}`,
+      });
     }
   }
 
@@ -472,14 +472,10 @@ const Terminal: Component<{
       }),
     );
 
-    /** Re-state this pane's own grid to the host. `lifecycle.resize` is the one
-     *  authoritative channel for a live size change, and this pane is the sole
-     *  authority for its value — so re-stating it can only ever correct the
-     *  terminal towards what this pane actually has, never away from it. */
-    const reassertGrid = () => {
-      const measured = h.grid();
-      if (measured) void publishDimensions(measured);
-    };
+    // The grid THIS attach attempt asked the host to serialize at. Written by the
+    // thunk on every open, read by the snapshot frame that answers it — so an
+    // attempt and the grid it is only valid for are one thing, not two.
+    let requestedGrid: TerminalGrid | null = null;
 
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
     // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
@@ -493,13 +489,18 @@ const Terminal: Component<{
     function openAttachStream() {
       consumeReattachingStream(
         () => {
-          // Read the grid at the moment this stream is opened. Note this thunk
-          // is NOT the transport-retry path: `unenrolledStreamCall` invokes the
-          // procedure once and oRPC's retry plugin re-subscribes by replaying
-          // that captured input, so a STREAM_RETRY re-sends the grid recorded
-          // here. `consumeReattachingStream`'s own outer re-attach does re-enter
-          // it and picks up a fresh grid. The replay is what `reassertGrid`
-          // below exists for.
+          // Read the grid at the moment this stream is opened, and REMEMBER it:
+          // the snapshot that comes back is only meaningful at this exact grid,
+          // so the frame handler checks it before painting a single byte.
+          //
+          // This thunk is NOT the transport-retry path: `unenrolledStreamCall`
+          // invokes the procedure once and oRPC's retry plugin re-subscribes by
+          // replaying that captured input, so a STREAM_RETRY re-sends the grid
+          // recorded here even if the pane has resized since.
+          // `consumeReattachingStream`'s own outer re-attach DOES re-enter this
+          // thunk and picks up a fresh grid — which is why the frame handler's
+          // response to a stale answer is to fail the attempt and let that outer
+          // loop reopen, rather than to paint and correct afterwards.
           //
           // Absent is unreachable — `onceMeasured` opens the stream only once a
           // grid exists, and a measured grid is never un-measured.
@@ -518,6 +519,7 @@ const Terminal: Component<{
             streamAbort?.abort();
             throw new Error(msg);
           }
+          requestedGrid = measured;
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
             // `resizeTo`, not a description of this pane: the host resizes the
@@ -527,17 +529,33 @@ const Terminal: Component<{
           );
         },
         (frame) => {
-          // A snapshot means the terminal was just SIZED for someone — possibly
-          // for a grid this pane no longer has. A transport retry re-subscribes
-          // by replaying the input captured above, so after a resize the replay
-          // asks for the OLD grid and drags the PTY back to it. This pane is the
-          // authority on its own size, so it re-states that fact right after any
-          // event that could have moved the terminal under it, which converts a
-          // replayed stale claim into a transient rather than a stuck screen.
-          // Free in the steady state: kaval no-ops an exact same-dimensions
-          // resize, so the overwhelmingly common "nothing moved" case costs one
-          // comparison and no SIGWINCH.
-          if (frame.kind === "snapshot") reassertGrid();
+          // REFUSE a snapshot that answers a grid this pane no longer has.
+          //
+          // A snapshot is bytes laid out for the grid it was serialized at, and
+          // two paths can make that grid stale between the ask and the answer: a
+          // resize while the request is in flight, and a STREAM_RETRY, which
+          // re-subscribes by replaying the ORIGINAL captured input. Painting it
+          // anyway and correcting the PTY afterwards does NOT undo the damage —
+          // a later SIGWINCH repaints a full-screen app, but nothing rebuilds
+          // scrollback that has already been wrapped at the wrong width. That is
+          // this bug, reachable again by a different route, so the answer is to
+          // not paint at all: throwing here fails the attempt, and
+          // `consumeReattachingStream` resets the screen and reopens through the
+          // thunk above, which reads the CURRENT grid. Its 300ms backoff bounds
+          // the loop, and a pane that has stopped resizing converges on its first
+          // reopen.
+          const current = h.grid();
+          if (
+            frame.kind === "snapshot" &&
+            requestedGrid &&
+            current &&
+            (current.cols !== requestedGrid.cols ||
+              current.rows !== requestedGrid.rows)
+          ) {
+            throw new Error(
+              `terminal ${props.terminalId}: snapshot answered ${requestedGrid.cols}x${requestedGrid.rows}, pane is now ${current.cols}x${current.rows} — reopening`,
+            );
+          }
           // A `snapshot` frame begins a fresh snapshot (initial attach or a
           // MID-STREAM overflow re-attach). Consume it as one indivisible act:
           // `consumeSnapshotFrame` INVALIDATES the backfill controller synchronously

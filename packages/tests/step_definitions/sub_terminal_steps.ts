@@ -161,6 +161,21 @@ When(
 When(
   "I fill the sub-terminal with output wider than the default grid",
   async function (this: KoluWorld) {
+    // Pin the precondition the whole scenario rests on: the split's REAL width
+    // must differ from the 80 columns xterm's constructor invents. If a viewport,
+    // font, dock or layout change ever made them equal, the pre-fix code would
+    // receive and paint an 80-column snapshot correctly and this scenario would
+    // pass while the bug was fully present — a vacuous guard. Assert it rather
+    // than assume it.
+    const cols = await this.page.$eval(
+      VISIBLE_SUB,
+      (n) =>
+        (n as unknown as { __xterm?: { cols: number } }).__xterm?.cols ?? 0,
+    );
+    assert.ok(
+      cols > 0 && cols !== 80,
+      `split is ${cols} columns; this scenario only exercises the defect when the real grid differs from xterm's fabricated 80`,
+    );
     await this.focusForTyping(VISIBLE_SUB);
     await this.page.keyboard.type(WIDE_OUTPUT_COMMAND);
     await this.page.keyboard.press("Enter");

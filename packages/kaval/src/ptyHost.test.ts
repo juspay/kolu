@@ -794,6 +794,37 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     expect(first.done).toBe(true);
   });
 
+  it("does not resize the shared PTY for an already-aborted attach", async () => {
+    // `resizeTo` mutates state EVERY attached client can see — it SIGWINCHes the
+    // child, reflows the shared mirror, and on a width change bumps the reflow
+    // epoch that stales other clients' backfill cursors. A subscriber that is
+    // already gone must not inflict that on everyone else, so the aborted fast
+    // path has to be taken BEFORE the resize, not after it. Without the guard a
+    // re-issued reconnect-storm attach carrying a different grid silently
+    // re-sizes a terminal nobody asked to resize.
+    // A 60-column token: one unwrapped row at the spawned 100 columns, but two
+    // rows once reflowed to 37 — so the mirror's own rendered text reports
+    // whether a resize happened, with no test-only accessor to add.
+    const wide = "W".repeat(60);
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", `printf '${wide}\\n'; sleep 1`],
+      env: shellEnv,
+      cwd: "/tmp",
+      cols: 100,
+      rows: 30,
+    });
+    await waitFor(() => host.getScreenText(id).includes(wide));
+
+    const ac = new AbortController();
+    ac.abort();
+    host.attach(id, ac.signal, { resizeTo: { cols: 37, rows: 11 } });
+
+    // Still one unwrapped row — the aborted attach left the shared grid alone.
+    expect(host.getScreenText(id)).toContain(wide);
+  });
+
   it("coalesces a burst of attaches within one publish-epoch into one serialize", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
