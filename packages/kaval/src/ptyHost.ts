@@ -36,6 +36,7 @@ import {
 } from "@kolu/xterm-kit";
 import * as pty from "node-pty";
 import { Channel } from "./channel.ts";
+import type { PtyGrid } from "./ptyHostSurface.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
@@ -345,20 +346,47 @@ export interface PtyHostOptions {
   dataMaxQueue?: number;
 }
 
+/** A PTY grid — cols × rows. Inferred from the surface's one grid schema (the
+ *  file's convention for every other wire shape), so the type and the validation
+ *  rule are one statement rather than two independently-editable ones. */
+export type { PtyGrid };
+
+/** The optional halves of an {@link PtyHost.attach}. */
+export interface PtyAttachOpts {
+  /** Fires (once) if THIS attachment's delta subscriber is dropped for lagging
+   *  past the bound — the serving layer turns it into an `overflow` frame so the
+   *  consumer re-attaches rather than mistaking the drop for a PTY exit. */
+  onOverflow?: () => void;
+  /** RESIZES the PTY to this grid before serializing — a real `resize()`:
+   *  SIGWINCH to the child, a reflow of the SHARED mirror, snapshot-memo
+   *  invalidation, an activity mute, and (on a width change) a reflow-epoch bump
+   *  that stales EVERY OTHER attached client's backfill cursor. Attaching is
+   *  therefore a WRITE to shared state whenever this is present and differs from
+   *  the PTY's current grid; the policy is last-attach-wins, so a second viewer
+   *  at a different size moves the first one's layout.
+   *
+   *  The fusion is deliberate — a snapshot is bytes laid out for a specific
+   *  cols×rows, so resize-and-serialize must be one act — and this name is what
+   *  makes the write visible at the call site. Omit it only when the caller has
+   *  no grid of its own (a CLI dumping the screen), which reads the PTY at its
+   *  current size. */
+  resizeTo?: PtyGrid;
+}
+
 /** The multi-client PTY-owner primitive. */
 export interface PtyHost {
   /** Spawn a PTY; returns its id + pid immediately. */
   spawn(opts: PtySpawnOpts): PtySpawnResult;
-  /** Subscribe-before-serialize: returns a race-free snapshot + delta
-   *  stream for a late-joining client. `onOverflow` fires (once) if THIS
-   *  attachment's delta subscriber is dropped for lagging past the bound — the
-   *  serving layer turns it into an `overflow` frame so the consumer re-attaches
-   *  rather than mistaking the drop for a PTY exit. */
-  attach(
-    id: PtyId,
-    signal?: AbortSignal,
-    onOverflow?: () => void,
-  ): PtyAttachment;
+  /** **Resizes the PTY to `opts.resizeTo` first** (a real `resize()` — see
+   *  {@link PtyAttachOpts.resizeTo}, which mutates state every other attached
+   *  client can see), then subscribe-before-serialize: returns a race-free
+   *  snapshot + delta stream for a late-joining client.
+   *
+   *  The two optional behaviours ride in ONE bag rather than trailing
+   *  positionals, so a caller that wants only the later one never has to write a
+   *  positional `undefined` past the one it doesn't care about — the shape most
+   *  callers need (a grid, no overflow handler) stays spellable. */
+  attach(id: PtyId, signal?: AbortSignal, opts?: PtyAttachOpts): PtyAttachment;
   /** Per-PTY cwd update stream (OSC 7). */
   subscribeCwd(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
   /** Per-PTY title update stream (OSC 0/2). */
@@ -381,8 +409,12 @@ export interface PtyHost {
   exitPromise(id: PtyId, signal?: AbortSignal): Promise<number>;
   /** Write input (keystrokes, pasted text). No-op if the PTY is gone. */
   write(id: PtyId, data: string): void;
-  /** Resize the PTY grid + the headless mirror. No-op if gone. */
-  resize(id: PtyId, cols: number, rows: number): void;
+  /** Resize the PTY grid + the headless mirror. Returns TRUE when the entry
+   *  existed and the grid now holds — whether that took a real resize or was an
+   *  exact same-dimensions no-op — and FALSE when there is no such PTY (already
+   *  exited or never spawned), which is the one way a caller's grid claim can
+   *  fail to land here. */
+  resize(id: PtyId, cols: number, rows: number): boolean;
   /** Kill the PTY. Teardown (channels, mirror, onDispose) runs from the
    *  child's exit, so `exitPromise` still resolves. No-op if gone. */
   kill(id: PtyId, signal?: NodeJS.Signals): void;
@@ -1020,24 +1052,42 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   function attach(
     id: PtyId,
     signal?: AbortSignal,
-    onOverflow?: () => void,
+    opts?: PtyAttachOpts,
   ): PtyAttachment {
+    const { onOverflow, resizeTo } = opts ?? {};
     const entry = requireEntry(id);
-    // Subscribe BEFORE serializing, both synchronously: no headless parse
-    // (and thus no post-parse publish) can interleave between the two, so
-    // every chunk lands in exactly one of snapshot / deltas.
-    const deltas = entry.data.subscribe(signal, onOverflow);
     // An attach whose signal is ALREADY aborted — the re-issued half of a
-    // reconnect storm, whose client has gone — does zero serialize work: the
-    // subscribe above already returned an empty stream, so an empty snapshot
-    // (a no-op `term.write("")` on the client) completes a no-op attach.
+    // reconnect storm, whose client has gone — must do NOTHING, and that
+    // includes the resize below. `resizeTo` mutates the SHARED PTY: it
+    // SIGWINCHes the child, reflows the mirror every other client reads, and on
+    // a width change bumps the reflow epoch that stales their backfill cursors.
+    // Letting a subscriber that will never read a byte inflict that on everyone
+    // else would contradict the no-op contract this fast path exists to keep —
+    // so it is taken BEFORE the write, not after it.
     if (signal?.aborted)
       return {
         snapshot: "",
         topLine: snapshotTopLineOf(entry),
         reflowEpoch: entry.anchor.reflowEpoch(),
-        deltas,
+        deltas: entry.data.subscribe(signal, onOverflow),
       };
+    // Size the PTY to the consumer's grid BEFORE serializing, so the snapshot is
+    // bytes laid out for the grid that will paint them. This is the whole point
+    // of carrying the grid on the attach: the resize and the serialize become
+    // ONE act, and "a snapshot for a size the consumer isn't" stops being a
+    // reachable state. Doing it through `resize()` — not a private path — keeps
+    // the single mutator: same-dimensions stays a no-op (so a second viewer at
+    // the same size costs nothing and staleness the reflow epoch guards is not
+    // spuriously bumped), and a genuine change reflows the mirror, invalidates
+    // the snapshot memo, and SIGWINCHes the process exactly as a user resize
+    // does — which is what makes the process repaint into the new grid. This is
+    // the WRITE the `resizeTo` name advertises: it is visible to every other
+    // client attached to this PTY, not private to this attachment.
+    if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
+    // Subscribe BEFORE serializing, both synchronously: no headless parse
+    // (and thus no post-parse publish) can interleave between the two, so
+    // every chunk lands in exactly one of snapshot / deltas.
+    const deltas = entry.data.subscribe(signal, onOverflow);
     // Coalesce within the publish-epoch: the first attach serializes and
     // memoizes via boundedSnapshotOf(); the rest of a burst reuse the identical
     // immutable string. Race-free — the memo is set through boundedSnapshotOf()
@@ -1199,16 +1249,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entries.get(id)?.proc.write(data);
   }
 
-  function resize(id: PtyId, cols: number, rows: number): void {
+  function resize(id: PtyId, cols: number, rows: number): boolean {
     const entry = entries.get(id);
-    if (!entry) return;
+    // The ONE false: no such PTY. Reported rather than swallowed so the caller
+    // can tell "the grid landed" from "there was nothing to land it on".
+    if (!entry) return false;
     const prevCols = entry.headless.cols;
     const prevRows = entry.headless.rows;
     // An EXACT same-dims resize renumbers and reflows nothing — a second viewer
     // attaching at the same size, or the mount-time re-publish of the current
     // dims, would otherwise spuriously stale every attached client's cursor
-    // (there is no dedupe upstream). Skip it wholesale.
-    if (cols === prevCols && rows === prevRows) return;
+    // (there is no dedupe upstream). Skip it wholesale — but report TRUE: the
+    // entry exists and is already at the requested grid, which is exactly the
+    // caller's claim satisfied.
+    if (cols === prevCols && rows === prevRows) return true;
     // Open the resize-mute window BEFORE the resize: the SIGWINCH repaint this
     // triggers is a genuine byte burst that must NOT count as meaningful output
     // (the reveal/resize "un-finish" regression, killed at the source).
@@ -1228,6 +1282,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // (its own onResize pauses on a cols change only). Bumped AFTER the rewrap so
     // a getHistory racing this resize reads the new value.
     if (cols !== prevCols) entry.anchor.bumpReflow();
+    return true;
   }
 
   function handle(id: PtyId): PtyHandle {

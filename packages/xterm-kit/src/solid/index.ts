@@ -33,6 +33,10 @@ export type { XtermCore, XtermLifecycleOptions } from "./xtermLifecycle";
 export { attachWebGL } from "./webgl";
 export type { WebglHandle, WebglLifecycleHooks } from "./webgl";
 
+// The grid value + the one statement of grid equality.
+export { sameGrid } from "./grid";
+export type { TerminalGrid } from "./grid";
+
 // The component: the whole hazard set as one JSX element.
 export { Xterm } from "./Xterm";
 export type { ScrollLock, XtermHandle } from "./Xterm";
