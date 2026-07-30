@@ -22,6 +22,7 @@
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
+import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.testlib";
 import {
   closeSync,
   constants as fsConstants,
@@ -56,10 +57,10 @@ import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
-  createEndpoint,
   daemonBuild,
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
+
 import {
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,

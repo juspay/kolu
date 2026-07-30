@@ -1,6 +1,6 @@
 /** Spawn osfacts and parse its versioned TSV. Node builtins only. */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -728,6 +728,30 @@ async function runOsfacts(bin: string, args: string[]): Promise<string> {
   }
 }
 
+function runOsfactsSync(bin: string, args: string[]): string {
+  if (!bin)
+    throw new OsfactsClientError(
+      "spawn",
+      "osfacts binary path is empty — the caller must supply an absolute path",
+    );
+  try {
+    return execFileSync(bin, args, {
+      timeout: OSFACTS_COMMAND_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+      maxBuffer: 8 * 1024 * 1024,
+      encoding: "utf8",
+    });
+  } catch (err) {
+    const document = failureDocument(err);
+    if (document !== undefined) return document;
+    throw new OsfactsClientError(
+      "spawn",
+      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
+      { cause: err },
+    );
+  }
+}
+
 /**
  * The child's stdout when a non-zero exit still produced a V2 document.
  *
@@ -786,6 +810,116 @@ export function snapshotPids(
     ? Promise.resolve(emptySnapshotReading())
     : snapshot(bin, snapshotArgs("--pids", pids, facets));
 }
+
+/** Sync twin of {@link snapshotPids} — for gate acquisition and other sites
+ * that must not introduce async into a sync claim path. */
+export function snapshotPidsSync(
+  bin: string,
+  pids: readonly number[],
+  facets: SnapshotFacets,
+): SnapshotReading {
+  return pids.length === 0
+    ? emptySnapshotReading()
+    : parseSnapshotOutput(
+        runOsfactsSync(bin, snapshotArgs("--pids", pids, facets)),
+      );
+}
+
+/**
+ * Absolute path of the baked osfacts binary from an env var (cross-repo:
+ * kolu uses `KOLU_OSFACTS_BIN`, drishti `DRISHTI_OSFACTS_BIN`). Loud if unset —
+ * no PATH fallback. Composition roots pass the name their wrapper bakes.
+ */
+export function bakedOsFactsBin(envVar: string): string {
+  if (!envVar) {
+    throw new OsfactsClientError(
+      "spawn",
+      "bakedOsFactsBin: env var name is empty",
+    );
+  }
+  const path = process.env[envVar];
+  if (!path) {
+    throw new OsfactsClientError(
+      "spawn",
+      `${envVar} is not set — the baked osfacts binary path is required (nix wrappers set it; no PATH fallback)`,
+    );
+  }
+  return path;
+}
+
+/**
+ * Resolve a pid's start-qualified identity via osfacts `--start-time`.
+ *
+ * Returns the structural `{ pid, startUnixUs }` (no named `ProcessIdentity` —
+ * that name lives in `@kolu/surface-daemon`, and this package must not import
+ * it). `undefined` for a dead/absent pid (ESRCH/ENOENT) is an honest domain
+ * answer; any other unreadable or missing row throws.
+ */
+function foldStartTimeReading(
+  reading: SnapshotReading,
+  pid: number,
+): { pid: number; startUnixUs: number } | undefined {
+  const row = reading.startTimes.find((value) => value.pid === pid);
+  if (row !== undefined) return { pid: row.pid, startUnixUs: row.startUnixUs };
+  const unreadable = reading.unreadable.find(
+    (value) => value.pid === pid && value.facet === "start_time",
+  );
+  if (
+    unreadable !== undefined &&
+    (unreadable.errno === "ESRCH" || unreadable.errno === "ENOENT")
+  ) {
+    return undefined;
+  }
+  throw new OsfactsClientError(
+    "parse",
+    unreadable !== undefined
+      ? `osfacts could not read pid ${pid} start time (${unreadable.errno})`
+      : `osfacts returned no start time for pid ${pid}`,
+  );
+}
+
+/**
+ * Resolve a pid's start-qualified identity via osfacts `--start-time` (sync).
+ * Prefer {@link processIdentityAsync} on any serving-loop / supervisor path so
+ * the osfacts spawn does not block the Node event loop.
+ */
+export function processIdentity(
+  bin: string,
+  pid: number,
+): { pid: number; startUnixUs: number } | undefined {
+  return foldStartTimeReading(
+    snapshotPidsSync(bin, [pid], { startTime: true }),
+    pid,
+  );
+}
+
+/** Async twin of {@link processIdentity} for serving-loop / endpoint paths. */
+export async function processIdentityAsync(
+  bin: string,
+  pid: number,
+): Promise<{ pid: number; startUnixUs: number } | undefined> {
+  return foldStartTimeReading(
+    await snapshotPids(bin, [pid], { startTime: true }),
+    pid,
+  );
+}
+
+/** Sync: `processIdentity(bakedOsFactsBin(envVar), pid)`. */
+export function processIdentityFromEnv(
+  envVar: string,
+  pid: number,
+): { pid: number; startUnixUs: number } | undefined {
+  return processIdentity(bakedOsFactsBin(envVar), pid);
+}
+
+/** Async: for supervisor / endpoint injects (non-blocking event loop). */
+export async function processIdentityFromEnvAsync(
+  envVar: string,
+  pid: number,
+): Promise<{ pid: number; startUnixUs: number } | undefined> {
+  return processIdentityAsync(bakedOsFactsBin(envVar), pid);
+}
+
 export async function host(
   bin: string,
   facets: HostFacets,

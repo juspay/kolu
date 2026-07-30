@@ -22,12 +22,13 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import {
-  createEndpoint,
   type DaemonConnection,
   DaemonContractSkewError,
   type EndpointStatus,
   isSocketSquatterForeignError,
 } from "./endpoint.ts";
+import { createEndpointForTest as createEndpoint } from "./createEndpoint.testlib.ts";
+
 import { endpointPrivate } from "./endpoint.private.ts";
 
 const silentLog = {

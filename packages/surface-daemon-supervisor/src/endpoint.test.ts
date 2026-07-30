@@ -6,11 +6,11 @@ import { join, dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
-  createEndpoint,
   type DaemonConnection,
   DaemonContractSkewError,
   type EndpointStatus,
 } from "./endpoint.ts";
+import { createEndpointForTest as createEndpoint } from "./createEndpoint.testlib.ts";
 import { endpointPrivate } from "./endpoint.private.ts";
 import { serializeRestart } from "./restart.ts";
 

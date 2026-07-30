@@ -31,9 +31,13 @@
 
 import {
   type DaemonHomePaths,
-  gatePid,
+  identitiesMatch,
   isHolderLive,
   type Logger,
+  type ProcessIdentity,
+  readGateIdentity,
+  type SocketServeState,
+  socketServeState,
 } from "@kolu/surface-daemon";
 import type {
   BindResult,
@@ -65,6 +69,17 @@ import { waitForPidGone } from "./waitForPidGone.ts";
 // from them without pulling this Node-only module's transport/gate graph. The
 // endpoint re-exports them so existing supervisor consumers keep their import.
 export { ENDPOINT_STATES, type EndpointState };
+
+/**
+ * Supervisor inject for start-qualified process identity. May be async so an
+ * osfacts-backed reader does not block the serving event loop (prefer
+ * `processIdentityFromEnvAsync`). Lives here — beside {@link EndpointSpec} —
+ * not in `@kolu/surface-daemon` (daemon-binary half; stale-key boundary).
+ * Canonical {@link ProcessIdentity} still comes from the daemon package.
+ */
+export type ReadProcessIdentityAsync = (
+  pid: number,
+) => ProcessIdentity | undefined | Promise<ProcessIdentity | undefined>;
 
 type ConnectedMetadata<M> = [M] extends [undefined]
   ? { metadata?: undefined }
@@ -246,6 +261,65 @@ export function isSocketSquatterForeignError(
   );
 }
 
+/**
+ * A one-shot socket connect probe timed out (`SocketServeState` =
+ * `"indeterminate"`). That is NOT proof the holder is free or dead — under load
+ * a live listener can leave connect pending. The endpoint must never kill,
+ * unlink, or spawn on this outcome; the caller/human (or convergeAdmit's
+ * budget) decides the next move. Carries the gate observation so the refusal
+ * names who we refused to disturb.
+ */
+export class SocketProbeIndeterminateError extends Error {
+  readonly isSocketProbeIndeterminate = true as const;
+  readonly gatePath: string;
+  readonly socketPath: string;
+  /** Live gate pid from the observation that made us probe, if any. */
+  readonly gatePid?: number;
+  constructor(rv: { gatePath: string; socketPath: string }, gatePid?: number) {
+    const who =
+      gatePid !== undefined
+        ? `gate names live pid ${gatePid}`
+        : "no gate holder named";
+    super(
+      `socket probe indeterminate at ${rv.socketPath} (${who}) — refusing to kill, unlink, or spawn`,
+    );
+    this.name = "SocketProbeIndeterminateError";
+    this.gatePath = rv.gatePath;
+    this.socketPath = rv.socketPath;
+    this.gatePid = gatePid;
+  }
+}
+
+export function isSocketProbeIndeterminateError(
+  err: unknown,
+): err is SocketProbeIndeterminateError {
+  // Fence first — the public type is `unknown`, so null/undefined/primitives
+  // must return false, never throw on field access (R6-1).
+  if (typeof err !== "object" || err === null) return false;
+
+  const e = err as {
+    isSocketProbeIndeterminate?: unknown;
+    gatePath?: unknown;
+    socketPath?: unknown;
+    gatePid?: unknown;
+  };
+  // Attest every field the narrowed type promises — including optional
+  // gatePid (absent/undefined, or a finite positive integer pid). A branded
+  // carrier with gatePid: "not-a-pid" must not narrow (R5-2).
+  const gatePidOk =
+    e.gatePid === undefined ||
+    (typeof e.gatePid === "number" &&
+      Number.isFinite(e.gatePid) &&
+      Number.isInteger(e.gatePid) &&
+      e.gatePid > 0);
+  return (
+    e.isSocketProbeIndeterminate === true &&
+    typeof e.gatePath === "string" &&
+    typeof e.socketPath === "string" &&
+    gatePidOk
+  );
+}
+
 /** What a boot policy does with a gate-less SKEWED squatter — the one disposition
  *  that differs by boot mode, mirroring the caller's `onSkew` for a gate-recorded
  *  skew. `recycle` (kaval / always-recycle) SIGTERMs the verified orphan and spawns
@@ -295,6 +369,13 @@ export interface EndpointSpec<
    * Bound into `converge(endpoint)` — never re-threaded at the call site.
    */
   probe: (socketPath: string) => Promise<ConvergenceProbe<Cap> | null>;
+  /**
+   * Resolve a PID to its current start-qualified identity. Required — the
+   * endpoint never performs platform process traversal itself. May be async so
+   * an osfacts-backed reader does not block the serving event loop (prefer
+   * `processIdentityFromEnvAsync` over the sync twin).
+   */
+  readProcessIdentity: ReadProcessIdentityAsync;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -406,20 +487,6 @@ function waitForSocket(
     };
     attempt();
   });
-}
-
-/** One-shot probe: does `socketPath` accept a connection RIGHT NOW? Dials once
- *  (no polling) and immediately closes — the recycle path uses it to prove a
- *  live gate-pid is actually the daemon (its socket answers) before SIGTERMing
- *  it, so a stale gate over a reused pid can't make us kill a stranger. */
-function socketAccepting(socketPath: string): Promise<boolean> {
-  return dialSocket(socketPath).then(
-    (sock) => {
-      sock.destroy();
-      return true;
-    },
-    () => false,
-  );
 }
 
 /** The OS holders of `socketPath`, EXCLUDING the supervisor's own process. The
@@ -546,26 +613,100 @@ export function createEndpoint<
   };
 
   // The gate-holder check shared by every boot policy: return the live holder
-  // whose socket is *accepting* (a real daemon — the adopt-or-kill candidate),
-  // or undefined. The gate is PID-ONLY: a hard kill (SIGKILL / power loss)
-  // leaves the pidfile behind and the OS can later reuse that pid for an
-  // UNRELATED process, so a live pid whose socket is dead/absent is a stale gate
-  // over a possibly-reused pid — log it and leave that pid alone (never SIGTERM
-  // a stranger), letting the freshly-spawned daemon's own `acquirePidGate` reap
-  // the stale gate.
+  // that is a safe kill/adopt target, or undefined. Failures (osfacts reject,
+  // non-ENOENT lstat, probe indeterminate) emit `dead` then rethrow — the
+  // endpoint contract "failures report dead before throw" so the UI never
+  // wedges on `connecting` (R4-2). This wrapper is the only spelled path to
+  // the probe from boot policies.
+  //
+  // Identity law: two-field ±2 s match / one-field kill-0, then for one-field
+  // only an exhaustive {@link SocketServeState} fold:
+  //   serving       → occupied (safe kill/adopt target)
+  //   dead / absent → not a safe target (stale / mid-boot); do not SIGTERM
+  //   indeterminate → fail loud (never kill / unlink / spawn) with the gate
+  //                   observation retained (R4-1)
+  // Two-field identity is truth even mid-boot (socket not yet accepting).
   const liveServingHolder = async (rv: {
     gatePath: string;
     socketPath: string;
   }): Promise<number | undefined> => {
-    const holder = gatePid(rv.gatePath);
-    if (holder === undefined || !isHolderLive(holder)) return undefined;
-    if (await socketAccepting(rv.socketPath)) return holder;
-    spec.log.warn(
-      { hostId: spec.hostId, pid: holder, socketPath: rv.socketPath },
-      "gate names a live pid but its socket is dead — treating gate as " +
-        "stale (not killing the pid: it may be an unrelated reused pid)",
-    );
-    return undefined;
+    try {
+      return await liveServingHolderProbe(rv);
+    } catch (err) {
+      if (lastReported !== "dead") emit({ state: "dead" });
+      throw err;
+    }
+  };
+
+  const liveServingHolderProbe = async (rv: {
+    gatePath: string;
+    socketPath: string;
+  }): Promise<number | undefined> => {
+    // One gate read + one identity resolve — never reassemble pid from a
+    // second file read that can race a rewrite (fact-check: wrong SIGTERM).
+    // Three-way law (A1-1): absent/malformed → no holder; unreadable → THROW.
+    const recorded = readGateIdentity(rv.gatePath);
+    switch (recorded.kind) {
+      case "ok":
+        break;
+      case "absent":
+      case "malformed":
+        return undefined;
+      case "unreadable":
+        throw new Error(
+          `gate file unreadable at ${rv.gatePath} — refusing to treat as free or stale (EACCES/EIO is not an observation)`,
+        );
+      default: {
+        const _exhaustive: never = recorded;
+        throw new Error(
+          `unreachable gate read: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
+    }
+
+    if (recorded.startUnixUs !== undefined) {
+      const current = await Promise.resolve(
+        spec.readProcessIdentity(recorded.pid),
+      );
+      if (
+        current === undefined ||
+        !identitiesMatch(
+          { pid: recorded.pid, startUnixUs: recorded.startUnixUs },
+          current,
+        )
+      ) {
+        return undefined;
+      }
+      // Two-field: identity is truth even when the socket is not accepting.
+      return recorded.pid;
+    }
+
+    if (!isHolderLive(recorded.pid)) return undefined;
+    const state: SocketServeState = await socketServeState(rv.socketPath);
+    switch (state) {
+      case "serving":
+        return recorded.pid;
+      case "dead":
+      case "absent":
+        spec.log.warn(
+          {
+            hostId: spec.hostId,
+            pid: recorded.pid,
+            socketPath: rv.socketPath,
+            socketState: state,
+          },
+          "legacy one-field gate names a live pid but its socket is not serving — " +
+            "treating gate as stale (not killing the pid: it may be an unrelated " +
+            "reused pid)",
+        );
+        return undefined;
+      case "indeterminate":
+        throw new SocketProbeIndeterminateError(rv, recorded.pid);
+      default: {
+        const _exhaustive: never = state;
+        throw new Error(`unreachable socket state: ${_exhaustive}`);
+      }
+    }
   };
 
   // SIGTERM a proven-live gate holder and wait for it to actually exit. Reports
@@ -680,20 +821,35 @@ export function createEndpoint<
     gatePath: string;
     socketPath: string;
   }): Promise<"free"> => {
-    if (!(await socketAccepting(rv.socketPath))) return "free";
-    const held = await externalHolders(rv.socketPath);
-    spec.log.error(
-      {
-        hostId: spec.hostId,
-        socketPath: rv.socketPath,
-        holders: held.map((h) => h.pid),
-      },
-      // The `holders` field carries whatever the OS now names — a set (a holder that
-      // reappeared after a flap) or empty (unidentifiable) — so the message doesn't
-      // assert which; either way an accepting socket is not proven free.
-      "rendezvous socket is still accepting after recovery — failing loud rather than spawning onto it",
-    );
-    throw new SocketSquatterForeignError(rv.socketPath, held);
+    // Exhaustive SocketServeState fold — never collapse indeterminate to free
+    // (that boolean collapse is the R4-1 defect).
+    const state: SocketServeState = await socketServeState(rv.socketPath);
+    switch (state) {
+      case "dead":
+      case "absent":
+        return "free";
+      case "indeterminate":
+        throw new SocketProbeIndeterminateError(rv);
+      case "serving": {
+        const held = await externalHolders(rv.socketPath);
+        spec.log.error(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            holders: held.map((h) => h.pid),
+          },
+          // The `holders` field carries whatever the OS now names — a set (a holder
+          // that reappeared after a flap) or empty (unidentifiable) — so the message
+          // doesn't assert which; either way an accepting socket is not proven free.
+          "rendezvous socket is still accepting after recovery — failing loud rather than spawning onto it",
+        );
+        throw new SocketSquatterForeignError(rv.socketPath, held);
+      }
+      default: {
+        const _exhaustive: never = state;
+        throw new Error(`unreachable socket state: ${_exhaustive}`);
+      }
+    }
   };
 
   // The gate-less-squatter recovery (SQUAT1). Run by `recoverGuarded` at exactly
@@ -737,7 +893,23 @@ export function createEndpoint<
     // and the kill only fires when a FRESH handshake — followed by a FRESH OS
     // corroboration — still attests the same skewed daemon.
     for (let attempt = 1; attempt <= RECOVERY_DECISION_ATTEMPTS; attempt++) {
-      if (!(await socketAccepting(rv.socketPath))) return "free"; // nothing holds it
+      // Exhaustive fold — indeterminate is NOT free (R4-1).
+      const serveState: SocketServeState = await socketServeState(
+        rv.socketPath,
+      );
+      switch (serveState) {
+        case "dead":
+        case "absent":
+          return "free"; // proven not serving
+        case "indeterminate":
+          throw new SocketProbeIndeterminateError(rv);
+        case "serving":
+          break; // occupied — identify the holder below
+        default: {
+          const _exhaustive: never = serveState;
+          throw new Error(`unreachable socket state: ${_exhaustive}`);
+        }
+      }
 
       // Exclude OUR OWN process from the holder set: the supervisor spawns its
       // daemon as a SEPARATE process (the survivable-spawn model), so a real

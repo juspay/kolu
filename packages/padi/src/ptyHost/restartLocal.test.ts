@@ -16,6 +16,7 @@
  * explicitly (the recycle gap outlasts the 500 ms autosave).
  */
 
+import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.testlib";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import {
   afterAll,
@@ -61,7 +62,6 @@ import type {
 } from "../vocab.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
 import {
-  createEndpoint,
   destructiveRecycleSteps,
   recycle,
 } from "@kolu/surface-daemon-supervisor";

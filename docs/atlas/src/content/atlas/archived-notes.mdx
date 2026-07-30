@@ -3,7 +3,7 @@ title: Archived notes
 description: Finished feature plans removed from the live Atlas — one entry each so history stays findable without keeping plan archaeology as pages.
 parents: [reference]
 maturity: evergreen
-updated: 2026-07-29
+updated: 2026-07-30
 ---
 
 import PrLink from "../../components/PrLink.astro";
@@ -25,6 +25,7 @@ Only finished **feature** plans graduate here.
 
 | Former slug | What shipped | Look here instead |
 | --- | --- | --- |
+| `surface-daemon-upgrade-window` | Mixed-version durability window for `@kolu/surface-daemon`: convergence/drain kit, upgrade-window testlib, drishti durable agent (UW3), pid-first two-field gate without the #2011 brick (UW4) | [surface-daemon reference](https://kolu.dev/surface/ref-surface-daemon) · [surface-daemon-supervisor reference](https://kolu.dev/surface/ref-surface-supervisor) · [os-facts-tool](./os-facts-tool.html) · `packages/surface-daemon/` · `packages/surface-daemon-supervisor/` · <PrLink pr={2027} /> · <PrLink pr={2042} /> · <PrLink pr={2058} /> |
 | `dock-split-focus` | One written focus fact for every terminal; every split gets an indented Dock sub-entry; `data-active` has one presence spelling | [The Dock](https://kolu.dev/dock) · [Inside a Tile](https://kolu.dev/tiles) · `packages/client/src/hostScope/createViewState.ts` · `packages/client/src/canvas/dock/` · `packages/client/src/canvas/activeTerminal.ts` · <PrLink pr={2043} /> · <PrLink pr={2046} /> · <PrLink pr={2048} /> |
 | `sleeping-terminals` | Sleep / Wake — `Terminal = active \| sleeping` in one registry; wake resumes by conversation id | [Sessions, Sleep & Wake](https://kolu.dev/sessions) · <PrLink pr={1449} /> · <PrLink pr={1487} /> · <PrLink pr={1593} /> |
 | `scrollback-backfill` | Bounded attach snapshot; scroll-up prepends older kaval history into xterm's own buffer | `@kolu/xterm-kit` backfill · <PrLink pr={1783} /> |

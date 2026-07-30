@@ -15,6 +15,7 @@ declare const home: {
 const endpoint: Endpoint<string, { id: string }> = createEndpoint({
   hostId: "local",
   home,
+  readProcessIdentity: () => undefined,
   policy: {
     capability: "not-drainable",
     baked: { contractVersion: "1.0", build: daemonBuild("x") },

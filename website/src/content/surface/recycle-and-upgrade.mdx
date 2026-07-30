@@ -47,7 +47,7 @@ turns a lost link into honest daemon absence.
 
 When the decision is to recycle, the endpoint runs:
 
-1. read the gate (`gatePid` + `isHolderLive`) — is a live survivor holding it?
+1. read the gate under the pid-first law (`readGateIdentity` + injected `readProcessIdentity`, ±2 s start-time match; one-field legacy falls back to `isHolderLive` + socket accept) — is a live survivor holding it?
 2. **kill** it, then `waitForPidGone` — block until the pid is reaped, so the respawn never races a live gate holder;
 3. `driver.spawn()` — a survivable spawn (`systemd-run --user`, or detached `+unref`);
 4. `waitForSocket`, then `connect()` and the identity handshake.

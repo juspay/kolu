@@ -15,10 +15,12 @@ used to dial the frozen control core.
 
 ## The endpoint
 
-`createEndpoint({ home, policy, probe, connect: (socketPath) => …, … })` is the
+`createEndpoint({ home, readProcessIdentity, policy, probe, connect: (socketPath) => …, … })` is the
 state machine: `connecting → connected | dead | incompatible`, then
 `connected → degraded` if the daemon dies mid-session. Gate and socket come from
-`home` (the same spine primitive `daemonMain` takes); `connect` receives the
+`home` (the same spine primitive `daemonMain` takes); `readProcessIdentity` is the
+injected OS fact reader for start-qualified gate ownership (required — never
+defaulted); `connect` receives the
 socket path from the framework so callers never re-thread it. The policy is the
 consumer's whole convergence surface (who I am + how I converge); the public
 verbs are `converge(endpoint)` and `recycle(endpoint, steps)` — the boot-method
@@ -28,6 +30,12 @@ a package `WeakMap` keyed by the genuine `createEndpoint` handle; kit modules
 (`converge`, `recycle`) and same-package tests resolve them via a
 package-internal relative import of `endpoint.private.ts` — there is no public
 `asEndpointInternal` or `./testing` subpath.
+**Unreadable gate (EACCES/EIO):** the endpoint's holder probe folds the daemon
+half's three-way gate-read law exhaustively — when `readGateIdentity` yields
+`unreadable`, `ensure` / recycle **throw before any unlink, kill, or spawn**
+(status still emits `connecting → dead` then rethrows so the UI never wedges).
+An unreadable gate is not free and not stale; a mode-`000` gate is the unit pin
+(`recycleForeignGate.test.ts`).
 `incompatible` is the PROVEN contract-skew verdict — a respawn from the
 realised closure already skewed (or a refuse-policy survivor skews at
 handshake) — reported with both contract versions on the status
@@ -43,13 +51,14 @@ It is generic over the client `C` and identity `I`.
 
 | Export | Role |
 | --- | --- |
-| `createEndpoint({ home, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths` |
+| `createEndpoint({ home, readProcessIdentity, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths`; `readProcessIdentity` is `ReadProcessIdentityAsync` (may be async so osfacts does not block the serving loop — prefer `processIdentityFromEnvAsync`). The async type lives in this package beside `EndpointSpec`; the daemon half keeps only the sync `ReadProcessIdentity`. **Gate unreadable** (EACCES/EIO) → throw before unlink/kill/spawn; emit `dead` then rethrow |
 | `destructiveRecycleSteps()` | named no-preservation steps for fail-closed recycle (all steps still required) |
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
 | `recycle(endpoint, steps)` · `serializeRestart(endpoint)` | `recycle` is the composed `capture → drain → recycle → reattach` sequence; `serializeRestart` returns a single-flight `triggerRestart` wrapper |
 | `waitForPidGone(pid, opts?)` | poll `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |
 | `socketHolders(socketPath)` | ask the OS which process(es) hold a unix-socket PATH — `Promise<SocketHolder[]>` (`{ pid, command }`), `/proc/net/unix` + `/proc/<pid>/fd` on linux, a `timeout`-bounded `lsof` on darwin. Async and bounded because it runs on the daemon boot/recovery path that shares the serving event loop. The identity source the gate-less-squatter recovery uses when the gate no longer names the holder; throws on an unsupported platform (fail-fast). A leaf beside `waitForPidGone` — pid lifecycle via the OS |
 | `SocketSquatterForeignError` · `isSocketSquatterForeignError(err)` | thrown when the process holding the rendezvous socket did NOT complete the kaval handshake — a foreign / non-conforming holder that is **never** killed. Carries `socketPath` and `holders: SocketHolder[]` (each pid + command) so the refusal names the squatter. Brand-checked, realm-robust |
+| `SocketProbeIndeterminateError` · `isSocketProbeIndeterminateError(err)` | thrown when a one-shot socket connect probe times out (`SocketServeState` `"indeterminate"`) — not proof free or dead. The endpoint never kills, unlinks, or spawns on it; carries `gatePath` / `socketPath` / optional `gatePid`. Failures after `connecting` emit `dead` then rethrow so status never wedges |
 | `DaemonContractSkewError` · `isContractSkewError(err)` | the ONE typed connect rejection that proves incompatibility. Constructed from fields — `{ subject, daemonVersion, requiredVersion, pid? }` — with the message derived from them (no consumer ever re-parses the prose); `readonly daemonVersion` / `requiredVersion` ride the instance so downstream translators (a typed RPC rethrow, a status arm) read them structurally. The optional `readonly pid` is the skewed daemon's self-reported OS pid (additive), carried so the gate-less-squatter recovery of an OLD orphan — which throws here before a connection exists — has its identity attestation. The guard is brand-checked (realm-robust), never `instanceof` |
 | `ENDPOINT_STATES` · `ENDPOINT_STATE_DOWN` · `isDownEndpointState(s)` | the state tuple and its TOTAL down/terminal classification, both living in the zero-dependency, browser-safe `/states` subpath (re-exported from the package root). `ENDPOINT_STATE_DOWN` is a `Record<EndpointState, boolean>`, so a new state is a compile error at the home until classified; consumers (a dial-ended check, a client presentation table) read `isDownEndpointState` instead of hand-spelling the `degraded \|\| dead \|\| incompatible` disjunct |
 
