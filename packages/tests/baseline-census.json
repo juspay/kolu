@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "measuredAtSha": "5ec6ad09b61259be54441ec9ff7109600156a6a1",
+  "census": {
+    "featureFiles": 58,
+    "declarations": 530,
+    "executions": 546,
+    "linuxDefault": 541,
+    "darwinDefault": 540
+  }
+}

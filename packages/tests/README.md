@@ -2,6 +2,36 @@
 
 End-to-end tests using [Cucumber.js](https://github.com/cucumber/cucumber-js) with [Playwright](https://playwright.dev/) for browser automation.
 
+## E2E governance and timing
+
+Wave 0 makes E2E removal auditable before any scenario is deleted:
+
+- `scenario-inventory.json` is an append-only history of executable scenario
+  revisions. A revision fingerprints backgrounds, steps, tags, expanded
+  Examples values, data tables, and doc strings—not merely a scenario title or
+  row count.
+- `coverage-ledger.yaml` must contain a landed row for every revision that
+  disappears. A landed replacement names its real defect surface, retained
+  user journey, destination lane, and a counterfactual test explaining how the
+  replacement is proven to fail when that behavior breaks.
+- `just test-e2e-governance` compares inventory records with the merge base, so
+  deleting or editing history in the same PR fails. New or intentionally
+  revised scenarios are appended with `cd packages/tests && pnpm
+  inventory:update` and then reviewed.
+- Every Cucumber run writes `reports/messages.ndjson` and reduces it to
+  `reports/e2e-timing.json`. The report keeps every attempt, retry, wall-clock
+  duration, final-attempt duration, and per-feature totals; reports remain
+  gitignored run artifacts.
+- `baseline-census.json` records Wave 0's starting census. Collect at least five
+  independently leased runs per platform in a `baseline-samples.json`, then run
+  `pnpm baseline:report baseline-samples.json baseline-summary.json`; the
+  reducer refuses fewer samples and reports medians and IQRs for E2E, unit,
+  daemon, whole-pipeline critical path, attempts, and retries.
+
+The ledger is a guardrail, not an equivalence oracle. Replacement coverage
+lands before deletion, and reviewers still verify that its counterfactual test
+breaks the promised behavior through the declared real defect surface.
+
 ## Structure
 
 ```

@@ -1,0 +1,25 @@
+schemaVersion: 1
+# A landed row names one immutable revision from scenario-inventory.json.
+# Replacement and counterfactual tests are resolved through `vitest list`; a
+# title in prose or a non-collected file is not evidence.
+#
+# retirements:
+#   - id: example-promise
+#     revisionId: revision-...
+#     action: replace
+#     status: landed
+#     promise: "The user-visible promise"
+#     defectSurface: [real-fs]
+#     destinationLayer: L3
+#     replacements:
+#       - file: packages/example/src/example.test.ts
+#         test: "suite > replacement"
+#         lane: unit
+#         platforms: [linux, darwin]
+#         realism: [real-fs]
+#         counterfactual:
+#           file: packages/example/src/example.test.ts
+#           test: "suite > fails with the watcher disconnected"
+#           breaks: "disconnect the real watcher before the write"
+#     survivorRevisionIds: [revision-...]
+retirements: []

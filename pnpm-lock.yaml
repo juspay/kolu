@@ -2145,6 +2145,12 @@ importers:
       '@cucumber/cucumber':
         specifier: ^12.8.1
         version: 12.8.1
+      '@cucumber/gherkin':
+        specifier: 38.0.0
+        version: 38.0.0
+      '@cucumber/messages':
+        specifier: 32.2.0
+        version: 32.2.0
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -2172,6 +2178,9 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
+      yaml:
+        specifier: ^2.8.3
+        version: 2.8.3
 
   packages/theme: {}
 
