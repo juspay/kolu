@@ -29,7 +29,7 @@ All macOS measurements use the exact `ci@petit` host.
 | --- | --- | --- | ---: |
 | `f16eb26` | Original 540-execution strict suite | Did not settle before Odu's one-hour cap | > 60 min |
 | `8364706` | Superseded 496-execution candidate, before six perfection restorations | Passed | 219.367 s |
-| current | Final 502-execution strict suite | Measurement pending on a committed revision | — |
+| `71dd255` | Final 502-execution strict suite | Passed | 198.109 s |
 
 The baseline is censored, not a five-sample median. Its run spent the hour in
 retries because macOS `/etc/zprofile` replaced the Nix path and exposed
@@ -42,8 +42,8 @@ The repaired harness is status-strict again. The E2E dev shell includes Nix Git,
 the fixture profile restores the inherited Nix `PATH`, compound setup commands
 fail as one checked transaction, and intentionally interactive or failing
 commands use an explicit start-only step. The 496-execution candidate passed
-after those repairs; the six journeys restored by perfection review require a
-fresh final measurement and are not covered by that number.
+after those repairs. After perfection review restored six distinct journeys,
+the final 502-execution suite also passed and completed in 198.109 seconds.
 
 ## Coverage method
 
