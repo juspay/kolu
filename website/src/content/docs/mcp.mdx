@@ -37,7 +37,10 @@ to install if you already run kolu; no browser involved.
 
 1. Make sure the `kolu` binary is on your PATH — if you installed kolu with the
    home-manager module, it already is (the module puts `kolu` on PATH by
-   default). Then register the server with your agent:
+   default), and **inside a kolu terminal it always is**, on your own machine
+   and on a remote host alike (see [Inside a kolu
+   terminal](#inside-a-kolu-terminal-nothing-to-set-up)). Then register the
+   server with your agent:
 
    ```sh
    # Claude Code
@@ -70,6 +73,21 @@ to install if you already run kolu; no browser involved.
    ```
 
 </Steps>
+
+## Inside a kolu terminal — nothing to set up
+
+An agent running **in** a kolu terminal needs no step above, and this is true on a
+remote host exactly as it is on your own machine. The terminal is spawned with
+kolu's own CLIs — `kolu`, `kaval-tui`, `padi-tui` — already on its `PATH`, and
+with `$PADI_SOCKET` naming the daemon that owns it. So a plain `.mcp.json` with
+`"command": "kolu"` resolves and connects, with no `--host` flag and nothing
+installed on that machine: an agent you started on a remote host can drive its
+sibling terminals the moment it boots.
+
+The tools it gets are the ones from the **same build** as the daemon serving it —
+they arrive in the closure kolu copies to the host when it dials, so a tool and
+its daemon can never disagree about the wire between them. Your own `PATH` is
+untouched apart from these names taking precedence.
 
 ## Drive a terminal
 

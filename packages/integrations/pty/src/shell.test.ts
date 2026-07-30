@@ -21,6 +21,7 @@ import {
 } from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
+  AGENT_TOOLS_PATH_ENV,
   cleanEnv,
   composeSpawnEnv,
   koluIdentityEnv,
@@ -30,6 +31,7 @@ import {
   OSC2_PREEXEC_FN,
   OSC7_FN,
   prepareShellInit,
+  prependPathEntries,
   SPAWN_ENV_ALLOWLIST,
   SPAWN_ENV_FUNCTIONAL,
   SPAWN_ENV_OPERATIONAL,
@@ -745,6 +747,149 @@ describeDaemon("prepareShellInit zsh wrapper", () => {
       );
       if (out === null) return; // zsh unavailable — skip
       expect(out).toBe("loaded");
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(rcDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("prependPathEntries", () => {
+  it("prepends in order so the first dir wins a name collision", () => {
+    expect(prependPathEntries("/usr/bin:/bin", ["/a", "/b"])).toBe(
+      "/a:/b:/usr/bin:/bin",
+    );
+  });
+
+  it("drops a dir already present rather than adding a second copy", () => {
+    // Terminals nest and re-spawn; without this, PATH grows without bound.
+    expect(prependPathEntries("/usr/bin:/a", ["/a"])).toBe("/usr/bin:/a");
+  });
+
+  it("handles an absent or empty PATH without leaving empty entries", () => {
+    // An empty entry in PATH means "the current directory" to a POSIX shell —
+    // a real (and exploitable) difference, not a cosmetic one.
+    expect(prependPathEntries(undefined, ["/a"])).toBe("/a");
+    expect(prependPathEntries("", ["/a"])).toBe("/a");
+    expect(prependPathEntries("/usr/bin::/bin", ["/a"])).toBe(
+      "/a:/usr/bin:/bin",
+    );
+  });
+});
+
+describe("prepareShellInit — PATH re-assert", () => {
+  it("emits the re-assert AFTER the dotfile replay (the ordering is the point)", () => {
+    // A user dotfile doing an absolute `export PATH=…` is exactly what the replay
+    // re-runs, so a re-assert placed before it would be silently undone. Pin the
+    // ordering, not just the presence.
+    const init = prepareShellInit({
+      shell: "/bin/bash",
+      home: "/home/x",
+      terminalId: "T-order",
+      rcDir: "/r",
+    });
+    const content = onlyInitFile(init).content;
+    expect(content).toContain(AGENT_TOOLS_PATH_ENV);
+    expect(content.indexOf("/home/x/.bashrc")).toBeLessThan(
+      content.indexOf(AGENT_TOOLS_PATH_ENV),
+    );
+  });
+
+  it("carries no caller data — the dirs are read from the env at runtime", () => {
+    // The block is a FIXED string: paths arrive in a variable, never interpolated
+    // into shell source, so no quoting question (and no injection) can arise.
+    const a = prepareShellInit({
+      shell: "/bin/bash",
+      home: "/home/x",
+      terminalId: "T-a",
+      rcDir: "/r",
+    });
+    const b = prepareShellInit({
+      shell: "/bin/bash",
+      home: "/home/x",
+      terminalId: "T-b",
+      rcDir: "/r",
+    });
+    const reassert = (init: ReturnType<typeof prepareShellInit>) =>
+      onlyInitFile(init).content.slice(
+        onlyInitFile(init).content.indexOf("__kolu_path_reassert"),
+      );
+    expect(reassert(a)).toBe(reassert(b));
+  });
+});
+
+describeDaemon("prepareShellInit PATH re-assert (real shells)", () => {
+  // The behavioral proof, and the reason the rcfile half exists at all: a spawn
+  // env alone does NOT survive a user dotfile that assigns PATH absolutely. This
+  // spawns a real shell against a fake home whose rc clobbers PATH, and asserts
+  // the toolchain is still reachable afterward. A string-match on the generated
+  // rcfile cannot catch an unreachable or mis-quoted block; this can.
+  const TOOLS = "/opt/kolu-tools-fixture/bin";
+
+  async function pathAfterClobber(
+    shell: "/bin/bash" | "/bin/zsh",
+    rcName: string,
+  ): Promise<string | null> {
+    const fakeHome = mkdtempSync(join(tmpdir(), "kolu-shell-"));
+    const rcDir = mkdtempSync(join(tmpdir(), "kolu-rc-"));
+    try {
+      // The hostile case: an ABSOLUTE assignment, not a prepend.
+      writeFileSync(join(fakeHome, rcName), 'export PATH="/usr/bin:/bin"\n');
+      const init = prepareShellInit({
+        shell,
+        home: fakeHome,
+        terminalId: `test-path-${process.pid}`,
+        rcDir,
+      });
+      materialise(rcDir, init);
+      const rcPath =
+        shell === "/bin/zsh"
+          ? join(init.env.ZDOTDIR as string, ".zshrc")
+          : join(rcDir, init.initFiles[0]?.name as string);
+      const script = `export ${AGENT_TOOLS_PATH_ENV}=${shQuote(TOOLS)}; source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$PATH"`;
+      return shell === "/bin/zsh"
+        ? await runZsh(script)
+        : await runBash(script);
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(rcDir, { recursive: true, force: true });
+    }
+  }
+
+  it("bash: the toolchain survives a dotfile that overwrites PATH", async () => {
+    const out = await pathAfterClobber("/bin/bash", ".bashrc");
+    if (out === null) return;
+    expect(out.split(":")).toContain(TOOLS);
+    // The user's own PATH is still there — we merged, we did not replace.
+    expect(out.split(":")).toContain("/usr/bin");
+  });
+
+  it("zsh: the toolchain survives a dotfile that overwrites PATH", async () => {
+    const out = await pathAfterClobber("/bin/zsh", ".zshrc");
+    if (out === null) return;
+    expect(out.split(":")).toContain(TOOLS);
+    expect(out.split(":")).toContain("/usr/bin");
+  });
+
+  it("no-ops when the daemon baked no toolchain (from-source parity)", async () => {
+    // With the var unset the block must leave PATH exactly as the dotfiles left
+    // it — a from-source padi spawns the env it does today, not an empty entry.
+    const fakeHome = mkdtempSync(join(tmpdir(), "kolu-shell-"));
+    const rcDir = mkdtempSync(join(tmpdir(), "kolu-rc-"));
+    try {
+      writeFileSync(join(fakeHome, ".bashrc"), 'export PATH="/usr/bin:/bin"\n');
+      const init = prepareShellInit({
+        shell: "/bin/bash",
+        home: fakeHome,
+        terminalId: `test-path-none-${process.pid}`,
+        rcDir,
+      });
+      materialise(rcDir, init);
+      const rcPath = join(rcDir, init.initFiles[0]?.name as string);
+      const out = await runBash(
+        `unset ${AGENT_TOOLS_PATH_ENV}; source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$PATH"`,
+      );
+      expect(out).toBe("/usr/bin:/bin");
     } finally {
       rmSync(fakeHome, { recursive: true, force: true });
       rmSync(rcDir, { recursive: true, force: true });

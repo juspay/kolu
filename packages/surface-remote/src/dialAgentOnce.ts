@@ -44,6 +44,17 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
   host: string;
   /** Executable name inside the realised closure, run as `<binary> --stdio`. */
   binary: string;
+  /** Flake attr to resolve and provision — the CLOSURE shipped to the host, as
+   *  distinct from the `binary` exec'd inside it. Defaults to `binary`, which is
+   *  the common case (a closure whose only job is its one daemon).
+   *
+   *  They separate when a host must receive MORE than the daemon: kolu ships
+   *  `padi-agent` (padi plus the client CLIs a terminal on that host needs) and
+   *  still runs `padi`. `sshConnector` has always taken these as two parameters;
+   *  this one-shot wrapper collapsed them, so a CLI dial provisioned a different
+   *  closure than the long-lived binder for the same host — the two-behaviours
+   *  bug this field exists to remove. Keep both dial paths naming the SAME attr. */
+  package?: string;
   /** The EXACT stderr prefix the remote agent writes before its fatal message,
    *  right before exiting (e.g. the retired pulam's `pulam:`, or `kaval --stdio:`). Required and
    *  caller-supplied because it is NOT always `${binary}:` — kaval's `--stdio`
@@ -113,7 +124,8 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       binary: opts.binary,
       extraArgs: opts.extraArgs,
       localEnv: opts.localEnv,
-      resolveDrvPath: (ctx) => ctx.resolveAgentDrv(flakeRef, opts.binary),
+      resolveDrvPath: (ctx) =>
+        ctx.resolveAgentDrv(flakeRef, opts.package ?? opts.binary),
     }),
     // The ssh connector provisions before transport is up, so this session opens
     // at "probing" for the architecture check. It advances to "provisioning"

@@ -40,7 +40,7 @@ function info(): PtyHostSystemInfo {
 describe("spawnServerVersion boot-order fail-fast", () => {
   it("throws a named error when a spawn is composed before the setter runs", () => {
     expect(() =>
-      composeSpawnInput({ id: "T-unset" }, info(), KAVAL_SOCK),
+      composeSpawnInput({ id: "T-unset" }, info(), { kavalSocket: KAVAL_SOCK }),
     ).toThrow(
       "spawnServerVersion read before setSpawnServerVersion() — kolu-server boot must inject it before ensureLocalEndpoint",
     );
@@ -48,7 +48,9 @@ describe("spawnServerVersion boot-order fail-fast", () => {
 
   it("stamps TERM_PROGRAM_VERSION from the injected version once set", () => {
     setSpawnServerVersion("1.2.3");
-    const input = composeSpawnInput({ id: "T-set" }, info(), KAVAL_SOCK);
+    const input = composeSpawnInput({ id: "T-set" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.env.TERM_PROGRAM_VERSION).toBe("1.2.3");
   });
 

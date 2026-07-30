@@ -87,7 +87,7 @@ import {
   type Session,
 } from "@kolu/surface-remote";
 import { assertDaemonSpawnAllowed } from "kaval";
-import { composeSpawnEnv } from "kolu-pty";
+import { AGENT_TOOLS_PATH_ENV, composeSpawnEnv } from "kolu-pty";
 import { processIdentityFromEnvAsync } from "osfacts-client";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
@@ -169,6 +169,15 @@ export function daemonEnv(
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   if (process.env.KOLU_DIAG_DIR) env.KOLU_DIAG_DIR = process.env.KOLU_DIAG_DIR;
+  // The client toolchain a terminal must be able to run (`kaval-tui`, `padi-tui`,
+  // `kolu mcp`), baked onto koluBin by the nix wrapper. A REMOTE padi gets this
+  // from its own provisioned closure's wrapper — there is no env channel across
+  // ssh — so this forward is what gives a LOCALLY-supervised padi the same fact,
+  // and thus local and remote terminals one behaviour instead of two. Forwarded,
+  // not re-derived: kolu-server and padi must name the SAME build's tools (see
+  // padi's `agentTools.ts`). Absent from source (no wrapper) → padi carries none.
+  if (process.env[AGENT_TOOLS_PATH_ENV])
+    env[AGENT_TOOLS_PATH_ENV] = process.env[AGENT_TOOLS_PATH_ENV];
   // Forward kaval's build identity for the FROM-SOURCE / dev path ONLY: the nix-built
   // padi wrapper BAKES `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` (padi owns kaval — its
   // closure knows them at build time; see default.nix), so a production padi already

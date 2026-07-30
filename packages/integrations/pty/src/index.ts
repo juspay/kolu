@@ -12,6 +12,7 @@
  *  Only depends on Node's stdlib — no node-pty, no xterm. */
 
 export {
+  AGENT_TOOLS_PATH_ENV,
   cleanEnv,
   composeSpawnEnv,
   configureNixShellEnv,
@@ -20,6 +21,7 @@ export {
   NIX_ENV_WHITELIST,
   pickEnv,
   prepareShellInit,
+  prependPathEntries,
   type ShellInitPlan,
   SPAWN_ENV_ALLOWLIST,
   SPAWN_ENV_FUNCTIONAL,

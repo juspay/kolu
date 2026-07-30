@@ -405,6 +405,65 @@ export const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|�
  *  them when the PTY exits. */
 export type InitFile = { name: string; content: string };
 
+/** The env var carrying the tool directories a spawned terminal must be able to
+ *  run — colon-joined, highest priority first, in `PATH` order.
+ *
+ *  It is BOTH the caller's input (padi reads its own baked value) and a var
+ *  stamped into the spawned terminal, deliberately under ONE name: it is one
+ *  fact propagated, not two. Being `KOLU_*` is load-bearing — `cleanEnv`'s
+ *  `isKoluInternalEnvKey` strip means an ambient value can never ride the
+ *  allowlist into a PTY, so every terminal's value is the one its OWN spawner
+ *  stamped (the same self-ownership property `KAVAL_TERMINAL_ID` has). */
+export const AGENT_TOOLS_PATH_ENV = "KOLU_AGENT_TOOLS_PATH";
+
+/** Prepend `dirs` to a `PATH` value, preserving `dirs` order and dropping any
+ *  entry already present (so a re-spawn or a nested terminal can't grow PATH
+ *  without bound). Pure string algebra — the TS half of the two-context
+ *  guarantee whose shell half is `pathReassertLines`; both live here so the
+ *  "prepend without duplicating" rule exists once, in one file. */
+export function prependPathEntries(
+  currentPath: string | undefined,
+  dirs: readonly string[],
+): string {
+  const existing = (currentPath ?? "").split(":").filter((e) => e !== "");
+  const fresh = dirs.filter((d) => d !== "" && !existing.includes(d));
+  return [...fresh, ...existing].join(":");
+}
+
+/** The shell half of the guarantee: re-assert the tool dirs on `PATH` AFTER the
+ *  user's dotfiles have been replayed.
+ *
+ *  Spawn-env alone is not enough. The replay above re-sources `~/.bashrc` /
+ *  `~/.zshrc`, and a dotfile that does an ABSOLUTE `export PATH=…` (common, and
+ *  the whole reason the replay exists — see this module's header) silently drops
+ *  whatever the spawn env put there. So the dirs are asserted twice: once in the
+ *  spawn env (so a shell we don't wrap, and any non-shell argv, still gets them)
+ *  and once here (so a wrapped shell keeps them no matter what the user's
+ *  dotfiles do to PATH).
+ *
+ *  The dirs are read from `$KOLU_AGENT_TOOLS_PATH` at runtime rather than
+ *  interpolated into this source: the block is then a FIXED string with no
+ *  caller data in it, so no shell-quoting question arises at all (a path with a
+ *  space or a metacharacter is data in a variable, never source to re-parse).
+ *  POSIX-only syntax — one text for both the bash and zsh wrappers. */
+const PATH_REASSERT = [
+  `__kolu_path_reassert() {`,
+  `  __kolu_new=""; __kolu_rest="\${1-}"`,
+  `  while [ -n "$__kolu_rest" ]; do`,
+  `    __kolu_dir="\${__kolu_rest%%:*}"`,
+  `    case "$__kolu_rest" in *:*) __kolu_rest="\${__kolu_rest#*:}" ;; *) __kolu_rest="" ;; esac`,
+  `    [ -z "$__kolu_dir" ] && continue`,
+  `    case ":$PATH:" in *":$__kolu_dir:"*) continue ;; esac`,
+  `    __kolu_new="\${__kolu_new:+$__kolu_new:}$__kolu_dir"`,
+  `  done`,
+  `  [ -n "$__kolu_new" ] && PATH="$__kolu_new\${PATH:+:$PATH}"`,
+  `  export PATH`,
+  `  unset __kolu_new __kolu_rest __kolu_dir`,
+  `}`,
+  `__kolu_path_reassert "\${${AGENT_TOOLS_PATH_ENV}-}"`,
+  `unset -f __kolu_path_reassert`,
+].join("\n");
+
 /** The spawn plan for one PTY: the shell `args`, an `env` override, and the
  *  wrapper rcfiles to materialise. Pure data — no side effects, no cleanup
  *  callback (the host owns the files' lifetime). */
@@ -519,11 +578,19 @@ function selectShellInit(shell: string): ShellInit | null {
  * nothing. The pty-host materialises the returned `initFiles` under its own
  * `rcDir` and removes them when the PTY exits.
  *
- * The wrapper layers two things in order: replay (user dotfiles the shell
- * would have auto-sourced) → hooks (kolu's OSC injection). The layering is
- * load-bearing — replay must precede hooks so user PROMPT_COMMAND / starship
- * etc. can't clobber our hooks. PROMPT_COMMAND in env doesn't work because
- * the user's rc would overwrite it.
+ * The wrapper layers three things in order: replay (user dotfiles the shell
+ * would have auto-sourced) → PATH re-assert (`PATH_REASSERT`) → hooks (kolu's
+ * OSC injection). The layering is load-bearing — replay must precede hooks so
+ * user PROMPT_COMMAND / starship etc. can't clobber our hooks, and it must
+ * precede the PATH re-assert for the same reason in the other direction: a
+ * dotfile's absolute `export PATH=…` runs during replay, so the re-assert only
+ * holds if it comes AFTER. PROMPT_COMMAND in env doesn't work because the
+ * user's rc would overwrite it.
+ *
+ * The PATH re-assert needs no argument: it reads `$KOLU_AGENT_TOOLS_PATH` from
+ * the env the caller already composed, and no-ops when that is unset. So it is
+ * emitted unconditionally rather than gated on an option — one less knob, and
+ * the rcfile stays a pure function of the shell, not of spawn policy.
  *
  * `rcDir` is the *host's* directory where the per-terminal bashrc / ZDOTDIR
  * will be written — passed in (from the host's `system.info`) so the returned
@@ -541,6 +608,8 @@ export function prepareShellInit(opts: {
   if (!home) return noop;
   const init = selectShellInit(shell);
   if (!init) return noop;
-  const rcContent = [...init.replay(home), ...init.hooks].join("\n");
+  const rcContent = [...init.replay(home), PATH_REASSERT, ...init.hooks].join(
+    "\n",
+  );
   return init.plan(rcContent, terminalId, rcDir);
 }

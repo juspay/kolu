@@ -196,6 +196,12 @@ export function dialPadiViaHost(
     host,
     localEnv: composeSpawnEnv(process.env),
     binary: "padi",
+    // Provision the SAME closure kolu-server's binder does (`remotePadiBinding`)
+    // — the daemon plus the client CLIs a terminal on that host needs. Naming
+    // the bare `padi` here would give a host reached by `padi-tui --host` /
+    // `kolu mcp --host` terminals WITHOUT the toolchain, while the browser path
+    // gave the same host terminals with it: one host, two behaviours.
+    package: "padi-agent",
     fatalPrefix: "padi --stdio:",
     probe: async (client) => {
       const hello = await client.surface.control.core.hello();

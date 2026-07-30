@@ -82,6 +82,18 @@ let
   # + osfacts/ (OSF2 — padi/koluEnv bake KOLU_OSFACTS_BIN from import ./osfacts;
   # the prove fails without it). Not a workspace package (no typecheck script);
   # listed here because the agent graph needs the source, not the pnpm tree.
+  #
+  # `expose` (what the agent flake offers a remote to resolve) and `prove` (what
+  # must evaluate before any wrapper gets the bake path) are DELIBERATELY two
+  # lists, not one. `mkProvenAgentSource` proves an attr by re-importing this
+  # file from the assembled tree, so — per its own comment — a proven attr must
+  # never reach the `agentFlakeSrc` thunk below, or the prove re-enters itself
+  # forever. `padi-agent` reaches it (it contains `kolu` and both TUIs, all of
+  # which bake the flake ref), so it is exposed but NOT proven. Nothing is lost:
+  # the prove exists to catch a source tree too thin to resolve a DAEMON, and
+  # `padi`/`kaval` — what a dial actually resolves — are still proven from the
+  # same tree `padi-agent` is composed out of.
+  agentPackages = pkgs.lib.importJSON ./nix/agent-packages.json;
   agentSource = mkProvenAgentSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
@@ -92,7 +104,7 @@ let
       ./osfacts
     ];
     inherit pkgs commitHash;
-    agents = pkgs.lib.importJSON ./nix/agent-packages.json;
+    agents = agentPackages.prove;
     flakeNix = ./nix/agent-flake.nix;
   };
   agentFlakeSrc = agentSource.flakeSrc;
@@ -505,6 +517,7 @@ let
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
       ${padiIdentity.bakeArgs} \
       ${agentFlakeRefBakeArg} \
+      --set KOLU_AGENT_TOOLS_PATH "${koluAgentTools}/bin" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
@@ -532,6 +545,15 @@ let
   # corruption bug #530/#531 fixed: tests build `.#koluBin` (justfile:122),
   # which has no KOLU_STATE_DIR / KOLU_PADI_STATE_DIR and crashes if unset, and
   # so never go through this wrapper.
+  #
+  # The `--prefix KOLU_AGENT_TOOLS_PATH` adds THIS wrapper's own `bin/` to the
+  # toolchain koluBin baked (`koluAgentTools`, the two TUIs), so a terminal a
+  # locally-supervised padi spawns can run the very `kolu` serving it — its `mcp`
+  # face is what an agent's `.mcp.json` invokes. It must happen here and by
+  # self-reference: `kolu` cannot be in the env koluBin bakes without a cycle
+  # (that env would reference the wrapper that references it), and only the
+  # outermost wrapper can name itself. The remote arm gets the same fact a
+  # different way — see the `padi` agent closure below.
   default = pkgs.runCommand "kolu"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -539,6 +561,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
+      --prefix KOLU_AGENT_TOOLS_PATH : "$out/bin" \
       --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
   '';
 
@@ -677,6 +700,60 @@ let
     entry = "packages/padi-tui/src/main.ts";
   };
 
+  # The client toolchain a kolu TERMINAL must be able to run — the two TUIs on
+  # their own. koluBin bakes this as `KOLU_AGENT_TOOLS_PATH` and kolu-server
+  # forwards it onto the padi it spawns, so a LOCAL terminal's PATH carries the
+  # tools from the same build as the daemon that owns it.
+  #
+  # `kolu` itself is deliberately NOT here and cannot be: this env is baked onto
+  # koluBin, and koluBin is what `kolu` wraps — including it would make the
+  # closure reference itself through a cycle Nix cannot build. The `default`
+  # wrapper below adds its own `bin/` at runtime instead, which is legal
+  # (a derivation may reference itself) and is why that one line exists.
+  koluAgentTools = pkgs.buildEnv {
+    name = "kolu-agent-tools";
+    paths = [ kaval-tui padi-tui ];
+  };
+
+  # padi-agent — what a REMOTE HOST is provisioned with: `padi` plus the client
+  # toolchain a terminal that daemon spawns must be able to run (`kaval-tui`,
+  # `padi-tui`, and the `kolu` whose `mcp` face an agent's `.mcp.json` invokes).
+  # Nothing is installed on the host; these ride the closure kolu already copies.
+  #
+  # It closes the remote gap with ONE property, and no new mechanism anywhere:
+  # the wrapper bakes `KOLU_AGENT_TOOLS_PATH` to its OWN `$out/bin` (a
+  # self-reference, resolved at build time). A padi reached as
+  # `ssh <host> <agentPath>/bin/padi --stdio` therefore reports the closure that
+  # was actually copied to that host — with no env channel (ssh has none) and
+  # nothing threaded through argv or `@kolu/surface-remote`. The tools a terminal
+  # gets and the daemon that spawned it are the same store path BY CONSTRUCTION,
+  # so the tool/daemon version skew `PADI_BUILD_ID` exists to catch cannot arise
+  # here at all.
+  #
+  # **It is a separate attr from `padi`, and it must stay OUT of the `agents`
+  # PROVE list in `nix/agent-packages.json`.** `mkProvenAgentSource` proves an
+  # agent by re-importing this very `default.nix` from the assembled tree and
+  # forcing that attr's `drvPath`; its own comment records the invariant that
+  # makes the recursion terminate — a proven attr must never reach the
+  # `agentFlakeSrc` thunk. This closure reaches it three ways (`default` →
+  # `koluBin`, and both TUI wrappers, all of which bake the flake ref), so
+  # proving it is an infinite regress — a real `error: stack overflow` this
+  # composition was first written into. `padi` and `kaval` stay the proven pair:
+  # they are what a dial must resolve, so the guarantee is unchanged, and this
+  # closure adds only tools from the same already-proven tree.
+  padi-agent = pkgs.runCommand "padi-agent"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "padi";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${padi}/bin/padi $out/bin/padi \
+      --set KOLU_AGENT_TOOLS_PATH "$out/bin"
+    ln -s ${kaval-tui}/bin/kaval-tui $out/bin/kaval-tui
+    ln -s ${padi-tui}/bin/padi-tui $out/bin/padi-tui
+    ln -s ${default}/bin/kolu $out/bin/kolu
+  '';
+
   # vazhi — the standalone port-forward TUI over `@kolu/port-forward` (Atlas:
   # port-forwarding). Its derivation lives next to its source (it has its OWN
   # flake.nix for a later move to its own repo, and that flake wants one
@@ -696,5 +773,5 @@ let
   osfacts = import ./osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
 }

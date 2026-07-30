@@ -25,6 +25,7 @@ import { DEFAULT_MIRROR_SCROLLBACK, type PtyHostSystemInfo } from "kaval";
 // spawned MIRROR scrollback is decoupled from (and smaller than) that visible
 // value; the literal below is the app-side number it compares against.
 const CLIENT_VISIBLE_SCROLLBACK = 50_000;
+import { AGENT_TOOLS_PATH_ENV } from "kolu-pty";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { composeSpawnInput, setSpawnServerVersion } from "./index.ts";
 
@@ -81,7 +82,9 @@ describe("composeSpawnInput env layering", () => {
     // base layer. koluIdentityEnv layers COLORTERM=truecolor on top — the
     // identity assertion must win over whatever the parent happened to carry.
     process.env.COLORTERM = "PARENT_SENTINEL";
-    const input = composeSpawnInput({ id: "T-colorterm" }, info(), KAVAL_SOCK);
+    const input = composeSpawnInput({ id: "T-colorterm" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.env.COLORTERM).toBe("truecolor");
   });
 
@@ -91,7 +94,9 @@ describe("composeSpawnInput env layering", () => {
     // unclobbered — the bytes that make the zsh wrapper rcfile load.
     process.env.SHELL = "/bin/zsh";
     const id = "T-zdotdir";
-    const input = composeSpawnInput({ id }, info(), KAVAL_SOCK);
+    const input = composeSpawnInput({ id }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.argv[0]).toBe("/bin/zsh");
     expect(input.env.ZDOTDIR).toBe(join(RC_DIR, `zdotdir-${id}`));
   });
@@ -105,7 +110,7 @@ describe("composeSpawnInput env layering", () => {
     const input = composeSpawnInput(
       { id: "T-local-shell" },
       info({ shell: "/bin/dash" }),
-      KAVAL_SOCK,
+      { kavalSocket: KAVAL_SOCK },
     );
     expect(input.argv[0]).toBe("/bin/zsh");
   });
@@ -115,11 +120,9 @@ describe("composeSpawnInput env layering", () => {
     // inside (an agent driving its siblings) can reach its owning daemon without
     // scanning /tmp — and, on macOS with $XDG_RUNTIME_DIR unset, without guessing
     // the port-namespaced path. It's passed as data, so the composer stays pure.
-    const input = composeSpawnInput(
-      { id: "T-kaval-socket" },
-      info(),
-      KAVAL_SOCK,
-    );
+    const input = composeSpawnInput({ id: "T-kaval-socket" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.env.KAVAL_SOCKET).toBe(KAVAL_SOCK);
   });
 
@@ -130,7 +133,9 @@ describe("composeSpawnInput env layering", () => {
     // (KAVAL_* isn't stripped wholesale), so the stamp has to win.
     // afterEach restores KAVAL_SOCKET to its saved value, so no local cleanup.
     process.env.KAVAL_SOCKET = "/tmp/kaval-OUTER-501/pty-host.sock";
-    const input = composeSpawnInput({ id: "T-nested" }, info(), KAVAL_SOCK);
+    const input = composeSpawnInput({ id: "T-nested" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.env.KAVAL_SOCKET).toBe(KAVAL_SOCK);
   });
 
@@ -140,20 +145,20 @@ describe("composeSpawnInput env layering", () => {
     // runs `padi-tui wait` with no --socket). Passed as data, keeping the composer
     // pure — buildTerminalSpawnInput reads it from getPadiServeSocketPath() at boot.
     const PADI_SOCK = "/run/user/1000/padi-abc123/padi.sock";
-    const input = composeSpawnInput(
-      { id: "T-padi-socket" },
-      info(),
-      KAVAL_SOCK,
-      PADI_SOCK,
-    );
+    const input = composeSpawnInput({ id: "T-padi-socket" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+      padiSocket: PADI_SOCK,
+    });
     expect(input.env.PADI_SOCKET).toBe(PADI_SOCK);
   });
 
   it("omits PADI_SOCKET when padi's serving socket is unknown (autodiscovery covers it)", () => {
     // Unlike the REQUIRED kaval locator, an absent padi socket just omits the
     // hint and padi-tui autodiscovers — so the composer stamps it only when known
-    // (the 4th arg is optional), never a bare/empty PADI_SOCKET.
-    const input = composeSpawnInput({ id: "T-no-padi" }, info(), KAVAL_SOCK);
+    // (an optional field of the spec), never a bare/empty PADI_SOCKET.
+    const input = composeSpawnInput({ id: "T-no-padi" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.env.PADI_SOCKET).toBeUndefined();
   });
 
@@ -161,7 +166,9 @@ describe("composeSpawnInput env layering", () => {
     // A process inside the terminal reads its OWN id from the env — the
     // self-knowledge twin of KAVAL_SOCKET (which names the daemon). Stamped from
     // args.id, the same value that names the wire `id` and the rcfile.
-    const input = composeSpawnInput({ id: "T-self-id" }, info(), KAVAL_SOCK);
+    const input = composeSpawnInput({ id: "T-self-id" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.env.KAVAL_TERMINAL_ID).toBe("T-self-id");
     expect(input.env.KAVAL_TERMINAL_ID).toBe(input.id);
   });
@@ -174,7 +181,9 @@ describe("composeSpawnInput env layering", () => {
     // (the same non-clobber property the KAVAL_SOCKET test pins).
     // afterEach restores KAVAL_TERMINAL_ID to its saved value, so no local cleanup.
     process.env.KAVAL_TERMINAL_ID = "T-OUTER";
-    const input = composeSpawnInput({ id: "T-inner" }, info(), KAVAL_SOCK);
+    const input = composeSpawnInput({ id: "T-inner" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.env.KAVAL_TERMINAL_ID).toBe("T-inner");
   });
 
@@ -188,9 +197,99 @@ describe("composeSpawnInput env layering", () => {
     const input = composeSpawnInput(
       { id: "T-fallback-shell" },
       info({ shell: "/bin/bash" }),
-      KAVAL_SOCK,
+      { kavalSocket: KAVAL_SOCK },
     );
     expect(input.argv[0]?.startsWith("/")).toBe(true);
+  });
+});
+
+describe("composeSpawnInput agent toolchain (PATH injection)", () => {
+  const TOOLS = "/nix/store/aaa-padi/bin";
+  const TOOLS2 = "/nix/store/bbb-kolu-agent-tools/bin";
+
+  // The dedupe case seeds process.env.PATH; restore it so the rest of the worker
+  // (and any sibling suite) keeps the PATH it was launched with.
+  let savedPath: string | undefined;
+  beforeEach(() => {
+    savedPath = process.env.PATH;
+  });
+  afterEach(() => {
+    restore("PATH", savedPath);
+  });
+
+  it("prepends the tool dirs to PATH so kolu's own CLIs resolve first", () => {
+    // The point of the whole feature: a terminal on a REMOTE host has no
+    // kaval-tui / padi-tui / kolu on its PATH (nothing is installed there — the
+    // closure is nix-copied per dial), so an agent inside it cannot drive its
+    // siblings or reach the MCP face. Prepending — not appending — is what makes
+    // the daemon's OWN build win a name collision with an older one the user
+    // happens to have installed.
+    const input = composeSpawnInput({ id: "T-tools" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+      toolsPath: [TOOLS, TOOLS2],
+    });
+    const entries = (input.env.PATH ?? "").split(":");
+    expect(entries[0]).toBe(TOOLS);
+    expect(entries[1]).toBe(TOOLS2);
+  });
+
+  it("keeps the user's own PATH — the toolchain merges, it does not replace", () => {
+    // This is the one env layer that must NOT stomp what came before: every
+    // command the user already had must still resolve, or we'd have "fixed" the
+    // agent's tooling by breaking the terminal.
+    const before = (
+      composeSpawnInput({ id: "T-before" }, info(), { kavalSocket: KAVAL_SOCK })
+        .env.PATH ?? ""
+    ).split(":");
+    const after = (
+      composeSpawnInput({ id: "T-after" }, info(), {
+        kavalSocket: KAVAL_SOCK,
+        toolsPath: [TOOLS],
+      }).env.PATH ?? ""
+    ).split(":");
+    for (const entry of before) expect(after).toContain(entry);
+  });
+
+  it("stamps KOLU_AGENT_TOOLS_PATH so the rcfile can re-assert after dotfile replay", () => {
+    // The env var is not decoration: the wrapper rcfile reads it to put the dirs
+    // back on PATH AFTER the user's ~/.bashrc runs, since an absolute
+    // `export PATH=…` there would otherwise silently drop them. Spawn env alone
+    // is not a guarantee — this pins the second half of the pair.
+    const input = composeSpawnInput({ id: "T-stamp" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+      toolsPath: [TOOLS, TOOLS2],
+    });
+    expect(input.env[AGENT_TOOLS_PATH_ENV]).toBe(`${TOOLS}:${TOOLS2}`);
+  });
+
+  it("does not duplicate a dir already on PATH (a re-spawn can't grow it)", () => {
+    // Terminals are durable and nest; without the dedupe every re-spawn or nested
+    // kolu would push another copy onto PATH forever.
+    process.env.PATH = `${TOOLS}:/usr/bin`;
+    const input = composeSpawnInput({ id: "T-dedupe" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+      toolsPath: [TOOLS],
+    });
+    const hits = (input.env.PATH ?? "")
+      .split(":")
+      .filter((e) => e === TOOLS).length;
+    expect(hits).toBe(1);
+  });
+
+  it("leaves PATH and the stamp untouched when no toolchain is baked (from-source)", () => {
+    // A `just dev` / e2e padi has no nix wrapper, so it has no toolchain to
+    // inject. That is explicit absence, not a default to guess at: the spawn env
+    // must be byte-identical to what it is today, never a partial/empty stamp.
+    const bare = composeSpawnInput({ id: "T-bare" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
+    const empty = composeSpawnInput({ id: "T-bare" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+      toolsPath: [],
+    });
+    expect(bare.env[AGENT_TOOLS_PATH_ENV]).toBeUndefined();
+    expect(empty.env[AGENT_TOOLS_PATH_ENV]).toBeUndefined();
+    expect(empty.env.PATH).toBe(bare.env.PATH);
   });
 });
 
@@ -201,7 +300,9 @@ describe("composeSpawnInput mirror scrollback (the OOM-fix decouple)", () => {
     // visible `DEFAULT_SCROLLBACK` — the conflated 50K mirror × unbounded live
     // terminals was the production V8-heap OOM (see kaval-heap-oom.mdx). Red
     // before the decouple (the input carried DEFAULT_SCROLLBACK).
-    const input = composeSpawnInput({ id: "T-mirror" }, info(), KAVAL_SOCK);
+    const input = composeSpawnInput({ id: "T-mirror" }, info(), {
+      kavalSocket: KAVAL_SOCK,
+    });
     expect(input.scrollback).toBe(DEFAULT_MIRROR_SCROLLBACK);
     expect(input.scrollback).toBeLessThan(CLIENT_VISIBLE_SCROLLBACK);
   });
