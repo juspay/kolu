@@ -53,16 +53,6 @@ Feature: Session restore
     And the active canvas tile should be centered in the viewport
     And there should be no page errors
 
-  Scenario: Active terminal persists across refresh
-    When I open the app
-    And I create a terminal
-    And I create a terminal
-    And I select terminal 2 in the workspace switcher
-    And I wait for the session auto-save
-    And I reload the page and wait for ready
-    Then workspace switcher entry 2 should be active
-    And there should be no page errors
-
   # Regression guard for the centering side of refresh persistence. The
   # production bug is a race: on cold load the canvas first-mount centring
   # effect (`TerminalCanvas.tsx:331`) fires on the initial `terminalList`

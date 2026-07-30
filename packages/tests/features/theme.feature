@@ -65,6 +65,7 @@ Feature: Theme switching
   # Regression: argmax-style picker ping-pongs between two themes when
   # the loop only sees the current bg as a peer (Theme A's farthest is
   # Theme B and vice versa). Shuffle must be random, not argmax.
+
   Scenario: Shuffle does not ping-pong between two themes
     When I press the shuffle theme shortcut 4 times
     Then the shuffle history should have at least 4 distinct themes
@@ -115,4 +116,3 @@ Feature: Theme switching
     # Entry 1 is the original terminal; it still carries its own Dracula.
     When I click dock row 1
     Then the header should show theme "Dracula"
-

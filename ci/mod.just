@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -193,6 +193,14 @@ e2e: install nix
     # and the two races corrupt the shared node_modules/.bin (vitest exit 126).
     # See the funnel rule at the top of this file and the `test` recipe comment.
     CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
+
+# Wave 0's non-browser guard: parse the real Gherkin suite, compare its
+# immutable inventory with every committed inventory reachable from HEAD, and
+# require a landed coverage-ledger row for every scenario revision that
+# disappeared. Runs on both platforms so the platform-specific default counts
+# stay executable facts.
+e2e-governance: install
+    {{ nix_shell }} just --no-deps test-e2e-governance
 
 # Run vitest unit tests — FORK-FREE (the daemon suites are gated OFF by default;
 # `describeDaemon` keys on KOLU_DAEMON_TESTS). Keeps ONE meaning: no real daemon fork.

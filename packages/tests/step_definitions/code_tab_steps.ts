@@ -1563,11 +1563,10 @@ function modeFixturePaths(mode: CodeTabMode): { work: string; origin: string } {
 }
 
 async function runShell(world: KoluWorld, cmd: string) {
-  // Reuse `KoluWorld.terminalRun` — same path as the `When I run "…"`
-  // step at terminal_steps.ts:30. The polymorphic mode-setup steps
-  // compose several of these in sequence so authors of new outlines
-  // don't have to interleave shell setup steps explicitly.
-  await world.terminalRun(cmd);
+  // The polymorphic fixtures compose commands whose filesystem effects must
+  // be ordered. Use the same completion-aware path as `When I run "…"` so a
+  // loaded runner cannot type the next Git command into the previous process.
+  await world.terminalRunAndWait(cmd);
   await world.waitForFrame();
 }
 
@@ -1620,13 +1619,6 @@ async function setupCodeTabFixture(
     // The marker is split across a shell string-concat (`SET""TLED`) so the
     // search text matches only the command's OUTPUT, never the typed echo.
     const seed = `${origin}-seed`;
-    await runShell(world, `git init --bare -b master ${origin}`);
-    await runShell(
-      world,
-      `(git init -b master ${seed} && cd ${seed} && ` +
-        `git remote add origin ${origin} && ` +
-        `git commit --allow-empty -m init && git push -u origin master)`,
-    );
     // Keep the marker shorter than the narrowest e2e terminal. The xterm
     // buffer inserts a newline at a wrapped cell boundary, so embedding the
     // full worktree path made a successful marker unreadable as one string
@@ -1634,9 +1626,12 @@ async function setupCodeTabFixture(
     const token = String(MODE_TMP_COUNTER.n);
     const settledMarker = `KOLU_SETTLED_${token}`;
     const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
-    await runShell(
-      world,
-      `(git clone ${origin} ${work} && cd ${work} && ` +
+    await world.terminalRun(
+      `(git init --bare -b master ${origin} && ` +
+        `(git init -b master ${seed} && cd ${seed} && ` +
+        `git remote add origin ${origin} && ` +
+        `git commit --allow-empty -m init && git push -u origin master) && ` +
+        `git clone ${origin} ${work} && cd ${work} && ` +
         `git checkout -b feature && ${writeFiles} && git add . && ` +
         `git rev-parse --verify origin/master >/dev/null 2>&1) ` +
         `&& cd ${work}; kolu_fixture_status=$?; ` +
@@ -1644,6 +1639,7 @@ async function setupCodeTabFixture(
         `echo "KOLU_SET""TLED_${token}"; else ` +
         `echo "KOLU_FIX""TURE_FAILED_${token}:$kolu_fixture_status"; false; fi`,
     );
+    await world.waitForFrame();
     const outcome = await Promise.race([
       waitForBufferContains(world.page, settledMarker).then(() => ({
         kind: "settled" as const,
@@ -1657,8 +1653,9 @@ async function setupCodeTabFixture(
       const failure = outcome.buffer
         .split("\n")
         .find((line) => line.includes(failedMarker));
+      const tail = outcome.buffer.split("\n").slice(-20).join("\n");
       throw new Error(
-        `branch fixture setup failed: ${failure?.trim() ?? failedMarker}`,
+        `branch fixture setup failed: ${failure?.trim() ?? failedMarker}\n${tail}`,
       );
     }
   } else if (mode === "browse") {
@@ -1875,6 +1872,26 @@ Then(
       this,
       `${dirRow(path)}[data-item-contains-git-change="true"]`,
     );
+  },
+);
+
+Then(
+  "the Code tab directory {string} should be marked as containing a change while nudging file {string}",
+  async function (this: KoluWorld, path: string, filePath: string) {
+    const marked = this.page
+      .locator(`${dirRow(path)}[data-item-contains-git-change="true"]`)
+      .first();
+    await pollFor({
+      observe: () => marked.isVisible().catch(() => false),
+      isDone: (visible) => visible,
+      onTick: () => nudgeFiles([filePath]),
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `Directory "${path}" was not marked as containing a change within ${elapsedMs}ms while nudging ${filePath}`,
+        ),
+      intervalMs: 500,
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
   },
 );
 

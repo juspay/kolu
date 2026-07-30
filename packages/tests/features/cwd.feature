@@ -7,11 +7,6 @@ Feature: Header CWD display
     When I press the toggle inspector shortcut
     Then the right panel should be visible
 
-  Scenario: Header shows CWD after cd
-    When I run "cd /tmp"
-    Then the header CWD should show "/tmp"
-    And there should be no page errors
-
   Scenario: Header CWD updates on subsequent cd
     When I run "cd /tmp"
     Then the header CWD should show "/tmp"

@@ -36,6 +36,17 @@ describe("projectFileTreeSearch", () => {
     });
   });
 
+  it("prunes non-matching directory branches from the projected tree", () => {
+    expect(projectFileTreeSearch(paths, "packages client")).toEqual({
+      projectedPaths: ["packages/client/src/index.tsx"],
+      expandedAncestors: [
+        "packages/",
+        "packages/client/",
+        "packages/client/src/",
+      ],
+    });
+  });
+
   it("normalizes backslashes and case", () => {
     expect(projectFileTreeSearch(paths, "COMMON\\src button")).toEqual({
       projectedPaths: ["common/src/Button.tsx"],

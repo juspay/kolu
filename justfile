@@ -176,6 +176,12 @@ client:
 test-unit: install
     {{ nix_shell }} pnpm test:unit
 
+# Enforce the append-only E2E scenario inventory and coverage ledger. This is
+# deliberately separate from test-unit: it reads every committed inventory
+# reachable from HEAD to prove old records were not edited or removed later.
+test-e2e-governance: install
+    cd packages/tests && {{ nix_shell }} pnpm test:governance
+
 # CI/pu-ONLY: the daemon-forking unit suites (KOLU_DAEMON_TESTS=1). These fork real
 # kaval/padi daemons + PTYs; a bare run on a workstation OOM-reaped the production
 # kaval (juspay/kolu#1375). NEVER run this on a machine hosting a live kolu — it
@@ -359,9 +365,7 @@ test-quick *args: install
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
-        {{ nix_shell_e2e }} node --import tsx \
-        ./node_modules/@cucumber/cucumber/bin/cucumber-js \
-        --profile ui {{ args }}
+        {{ nix_shell_e2e }} pnpm test {{ args }}
 
 # Dev-mode smoke: boot `just dev` on random ports, load Kolu in a real browser,
 # fail on any console error. The ONLY check that exercises the DEV module graph
