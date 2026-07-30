@@ -199,11 +199,10 @@ const Terminal: Component<{
     return false;
   };
 
-  /** Resize the server-side PTY so node-pty matches the xterm grid. Driven by
-   *  <Xterm>'s onResize (term.onResize + the post-fit initial publish). */
+  /** Resize the server-side PTY so node-pty matches the xterm grid. Driven off
+   *  `XtermHandle.grid` — the one door a measured grid leaves the kit through. */
   async function publishDimensions(size: { cols: number; rows: number }) {
     const { cols, rows } = size;
-    if (cols <= 0 || rows <= 0) return;
     // A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint no
     // longer needs suppressing here: kaval excludes resize repaints from its
     // meaningful-output edge at the source, so the live dot (mirrored off padi's
@@ -214,8 +213,20 @@ const Terminal: Component<{
         cols,
         rows,
       });
-    } catch {
-      // Terminal may have been killed mid-resize
+    } catch (err) {
+      // A killed terminal is the one EXPECTED loss here (the tile tears down via
+      // terminalExit), and it is not worth a toast. Anything else means this
+      // pane's size claim did NOT land — and since `reassertGrid` below rides
+      // this same channel as the ONLY repair for a replayed stale grid, letting
+      // it fall into a bare `catch {}` would leave the user with exactly the
+      // stuck garbled screen this path exists to prevent, with no trace to find
+      // it by. So it surfaces (see `.agency/code-police.md` →
+      // caught-error-must-not-collapse-to-empty) rather than collapsing to a
+      // no-op.
+      console.warn(
+        `terminal ${props.terminalId}: resize to ${cols}x${rows} did not land`,
+        err,
+      );
     }
   }
 
@@ -281,6 +292,13 @@ const Terminal: Component<{
     disposeDiagnostics = registerDiagnostics(props.terminalId, {
       xterm: term,
       renderer: () => (h.webgl.hasWebgl() ? "webgl" : "dom"),
+      // The gate on ALL bytes. `cols`/`rows` above are read off xterm, which
+      // reports its invented 80×24 for a pane that has never measured its own
+      // box — so without this the dialog cannot tell "waiting to be measured,
+      // no attach stream open" from "attached and quiet". On screen the two are
+      // identical (a blank terminal), which is why the fact has to be named
+      // somewhere the code can see it.
+      measured: () => h.grid() !== null,
       scrollLock: {
         locked: h.scrollLock.isLocked,
         pendingChunks: h.scrollLock.pendingChunks,
@@ -433,12 +451,22 @@ const Terminal: Component<{
     // frames after the fact — is what makes the bad state unrepresentable,
     // because the grid is also what we ASK for the snapshot AT (below), and a
     // request can't carry a size we haven't measured.
-    let attachOpened = false;
-    createEffect(() => {
-      if (!h.grid() || attachOpened) return;
-      attachOpened = true;
-      openAttachStream();
-    });
+    //
+    // The latch is the kit's (`onceMeasured`), not a local boolean: it owns the
+    // measurement hazard, so "wait for a real grid" is one call here rather than
+    // a re-derivation of the rule beside the rule.
+    h.onceMeasured(() => openAttachStream());
+
+    // The ONE publisher of this pane's grid → the PTY. `grid` is value-compared
+    // inside the kit, so this fires exactly once per REAL grid change — the
+    // initial fit included — and never for a re-fit that measured nothing new.
+    // Driving it from the signal rather than a second `onResize` callback door
+    // means "who states this pane's size" has a single answer.
+    createEffect(
+      on(h.grid, (measured) => {
+        if (measured) void publishDimensions(measured);
+      }),
+    );
 
     /** Re-state this pane's own grid to the host. `lifecycle.resize` is the one
      *  authoritative channel for a live size change, and this pane is the sole
@@ -469,15 +497,23 @@ const Terminal: Component<{
           // it and picks up a fresh grid. The replay is what `reassertGrid`
           // below exists for.
           //
-          // Absent is unreachable — the effect above opens the stream only once
-          // a grid exists, and a measured grid is never un-measured — so it
-          // fails loud rather than silently falling back to the host's own idea
-          // of the size, which is the very defect this gate closes.
+          // Absent is unreachable — `onceMeasured` opens the stream only once a
+          // grid exists, and a measured grid is never un-measured.
+          //
+          // A bare `throw` here would NOT fail loud: this thunk's throws are
+          // caught by `consumeReattachingStream`, classified as an abnormal end,
+          // console.warn'd and retried every 300ms — and each retry runs
+          // `resetForFreshSnapshot`, which WIPES the user's screen. So the
+          // assertion aborts the stream FIRST: the outer `while (!signal.aborted)`
+          // then exits after one pass, and the breach surfaces where a user can
+          // see it instead of turning into a blank pane blinking 3×/second.
           const measured = h.grid();
-          if (!measured)
-            throw new Error(
-              `terminal ${props.terminalId}: attach opened without a measured grid`,
-            );
+          if (!measured) {
+            const msg = `terminal ${props.terminalId}: attach opened without a measured grid`;
+            toast.error(msg);
+            streamAbort?.abort();
+            throw new Error(msg);
+          }
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
             { id: props.terminalId, grid: measured },
@@ -814,7 +850,6 @@ const Terminal: Component<{
             data: applyStickyModifiers(data),
           });
         }}
-        onResize={(size) => void publishDimensions(size)}
         onReady={onReady}
         onTap={onTap}
         // Injected web-link seam — loopback URLs raise the join card; ⌘-click

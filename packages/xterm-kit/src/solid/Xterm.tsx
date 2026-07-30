@@ -21,6 +21,7 @@ import {
   type Accessor,
   type Component,
   createEffect,
+  createMemo,
   createSignal,
   type JSX,
   on,
@@ -48,6 +49,12 @@ export interface TerminalGrid {
   rows: number;
 }
 
+/** `@xterm/addon-fit`'s own clamp floor (`MINIMUM_COLS` / `MINIMUM_ROWS`).
+ *  `proposeDimensions()` never returns anything below it, so a proposal AT the
+ *  floor carries no information about the box — see `applyFit`. */
+const FIT_ADDON_MIN_COLS = 2;
+const FIT_ADDON_MIN_ROWS = 1;
+
 /** What `<Xterm onReady>` hands the consumer — the live terminal plus every
  *  mechanism it wires policy against, all inside the component's reactive owner. */
 export interface XtermHandle {
@@ -64,7 +71,7 @@ export interface XtermHandle {
   /** Debounced fit — one call per animation frame (ResizeObserver fires fast). */
   refit: () => void;
   /** The grid this pane has actually MEASURED against its own box — `null`
-   *  until it has one.
+   *  until it has one, and the ONE door this fact leaves the kit through.
    *
    *  Read this before doing anything that depends on the grid being REAL.
    *  `terminal.cols/rows` is never null: an unmeasured xterm reports the 80×24
@@ -72,8 +79,19 @@ export interface XtermHandle {
    *  never be measured, so it keeps reporting that invented grid indefinitely.
    *  Rendering host-serialized bytes against it paints a screen laid out for a
    *  width the terminal does not have. Gating on `grid()` makes that
-   *  unrepresentable: no grid, no bytes. */
+   *  unrepresentable: no grid, no bytes.
+   *
+   *  Compared by value, so it notifies once per REAL grid change and never for
+   *  a re-fit that measured nothing new — which is what lets a consumer drive
+   *  its PTY-resize publish straight off this signal. */
   grid: Accessor<TerminalGrid | null>;
+  /** Run `fn` ONCE, with the first genuinely measured grid — immediately if one
+   *  already exists, otherwise the moment the box first measures.
+   *
+   *  The kit owns this latch so no consumer re-derives "no grid, no bytes" by
+   *  hand out of `grid()` plus a mutable boolean. Call it from `onReady` (it
+   *  registers a reactive computation in the caller's owner). */
+  onceMeasured: (fn: (grid: TerminalGrid) => void) => void;
 }
 
 interface XtermOwnProps {
@@ -81,7 +99,11 @@ interface XtermOwnProps {
   theme: ITheme;
   /** Live refit + atlas clear. */
   fontSize: number;
-  /** Fit gate — a hidden pane can't be measured, so it waits at xterm's 80×24. */
+  /** Reveal gate — scroll-lock reset + scroll-to-bottom + refit on show, and
+   *  the render-recovery gate. NOT the fit gate: whether this pane can be
+   *  measured is read off its own box inside `applyFit`, so a `visible` that
+   *  disagrees with the layout (a `true` pane under a `display:none` ancestor)
+   *  can no longer decide it. */
   visible: boolean;
   /** Renderer gate — an accessor, never a snapshot: WHICH panes hold a GPU
    *  context is the consumer's budget policy. */
@@ -98,8 +120,6 @@ interface XtermOwnProps {
   >;
   /** Keystrokes out (query-response filtering / sticky modifiers are policy). */
   onData: (data: string) => void;
-  /** Grid → PTY. Only ever called with a MEASURED grid (see `XtermHandle.grid`). */
-  onResize: (size: TerminalGrid) => void;
   /** The live handle, inside the reactive owner — wire policy here. */
   onReady: (handle: XtermHandle) => void;
   /** Touch tap resolver: return true if the tap was consumed (e.g. a ref was
@@ -123,7 +143,6 @@ const OWN_KEYS = [
   "fontFamily",
   "terminalOptions",
   "onData",
-  "onResize",
   "onReady",
   "onTap",
   "webglHooks",
@@ -131,9 +150,10 @@ const OWN_KEYS = [
 ] as const satisfies readonly (keyof XtermOwnProps)[];
 
 export const Xterm: Component<
-  // Omit the HTML attributes the component's own props shadow (e.g. the DOM
-  // `onResize` UIEvent handler), so the typed grid-resize prop wins instead of
-  // intersecting into an unusable handler; everything else spreads onto the div.
+  // Omit any HTML attribute the component's own props shadow, so the kit's typed
+  // prop wins instead of intersecting into an unusable handler; everything else
+  // (including the DOM `onResize` UIEvent handler, which the kit no longer
+  // shadows) spreads onto the div.
   XtermOwnProps & Omit<JSX.HTMLAttributes<HTMLDivElement>, keyof XtermOwnProps>
 > = (props) => {
   const [own, rest] = splitProps(props, OWN_KEYS);
@@ -148,27 +168,42 @@ export const Xterm: Component<
   });
 
   /** Fit to the container's current box, and record the grid IF one could be
-   *  measured.
+   *  genuinely measured.
    *
-   *  The gate is the BOX, not the addon's proposal. `proposeDimensions()`
-   *  returns undefined only when there is no renderer/element at all; for a
-   *  present-but-degenerate box it still returns a grid, because the addon
-   *  CLAMPS its answer to its own 2×1 floor. Trusting that answer would publish
-   *  a 2×1 as a genuine measurement — a fabricated grid, which is precisely what
-   *  `grid()` promises never to contain — and the attach it unblocks would size
-   *  a real PTY to 2×1. So require a non-degenerate box first, and treat the
-   *  proposal as advisory. (`fit()` no-ops on an unmeasurable box too; asking
-   *  separately is what lets us tell "measured" from "declined to measure",
-   *  which `fit()`'s void return cannot.) */
+   *  Two ways the addon answers without measuring anything, and BOTH are
+   *  declined here — a fabricated grid is precisely what `grid()` promises never
+   *  to contain, and since the attach now carries the grid and the host performs
+   *  a real resize, publishing a fabrication would SIGWINCH a live PTY to it.
+   *
+   *  ① No box at all. Gated on `clientWidth/clientHeight`, NOT
+   *  `getBoundingClientRect()`: the addon reads the LAYOUT box off
+   *  `getComputedStyle(parentElement)`, which CSS transforms do not scale, while
+   *  the bounding rect is the VISUAL box, which they do. kolu's canvas tiles
+   *  render under a transform, so the two are different facts — gating the
+   *  addon's decision on a quantity the addon never reads lets the guard and the
+   *  measurement disagree.
+   *
+   *  ② A present-but-degenerate box (a split dragged nearly closed, a panel
+   *  mid-collapse, a tile mid-layout-transition). `proposeDimensions()` returns
+   *  undefined only when there is no renderer/element at all; for a sliver box
+   *  it still returns a grid, because the addon CLAMPS its answer up to its own
+   *  {@link FIT_ADDON_MIN_COLS}×{@link FIT_ADDON_MIN_ROWS} floor. A clamped
+   *  answer is the addon's floor, not a measurement, so it is refused in the
+   *  same class as a 0×0 box.
+   *
+   *  (`fit()` no-ops on an unmeasurable box too; asking separately is what lets
+   *  us tell "measured" from "declined to measure", which `fit()`'s void return
+   *  cannot.) */
   const applyFit = () => {
     if (!core) return;
-    const box = container.getBoundingClientRect();
-    if (box.width <= 0 || box.height <= 0) return;
+    if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
     const proposed = core.addons.fit.proposeDimensions();
     if (
       !proposed ||
       !Number.isFinite(proposed.cols) ||
-      !Number.isFinite(proposed.rows)
+      !Number.isFinite(proposed.rows) ||
+      proposed.cols <= FIT_ADDON_MIN_COLS ||
+      proposed.rows <= FIT_ADDON_MIN_ROWS
     )
       return;
     core.addons.fit.fit();
@@ -181,6 +216,19 @@ export const Xterm: Component<
   const refit = () => {
     cancelAnimationFrame(fitRaf);
     fitRaf = requestAnimationFrame(applyFit);
+  };
+
+  // See `XtermHandle.onceMeasured`. The one-shot-ness is latched in the DATA,
+  // not in a mutable boolean the reader has to correlate with the effect body:
+  // once the memo holds a grid it returns that same object by reference, so it
+  // never notifies again.
+  const onceMeasured = (fn: (measured: TerminalGrid) => void) => {
+    const first = createMemo<TerminalGrid | null>((prev) => prev ?? grid());
+    createEffect(
+      on(first, (measured) => {
+        if (measured) fn(measured);
+      }),
+    );
   };
 
   // The constructed core (terminal + addons), built asynchronously and read by
@@ -260,16 +308,10 @@ export const Xterm: Component<
 
       // Keystrokes out — the consumer's callback owns any filtering/rewriting.
       term.onData(own.onData);
-      // Grid → PTY. Attach BEFORE the initial fit so the first sizing publishes
-      // through the same path as every later resize.
-      term.onResize(own.onResize);
-      createResizeObserver(
-        () => container,
-        () => {
-          // display:none triggers a 0×0 resize; skip fitting when hidden.
-          if (own.visible) refit();
-        },
-      );
+      // No `own.visible` gate: `applyFit` already declines an unmeasurable box
+      // (display:none reports a 0 client box), so a second, weaker predicate
+      // for the same question could only ever disagree with the real one.
+      createResizeObserver(() => container, refit);
 
       const handle: XtermHandle = {
         terminal: term,
@@ -281,19 +323,17 @@ export const Xterm: Component<
         recovery,
         refit,
         grid,
+        onceMeasured,
       };
-      // Initial fit BEFORE onReady, so the grid → PTY publish happens before the
-      // consumer's onReady wires anything that reads the grid. A hidden pane
-      // measures NOTHING here and `grid()` stays null — which is the point: the
-      // consumer then has no grid to attach against and waits, instead of
-      // attaching at the invented 80×24.
-      // onResize is already wired above; if xterm's default grid already matched
-      // the fit target, onResize won't fire, so publish the measured grid here.
-      if (own.visible) {
-        applyFit();
-        const measured = grid();
-        if (measured) own.onResize(measured);
-      }
+      // Initial fit BEFORE onReady, so `grid` already carries this pane's real
+      // measurement by the time the consumer wires policy against it. A hidden
+      // pane measures NOTHING here and `grid()` stays null — which is the point:
+      // the consumer then has no grid to attach against and waits, instead of
+      // attaching at the invented 80×24. Nothing is published imperatively: the
+      // grid signal is the one door this fact leaves through, so the consumer's
+      // own effect over `grid` covers the initial sizing and every later one
+      // with no ordering to get right.
+      applyFit();
 
       own.onReady(handle);
     },
