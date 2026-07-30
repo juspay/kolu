@@ -151,6 +151,33 @@ describeDaemon("acquirePidGate", () => {
     expect(liveHolder(path)).toBe(process.pid);
   });
 
+  it("unreadable gate (mode 000) throws — never unlinks (A1-1 three-way law)", () => {
+    // Auditor executed probe: mode-000 → unreadable → old code acquired over a
+    // live holder. Unreadable is not free and not stale — throw, leave file.
+    const path = gateIn();
+    const holderPid = liveChild();
+    const holder = identities.get(holderPid)!;
+    writeFileSync(path, `${holder.pid}\t${holder.startUnixUs}\n`);
+    chmodSync(path, 0o000);
+    try {
+      expect(() => acquirePidGate(path, SELF, readIdentity)).toThrow(
+        /unreadable/,
+      );
+      // Gate file still present (never unlinked).
+      chmodSync(path, 0o600);
+      expect(existsSync(path)).toBe(true);
+      expect(readFileSync(path, "utf8").trim()).toBe(
+        `${holder.pid}\t${holder.startUnixUs}`,
+      );
+    } finally {
+      try {
+        chmodSync(path, 0o600);
+      } catch {
+        // best-effort restore for tmp cleanup
+      }
+    }
+  });
+
   it("refuses (dir-not-private) when the gate dir is group/other-accessible", () => {
     const path = gateIn();
     const dir = dirname(path);

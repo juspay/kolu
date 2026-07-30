@@ -116,6 +116,7 @@ export {
   START_TIME_TOLERANCE_US,
   startTimesMatch,
   socketServeState,
+  throwIfGateUnreadable,
 } from "./pidGate.ts";
 export type { SharedArtifact } from "./sharedArtifact.ts";
 export { daemonProcessMain } from "./tenure.ts";

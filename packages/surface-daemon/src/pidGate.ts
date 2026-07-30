@@ -153,22 +153,42 @@ export function readGateIdentity(gatePath: string): GateIdentityRead {
   return { kind: "ok", pid };
 }
 
-/** Full two-field identity when present; `undefined` for absent / unreadable /
- * one-field / malformed. Ownership checks that need start time use this;
- * recycle kill targets that only need the pid use {@link gatePid}. */
+/**
+ * Three-way law for gate-read outcomes (A1-1 / P4 — exhaustive, no default):
+ *   - `absent`     → free (honest: no gate)
+ *   - `malformed`  → reap (honest: garbage content)
+ *   - `unreadable` → THROW (EACCES/EIO is not an observation — never unlink)
+ */
+export function throwIfGateUnreadable(
+  read: GateIdentityRead,
+  gatePath: string,
+): void {
+  if (read.kind === "unreadable") {
+    throw new Error(
+      `gate file unreadable at ${gatePath} — refusing to treat as free or stale (EACCES/EIO is not an observation)`,
+    );
+  }
+}
+
+/** Full two-field identity when present; `undefined` for absent / one-field /
+ * malformed. **Unreadable throws** (three-way law). Ownership checks that need
+ * start time use this; recycle kill targets that only need the pid use
+ * {@link gatePid}. */
 export function gateIdentity(gatePath: string): ProcessIdentity | undefined {
   const read = readGateIdentity(gatePath);
+  throwIfGateUnreadable(read, gatePath);
   if (read.kind !== "ok" || read.startUnixUs === undefined) return undefined;
   return { pid: read.pid, startUnixUs: read.startUnixUs };
 }
 
-/** The gate's raw pid, or `undefined` if the file is absent, unreadable, or
- * the first token is not a positive integer. Does NOT check liveness. This is
- * the frozen rollback contract: a two-field write must still yield the pid to
- * a legacy `parseInt`-style reader, and our reader must yield the pid of a
- * one-field legacy gate (the #2011 fix). */
+/** The gate's raw pid, or `undefined` if the file is absent or the first token
+ * is not a positive integer (malformed). **Unreadable throws** (three-way law).
+ * Does NOT check liveness. Frozen rollback contract: a two-field write must
+ * still yield the pid to a legacy `parseInt`-style reader, and our reader must
+ * yield the pid of a one-field legacy gate (the #2011 fix). */
 export function gatePid(gatePath: string): number | undefined {
   const read = readGateIdentity(gatePath);
+  throwIfGateUnreadable(read, gatePath);
   return read.kind === "ok" ? read.pid : undefined;
 }
 
@@ -191,17 +211,38 @@ export function identitiesMatch(
  * second opinion that can race a rewrite. {@link liveHolderPid} is the
  * path-based convenience that reads once then delegates here.
  *
- * - **Two-field:** compare with the injected identity reader (±2 s). Match →
+ * Three-way law on the read outcome (exhaustive — no collapse of unreadable):
+ *   - `ok`         → identity / kill-0 check below
+ *   - `absent`     → free (`undefined`)
+ *   - `malformed`  → reap (`undefined` — caller may unlink)
+ *   - `unreadable` → THROW (never free, never reap)
+ *
+ * - **Two-field ok:** compare with the injected identity reader (±2 s). Match →
  *   the holder's pid; mismatch / dead → `undefined` (reap).
- * - **One-field:** start time unknown — fall back to `kill(0)` only (cannot
+ * - **One-field ok:** start time unknown — fall back to `kill(0)` only (cannot
  *   prove pid-reuse). Status quo for old gates; not a weaker default for new
  *   ones.
  */
 export function liveHolderFromRecord(
   read: GateIdentityRead,
   readProcessIdentity: ReadProcessIdentity,
+  gatePathForError?: string,
 ): number | undefined {
-  if (read.kind !== "ok") return undefined;
+  switch (read.kind) {
+    case "ok":
+      break;
+    case "absent":
+    case "malformed":
+      return undefined;
+    case "unreadable":
+      throw new Error(
+        `gate file unreadable${gatePathForError !== undefined ? ` at ${gatePathForError}` : ""} — refusing to treat as free or stale (EACCES/EIO is not an observation)`,
+      );
+    default: {
+      const _exhaustive: never = read;
+      throw new Error(`unreachable gate read: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
 
   if (read.startUnixUs !== undefined) {
     const current = readProcessIdentity(read.pid);
@@ -219,13 +260,17 @@ export function liveHolderFromRecord(
 
 /**
  * Is the gate's recorded holder still the live process it names?
- * Reads the gate once, then {@link liveHolderFromRecord}.
+ * Reads the gate once, then {@link liveHolderFromRecord}. Unreadable throws.
  */
 export function liveHolderPid(
   gatePath: string,
   readProcessIdentity: ReadProcessIdentity,
 ): number | undefined {
-  return liveHolderFromRecord(readGateIdentity(gatePath), readProcessIdentity);
+  return liveHolderFromRecord(
+    readGateIdentity(gatePath),
+    readProcessIdentity,
+    gatePath,
+  );
 }
 
 /** Take the gate for *this* process, atomically. Returns `acquired` (with a
@@ -436,9 +481,9 @@ export async function confirmHeldGate(
   readProcessIdentity: ReadProcessIdentity,
 ): Promise<GateAcquisition> {
   // ONE observation: identity may rewrite the gate during resolve; do not
-  // re-read for generation (R3-1).
+  // re-read for generation (R3-1). Unreadable throws (A1-1 three-way law).
   const recorded = readGateIdentity(gatePath);
-  const live = liveHolderFromRecord(recorded, readProcessIdentity);
+  const live = liveHolderFromRecord(recorded, readProcessIdentity, gatePath);
   if (live === undefined) {
     try {
       unlinkSync(gatePath);

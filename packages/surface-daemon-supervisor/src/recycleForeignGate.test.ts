@@ -619,6 +619,70 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     }
   });
 
+  it("unreadable gate (mode 000) throws at ensure — never spawns (A1-1)", async () => {
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivorPid = d.process.pid;
+    writeFileSync(
+      d.gatePath,
+      `${survivorPid}\t${testStartUnixUs(survivorPid)}\n`,
+    );
+    const { chmodSync } = await import("node:fs");
+    chmodSync(d.gatePath, 0o000);
+
+    let spawned = false;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpointCore<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      readProcessIdentity: testReadProcessIdentity,
+      driver: {
+        spawn: async () => {
+          spawned = true;
+          throw new Error("spawn must not run on unreadable gate");
+        },
+      },
+      connect: async () => {
+        throw new Error("connect must not run on unreadable gate");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    try {
+      await expect(
+        recycle(endpoint, destructiveRecycleSteps()),
+      ).rejects.toThrow(/unreadable/);
+      expect(spawned).toBe(false);
+      expect(isHolderLive(survivorPid)).toBe(true);
+      expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
+    } finally {
+      try {
+        chmodSync(d.gatePath, 0o600);
+      } catch {
+        // restore for fixture dispose
+      }
+    }
+  });
+
   it("non-ENOENT socket lstat rejection emits connecting→dead (R4-2)", async () => {
     if (process.platform !== "linux") return;
     // One-field live holder + ENOTDIR socket path → probe rejects, status must

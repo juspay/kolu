@@ -644,8 +644,25 @@ export function createEndpoint<
   }): Promise<number | undefined> => {
     // One gate read + one identity resolve — never reassemble pid from a
     // second file read that can race a rewrite (fact-check: wrong SIGTERM).
+    // Three-way law (A1-1): absent/malformed → no holder; unreadable → THROW.
     const recorded = readGateIdentity(rv.gatePath);
-    if (recorded.kind !== "ok") return undefined;
+    switch (recorded.kind) {
+      case "ok":
+        break;
+      case "absent":
+      case "malformed":
+        return undefined;
+      case "unreadable":
+        throw new Error(
+          `gate file unreadable at ${rv.gatePath} — refusing to treat as free or stale (EACCES/EIO is not an observation)`,
+        );
+      default: {
+        const _exhaustive: never = recorded;
+        throw new Error(
+          `unreachable gate read: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
+    }
 
     if (recorded.startUnixUs !== undefined) {
       const current = await Promise.resolve(
