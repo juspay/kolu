@@ -147,9 +147,20 @@ const epServers: Server[] = [];
  * (second spawn delays). No forged binds (F12). The held client's killAll
  * publishes terminals:dirty so the drain arms autosave.
  *
- * No live gate pid is written: ensure always takes the free→spawn path, so
- * recycle never SIGTERMs this vitest process, and no sleep child is needed
- * (daemon-test-gate hygiene).
+ * No live gate pid is written, so recycle never SIGTERMs this vitest process and
+ * no sleep child is needed (daemon-test-gate hygiene). What makes `ensure` take
+ * the free→spawn path is the DRAIN: `killAll` closes the fake daemon's listener,
+ * exactly as a reaped daemon's socket stops accepting. Without that, the socket
+ * is still serving a compatible gate-less daemon when the recovery looks, and
+ * the recovery ADOPTS it (correctly — that is SQUAT1's PTY-preserving arm), so
+ * no second spawn happens and the drain→park window collapses to a few ms.
+ *
+ * That used to work by accident: the holder was this very vitest process, and
+ * the recovery excluded its own pid before identifying anyone, so an in-process
+ * serve looked like an unheld socket and short-circuited to `free`. OSF4 moved
+ * that self-exclusion to the kill decision where it belongs, which turned the
+ * accident into an adoption — so the fake now has to model the daemon actually
+ * going away, which is what the real one does.
  */
 async function realEndpoint(recycleMs: number) {
   const dir = mkdtempSync(join(tmpdir(), "restart-local-ep-"));
@@ -187,6 +198,24 @@ async function realEndpoint(recycleMs: number) {
         killAll: async () => {
           // The PTYs die with the daemon → a genuine dirty arms the autosave.
           terminalsDirtyChannel.publish({});
+          // …and the daemon goes with them: its listener stops accepting, so
+          // the recycle's `ensure` finds a genuinely free rendezvous and spawns
+          // (the window this whole fixture exists to open). A real recycle gets
+          // this from reaping the gate holder; this fake writes no gate, so it
+          // closes the socket itself rather than relying on the recovery to
+          // mistake an in-process serve for a free socket.
+          for (const s of epServers.splice(0)) {
+            try {
+              s.close();
+            } catch {
+              // already closed
+            }
+          }
+          try {
+            rmSync(socketPath, { force: true });
+          } catch {
+            // absent
+          }
           return { killed: 2 };
         },
       },
