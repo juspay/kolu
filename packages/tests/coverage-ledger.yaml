@@ -1978,8 +1978,21 @@ retirements:
     defectSurface: [session-restore, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-b074b311b7b021ea8293]
+    survivorRevisionIds: [revision-5706294068f00c45d3da]
     sameCodePathEvidence:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario: A split terminal's agent resumes on session restore"
       test: The revised scenario drops the tile-chrome indicator gate (split agents do not paint the main titlebar) and keeps the restore+resume-invocation payoff.
+  - id: revise-b074b311b7b021ea8293
+    revisionId: revision-b074b311b7b021ea8293
+    action: revised
+    status: landed
+    promise: A split terminal's agent resumes on session restore
+    defectSurface: [session-restore, user-journey, test-timing-race]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-5706294068f00c45d3da]
+    sameCodePathEvidence:
+      file: packages/tests/features/session-restore.feature
+      symbol: "Scenario: A split terminal's agent resumes on session restore"
+      test: Same restore+resume-invocation payoff; only the arrangement changed — the fixed 800 ms auto-save sleep (which had to cover BOTH agent detection and the 500 ms save debounce, and did not on aarch64-darwin) is replaced by a wait on padi's persisted session actually listing the split as resumable, counted with padi's own resumableTerminalIds fold.

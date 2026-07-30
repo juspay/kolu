@@ -94,14 +94,19 @@ Feature: Session restore
   @codex-mock @kaval-restart
   Scenario: A split terminal's agent resumes on session restore
     # Agent is mocked in the focused SPLIT (create-sub focuses it). Tile
-    # titlebar chrome only paints the main pane's agent, so we do not assert
-    # tile chrome here — the restore payoff is the by-id resume invocation
-    # landing in a restored PTY (same assertion as sleeping-terminals.feature).
+    # titlebar chrome only paints the main pane's agent, and a split's agent
+    # reaches NO client chrome at all, so the tile-chrome gate every other
+    # codex scenario uses cannot stand in here — the saved session itself is
+    # the gate. It has to be: `restoreTarget: exact` (what makes the split
+    # resumable) exists only once padi has OBSERVED the agent, and the
+    # 500 ms-debounced autosave then persists whatever the fold holds. Kill
+    # kaval before both have happened and the frozen blob offers
+    # "Restore 2 terminals" with no agent to resume, for as long as you poll.
     Given the terminal is ready
     When I create a sub-terminal via command palette
     And a Codex session is mocked with state "waiting"
-    When I wait for the session auto-save
-    And the kaval daemon is killed
+    Then the saved session should list 1 resumable agents
+    When the kaval daemon is killed
     Then the degraded canvas is shown
     When I restart kaval from the degraded canvas
     Then the daemon returns to running
