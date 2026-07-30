@@ -754,6 +754,11 @@ const E2E_SERVER_ENV_KEYS = [
   "KOLU_TEST_VERBOSE",
   // Which kaval the server spawns (nix-built vs from-source) — the spawn-deciding var.
   "KOLU_KAVAL_BIN",
+  // Required process-identity sampler baked into both the packaged wrapper and
+  // the dev shell. `test-quick` starts the server from source, so there is no
+  // wrapper to restore it after this harness deliberately narrows the ambient
+  // environment.
+  "KOLU_OSFACTS_BIN",
   "KOLU_COMMIT_HASH",
   "TZ",
   "TERMINFO",
