@@ -190,6 +190,9 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           id: d.id,
           cols: d.cols,
           rows: d.rows,
+          // false ⇒ cols/rows are xterm's invented 80×24 and NO attach stream
+          // has opened for this pane (see TerminalDiagnostics.measured).
+          measured: d.measured,
           renderer: d.renderer,
           bufferLen,
           scrollback: bufferLen !== null ? bufferLen - d.rows : null,

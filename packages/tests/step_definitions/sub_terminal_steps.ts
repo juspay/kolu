@@ -11,6 +11,26 @@ import {
 
 const PALETTE = '[data-testid="command-palette"]';
 
+/** The visible split — the pane a user is actually looking at. */
+const VISIBLE_SUB = "[data-sub-terminal][data-visible]";
+
+/** Payload for the hidden-split render scenario: 40 lines of ~95 columns.
+ *  Wider than xterm's fabricated 80-column default on purpose — a snapshot the
+ *  host serialized at the REAL grid, painted into that invented grid, wraps
+ *  every line and leaves the viewport pointing at the wrong rows.
+ *
+ *  The trailing marker is shell-QUOTED here so the shell's own echo of this
+ *  command line reads `SPLIT-"BOTTOM"-MARK` and can never satisfy an assertion
+ *  looking for the unquoted `SPLIT-BOTTOM-MARK` that only `echo`'s OUTPUT
+ *  produces (`.claude/rules/e2e-testing.md` — no vacuous assertions). */
+const WIDE_OUTPUT_COMMAND =
+  `clear; for i in $(seq 1 40); do printf 'L%02d' $i; ` +
+  `printf '%*s' 88 '' | tr ' ' '.'; printf 'END%02d\\n' $i; done; ` +
+  `echo SPLIT-"BOTTOM"-MARK`;
+
+/** Printed last, so seeing it means seeing the LIVE BOTTOM of the split. */
+const BOTTOM_MARKER = "SPLIT-BOTTOM-MARK";
+
 /**
  * Open command palette, fill a query, click the first result, wait for close.
  * Uses evaluate to fill the input and click the result because Corvu's dialog
@@ -132,6 +152,67 @@ When(
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
     await this.waitForFrame();
+  },
+);
+
+When(
+  "I fill the sub-terminal with output wider than the default grid",
+  async function (this: KoluWorld) {
+    // Pin the precondition the whole scenario rests on: the split's REAL width
+    // must differ from the 80 columns xterm's constructor invents. If a viewport,
+    // font, dock or layout change ever made them equal, the pre-fix code would
+    // receive and paint an 80-column snapshot correctly and this scenario would
+    // pass while the bug was fully present — a vacuous guard. Assert it rather
+    // than assume it.
+    //
+    // POLLED, not read once: the grid is measured by a ResizeObserver + a
+    // rAF-debounced `applyFit`, and the preceding step only waits for the split's
+    // DOM presence — so a bare read on a loaded CI box can land on 0 or a pre-fit
+    // value and fail spuriously. Wait until the split reports a measured,
+    // non-zero `cols`, then assert what that measurement is.
+    const measured = await this.page.waitForFunction(
+      (sel) => {
+        const node = document.querySelector(sel);
+        const cols = (node as unknown as { __xterm?: { cols: number } })
+          ?.__xterm?.cols;
+        return typeof cols === "number" && cols > 0 ? cols : null;
+      },
+      VISIBLE_SUB,
+      { timeout: POLL_TIMEOUT },
+    );
+    const cols = await measured.jsonValue();
+    assert.ok(
+      cols !== 80,
+      `split is ${cols} columns; this scenario only exercises the defect when the real grid differs from xterm's fabricated 80`,
+    );
+    await this.focusForTyping(VISIBLE_SUB);
+    await this.page.keyboard.type(WIDE_OUTPUT_COMMAND);
+    await this.page.keyboard.press("Enter");
+    // Prove the payload actually RAN before the scenario hides the panel. Without
+    // this the arrangement is unconditional, and a shell still initializing would
+    // surface three steps later as a confusing viewport failure that reads like
+    // the render defect itself. VIEWPORT, not buffer: the claim is that the user
+    // can SEE the bottom of the output, not merely that the bytes arrived.
+    await waitForBufferContains(this.page, BOTTOM_MARKER, {
+      selector: VISIBLE_SUB,
+      viewport: true,
+    });
+  },
+);
+
+Then(
+  "the sub-terminal viewport should show its latest output",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="sub-panel-tab-bar"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // VIEWPORT, not buffer: the defect delivers every byte correctly and then
+    // shows the wrong window onto them, so a whole-buffer read passes on a
+    // screen the user sees as broken. Only the on-screen rows can fail here.
+    await waitForBufferContains(this.page, BOTTOM_MARKER, {
+      selector: VISIBLE_SUB,
+      viewport: true,
+    });
   },
 );
 
