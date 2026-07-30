@@ -33,7 +33,7 @@ import type { DaemonHomePaths } from "@kolu/surface-daemon";
 import {
   bakedOsFactsBin,
   osfactsSocketHolders,
-  processIdentityFromEnvAsync,
+  processIdentityAsync,
 } from "osfacts-client";
 import {
   currentPtyHostIdentity,
@@ -278,17 +278,17 @@ export async function ensureLocalEndpoint(opts: {
   setLocalSocketPath(home.socketPath);
   // Refresh baked identity at boot (staleKey is process-constant, but keep the
   // policy object the single source — bake is already fixed on the const above).
+  const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: encodeHostLocation(LOCAL_LOCATION),
     home,
-    readProcessIdentity: (pid) =>
-      processIdentityFromEnvAsync("KOLU_OSFACTS_BIN", pid),
-    // Resolved once, at composition: a missing bake is a loud boot failure,
-    // never a surprise during a squatter recovery that is already coping with
-    // a wedged endpoint.
-    readSocketHolders: osfactsSocketHolders(
-      bakedOsFactsBin("KOLU_OSFACTS_BIN"),
-    ),
+    // ONE axis — where this program's osfacts binary lives — resolved ONCE, at
+    // composition, and bound to BOTH OS-fact injects: a missing bake is a loud
+    // boot failure, never a surprise during a squatter recovery that is already
+    // coping with a wedged endpoint. Two spellings of the env var and two
+    // resolution timings on adjacent lines is how the two drift apart.
+    readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
+    readSocketHolders: osfactsSocketHolders(osfactsBin),
     policy: kavalConvergencePolicy(),
     probe: (socketPath) => probeKavalForConvergence(socketPath),
     driver: localKavalDriver(home.socketPath),

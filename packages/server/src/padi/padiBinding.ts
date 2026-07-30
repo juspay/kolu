@@ -91,7 +91,7 @@ import { composeSpawnEnv } from "kolu-pty";
 import {
   bakedOsFactsBin,
   osfactsSocketHolders,
-  processIdentityFromEnvAsync,
+  processIdentityAsync,
 } from "osfacts-client";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
@@ -635,6 +635,7 @@ export function ensurePadiBindingWith(
       opts.verbose ?? false,
       opts.legacyKavalSocket,
     );
+  const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
   const ep = createEndpoint<
     PadiDaemonClient,
     PadiHelloIdentity,
@@ -642,14 +643,13 @@ export function ensurePadiBindingWith(
   >({
     hostId: PADI_HOST_ID,
     home,
-    readProcessIdentity: (pid) =>
-      processIdentityFromEnvAsync("KOLU_OSFACTS_BIN", pid),
-    // Resolved once, at composition: a missing bake is a loud boot failure,
-    // never a surprise during a squatter recovery that is already coping with
-    // a wedged endpoint.
-    readSocketHolders: osfactsSocketHolders(
-      bakedOsFactsBin("KOLU_OSFACTS_BIN"),
-    ),
+    // ONE axis — where this program's osfacts binary lives — resolved ONCE, at
+    // composition, and bound to BOTH OS-fact injects: a missing bake is a loud
+    // boot failure, never a surprise during a squatter recovery that is already
+    // coping with a wedged endpoint. Two spellings of the env var and two
+    // resolution timings on adjacent lines is how the two drift apart.
+    readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
+    readSocketHolders: osfactsSocketHolders(osfactsBin),
     // Policy stated once — baked identity + Cap-gated budget. The only boot verb is
     // `converge(ep)`; boot methods are internal.
     policy: deps.policy,
