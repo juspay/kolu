@@ -18,8 +18,6 @@ Both merge a supplied `onRetry` into the retry context so the plugin invokes the
 
 **When adding a new streaming procedure**, pick `client.rawStream` (enrolled) unless the stream is a deliberate health carve-out (`unenrolledStreamCall`). A bare `client.xxx(...)` call — or reaching a stream ref (`.streams.X.unenrolled` / `.collections.X.unenrolledKeys`) without wrapping it in `unenrolledStreamCall` — silently loses reconnect handling.
 
-**Never put a LIVE fact in a stream input.** The input is read ONCE and `STREAM_RETRY` re-subscribes by REPLAYING that captured value, so a stream whose input carries a live fact (a size, a cursor, a viewport) re-sends a stale one after any transport drop — and if the server ACTS on that input, the replay moves shared state backwards. Keep stream inputs stable keys. When the fact genuinely has to ride the request (the terminal attach carries `resizeTo` so the host's resize and serialize are one act), the consumer must re-state it on its own authoritative channel once each fresh snapshot lands — `terminal/Terminal.tsx`'s `reassertGrid` is the worked example.
-
 ### 2. Server handlers yield snapshot-then-deltas
 
 Every server-side streaming handler in `packages/server/src/router.ts` MUST yield a full state snapshot as its first item, then stream deltas. This is the invariant that makes `ClientRetryPlugin`'s transparent re-subscribe work: on reconnect, the plugin re-invokes the source, and the new iterator's first yield is a fresh snapshot that replaces stale client state.
