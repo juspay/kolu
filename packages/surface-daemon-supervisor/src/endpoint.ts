@@ -293,6 +293,10 @@ export class SocketProbeIndeterminateError extends Error {
 export function isSocketProbeIndeterminateError(
   err: unknown,
 ): err is SocketProbeIndeterminateError {
+  // Fence first — the public type is `unknown`, so null/undefined/primitives
+  // must return false, never throw on field access (R6-1).
+  if (typeof err !== "object" || err === null) return false;
+
   const e = err as {
     isSocketProbeIndeterminate?: unknown;
     gatePath?: unknown;
@@ -309,8 +313,6 @@ export function isSocketProbeIndeterminateError(
       Number.isInteger(e.gatePid) &&
       e.gatePid > 0);
   return (
-    typeof err === "object" &&
-    err !== null &&
     e.isSocketProbeIndeterminate === true &&
     typeof e.gatePath === "string" &&
     typeof e.socketPath === "string" &&

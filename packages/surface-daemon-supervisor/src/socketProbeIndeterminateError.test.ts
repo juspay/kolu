@@ -1,5 +1,6 @@
 /**
- * Pins the realm-safe brand guard for {@link SocketProbeIndeterminateError} (R5-2).
+ * Pins the realm-safe brand guard for {@link SocketProbeIndeterminateError}
+ * (R5-2 gatePid attestation; R6-1 total over `unknown` — never throws).
  */
 
 import { describe, expect, it } from "vitest";
@@ -8,7 +9,16 @@ import {
   SocketProbeIndeterminateError,
 } from "./index.ts";
 
-describe("isSocketProbeIndeterminateError (R5-2)", () => {
+describe("isSocketProbeIndeterminateError", () => {
+  it("is total over non-object inputs — returns false, never throws (R6-1)", () => {
+    // Primitive table: every non-object `unknown` must classify as false without
+    // throwing (a catch classifier must not replace the original error).
+    const primitives: unknown[] = [null, undefined, 0, 1, "x", true, false];
+    for (const input of primitives) {
+      expect(isSocketProbeIndeterminateError(input)).toBe(false);
+    }
+  });
+
   it("accepts a real instance with numeric gatePid", () => {
     const err = new SocketProbeIndeterminateError(
       { gatePath: "/g", socketPath: "/s" },
