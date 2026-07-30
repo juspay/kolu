@@ -68,6 +68,7 @@ import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
+import { createAttemptGate } from "./attachAttempts";
 import { judgeSnapshotGrid } from "./snapshotGrid";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
@@ -476,22 +477,14 @@ const Terminal: Component<{
     // The grid THIS attach attempt asked the host to serialize at. Written by the
     // thunk on every open, read by the snapshot frame that answers it — so an
     // attempt and the grid it is only valid for are one thing, not two.
-    let requestedGrid: TerminalGrid | null = null;
-
-    /** Does a snapshot answered by the current attempt still describe this pane?
-     *  The rule itself lives in `snapshotGrid.ts`, stated once and tested there. */
-    const answersCurrentGrid = (): boolean =>
-      judgeSnapshotGrid(requestedGrid, h.grid()) === "accept";
-
-    /** Aborts the in-flight attempt so its `consumeReattachingStream` loop ends,
-     *  then starts one fresh loop. Used from the xterm write callback, which
-     *  cannot throw into the iterator the way the frame handler can. */
-    let attemptAbort: AbortController | null = null;
-    const reopenForStaleGrid = () => {
-      attemptAbort?.abort();
-      resetForFreshSnapshot();
-      openAttachStream();
-    };
+    // Supersession for restartable attach loops. The restart below is triggered
+    // from an xterm write callback, but the iterator behind the loop settles
+    // later and exposes no completion to await — so the old loop is always still
+    // alive when its replacement starts. Rather than try to sequence that
+    // teardown, every attempt holds its OWN state (grid, abort) in its closure
+    // and asks the gate whether it is still the live one; superseded work is
+    // simply dropped. See `attachAttempts.ts`.
+    const attempts = createAttemptGate();
 
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
     // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
@@ -503,6 +496,27 @@ const Terminal: Component<{
     // call — rather than `padi.rawStream`'s structural health enrolment, and the
     // `unenrolled-` name makes that a visible decision at the call site.
     function openAttachStream() {
+      // ALL of this attempt's state lives here, in its closure — never in a
+      // binding a successor could overwrite. `attempt` decides whether this
+      // loop's work still counts; `abort` ends this loop and no other.
+      const attempt = attempts.open();
+      const abort = new AbortController();
+      let requestedGrid: TerminalGrid | null = null;
+
+      /** Does a snapshot answered by THIS attempt still describe the pane? The
+       *  rule lives in `snapshotGrid.ts`, stated once and tested there. */
+      const answersCurrentGrid = (): boolean =>
+        judgeSnapshotGrid(requestedGrid, h.grid()) === "accept";
+
+      /** End this loop and start exactly one replacement. Guarded by
+       *  `isCurrent()` at every call site, so several superseded callbacks
+       *  reaching here produce ONE successor, not a cascade. */
+      const reopenForStaleGrid = () => {
+        abort.abort();
+        resetForFreshSnapshot();
+        openAttachStream();
+      };
+
       consumeReattachingStream(
         () => {
           // Read the grid at the moment this stream is opened, and REMEMBER it:
@@ -536,24 +550,25 @@ const Terminal: Component<{
             throw new Error(msg);
           }
           requestedGrid = measured;
-          // Per-ATTEMPT abort, chained to the component's unmount signal. A
-          // snapshot that only turns out to be stale once it has PARSED lands in
-          // an xterm write callback, which cannot throw into the iterator the way
-          // the frame handler can — so that path ends its attempt by aborting
-          // this, then reopens explicitly.
-          attemptAbort = new AbortController();
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
             // `resizeTo`, not a description of this pane: the host resizes the
             // shared PTY to it before serializing.
             { id: props.terminalId, resizeTo: measured },
             {
-              signal: AbortSignal.any([signal, attemptAbort.signal]),
+              // This attempt's own abort, chained to the component's unmount
+              // signal — ending this loop, never a successor's.
+              signal: AbortSignal.any([signal, abort.signal]),
               onRetry: resetForFreshSnapshot,
             },
           );
         },
         (frame) => {
+          // A superseded loop delivers NOTHING. Its abort has fired but the
+          // iterator settles later, so frames already queued behind it still
+          // arrive here — and consuming one would paint into a terminal the
+          // successor has already reset.
+          if (!attempt.isCurrent()) return;
           // REFUSE a snapshot that answers a grid this pane no longer has.
           //
           // A snapshot is bytes laid out for the grid it was serialized at, and
@@ -650,6 +665,11 @@ const Terminal: Component<{
               // The frame handler's throw is unavailable here — this runs in an
               // xterm callback, not the iterator — so the attempt is aborted and
               // reopened explicitly instead.
+              // A superseded attempt's stashed callbacks must not act either:
+              // they would commit a seed belonging to a dead attempt, or restart
+              // the loop a second time. The first stale callback installs the one
+              // replacement; the rest are already superseded and return here.
+              if (!attempt.isCurrent()) return;
               if (commitSeed && !answersCurrentGrid()) {
                 reopenForStaleGrid();
                 return;
