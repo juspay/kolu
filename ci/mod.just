@@ -95,6 +95,13 @@ nix:
 # and the system comes from Nix itself: no platform or consumer-owned map can
 # drift from the source flake. Keep this CI-only so a fresh `nix run` does not
 # pay to evaluate remote agents it may never provision.
+#
+# LOAD-BEARING, not a nicety. `default.nix`'s build-input prove covers only the
+# manifest's `prove` list — `padi-agent`, the attr both dial paths actually
+# resolve, cannot be proven there (it references the baked source itself; see
+# that file's expose/prove note). This recipe is therefore the ONLY gate on the
+# exposed attrs. Delete it and a fileset gap that reaches `default` or the TUIs
+# surfaces at dial time on a user's box.
 agent-flake-nix: nix
     #!/usr/bin/env bash
     set -euo pipefail
