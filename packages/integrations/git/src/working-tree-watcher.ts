@@ -177,6 +177,28 @@ const WATCHER_MAX_WAIT_MS = 1_000;
 const DIRECTORY_REPAIR_DEBOUNCE_MS = WATCHER_DEBOUNCE_MS * 2;
 const DIRECTORY_REPAIR_MAX_WAIT_MS = 2_000;
 
+/** Test-visible created-path classification. A missing source is ordinary
+ * create-then-delete traffic; an in-repo rename has a separate destination
+ * create event, so only a settled, non-empty directory needs structural repair. */
+export async function _createdPathNeedsRepair(
+  eventPath: string,
+): Promise<boolean> {
+  try {
+    if (!(await lstat(eventPath)).isDirectory()) return false;
+    // An empty directory has no missed descendant to repair. If it gains
+    // children later, the newly attached directory watch observes them.
+    return (await readdir(eventPath)).length > 0;
+  } catch (e) {
+    // Create-then-delete is ordinary watcher traffic (editor atomic-save
+    // probes, short-lived scratch files). A rename within the repo emits its
+    // own create at the destination, which is inspected directly; rebuilding
+    // for every vanished source would turn transient file churn into a
+    // perpetual full-tree resubscription loop.
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw e;
+  }
+}
+
 function installSharedWorkingTreeWatcher(
   repoRoot: string,
   onLast: (retirement: Promise<void>) => void,
@@ -260,14 +282,8 @@ function installSharedWorkingTreeWatcher(
     void Promise.all(
       creates.map(async (event): Promise<boolean> => {
         try {
-          if (!(await lstat(event.path)).isDirectory()) return false;
-          // An empty directory has no missed descendant to repair. If it gains
-          // children later, the newly attached directory watch observes them.
-          return (await readdir(event.path)).length > 0;
+          return await _createdPathNeedsRepair(event.path);
         } catch (e) {
-          // A create that vanished before inspection may have been renamed;
-          // the settled tree is then the only authority, so repair it too.
-          if ((e as NodeJS.ErrnoException).code === "ENOENT") return true;
           log?.error(
             {
               err: e instanceof Error ? e.message : String(e),

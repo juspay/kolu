@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Logger } from "kolu-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  _createdPathNeedsRepair,
   _sharedWorkingTreeWatcherCount,
   _waitForWorkingTreeWatcherRetirement,
   watchWorkingTree,
@@ -127,5 +128,58 @@ describe("watchWorkingTree recursive coverage", () => {
         (message) => message === "git: working-tree watcher rebuilt",
       ).length,
     ).toBeLessThanOrEqual(2);
+  });
+
+  it("does not rebuild for observed transient-file churn", async () => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-wt-transient-"));
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+
+    let changes = 0;
+    const lifecycle: string[] = [];
+    const log: Logger = {
+      debug() {},
+      warn() {},
+      error() {},
+      info: (_obj, msg) => lifecycle.push(msg),
+    };
+    unsubscribe = watchWorkingTree(
+      repo,
+      () => {
+        changes += 1;
+      },
+      log,
+    );
+    await vi.waitFor(() => expect(changes).toBeGreaterThanOrEqual(1), {
+      timeout: 5_000,
+    });
+    const beforeChurn = changes;
+
+    // Keep one file present until its debounced listener fire, proving this
+    // backend is delivering file-create traffic during the test.
+    fs.writeFileSync(path.join(repo, "observed.txt"), "observed\n");
+    await vi.waitFor(() => expect(changes).toBeGreaterThan(beforeChurn), {
+      timeout: 5_000,
+    });
+
+    const vanished: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const transient = path.join(repo, `.probe-${i}`);
+      fs.writeFileSync(transient, "probe\n");
+      fs.unlinkSync(transient);
+      vanished.push(transient);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    // Pin the exact ENOENT classification independently of backend event
+    // coalescing, then give the real watch ample time to betray a rebuild.
+    await expect(
+      Promise.all(vanished.map(_createdPathNeedsRepair)),
+    ).resolves.toEqual(Array.from({ length: vanished.length }, () => false));
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    expect(
+      lifecycle.filter(
+        (message) => message === "git: working-tree watcher rebuilt",
+      ),
+    ).toHaveLength(0);
   });
 });
