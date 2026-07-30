@@ -175,8 +175,19 @@ export function daemonEnv(
   // ssh — so this forward is what gives a LOCALLY-supervised padi the same fact,
   // and thus local and remote terminals one behaviour instead of two. Forwarded,
   // not re-derived: kolu-server and padi must name the SAME build's tools (see
-  // padi's `agentTools.ts`). Absent from source (no wrapper) → padi carries none.
-  if (process.env[AGENT_TOOLS_PATH_ENV])
+  // padi's `agentTools.ts`).
+  //
+  // Gated on `KOLU_PADI_BIN` — i.e. on THIS kolu being a nix-built one — because
+  // the variable is both what a wrapper bakes IN and what padi stamps OUT onto
+  // every terminal. So a from-source kolu (`just dev`) started INSIDE a kolu
+  // terminal inherits the OUTER build's value, and an ungated forward would hand
+  // its own from-source padi a toolchain from a different build: precisely the
+  // tool/daemon skew this design exists to make impossible, smuggled in through
+  // the back door. A from-source kolu has no baked tools of its own, so it
+  // forwards none and its terminals carry none — explicit absence, per
+  // `agentTools.ts`. The same `KOLU_PADI_BIN`-means-built signal already
+  // distinguishes the two arms below (`forceDetached` / `fromSource`).
+  if (process.env.KOLU_PADI_BIN && process.env[AGENT_TOOLS_PATH_ENV])
     env[AGENT_TOOLS_PATH_ENV] = process.env[AGENT_TOOLS_PATH_ENV];
   // Forward kaval's build identity for the FROM-SOURCE / dev path ONLY: the nix-built
   // padi wrapper BAKES `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` (padi owns kaval — its

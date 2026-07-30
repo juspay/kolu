@@ -53,7 +53,7 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
-import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
+import { AGENT_TOOLS_PATH_ENV, SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
@@ -1034,6 +1034,30 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
   it("forwards even an empty value (broken expansion) so padi fail-fasts, never drops it back to `forever`", () => {
     vi.stubEnv(DAEMON_BIND_PID_ENV, "");
     expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
+  });
+
+  it("forwards the agent toolchain to the padi a BUILT kolu spawns", () => {
+    // The local arm of "a terminal can run kolu's own CLIs": the wrapper bakes
+    // the dirs onto kolu-server, and this hop is the only thing that carries
+    // them to the padi that will stamp them onto every terminal.
+    vi.stubEnv("KOLU_PADI_BIN", "/nix/store/aaa-padi/bin/padi");
+    vi.stubEnv(AGENT_TOOLS_PATH_ENV, "/nix/store/bbb-tools/bin");
+    expect(daemonEnv("/state/root", false)[AGENT_TOOLS_PATH_ENV]).toBe(
+      "/nix/store/bbb-tools/bin",
+    );
+  });
+
+  it("does NOT forward an INHERITED toolchain from a from-source kolu (no build skew by the back door)", () => {
+    // `just dev` started INSIDE a kolu terminal inherits the OUTER build's
+    // stamped value — the var is both an input bake and an output stamp. Its
+    // padi is from-source, so forwarding would pair a from-source daemon with a
+    // DIFFERENT build's tools: exactly the skew this design makes impossible on
+    // every other path. Absence of KOLU_PADI_BIN is the built-vs-source signal.
+    vi.stubEnv("KOLU_PADI_BIN", undefined);
+    vi.stubEnv(AGENT_TOOLS_PATH_ENV, "/nix/store/OUTER-build-tools/bin");
+    expect(daemonEnv("/state/root", false)).not.toHaveProperty(
+      AGENT_TOOLS_PATH_ENV,
+    );
   });
 
   it.each([

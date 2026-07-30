@@ -100,7 +100,7 @@ agent-flake-nix: nix
     set -euo pipefail
     agent_flake_ref="$(nix build ./ci#agent-flake-source --no-link --print-out-paths)"
     system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-    agent_packages="$({{ nix_shell }} jq -r '.[]' nix/agent-packages.json)"
+    agent_packages="$({{ nix_shell }} jq -r '.expose[]' nix/agent-packages.json)"
     [[ -n "$agent_packages" ]]
     while IFS= read -r package; do
       drv="$(nix eval --accept-flake-config --raw "$agent_flake_ref#packages.$system.$package.drvPath")"

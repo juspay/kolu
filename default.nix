@@ -517,7 +517,7 @@ let
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
       ${padiIdentity.bakeArgs} \
       ${agentFlakeRefBakeArg} \
-      --set KOLU_AGENT_TOOLS_PATH "${koluAgentTools}/bin" \
+      --suffix KOLU_AGENT_TOOLS_PATH : "${koluAgentTools}/bin" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
@@ -752,6 +752,58 @@ let
     ln -s ${kaval-tui}/bin/kaval-tui $out/bin/kaval-tui
     ln -s ${padi-tui}/bin/padi-tui $out/bin/padi-tui
     ln -s ${default}/bin/kolu $out/bin/kolu
+    # The local arm's composed-wrapper proof is a build input here too: this
+    # closure symlinks `default`, so a broken local toolchain must not be
+    # shippable to a remote either.
+    test -e ${agentToolsComposition}
+  '';
+
+  # The toolchain a LOCAL terminal ends up with is a property of the two nested
+  # production wrappers COMPOSED — `default` wraps `koluBin`, so the outer runs
+  # first and the inner runs last — and nothing else in the suite exercises that
+  # composition: every TypeScript test injects `KOLU_AGENT_TOOLS_PATH` directly.
+  # That gap shipped a real defect green. `koluBin` used `--set`, which
+  # makeWrapper emits as an unconditional `export`, so the inner wrapper silently
+  # discarded the outer's `--prefix` and every locally-spawned terminal lost
+  # `kolu` — the one binary an agent's `.mcp.json` invokes — while remote
+  # terminals kept it. A one-word difference (`--set` vs `--suffix`), invisible to
+  # `just check`, `nix build`, and every unit test.
+  #
+  # So assert it where it is true: run the REAL composed wrappers with their
+  # `exec` lines neutralised, and require the resolved value to contain a `kolu`
+  # AND a `kaval-tui`. This is a build input of `default` below (`test -e`), the
+  # same way `kolu` depends on `typecheck` — not a side check someone must
+  # remember to run.
+  agentToolsComposition = pkgs.runCommand "kolu-agent-tools-composition-check"
+    { } ''
+    # Neutralise each wrapper's final `exec …` so sourcing runs only the env
+    # prelude, then chain them in the real order: outer (`default`) → inner
+    # (`koluBin`). `set -a` is not needed; the wrappers export as they go.
+    sed 's|^exec .*||' ${default}/bin/kolu > outer.sh
+    sed 's|^exec .*||' ${koluBin}/bin/kolu > inner.sh
+    . ./outer.sh
+    . ./inner.sh
+
+    echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
+    found_kolu=0
+    found_tui=0
+    IFS=: read -ra dirs <<< "$KOLU_AGENT_TOOLS_PATH"
+    for d in "''${dirs[@]}"; do
+      [ -z "$d" ] && continue
+      [ -e "$d/kolu" ] && found_kolu=1
+      [ -e "$d/kaval-tui" ] && found_tui=1
+    done
+    if [ "$found_kolu" != 1 ]; then
+      echo "FAIL: no 'kolu' on the composed KOLU_AGENT_TOOLS_PATH — a local" >&2
+      echo "terminal could not run 'kolu mcp'. An inner-wrapper --set that" >&2
+      echo "clobbers the outer --prefix is the known cause." >&2
+      exit 1
+    fi
+    if [ "$found_tui" != 1 ]; then
+      echo "FAIL: no 'kaval-tui' on the composed KOLU_AGENT_TOOLS_PATH." >&2
+      exit 1
+    fi
+    touch $out
   '';
 
   # vazhi — the standalone port-forward TUI over `@kolu/port-forward` (Atlas:
