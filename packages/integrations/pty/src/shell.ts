@@ -214,6 +214,12 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
   process.exit(1);
 }
 
+/** Read a colon-joined `PATH`-shaped value as its list of entries, dropping the
+ *  empty ones POSIX would read as "the current directory". */
+function splitPathEntries(value: string): string[] {
+  return value.split(":").filter((entry) => entry !== "");
+}
+
 /**
  * Sanitize the parent env that will reach the PTY shell.
  *
@@ -295,17 +301,8 @@ export function cleanEnv(): Record<string, string> {
   // happens to have cd'd into. For a terminal we host and hand to an agent that is
   // a real hazard, and the daemon's own inherited PATH is the one place we can fix
   // it for everyone downstream.
-  //
-  // It lives HERE because this is the env-sanitization boundary: it happens once,
-  // on the way in, over the composed value. The alternative is every downstream
-  // transform re-implementing it — specifically `prependPathEntries` and
-  // `PATH_REASSERT`, the same rule in two languages, which is exactly the drift
-  // those two are otherwise built to avoid. Their contract is narrower on purpose
-  // (prepend + dedupe, caller's PATH verbatim); see the notes there.
   if (env.PATH != null) {
-    env.PATH = env.PATH.split(":")
-      .filter((e) => e !== "")
-      .join(":");
+    env.PATH = splitPathEntries(env.PATH).join(":");
   }
   return env;
 }
@@ -493,7 +490,7 @@ export function readAgentToolsBake(
 ): readonly string[] {
   const raw = env[AGENT_TOOLS_BAKE_ENV];
   if (raw == null || raw === "") return [];
-  return raw.split(":").filter((dir) => dir !== "");
+  return splitPathEntries(raw);
 }
 
 /** The prepend/dedupe rule as DATA — the single oracle BOTH implementations are

@@ -623,35 +623,31 @@ let
     . ./inner.sh
 
     echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
-    found_kolu=0
-    found_kaval_tui=0
-    found_padi_tui=0
     IFS=: read -ra dirs <<< "$KOLU_AGENT_TOOLS_PATH"
-    for d in "''${dirs[@]}"; do
-      [ -z "$d" ] && continue
-      [ -e "$d/kolu" ] && found_kolu=1
-      [ -e "$d/kaval-tui" ] && found_kaval_tui=1
-      [ -e "$d/padi-tui" ] && found_padi_tui=1
-    done
-    if [ "$found_kolu" != 1 ]; then
-      echo "FAIL: no 'kolu' on the composed KOLU_AGENT_TOOLS_PATH — a local" >&2
-      echo "terminal could not run 'kolu mcp'. An inner-wrapper --set that" >&2
-      echo "clobbers this one is the known cause." >&2
-      exit 1
-    fi
+    # One loop over a name→message table, so the check is written once but each
+    # binary keeps its OWN failure message — they name exactly what a local
+    # terminal loses, and each was falsified separately.
+    #
     # Both TUIs, not just one: they arrive together from `agentToolPackages`
     # today, so a proof that names only `kaval-tui` would stay green if
     # `padi-tui` were dropped from that list — leaving local terminals able to
     # run `kaval-tui` and `kolu mcp` but not the `padi-tui wait` loop.
-    if [ "$found_kaval_tui" != 1 ]; then
-      echo "FAIL: no 'kaval-tui' on the composed KOLU_AGENT_TOOLS_PATH." >&2
-      exit 1
-    fi
-    if [ "$found_padi_tui" != 1 ]; then
-      echo "FAIL: no 'padi-tui' on the composed KOLU_AGENT_TOOLS_PATH — a local" >&2
-      echo "terminal could not run the 'padi-tui wait' done-signal loop." >&2
-      exit 1
-    fi
+    for b in kolu kaval-tui padi-tui; do
+      case "$b" in
+        kolu) why="a local terminal could not run 'kolu mcp'. An inner-wrapper --set that clobbers this one is the known cause." ;;
+        kaval-tui) why="a local terminal could not attach to its siblings." ;;
+        padi-tui) why="a local terminal could not run the 'padi-tui wait' done-signal loop." ;;
+      esac
+      found=0
+      for d in "''${dirs[@]}"; do
+        [ -z "$d" ] && continue
+        [ -e "$d/$b" ] && found=1
+      done
+      if [ "$found" != 1 ]; then
+        echo "FAIL: no '$b' on the composed KOLU_AGENT_TOOLS_PATH — $why" >&2
+        exit 1
+      fi
+    done
   '';
 
   # kaval (R-4 Phase B): the standalone PTY daemon — owns the node-pty children,
@@ -895,34 +891,26 @@ let
       . "$TMPDIR/padi-agent-inner.sh"
 
       echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
-      remote_kolu=0
-      remote_kaval_tui=0
-      remote_padi_tui=0
       IFS=: read -ra agent_dirs <<< "$KOLU_AGENT_TOOLS_PATH"
-      for d in "''${agent_dirs[@]}"; do
-        [ -z "$d" ] && continue
-        [ -e "$d/kolu" ] && remote_kolu=1
-        [ -e "$d/kaval-tui" ] && remote_kaval_tui=1
-        [ -e "$d/padi-tui" ] && remote_padi_tui=1
+      # Same shape as the local proof: one loop over a name→message table, so
+      # each binary keeps its OWN failure message naming exactly what a remote
+      # agent loses. Each was falsified separately.
+      for b in kolu kaval-tui padi-tui; do
+        case "$b" in
+          kolu) why="an agent in a terminal on a remote host could not run 'kolu mcp'. An inner-wrapper --set that clobbers this one is the known cause." ;;
+          kaval-tui) why="a terminal on a remote host could not attach to its siblings." ;;
+          padi-tui) why="a terminal on a remote host could not run the 'padi-tui wait' done-signal loop." ;;
+        esac
+        found=0
+        for d in "''${agent_dirs[@]}"; do
+          [ -z "$d" ] && continue
+          [ -e "$d/$b" ] && found=1
+        done
+        if [ "$found" != 1 ]; then
+          echo "FAIL: no '$b' on the composed KOLU_AGENT_TOOLS_PATH of the padi a remote host is dialed with — $why" >&2
+          exit 1
+        fi
       done
-      if [ "$remote_kolu" != 1 ]; then
-        echo "FAIL: no 'kolu' on the composed KOLU_AGENT_TOOLS_PATH of the padi" >&2
-        echo "a remote host is dialed with — an agent in a terminal on that host" >&2
-        echo "could not run 'kolu mcp'. An inner-wrapper --set that clobbers this" >&2
-        echo "one is the known cause." >&2
-        exit 1
-      fi
-      if [ "$remote_kaval_tui" != 1 ]; then
-        echo "FAIL: no 'kaval-tui' on the composed KOLU_AGENT_TOOLS_PATH — a" >&2
-        echo "terminal on a remote host could not attach to its siblings." >&2
-        exit 1
-      fi
-      if [ "$remote_padi_tui" != 1 ]; then
-        echo "FAIL: no 'padi-tui' on the composed KOLU_AGENT_TOOLS_PATH — a" >&2
-        echo "terminal on a remote host could not run the 'padi-tui wait'" >&2
-        echo "done-signal loop." >&2
-        exit 1
-      fi
     '';
     meta.mainProgram = "padi";
   };
